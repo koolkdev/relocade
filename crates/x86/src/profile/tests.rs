@@ -11,6 +11,11 @@ fn entry_compatibility_requires_the_complete_target_and_current_segment_assumpti
         .target();
     assert!(!target.is_compatible_with(restricted, &flat));
     assert!(!restricted.is_compatible_with(target, &flat));
+    let unlimited = Compiler::new(SegmentProfile::Flat32)
+        .with_instruction_budgets(false)
+        .target();
+    assert!(!target.is_compatible_with(unlimited, &flat));
+    assert!(!unlimited.is_compatible_with(target, &flat));
     let other_profile = Compiler::new(SegmentProfile::Segmented32).target();
     assert!(!target.is_compatible_with(other_profile, &flat));
     assert!(!target.is_compatible_with(target, &Segments::real_mode()));

@@ -45,6 +45,9 @@ pub enum ExecutionExit {
     /// A host-requested far call saved CS:IP without retiring an instruction.
     /// CPU state identifies the callee; RETF returns to the saved continuation.
     FarCallEntered,
+    /// The active instruction allowance was reached at a completed checkpoint.
+    /// CPU state includes all completed work, including any block overshoot.
+    BudgetExhausted,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

@@ -10,6 +10,9 @@ use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, SegmentRegist
 pub struct ExecutionTarget {
     pub profile: ExecutionProfile,
     pub cpu_model: CpuModel,
+    /// Whether the execution owner may arm instruction budgets. When false,
+    /// snapshot blocks omit their budget checks and the live budget must stay zero.
+    pub instruction_budgets: bool,
 }
 
 impl ExecutionTarget {

@@ -1,4 +1,5 @@
 mod blocks;
+mod budget_shape;
 mod checkpoints;
 mod dispatch;
 mod fetch;
@@ -24,7 +25,7 @@ fn snapshot_helpers_use_unobserved_configuration() {
 }
 
 #[test]
-fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_observations() {
+fn interpreter_code_keeps_the_profile_without_specializing_features_budgets_or_observations() {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
     observed.x87.control.rounding_control = 3;
@@ -40,6 +41,7 @@ fn interpreter_code_keeps_the_profile_without_specializing_cpu_features_or_obser
         });
     let compiler = Compiler::new(profile)
         .with_cpu_model(model)
+        .with_instruction_budgets(false)
         .specialize_on_cpu(&observed);
     let mut shared_bytes = None;
     for (name, ordinary, configured) in [

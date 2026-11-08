@@ -21,9 +21,10 @@ use super::Compiler;
 /// The host must establish profile compatibility before entry, as described by
 /// the [host integration contract](crate#host-integration).
 ///
-/// Execution interrupts are checked only before dispatch. Straight-line execution
-/// continues until a block-ending instruction or guest exit. REP completes its repetition; port
-/// strings dispatch and other strings continue. A fault retains completed elements.
+/// Execution interrupts and instruction budgets are checked only before dispatch.
+/// Straight-line execution continues until a block-ending instruction or guest exit.
+/// REP completes its repetition; port strings dispatch and other strings continue.
+/// A fault retains completed elements.
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
 ///
 /// ```
@@ -50,7 +51,7 @@ pub fn compile_interpreter(
 /// without executing the handler or retiring the faulting instruction.
 /// Other faults and unsupported forms return directly without retiring it.
 /// REP executes all elements before returning and retains completed elements on a fault.
-/// This entry checks execution interrupts after retirement.
+/// This entry checks execution interrupts and instruction budgets after retirement.
 ///
 /// The host must establish profile compatibility before entry. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
@@ -104,6 +105,8 @@ impl Compiler {
     fn compile_runtime(&self, entry: InterpreterEntry) -> Result<CompiledModule, BuildError> {
         let profile = self.target.profile;
         let mut program = Program::new();
+        // Both budget policies share the interpreter. Disabled targets keep the
+        // live allowance zero; snapshot compilation alone omits the checks.
         let execution = ExecutionModule::declare(&mut program, self.target);
         execution.export_entries(&mut program)?;
         let before_cpu = execution.cpu.clone();
@@ -126,7 +129,7 @@ impl Compiler {
                 let mut execution = execution
                     .builder(body, &decoded.eip)?
                     .with_cpu_features_from_context()?
-                    .with_single_step(single_step);
+                    .with_interpreter_controls(single_step);
                 execution.execute(decoded)?;
                 if ends_block {
                     execution.dispatch()

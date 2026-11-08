@@ -40,6 +40,7 @@ use crate::{
 #[derive(Clone)]
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
+    instruction_budgets: bool,
     registers: StateFields,
     simd: StateFields,
     flags: flags::FlagTracker,
@@ -61,11 +62,17 @@ impl<'cpu> State<'cpu> {
     pub(super) fn new(cpu: &'cpu Cpu) -> Self {
         Self {
             cpu,
+            instruction_budgets: true,
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
+    }
+
+    pub(super) fn with_instruction_budgets(mut self, enabled: bool) -> Self {
+        self.instruction_budgets = enabled;
+        self
     }
 
     /// Installs a segment after all instruction checks. Only publication and
@@ -178,7 +185,8 @@ impl<'cpu> State<'cpu> {
         exit::exception(body, exception)
     }
 
-    /// Checks execution interrupt requests after publishing a completed boundary.
+    /// Checks execution controls after publishing a completed boundary.
+    /// Interrupt requests take precedence over an exhausted instruction budget.
     pub(crate) fn checkpoint(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         let interrupt_requested = body
             .atomic::<I8>(
@@ -189,7 +197,21 @@ impl<'cpu> State<'cpu> {
             .load()?;
         body.if_(interrupt_requested.ne(0), |body| {
             body.return_(ExecutionExitValues::interrupted())
-        })
+        })?;
+        if self.instruction_budgets {
+            let target = body.load_at::<I64>(
+                self.cpu.memory(),
+                0,
+                std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
+            )?;
+            body.if_(target.ne(0), |mut body| {
+                let count = self.instruction_count(&mut body, 0)?;
+                body.if_(count.sub(target).signed().ge(0), |body| {
+                    body.return_(ExecutionExitValues::budget_exhausted())
+                })
+            })?;
+        }
+        Ok(())
     }
 
     /// Publishes current state on a terminating path, including any permitted

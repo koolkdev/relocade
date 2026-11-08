@@ -15,8 +15,12 @@ the shared Rust signature `fn() -> ExecutionExit`.
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_blocks`, `compile_interpreter` and `compile_interpreter_step`.
 `with_cpu_model(model)` selects the same capabilities for every entry; `target()`
-returns the resulting `ExecutionTarget { profile, cpu_model }`. Free compilation
-functions use the default model without CPU observations.
+returns the resulting `ExecutionTarget { profile, cpu_model, instruction_budgets }`.
+Instruction budgets are supported by default. `with_instruction_budgets(false)`
+declares that the owner will keep the live allowance zero, removing budget-specific
+code from snapshot blocks. This setting belongs in cache and direct-link keys
+alongside the profile and model. Free compilation functions use the default model
+and budget support without CPU observations.
 
 Each module owns memory handles and generates access helpers on demand. The
 compiler decides which imports and helpers to retain from the generated bodies.
@@ -51,7 +55,7 @@ selection. The model is host configuration, not mutable `CpuState`; keep it fixe
 for a guest.
 
 On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks execution interrupts, then tail-calls
+count, checks execution interrupts and optional instruction budgets, then tail-calls
 `relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
 and its result is returned unchanged. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
@@ -86,6 +90,7 @@ pub struct ExecutionContext {
     pub cpu: CpuState,
     pub cpu_model: CpuModel,
     pub interrupt_requested: u8,
+    pub instruction_target: u64,
 }
 ```
 
@@ -98,7 +103,8 @@ fixed for that guest. Interpreters read it for instruction admission and CPUID;
 JIT blocks specialize to it. CPU snapshot replacement preserves this field.
 The model is a little-endian 32-bit capability mask at byte offset 536; use
 `ExecutionContext::to_bytes()` to encode it. The interrupt request byte follows at offset
-540. The complete context is 544 bytes, including three zero padding bytes.
+540, followed by three zero padding bytes. The absolute instruction target is a
+64-bit field at offset 544. The complete context is 552 bytes.
 Initialize the complete backing before sharing notification handles; live updates
 must not overwrite the interrupt request byte through whole-context copies.
 
@@ -127,16 +133,38 @@ REP and straight-line execution have no fixed notification-latency bound. After 
 interrupt-inhibiting instruction, the protected successor executes through STEP
 before an `Interrupted` exit.
 
+### Instruction budgets
+
+Zero in `instruction_target` disables budgeting. To arm an allowance, the execution
+owner adds it to the current retirement count with wrapping arithmetic and stores
+the resulting absolute target. A computed zero target moves to one, which can
+postpone exhaustion to the following checkpoint. The requested forward allowance
+must not exceed `i64::MAX`; the absolute target may use any nonzero 64-bit value.
+Existing checkpoints return `BudgetExhausted` when
+`(instruction_count.wrapping_sub(target) as i64) >= 0`: the target is reached or
+passed. This signed distance handles ordinary counter wrap; a plain comparison of
+count and target does not. Interrupt requests take precedence when both controls
+request an exit.
+Guest faults and host returns retain their existing exits. Clear the target when
+the run completes or is cancelled.
+
+The owner changes the target only while guest execution is stopped, and host
+services must preserve the retirement count while it is active. Target ordering
+assumes checkpoints occur before overshoot reaches half the counter range; the
+allowance limit does not impose a checkpoint-latency bound. CPU state includes
+actual completed work, including overshoot: this is a soft allowance, not an exact
+stopping guarantee. It adds no
+checkpoints to straight-line execution and does not split REP operations. REP still
+retires once after all elements complete. The snapshot compiler's instruction limit
+continues to bound compilation only.
+
 ### Explicit stepping and IRQ eligibility
 
-There is no runtime instruction budget. The retirement count is a wrapping statistic
-and does not control execution. The snapshot compiler's instruction limit bounds
-compilation only.
-
 Interpreter STEP publishes one completed instruction and returns `StepComplete`
-without dispatching its successor. A pending execution interrupt takes precedence
-at that completed boundary. Real16 #DE/#BR/#UD enter their IVT handler before
-returning `InterruptEntered`. Other faults retain their direct exit reasons.
+without dispatching its successor. A pending execution interrupt or exhausted
+allowance takes precedence at that completed boundary, in that order. Real16
+#DE/#BR/#UD enter their IVT handler before returning `InterruptEntered`. Other
+faults retain their direct exit reasons.
 `relocade-machine::Cpu::step()` also completes any interrupt-inhibited successor
 chain before returning. It bypasses registered hooks and device IRQ polling and
 requires that no host calls remain active or suspended.
@@ -165,9 +193,9 @@ tail-call the same function after publishing their successor EIP. `interpret`
 directly enters the fallback when a snapshot fails an entry guard or optimization
 assumption. These transfers stay inside Wasm, and callee results pass through unchanged.
 
-The embedding scopes lookup to one guest address space and execution target (profile and
-CPU model). Keys are CS.base + EIP, wrapping to 32 bits, before paging, A20 or backing
-translation. The embedding must keep the execution profile valid while calling these
+The embedding scopes lookup to one guest address space and execution target (profile,
+CPU model and budget support). Keys are CS.base + EIP, wrapping to 32 bits, before
+paging, A20 or backing translation. The embedding must keep the execution profile valid while calling these
 entries. A miss tail-calls the interpreter. Each destination owns its entry checks:
 snapshot blocks guard their compiled CS span, and the interpreter checks instruction
 fetches. Lookup itself does not validate CS permissions or limits. Registering an export
