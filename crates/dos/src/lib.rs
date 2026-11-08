@@ -139,6 +139,7 @@ mod files;
 pub mod interrupts;
 mod load;
 mod memory;
+mod mouse;
 mod mz;
 mod path;
 mod process;
@@ -185,7 +186,11 @@ impl<C: Clock> Dos<C> {
     ///
     /// # Panics
     /// The CPU must be stopped with no pending or suspended host services.
-    pub async fn from_pc(mut pc: Pc<C>) -> relocade_machine::Result<Self> {
+    pub async fn from_pc(mut pc: Pc<C>) -> relocade_machine::Result<Self>
+    where
+        C: Clone + 'static,
+    {
+        let clock = pc.clock().clone();
         let keyboard = pc.keyboard();
         let cpu = pc.cpu();
         let memory = cpu.memory();
@@ -195,6 +200,7 @@ impl<C: Clock> Dos<C> {
         let state = Rc::new(DosState::new(memory.clone().with_io(io), keyboard, exit));
         memory::reset(&mut memory.view());
         interrupts::register_interrupts(&mut interrupts, Rc::clone(&state));
+        mouse::register(&mut interrupts, Rc::clone(&state), clock);
         interrupts.install().await?;
         Ok(Self { state, pc })
     }
@@ -359,9 +365,8 @@ impl<C: Clock> Dos<C> {
     }
 
     /// Relative motion, buttons and focus-loss events for the PS/2 mouse.
-    /// Guests can use BIOS INT 15h/C2h configuration and packet callbacks, or
-    /// configure the auxiliary port and IRQ12 handler directly. No INT 33h driver
-    /// is installed.
+    /// DOS installs an INT 33h driver using BIOS INT 15h/C2h packet callbacks.
+    /// Guests may instead replace the vectors and own the hardware directly.
     pub fn mouse_input(&self) -> relocade_frontend::mouse::MouseInput {
         self.pc.mouse_input()
     }

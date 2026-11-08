@@ -1,0 +1,165 @@
+#![cfg(not(target_arch = "wasm32"))]
+
+#[path = "../../machine/tests/support/clock.rs"]
+mod clock;
+mod common;
+use clock::ManualClock;
+use relocade_dos::Dos;
+use relocade_machine::{ExecutionWorker, Runner};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
+use std::time::Duration;
+
+type MouseDos = Dos<ManualClock>;
+const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
+
+fn with_mouse(check: impl AsyncFnOnce(&Runner<ManualClock>, MouseDos) + Send + 'static) {
+    let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
+        let mut dos = Dos::new(runner).await.unwrap();
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        call(&mut dos, 0, 0, 0, 0).await;
+        assert_eq!(dos.cpu().cpu_state().ax(), 0xffff);
+        assert_eq!(dos.cpu().cpu_state().bx(), 3);
+        check(runner, dos).await;
+    });
+    assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+}
+
+async fn call(dos: &mut MouseDos, ax: u16, bx: u16, cx: u16, dx: u16) {
+    let state = dos.cpu().cpu_state();
+    state.set_eip(0x100);
+    state.set_ax(ax);
+    state.set_bx(bx);
+    state.set_cx(cx);
+    state.set_dx(dx);
+    state.set_eflags(0x643);
+    assert_eq!(
+        common::run_until(dos.cpu(), 0x102).await,
+        ExecutionExit::Interrupted
+    );
+    assert_eq!(state.sp(), 0xfffe);
+    assert_eq!(state.eflags(), 0x643);
+}
+
+async fn packet(dos: &mut MouseDos, bytes: [u8; 3]) {
+    let io = dos.cpu().context().io.clone();
+    dos.cpu().cpu_state().set_interrupts_enabled(true);
+    for byte in bytes {
+        common::mouse::inject(&io, byte).await;
+        assert_eq!(
+            common::run_until(dos.cpu(), 0x102).await,
+            ExecutionExit::Interrupted
+        );
+    }
+}
+
+#[test]
+fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
+    for mz in [false, true] {
+        let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
+            let mut dos = Dos::new(runner).await.unwrap();
+            if mz {
+                dos.launch_mz(&common::mz_image(PROGRAM), Default::default())
+                    .unwrap();
+            } else {
+                dos.launch_com(PROGRAM, Default::default()).unwrap();
+            }
+            let state = dos.cpu().cpu_state();
+            let sp = state.sp();
+            let end = state.eip() + 2;
+            state.set_ax(0);
+            state.set_cx(0x1234);
+            state.set_dx(0x5678);
+            state.set_si(0xabcd);
+            state.set_eflags(0x443);
+            let before = state.snapshot();
+            assert_eq!(
+                common::run_until(dos.cpu(), end).await,
+                ExecutionExit::Interrupted
+            );
+            assert_eq!(
+                (state.ax(), state.bx(), state.cx(), state.dx(), state.si()),
+                (0xffff, 3, 0x1234, 0x5678, 0xabcd)
+            );
+            assert_eq!(state.sp(), sp);
+            assert_eq!(state.eflags(), 0x443);
+            assert_eq!(state.snapshot().segments, before.segments);
+        });
+        assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+    }
+}
+
+#[test]
+fn bounds_button_histories_and_raw_motion_have_independent_consumption() {
+    with_mouse(async |_, mut dos| {
+        let state = dos.cpu().cpu_state();
+        call(&mut dos, 7, 0, 0, 63).await;
+        call(&mut dos, 8, 0, 0, 31).await;
+        call(&mut dos, 4, 0, 32, 16).await;
+        packet(&mut dos, [9, 200, 0]).await; // +200 is positive in the nine-bit packet.
+        packet(&mut dos, [8, 0, 0]).await;
+        call(&mut dos, 3, 0, 0, 0).await;
+        assert_eq!((state.bx(), state.cx(), state.dx()), (0, 56, 16));
+        call(&mut dos, 5, 0, 0, 0).await;
+        assert_eq!(
+            (state.ax(), state.bx(), state.cx(), state.dx()),
+            (0, 1, 56, 16)
+        );
+        call(&mut dos, 5, 0, 0, 0).await;
+        assert_eq!(state.bx(), 0);
+        call(&mut dos, 6, 0, 0, 0).await;
+        assert_eq!((state.bx(), state.cx(), state.dx()), (1, 56, 16));
+        packet(&mut dos, [0x3c, 0, 0xff]).await; // X=-256, Y=-1, middle press.
+        call(&mut dos, 0xb, 0, 0, 0).await;
+        assert_eq!((state.cx(), state.dx()), ((-56i16) as u16, 1));
+        call(&mut dos, 0xb, 0, 0, 0).await;
+        assert_eq!((state.cx(), state.dx()), (0, 0));
+        call(&mut dos, 5, 2, 0, 0).await;
+        assert_eq!(
+            (state.ax(), state.bx(), state.cx(), state.dx()),
+            (4, 1, 0, 16)
+        );
+    });
+}
+
+#[test]
+fn ratios_sensitivity_and_timed_acceleration_leave_mickeys_unscaled() {
+    with_mouse(async |runner, mut dos| {
+        let state = dos.cpu().cpu_state();
+        {
+            let mut call = dos.cpu().context();
+            relocade_bios::video::set_mode(&mut call.memory, call.io, 0x13).unwrap();
+        }
+        call(&mut dos, 4, 0, 100, 100).await;
+        call(&mut dos, 0xf, 0, 16, 8).await;
+        call(&mut dos, 0x1a, 75, 25, 100).await;
+        call(&mut dos, 0x1b, 0, 0, 0).await;
+        assert_eq!((state.bx(), state.cx(), state.dx()), (75, 25, 100));
+        packet(&mut dos, [0x28, 8, 0xf8]).await;
+        call(&mut dos, 3, 0, 0, 0).await;
+        assert_eq!((state.cx(), state.dx()), (108, 103));
+        runner.clock().advance(Duration::from_millis(10));
+        packet(&mut dos, [0x28, 8, 0xf8]).await; // 800 mickeys/s: doubled.
+        call(&mut dos, 3, 0, 0, 0).await;
+        assert_eq!((state.cx(), state.dx()), (126, 109));
+        call(&mut dos, 0xb, 0, 0, 0).await;
+        assert_eq!((state.cx(), state.dx()), (16, 16));
+        // Half-logical-pixel motion survives packet boundaries and cancels correctly.
+        call(&mut dos, 0x1a, 50, 50, 0xffff).await;
+        call(&mut dos, 4, 0, 100, 100).await;
+        for bytes in [
+            [8, 1, 0],
+            [0x18, 0xff, 0],
+            [8, 1, 0],
+            [8, 1, 0],
+            [8, 1, 0],
+            [8, 1, 0],
+        ] {
+            packet(&mut dos, bytes).await;
+        }
+        call(&mut dos, 3, 0, 0, 0).await;
+        assert_eq!(state.cx(), 102);
+    });
+}
+
+#[path = "mouse_dos/callbacks.rs"]
+mod callbacks;

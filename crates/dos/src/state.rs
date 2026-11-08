@@ -15,6 +15,7 @@ use std::{
 };
 
 pub(crate) struct DosState {
+    pub(crate) mouse: crate::mouse::Mouse,
     indos: indos::InDos,
     pub(crate) check_break: Cell<bool>,
     console_input: ConsoleInput,
@@ -38,6 +39,7 @@ impl DosState {
         devices.install(BiosConsole::new(memory.clone(), console_input.clone()));
         devices.install(NullDevice);
         Self {
+            mouse: crate::mouse::Mouse::default(),
             indos: indos::InDos::new(memory),
             check_break: Cell::new(false),
             console_input,
@@ -78,6 +80,7 @@ impl DosState {
     }
 
     pub(crate) fn start_process(&self, psp_segment: u16) {
+        self.mouse.retire_callback();
         *self.process.borrow_mut() = Some(Rc::new(Process::new(
             psp_segment,
             self.devices.clone(),

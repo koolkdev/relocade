@@ -28,6 +28,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
 pub struct Pc<C = TimerHandle> {
+    clock: C,
     cpu: Cpu,
     vga: Rc<RefCell<Vga<C>>>,
     speaker: Rc<RefCell<Speaker<C>>>,
@@ -85,12 +86,18 @@ impl<C: Clock> Pc<C> {
         pic.unmask_irq(TIMER_IRQ);
         pic.unmask_irq(KEYBOARD_IRQ);
         Ok(Self {
+            clock: runner.clock().clone(),
             cpu,
             vga,
             speaker,
             keyboard,
             inputs,
         })
+    }
+
+    /// The emulation clock shared by the PC's devices and firmware consumers.
+    pub fn clock(&self) -> &C {
+        &self.clock
     }
 
     /// Accesses the CPU for guest setup, execution and additional service hooks.

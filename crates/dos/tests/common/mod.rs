@@ -2,6 +2,7 @@
 
 use relocade_dos::{Dos, ProcessStatus};
 mod input;
+pub mod mouse;
 mod runner;
 pub use runner::runner;
 #[path = "../../../machine/tests/support/execution.rs"]
