@@ -9,11 +9,9 @@ publish.workspace = true
 relocade-derive = { path = "../derive" }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
+futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
-
-[dev-dependencies]
-futures-channel = "=0.3.34"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wasmtime = { workspace = true, features = ["cache"] }

@@ -6,6 +6,15 @@ for typed resource handles. The application creates workers and keeps them alive
 until their tasks finish. `ExecutionWorker::spawn` creates a worker and supplies
 its fully initialized `Runner`; CPU-level work can use `Cpu` directly.
 
+`worker::CancellableWorker<T>` owns a thread, its result and a cooperative stop
+signal. Its `spawn` callback receives the thread and cancellation receiver, then
+starts a task with `run_send` or `run_resource`. The task must observe the receiver
+and finish its own cleanup. `stop().await` signals cancellation and joins;
+`join().await` waits for normal completion. `finished(&mut self)` permits racing
+completion against another event while retaining the owner. Dropping that wait
+does not cancel the task; consume its completed result only once.
+Timer drivers and `ExecutionWorker` use this shared lifecycle.
+
 Pass the memory handle directly. Capture CPU configuration and Rust channel
 endpoints in the closure, then construct the CPU inside the worker:
 

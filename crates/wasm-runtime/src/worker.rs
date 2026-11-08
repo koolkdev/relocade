@@ -5,8 +5,10 @@ pub use web_thread::*;
 
 use std::future::Future;
 
+mod cancellable;
 mod executor;
 mod wake;
+pub use cancellable::CancellableWorker;
 pub use executor::Executor;
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,

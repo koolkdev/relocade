@@ -1,9 +1,7 @@
 //! Shared time and deadline notifications from a dedicated timer worker.
 
 mod driver;
-mod worker;
 pub use driver::TimerDriver;
-pub use worker::TimerWorker;
 
 use futures_channel::{mpsc, oneshot};
 use std::{future::Future, time::Duration};

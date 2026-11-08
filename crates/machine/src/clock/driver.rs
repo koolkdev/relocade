@@ -1,5 +1,4 @@
-use super::TimerWorker;
-use crate::worker::{ThreadExt, WakePeer, WakeTarget, WorkerResource};
+use crate::worker::{CancellableWorker, ThreadExt, WakePeer, WakeTarget, WorkerResource};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -33,16 +32,19 @@ impl TimerDriver {
     }
 
     /// Starts a timer worker with explicit stop and join operations.
-    pub fn spawn(self) -> TimerWorker {
-        TimerWorker::spawn(|thread, stopped| {
+    pub fn spawn(self) -> CancellableWorker<()> {
+        CancellableWorker::spawn(|thread, stopped| {
             thread.run_send((), move |()| async move { self.drive(stopped) })
         })
     }
 
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
-    pub fn spawn_with_peer<R: WakeTarget + WorkerResource>(self, peer: WakePeer<R>) -> TimerWorker {
-        TimerWorker::spawn(|thread, stopped| {
+    pub fn spawn_with_peer<R: WakeTarget + WorkerResource>(
+        self,
+        peer: WakePeer<R>,
+    ) -> CancellableWorker<()> {
+        CancellableWorker::spawn(|thread, stopped| {
             thread.run_resource(peer, move |peer| async move {
                 let _binding = peer.bind();
                 self.drive(stopped);
