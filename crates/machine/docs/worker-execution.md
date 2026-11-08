@@ -151,7 +151,11 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 ## Event-loop scheduling
 
 `run_cpu` cooperates with the main/device task set when a wake requests an
-execution interrupt. There is no instruction budget or periodic fallback yield.
+execution interrupt. It uses unlimited `Cpu::run()` calls, without a periodic
+fallback yield. Embeddings can instead use `Cpu::run_with_budget(allowance)` to
+return `BudgetExhausted` at an existing checkpoint; zero disables the allowance.
+The allowance belongs to one run, survives pending service polls, and clears on
+completion or cancellation. Completed instruction counts include any overshoot.
 Yielding gives ready Rust activities a polling opportunity. The host timer
 driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending

@@ -158,6 +158,16 @@ checkpoints to straight-line execution and does not split REP operations. REP st
 retires once after all elements complete. The snapshot compiler's instruction limit
 continues to bound compilation only.
 
+In `relocade-machine`, `cpu.run_with_budget(allowance).await` arms and clears the
+controls for one run, including pending host-service polls. Dropping that waiter
+clears its allowance while preserving active and suspended services; the next run
+starts a fresh allowance. `cpu.run().await` and `cpu.run_with_budget(0).await` are
+unlimited. Completed work is available through the existing
+`cpu.cpu_state().instruction_count()` before and after each run, using wrapping
+subtraction. This API rejects positive allowances on targets with budget support
+disabled. Shared interpreter modules keep dynamic checks for either target policy;
+the disabled target guarantees their live allowance stays zero.
+
 ### Explicit stepping and IRQ eligibility
 
 Interpreter STEP publishes one completed instruction and returns `StepComplete`

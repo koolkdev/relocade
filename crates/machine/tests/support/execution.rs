@@ -32,7 +32,7 @@ pub async fn checkpoint(cpu: &mut relocade_machine::Cpu) -> relocade_x86::Execut
 
 /// Runs dispatch to a guest boundary named by the fixture, preserving parked calls.
 pub async fn run_until(cpu: &mut relocade_machine::Cpu, eip: u32) -> relocade_x86::ExecutionExit {
-    // Bound fixture progress without reintroducing a production instruction budget.
+    // Inspect every completed block so the fixture can recognize its target EIP.
     for _ in 0..1024 {
         let exit = checkpoint(cpu).await;
         if exit != relocade_x86::ExecutionExit::Interrupted || cpu.cpu_state().eip() == eip {
