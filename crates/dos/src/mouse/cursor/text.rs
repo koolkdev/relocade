@@ -1,7 +1,7 @@
 //! Software text masks and the original guest-visible character/attribute word.
 use relocade_vga::{Framebuffer, TextCell};
 
-pub(super) struct Shape {
+pub(in crate::mouse) struct Shape {
     pub screen: u16,
     pub cursor: u16,
 }
@@ -18,7 +18,11 @@ impl Default for Shape {
 }
 
 impl Shape {
-    pub fn draw(&self, frame: &mut Framebuffer<'_>, position: [i32; 2]) -> Option<Background> {
+    pub(super) fn draw(
+        &self,
+        frame: &mut Framebuffer<'_>,
+        position: [i32; 2],
+    ) -> Option<Background> {
         let [column, row] = position;
         let cell = frame.text_cell(row.try_into().ok()?, column.try_into().ok()?)?;
         frame.write_text_cell(&cell, (cell.value() & self.screen) ^ self.cursor);

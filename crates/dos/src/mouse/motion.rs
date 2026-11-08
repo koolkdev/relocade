@@ -9,7 +9,7 @@ pub(super) struct Axis {
     pub bounds: [i32; 2],
     pub ratio: u16,
     pub sensitivity: u16,
-    remainder: i64,
+    pub(super) remainder: i64,
 }
 
 impl Axis {

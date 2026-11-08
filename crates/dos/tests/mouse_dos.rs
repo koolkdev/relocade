@@ -185,6 +185,8 @@ fn ratios_sensitivity_and_timed_acceleration_leave_mickeys_unscaled() {
 mod callbacks;
 #[path = "mouse_dos/graphics_cursor.rs"]
 mod graphics_cursor;
+#[path = "mouse_dos/saved_state.rs"]
+mod saved_state;
 #[path = "mouse_dos/text_cursor.rs"]
 mod text_cursor;
 #[path = "mouse_dos/vbe_cursor.rs"]

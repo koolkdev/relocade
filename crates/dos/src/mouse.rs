@@ -5,6 +5,7 @@ mod cursor;
 mod input;
 mod motion;
 mod services;
+mod snapshot;
 mod state;
 
 use crate::state::DosState;
