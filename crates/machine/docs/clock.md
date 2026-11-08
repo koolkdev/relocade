@@ -38,7 +38,7 @@ to `clock/driver/wait`; timer handles and worker lifecycle APIs are unchanged.
 By default, the threaded browser build's standard library implements `park` and
 `park_timeout` with Wasm `memory.atomic.wait32`, and `unpark` with
 `memory.atomic.notify`. This remains the path on macOS, Linux and unrecognized
-browser environments. Chromium on Windows uses a worker-local `MessageChannel`
+browser environments. Browsers on Windows use a worker-local `MessageChannel`
 task to arm each `setTimeout` instead: measured atomic waits there can round a
 1–2 ms deadline up to about 15 ms. A fresh message task breaks the nested-timer
 chain that otherwise clamps repeated timeouts to at least 4 ms. Platform selection

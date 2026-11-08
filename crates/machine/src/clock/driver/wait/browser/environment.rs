@@ -1,4 +1,4 @@
-//! Limit the alternative wait to the environment with measured coarse atomic waits.
+//! Windows browsers use message timers to avoid coarse atomic-wait timeouts.
 
 use wasm_bindgen::prelude::*;
 
@@ -6,10 +6,7 @@ use wasm_bindgen::prelude::*;
 export function needsMessageTimer() {
     const navigator = globalThis.navigator;
     const platform = navigator?.userAgentData?.platform ?? navigator?.platform ?? "";
-    const chromium = navigator?.userAgentData?.brands?.some(
-        ({ brand }) => brand === "Chromium" || brand === "Google Chrome"
-    ) || /(?:Chrome|Chromium)\//.test(navigator?.userAgent ?? "");
-    return platform.startsWith("Win") && chromium;
+    return platform.startsWith("Win");
 }
 "#)]
 extern "C" {
