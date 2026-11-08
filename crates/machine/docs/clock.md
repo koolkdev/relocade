@@ -10,7 +10,7 @@ destructors.
 
 The shared `CancellableWorker<T>` owns cancellation and completion for both timer
 and execution tasks. Each task handles its cancellation receiver: the timer loop
-unparks, while the execution runner uses its existing checkpoint notifications.
+wakes, while the execution runner uses its existing checkpoint notifications.
 Timer scheduling stays in `clock/driver.rs`.
 
 `Clock::now()` reads elapsed time locally. `sleep(duration)` and
@@ -20,18 +20,29 @@ Clones share their time origin across native threads and threaded browser worker
 Tests can implement `Clock` with manually controlled time.
 
 The worker processes new requests and cancellations, completes expired timers,
-then parks until the nearest absolute deadline. With no timers it parks until
-another request or shutdown. Channel wakers unpark the worker; a notification
-before parking retains a token, so the request cannot be lost. Dropping a wait
+then waits until the nearest absolute deadline. With no timers it waits until
+another request or shutdown. Channel wakers notify the worker; a notification
+before waiting is retained, so the request cannot be lost. Dropping a wait
 wakes the worker to remove its timer. The timer list is small and local to the
 worker; producers share only the request channel and response channels.
+
+On Windows, the worker waits on a high-resolution waitable timer and an auto-reset
+event. The timer supplies the deadline; the event interrupts it for new requests,
+cancellation and shutdown. Idle waits use only the event. This avoids the coarse
+`WaitOnAddress` timeout used by Rust's timed parking without requesting a process
+timer-resolution change. If these handles cannot be created, including on Windows
+versions before 10 version 1803, the worker falls back to ordinary Rust parking.
+Other platforms also use Rust parking. The platform wait mechanism is private to
+`clock/driver/wait`; timer handles and worker lifecycle APIs are unchanged.
 
 The threaded browser build's standard library implements `park` and
 `park_timeout` with Wasm `memory.atomic.wait32`, and `unpark` with
 `memory.atomic.notify`. There are no JavaScript timeout callbacks or integer
 millisecond conversions in deadline delivery. `Clock::now()` still reads the
 host's monotonic clock (`performance.now()` in the browser). Every wake rechecks
-that clock; requested sleep duration is never treated as elapsed time.
+that clock; requested sleep duration is never treated as elapsed time. Atomic
+waits still depend on the browser and OS timeout implementation; avoiding JavaScript
+callbacks does not guarantee that millisecond deadlines wake on time.
 
 For a busy execution worker, bind its notification resource on the timer worker:
 
