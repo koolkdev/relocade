@@ -1,9 +1,8 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{
-    Clock, Device, ExecutionWorker, Hook, IoBus, ManualClock, Memory, Timestamp,
-};
+use relocade_machine::{Clock, Device, ExecutionWorker, Hook, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -114,7 +113,7 @@ async fn check_devices() {
                     async move || {
                         entered.borrow_mut().take().unwrap().send(()).unwrap();
                         service_clock
-                            .sleep_until(Timestamp::ZERO + Duration::from_millis(5))
+                            .sleep_until(clock_origin() + Duration::from_millis(5))
                             .await;
                         cpu.set_eip(0x200);
                     }
@@ -136,9 +135,9 @@ async fn check_devices() {
     );
     waiting.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
-    clock.advance_to(Timestamp::ZERO + Duration::from_millis(2));
+    clock.advance_to(clock_origin() + Duration::from_millis(2));
     assert_eq!(ticks.next().await, Some(1));
-    clock.advance_to(Timestamp::ZERO + Duration::from_millis(5));
+    clock.advance_to(clock_origin() + Duration::from_millis(5));
     assert_eq!(worker.join().await.unwrap(), Some((1, 2)));
     assert!(
         !active.load(Ordering::SeqCst),

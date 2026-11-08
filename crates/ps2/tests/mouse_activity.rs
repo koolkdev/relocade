@@ -1,10 +1,9 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
 };
-use relocade_machine::{
-    worker::wake_connection, CpuStorage, IoBus, ManualClock, Runner, Timestamp,
-};
+use relocade_machine::{worker::wake_connection, CpuStorage, IoBus, Runner};
 use relocade_pic::{Pic, CASCADE_IRQ, KEYBOARD_IRQ, MOUSE_IRQ};
 use relocade_ps2::{
     read_keyboard_latch, AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
@@ -105,7 +104,7 @@ async fn connected_mouse_and_keyboard() {
             for _ in 0..4 {
                 relocade_machine::yield_now().await;
             }
-            clock.advance_to(Timestamp::ZERO + Duration::from_millis(10));
+            clock.advance_to(clock_origin() + Duration::from_millis(10));
             for (packet, key) in [([9, 2, 3], 0x1e), ([8, 0, 0], 0x9e)] {
                 let mut mouse = Vec::new();
                 let mut keyboard = Vec::new();
@@ -127,7 +126,7 @@ async fn connected_mouse_and_keyboard() {
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                clock.advance_to(Timestamp::ZERO + Duration::from_millis(20));
+                clock.advance_to(clock_origin() + Duration::from_millis(20));
             }
             assert_eq!(
                 io.poll_interrupt(&mut Context::from_waker(Waker::noop())),

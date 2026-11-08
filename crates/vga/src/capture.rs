@@ -20,7 +20,7 @@ use std::{
 pub struct CapturedFrame {
     /// Complete display memory, palette and programmable display settings.
     pub display: DisplaySnapshot,
-    /// Sampling/latch boundary on the device's clock, not presentation time.
+    /// Elapsed time from device creation to its sampling/latch boundary.
     pub time: Duration,
     /// Hardware retrace count at capture. Unchanged refreshes are not published,
     /// so successive captures can have gaps in their sequence numbers.

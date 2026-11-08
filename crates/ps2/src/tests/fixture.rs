@@ -1,7 +1,7 @@
 use super::super::*;
 use futures_util::future::LocalBoxFuture;
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::keyboard::KeyboardEvent;
-use relocade_machine::{ManualClock, Timestamp};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -140,7 +140,7 @@ impl Fixture {
     }
 
     pub fn advance(&mut self, now: Duration) {
-        self.clock.advance_to(Timestamp::ZERO + now);
+        self.clock.advance_to(clock_origin() + now);
         self.settle();
     }
 }

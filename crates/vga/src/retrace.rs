@@ -2,7 +2,7 @@
 
 use crate::Vga;
 use futures_lite::future::or;
-use relocade_machine::Timestamp;
+use relocade_machine::Instant;
 use std::future::Future;
 
 /// What completed a wait prepared by [`Vga::wait_for_retrace`].
@@ -39,7 +39,7 @@ impl Vga {
     /// takes priority when the timer and notification are both ready.
     pub(super) fn retrace_wait(
         &self,
-        deadline: Option<Timestamp>,
+        deadline: Option<Instant>,
     ) -> impl Future<Output = RetraceEvent> + 'static {
         let clock = self.clock.clone();
         let changed = self.programming_changed.listen();

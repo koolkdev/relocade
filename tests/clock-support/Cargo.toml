@@ -1,0 +1,10 @@
+[package]
+name = "relocade-clock-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+relocade-machine = { path = "../../crates/machine" }
+futures-channel = "=0.3.34"

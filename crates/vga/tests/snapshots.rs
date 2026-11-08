@@ -1,8 +1,8 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
 
 use common::boundary;
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::Vga;
 
 #[cfg(target_arch = "wasm32")]
@@ -99,15 +99,15 @@ fn newest_capture_contains_changes_from_skipped_frames() {
     let source = vga.frame_source();
     font_access(&mut vga);
     vga.write_mmio(0xa0100, 1, 0x12);
-    clock.advance_to(Timestamp::ZERO + boundary(1));
+    clock.advance_to(clock_origin() + boundary(1));
     vga.read_port(0x3da, 1);
     let first = source.current_capture().unwrap();
     vga.write_mmio(0xa0200, 1, 0x34);
-    clock.advance_to(Timestamp::ZERO + boundary(2));
+    clock.advance_to(clock_origin() + boundary(2));
     vga.read_port(0x3da, 1);
     let second = source.clone().current_capture().unwrap(); // An independent reader.
     vga.write_mmio(0xa0300, 1, 0x56);
-    clock.advance_to(Timestamp::ZERO + boundary(3));
+    clock.advance_to(clock_origin() + boundary(3));
     vga.read_port(0x3da, 1);
     let newest = source.current_capture().unwrap();
     drop(vga);

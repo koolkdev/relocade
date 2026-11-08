@@ -28,7 +28,7 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     let (ready, host_inputs) = mpsc::channel();
     let (resume, resumed) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_clock(
-        || relocade_machine::ManualClock::new().clock(),
+        || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             let mut code = vec![0xfa]; // Configure while IF is clear.

@@ -185,3 +185,14 @@ fn session_completion_and_cancellation_stop_their_timer_workers() {
 async fn session_completion_and_cancellation_stop_their_timer_workers() {
     session_shutdown().await;
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn host_clock_uses_the_host_instant_timebase() {
+    use relocade_machine::Instant;
+    let before = Instant::now();
+    let (handle, _driver) = timer_service();
+    let now = handle.clock().now();
+    let after = Instant::now();
+    assert!(before <= now && now <= after);
+}

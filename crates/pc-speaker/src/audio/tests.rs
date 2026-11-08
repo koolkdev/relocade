@@ -1,10 +1,11 @@
+use relocade_clock_test_support::ManualClock;
 #[path = "../../tests/common/mod.rs"]
 mod common;
 
 use crate::{Speaker, PORT_RANGE, SPEAKER_CONTROL_PORT};
 use async_channel::Receiver;
 
-use relocade_machine::{Device, IoBus, ManualClock};
+use relocade_machine::{Device, IoBus};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
 use std::{
     cell::RefCell,

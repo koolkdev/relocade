@@ -1,12 +1,10 @@
-use super::{driver, Clock, HostTimerDriver, Sleep, Source, Timestamp};
+use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep};
 use futures_channel::{mpsc, oneshot};
-use web_time::Instant;
 
 /// Transferable access to the host timer service. Construct a local [`Clock`]
-/// after moving the handle to its execution owner. Clones preserve the origin.
+/// after moving the handle to its execution owner. Clones share the host timebase.
 #[derive(Clone)]
 pub struct TimerHandle {
-    start: Instant,
     requests: mpsc::UnboundedSender<driver::Request>,
 }
 
@@ -16,13 +14,7 @@ pub struct TimerHandle {
 /// driver finish after its pending sleeps complete or are cancelled.
 pub fn timer_service() -> (TimerHandle, HostTimerDriver) {
     let (requests, receiver) = mpsc::unbounded();
-    (
-        TimerHandle {
-            start: Instant::now(),
-            requests,
-        },
-        HostTimerDriver::new(receiver),
-    )
+    (TimerHandle { requests }, HostTimerDriver::new(receiver))
 }
 
 impl TimerHandle {
@@ -37,21 +29,18 @@ impl From<TimerHandle> for Clock {
     }
 }
 
-impl Source for TimerHandle {
-    fn now(&self) -> Timestamp {
-        Timestamp::ZERO + self.start.elapsed()
+impl ClockSource for TimerHandle {
+    fn now(&self) -> Instant {
+        Instant::now()
     }
 
-    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+    fn sleep_until(&self, deadline: Instant) -> Sleep {
         let handle = self.clone();
         Sleep::new(async move {
             let (complete, completed) = oneshot::channel();
             handle
                 .requests
-                .unbounded_send(driver::Request {
-                    deadline: handle.start + deadline.duration_since(Timestamp::ZERO),
-                    complete,
-                })
+                .unbounded_send(driver::Request { deadline, complete })
                 .expect("timer service must outlive its clocks");
             completed
                 .await

@@ -1,7 +1,7 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
 use common::{crtc, dots, support::svga, svga_boundary};
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{DacState, DispiState, PixelFormat, RetraceEvent, Scanout, Vga, VgaCoreState};
 use std::{
     future::Future,
@@ -160,10 +160,10 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     let mut wait = pin!(vga.wait_for_retrace().unwrap());
     let mut cx = Context::from_waker(Waker::noop());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(Timestamp::ZERO + Duration::from_millis(1));
+    clock.advance_to(clock_origin() + Duration::from_millis(1));
     vga.restore_state(None, Some(vga.dac_state()), None);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(Timestamp::ZERO + svga_boundary(1));
+    clock.advance_to(clock_origin() + svga_boundary(1));
     vga.restore_state(None, None, Some(larger));
     assert_eq!(
         wait.as_mut().poll(&mut cx),
@@ -177,7 +177,7 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(svga_boundary(1) + dots(601 * 1056, 40_000_000))
     );
 }
@@ -225,7 +225,7 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
         bytes[12..14].copy_from_slice(&(pitch + 1).to_le_bytes());
         assert!(DispiState::from_bytes(&bytes).is_none());
         svga::enable(&mut vga);
-        clock.advance_to(Timestamp::ZERO + Duration::from_millis(1));
+        clock.advance_to(clock_origin() + Duration::from_millis(1));
         vga.restore_state(None, None, Some(decoded));
         assert_eq!(vga.dispi_state(), state);
         assert_eq!(svga::get(&mut vga, 6), 1024);
@@ -238,7 +238,7 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
         assert_eq!(
             clock
                 .next_deadline()
-                .map(|at| at.duration_since(Timestamp::ZERO)),
+                .map(|at| at.duration_since(clock_origin())),
             Some(svga_boundary(1))
         );
         assert_eq!(retained.vram_byte(4 * 1024 * 1024 - 1), Some(0xa5));

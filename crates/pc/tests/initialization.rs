@@ -1,8 +1,9 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
 use relocade_machine::{
     real_mode_interrupt::{read_frame, read_vector},
     worker::wake_connection,
-    CpuStorage, FarPointer, Hook, ManualClock, Runner, Timestamp,
+    CpuStorage, FarPointer, Hook, Runner,
 };
 use relocade_pc::Pc;
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
@@ -57,7 +58,7 @@ async fn bios_without_dos() {
                         repeat: false,
                     })
                     .unwrap();
-                clock.advance_to(Timestamp::ZERO + Duration::from_nanos(54_925_402));
+                clock.advance_to(clock_origin() + Duration::from_nanos(54_925_402));
                 assert_eq!(
                     runner.run_cpu(pc.cpu()).await,
                     ExecutionExit::Host(HostExit::Return)

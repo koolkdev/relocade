@@ -1,6 +1,6 @@
 //! Physical mickeys, fractional logical movement and speed conversion.
 
-use relocade_machine::Timestamp;
+use relocade_machine::Instant;
 
 pub(super) const DEFAULT_THRESHOLD: u16 = 64;
 
@@ -69,7 +69,7 @@ impl Axis {
 
 pub(super) struct Acceleration {
     pub threshold: u16,
-    previous: Option<Timestamp>,
+    previous: Option<Instant>,
 }
 
 impl Default for Acceleration {
@@ -90,7 +90,7 @@ impl Acceleration {
         };
     }
 
-    pub fn sample(&mut self, now: Timestamp, x: i16, y: i16) -> bool {
+    pub fn sample(&mut self, now: Instant, x: i16, y: i16) -> bool {
         let previous = self.previous.replace(now);
         let Some(elapsed) = previous.and_then(|previous| now.checked_duration_since(previous))
         else {

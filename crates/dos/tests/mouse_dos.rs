@@ -1,8 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
 use relocade_dos::Dos;
-use relocade_machine::{ExecutionWorker, ManualClock};
+use relocade_machine::ExecutionWorker;
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::time::Duration;
 
@@ -141,7 +142,7 @@ fn ratios_sensitivity_and_timed_acceleration_leave_mickeys_unscaled() {
         packet(&mut dos, [0x28, 8, 0xf8]).await;
         call(&mut dos, 3, 0, 0, 0).await;
         assert_eq!((state.cx(), state.dx()), (108, 103));
-        clock.advance_to(relocade_machine::Timestamp::ZERO + Duration::from_millis(10));
+        clock.advance_to(clock_origin() + Duration::from_millis(10));
         packet(&mut dos, [0x28, 8, 0xf8]).await; // 800 mickeys/s: doubled.
         call(&mut dos, 3, 0, 0, 0).await;
         assert_eq!((state.cx(), state.dx()), (126, 109));
