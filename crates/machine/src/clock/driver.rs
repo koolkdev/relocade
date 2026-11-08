@@ -4,11 +4,11 @@ use futures_util::StreamExt;
 use std::{
     future::Future,
     pin::Pin,
-    sync::Arc,
-    task::{Context, Poll, Wake, Waker},
-    thread,
+    task::{Context, Poll},
 };
 use web_time::Instant;
+
+mod wait;
 
 pub(super) struct Request {
     pub deadline: Instant,
@@ -53,8 +53,8 @@ impl TimerDriver {
     }
 
     fn drive(mut self, mut stopped: oneshot::Receiver<()>) {
-        let waker = Waker::from(Arc::new(TimerWake(thread::current())));
-        let mut context = Context::from_waker(&waker);
+        let wait = wait::Wait::new();
+        let mut context = Context::from_waker(wait.waker());
         let mut timers: Vec<Request> = Vec::new();
         let mut closed = false;
         loop {
@@ -77,27 +77,9 @@ impl TimerDriver {
             if closed && timers.is_empty() {
                 return;
             }
-            // Request, cancellation and stop wakers all unpark this thread.
-            // An unpark before parking retains a token, so no wake can be lost.
-            // Our threaded Wasm std uses memory.atomic.wait32 for both waits.
-            match timers.iter().map(|timer| timer.deadline).min() {
-                Some(deadline) => {
-                    thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
-                }
-                None => thread::park(),
-            }
+            // Requests, cancellation and shutdown share a retained notification,
+            // including notifications that arrive between polling and waiting.
+            wait.until(timers.iter().map(|timer| timer.deadline).min());
         }
-    }
-}
-
-struct TimerWake(thread::Thread);
-
-impl Wake for TimerWake {
-    fn wake(self: Arc<Self>) {
-        self.wake_by_ref();
-    }
-
-    fn wake_by_ref(self: &Arc<Self>) {
-        self.0.unpark();
     }
 }

@@ -2348,6 +2348,7 @@ dependencies = [
  "relocade-x86",
  "wasm-bindgen-test",
  "web-time",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

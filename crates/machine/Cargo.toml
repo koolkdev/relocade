@@ -16,6 +16,9 @@ relocade-interpreter = { path = "../interpreter" }
 relocade-x86 = { path = "../x86" }
 relocade-compiler = { path = "../compiler" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+
 [dev-dependencies]
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 
