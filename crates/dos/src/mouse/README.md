@@ -19,7 +19,10 @@ The implemented services are reset/detection (0000h), position/buttons (0003h),
 position (0004h), press/release counts (0005h/0006h), horizontal/vertical bounds
 (0007h/0008h), raw motion (000Bh), event registration/exchange (000Ch/0014h),
 mickey ratios (000Fh), double-speed threshold (0013h), and sensitivity
-set/query (001Ah/001Bh). Unknown functions leave registers and flags unchanged.
+set/query (001Ah/001Bh). Cursor show/hide (0001h/0002h) is nested; software text
+cursor masks (000Ah, BX=0) apply `(cell & screen_mask) ^ cursor_mask` to the guest's
+character/attribute word. Hardware text cursor selection is not implemented.
+Unknown functions leave registers and flags unchanged.
 
 Physical motion, logical position, and cursor drawing coordinates are distinct.
 Text positions use a 640×200 logical grid, reported at cell boundaries; Mode 13h
@@ -41,7 +44,17 @@ not a recreation of every Microsoft driver version's acceleration internals.
 
 Driver state survives processes. User event pointers are removed before process
 memory is released and before a new launch; session packet handling never
-requires an active process or enters DOS's InDOS scope.
+requires an active process or enters DOS's InDOS scope. Process exit restores and
+hides the cursor. Reset starts with one outstanding hide and text masks
+FFFFh/7700h, preserving the cell's intensity and blink bits while inverting colors.
+
+Text drawing uses the BIOS `TextPage` geometry owner and mapped video memory,
+without moving the BIOS output cursor. It saves the original cell and restores
+that page before movement, hiding, mask changes or reset. Applications must hide
+the cursor before changing video modes or drawing in its saved area. Comparing
+layouts cannot detect a same-mode screen clear. Full mode-transition handling,
+additional text geometries and arbitrary VGA programming belong to the following
+video milestone.
 
 References:
 

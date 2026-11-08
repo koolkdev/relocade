@@ -1,5 +1,6 @@
 //! Resident INT 33h state and the BIOS packet consumer, independent of InDOS.
 
+mod cursor;
 mod input;
 mod motion;
 mod services;
@@ -8,7 +9,7 @@ mod state;
 use crate::state::DosState;
 use relocade_machine::{
     real_mode_interrupt::{interrupt_handler, Interrupts},
-    Clock, FarPointer,
+    Clock, FarPointer, MemoryView,
 };
 use state::State;
 use std::{cell::RefCell, rc::Rc};
@@ -25,12 +26,23 @@ const PACKET_ENTRY: FarPointer = FarPointer {
 #[derive(Default)]
 pub(crate) struct Mouse {
     state: RefCell<State>,
+    cursor: RefCell<cursor::Cursor>,
 }
 
 impl Mouse {
     /// The driver survives launches, but a program's far pointer does not.
     pub(crate) fn retire_callback(&self) {
         self.state.borrow_mut().callback = state::Callback::default();
+    }
+
+    pub(crate) fn end_process(&self, memory: &mut MemoryView<'_>) {
+        self.retire_callback();
+        self.cursor.borrow_mut().reset(memory);
+    }
+
+    fn update_cursor(&self, memory: &mut MemoryView<'_>) {
+        let position = self.state.borrow().position(memory);
+        self.cursor.borrow_mut().update(memory, position);
     }
 }
 
