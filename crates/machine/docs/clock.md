@@ -4,45 +4,60 @@
 owned deadline waits. Devices and services use the same concrete API:
 
 ```rust,ignore
-let now: Timestamp = clock.now();
+let now: Instant = clock.now();
 let deadline = now + Duration::from_millis(2);
 clock.sleep_until(deadline).await;
 clock.sleep(Duration::from_millis(2)).await;
 ```
 
-`Timestamp` identifies a point on that clock, while `Duration` describes an
-interval. Subtract timestamps only within one timebase. Clones share an origin;
-independent host and guest clocks require an explicit mapping when pacing.
+`Instant` and `SystemTime` are re-exported from `web_time`, which uses the
+standard library types on native targets. `Instant` is monotonic; `Duration` is
+an interval. Host clocks use the host's absolute monotonic timebase. Instruction
+timelines start at an explicitly supplied instant, then progress independently.
+An aligned origin does not imply that instruction time stays paced to host time.
+
+Calendar conversion is separate from clocks and sleeps. A `TimeOrigin` maps an
+instant to the calendar reading captured at its anchor, including instants before
+the anchor. Replacing the anchor can follow host calendar corrections without
+changing monotonic deadlines:
+
+```rust,ignore
+let origin = TimeOrigin::now();
+let timeline = InstructionTimeline::new(origin.instant(), instructions_per_second);
+let calendar_now = origin.to_system_time(timeline.clock().now());
+```
+
+`TimeOrigin::new(instant, system_time)` accepts an explicit anchor. Mappings use
+that snapshot; they do not automatically follow later host clock corrections.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
 polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
-Clock implementations are private. `Runner`, `Pc`, `Dos`, and devices accept
-`Clock` without an implementation type parameter. Controllers expose the separate
-capabilities to drive timers or advance time. `ExecutionWorker::spawn_with_clock`
+`ClockSource` supplies `now() -> Instant` and `sleep_until(Instant) -> Sleep`.
+`Clock::new(source)` wraps a source behind the common consumer API, and
+`Sleep::new(future)` owns its wait state. Custom sources must preserve monotonic
+readings and first-poll registration/drop cancellation. `Runner`, `Pc`, `Dos`, and
+devices accept `Clock` without an implementation type parameter. Controllers expose
+the separate capabilities to drive timers or advance time. `ExecutionWorker::spawn_with_clock`
 constructs a clock on the execution owner from a transferable factory.
 
-## Controlled time
+## Controlled time in tests
 
-`ManualClock` provides one shared controller for deterministic tests and simulations.
-Its `clock()` creates a consumer, `advance_by(duration)` or `advance_to(timestamp)`
-wakes due sleeps, and `next_deadline()` observes the earliest polled, uncancelled
-sleep. Advancing to an earlier timestamp leaves time unchanged. Cloned controllers
-share time and can move between workers; consumer clocks remain local.
+`ManualClock` lives in `tests/clock-support`, a development-only dependency of
+the consuming test suites. It is not exported by `relocade-machine` or included
+in application builds. Its `clock()` uses the same public `ClockSource` interface.
 
-```rust,ignore
-let host = ManualClock::new();
-let guest = ManualClock::new();
-let host_clock = host.clock();
-let guest_clock = guest.clock();
-guest.advance_by(Duration::from_millis(2)); // Host time stays unchanged.
-```
+`advance_by(duration)` and `advance_to(instant)` wake due sleeps;
+`next_deadline()` observes the earliest polled, uncancelled sleep. Advancing to
+an earlier instant leaves time unchanged. Cloned controllers share time and can
+move between workers; consumer clocks remain local. Fixtures share a monotonic
+anchor through the test helper's `origin()`; clock progress remains independent.
 
 ## Instruction-driven time
 
-`InstructionTimeline::new(instructions_per_second)` owns guest time estimated from
+`InstructionTimeline::new(start, instructions_per_second)` owns guest time estimated from
 published CPU retirement at a fixed `NonZeroU64` rate. Its `clock()` supplies the
 same consumer API as host and manual clocks. Construct the timeline on the CPU's
 execution owner, then call `bind_cpu(cpu.cpu_state())` before guest execution.
@@ -60,7 +75,7 @@ idle. Cancelled waits do not constrain the next deadline. CPU budgets and host
 pacing remain separate from this timebase.
 
 ```rust,ignore
-let timeline = InstructionTimeline::new(instructions_per_second);
+let timeline = InstructionTimeline::new(start, instructions_per_second);
 let guest_clock = timeline.clock();
 timeline.bind_cpu(cpu.cpu_state());
 let sleep = guest_clock.sleep(Duration::from_millis(2));
@@ -69,9 +84,9 @@ let sleep = guest_clock.sleep(Duration::from_millis(2));
 ## Instruction-driven execution
 
 `ExecutionWorker::spawn_instruction_driven(rate, quantum, session)` constructs an
-instruction timeline and a `Runner` on the execution owner. Devices receive its
-guest `Clock`; `Runner::create_cpu` binds retirement automatically. The lower-level
-`Runner::instruction_driven` accepts prepared CPU storage and its wake endpoint.
+instruction timeline starting at `Instant::now()` and a `Runner` on the execution
+owner. Devices receive its guest `Clock`; `Runner::create_cpu` binds retirement
+automatically. The lower-level `Runner::instruction_driven` accepts prepared CPU storage and its wake endpoint.
 
 The scheduler chooses the earlier device deadline or absolute quantum boundary,
 uses the existing soft instruction budget, and charges actual retirement including
@@ -106,9 +121,9 @@ Timer scheduling stays in `clock/driver.rs`.
 `TimerHandle` is the transferable host-timer transport. Its `clock()` creates a
 local consumer; `Clock::from(handle)` consumes the transport when it is no longer
 needed for setup. `ExecutionWorker::spawn(handle, session)` performs this conversion
-on the execution owner. Clones preserve the host origin across workers.
+on the execution owner. Clones access the same host monotonic timebase across workers.
 
-The host clock reads elapsed time locally. Sleeps send absolute deadlines to the
+The host clock reads `Instant::now()` locally. Sleeps send absolute deadlines to the
 driver and await Rust channel notifications. Request delivery time therefore counts
 toward the wait. Keep the driver alive until consumers and their sleeps finish.
 

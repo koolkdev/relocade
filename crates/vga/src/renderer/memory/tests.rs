@@ -1,8 +1,8 @@
 use super::*;
 use crate::{CapturedFrame, Vga};
 use futures_util::FutureExt;
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
-use relocade_machine::ManualClock;
 use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]

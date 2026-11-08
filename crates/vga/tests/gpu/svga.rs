@@ -1,8 +1,8 @@
 use super::{common, pixel, read_pixels};
 use common::support::{planar16, registers::palette, svga};
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
 
 async fn check_indexed_resolutions() {
@@ -253,7 +253,7 @@ async fn check_published_display() {
     let source = vga.frame_source();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
-    clock.advance_to(Timestamp::ZERO + entered);
+    clock.advance_to(clock_origin() + entered);
     vga.read_port(0x3da, 1);
     let mut encoder = device.create_command_encoder(&Default::default());
     let legacy = display.encode_image(&queue, &mut encoder).unwrap().clone();
@@ -264,14 +264,14 @@ async fn check_published_display() {
     palette(&mut vga, 6, [42, 21, 0]);
     svga::write_byte(&mut vga, 0, 4);
     svga::write_byte(&mut vga, 0x40000, 1);
-    clock.advance_to(Timestamp::ZERO + entered + common::svga_boundary(1));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(1));
     vga.read_port(0x3da, 1);
     // Let two more publications pass without any service or GPU work.
     svga::write_byte(&mut vga, 0x40000, 5);
-    clock.advance_to(Timestamp::ZERO + entered + common::svga_boundary(2));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(2));
     vga.read_port(0x3da, 1);
     svga::write_byte(&mut vga, 307199, 6);
-    clock.advance_to(Timestamp::ZERO + entered + common::svga_boundary(3));
+    clock.advance_to(clock_origin() + entered + common::svga_boundary(3));
     vga.read_port(0x3da, 1);
     assert_eq!(source.current_capture().unwrap().sequence, 4);
     assert_eq!(display.service(&queue).await, Some(true));

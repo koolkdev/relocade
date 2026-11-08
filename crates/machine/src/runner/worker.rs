@@ -62,7 +62,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     }
 
     /// Constructs a clock on the execution owner before starting the session.
-    /// For controlled time, capture a [`crate::ManualClock`] and return its `clock()`.
+    /// A transferable factory can supply a custom clock on that owner.
     /// Use [`Self::spawn_instruction_driven`] for automatic guest-time scheduling.
     pub fn spawn_with_clock(
         make_clock: impl FnOnce() -> Clock + Send + 'static,

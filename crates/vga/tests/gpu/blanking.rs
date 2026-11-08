@@ -4,7 +4,7 @@ use common::support::{
     indexed256, planar16,
     registers::{indexed, palette},
 };
-use relocade_machine::ManualClock;
+use relocade_clock_test_support::ManualClock;
 use relocade_vga::Vga;
 
 fn device(layout: u8, columns: u8, lines: u8) -> Vga {

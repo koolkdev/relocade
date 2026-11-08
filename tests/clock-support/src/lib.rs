@@ -1,24 +1,23 @@
-use super::{Clock, Sleep, Source, Timestamp};
 use futures_channel::oneshot;
+use relocade_machine::{Clock, ClockSource, Instant, Sleep};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-/// Explicitly controlled time for tests and simulations. Clones share progress;
+/// Explicitly controlled time for tests. Clones share progress;
 /// separate instances can control host and guest time independently. The controller
 /// can move between workers, while each consumer's [`Clock`] remains local.
 #[derive(Clone, Default)]
 pub struct ManualClock(Arc<Mutex<State>>);
 
-#[derive(Default)]
 struct State {
-    now: Timestamp,
+    now: Instant,
     waits: Vec<Wait>,
 }
 
 struct Wait {
-    deadline: Timestamp,
+    deadline: Instant,
     complete: oneshot::Sender<()>,
 }
 
@@ -34,7 +33,7 @@ impl ManualClock {
     pub fn advance_by(&self, duration: Duration) {
         let due = {
             let mut state = self.0.lock().unwrap();
-            let now = state.now.saturating_add(duration);
+            let now = state.now + duration;
             state.advance_to(now)
         };
         Self::notify(due);
@@ -42,13 +41,13 @@ impl ManualClock {
 
     /// Moves forward to `timestamp` and wakes due sleeps. An earlier timestamp
     /// leaves time unchanged. Wakers run after releasing the clock state.
-    pub fn advance_to(&self, timestamp: Timestamp) {
+    pub fn advance_to(&self, timestamp: Instant) {
         let due = self.0.lock().unwrap().advance_to(timestamp);
         Self::notify(due);
     }
 
     /// Earliest polled sleep, excluding cancelled waits.
-    pub fn next_deadline(&self) -> Option<Timestamp> {
+    pub fn next_deadline(&self) -> Option<Instant> {
         let mut state = self.0.lock().unwrap();
         state.waits.retain(|wait| !wait.complete.is_canceled());
         state.waits.iter().map(|wait| wait.deadline).min()
@@ -61,12 +60,12 @@ impl ManualClock {
     }
 }
 
-impl Source for ManualClock {
-    fn now(&self) -> Timestamp {
+impl ClockSource for ManualClock {
+    fn now(&self) -> Instant {
         self.0.lock().unwrap().now
     }
 
-    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+    fn sleep_until(&self, deadline: Instant) -> Sleep {
         let controller = self.clone();
         Sleep::new(async move {
             let completed = {
@@ -85,7 +84,7 @@ impl Source for ManualClock {
 }
 
 impl State {
-    fn advance_to(&mut self, timestamp: Timestamp) -> Vec<Wait> {
+    fn advance_to(&mut self, timestamp: Instant) -> Vec<Wait> {
         self.now = self.now.max(timestamp);
         self.waits
             .extract_if(.., |wait| {
@@ -93,4 +92,19 @@ impl State {
             })
             .collect()
     }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            now: origin(),
+            waits: Vec::new(),
+        }
+    }
+}
+
+/// Shared monotonic anchor for deterministic test fixtures in this process.
+pub fn origin() -> Instant {
+    static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *ORIGIN.get_or_init(Instant::now)
 }

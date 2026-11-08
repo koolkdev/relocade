@@ -3,7 +3,7 @@
 use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, Timestamp};
+use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Instant, Runner};
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
@@ -11,7 +11,8 @@ use std::{cell::RefCell, rc::Rc};
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit {
     clock: Clock,
-    at: Timestamp,
+    origin: Instant,
+    at: Instant,
     channel0: Counter,
     channel2: Counter,
     channel2_update: Option<Counter>,
@@ -37,8 +38,10 @@ impl Pit {
         channel0.write(0);
         channel0.advance(1); // BIOS initialization has already loaded the divisor.
         let irq = pic.irq(TIMER_IRQ, channel0.output());
+        let origin = clock.now();
         Self {
-            at: clock.now(),
+            origin,
+            at: origin,
             clock,
             channel0,
             channel2: Counter::default(),
@@ -74,8 +77,8 @@ impl Pit {
 
     fn sync_to_clock(&mut self) {
         let now = self.clock.now();
-        let clocks = clocks_at(now.duration_since(Timestamp::ZERO))
-            - clocks_at(self.at.duration_since(Timestamp::ZERO));
+        let clocks = clocks_at(now.duration_since(self.origin))
+            - clocks_at(self.at.duration_since(self.origin));
         if self
             .channel0
             .next_rising_edge()
@@ -101,8 +104,8 @@ impl Device for Pit {
                 let device = device.borrow();
                 (
                     device.channel0.next_transition().map(|clocks| {
-                        Timestamp::ZERO
-                            + time_at(clocks_at(device.at.duration_since(Timestamp::ZERO)) + clocks)
+                        device.origin
+                            + time_at(clocks_at(device.at.duration_since(device.origin)) + clocks)
                     }),
                     device.changed.listen(),
                 )

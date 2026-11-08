@@ -32,7 +32,7 @@ use memory::{VideoMemory, VramAccess};
 use raster::Raster;
 use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, Device, DeviceConnection, Runner, Timestamp};
+use relocade_machine::{Clock, Device, DeviceConnection, Instant, Runner};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use retrace::RetraceEvent;
@@ -65,6 +65,7 @@ pub struct Vga {
     setup: Setup,
     dispi: dispi::Dispi,
     clock: Clock,
+    origin: Instant,
     raster: Raster,
     programming_changed: Event,
     frames: FrameSource,
@@ -84,13 +85,15 @@ impl Vga {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
         let registers = Registers::default();
-        let raster = Raster::new(clock.now(), Timing::vga(&registers));
+        let origin = clock.now();
+        let raster = Raster::new(origin, Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
             registers,
             setup: Setup::default(),
             dispi: dispi::Dispi::default(),
             clock,
+            origin,
             raster,
             programming_changed: Event::new(),
             frames: FrameSource::new(),
@@ -159,7 +162,7 @@ impl Vga {
             self.memory.clear_changes();
             self.frames.publish(CapturedFrame {
                 display,
-                time: time.duration_since(Timestamp::ZERO),
+                time: time.duration_since(self.origin),
                 sequence: self.raster.retrace_count,
             });
         }

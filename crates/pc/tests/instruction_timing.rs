@@ -1,4 +1,4 @@
-use relocade_machine::{DispatchEntry, ExecutionWorker, Hook, Timestamp};
+use relocade_machine::{DispatchEntry, ExecutionWorker, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
 use std::{num::NonZeroU64, time::Duration};
@@ -11,6 +11,7 @@ async fn pit_interrupts() {
         NonZeroU64::new(1_000_000).unwrap(),
         Duration::from_millis(10),
         async |runner| {
+            let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
             let cpu = pc.cpu();
             let memory = cpu.memory();
@@ -68,8 +69,8 @@ async fn pit_interrupts() {
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
             // Eight approximately 2 ms periods fit here. Scheduling only at
             // the 10 ms quantum would coalesce edges and take much longer.
-            assert!(runner.clock().now() >= Timestamp::ZERO + Duration::from_millis(14));
-            assert!(runner.clock().now() < Timestamp::ZERO + Duration::from_millis(20));
+            assert!(runner.clock().now() >= start + Duration::from_millis(14));
+            assert!(runner.clock().now() < start + Duration::from_millis(20));
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));

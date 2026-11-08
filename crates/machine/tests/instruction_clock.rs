@@ -1,9 +1,10 @@
+use relocade_clock_test_support::origin as clock_origin;
 mod support;
 
 use futures_lite::future::poll_once;
 use relocade_machine::{
-    Clock, Cpu, Device, DeviceConnection, DispatchEntry, ExecutionWorker, InstructionTimeline,
-    IoBus, Memory, Timestamp,
+    Clock, Cpu, Device, DeviceConnection, DispatchEntry, ExecutionWorker, Instant,
+    InstructionTimeline, IoBus, Memory,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -43,12 +44,12 @@ fn configuration(count: u64) -> support::Configuration {
 
 async fn progress() {
     let execution = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
-        let timeline = InstructionTimeline::new(NonZeroU64::new(3).unwrap());
+        let timeline = InstructionTimeline::new(clock_origin(), NonZeroU64::new(3).unwrap());
         let clock = timeline.clock();
         let clone = clock.clone();
-        let mut wait = pin!(clone.sleep_until(Timestamp::ZERO + Duration::from_secs(1)));
+        let mut wait = pin!(clone.sleep_until(clock_origin() + Duration::from_secs(1)));
         assert!(poll_once(wait.as_mut()).await.is_none());
-        timeline.advance_to(Timestamp::ZERO + Duration::from_millis(250));
+        timeline.advance_to(clock_origin() + Duration::from_millis(250));
 
         let config = configuration(u64::MAX - 1);
         let memory = Memory::new(config.machine).unwrap();
@@ -60,21 +61,21 @@ async fn progress() {
         timeline.bind_cpu(cpu.cpu_state());
         assert_eq!(
             timeline.clock().now(),
-            Timestamp::ZERO + Duration::from_millis(250)
+            clock_origin() + Duration::from_millis(250)
         );
         assert_eq!(
             timeline.next_deadline(),
-            Some(Timestamp::ZERO + Duration::from_secs(1))
+            Some(clock_origin() + Duration::from_secs(1))
         );
 
         // Each instruction contributes exactly a third of a second, including
         // across counter wrap. Reading after each step must not lose fractions.
         for nanos in [583_333_333, 916_666_666, 1_250_000_000] {
             cpu.step();
-            assert_eq!(clone.now(), Timestamp::ZERO + Duration::from_nanos(nanos));
+            assert_eq!(clone.now(), clock_origin() + Duration::from_nanos(nanos));
             assert_eq!(
                 timeline.clock().now(),
-                Timestamp::ZERO + Duration::from_nanos(nanos)
+                clock_origin() + Duration::from_nanos(nanos)
             );
         }
         assert_eq!(cpu.cpu_state().instruction_count(), 1);
@@ -87,14 +88,14 @@ async fn progress() {
         cpu.step();
         assert_eq!(
             timeline.clock().now(),
-            Timestamp::ZERO + Duration::from_nanos(1_583_333_333)
+            clock_origin() + Duration::from_nanos(1_583_333_333)
         );
-        timeline.advance_to(Timestamp::ZERO + Duration::from_secs(2));
+        timeline.advance_to(clock_origin() + Duration::from_secs(2));
         for nanos in [2_333_333_333, 2_666_666_667] {
             cpu.step();
             assert_eq!(
                 timeline.clock().now(),
-                Timestamp::ZERO + Duration::from_nanos(nanos)
+                clock_origin() + Duration::from_nanos(nanos)
             );
         }
     })
@@ -125,67 +126,67 @@ impl Wake for Notifications {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_follow_registration_cancellation_and_idle_time() {
-    let timeline = InstructionTimeline::new(NonZeroU64::new(1000).unwrap());
+    let timeline = InstructionTimeline::new(clock_origin(), NonZeroU64::new(1000).unwrap());
     let clock = timeline.clock();
     let clone = clock.clone();
     let notifications = Arc::new(Notifications::default());
     let waker = Waker::from(notifications.clone());
     let mut cx = Context::from_waker(&waker);
-    let mut later = pin!(clock.sleep_until(Timestamp::ZERO + Duration::from_millis(20)));
+    let mut later = pin!(clock.sleep_until(clock_origin() + Duration::from_millis(20)));
     assert_eq!(timeline.next_deadline(), None);
     assert!(later.as_mut().poll(&mut cx).is_pending());
     {
-        let mut cancelled = pin!(clone.sleep_until(Timestamp::ZERO + Duration::from_millis(5)));
+        let mut cancelled = pin!(clone.sleep_until(clock_origin() + Duration::from_millis(5)));
         assert!(cancelled.as_mut().poll(&mut cx).is_pending());
         assert_eq!(
             timeline.next_deadline(),
-            Some(Timestamp::ZERO + Duration::from_millis(5))
+            Some(clock_origin() + Duration::from_millis(5))
         );
     }
     assert_eq!(
         timeline.next_deadline(),
-        Some(Timestamp::ZERO + Duration::from_millis(20))
+        Some(clock_origin() + Duration::from_millis(20))
     );
 
-    let mut first = pin!(clock.sleep_until(Timestamp::ZERO + Duration::from_millis(10)));
-    let mut same = pin!(clone.sleep_until(Timestamp::ZERO + Duration::from_millis(10)));
+    let mut first = pin!(clock.sleep_until(clock_origin() + Duration::from_millis(10)));
+    let mut same = pin!(clone.sleep_until(clock_origin() + Duration::from_millis(10)));
     assert!(first.as_mut().poll(&mut cx).is_pending());
     assert!(same.as_mut().poll(&mut cx).is_pending());
-    timeline.advance_to(Timestamp::ZERO + Duration::from_millis(9));
+    timeline.advance_to(clock_origin() + Duration::from_millis(9));
     assert_eq!(notifications.0.load(Ordering::Relaxed), 0);
     assert!(first.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         timeline.next_deadline(),
-        Some(Timestamp::ZERO + Duration::from_millis(10))
+        Some(clock_origin() + Duration::from_millis(10))
     );
     timeline
         .clone()
-        .advance_to(Timestamp::ZERO + Duration::from_millis(10));
+        .advance_to(clock_origin() + Duration::from_millis(10));
     assert!(notifications.0.load(Ordering::Relaxed) > 0);
     assert!(first.as_mut().poll(&mut cx).is_ready());
     assert!(same.as_mut().poll(&mut cx).is_ready());
     assert!(later.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         timeline.next_deadline(),
-        Some(Timestamp::ZERO + Duration::from_millis(20))
+        Some(clock_origin() + Duration::from_millis(20))
     );
 
-    timeline.advance_to(Timestamp::ZERO + Duration::from_millis(5));
-    assert_eq!(clone.now(), Timestamp::ZERO + Duration::from_millis(10));
-    let mut overdue = pin!(clock.sleep_until(Timestamp::ZERO + Duration::from_millis(5)));
+    timeline.advance_to(clock_origin() + Duration::from_millis(5));
+    assert_eq!(clone.now(), clock_origin() + Duration::from_millis(10));
+    let mut overdue = pin!(clock.sleep_until(clock_origin() + Duration::from_millis(5)));
     assert!(overdue.as_mut().poll(&mut cx).is_ready());
     assert_eq!(
         timeline.next_deadline(),
-        Some(Timestamp::ZERO + Duration::from_millis(20))
+        Some(clock_origin() + Duration::from_millis(20))
     );
-    timeline.advance_to(Timestamp::ZERO + Duration::from_millis(20));
+    timeline.advance_to(clock_origin() + Duration::from_millis(20));
     assert!(later.as_mut().poll(&mut cx).is_ready());
     assert_eq!(timeline.next_deadline(), None);
 }
 
 struct ClockPort {
     clock: Clock,
-    observed: Option<Timestamp>,
+    observed: Option<Instant>,
 }
 
 impl Device for ClockPort {
@@ -196,7 +197,7 @@ impl Device for ClockPort {
 
 async fn callback_observation() {
     for compiled in [false, true] {
-        let timeline = InstructionTimeline::new(NonZeroU64::new(1000).unwrap());
+        let timeline = InstructionTimeline::new(clock_origin(), NonZeroU64::new(1000).unwrap());
         let device = Rc::new(RefCell::new(ClockPort {
             clock: timeline.clock(),
             observed: None,
@@ -230,11 +231,11 @@ async fn callback_observation() {
         assert_eq!(cpu.step(), ExecutionExit::StepComplete);
         assert_eq!(cpu.run_with_budget(3).await, ExecutionExit::BudgetExhausted);
         let observed = device.borrow().observed.unwrap();
-        assert!(observed >= Timestamp::ZERO + Duration::from_millis(1));
-        assert!(observed <= Timestamp::ZERO + Duration::from_millis(4));
+        assert!(observed >= clock_origin() + Duration::from_millis(1));
+        assert!(observed <= clock_origin() + Duration::from_millis(4));
         assert_eq!(
             timeline.clock().now(),
-            Timestamp::ZERO + Duration::from_millis(4)
+            clock_origin() + Duration::from_millis(4)
         );
     }
 }

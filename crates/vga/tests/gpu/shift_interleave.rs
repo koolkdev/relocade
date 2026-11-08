@@ -6,8 +6,8 @@ use common::support::{
     planar16::program,
     registers::{attribute, indexed},
 };
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
-use relocade_machine::ManualClock;
 use relocade_vga::Vga;
 
 async fn check_colors() {

@@ -1,4 +1,4 @@
-use relocade_machine::ManualClock;
+use relocade_clock_test_support::ManualClock;
 mod common;
 
 use common::crtc;

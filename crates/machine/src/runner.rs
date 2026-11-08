@@ -201,7 +201,7 @@ impl Runner {
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Self {
-        let timeline = InstructionTimeline::new(instructions_per_second);
+        let timeline = InstructionTimeline::new(crate::Instant::now(), instructions_per_second);
         let schedule = InstructionSchedule::new(timeline.clone(), quantum);
         let mut runner = Self::new(timeline.clock(), storage, endpoint);
         runner.instruction_schedule = Some(schedule);

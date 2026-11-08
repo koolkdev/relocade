@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, IoBus,
-    MachineConfig, Memory, Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, Instant,
+    IoBus, MachineConfig, Memory,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -25,7 +25,7 @@ struct Reports {
     ready: Option<oneshot::Sender<()>>,
     host_busy: Arc<AtomicBool>,
     count: Arc<AtomicUsize>,
-    samples: Vec<Timestamp>,
+    samples: Vec<Instant>,
     exit: Option<ExitHandle>,
 }
 

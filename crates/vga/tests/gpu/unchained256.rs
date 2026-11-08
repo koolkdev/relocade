@@ -6,8 +6,8 @@ use common::support::{
     indexed256::{program, unchain},
     registers::{attribute, indexed},
 };
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::Vga;
 
 fn start(vga: &mut impl Device, address: u16) {
@@ -55,7 +55,7 @@ async fn check_pages() {
             &expected(previous_base, 0, 200),
         )
         .await;
-        clock.advance_to(Timestamp::ZERO + common::boundary(frame as u64 + 1));
+        clock.advance_to(clock_origin() + common::boundary(frame as u64 + 1));
         vga.read_port(0x3da, 1);
         let capture = source.current_capture().unwrap();
         gpu.expect(&capture, [320, 200], &expected(base, 0, 200))
@@ -89,7 +89,7 @@ async fn check_pages() {
     // crosses the plane group without changing which byte each plane stores.
     start(&mut vga, 0x8001);
     attribute(&mut vga, 0x13, 6);
-    clock.advance_to(Timestamp::ZERO + reset_at + common::boundary(1));
+    clock.advance_to(clock_origin() + reset_at + common::boundary(1));
     vga.read_port(0x3da, 1);
     let panned = source.current_capture().unwrap();
     let mut changed = expected(0x8001, 3, 200);
@@ -104,7 +104,7 @@ async fn check_pages() {
         changed[((y * 320 + x) * 4) as usize..((y * 320 + x) * 4 + 4) as usize]
             .copy_from_slice(&super::graphics::color(0xf1).1);
     }
-    clock.advance_to(Timestamp::ZERO + reset_at + common::boundary(2));
+    clock.advance_to(clock_origin() + reset_at + common::boundary(2));
     vga.read_port(0x3da, 1);
     gpu.expect(&source.current_capture().unwrap(), [320, 200], &changed)
         .await;
@@ -135,7 +135,7 @@ async fn check_split() {
         }
     }
     start(&mut vga, 1);
-    clock.advance_to(Timestamp::ZERO + common::boundary(1));
+    clock.advance_to(clock_origin() + common::boundary(1));
     vga.read_port(0x3da, 1);
     // Eight pixels from a 24-pixel virtual row, beginning halfway through a
     // repeated row. Split after three physical scanlines; byte and pel pan both

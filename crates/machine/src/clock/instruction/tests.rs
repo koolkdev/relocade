@@ -1,4 +1,5 @@
 use super::*;
+use relocade_clock_test_support::origin as clock_origin;
 use std::{
     future::Future,
     sync::{
@@ -20,12 +21,12 @@ impl Wake for Notifications {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadline_subscription_wakes_and_releases_its_task() {
-    let clock = InstructionTimeline::new(NonZeroU64::new(1000).unwrap());
+    let clock = InstructionTimeline::new(clock_origin(), NonZeroU64::new(1000).unwrap());
     let mut idle = Context::from_waker(Waker::noop());
     let mut later = Box::pin(
         clock
             .clock()
-            .sleep_until(Timestamp::ZERO + Duration::from_millis(20)),
+            .sleep_until(clock_origin() + Duration::from_millis(20)),
     );
     assert!(later.as_mut().poll(&mut idle).is_pending());
 
@@ -38,7 +39,7 @@ fn deadline_subscription_wakes_and_releases_its_task() {
     let mut earlier = Box::pin(
         clock
             .clock()
-            .sleep_until(Timestamp::ZERO + Duration::from_millis(10)),
+            .sleep_until(clock_origin() + Duration::from_millis(10)),
     );
     assert!(earlier.as_mut().poll(&mut idle).is_pending());
     assert!(task.0.swap(0, Ordering::Relaxed) > 0);
@@ -47,7 +48,7 @@ fn deadline_subscription_wakes_and_releases_its_task() {
     assert!(task.0.load(Ordering::Relaxed) > 0);
     assert_eq!(
         clock.next_deadline(),
-        Some(Timestamp::ZERO + Duration::from_millis(20))
+        Some(clock_origin() + Duration::from_millis(20))
     );
 
     clock.unwatch_deadlines();

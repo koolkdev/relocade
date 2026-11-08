@@ -12,6 +12,7 @@ relocade-pic = { path = "../pic" }
 relocade-machine = { path = "../machine" }
 
 [dev-dependencies]
+relocade-clock-test-support = { path = "../../tests/clock-support" }
 futures-channel = "=0.3.34"
 relocade-x86 = { path = "../x86" }
 

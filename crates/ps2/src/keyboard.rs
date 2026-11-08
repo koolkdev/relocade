@@ -9,7 +9,7 @@ use futures_util::{pin_mut, select_biased, FutureExt};
 use relocade_frontend::keyboard::{
     ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
 };
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, Instant};
 use std::{
     collections::{BTreeSet, VecDeque},
     future::pending,
@@ -66,7 +66,7 @@ struct Keyboard<'a> {
 #[derive(Clone, Copy)]
 struct Repeat {
     key: KeyCode,
-    deadline: Timestamp,
+    deadline: Instant,
 }
 
 impl Keyboard<'_> {
@@ -262,7 +262,7 @@ impl Keyboard<'_> {
         }
     }
 
-    fn key(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
+    fn key(&mut self, key: KeyCode, pressed: bool, now: Instant) {
         if !scancodes::supported(key) {
             return;
         }
@@ -282,12 +282,12 @@ impl Keyboard<'_> {
         }
     }
 
-    fn scan(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
+    fn scan(&mut self, key: KeyCode, pressed: bool, now: Instant) {
         self.emit(key, pressed);
         if pressed && scancodes::repeatable(key) {
             self.repeat = Some(Repeat {
                 key,
-                deadline: now.saturating_add(self.delay()),
+                deadline: now + self.delay(),
             });
         }
     }
@@ -340,7 +340,7 @@ impl Keyboard<'_> {
             let clocks = u64::from(8 + (self.typematic & 7)) << ((self.typematic >> 3) & 3);
             let period = Duration::from_nanos((clocks * 1_000_000_000).div_ceil(240));
             self.repeat = Some(Repeat {
-                deadline: now.saturating_add(period),
+                deadline: now + period,
                 ..repeat
             });
         }

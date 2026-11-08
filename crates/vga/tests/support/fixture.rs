@@ -32,7 +32,8 @@ pub fn initialize_font(vga: &mut impl Device) {
 }
 
 pub fn text_device() -> relocade_vga::Vga {
-    let mut vga = relocade_vga::Vga::with_clock(relocade_machine::ManualClock::new().clock());
+    let mut vga =
+        relocade_vga::Vga::with_clock(relocade_clock_test_support::ManualClock::new().clock());
     initialize_font(&mut vga);
     for cell in 0..2000 {
         set_cell(&mut vga, cell, b' ', 7);

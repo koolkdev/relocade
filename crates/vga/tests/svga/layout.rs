@@ -1,6 +1,6 @@
 use crate::common::support::svga::{enable, get, set};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
-use relocade_machine::ManualClock;
 use relocade_vga::{PixelFormat, SvgaMode, SvgaResolution, Vga};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

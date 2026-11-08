@@ -1,7 +1,7 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 mod common;
 
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{Vga, CRTC_DATA_PORT, CRTC_INDEX_PORT, TEXT_MEMORY_START};
 
 #[cfg(target_arch = "wasm32")]
@@ -43,7 +43,7 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     vga.write_mmio(TEXT_MEMORY_START + 0x7ffe, 2, 0x3e5a);
     register(&mut vga, 0x0c, 0x3f);
     register(&mut vga, 0x0d, 0xff);
-    clock.advance_to(Timestamp::ZERO + common::boundary(1));
+    clock.advance_to(clock_origin() + common::boundary(1));
     vga.read_port(0x3da, 1);
     let last = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(last.start_address, 0x3fff);
@@ -65,7 +65,7 @@ fn text_aperture_selects_planes_and_scanout_uses_full_crtc_addresses() {
     // Scanout wraps at the 16-bit CRTC cell address, not the CPU aperture edge.
     register(&mut vga, 0x0c, 0xff);
     register(&mut vga, 0x0d, 0xff);
-    clock.advance_to(Timestamp::ZERO + common::boundary(2));
+    clock.advance_to(clock_origin() + common::boundary(2));
     vga.read_port(0x3da, 1);
     let wrapped = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(
@@ -96,7 +96,7 @@ fn crtc_byte_and_paired_writes_share_register_state() {
     register(&mut vga, 0x0f, 0xcd);
     register(&mut vga, 0x0a, 0xe6);
     register(&mut vga, 0x0b, 0xe7);
-    clock.advance_to(Timestamp::ZERO + common::boundary(1));
+    clock.advance_to(clock_origin() + common::boundary(1));
     vga.read_port(0x3da, 1);
     let screen = common::support::inspection::inspect(&vga.snapshot());
     assert_eq!(screen.start_address, 0x1234);

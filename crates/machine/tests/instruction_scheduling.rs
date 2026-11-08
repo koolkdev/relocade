@@ -2,8 +2,8 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Cpu, Device, DispatchEntry, ExecutionWorker, ExitHandle, Hook, IoBus,
-    Memory, Runner, Timestamp,
+    timer_service, Clock, Cpu, Device, DispatchEntry, ExecutionWorker, ExitHandle, Hook, Instant,
+    IoBus, Memory, Runner,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -43,6 +43,7 @@ async fn quantum_overshoot() {
         NonZeroU64::new(3).unwrap(),
         Duration::from_secs(1),
         async |runner| {
+            let start = runner.clock().now();
             let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
             let mut cpu = cpu(runner, &code, IoBus::default()).await;
             let block = Compiler::new(ExecutionProfile::Real16)
@@ -79,7 +80,7 @@ async fn quantum_overshoot() {
             assert_eq!(samples, [4, 6, 10]);
             assert_eq!(
                 runner.clock().now(),
-                Timestamp::ZERO + Duration::from_nanos(3_333_333_333)
+                start + Duration::from_nanos(3_333_333_333)
             );
         },
     );
@@ -88,8 +89,8 @@ async fn quantum_overshoot() {
 
 struct Deadlines {
     clock: Clock,
-    deadlines: Vec<Timestamp>,
-    observed: Vec<Timestamp>,
+    deadlines: Vec<Instant>,
+    observed: Vec<Instant>,
     exit: Option<ExitHandle>,
     exit_after_waits: bool,
 }
@@ -118,14 +119,15 @@ async fn deadlines_and_final_exit() {
             NonZeroU64::new(1000).unwrap(),
             Duration::from_millis(10),
             async move |runner| {
+                let start = runner.clock().now();
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: runner.clock().clone(),
                     deadlines: if final_exit {
-                        vec![Timestamp::ZERO + Duration::from_millis(3)]
+                        vec![start + Duration::from_millis(3)]
                     } else {
                         vec![
-                            Timestamp::ZERO + Duration::from_micros(500),
-                            Timestamp::ZERO + Duration::from_millis(5),
+                            start + Duration::from_micros(500),
+                            start + Duration::from_millis(5),
                         ]
                     },
                     observed: Vec::new(),
@@ -151,7 +153,7 @@ async fn deadlines_and_final_exit() {
                     device.borrow().observed,
                     expected
                         .into_iter()
-                        .map(|millis| Timestamp::ZERO + Duration::from_millis(millis))
+                        .map(|millis| start + Duration::from_millis(millis))
                         .collect::<Vec<_>>()
                 );
             },
@@ -181,6 +183,7 @@ async fn retained_service() {
         NonZeroU64::new(1000).unwrap(),
         Duration::from_millis(10),
         async move |runner| {
+            let start = runner.clock().now();
             let device = Rc::new(RefCell::new(Periodic {
                 clock: runner.clock().clone(),
                 wakes: 0,
@@ -209,7 +212,7 @@ async fn retained_service() {
             );
             assert_eq!(started.get(), 1);
             assert!(device.borrow().wakes >= 5);
-            assert!(runner.clock().now() >= Timestamp::ZERO + Duration::from_millis(5));
+            assert!(runner.clock().now() >= start + Duration::from_millis(5));
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
         },
     );

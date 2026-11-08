@@ -1,6 +1,6 @@
 use futures_util::task::{waker, ArcWake};
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
@@ -22,7 +22,7 @@ use std::{
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn tick(clock: &ManualClock, video: Pin<&mut impl Future<Output = ()>>, now: Duration) {
-    clock.advance_to(Timestamp::ZERO + now);
+    clock.advance_to(clock_origin() + now);
     poll_video(video, &mut Context::from_waker(Waker::noop()));
 }
 
@@ -90,7 +90,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
 
     crtc(&mut *vga.borrow_mut(), 0x0f, 2);
-    clock.advance_to(Timestamp::ZERO + boundary(100) + Duration::from_micros(1));
+    clock.advance_to(clock_origin() + boundary(100) + Duration::from_micros(1));
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
     poll_video(video.as_mut(), &mut Context::from_waker(&waker));
@@ -98,7 +98,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(boundary(101))
     );
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
@@ -183,7 +183,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(boundary(3))
     );
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
@@ -316,7 +316,7 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let source = vga.frame_source();
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     crtc(&mut vga, 0x0a, 0x20);
-    clock.advance_to(Timestamp::ZERO + boundary(5) + Duration::from_micros(1));
+    clock.advance_to(clock_origin() + boundary(5) + Duration::from_micros(1));
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x2fdb);
     let before = source.current_capture().unwrap();
     assert_eq!(before.sequence, 5);
@@ -326,7 +326,7 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
         [255, 255, 85, 255]
     );
     vga.write_port(0x3c4, 2, 0x2101);
-    clock.advance_to(Timestamp::ZERO + boundary(6));
+    clock.advance_to(clock_origin() + boundary(6));
     vga.read_port(0x3da, 1);
     let blank = source.current_capture().unwrap();
     assert_ne!(blank.display.vga().unwrap().sequencer[1] & 0x20, 0);
@@ -338,7 +338,7 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
         .iter()
         .all(|p| *p == [0, 0, 0, 255]));
     vga.write_port(0x3c4, 2, 0x0101);
-    clock.advance_to(Timestamp::ZERO + boundary(7));
+    clock.advance_to(clock_origin() + boundary(7));
     vga.read_port(0x3da, 1);
     assert_eq!(
         &software::rasterize(&source.current_capture().unwrap()).pixels[..4],

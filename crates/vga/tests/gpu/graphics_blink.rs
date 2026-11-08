@@ -6,8 +6,8 @@ use common::support::{
     planar16::{program, write_pixels},
     registers::{attribute, indexed},
 };
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::Vga;
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ async fn check_blink() {
     write_pixels(&mut vga, &(0..16).collect::<Vec<_>>());
     attribute(&mut vga, 0x10, 9);
     vga.read_port(0x3da, 1); // Finish register access before the first publication.
-    clock.advance_to(Timestamp::ZERO + common::dots(490 * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let source = vga.frame_source();
     let on = source.current_capture().unwrap();
@@ -32,17 +32,17 @@ async fn check_blink() {
     let color_on = pixels([8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7]);
     gpu.expect(&on, [16, 1], &color_on).await;
 
-    clock.advance_to(Timestamp::ZERO + common::dots((490 + 525) * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots((490 + 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     assert!(Arc::ptr_eq(&on, &source.current_capture().unwrap()));
     // The cursor phase changes at retrace eight, but graphics use attributes.
-    clock.advance_to(Timestamp::ZERO + common::dots((490 + 7 * 525) * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots((490 + 7 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let cursor_off = source.current_capture().unwrap();
     assert!(!cursor_off.display.vga().unwrap().cursor_blink_on);
     assert!(cursor_off.display.vga().unwrap().attribute_blink_on);
     gpu.expect(&cursor_off, [16, 1], &color_on).await;
-    clock.advance_to(Timestamp::ZERO + common::dots((490 + 15 * 525) * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots((490 + 15 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let off = source.current_capture().unwrap();
     assert!(!off.display.vga().unwrap().attribute_blink_on);
@@ -58,7 +58,7 @@ async fn check_blink() {
     attribute(&mut vga, 0x10, 0x0b); // Monochrome blinks independently of bit 3.
     gpu.expect(&common::fixture::capture(&vga), [16, 1], &upper)
         .await;
-    clock.advance_to(Timestamp::ZERO + common::dots((490 + 31 * 525) * 800, 25_175_000));
+    clock.advance_to(clock_origin() + common::dots((490 + 31 * 525) * 800, 25_175_000));
     vga.read_port(0x3da, 1);
     let mono_on = source.current_capture().unwrap();
     assert!(mono_on.display.vga().unwrap().attribute_blink_on);

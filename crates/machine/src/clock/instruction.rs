@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Clock, Sleep, Source, Timestamp};
+use super::{Clock, ClockSource, Instant, Sleep};
 use crate::CpuStateAccess;
 use futures_channel::oneshot;
 use std::{
@@ -15,9 +15,10 @@ use std::{
 };
 
 /// A fixed-rate guest clock shared by devices on one execution owner.
-/// Time starts at zero. Bind the session CPU after device setup and before running
-/// guest code. Reads use its published instruction count, which may lag execution
-/// during synchronous device callbacks. The count must not be reset while bound.
+/// Time starts at the supplied instant. Bind the session CPU after device setup
+/// and before running guest code. Reads use its published instruction count,
+/// which may lag execution during synchronous device callbacks. The count must
+/// not be reset while bound.
 ///
 /// A scheduler calls [`Self::notify_due`] at execution boundaries and can use
 /// [`Self::advance_to`] while the guest is idle. This clock starts no host timers
@@ -26,27 +27,29 @@ use std::{
 pub struct InstructionTimeline(Rc<RefCell<State>>);
 
 struct State {
+    start: Instant,
     rate: u64,
     cpu: Option<CpuStateAccess>,
     count: u64,
-    now: Timestamp,
+    now: Instant,
     remainder: u64,
     waits: Vec<Wait>,
     scheduler: Option<Waker>,
 }
 
 struct Wait {
-    deadline: Timestamp,
+    deadline: Instant,
     complete: oneshot::Sender<()>,
 }
 
 impl InstructionTimeline {
-    pub fn new(instructions_per_second: NonZeroU64) -> Self {
+    pub fn new(start: Instant, instructions_per_second: NonZeroU64) -> Self {
         Self(Rc::new(RefCell::new(State {
+            start,
             rate: instructions_per_second.get(),
             cpu: None,
             count: 0,
-            now: Timestamp::ZERO,
+            now: start,
             remainder: 0,
             waits: Vec::new(),
             scheduler: None,
@@ -69,7 +72,7 @@ impl InstructionTimeline {
 
     /// Earliest registered wait, including overdue waits until they are notified.
     /// Dropped wait futures no longer constrain the next deadline.
-    pub fn next_deadline(&self) -> Option<Timestamp> {
+    pub fn next_deadline(&self) -> Option<Instant> {
         let mut state = self.0.borrow_mut();
         state.waits.retain(|wait| !wait.complete.is_canceled());
         state.waits.iter().map(|wait| wait.deadline).min()
@@ -95,7 +98,7 @@ impl InstructionTimeline {
 
     /// Moves idle guest time forward and notifies due waits. A past deadline
     /// leaves time unchanged; fractional CPU progress survives the idle advance.
-    pub fn advance_to(&self, deadline: Timestamp) {
+    pub fn advance_to(&self, deadline: Instant) {
         {
             let mut state = self.0.borrow_mut();
             state.now = state.observe().max(deadline);
@@ -110,7 +113,7 @@ impl InstructionTimeline {
         let mut state = self.0.borrow_mut();
         let now = state.observe();
         let quantum = quantum.as_nanos();
-        let until_sync = quantum - now.duration_since(Timestamp::ZERO).as_nanos() % quantum;
+        let until_sync = quantum - now.duration_since(state.start).as_nanos() % quantum;
         let remaining = deadline
             .map(|deadline| deadline.duration_since(now).as_nanos())
             .unwrap_or(until_sync)
@@ -149,12 +152,12 @@ impl InstructionTimeline {
     }
 }
 
-impl Source for InstructionTimeline {
-    fn now(&self) -> Timestamp {
+impl ClockSource for InstructionTimeline {
+    fn now(&self) -> Instant {
         self.0.borrow_mut().observe()
     }
 
-    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+    fn sleep_until(&self, deadline: Instant) -> Sleep {
         let timeline = self.clone();
         Sleep::new(async move {
             if deadline <= timeline.now() {
@@ -177,17 +180,17 @@ impl Source for InstructionTimeline {
 }
 
 impl State {
-    fn observe(&mut self) -> Timestamp {
+    fn observe(&mut self) -> Instant {
         if let Some(cpu) = &self.cpu {
             let count = cpu.instruction_count();
             let retired = count.wrapping_sub(self.count);
             let scaled = u128::from(retired) * 1_000_000_000 + u128::from(self.remainder);
             let nanos = scaled / u128::from(self.rate);
             self.remainder = (scaled % u128::from(self.rate)) as u64;
-            self.now = self.now.saturating_add(Duration::new(
+            self.now += Duration::new(
                 (nanos / 1_000_000_000) as u64,
                 (nanos % 1_000_000_000) as u32,
-            ));
+            );
             self.count = count;
         }
         self.now

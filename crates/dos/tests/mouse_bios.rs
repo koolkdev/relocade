@@ -1,12 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use relocade_clock_test_support::ManualClock;
 #[path = "mouse_bios/callbacks.rs"]
 mod callbacks;
 mod common;
 #[path = "mouse_bios/integration.rs"]
 mod integration;
 use relocade_dos::Dos;
-use relocade_machine::{ExecutionWorker, IoBus, ManualClock};
+use relocade_machine::{ExecutionWorker, IoBus};
 use relocade_x86::{CpuState, ExecutionExit};
 
 use common::mouse::{wait_status, write};

@@ -1,9 +1,8 @@
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
-use relocade_machine::{
-    worker::wake_connection, CpuStorage, IoBus, ManualClock, Runner, Timestamp,
-};
+use relocade_machine::{worker::wake_connection, CpuStorage, IoBus, Runner};
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
 use relocade_ps2::{
     connect, read_keyboard_latch, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
@@ -78,16 +77,16 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0xfa);
             input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
-            clock.advance_to(Timestamp::ZERO + Duration::from_millis(249));
+            clock.advance_to(clock_origin() + Duration::from_millis(249));
             no_output(&io).await;
-            clock.advance_to(Timestamp::ZERO + Duration::from_millis(250));
+            clock.advance_to(clock_origin() + Duration::from_millis(250));
             assert_eq!(next_byte(&io).await, 0x1e);
-            clock.advance_to(Timestamp::ZERO + Duration::from_millis(4000));
+            clock.advance_to(clock_origin() + Duration::from_millis(4000));
             assert_eq!(next_byte(&io).await, 0x1e);
             no_output(&io).await; // Late scheduling produces one repeat, not a burst.
             input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
             assert_eq!(next_byte(&io).await, 0x9e);
-            clock.advance_to(Timestamp::ZERO + Duration::from_millis(5000));
+            clock.advance_to(clock_origin() + Duration::from_millis(5000));
             no_output(&io).await;
 
             input

@@ -1,7 +1,7 @@
 use crate::common::{self, boundary, crtc, dots, poll_video, svga_boundary};
 use common::support::{registers::palette, svga};
+use relocade_clock_test_support::{origin as clock_origin, ManualClock};
 use relocade_machine::Device;
-use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{Scanout, Vga};
 use std::{
     cell::RefCell,
@@ -47,7 +47,7 @@ fn packed_status_and_publication_ignore_legacy_timing_and_blink() {
         (492 * 800, 1),
         (525 * 800, 0),
     ] {
-        clock.advance_to(Timestamp::ZERO + dots(count, 25_175_000));
+        clock.advance_to(clock_origin() + dots(count, 25_175_000));
         assert_eq!(vga.read_port(0x3da, 1), status, "dot {count}");
     }
     let first = source.current_capture().unwrap();
@@ -58,12 +58,12 @@ fn packed_status_and_publication_ignore_legacy_timing_and_blink() {
     crtc(&mut vga, 0x0d, 19);
     svga::set(&mut vga, 5, 63);
     vga.write_port(0x3c8, 1, 200); // Transfer position alone changes no DAC color.
-    clock.advance_to(Timestamp::ZERO + svga_boundary(24)); // Both VGA blink phases have changed.
+    clock.advance_to(clock_origin() + svga_boundary(24)); // Both VGA blink phases have changed.
     vga.read_port(0x3da, 1);
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
 
     palette(&mut vga, 1, [21, 42, 63]);
-    clock.advance_to(Timestamp::ZERO + svga_boundary(25));
+    clock.advance_to(clock_origin() + svga_boundary(25));
     vga.read_port(0x3da, 1);
     let recolored = source.current_capture().unwrap();
     assert_eq!(
@@ -86,7 +86,7 @@ fn mode_switches_finish_old_boundaries_and_keep_sequences_and_retained_memory() 
     }
     vga.write_port(0x1ce, 2, 4);
     let entered = boundary(3) + Duration::from_nanos(1);
-    clock.advance_to(Timestamp::ZERO + entered);
+    clock.advance_to(clock_origin() + entered);
     vga.write_port(0x1cf, 2, 1); // The actual enable services VGA before clearing VRAM.
     let legacy = source.current_capture().unwrap();
     assert_eq!((legacy.sequence, legacy.time), (3, boundary(3)));
@@ -94,10 +94,10 @@ fn mode_switches_finish_old_boundaries_and_keep_sequences_and_retained_memory() 
     assert_eq!(legacy.display.plane(0)[0], b'A');
     svga::write_byte(&mut vga, 307199, 6);
 
-    clock.advance_to(Timestamp::ZERO + entered + svga_boundary(1) - Duration::from_nanos(1));
+    clock.advance_to(clock_origin() + entered + svga_boundary(1) - Duration::from_nanos(1));
     assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
     assert!(Arc::ptr_eq(&legacy, &source.current_capture().unwrap()));
-    clock.advance_to(Timestamp::ZERO + entered + svga_boundary(1));
+    clock.advance_to(clock_origin() + entered + svga_boundary(1));
     vga.write_mmio(0xaafff, 1, 7); // Bank 4 is already selected; this write services the boundary.
     let packed = source.current_capture().unwrap();
     assert_eq!(
@@ -109,20 +109,20 @@ fn mode_switches_finish_old_boundaries_and_keep_sequences_and_retained_memory() 
 
     vga.write_port(0x1ce, 2, 4);
     let exited = entered + svga_boundary(2);
-    clock.advance_to(Timestamp::ZERO + exited);
+    clock.advance_to(clock_origin() + exited);
     vga.write_port(0x1cf, 2, 0); // The actual disable publishes packed state before switching.
     let last_packed = source.current_capture().unwrap();
     assert_eq!((last_packed.sequence, last_packed.time), (5, exited));
     assert_eq!(last_packed.display.vram_byte(307199), Some(7));
     assert!(matches!(last_packed.display.scanout(), Scanout::Svga(_)));
     vga.write_mmio(0xb8000, 2, 0x0742);
-    clock.advance_to(Timestamp::ZERO + exited + boundary(1) - Duration::from_nanos(1));
+    clock.advance_to(clock_origin() + exited + boundary(1) - Duration::from_nanos(1));
     assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
     assert!(Arc::ptr_eq(
         &last_packed,
         &source.current_capture().unwrap()
     ));
-    clock.advance_to(Timestamp::ZERO + exited + boundary(1));
+    clock.advance_to(clock_origin() + exited + boundary(1));
     vga.read_port(0x3da, 1);
     let resumed = source.current_capture().unwrap();
     assert_eq!((resumed.sequence, resumed.time), (6, exited + boundary(1)));
@@ -139,7 +139,7 @@ fn mode_switches_finish_old_boundaries_and_keep_sequences_and_retained_memory() 
 fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     let clock = ManualClock::default();
     let origin = Duration::from_secs(5);
-    clock.advance_to(Timestamp::ZERO + origin);
+    clock.advance_to(clock_origin() + origin);
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
     vga.borrow_mut().write_port(0x3c4, 2, 0x0100); // Hold the legacy raster in reset.
     let mut video = std::pin::pin!(Vga::run(vga.clone()));
@@ -148,7 +148,7 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         None
     );
     let source = vga.borrow().frame_source();
@@ -160,46 +160,50 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(origin + svga_boundary(1))
     );
 
     let mut first = std::pin::pin!(source.next_capture(None));
     assert!(first.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(Timestamp::ZERO + origin + svga_boundary(1));
+    clock.advance_to(clock_origin() + origin + svga_boundary(1));
     poll_video(video.as_mut(), &mut cx);
     let Poll::Ready(Some(first)) = first.as_mut().poll(&mut cx) else {
         panic!("first packed frame")
     };
     assert_eq!(first.sequence, 1);
+    assert_eq!(first.time, svga_boundary(1)); // Excludes time before device creation.
     svga::set(&mut *vga.borrow_mut(), 4, 1); // Repeated enable must not restart the phase.
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(origin + svga_boundary(2))
     );
     let mut next = std::pin::pin!(source.next_capture(Some(first.sequence)));
     assert!(next.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(Timestamp::ZERO + origin + svga_boundary(1_000_000));
+    clock.advance_to(clock_origin() + origin + svga_boundary(1_000_000));
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(origin + svga_boundary(1_000_001))
     );
     assert!(next.as_mut().poll(&mut cx).is_pending());
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
     svga::write_byte(&mut *vga.borrow_mut(), 307199, 7);
     let exited = origin + svga_boundary(1_000_001);
-    clock.advance_to(Timestamp::ZERO + exited);
+    clock.advance_to(clock_origin() + exited);
     poll_video(video.as_mut(), &mut cx);
     let Poll::Ready(Some(latest)) = next.as_mut().poll(&mut cx) else {
         panic!("changed packed frame")
     };
-    assert_eq!((latest.sequence, latest.time), (1_000_001, exited));
+    assert_eq!(
+        (latest.sequence, latest.time),
+        (1_000_001, svga_boundary(1_000_001))
+    );
     assert_eq!(latest.display.vram_byte(307199), Some(7));
 
     svga::set(&mut *vga.borrow_mut(), 4, 0);
@@ -207,7 +211,7 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         None
     ); // Return to the still-reset VGA raster.
     vga.borrow_mut().write_port(0x3c4, 2, 0x0300);
@@ -215,10 +219,10 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     assert_eq!(
         clock
             .next_deadline()
-            .map(|at| at.duration_since(Timestamp::ZERO)),
+            .map(|at| at.duration_since(clock_origin())),
         Some(exited + boundary(1))
     );
-    clock.advance_to(Timestamp::ZERO + exited + boundary(1));
+    clock.advance_to(clock_origin() + exited + boundary(1));
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(source.current_capture().unwrap().sequence, 1_000_002);
 }
@@ -235,10 +239,10 @@ fn indexed_modes_publish_at_their_own_dmt_retrace_boundaries() {
         let mut vga = Vga::with_clock(clock.clock());
         common::support::svga::set_mode(&mut vga, width, height, 8);
         let start = common::dots(line_dots * retrace_start, clock_hz);
-        clock.advance_to(Timestamp::ZERO + start - std::time::Duration::from_nanos(1));
+        clock.advance_to(clock_origin() + start - std::time::Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
         assert!(vga.frame_source().current_capture().is_none());
-        clock.advance_to(Timestamp::ZERO + start);
+        clock.advance_to(clock_origin() + start);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
         let capture = vga.frame_source().current_capture().unwrap();
         assert_eq!(capture.sequence, 1);
@@ -247,14 +251,14 @@ fn indexed_modes_publish_at_their_own_dmt_retrace_boundaries() {
             [u32::from(width), u32::from(height)]
         );
         let end = common::dots(line_dots * retrace_end, clock_hz);
-        clock.advance_to(Timestamp::ZERO + end);
+        clock.advance_to(clock_origin() + end);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
         vga.write_mmio(0xa0000, 1, 1);
         let second = common::dots(line_dots * (total_lines + retrace_start), clock_hz);
-        clock.advance_to(Timestamp::ZERO + second - std::time::Duration::from_nanos(1));
+        clock.advance_to(clock_origin() + second - std::time::Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
         assert_eq!(vga.frame_source().current_capture().unwrap().sequence, 1);
-        clock.advance_to(Timestamp::ZERO + second);
+        clock.advance_to(clock_origin() + second);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
         let capture = vga.frame_source().current_capture().unwrap();
         assert_eq!(capture.sequence, 2);
@@ -268,14 +272,14 @@ fn pitch_and_origin_updates_preserve_raster_phase_and_completed_captures() {
     let clock = ManualClock::default();
     let mut vga = Vga::with_clock(clock.clock());
     svga::enable(&mut vga);
-    clock.advance_to(Timestamp::ZERO + svga_boundary(1));
+    clock.advance_to(clock_origin() + svga_boundary(1));
     vga.read_port(0x3da, 1);
     let original = vga.frame_source().current_capture().unwrap();
-    clock.advance_to(Timestamp::ZERO + svga_boundary(2) - Duration::from_nanos(1));
+    clock.advance_to(clock_origin() + svga_boundary(2) - Duration::from_nanos(1));
     svga::set(&mut vga, 6, 1024);
     svga::set(&mut vga, 8, 32);
     svga::set(&mut vga, 9, 480);
-    clock.advance_to(Timestamp::ZERO + svga_boundary(2));
+    clock.advance_to(clock_origin() + svga_boundary(2));
     vga.read_port(0x3da, 1);
     let next = vga.frame_source().current_capture().unwrap();
     assert_eq!(next.sequence, 2);

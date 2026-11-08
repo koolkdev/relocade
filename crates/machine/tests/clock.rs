@@ -185,3 +185,45 @@ fn session_completion_and_cancellation_stop_their_timer_workers() {
 async fn session_completion_and_cancellation_stop_their_timer_workers() {
     session_shutdown().await;
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn calendar_mapping_is_separate_from_monotonic_clock_progress() {
+    use relocade_machine::{Instant, InstructionTimeline, SystemTime, TimeOrigin};
+    use std::num::NonZeroU64;
+
+    let start = Instant::now() + Duration::from_secs(10);
+    let calendar = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+    let origin = TimeOrigin::new(start, calendar);
+    let timeline = InstructionTimeline::new(origin.instant(), NonZeroU64::new(1000).unwrap());
+    let clock = timeline.clock();
+    assert_eq!(clock.now(), start);
+    assert_eq!(origin.to_system_time(clock.now()), calendar);
+    assert_eq!(
+        origin.to_system_time(start - Duration::from_secs(2)),
+        calendar - Duration::from_secs(2)
+    );
+    timeline.advance_to(start + Duration::from_millis(250));
+    assert_eq!(
+        origin.to_system_time(clock.now()),
+        calendar + Duration::from_millis(250)
+    );
+    // Replacing the calendar anchor cannot alter the clock or its deadlines.
+    let corrected = TimeOrigin::new(start, calendar + Duration::from_secs(3));
+    assert_eq!(clock.now(), start + Duration::from_millis(250));
+    assert_eq!(
+        corrected.to_system_time(clock.now()),
+        calendar + Duration::from_millis(3250)
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn host_clock_uses_the_host_instant_timebase() {
+    use relocade_machine::Instant;
+    let before = Instant::now();
+    let (handle, _driver) = timer_service();
+    let now = handle.clock().now();
+    let after = Instant::now();
+    assert!(before <= now && now <= after);
+}
