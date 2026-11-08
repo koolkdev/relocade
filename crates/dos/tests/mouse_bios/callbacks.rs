@@ -1,5 +1,5 @@
-use super::{common, success, wait_status, with_mouse, write, MouseDos};
-use relocade_machine::IoBus;
+use super::{common, success, with_mouse, MouseDos};
+pub(super) use common::mouse::inject;
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 pub(super) async fn install(dos: &mut MouseDos) {
@@ -34,12 +34,6 @@ pub(super) async fn install(dos: &mut MouseDos) {
     success(dos, 5, 0x0300).await;
     success(dos, 7, 0x0300).await;
     success(dos, 0, 0x0100).await;
-}
-
-pub(super) async fn inject(io: &IoBus, byte: u8) {
-    write(io, 0x64, 0xd3).await;
-    write(io, 0x60, byte).await;
-    wait_status(io, 0x21, 0x21).await;
 }
 
 pub(super) async fn deliver(dos: &mut MouseDos, packet: [u8; 3]) {
