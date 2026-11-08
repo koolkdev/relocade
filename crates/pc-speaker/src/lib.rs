@@ -3,7 +3,7 @@
 #[cfg(feature = "audio")]
 mod audio;
 
-use relocade_machine::{Clock, Device, DeviceConnection, Runner, TimerHandle};
+use relocade_machine::{Device, DeviceConnection, Runner};
 use relocade_pit::Pit;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -12,8 +12,8 @@ pub const SPEAKER_CONTROL_PORT: u16 = 0x61;
 pub const PORT_RANGE: RangeInclusive<u16> = SPEAKER_CONTROL_PORT..=SPEAKER_CONTROL_PORT;
 
 /// Execution-owned speaker gate and drive, connected to PIT channel 2.
-pub struct Speaker<C = TimerHandle> {
-    pit: Rc<RefCell<Pit<C>>>,
+pub struct Speaker {
+    pit: Rc<RefCell<Pit>>,
     control: u8,
     #[cfg(feature = "audio")]
     audio: Option<audio::Audio>,
@@ -21,22 +21,19 @@ pub struct Speaker<C = TimerHandle> {
     audio_ready: (async_channel::Sender<()>, async_channel::Receiver<()>),
 }
 
-impl<C: Clock> Speaker<C> {
+impl Speaker {
     /// Creates the speaker and registers its control port and playback activity.
     /// Returns the speaker handle and its port connection for the CPU bus.
     pub async fn initialize(
-        runner: &Runner<C>,
-        pit: Rc<RefCell<Pit<C>>>,
-    ) -> (Rc<RefCell<Self>>, DeviceConnection)
-    where
-        C: 'static,
-    {
+        runner: &Runner,
+        pit: Rc<RefCell<Pit>>,
+    ) -> (Rc<RefCell<Self>>, DeviceConnection) {
         let speaker = Rc::new(RefCell::new(Self::new(pit)));
         let connection = runner.connect(speaker.clone(), [], [PORT_RANGE]).await;
         (speaker, connection)
     }
 
-    pub fn new(pit: Rc<RefCell<Pit<C>>>) -> Self {
+    pub fn new(pit: Rc<RefCell<Pit>>) -> Self {
         Self {
             pit,
             control: 0,
@@ -54,7 +51,7 @@ impl<C: Clock> Speaker<C> {
     }
 }
 
-impl<C: Clock> Device for Speaker<C> {
+impl Device for Speaker {
     #[cfg(feature = "audio")]
     async fn run(device: Rc<RefCell<Self>>) {
         audio::run(device).await;

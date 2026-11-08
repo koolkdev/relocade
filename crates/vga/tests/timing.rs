@@ -1,6 +1,7 @@
 mod common;
-use common::{boundary, crtc, dots, poll_video, ManualClock};
+use common::{boundary, crtc, dots, poll_video};
 use relocade_machine::Device;
+use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::Vga;
 use std::{
     cell::RefCell,
@@ -22,8 +23,8 @@ fn sequencer(vga: &mut impl Device, index: u8, value: u8) {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn blink_dividers_follow_retraces_at_different_dot_clocks() {
     for (miscellaneous, frequency) in [(0x43, 25_175_000), (0x47, 28_322_000)] {
-        let clock = Rc::new(ManualClock::default());
-        let mut vga = Vga::with_clock(clock.clone());
+        let clock = ManualClock::default();
+        let mut vga = Vga::with_clock(clock.clock());
         vga.write_port(0x3c2, 1, miscellaneous);
         let source = vga.frame_source();
         // Cursor and attribute phases differ over each half of a 32-frame cycle.
@@ -38,7 +39,7 @@ fn blink_dividers_follow_retraces_at_different_dot_clocks() {
             (31, false, false),
             (32, true, true),
         ] {
-            clock.set(dots((412 + (frame - 1) * 449) * 800, frequency));
+            clock.advance_to(Timestamp::ZERO + dots((412 + (frame - 1) * 449) * 800, frequency));
             vga.read_port(0x3da, 1);
             let capture = source.current_capture().unwrap();
             assert_eq!(
@@ -57,8 +58,8 @@ fn blink_dividers_follow_retraces_at_different_dot_clocks() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn guest_status_tracks_display_enable_and_retrace_without_a_video_future() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     // CRTC blanking intersects active display but does not change the separate
     // display-enable signal reported by Input Status 1 bit zero.
     crtc(&mut vga, 0x11, 0x2e);
@@ -84,7 +85,7 @@ fn guest_status_tracks_display_enable_and_retrace_without_a_video_future() {
         (414 * 800, 1),
         (449 * 800, 0),
     ] {
-        clock.set(dots(count, 25_175_000));
+        clock.advance_to(Timestamp::ZERO + dots(count, 25_175_000));
         assert_eq!(vga.read_port(0x3da, 1), status, "dot {count}");
     }
 }
@@ -100,8 +101,8 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
         // Dividing the dot clock doubles every raster interval.
         (0x47, 8, 0xbf, 0x1f, 0x9c, 0x8f, 18, 28_322_000),
     ] {
-        let clock = Rc::new(ManualClock::default());
-        let mut vga = Vga::with_clock(clock.clone());
+        let clock = ManualClock::default();
+        let mut vga = Vga::with_clock(clock.clock());
         sequencer(&mut vga, 0, 1);
         vga.write_port(0x3c2, 1, misc);
         sequencer(&mut vga, 1, clocking);
@@ -118,19 +119,19 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
             (412, 449)
         };
         let first = dots(retrace_line * 100 * dot_width, frequency);
-        clock.set(first - Duration::from_nanos(1));
+        clock.advance_to(Timestamp::ZERO + first - Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
         assert!(source.current_capture().is_none());
-        clock.set(first);
+        clock.advance_to(Timestamp::ZERO + first);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
         let capture = source.current_capture().unwrap();
         assert_eq!(capture.time, first);
         assert_eq!(capture.sequence, 1);
 
         let second = dots((retrace_line + total_lines) * 100 * dot_width, frequency);
-        clock.set(second - Duration::from_nanos(1));
+        clock.advance_to(Timestamp::ZERO + second - Duration::from_nanos(1));
         assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
-        clock.set(second);
+        clock.advance_to(Timestamp::ZERO + second);
         assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
         // Retrace still advances without replacing unchanged display inputs.
         assert!(Arc::ptr_eq(&capture, &source.current_capture().unwrap()));
@@ -140,8 +141,8 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn overflow_retrace_end_and_vertical_counter_division_are_independent_of_character_height() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     sequencer(&mut vga, 0, 1);
     crtc(&mut vga, 0x11, 0x21); // Retrace ends when the low four bits equal 1.
     crtc(&mut vga, 6, 0x56); // 600 vertical counts including blanking.
@@ -158,7 +159,7 @@ fn overflow_retrace_end_and_vertical_counter_division_are_independent_of_charact
         (529 * 2, 1),
         (600 * 2, 0),
     ] {
-        clock.set(dots(line * 800, 25_175_000));
+        clock.advance_to(Timestamp::ZERO + dots(line * 800, 25_175_000));
         assert_eq!(vga.read_port(0x3da, 1), status, "line {line}");
     }
 }
@@ -166,17 +167,17 @@ fn overflow_retrace_end_and_vertical_counter_division_are_independent_of_charact
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn changing_the_vertical_clock_divider_preserves_the_live_counter() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
-    clock.set(dots(412 * 800, 25_175_000));
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
+    clock.advance_to(Timestamp::ZERO + dots(412 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 9);
     crtc(&mut vga, 0x17, 0xa7);
     assert_eq!(vga.read_port(0x3da, 1), 9);
     // The existing counter is 412; reaching retrace end 414 now takes four
     // physical lines. The status follows the existing counter.
-    clock.set(dots(415 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + dots(415 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 9);
-    clock.set(dots(416 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + dots(416 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 1);
     crtc(&mut vga, 0x17, 0xa3);
     assert_eq!(vga.read_port(0x3da, 1), 1);
@@ -185,15 +186,15 @@ fn changing_the_vertical_clock_divider_preserves_the_live_counter() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn retrace_end_comparison_continues_after_the_vertical_counter_wraps() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     sequencer(&mut vga, 0, 1);
     for (index, value) in [(0x11, 1), (6, 18), (7, 0), (0x10, 17)] {
         crtc(&mut vga, index, value);
     }
     sequencer(&mut vga, 0, 3);
     for (line, retrace) in [(16, 0), (17, 8), (19, 8), (20, 8), (21, 0)] {
-        clock.set(dots(line * 800, 25_175_000));
+        clock.advance_to(Timestamp::ZERO + dots(line * 800, 25_175_000));
         assert_eq!(vga.read_port(0x3da, 1) & 8, retrace, "line {line}");
     }
 }
@@ -201,105 +202,132 @@ fn retrace_end_comparison_continues_after_the_vertical_counter_wraps() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn disabling_sync_suppresses_the_pulse_without_resetting_counters_or_capture_boundary() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let source = vga.frame_source();
-    clock.set(dots(411 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + dots(411 * 800, 25_175_000));
     crtc(&mut vga, 0x17, 0x23);
-    clock.set(boundary(1));
+    clock.advance_to(Timestamp::ZERO + boundary(1));
     assert_eq!(vga.read_port(0x3da, 1), 1);
     let capture = source.current_capture().unwrap();
     assert_eq!(capture.time, boundary(1));
     assert_eq!(capture.sequence, 1);
     crtc(&mut vga, 0x17, 0xa3);
     assert_eq!(vga.read_port(0x3da, 1), 9);
-    clock.set(dots(414 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + dots(414 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 1);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn changing_oscillators_uses_elapsed_old_clock_ticks_then_the_new_frequency() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
-    clock.set(Duration::from_millis(1));
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
+    clock.advance_to(Timestamp::ZERO + Duration::from_millis(1));
     vga.write_port(0x3c2, 1, 0x47);
     // One millisecond consumed exactly 25,175 dots. The remaining 304,425
     // dots to line 412 use 28.322 MHz, without resetting the raster phase.
     let deadline = Duration::from_millis(1) + dots(304_425, 28_322_000);
-    clock.set(deadline - Duration::from_nanos(1));
+    clock.advance_to(Timestamp::ZERO + deadline - Duration::from_nanos(1));
     assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
-    clock.set(deadline);
+    clock.advance_to(Timestamp::ZERO + deadline);
     assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn clock_stop_preserves_phase_and_sequencer_reset_restarts_from_zero() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
-    clock.set(dots(412 * 800, 25_175_000));
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
+    clock.advance_to(Timestamp::ZERO + dots(412 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 9);
     vga.write_port(0x3c2, 1, 0x4b);
-    clock.set(Duration::from_secs(1));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(1));
     assert_eq!(vga.read_port(0x3da, 1), 9);
     vga.write_port(0x3c2, 1, 0x43);
     assert_eq!(vga.read_port(0x3da, 1), 9);
-    clock.set(Duration::from_secs(1) + dots(2 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(1) + dots(2 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 1);
 
     // Sequencer reset discards that phase and holds the counters until released.
     sequencer(&mut vga, 0, 1);
-    clock.set(Duration::from_secs(2));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(2));
     assert_eq!(vga.read_port(0x3da, 1), 1);
     sequencer(&mut vga, 0, 3);
     assert_eq!(vga.read_port(0x3da, 1), 0);
-    clock.set(Duration::from_secs(2) + dots(412 * 800 - 1, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(2) + dots(412 * 800 - 1, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 1);
-    clock.set(Duration::from_secs(2) + dots(412 * 800, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(2) + dots(412 * 800, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 9);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_follow_the_device_origin_and_do_not_accumulate_rounding() {
-    let clock = Rc::new(ManualClock::default());
+    let clock = ManualClock::default();
     let origin = Duration::from_secs(12);
-    clock.set(origin);
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    clock.advance_to(Timestamp::ZERO + origin);
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
     let mut video = pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
-    assert_eq!(clock.deadline.get(), Some(origin + boundary(1)));
+    assert_eq!(
+        clock
+            .next_deadline()
+            .map(|at| at.duration_since(Timestamp::ZERO)),
+        Some(origin + boundary(1))
+    );
     for frame in [1, 2, 100, 1_000_000] {
-        clock.set(origin + boundary(frame) - Duration::from_nanos(1));
+        clock.advance_to(Timestamp::ZERO + origin + boundary(frame) - Duration::from_nanos(1));
         poll_video(video.as_mut(), &mut cx);
-        assert_eq!(clock.deadline.get(), Some(origin + boundary(frame)));
-        clock.set(origin + boundary(frame));
+        assert_eq!(
+            clock
+                .next_deadline()
+                .map(|at| at.duration_since(Timestamp::ZERO)),
+            Some(origin + boundary(frame))
+        );
+        clock.advance_to(Timestamp::ZERO + origin + boundary(frame));
         poll_video(video.as_mut(), &mut cx);
-        assert_eq!(clock.deadline.get(), Some(origin + boundary(frame + 1)));
+        assert_eq!(
+            clock
+                .next_deadline()
+                .map(|at| at.duration_since(Timestamp::ZERO)),
+            Some(origin + boundary(frame + 1))
+        );
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn configuration_changes_replace_a_pending_deadline_and_restart_a_stopped_device() {
-    let clock = Rc::new(ManualClock::default());
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let clock = ManualClock::default();
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
     let mut video = pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
-    assert_eq!(clock.deadline.get(), Some(boundary(1)));
+    assert_eq!(
+        clock
+            .next_deadline()
+            .map(|at| at.duration_since(Timestamp::ZERO)),
+        Some(boundary(1))
+    );
     vga.borrow_mut().write_port(0x3c2, 1, 0x47);
     poll_video(video.as_mut(), &mut cx);
-    assert_eq!(clock.deadline.get(), Some(dots(412 * 800, 28_322_000)));
+    assert_eq!(
+        clock
+            .next_deadline()
+            .map(|at| at.duration_since(Timestamp::ZERO)),
+        Some(dots(412 * 800, 28_322_000))
+    );
     sequencer(&mut *vga.borrow_mut(), 0, 1);
     poll_video(video.as_mut(), &mut cx);
-    clock.set(Duration::from_secs(1));
+    clock.advance_to(Timestamp::ZERO + Duration::from_secs(1));
     sequencer(&mut *vga.borrow_mut(), 0, 3);
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(
-        clock.deadline.get(),
+        clock
+            .next_deadline()
+            .map(|at| at.duration_since(Timestamp::ZERO)),
         Some(Duration::from_secs(1) + dots(412 * 800, 28_322_000))
     );
 }
@@ -307,13 +335,13 @@ fn configuration_changes_replace_a_pending_deadline_and_restart_a_stopped_device
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn changing_character_width_preserves_the_horizontal_counter_and_partial_dot() {
-    let clock = Rc::new(ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let changed_at = dots(79 * 8 + 4, 25_175_000);
-    clock.set(changed_at);
+    clock.advance_to(Timestamp::ZERO + changed_at);
     sequencer(&mut vga, 1, 0); // Still character 79, now nine dots wide.
-    clock.set(changed_at + dots(4, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + changed_at + dots(4, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 0);
-    clock.set(changed_at + dots(5, 25_175_000));
+    clock.advance_to(Timestamp::ZERO + changed_at + dots(5, 25_175_000));
     assert_eq!(vga.read_port(0x3da, 1), 1);
 }

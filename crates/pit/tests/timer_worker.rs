@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
     timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, IoBus,
-    MachineConfig, Memory, TimerHandle,
+    MachineConfig, Memory, Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -21,11 +21,11 @@ use std::{
 const INTERRUPTS: usize = 64;
 
 struct Reports {
-    clock: TimerHandle,
+    clock: Clock,
     ready: Option<oneshot::Sender<()>>,
     host_busy: Arc<AtomicBool>,
     count: Arc<AtomicUsize>,
-    samples: Vec<Duration>,
+    samples: Vec<Timestamp>,
     exit: Option<ExitHandle>,
 }
 
@@ -53,7 +53,7 @@ impl Device for Reports {
 /// Delivers 500 Hz PIT interrupts to a busy guest while its host cannot relay wakes.
 async fn timer_interrupts() -> Result<(), String> {
     let (clock, timers) = timer_service();
-    let warmup = clock.clone();
+    let warmup = clock.clock();
     let (start, started) = oneshot::channel();
     let (ready, running) = oneshot::channel();
     let count = Arc::new(AtomicUsize::new(0));

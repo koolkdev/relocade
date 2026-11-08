@@ -1,8 +1,7 @@
 //! Sampled buttons, independently consumed counters and logical coordinates.
 
 use super::motion::{Acceleration, Axis};
-use relocade_machine::{FarPointer, MemoryView};
-use std::time::Duration;
+use relocade_machine::{FarPointer, MemoryView, Timestamp};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Point {
@@ -85,7 +84,7 @@ impl State {
     pub fn packet(
         &mut self,
         memory: &MemoryView<'_>,
-        now: Duration,
+        now: Timestamp,
         buttons: u16,
         x: i16,
         y: i16,

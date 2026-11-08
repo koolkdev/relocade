@@ -294,20 +294,11 @@ async fn check_shared_output(device: &wgpu::Device, queue: &wgpu::Queue) {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_machine::{Clock, Device};
+    use relocade_machine::Device;
     use relocade_vga::{Vga, TEXT_MEMORY_START};
-    use std::{cell::Cell, rc::Rc, time::Duration};
-    struct TestClock(Cell<Duration>);
-    impl Clock for TestClock {
-        fn now(&self) -> Duration {
-            self.0.get()
-        }
-        async fn wait_until(&self, _: Duration) {
-            std::future::pending().await
-        }
-    }
-    let clock = Rc::new(TestClock(Cell::new(Duration::ZERO)));
-    let mut vga = Vga::with_clock(clock.clone());
+    use std::time::Duration;
+    let clock = relocade_machine::ManualClock::new();
+    let mut vga = Vga::with_clock(clock.clock());
     vga_fixture::initialize_font(&mut vga);
     for cell in 0..2000 {
         vga.write_mmio(TEXT_MEMORY_START + cell * 2, 2, 0x0720);
@@ -316,7 +307,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     for value in [0x070e, 0xcf0f, 0x060a, 0x070b] {
         vga.write_port(0x3d4, 2, value);
     }
-    clock.0.set(Duration::from_millis(20));
+    clock.advance_to(relocade_machine::Timestamp::ZERO + Duration::from_millis(20));
     vga.read_port(0x3da, 1);
     let frame = software::rasterize(&vga.frame_source().current_capture().unwrap());
     let size = [frame.width, frame.height];

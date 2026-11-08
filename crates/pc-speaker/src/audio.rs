@@ -1,10 +1,9 @@
 use crate::Speaker;
 use async_channel::Sender;
-use relocade_machine::Clock;
 use relocade_pit::{Counter, INPUT_HZ};
 use std::{cell::RefCell, rc::Rc};
 
-impl<C: Clock> Speaker<C> {
+impl Speaker {
     /// Attaches output once, including after the device activity has started.
     /// Synthesis runs on the execution worker. Connect a bounded channel
     /// consumed at the configured playback rate: backpressure provides scheduling
@@ -77,7 +76,7 @@ impl Audio {
     }
 }
 
-pub(super) async fn run<C: Clock>(device: Rc<RefCell<Speaker<C>>>) {
+pub(super) async fn run(device: Rc<RefCell<Speaker>>) {
     let ready = device.borrow().audio_ready.1.clone();
     ready.recv().await.unwrap();
     let samples = device.borrow().audio.as_ref().unwrap().samples.clone();

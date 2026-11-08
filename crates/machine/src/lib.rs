@@ -44,7 +44,9 @@ mod memory;
 mod runner;
 pub mod runtime;
 
-pub use clock::{timer_service, Clock, TimerDriver, TimerHandle};
+pub use clock::{
+    timer_service, Clock, HostTimerDriver, ManualClock, Sleep, TimerHandle, Timestamp,
+};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{Device, DeviceConnection, IoBus};

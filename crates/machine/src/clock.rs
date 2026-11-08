@@ -1,62 +1,69 @@
-//! Shared time and deadline notifications from a dedicated timer worker.
+//! Clonable timebases and owned deadline waits.
 
 mod driver;
-pub use driver::TimerDriver;
+mod host;
+mod manual;
+mod timestamp;
+pub use driver::HostTimerDriver;
+pub use host::{timer_service, TimerHandle};
+pub use manual::ManualClock;
+pub use timestamp::Timestamp;
 
-use futures_channel::{mpsc, oneshot};
-use std::{future::Future, time::Duration};
-use web_time::Instant;
+use std::{
+    future::Future,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-/// Elapsed session time and asynchronous waits on that timebase.
-/// Devices and CPU services use the same interface; tests can control time manually.
-pub trait Clock {
-    fn now(&self) -> Duration;
-    fn wait_until(&self, deadline: Duration) -> impl Future<Output = ()>;
-
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> {
-        self.wait_until(self.now().saturating_add(duration))
-    }
-}
-
-/// A clonable handle to the host timer service.
-/// [`Clock::now`] reads elapsed real time; waits arrive through Rust channels.
-/// The timer driver starts a dedicated worker. Clones preserve their time origin,
-/// including across workers.
+/// Read and wait on one timebase. Clones share its origin and progress.
+/// A clock stays on its execution owner; its controller supplies the operations
+/// that advance time or drive timers. Host and guest clocks are chosen at setup.
 #[derive(Clone)]
-pub struct TimerHandle {
-    start: Instant,
-    requests: mpsc::UnboundedSender<driver::Request>,
+pub struct Clock(Rc<dyn Source>);
+
+trait Source {
+    fn now(&self) -> Timestamp;
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep;
 }
 
-/// Creates a timer service handle and its worker driver.
-/// Start [`TimerDriver::run`] or [`TimerDriver::spawn`] alongside execution.
-/// Dropping a wait cancels its timer; dropping all handles lets the driver finish.
-pub fn timer_service() -> (TimerHandle, TimerDriver) {
-    let (requests, receiver) = mpsc::unbounded();
-    (
-        TimerHandle {
-            start: Instant::now(),
-            requests,
-        },
-        TimerDriver::new(receiver),
-    )
-}
-
-impl Clock for TimerHandle {
-    fn now(&self) -> Duration {
-        self.start.elapsed()
+impl Clock {
+    fn new(source: impl Source + 'static) -> Self {
+        Self(Rc::new(source))
     }
 
-    async fn wait_until(&self, deadline: Duration) {
-        let (complete, completed) = oneshot::channel();
-        self.requests
-            .unbounded_send(driver::Request {
-                deadline: self.start + deadline,
-                complete,
-            })
-            .expect("timer service must outlive its clock handles");
-        completed
-            .await
-            .expect("timer service must remain active while a wait is pending");
+    pub fn now(&self) -> Timestamp {
+        self.0.now()
+    }
+
+    /// Captures the deadline now, even if the returned future is polled later.
+    pub fn sleep(&self, duration: Duration) -> Sleep {
+        self.sleep_until(self.now().saturating_add(duration))
+    }
+
+    /// Waits on a timestamp from this clock's timebase. Registration happens on
+    /// first poll; dropping the future cancels the wait. An expired deadline may
+    /// complete immediately, so awaiting a sleep does not promise an executor yield.
+    pub fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+        self.0.sleep_until(deadline)
+    }
+}
+
+/// An owned deadline wait that does not borrow its clock or a device.
+#[must_use = "a sleep must be polled to register its deadline"]
+pub struct Sleep(Pin<Box<dyn Future<Output = ()>>>);
+
+impl Sleep {
+    fn new(future: impl Future<Output = ()> + 'static) -> Self {
+        Self(Box::pin(future))
+    }
+}
+
+impl Future for Sleep {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.0.as_mut().poll(cx)
     }
 }

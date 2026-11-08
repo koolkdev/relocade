@@ -8,12 +8,13 @@ use std::{
 };
 
 async fn clock_waits() {
-    let (clock, timers) = timer_service();
+    let (handle, timers) = timer_service();
+    let clock = Clock::from(handle);
     let other = clock.clone();
     let waits = async move {
         let deadline = clock.now() + Duration::from_millis(10);
         let long = async {
-            clock.wait_until(deadline).await;
+            clock.sleep_until(deadline).await;
             assert!(clock.now() >= deadline);
         };
         let short = async {
@@ -27,12 +28,13 @@ async fn clock_waits() {
 }
 
 async fn delayed_driver() {
-    let (clock, timers) = timer_service();
+    let (handle, timers) = timer_service();
+    let clock = Clock::from(handle);
     let mut cx = Context::from_waker(Waker::noop());
     let worker;
     {
         let deadline = clock.now() + Duration::from_millis(1);
-        let mut sleep = pin!(clock.wait_until(deadline));
+        let mut sleep = pin!(clock.sleep_until(deadline));
         assert!(sleep.as_mut().poll(&mut cx).is_pending());
         // Delivery time is part of the wait, not an extension to its deadline.
         futures_timer::Delay::new(Duration::from_millis(10)).await;
@@ -46,7 +48,8 @@ async fn delayed_driver() {
 }
 
 async fn cancelled_wait() {
-    let (clock, timers) = timer_service();
+    let (handle, timers) = timer_service();
+    let clock = Clock::from(handle);
     let worker = timers.spawn();
     let mut cx = Context::from_waker(Waker::noop());
     {
@@ -60,7 +63,8 @@ async fn cancelled_wait() {
 }
 
 async fn earlier_deadline() {
-    let (clock, timers) = timer_service();
+    let (handle, timers) = timer_service();
+    let clock = Clock::from(handle);
     let worker = timers.spawn();
     {
         let mut later = pin!(clock.sleep(Duration::from_secs(3600)));
@@ -70,7 +74,7 @@ async fn earlier_deadline() {
         // Let the timer thread park on the long deadline before inserting a new one.
         futures_timer::Delay::new(Duration::from_millis(10)).await;
         let deadline = clock.now() + Duration::from_micros(500);
-        clock.wait_until(deadline).await;
+        clock.sleep_until(deadline).await;
         assert!(clock.now() >= deadline);
         assert!(later.as_mut().poll(&mut cx).is_pending());
     }
@@ -79,7 +83,8 @@ async fn earlier_deadline() {
 }
 
 async fn idle_worker() {
-    let (clock, timers) = timer_service();
+    let (handle, timers) = timer_service();
+    let clock = Clock::from(handle);
     let worker = timers.spawn();
     // Completing the only request leaves the worker parked without a deadline.
     clock.sleep(Duration::ZERO).await;
@@ -91,15 +96,14 @@ async fn idle_worker() {
 }
 
 async fn session_shutdown() {
-    let clock = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
+    let completed = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
         runner.clock().sleep(Duration::from_millis(1)).await;
-        runner.clock().clone()
+        42
     })
     .await
     .unwrap()
     .unwrap();
-    // A result retaining a clock must not keep the session's timer worker alive.
-    drop(clock);
+    assert_eq!(completed, 42);
 
     let (armed, stop) = futures_channel::oneshot::channel();
     let result = ExecutionWorker::run_until(stop, async move |runner| {

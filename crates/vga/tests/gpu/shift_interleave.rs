@@ -7,12 +7,12 @@ use common::support::{
     registers::{attribute, indexed},
 };
 use relocade_machine::Device;
+use relocade_machine::ManualClock;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 async fn check_colors() {
     let mut gpu = Gpu::new().await;
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     program(&mut vga);
     load_palette(&mut vga);
     for (index, value) in [(1, 1), (7, 0x10), (9, 0x40), (0x12, 0)] {
@@ -83,7 +83,7 @@ async fn check_colors() {
 
 async fn check_banked_rows() {
     let mut gpu = Gpu::new().await;
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     program(&mut vga);
     load_palette(&mut vga);
     // CGA-compatible CPU odd/even access, word display addresses, RS0 on MA13.

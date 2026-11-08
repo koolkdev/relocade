@@ -1,9 +1,10 @@
 use super::*;
 use relocade_machine::{Clock, DeviceConnection};
+use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{Scanout, Vga};
 use std::{
-    cell::{Cell, RefCell},
-    future::{poll_fn, Future},
+    cell::RefCell,
+    future::Future,
     pin::pin,
     rc::Rc,
     sync::{
@@ -15,38 +16,6 @@ use std::{
 };
 
 #[derive(Default)]
-struct ManualClock {
-    now: Cell<Duration>,
-    waker: RefCell<Option<Waker>>,
-}
-
-impl ManualClock {
-    fn set(&self, now: Duration) {
-        self.now.set(now);
-        if let Some(waker) = self.waker.borrow_mut().take() {
-            waker.wake();
-        }
-    }
-}
-
-impl Clock for ManualClock {
-    fn now(&self) -> Duration {
-        self.now.get()
-    }
-    async fn wait_until(&self, deadline: Duration) {
-        poll_fn(|cx| {
-            if self.now() >= deadline {
-                Poll::Ready(())
-            } else {
-                *self.waker.borrow_mut() = Some(cx.waker().clone());
-                Poll::Pending
-            }
-        })
-        .await
-    }
-}
-
-#[derive(Default)]
 struct Wakes(AtomicUsize);
 
 impl Wake for Wakes {
@@ -55,7 +24,7 @@ impl Wake for Wakes {
     }
 }
 
-fn device(clock: Rc<ManualClock>) -> (Rc<RefCell<Vga<ManualClock>>>, IoBus) {
+fn device(clock: Clock) -> (Rc<RefCell<Vga>>, IoBus) {
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock)));
     let io = IoBus::new([DeviceConnection {
         device: vga.clone(),
@@ -74,8 +43,8 @@ fn boundary(frame: u64) -> Duration {
 
 #[test]
 fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
-    let clock = Rc::new(ManualClock::default());
-    let (vga, io) = device(clock.clone());
+    let clock = ManualClock::default();
+    let (vga, io) = device(clock.clock());
     io.write_port(0x3c2, 1, 2); // Monochrome status port; keep CPU memory enabled.
     io.write_mmio(0xa0000, 1, 1);
     write_register(&io, 5, 7);
@@ -88,7 +57,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     assert!(request.as_mut().poll(&mut cx).is_pending());
     assert_eq!(active(&io).unwrap().origin(), [0, 0]);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    clock.set(boundary(1));
+    clock.advance_to(Timestamp::ZERO + boundary(1));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     let completed = frames.current_capture().unwrap();
@@ -98,7 +67,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     };
     assert_eq!(old.origin(), [0, 0]);
     assert_eq!(completed.display.vram_byte(0), Some(1));
-    clock.set(boundary(2));
+    clock.advance_to(Timestamp::ZERO + boundary(2));
     io.read_port(0x3ba, 1);
     let next = frames.current_capture().unwrap();
     assert_eq!(next.sequence, 2);
@@ -113,9 +82,9 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
 
 #[test]
 fn requests_already_in_retrace_finish_without_yielding() {
-    let clock = Rc::new(ManualClock::default());
-    let (vga, io) = device(clock.clone());
-    clock.set(boundary(1));
+    let clock = ManualClock::default();
+    let (vga, io) = device(clock.clock());
+    clock.advance_to(Timestamp::ZERO + boundary(1));
     assert_eq!(
         pin!(display_start(&io, &vga, 0x80, 384, 3616))
             .poll(&mut Context::from_waker(Waker::noop())),
@@ -127,7 +96,7 @@ fn requests_already_in_retrace_finish_without_yielding() {
 #[test]
 fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
     for (register, value) in [(4, 0), (6, 1280), (8, 1)] {
-        let (vga, io) = device(Rc::new(ManualClock::default()));
+        let (vga, io) = device(ManualClock::new().clock());
         let wakes = Arc::new(Wakes::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
@@ -142,7 +111,7 @@ fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
         assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(None));
         assert_eq!(active(&io), changed);
     }
-    let (vga, _) = device(Rc::new(ManualClock::default()));
+    let (vga, _) = device(ManualClock::new().clock());
     assert_eq!(
         pin!(display_start(&IoBus::default(), &vga, 0x80, 0, 0))
             .poll(&mut Context::from_waker(Waker::noop())),
@@ -152,8 +121,8 @@ fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
 
 #[test]
 fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
-    let clock = Rc::new(ManualClock::default());
-    let (vga, io) = device(clock.clone());
+    let clock = ManualClock::default();
+    let (vga, io) = device(clock.clock());
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -163,7 +132,7 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     assert_eq!(wakes.0.swap(0, Ordering::SeqCst), 1);
     assert!(request.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    clock.set(boundary(1) + Duration::from_millis(1));
+    clock.advance_to(Timestamp::ZERO + boundary(1) + Duration::from_millis(1));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(io.read_port(0x3ba, 1) & 8, 0);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));

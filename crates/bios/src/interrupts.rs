@@ -3,7 +3,7 @@
 use crate::{clock, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
-    Clock, CpuContext, FarPointer,
+    CpuContext, FarPointer,
 };
 use relocade_vga::Vga;
 use relocade_x86::Exception;
@@ -92,11 +92,11 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 /// An optional mouse owns BIOS state and waits on the connected PS/2 controller.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
-pub fn register_interrupts<C: Clock + 'static>(
+pub fn register_interrupts(
     interrupts: &mut Interrupts<'_>,
     keyboard: Keyboard,
-    vga: Rc<RefCell<Vga<C>>>,
-    mouse: Option<Mouse<C>>,
+    vga: Rc<RefCell<Vga>>,
+    mouse: Option<Mouse>,
 ) {
     for (index, exception) in [
         Exception::DivideError,

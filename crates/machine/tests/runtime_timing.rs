@@ -1,6 +1,6 @@
 mod support;
 use futures_util::future::join;
-use relocade_machine::{real_mode_interrupt, Clock};
+use relocade_machine::{real_mode_interrupt, ManualClock, Timestamp};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -13,8 +13,6 @@ use std::{
     task::{Context, Poll, Waker},
     time::Duration,
 };
-
-use support::clock::ManualClock;
 
 #[derive(Default)]
 struct Input {
@@ -76,8 +74,10 @@ async fn check_timing() {
     {
         let timer = async {
             for deadline in [10, 20].map(Duration::from_millis) {
-                clock.wait_until(deadline).await;
-                times.borrow_mut().push(clock.now());
+                clock.clock().sleep_until(Timestamp::ZERO + deadline).await;
+                times
+                    .borrow_mut()
+                    .push(clock.clock().now().duration_since(Timestamp::ZERO));
             }
             pending::<()>().await;
         };
@@ -90,13 +90,13 @@ async fn check_timing() {
         let mut run = pin!(run);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(input.calls.get(), 1);
-        clock.advance(Duration::from_millis(10));
+        clock.advance_to(Timestamp::ZERO + Duration::from_millis(10));
         assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(*times.borrow(), [Duration::from_millis(10)]);
         input.ready.set(true);
         assert!(run.as_mut().poll(&mut cx).is_pending());
         assert_eq!(input.calls.get(), 2);
-        clock.advance(Duration::from_millis(20));
+        clock.advance_to(Timestamp::ZERO + Duration::from_millis(20));
         assert!(run.as_mut().poll(&mut cx).is_pending());
         input.ready.set(true);
         interrupt.request();

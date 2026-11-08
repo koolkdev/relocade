@@ -3,12 +3,12 @@
 use super::{Error, Mouse};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    Clock, CpuContext, FarPointer, IoBus,
+    CpuContext, FarPointer, IoBus,
 };
 use relocade_pic::{CASCADE_IRQ, MOUSE_IRQ};
 use relocade_ps2::protocol::{mouse, SELF_TEST_PASSED};
 
-impl<C: Clock> Mouse<C> {
+impl Mouse {
     #[interrupt(context(call), args(function = ax))]
     pub(crate) async fn dispatch(&self, call: &mut CpuContext<'_>, function: u16) {
         interrupt_dispatch!(

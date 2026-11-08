@@ -1,8 +1,8 @@
-use super::{common, success, with_mouse, MouseDos};
+use super::{common, success, with_mouse, Dos};
 pub(super) use common::mouse::inject;
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
-pub(super) async fn install(dos: &mut MouseDos) {
+pub(super) async fn install(dos: &mut Dos) {
     let memory = dos.cpu().memory();
     let segment = dos.process().unwrap().psp_segment();
     let base = u32::from(segment) << 4;
@@ -36,7 +36,7 @@ pub(super) async fn install(dos: &mut MouseDos) {
     success(dos, 0, 0x0100).await;
 }
 
-pub(super) async fn deliver(dos: &mut MouseDos, packet: [u8; 3]) {
+pub(super) async fn deliver(dos: &mut Dos, packet: [u8; 3]) {
     let io = dos.cpu().context().io.clone();
     for byte in packet {
         inject(&io, byte).await;

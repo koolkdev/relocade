@@ -1,12 +1,13 @@
 use super::software;
 use super::{capture, common, pixel, read_pixels, set_cell, text_device};
 use relocade_machine::Device;
+use relocade_machine::{ManualClock, Timestamp};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
     registers::{crtc, sequencer, COLOR_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT},
     CapturedFrame, VgaRenderer, TEXT_MEMORY_START,
 };
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 async fn compare(
     renderer: &mut VgaRenderer,
@@ -101,14 +102,14 @@ async fn check_parity() {
 
     // Use real device writes for page selection and blanking, then retain both
     // captures after the source closes. Neither renderer may consult live VGA.
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     let source = vga.frame_source();
     vga.write_mmio(TEXT_MEMORY_START, 2, 0x04db); // Hidden page: red block.
     vga.write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
     common::crtc(&mut vga, crtc::START_ADDRESS_HIGH, 1);
     common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
-    clock.set(common::boundary(1));
+    clock.advance_to(Timestamp::ZERO + common::boundary(1));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let page = source.current_capture().unwrap();
     vga.write_port(
@@ -119,7 +120,7 @@ async fn check_parity() {
             1 | (1 << 5), // Screen off, keeping the eight-dot clock.
         ])),
     );
-    clock.set(common::boundary(2));
+    clock.advance_to(Timestamp::ZERO + common::boundary(2));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let blanked = source.current_capture().unwrap();
     drop(vga);
@@ -235,19 +236,19 @@ async fn check_published_updates() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     let source = vga.frame_source();
     common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
     set_cell(&mut vga, 0, 0xdb, 4);
-    clock.set(common::boundary(1));
+    clock.advance_to(Timestamp::ZERO + common::boundary(1));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let first = source.current_capture().unwrap();
     let pixels = compare(&mut renderer, &device, &queue, first.clone()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
 
     set_cell(&mut vga, 0, 0xdb, 1);
-    clock.set(common::boundary(2));
+    clock.advance_to(Timestamp::ZERO + common::boundary(2));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let pixels = compare(
         &mut renderer,
@@ -275,10 +276,10 @@ async fn check_published_updates() {
     ] {
         vga.write_port(port, 2, value);
     }
-    clock.set(common::boundary(3));
+    clock.advance_to(Timestamp::ZERO + common::boundary(3));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1); // The renderer skips this font change.
     set_cell(&mut vga, 1, 0xdb, 2);
-    clock.set(common::boundary(4));
+    clock.advance_to(Timestamp::ZERO + common::boundary(4));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let newest = source.current_capture().unwrap();
     drop(vga);

@@ -2,7 +2,7 @@
 use super::{super::state::firmware, available};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
-    Clock, CpuContext, FarPointer, IoBus, MemoryView,
+    CpuContext, FarPointer, IoBus, MemoryView,
 };
 use relocade_vga::{DacState, DispiState, Vga, VgaCoreState};
 use std::cell::RefCell;
@@ -64,11 +64,7 @@ impl BufferLayout {
 }
 
 #[interrupt(context(call), args(operation = dl))]
-pub(super) async fn dispatch<C: Clock + 'static>(
-    call: &mut CpuContext<'_>,
-    vga: &RefCell<Vga<C>>,
-    operation: u8,
-) {
+pub(super) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<Vga>, operation: u8) {
     interrupt_dispatch!(
         call,
         match operation {
@@ -91,10 +87,10 @@ fn required_blocks(io: &IoBus, components: u16) -> Option<u16> {
 #[interrupt(context(memory, io), args(components = cx, destination = ptr(es, bx)),
     returns { Some(()) => { ax = 0x004f }, None => { ax = 0x014f } },
 )]
-fn save<C: Clock + 'static>(
+fn save(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    vga: &RefCell<Vga<C>>,
+    vga: &RefCell<Vga>,
     components: u16,
     destination: FarPointer,
 ) -> Option<()> {
@@ -127,10 +123,10 @@ fn save<C: Clock + 'static>(
 #[interrupt(context(memory, io), args(components = cx, source = ptr(es, bx)),
     returns { Some(()) => { ax = 0x004f }, None => { ax = 0x014f } },
 )]
-fn restore<C: Clock + 'static>(
+fn restore(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    vga: &RefCell<Vga<C>>,
+    vga: &RefCell<Vga>,
     components: u16,
     source: FarPointer,
 ) -> Option<()> {

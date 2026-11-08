@@ -6,13 +6,13 @@ Each execution worker runs one CPU session and its registered device activities.
 CPU services across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
-Create the [shared timer service](clock.md) on the host, and pass its clock into
+Create the [shared timer service](clock.md) on the host, and pass its transferable handle into
 the execution worker. `ExecutionWorker` uses the existing
 [worker transport](workers.md) and owns runner completion and cancellation:
 
 ```rust,ignore
-let (clock, timers) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(clock, async move |runner| {
+let (handle, timers) = relocade_machine::timer_service();
+let execution = ExecutionWorker::spawn(handle, async move |runner| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
     let mut cpu = runner.create_cpu(memory, cpu_config, io).await?;
@@ -30,7 +30,7 @@ and waits until its first poll before returning the bus connection. Initialize
 device state before connecting; this wait establishes activity readiness, not
 arbitrary asynchronous construction. Passive devices use the default empty activity. Device
 activities retain their own handles, release mutable borrows before awaiting,
-and use the same `Clock::sleep` or `wait_until` API as CPU services. Ending the
+and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
 The worker prepares one `CpuStorage` before spawning and posts it through

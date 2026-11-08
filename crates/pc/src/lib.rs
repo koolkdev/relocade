@@ -13,9 +13,7 @@ mod configuration;
 
 use relocade_bios::Keyboard;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
-use relocade_machine::{
-    real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Memory, Runner, TimerHandle,
-};
+use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Memory, Runner};
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
@@ -27,23 +25,20 @@ use std::{cell::RefCell, rc::Rc};
 pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
-pub struct Pc<C = TimerHandle> {
-    clock: C,
+pub struct Pc {
+    clock: Clock,
     cpu: Cpu,
-    vga: Rc<RefCell<Vga<C>>>,
-    speaker: Rc<RefCell<Speaker<C>>>,
+    vga: Rc<RefCell<Vga>>,
+    speaker: Rc<RefCell<Speaker>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
 }
 
-impl<C: Clock> Pc<C> {
+impl Pc {
     /// Initializes the fixed PC hardware and BIOS on the runner's clock.
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and speaker emulation require no platform output.
-    pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
-    where
-        C: Clone + 'static,
-    {
+    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
         let (vga, vga_device) = Vga::initialize(runner).await;
         let (pic, pic_device) = Pic::initialize(runner).await;
         let (pit, pit_device) = Pit::initialize(runner, &pic).await;
@@ -96,7 +91,7 @@ impl<C: Clock> Pc<C> {
     }
 
     /// The emulation clock shared by the PC's devices and firmware consumers.
-    pub fn clock(&self) -> &C {
+    pub fn clock(&self) -> &Clock {
         &self.clock
     }
 
@@ -129,12 +124,12 @@ impl<C: Clock> Pc<C> {
     }
 
     /// Retains the VGA device on its execution owner. End borrows before polling.
-    pub fn vga(&self) -> Rc<RefCell<Vga<C>>> {
+    pub fn vga(&self) -> Rc<RefCell<Vga>> {
         self.vga.clone()
     }
 
     /// Retains the speaker for attaching audio output on its execution owner.
-    pub fn speaker(&self) -> Rc<RefCell<Speaker<C>>> {
+    pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.speaker.clone()
     }
 }

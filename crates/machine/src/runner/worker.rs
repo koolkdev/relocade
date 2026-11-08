@@ -1,6 +1,6 @@
 use super::Runner;
 use crate::worker::{self, wake_connection, CancellableWorker, ThreadExt, WakeHost, WakePeer};
-use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt};
+use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_lite::future::or;
 use std::future::Future;
 
@@ -33,8 +33,8 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         stop: impl Future,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> worker::Result<Option<T>> {
-        let (clock, timers) = timer_service();
-        let mut execution = Self::spawn(clock, session);
+        let (handle, timers) = timer_service();
+        let mut execution = Self::spawn(handle, session);
         let timers = timers.spawn_with_peer(execution.wake_peer());
         let completed = or(
             async {
@@ -52,15 +52,23 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         result
     }
 
-    pub fn spawn<C: Clock + Send + 'static>(
-        clock: C,
-        session: impl AsyncFnOnce(&Runner<C>) -> T + Send + 'static,
+    pub fn spawn(
+        host_timers: TimerHandle,
+        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+    ) -> Self {
+        Self::spawn_with_clock(move || host_timers.into(), session)
+    }
+
+    /// Constructs the clock on its execution owner before starting the session.
+    pub fn spawn_with_clock(
+        make_clock: impl FnOnce() -> Clock + Send + 'static,
+        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let worker = CancellableWorker::spawn(|thread, stopped| {
             thread.run_resource(storage, move |storage| async move {
-                Runner::new(clock, storage, endpoint)
+                Runner::new(make_clock(), storage, endpoint)
                     .run(stopped, session)
                     .await
             })

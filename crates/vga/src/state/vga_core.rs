@@ -27,7 +27,7 @@ pub struct VgaCoreState {
 impl VgaCoreState {
     pub const BYTE_LEN: usize = 74;
 
-    pub(super) fn capture<C>(vga: &Vga<C>) -> Self {
+    pub(super) fn capture(vga: &Vga) -> Self {
         let registers = &vga.registers;
         let mut attribute = registers.attribute.clone();
         attribute.values[attribute::COLOR_SELECT as usize] = 0;
@@ -114,7 +114,7 @@ impl VgaCoreState {
         (state.to_bytes() == *bytes).then_some(state)
     }
 
-    pub(super) fn restore<C>(self, vga: &mut Vga<C>) {
+    pub(super) fn restore(self, vga: &mut Vga) {
         let color_select = vga.registers.attribute.values[attribute::COLOR_SELECT as usize];
         vga.registers.crtc = self.crtc;
         vga.registers.sequencer = self.sequencer;

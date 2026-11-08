@@ -1,22 +1,12 @@
 use super::*;
 use crate::{CapturedFrame, Vga};
 use futures_util::FutureExt;
-use relocade_machine::{Clock, Device};
-use std::{cell::Cell, rc::Rc, time::Duration};
+use relocade_machine::Device;
+use relocade_machine::ManualClock;
+use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-#[derive(Default)]
-struct TestClock(Cell<Duration>);
-impl Clock for TestClock {
-    fn now(&self) -> Duration {
-        self.0.get()
-    }
-    async fn wait_until(&self, _: Duration) {
-        std::future::pending::<()>().await
-    }
-}
 
 struct Uploads {
     previous: Option<MemorySnapshot>,
@@ -51,7 +41,7 @@ impl Uploads {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
-    let vga = Vga::with_clock(Rc::new(TestClock::default()));
+    let vga = Vga::with_clock(ManualClock::new().clock());
     let narrow = vga.snapshot();
     let mut wide = narrow.clone();
     wide.memory = vga.memory.snapshot(0x80000);
@@ -80,8 +70,8 @@ fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     uploads.update(&take(&mut vga, &clock).display);
     for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 1)] {
@@ -116,13 +106,13 @@ fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() 
     assert_eq!(latest.display.vram_byte(0x42003), Some(3));
 }
 
-fn publish(vga: &mut Vga<TestClock>, clock: &TestClock) -> Arc<CapturedFrame> {
-    clock.0.set(clock.now() + Duration::from_millis(20));
+fn publish(vga: &mut Vga, clock: &ManualClock) -> Arc<CapturedFrame> {
+    clock.advance_by(Duration::from_millis(20));
     vga.read_port(0x3da, 1);
     vga.frame_source().current_capture().unwrap()
 }
 
-fn take(vga: &mut Vga<TestClock>, clock: &TestClock) -> Arc<CapturedFrame> {
+fn take(vga: &mut Vga, clock: &ManualClock) -> Arc<CapturedFrame> {
     publish(vga, clock);
     vga.frame_source().take_capture().unwrap()
 }
@@ -152,8 +142,8 @@ fn text(vga: &mut impl Device) {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     let first = take(&mut vga, &clock);
     assert_eq!(
@@ -193,8 +183,8 @@ fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     uploads.update(&take(&mut vga, &clock).display);
     planar(&mut vga, 15);
@@ -230,8 +220,8 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn routing_and_masks_mark_only_final_physical_changes() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     planar(&mut vga, 15);
     vga.write_port(0x3c4, 2, 0x0e04); // Chain four.
     let mut uploads = Uploads::default();
@@ -264,8 +254,8 @@ fn routing_and_masks_mark_only_final_physical_changes() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     let first = take(&mut vga, &clock);
     uploads.update(&first.display);
@@ -304,7 +294,7 @@ fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
     drop(vga);
     assert_eq!(uploads.update(&skipped.display), [(0, 65536)]);
     assert_eq!(uploads.update(&first.display), [(131072, 65536)]);
-    let other = Vga::with_clock(Rc::new(TestClock::default()));
+    let other = Vga::with_clock(ManualClock::new().clock());
     assert_eq!(
         uploads.update(&other.snapshot()),
         [(0, 65536), (65536, 65536), (131072, 65536), (196608, 65536)]
@@ -316,8 +306,8 @@ fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn concurrent_capture_publication_and_upload_preserve_pending_pages() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     uploads.update(&take(&mut vga, &clock).display);
     let source = vga.frame_source();
@@ -351,8 +341,8 @@ fn concurrent_capture_publication_and_upload_preserve_pending_pages() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn immediate_snapshots_preserve_pending_changes_and_can_be_uploaded_independently() {
-    let clock = Rc::new(TestClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     let mut uploads = Uploads::default();
     uploads.update(&take(&mut vga, &clock).display);
     vga.write_mmio(0xb8000, 1, u64::from(b'A'));

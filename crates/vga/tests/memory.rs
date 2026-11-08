@@ -1,8 +1,8 @@
+use relocade_machine::ManualClock;
 mod common;
-use common::ManualClock;
+
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -11,8 +11,8 @@ fn set(vga: &mut impl Device, port: u16, index: u8, value: u8) {
     vga.write_port(port, 2, u32::from(u16::from_le_bytes([index, value])));
 }
 
-fn planar() -> Vga<ManualClock> {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+fn planar() -> Vga {
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     set(&mut vga, 0x3c4, 4, 6); // Extended memory; disable odd/even writes.
     set(&mut vga, 0x3c4, 2, 15);
     set(&mut vga, 0x3ce, 5, 0);
@@ -101,7 +101,7 @@ fn color_compare_ignores_unselected_planes_and_still_loads_every_latch() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn chain_four_and_odd_even_access_the_same_physical_planes() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     set(&mut vga, 0x3c4, 2, 15);
     vga.write_mmio(0xb8000, 4, 0x2f42_0741);
     assert_eq!(vga.read_mmio(0xb8000, 4), 0x2f42_0741);

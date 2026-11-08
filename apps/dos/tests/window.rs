@@ -64,7 +64,10 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     };
 
     let resize = |width: u32, height: u32| -> Result<(), Box<dyn Error>> {
-        x.configure_window(window, &ConfigureWindowAux::new().width(width).height(height))?;
+        x.configure_window(
+            window,
+            &ConfigureWindowAux::new().width(width).height(height),
+        )?;
         x.flush()?;
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {

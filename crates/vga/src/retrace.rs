@@ -2,8 +2,8 @@
 
 use crate::Vga;
 use futures_lite::future::or;
-use relocade_machine::Clock;
-use std::{future::Future, time::Duration};
+use relocade_machine::Timestamp;
+use std::future::Future;
 
 /// What completed a wait prepared by [`Vga::wait_for_retrace`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,7 +14,7 @@ pub enum RetraceEvent {
     Reprogrammed,
 }
 
-impl<C: Clock + 'static> Vga<C> {
+impl Vga {
     /// Prepare an owned wait without retaining a device borrow across suspension.
     /// Already being in retrace completes immediately. Suppressed sync waits
     /// for programming to restore the signal; disabled VGA returns None.
@@ -39,7 +39,7 @@ impl<C: Clock + 'static> Vga<C> {
     /// takes priority when the timer and notification are both ready.
     pub(super) fn retrace_wait(
         &self,
-        deadline: Option<Duration>,
+        deadline: Option<Timestamp>,
     ) -> impl Future<Output = RetraceEvent> + 'static {
         let clock = self.clock.clone();
         let changed = self.programming_changed.listen();
@@ -51,7 +51,7 @@ impl<C: Clock + 'static> Vga<C> {
             if let Some(deadline) = deadline {
                 or(changed, async {
                     if clock.now() < deadline {
-                        clock.wait_until(deadline).await;
+                        clock.sleep_until(deadline).await;
                     }
                     RetraceEvent::Started
                 })

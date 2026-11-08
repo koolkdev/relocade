@@ -2,7 +2,7 @@
 
 use futures_lite::future::or;
 use relocade_dos::Dos;
-use relocade_machine::{Clock, ExecutionWorker};
+use relocade_machine::ExecutionWorker;
 use std::{io::Read, time::Duration};
 
 #[test]

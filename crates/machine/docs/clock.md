@@ -1,6 +1,48 @@
 # Shared time and waits
 
-`timer_service()` returns a `TimerHandle` and a `TimerDriver`. The driver starts
+`Clock` is a clonable, execution-local value that reads one timebase and creates
+owned deadline waits. Devices and services use the same concrete API:
+
+```rust,ignore
+let now: Timestamp = clock.now();
+let deadline = now + Duration::from_millis(2);
+clock.sleep_until(deadline).await;
+clock.sleep(Duration::from_millis(2)).await;
+```
+
+`Timestamp` identifies a point on that clock, while `Duration` describes an
+interval. Subtract timestamps only within one timebase. Clones share an origin;
+independent host and guest clocks require an explicit mapping when pacing.
+
+`Sleep` owns its source without retaining a device borrow. Relative sleeps capture
+their deadline when constructed; both forms register on first poll. Dropping a
+polled sleep cancels it. An expired sleep may complete immediately: awaiting a
+clock does not promise an executor yield or a browser event-loop turn.
+
+Clock implementations are private. `Runner`, `Pc`, `Dos`, and devices accept
+`Clock` without an implementation type parameter. Controllers expose the separate
+capabilities to drive timers or advance time. `ExecutionWorker::spawn_with_clock`
+constructs a clock on the execution owner from a transferable factory.
+
+## Controlled time
+
+`ManualClock` provides one shared controller for deterministic tests and simulations.
+Its `clock()` creates a consumer, `advance_by(duration)` or `advance_to(timestamp)`
+wakes due sleeps, and `next_deadline()` observes the earliest polled, uncancelled
+sleep. Advancing to an earlier timestamp leaves time unchanged. Cloned controllers
+share time and can move between workers; consumer clocks remain local.
+
+```rust,ignore
+let host = ManualClock::new();
+let guest = ManualClock::new();
+let host_clock = host.clock();
+let guest_clock = guest.clock();
+guest.advance_by(Duration::from_millis(2)); // Host time stays unchanged.
+```
+
+## Host timers
+
+`timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts
 one dedicated timer worker. `run().await` keeps it alive until all timer handles
 and waits are released. `spawn()` returns a `worker::CancellableWorker<()>` for
 explicit lifetime control: `join().await` waits for normal completion, and `stop().await` cancels
@@ -13,11 +55,14 @@ and execution tasks. Each task handles its cancellation receiver: the timer loop
 wakes, while the execution runner uses its existing checkpoint notifications.
 Timer scheduling stays in `clock/driver.rs`.
 
-`Clock::now()` reads elapsed time locally. `sleep(duration)` and
-`wait_until(deadline)` send absolute deadlines to the driver and await Rust
-channel notifications. Request delivery time therefore counts toward the wait.
-Clones share their time origin across native threads and threaded browser workers.
-Tests can implement `Clock` with manually controlled time.
+`TimerHandle` is the transferable host-timer transport. Its `clock()` creates a
+local consumer; `Clock::from(handle)` consumes the transport when it is no longer
+needed for setup. `ExecutionWorker::spawn(handle, session)` performs this conversion
+on the execution owner. Clones preserve the host origin across workers.
+
+The host clock reads elapsed time locally. Sleeps send absolute deadlines to the
+driver and await Rust channel notifications. Request delivery time therefore counts
+toward the wait. Keep the driver alive until consumers and their sleeps finish.
 
 The worker processes new requests and cancellations, completes expired timers,
 then waits until the nearest absolute deadline. With no timers it waits until
@@ -60,8 +105,8 @@ none guarantees millisecond deadlines or replays missed interrupts.
 For a busy execution worker, bind its notification resource on the timer worker:
 
 ```rust,ignore
-let (clock, driver) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(clock, session);
+let (handle, driver) = relocade_machine::timer_service();
+let execution = ExecutionWorker::spawn(handle, session);
 let timers = driver.spawn_with_peer(execution.wake_peer());
 let result = execution.join().await;
 timers.stop().await?;

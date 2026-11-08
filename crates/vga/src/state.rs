@@ -8,7 +8,6 @@ use crate::{
     registers::{attribute, dac::Dac, dispi::Dispi},
     SvgaLayout, Timing, Vga,
 };
-use relocade_machine::Clock;
 
 /// DAC colors, pixel mask, exact transfer position and Attribute Color Select.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,7 +53,7 @@ impl DispiState {
     }
 }
 
-impl<C: Clock> Vga<C> {
+impl Vga {
     /// Capture the VGA core without reading ports or disturbing VRAM/latches.
     pub fn core_state(&self) -> VgaCoreState {
         VgaCoreState::capture(self)

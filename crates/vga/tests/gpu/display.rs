@@ -2,18 +2,19 @@ use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
+use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::{
     registers::{attribute, crtc, COLOR_INPUT_STATUS_1_PORT},
     VgaDisplay,
 };
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 async fn check_display() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
     set_cell(&mut vga, 0, 0xdb, 4);
     let source = vga.frame_source();
@@ -24,7 +25,7 @@ async fn check_display() {
     queue.submit([encoder.finish()]);
     // The host can cancel an input wait to service a redraw without losing input.
     assert!(display.service(&queue).now_or_never().is_none());
-    clock.set(common::boundary(1));
+    clock.advance_to(Timestamp::ZERO + common::boundary(1));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.service(&queue).await, Some(true));
     assert!(
@@ -53,7 +54,7 @@ async fn check_display() {
         },
     );
     for frame in 2..=7 {
-        clock.set(common::boundary(frame));
+        clock.advance_to(Timestamp::ZERO + common::boundary(frame));
         vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         assert!(display.service(&queue).now_or_never().is_none());
     }
@@ -76,15 +77,15 @@ async fn check_display() {
     assert_eq!(display.current_frame().unwrap().sequence, first.sequence);
 
     set_cell(&mut vga, 0, 0xdb, 1);
-    clock.set(common::boundary(9));
+    clock.advance_to(Timestamp::ZERO + common::boundary(9));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.service(&queue).await, Some(true));
     // A later changed capture is selected at draw time, even without servicing
     // another notification. An unchanged capture after it must not hide the change.
     set_cell(&mut vga, 0, 0xdb, 2);
-    clock.set(common::boundary(10));
+    clock.advance_to(Timestamp::ZERO + common::boundary(10));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
-    clock.set(common::boundary(11));
+    clock.advance_to(Timestamp::ZERO + common::boundary(11));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(
@@ -155,8 +156,8 @@ async fn check_display_state_changes() {
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     common::support::registers::attribute(&mut vga, attribute::MODE_CONTROL, 0x08);
     set_cell(&mut vga, 0, 0xdb, 0x84); // Blinking red glyph.
     set_cell(&mut vga, 1, b' ', 0x82); // Green cursor over a blinking blank cell.
@@ -177,7 +178,7 @@ async fn check_display_state_changes() {
         (31, false, [0, 0, 0, 255], [0, 0, 0, 255]),
         (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
     ] {
-        clock.set(common::boundary(frame));
+        clock.advance_to(Timestamp::ZERO + common::boundary(frame));
         vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         if changed {
             assert_eq!(display.service(&queue).await, Some(true));
@@ -194,7 +195,7 @@ async fn check_display_state_changes() {
 
     // Palette and geometry changes must also redraw with unchanged VRAM.
     common::support::registers::palette(&mut vga, 4, [0, 0, 63]);
-    clock.set(common::boundary(33));
+    clock.advance_to(Timestamp::ZERO + common::boundary(33));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -208,7 +209,7 @@ async fn check_display_state_changes() {
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end & 0x7f);
     common::crtc(&mut vga, crtc::HORIZONTAL_DISPLAY_END, 39);
     common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end);
-    clock.set(common::boundary(34));
+    clock.advance_to(Timestamp::ZERO + common::boundary(34));
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());

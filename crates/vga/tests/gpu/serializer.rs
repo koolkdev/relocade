@@ -7,11 +7,11 @@ use common::support::{
     registers::{attribute, indexed},
 };
 use relocade_machine::Device;
+use relocade_machine::ManualClock;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
-fn graphics(columns: u8) -> Vga<common::ManualClock> {
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+fn graphics(columns: u8) -> Vga {
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     program(&mut vga);
     load_palette(&mut vga);
     // One visible scanline, with blanking outside the small image.

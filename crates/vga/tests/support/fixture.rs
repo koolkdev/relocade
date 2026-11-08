@@ -31,18 +31,8 @@ pub fn initialize_font(vga: &mut impl Device) {
     }
 }
 
-pub struct StaticClock;
-impl relocade_machine::Clock for StaticClock {
-    fn now(&self) -> std::time::Duration {
-        std::time::Duration::ZERO
-    }
-    async fn wait_until(&self, _: std::time::Duration) {
-        std::future::pending::<()>().await;
-    }
-}
-
-pub fn text_device() -> relocade_vga::Vga<StaticClock> {
-    let mut vga = relocade_vga::Vga::with_clock(std::rc::Rc::new(StaticClock));
+pub fn text_device() -> relocade_vga::Vga {
+    let mut vga = relocade_vga::Vga::with_clock(relocade_machine::ManualClock::new().clock());
     initialize_font(&mut vga);
     for cell in 0..2000 {
         set_cell(&mut vga, cell, b' ', 7);
@@ -59,9 +49,7 @@ pub fn set_cell(vga: &mut impl Device, cell: usize, character: u8, attribute: u8
     );
 }
 
-pub fn capture<C: relocade_machine::Clock>(
-    vga: &relocade_vga::Vga<C>,
-) -> relocade_vga::CapturedFrame {
+pub fn capture(vga: &relocade_vga::Vga) -> relocade_vga::CapturedFrame {
     relocade_vga::CapturedFrame {
         display: vga.snapshot(),
         time: std::time::Duration::from_millis(123),

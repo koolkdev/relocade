@@ -1,30 +1,31 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-#[path = "../../machine/tests/support/clock.rs"]
-mod clock;
 mod common;
-use clock::ManualClock;
 use relocade_dos::Dos;
-use relocade_machine::{ExecutionWorker, Runner};
+use relocade_machine::{ExecutionWorker, ManualClock};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::time::Duration;
 
-type MouseDos = Dos<ManualClock>;
 const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
 
-fn with_mouse(check: impl AsyncFnOnce(&Runner<ManualClock>, MouseDos) + Send + 'static) {
-    let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
-        let mut dos = Dos::new(runner).await.unwrap();
-        dos.launch_com(PROGRAM, Default::default()).unwrap();
-        call(&mut dos, 0, 0, 0, 0).await;
-        assert_eq!(dos.cpu().cpu_state().ax(), 0xffff);
-        assert_eq!(dos.cpu().cpu_state().bx(), 3);
-        check(runner, dos).await;
-    });
+fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
+    let clock = ManualClock::new();
+    let worker_clock = clock.clone();
+    let worker = ExecutionWorker::spawn_with_clock(
+        move || worker_clock.clock(),
+        async move |runner| {
+            let mut dos = Dos::new(runner).await.unwrap();
+            dos.launch_com(PROGRAM, Default::default()).unwrap();
+            call(&mut dos, 0, 0, 0, 0).await;
+            assert_eq!(dos.cpu().cpu_state().ax(), 0xffff);
+            assert_eq!(dos.cpu().cpu_state().bx(), 3);
+            check(&clock, dos).await;
+        },
+    );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 
-async fn call(dos: &mut MouseDos, ax: u16, bx: u16, cx: u16, dx: u16) {
+async fn call(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
     let state = dos.cpu().cpu_state();
     state.set_eip(0x100);
     state.set_ax(ax);
@@ -40,7 +41,7 @@ async fn call(dos: &mut MouseDos, ax: u16, bx: u16, cx: u16, dx: u16) {
     assert_eq!(state.eflags(), 0x643);
 }
 
-async fn packet(dos: &mut MouseDos, bytes: [u8; 3]) {
+async fn packet(dos: &mut Dos, bytes: [u8; 3]) {
     let io = dos.cpu().context().io.clone();
     dos.cpu().cpu_state().set_interrupts_enabled(true);
     for byte in bytes {
@@ -55,35 +56,38 @@ async fn packet(dos: &mut MouseDos, bytes: [u8; 3]) {
 #[test]
 fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
     for mz in [false, true] {
-        let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
-            let mut dos = Dos::new(runner).await.unwrap();
-            if mz {
-                dos.launch_mz(&common::mz_image(PROGRAM), Default::default())
-                    .unwrap();
-            } else {
-                dos.launch_com(PROGRAM, Default::default()).unwrap();
-            }
-            let state = dos.cpu().cpu_state();
-            let sp = state.sp();
-            let end = state.eip() + 2;
-            state.set_ax(0);
-            state.set_cx(0x1234);
-            state.set_dx(0x5678);
-            state.set_si(0xabcd);
-            state.set_eflags(0x443);
-            let before = state.snapshot();
-            assert_eq!(
-                common::run_until(dos.cpu(), end).await,
-                ExecutionExit::Interrupted
-            );
-            assert_eq!(
-                (state.ax(), state.bx(), state.cx(), state.dx(), state.si()),
-                (0xffff, 3, 0x1234, 0x5678, 0xabcd)
-            );
-            assert_eq!(state.sp(), sp);
-            assert_eq!(state.eflags(), 0x443);
-            assert_eq!(state.snapshot().segments, before.segments);
-        });
+        let worker = ExecutionWorker::spawn_with_clock(
+            || ManualClock::new().clock(),
+            async move |runner| {
+                let mut dos = Dos::new(runner).await.unwrap();
+                if mz {
+                    dos.launch_mz(&common::mz_image(PROGRAM), Default::default())
+                        .unwrap();
+                } else {
+                    dos.launch_com(PROGRAM, Default::default()).unwrap();
+                }
+                let state = dos.cpu().cpu_state();
+                let sp = state.sp();
+                let end = state.eip() + 2;
+                state.set_ax(0);
+                state.set_cx(0x1234);
+                state.set_dx(0x5678);
+                state.set_si(0xabcd);
+                state.set_eflags(0x443);
+                let before = state.snapshot();
+                assert_eq!(
+                    common::run_until(dos.cpu(), end).await,
+                    ExecutionExit::Interrupted
+                );
+                assert_eq!(
+                    (state.ax(), state.bx(), state.cx(), state.dx(), state.si()),
+                    (0xffff, 3, 0x1234, 0x5678, 0xabcd)
+                );
+                assert_eq!(state.sp(), sp);
+                assert_eq!(state.eflags(), 0x443);
+                assert_eq!(state.snapshot().segments, before.segments);
+            },
+        );
         assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
     }
 }
@@ -123,7 +127,7 @@ fn bounds_button_histories_and_raw_motion_have_independent_consumption() {
 
 #[test]
 fn ratios_sensitivity_and_timed_acceleration_leave_mickeys_unscaled() {
-    with_mouse(async |runner, mut dos| {
+    with_mouse(async |clock, mut dos| {
         let state = dos.cpu().cpu_state();
         {
             let mut call = dos.cpu().context();
@@ -137,7 +141,7 @@ fn ratios_sensitivity_and_timed_acceleration_leave_mickeys_unscaled() {
         packet(&mut dos, [0x28, 8, 0xf8]).await;
         call(&mut dos, 3, 0, 0, 0).await;
         assert_eq!((state.cx(), state.dx()), (108, 103));
-        runner.clock().advance(Duration::from_millis(10));
+        clock.advance_to(relocade_machine::Timestamp::ZERO + Duration::from_millis(10));
         packet(&mut dos, [0x28, 8, 0xf8]).await; // 800 mickeys/s: doubled.
         call(&mut dos, 3, 0, 0, 0).await;
         assert_eq!((state.cx(), state.dx()), (126, 109));

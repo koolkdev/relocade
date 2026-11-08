@@ -153,9 +153,7 @@ pub use execution::RunError;
 pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
-use relocade_machine::{
-    real_mode_interrupt::Interrupts, Clock, Cpu, CpuContext, Runner, TimerHandle,
-};
+use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
 use relocade_pc::Pc;
 use relocade_pc_speaker::Speaker;
 use relocade_vga::Vga;
@@ -164,18 +162,15 @@ use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
 /// Devices share the runner's clock; the default uses the host timer service.
-pub struct Dos<C = TimerHandle> {
+pub struct Dos {
     state: Rc<DosState>,
-    pc: Pc<C>,
+    pc: Pc,
 }
 
-impl<C: Clock> Dos<C> {
+impl Dos {
     /// Creates a BIOS-initialized PC and installs DOS services on it.
     /// Launch a program before executing DOS services.
-    pub async fn new(runner: &Runner<C>) -> relocade_machine::Result<Self>
-    where
-        C: Clone + 'static,
-    {
+    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
         Self::from_pc(Pc::new(runner).await?).await
     }
 
@@ -186,10 +181,7 @@ impl<C: Clock> Dos<C> {
     ///
     /// # Panics
     /// The CPU must be stopped with no pending or suspended host services.
-    pub async fn from_pc(mut pc: Pc<C>) -> relocade_machine::Result<Self>
-    where
-        C: Clone + 'static,
-    {
+    pub async fn from_pc(mut pc: Pc) -> relocade_machine::Result<Self> {
         let clock = pc.clock().clone();
         let keyboard = pc.keyboard();
         let cpu = pc.cpu();
@@ -209,7 +201,7 @@ impl<C: Clock> Dos<C> {
     /// With the speaker's `audio` feature, call `attach_audio(config, samples)`
     /// here to connect output. Hardware state persists across process launches;
     /// ending the execution session stops synthesis, independently of playback.
-    pub fn speaker(&self) -> Rc<RefCell<Speaker<C>>> {
+    pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.pc.speaker()
     }
 
@@ -415,7 +407,7 @@ impl<C: Clock> Dos<C> {
     /// Retains the execution-local device, including while the CPU awaits input.
     /// Give other workers the immutable captures from [`Dos::frame_source`].
     /// End device borrows before polling execution or dropping the session.
-    pub fn vga(&self) -> Rc<RefCell<Vga<C>>> {
+    pub fn vga(&self) -> Rc<RefCell<Vga>> {
         self.pc.vga()
     }
 

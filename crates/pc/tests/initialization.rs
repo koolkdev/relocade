@@ -1,12 +1,8 @@
-#[path = "../../machine/tests/support/clock.rs"]
-mod clock;
-
-use clock::ManualClock;
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
 use relocade_machine::{
     real_mode_interrupt::{read_frame, read_vector},
     worker::wake_connection,
-    CpuStorage, FarPointer, Hook, Runner,
+    CpuStorage, FarPointer, Hook, ManualClock, Runner, Timestamp,
 };
 use relocade_pc::Pc;
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
@@ -19,7 +15,7 @@ async fn bios_without_dos() {
     let clock = ManualClock::default();
     let storage = CpuStorage::new().unwrap();
     let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clone(), storage, endpoint);
+    let runner = Runner::new(clock.clock(), storage, endpoint);
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
@@ -61,7 +57,7 @@ async fn bios_without_dos() {
                         repeat: false,
                     })
                     .unwrap();
-                clock.advance(Duration::from_nanos(54_925_402));
+                clock.advance_to(Timestamp::ZERO + Duration::from_nanos(54_925_402));
                 assert_eq!(
                     runner.run_cpu(pc.cpu()).await,
                     ExecutionExit::Host(HostExit::Return)
@@ -80,7 +76,7 @@ async fn default_exceptions() {
     let clock = ManualClock::default();
     let storage = CpuStorage::new().unwrap();
     let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock, storage, endpoint);
+    let runner = Runner::new(clock.clock(), storage, endpoint);
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),

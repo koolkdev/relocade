@@ -1,7 +1,9 @@
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, ExecutionWorker, Hook, IoBus, Memory};
+use relocade_machine::{
+    Clock, Device, ExecutionWorker, Hook, IoBus, ManualClock, Memory, Timestamp,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -15,10 +17,9 @@ use std::{
     },
     time::Duration,
 };
-use support::clock::ManualClock;
 
 struct Ticker {
-    clock: ManualClock,
+    clock: Clock,
     ticks: Rc<Cell<u32>>,
     report: mpsc::UnboundedSender<u32>,
     active: Arc<AtomicBool>,
@@ -50,7 +51,7 @@ impl Device for Ticker {
         let _active = Active(active);
         let mut deadline = clock.now() + Duration::from_millis(2);
         loop {
-            clock.wait_until(deadline).await;
+            clock.sleep_until(deadline).await;
             deadline += Duration::from_millis(2);
             ticks.set(ticks.get() + 1);
             report.unbounded_send(ticks.get()).unwrap();
@@ -64,72 +65,80 @@ async fn check_devices() {
     let worker_active = active.clone();
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
-    let worker = ExecutionWorker::spawn(clock.clone(), async move |runner| {
-        let device = Rc::new(RefCell::new(Ticker {
-            clock: runner.clock().clone(),
-            ticks: Rc::new(Cell::new(0)),
-            report,
-            active: worker_active.clone(),
-        }));
-        let io = IoBus::new([runner
-            .connect(device, [], std::iter::once(0x80..=0x80))
-            .await]);
-        assert!(
-            worker_active.load(Ordering::SeqCst),
-            "connect starts activity before returning"
-        );
-        let config = support::configuration(
-            Compiler::new(ExecutionProfile::Real16).target(),
-            CpuState {
-                eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-            0x1000,
-            PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
-                .unwrap(),
-        )
-        .unwrap();
-        let memory = Memory::new(config.machine).unwrap();
-        let mut cpu = runner
-            .create_cpu(memory.clone(), config.cpu, io.clone())
+    let worker = ExecutionWorker::spawn_with_clock(
+        {
+            let controller = clock.clone();
+            move || controller.clock()
+        },
+        async move |runner| {
+            let device = Rc::new(RefCell::new(Ticker {
+                clock: runner.clock().clone(),
+                ticks: Rc::new(Cell::new(0)),
+                report,
+                active: worker_active.clone(),
+            }));
+            let io = IoBus::new([runner
+                .connect(device, [], std::iter::once(0x80..=0x80))
+                .await]);
+            assert!(
+                worker_active.load(Ordering::SeqCst),
+                "connect starts activity before returning"
+            );
+            let config = support::configuration(
+                Compiler::new(ExecutionProfile::Real16).target(),
+                CpuState {
+                    eip: 0x100,
+                    segments: Segments::real_mode(),
+                    ..CpuState::default()
+                },
+                0x1000,
+                PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
+                    .unwrap(),
+            )
+            .unwrap();
+            let memory = Memory::new(config.machine).unwrap();
+            let mut cpu = runner
+                .create_cpu(memory.clone(), config.cpu, io.clone())
+                .await
+                .unwrap();
+            // Guest work after the sleeping service, followed by a completion hook.
+            memory
+                .view()
+                .write(0x200, &[0xff, 0x06, 0, 3, 0xeb, 0])
+                .unwrap();
+            let service_clock = runner.clock().clone();
+            let entered = RefCell::new(Some(entered));
+            cpu.install([
+                Hook::host(0x100, {
+                    let cpu = cpu.cpu_state();
+                    async move || {
+                        entered.borrow_mut().take().unwrap().send(()).unwrap();
+                        service_clock
+                            .sleep_until(Timestamp::ZERO + Duration::from_millis(5))
+                            .await;
+                        cpu.set_eip(0x200);
+                    }
+                }),
+                Hook::host(0x206, {
+                    let exit = cpu.exit_handle();
+                    async move || exit.request()
+                }),
+            ])
             .await
             .unwrap();
-        // Guest work after the sleeping service, followed by a completion hook.
-        memory
-            .view()
-            .write(0x200, &[0xff, 0x06, 0, 3, 0xeb, 0])
-            .unwrap();
-        let service_clock = runner.clock().clone();
-        let entered = RefCell::new(Some(entered));
-        cpu.install([
-            Hook::host(0x100, {
-                let cpu = cpu.cpu_state();
-                async move || {
-                    entered.borrow_mut().take().unwrap().send(()).unwrap();
-                    service_clock.wait_until(Duration::from_millis(5)).await;
-                    cpu.set_eip(0x200);
-                }
-            }),
-            Hook::host(0x206, {
-                let exit = cpu.exit_handle();
-                async move || exit.request()
-            }),
-        ])
-        .await
-        .unwrap();
-        assert_eq!(
-            runner.run_cpu(&mut cpu).await,
-            ExecutionExit::Host(relocade_x86::HostExit::Return)
-        );
-        let result = memory.view().read_u16(0x300).unwrap();
-        (result, io.read_port(0x80, 1))
-    });
+            assert_eq!(
+                runner.run_cpu(&mut cpu).await,
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
+            );
+            let result = memory.view().read_u16(0x300).unwrap();
+            (result, io.read_port(0x80, 1))
+        },
+    );
     waiting.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
-    clock.advance(Duration::from_millis(2));
+    clock.advance_to(Timestamp::ZERO + Duration::from_millis(2));
     assert_eq!(ticks.next().await, Some(1));
-    clock.advance(Duration::from_millis(5));
+    clock.advance_to(Timestamp::ZERO + Duration::from_millis(5));
     assert_eq!(worker.join().await.unwrap(), Some((1, 2)));
     assert!(
         !active.load(Ordering::SeqCst),
@@ -139,19 +148,22 @@ async fn check_devices() {
     let worker_active = active.clone();
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
-        let device = Rc::new(RefCell::new(Ticker {
-            clock: runner.clock().clone(),
-            ticks: Rc::new(Cell::new(0)),
-            report,
-            active: worker_active.clone(),
-        }));
-        let _connection = runner
-            .connect(device, [], std::iter::once(0x80..=0x80))
-            .await;
-        ready.send(()).unwrap();
-        std::future::pending().await
-    });
+    let worker = ExecutionWorker::<()>::spawn_with_clock(
+        move || clock.clock(),
+        async move |runner| {
+            let device = Rc::new(RefCell::new(Ticker {
+                clock: runner.clock().clone(),
+                ticks: Rc::new(Cell::new(0)),
+                report,
+                active: worker_active.clone(),
+            }));
+            let _connection = runner
+                .connect(device, [], std::iter::once(0x80..=0x80))
+                .await;
+            ready.send(()).unwrap();
+            std::future::pending().await
+        },
+    );
     started.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
     assert_eq!(worker.stop().await.unwrap(), None);

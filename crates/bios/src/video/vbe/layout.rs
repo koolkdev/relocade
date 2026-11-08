@@ -2,7 +2,7 @@
 //! VBE 2.0 sections 4.9–4.10 define the extended selectors and error results:
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
 use super::{available, read_register, write_register, Mode};
-use relocade_machine::{real_mode_interrupt::interrupt, Clock, IoBus};
+use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
 use relocade_vga::{registers::dispi, RetraceEvent, SvgaLayout, Vga};
 use std::cell::RefCell;
 
@@ -71,9 +71,9 @@ pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayo
     Some([x, y]) => { ax = 0x004f, bh = 0, cx = x, dx = y },
     None => { ax = 0x014f },
 })]
-pub(super) async fn display_start<C: Clock + 'static>(
+pub(super) async fn display_start(
     io: &IoBus,
-    vga: &RefCell<Vga<C>>,
+    vga: &RefCell<Vga>,
     operation: u16,
     x: u16,
     y: u16,

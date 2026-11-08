@@ -6,26 +6,27 @@ mod common;
 #[path = "mouse_bios/integration.rs"]
 mod integration;
 use relocade_dos::Dos;
-use relocade_machine::{ExecutionWorker, IoBus, Runner};
+use relocade_machine::{ExecutionWorker, IoBus, ManualClock};
 use relocade_x86::{CpuState, ExecutionExit};
 
-#[path = "../../machine/tests/support/clock.rs"]
-mod clock;
-use clock::ManualClock;
 use common::mouse::{wait_status, write};
 
-type MouseDos = Dos<ManualClock>;
-fn with_mouse(check: impl AsyncFnOnce(&Runner<ManualClock>, MouseDos) + Send + 'static) {
-    let worker = ExecutionWorker::spawn(ManualClock::default(), async move |runner| {
-        let mut dos = Dos::new(runner).await.unwrap();
-        dos.launch_com(&[0xcd, 0x15, 0xeb, 0xfe], Default::default())
-            .unwrap();
-        check(runner, dos).await;
-    });
+fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
+    let clock = ManualClock::new();
+    let worker_clock = clock.clone();
+    let worker = ExecutionWorker::spawn_with_clock(
+        move || worker_clock.clock(),
+        async move |runner| {
+            let mut dos = Dos::new(runner).await.unwrap();
+            dos.launch_com(&[0xcd, 0x15, 0xeb, 0xfe], Default::default())
+                .unwrap();
+            check(&clock, dos).await;
+        },
+    );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 
-async fn call(dos: &mut MouseDos, ax: u16, bx: u16) -> CpuState {
+async fn call(dos: &mut Dos, ax: u16, bx: u16) -> CpuState {
     let state = dos.cpu().cpu_state();
     state.set_eip(0x100);
     state.set_ax(ax);
@@ -42,7 +43,7 @@ async fn call(dos: &mut MouseDos, ax: u16, bx: u16) -> CpuState {
     state.snapshot()
 }
 
-async fn success(dos: &mut MouseDos, function: u8, bx: u16) -> CpuState {
+async fn success(dos: &mut Dos, function: u8, bx: u16) -> CpuState {
     let state = call(dos, 0xc200 | u16::from(function), bx).await;
     assert_eq!(state.registers.eax as u16, u16::from(function));
     assert_eq!(state.flags.eflags() & 1, 0);

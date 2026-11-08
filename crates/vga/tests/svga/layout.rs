@@ -1,10 +1,7 @@
-use crate::common::{
-    support::svga::{enable, get, set},
-    ManualClock,
-};
+use crate::common::support::svga::{enable, get, set};
 use relocade_machine::Device;
+use relocade_machine::ManualClock;
 use relocade_vga::{PixelFormat, SvgaMode, SvgaResolution, Vga};
-use std::rc::Rc;
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -75,7 +72,7 @@ fn direct_color_layouts_separate_pixel_coordinates_from_byte_offsets() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn virtual_registers_validate_without_changing_the_cpu_bank_or_memory() {
-    let mut vga = Vga::with_clock(Rc::new(ManualClock::default()));
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     set(&mut vga, 6, 1024); // Inactive layout writes are ignored.
     assert_eq!(get(&mut vga, 6), 0);
     enable(&mut vga);

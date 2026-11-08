@@ -21,13 +21,13 @@ enum Error {
 
 /// BIOS mouse configuration, packet assembly and guest callback registration.
 /// Retains the same controller connected to the CPU's I/O bus.
-pub struct Mouse<C> {
-    interface: Interface<C>,
+pub struct Mouse {
+    interface: Interface,
     callback: Cell<Option<FarPointer>>,
 }
 
-impl<C: Clock> Mouse<C> {
-    pub fn new(clock: C, controller: Rc<Controller>) -> Self {
+impl Mouse {
+    pub fn new(clock: Clock, controller: Rc<Controller>) -> Self {
         Self {
             interface: Interface::new(clock, controller),
             callback: Cell::new(None),

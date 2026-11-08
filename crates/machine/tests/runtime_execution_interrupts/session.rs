@@ -5,7 +5,7 @@ use futures_util::{
     StreamExt,
 };
 use relocade_machine::{
-    timer_service, Clock, CpuStateAccess, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle,
+    timer_service, CpuStateAccess, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle,
 };
 use std::{
     cell::RefCell,
@@ -71,7 +71,7 @@ async fn connected_input() {
         for source in [InputSource::Host, InputSource::Timer, InputSource::Peer] {
             let timed = matches!(source, InputSource::Timer);
             let (clock, timers) = timer_service();
-            let delivery = clock.clone();
+            let delivery = clock.clock();
             let (entered, running) = oneshot::channel();
             let sent = Arc::new(AtomicBool::new(false));
             let worker_sent = sent.clone();

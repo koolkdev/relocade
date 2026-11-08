@@ -41,7 +41,7 @@ impl Device for Irq {
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(Rc::new(clock))));
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
     let io = IoBus::new([
         DeviceConnection {
             device: vga.clone(),

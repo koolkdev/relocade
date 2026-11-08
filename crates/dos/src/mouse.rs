@@ -46,11 +46,7 @@ impl Mouse {
     }
 }
 
-pub(crate) fn register<C: Clock + 'static>(
-    interrupts: &mut Interrupts<'_>,
-    session: Rc<DosState>,
-    clock: C,
-) {
+pub(crate) fn register(interrupts: &mut Interrupts<'_>, session: Rc<DosState>, clock: Clock) {
     let driver = session.clone();
     interrupts.register_interrupt(
         crate::interrupts::MOUSE,

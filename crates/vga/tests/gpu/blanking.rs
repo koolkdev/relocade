@@ -4,11 +4,11 @@ use common::support::{
     indexed256, planar16,
     registers::{indexed, palette},
 };
+use relocade_machine::ManualClock;
 use relocade_vga::Vga;
-use std::rc::Rc;
 
-fn device(layout: u8, columns: u8, lines: u8) -> Vga<common::ManualClock> {
-    let mut vga = Vga::with_clock(Rc::new(common::ManualClock::default()));
+fn device(layout: u8, columns: u8, lines: u8) -> Vga {
+    let mut vga = Vga::with_clock(ManualClock::new().clock());
     match layout {
         0 | 1 => indexed(&mut vga, 0x3c4, 1, layout), // Nine/eight-dot text.
         2 => planar16::program(&mut vga),

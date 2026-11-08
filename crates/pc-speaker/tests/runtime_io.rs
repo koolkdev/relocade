@@ -2,21 +2,23 @@ mod common;
 #[path = "../../machine/tests/support/execution.rs"]
 mod execution;
 
-use relocade_machine::{Cpu, CpuConfig, DispatchEntry, MachineConfig, Memory};
+use relocade_machine::{
+    Cpu, CpuConfig, DispatchEntry, MachineConfig, ManualClock, Memory, Timestamp,
+};
 use relocade_pc_speaker::{Speaker, PORT_RANGE};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
 };
-use std::{rc::Rc, time::Duration};
+use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn guest_port_io() {
     for compiled in [false, true] {
-        let clock = common::ManualClock::default();
-        let (io, _speaker) = common::hardware(Rc::new(clock.clone()));
+        let clock = ManualClock::default();
+        let (io, _speaker) = common::hardware(clock.clock());
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let memory = Memory::new(
             MachineConfig::new(
@@ -71,7 +73,7 @@ async fn guest_port_io() {
         );
         assert_eq!(cpu.context().cpu.eax(), 0x23);
         assert_eq!(cpu.context().cpu.eip(), 0x112);
-        clock.0.set(Duration::from_micros(5)); // Five PIT clocks: mode-3 count is 2.
+        clock.advance_to(Timestamp::ZERO + Duration::from_micros(5)); // Five PIT clocks: mode-3 count is 2.
         assert_eq!(
             execution::run_until(&mut cpu, 0x11c).await,
             ExecutionExit::Interrupted

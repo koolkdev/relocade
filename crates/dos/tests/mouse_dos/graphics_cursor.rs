@@ -2,14 +2,14 @@ use super::*;
 use relocade_bios::video;
 use relocade_machine::{FarPointer, IoBus, MemoryBus};
 
-fn graphics(dos: &mut MouseDos) -> (MemoryBus, IoBus) {
+fn graphics(dos: &mut Dos) -> (MemoryBus, IoBus) {
     let io = dos.cpu().context().io.clone();
     let memory = dos.cpu().memory().with_io(io.clone());
     video::set_mode(&mut memory.view(), &io, 0x13).unwrap();
     (memory, io)
 }
 
-async fn shape(dos: &mut MouseDos, hotspot: [i16; 2], screen: [u16; 16], cursor: [u16; 16]) {
+async fn shape(dos: &mut Dos, hotspot: [i16; 2], screen: [u16; 16], cursor: [u16; 16]) {
     // The 64-byte ABI buffer crosses the real-mode offset boundary.
     let source = FarPointer {
         segment: 0x2200,

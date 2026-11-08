@@ -7,13 +7,13 @@ use common::support::{
     registers::{attribute, indexed, palette},
 };
 use relocade_machine::Device;
+use relocade_machine::{ManualClock, Timestamp};
 use relocade_vga::Vga;
-use std::rc::Rc;
 
 async fn check_full_frame() {
     let mut gpu = Gpu::new().await;
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = common::text_vga(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = common::text_vga(clock.clock());
     common::fixture::set_cell(&mut vga, 0, 0xdb, 4);
     common::crtc(&mut vga, 10, 0x20);
     let text = common::fixture::capture(&vga);
@@ -31,7 +31,7 @@ async fn check_full_frame() {
         }
     }
     let source = vga.frame_source();
-    clock.set(common::boundary(1));
+    clock.advance_to(Timestamp::ZERO + common::boundary(1));
     vga.read_port(0x3da, 1);
     let first = source.current_capture().unwrap();
     let original = pixels(indices.iter().copied());
@@ -43,7 +43,7 @@ async fn check_full_frame() {
         indices[offset] ^= 0xff;
         vga.write_mmio(0xa0000 + offset as u32, 1, u64::from(indices[offset]));
     }
-    clock.set(common::boundary(2));
+    clock.advance_to(Timestamp::ZERO + common::boundary(2));
     vga.read_port(0x3da, 1);
     let changed = source.current_capture().unwrap();
     gpu.expect(&changed, [320, 200], &pixels(indices.iter().copied()))
@@ -51,10 +51,10 @@ async fn check_full_frame() {
 
     vga.write_mmio(0xa0000 + 40000, 1, 0xe7);
     indices[40000] = 0xe7;
-    clock.set(common::boundary(3));
+    clock.advance_to(Timestamp::ZERO + common::boundary(3));
     vga.read_port(0x3da, 1); // Skip this capture's pixel change.
     palette(&mut vga, 0xe7, [63, 63, 63]);
-    clock.set(common::boundary(4));
+    clock.advance_to(Timestamp::ZERO + common::boundary(4));
     vga.read_port(0x3da, 1);
     let newest = source.current_capture().unwrap();
     let expected: Vec<u8> = indices
@@ -90,11 +90,11 @@ async fn check_full_frame() {
 
 async fn check_addressing() {
     let mut gpu = Gpu::new().await;
-    let clock = Rc::new(common::ManualClock::default());
-    let mut vga = Vga::with_clock(clock.clone());
+    let clock = ManualClock::default();
+    let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     common::crtc(&mut vga, 13, 1);
-    clock.set(common::boundary(1));
+    clock.advance_to(Timestamp::ZERO + common::boundary(1));
     vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     for offset in 0..256 {
@@ -146,7 +146,7 @@ async fn check_addressing() {
     for (index, value) in [(9, 1), (0x12, 1), (12, 0x3f), (13, 0xff)] {
         common::crtc(&mut vga, index, value);
     }
-    clock.set(std::time::Duration::from_secs(1));
+    clock.advance_to(Timestamp::ZERO + std::time::Duration::from_secs(1));
     vga.read_port(0x3da, 1);
     let wrapped = common::fixture::capture(&vga);
     gpu.expect(&wrapped, [8, 1], &pixels([252, 253, 254, 255, 0, 1, 2, 3]))
