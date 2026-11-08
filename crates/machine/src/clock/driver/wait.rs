@@ -7,13 +7,22 @@ use std::{
 };
 use web_time::Instant;
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
 #[cfg(windows)]
 mod windows;
 
 pub(super) struct Wait {
     waker: Waker,
+    backend: Backend,
+}
+
+enum Backend {
+    Park,
     #[cfg(windows)]
-    windows: Option<windows::Wait>,
+    Windows(windows::Wait),
+    #[cfg(target_arch = "wasm32")]
+    Browser(browser::Wait),
 }
 
 impl Wait {
@@ -22,13 +31,20 @@ impl Wait {
         if let Some(wait) = windows::Wait::new() {
             return Self {
                 waker: wait.waker(),
-                windows: Some(wait),
+                backend: Backend::Windows(wait),
+            };
+        }
+        #[cfg(target_arch = "wasm32")]
+        if browser::environment::needs_message_timer() {
+            let wait = browser::Wait::new();
+            return Self {
+                waker: wait.waker(),
+                backend: Backend::Browser(wait),
             };
         }
         Self {
             waker: Waker::from(Arc::new(ThreadWake(thread::current()))),
-            #[cfg(windows)]
-            windows: None,
+            backend: Backend::Park,
         }
     }
 
@@ -36,17 +52,18 @@ impl Wait {
         &self.waker
     }
 
-    pub fn until(&self, deadline: Option<Instant>) {
-        #[cfg(windows)]
-        if let Some(wait) = &self.windows {
-            wait.until(deadline);
-            return;
-        }
-        match deadline {
-            Some(deadline) => {
-                thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
-            }
-            None => thread::park(),
+    pub async fn until(&mut self, deadline: Option<Instant>) {
+        match &mut self.backend {
+            #[cfg(windows)]
+            Backend::Windows(wait) => wait.until(deadline),
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser(wait) => wait.until(deadline).await,
+            Backend::Park => match deadline {
+                Some(deadline) => {
+                    thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
+                }
+                None => thread::park(),
+            },
         }
     }
 }

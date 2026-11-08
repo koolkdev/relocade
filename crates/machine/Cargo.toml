@@ -19,6 +19,11 @@ relocade-compiler = { path = "../compiler" }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "=0.3.106"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+
 [dev-dependencies]
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 
