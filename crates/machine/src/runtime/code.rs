@@ -17,13 +17,23 @@ pub(super) async fn interpreter<B: WasmBackend>(
     backend: &B,
     target: ExecutionTarget,
 ) -> Result<B::Module> {
-    let bytes = relocade_interpreter::module(target.profile);
     let compiler = backend.compiler();
-    Ok(if let Some(cache) = backend.module_cache() {
-        cache
-            .get_or_compile(bytes, |bytes| compiler.compile(bytes))
-            .await?
-    } else {
-        compiler.compile(bytes).await?
-    })
+    let compile = || async {
+        let bytes = relocade_interpreter::load_or_generate(target.profile, || async {
+            relocade_x86::build_interpreter(target.profile)?.compile()
+        })
+        .await?;
+        Ok(compiler.compile(&bytes).await?)
+    };
+    match backend.module_cache() {
+        Some(cache) => {
+            cache
+                .get_or_compile(
+                    relocade_interpreter::key(target.profile).as_bytes(),
+                    compile,
+                )
+                .await
+        }
+        None => compile().await,
+    }
 }

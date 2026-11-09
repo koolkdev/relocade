@@ -9,8 +9,22 @@ publish.workspace = true
 relocade-x86-profile = { path = "../x86-profile" }
 
 [build-dependencies]
-relocade-x86 = { path = "../x86" }
-relocade-workers = { path = "../workers", features = ["compiler"] }
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
-jobserver = "=0.1.35"
+sha2 = "=0.10.9"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# 13.1.0 fails to compile with async-runtime features disabled.
+cacache = { version = "=13.0.0", default-features = false }
+directories-next = "=2.0.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "=0.3.106"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+web-sys = { version = "=0.3.106", features = ["Cache", "CacheStorage", "Response"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"
+tempfile = "=3.27.0"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"

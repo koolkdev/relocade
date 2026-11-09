@@ -25,9 +25,9 @@ opt-level = 1
 [profile.test.package.relocade-compiler]
 opt-level = 3
 
-# The interpreter generator runs as a host build dependency, including cross builds.
-[profile.dev.build-override]
+# Interpreter generation now runs at startup on cache misses, including dev builds.
+[profile.dev.package.relocade-compiler]
 opt-level = 1
 
-[profile.release.build-override]
-opt-level = 3
+[profile.dev.package.relocade-x86]
+opt-level = 1

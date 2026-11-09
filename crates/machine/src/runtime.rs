@@ -86,6 +86,9 @@ impl Cpu {
     /// Creates CPU state and dispatch over existing guest memory.
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
+    /// A missing interpreter artifact is generated on the calling thread and
+    /// cached persistently. Callers with compilation workers can prepare it first
+    /// through `relocade_interpreter::load_or_generate` and `Program::compile_with`.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         CpuStorage::new()?.into_cpu(memory, cpu, io).await
     }

@@ -1,41 +1,48 @@
-use futures_util::future::join;
-use relocade_workers::{Pool, Thread};
-use relocade_x86::{build_interpreter, ExecutionProfile, SegmentProfile};
-use std::{env, error::Error, fs, path::PathBuf, thread};
+use sha2::{Digest, Sha256};
+use std::{env, error::Error, fs, path::Path};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Read Cargo's inherited descriptors before opening files or starting threads.
-    // SAFETY: Cargo owns the advertised jobserver descriptors at process startup.
-    let jobserver = unsafe { jobserver::Client::from_env() };
-    println!("cargo:rerun-if-changed=build.rs");
-    let parallelism = thread::available_parallelism().map_or(1, usize::from);
-    let mut tokens = Vec::new();
-    if let Some(jobserver) = jobserver {
-        for _ in 1..parallelism {
-            // Never wait for another slot: a build with -j1 must make progress.
-            let Ok(Some(token)) = jobserver.try_acquire() else {
-                break;
-            };
-            tokens.push(token);
-        }
+    let manifest = env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory");
+    let root = Path::new(&manifest).join("../..");
+    let mut hash = Sha256::new();
+    hash.update(b"relocade-interpreter-cache-v1");
+    for path in ["Cargo.toml", "Cargo.lock", "crates/interpreter/build.rs"] {
+        fingerprint(&root, Path::new(path), &mut hash)?;
     }
-    // The build script has one implicit slot. Retain extra leases until the pool
-    // drains; the coordinator only constructs bodies between worker phases.
-    let threads = (0..=tokens.len()).map(|_| Thread::new()).collect();
-    let (pool, executor) = Pool::new(threads)?;
-    let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
-    let ((), result) = pollster::block_on(join(pool.run(), async move {
-        for (name, profile) in [
-            ("flat32", SegmentProfile::Flat32.into()),
-            ("segmented32", SegmentProfile::Segmented32.into()),
-            ("segmented16", SegmentProfile::Segmented16.into()),
-            ("real16", ExecutionProfile::Real16),
-        ] {
-            let program = build_interpreter(profile)?;
-            let bytes = program.compile_with(&executor).await?;
-            fs::write(out.join(format!("{name}.wasm")), bytes)?;
+    for name in ["compiler", "x86", "x86-profile", "wasm-bindings", "derive"] {
+        fingerprint(
+            &root,
+            Path::new(&format!("crates/{name}/Cargo.toml")),
+            &mut hash,
+        )?;
+        fingerprint(&root, Path::new(&format!("crates/{name}/src")), &mut hash)?;
+    }
+    println!(
+        "cargo:rustc-env=RELOCADE_INTERPRETER_REVISION={:x}",
+        hash.finalize()
+    );
+    Ok(())
+}
+
+fn fingerprint(root: &Path, relative: &Path, hash: &mut Sha256) -> std::io::Result<()> {
+    let path = root.join(relative);
+    // Watching directories includes newly added or removed generator inputs.
+    println!("cargo:rerun-if-changed={}", path.display());
+    if path.is_dir() {
+        let mut entries = fs::read_dir(&path)?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.sort();
+        for name in entries {
+            fingerprint(root, &relative.join(name), hash)?;
         }
-        Ok::<(), Box<dyn Error>>(())
-    }));
-    result
+    } else {
+        let name = relative.to_string_lossy().replace('\\', "/");
+        let bytes = fs::read(&path)?;
+        hash.update((name.len() as u64).to_le_bytes());
+        hash.update(name.as_bytes());
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    Ok(())
 }

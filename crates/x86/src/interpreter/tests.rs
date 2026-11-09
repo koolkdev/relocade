@@ -2,7 +2,7 @@ use super::build_interpreter;
 use crate::SegmentProfile;
 
 #[test]
-fn serial_and_parallel_compilation_match_the_embedded_interpreter() {
+fn serial_and_parallel_compilation_match_the_cached_interpreter() {
     let profile = SegmentProfile::Segmented16;
     let serial = build_interpreter(profile).unwrap().compile().unwrap();
     let (pool, executor) = relocade_workers::Pool::new(vec![
@@ -18,8 +18,10 @@ fn serial_and_parallel_compilation_match_the_embedded_interpreter() {
             .unwrap()
     }));
     assert!(serial == parallel, "executor choice preserves the module");
-    assert!(
-        serial == relocade_interpreter::module(profile.into()),
-        "build artifact matches fresh generation"
-    );
+    let cached = pollster::block_on(relocade_interpreter::load_or_generate(
+        profile.into(),
+        || std::future::ready(Ok::<_, relocade_compiler::BuildError>(parallel)),
+    ))
+    .unwrap();
+    assert!(serial == cached, "cached artifact matches fresh generation");
 }

@@ -18,8 +18,13 @@ pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) 
         .await
         .unwrap();
     } else {
+        let bytes = relocade_interpreter::load_or_generate(ExecutionProfile::Real16, || async {
+            relocade_x86::build_interpreter(ExecutionProfile::Real16)?.compile()
+        })
+        .await
+        .unwrap();
         cpu.install_module(
-            relocade_interpreter::module(ExecutionProfile::Real16),
+            &bytes,
             &[DispatchEntry {
                 address: 0x100,
                 export: "step",
