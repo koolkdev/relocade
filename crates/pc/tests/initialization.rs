@@ -1,4 +1,5 @@
 use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
 use relocade_machine::{
     real_mode_interrupt::{read_frame, read_vector},
@@ -49,14 +50,14 @@ async fn bios_without_dos() {
                 state.set_sp(0x8000);
                 state.set_interrupts_enabled(true);
                 pc.keyboard_input()
-                    .unbounded_send(KeyboardEvent::Key {
+                    .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                         physical_key: KeyCode::KeyA.into(),
                         logical_key: Key::Character("a".into()),
                         location: KeyLocation::Standard,
                         text: Some("a".into()),
                         state: ElementState::Pressed,
                         repeat: false,
-                    })
+                    }))
                     .unwrap();
                 clock.advance_to(clock_origin() + Duration::from_nanos(54_925_402));
                 assert_eq!(

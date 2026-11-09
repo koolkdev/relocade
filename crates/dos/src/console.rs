@@ -48,8 +48,8 @@ impl<'a> NativeConsole<'a> {
                     return Ok(byte);
                 }
                 loop {
-                    let event = self.events.recv().await.map_err(|_| ())?;
-                    if let Some(key) = self.keyboard.translate(event) {
+                    let input = self.events.recv().await.map_err(|_| ())?;
+                    if let Some(key) = self.keyboard.translate(input.event) {
                         let mut bytes = dos_bytes(key);
                         let byte = bytes.next().expect("a keystroke contains a character");
                         pending = bytes.next();

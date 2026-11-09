@@ -1,6 +1,7 @@
 use crate::common;
 use relocade_bios::{KeyMode, KeyStroke, ShiftState};
 use relocade_dos::{Dos, LaunchError};
+use relocade_frontend::input::InputEvent;
 use relocade_x86::{CpuState, ExecutionExit, HostExit};
 use std::{
     future::{poll_fn, Future},
@@ -308,14 +309,14 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
         std::thread::spawn(move || {
             for (code, text) in [(KeyCode::KeyA, "ש"), (KeyCode::KeyB, "נ")] {
                 input
-                    .unbounded_send(KeyboardEvent::Key {
+                    .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                         physical_key: code.into(),
                         logical_key: Key::Character(text.into()),
                         location: KeyLocation::Standard,
                         text: Some(text.into()),
                         state: ElementState::Pressed,
                         repeat: false,
-                    })
+                    }))
                     .unwrap();
             }
         })

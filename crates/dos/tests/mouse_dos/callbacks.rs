@@ -1,5 +1,6 @@
 use super::*;
 use relocade_clock_test_support::origin as clock_origin;
+use relocade_frontend::input::InputEvent;
 
 async fn install(dos: &mut Dos) -> u32 {
     let segment = dos.process().unwrap().psp_segment();
@@ -44,16 +45,16 @@ fn callbacks_use_registers_nest_guest_services_and_are_retired_on_process_exit()
         };
         let input = dos.mouse_input();
         input
-            .unbounded_send(MouseEvent::Button {
+            .unbounded_send(InputEvent::new(MouseEvent::Button {
                 button: MouseButton::Left,
                 state: ElementState::Pressed,
-            })
+            }))
             .unwrap();
         input
-            .unbounded_send(MouseEvent::Motion {
+            .unbounded_send(InputEvent::new(MouseEvent::Motion {
                 delta_x: 16.0,
                 delta_y: 16.0,
-            })
+            }))
             .unwrap();
         for _ in 0..4 {
             relocade_machine::yield_now().await;

@@ -1,6 +1,7 @@
 use crate::common;
 use relocade_bios::KeyMode;
 use relocade_dos::Dos;
+use relocade_frontend::input::InputEvent;
 use relocade_machine::IoBus;
 use relocade_x86::ExecutionExit;
 
@@ -362,14 +363,14 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
             memory.view().write_u16(base + 0x320, count).unwrap();
             state.set_eip(0x100);
             dos.keyboard_input()
-                .unbounded_send(KeyboardEvent::Key {
+                .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                     physical_key: KeyCode::ArrowRight.into(),
                     logical_key: Key::Unidentified(NativeKey::Unidentified),
                     location: KeyLocation::Standard,
                     text: None,
                     state: transition,
                     repeat: false,
-                })
+                }))
                 .unwrap();
             assert_eq!(
                 runner.run_cpu(dos.cpu()).await,

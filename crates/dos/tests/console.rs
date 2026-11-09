@@ -5,6 +5,7 @@ mod screen;
 use common::{path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::KeyMode;
 use relocade_dos::{FileAccess, ProcessStatus};
+use relocade_frontend::input::InputEvent;
 use relocade_x86::{ExecutionExit, HostExit};
 use std::io::{Read, Write};
 
@@ -26,14 +27,14 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
             KeyCode::Enter,
         ] {
             input
-                .unbounded_send(KeyboardEvent::Key {
+                .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                     physical_key: code.into(),
                     logical_key: Key::Unidentified(NativeKey::Unidentified),
                     location: KeyLocation::Standard,
                     text: Some("ש".into()),
                     state: ElementState::Pressed,
                     repeat: false,
-                })
+                }))
                 .unwrap();
         }
         dos.stdin().write_all(b"G").unwrap();

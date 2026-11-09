@@ -1,6 +1,7 @@
 use super::super::*;
 use futures_util::future::LocalBoxFuture;
 use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::KeyboardEvent;
 use std::{
     sync::{
@@ -112,7 +113,11 @@ impl Fixture {
     }
 
     pub fn queue_event(&self, event: KeyboardEvent) {
-        self.input.as_ref().unwrap().unbounded_send(event).unwrap();
+        self.input
+            .as_ref()
+            .unwrap()
+            .unbounded_send(InputEvent::new(event))
+            .unwrap();
     }
 
     pub fn disconnect(&mut self) {
@@ -124,7 +129,7 @@ impl Fixture {
         self.mouse_input
             .as_ref()
             .unwrap()
-            .unbounded_send(event)
+            .unbounded_send(InputEvent::new(event))
             .unwrap();
         self.settle();
     }

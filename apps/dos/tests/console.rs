@@ -2,6 +2,7 @@
 
 use futures_lite::future::or;
 use relocade_dos::Dos;
+use relocade_frontend::input::InputEvent;
 use relocade_machine::ExecutionWorker;
 use std::{io::Read, time::Duration};
 
@@ -47,17 +48,17 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
                 ModifiersState::empty()
             };
             input
-                .unbounded_send(KeyboardEvent::Modifiers(modifiers))
+                .unbounded_send(InputEvent::new(KeyboardEvent::Modifiers(modifiers)))
                 .unwrap();
             input
-                .unbounded_send(KeyboardEvent::Key {
+                .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                     physical_key: code.into(),
                     logical_key: Key::Unidentified(NativeKey::Unidentified),
                     location: KeyLocation::Standard,
                     text: Some("ש".into()),
                     state: ElementState::Pressed,
                     repeat: false,
-                })
+                }))
                 .unwrap();
         }
         let video = dos.vga();

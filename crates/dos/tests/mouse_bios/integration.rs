@@ -4,6 +4,7 @@ use super::{
 };
 use relocade_bios::{KeyMode, KeyStroke};
 use relocade_clock_test_support::origin as clock_origin;
+use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
@@ -19,16 +20,16 @@ fn host_motion_reaches_bios_callback_through_sampled_ps2_and_irq12() {
         state.set_interrupts_enabled(true);
         let mouse = dos.mouse_input();
         mouse
-            .unbounded_send(MouseEvent::Button {
+            .unbounded_send(InputEvent::new(MouseEvent::Button {
                 button: MouseButton::Left,
                 state: ElementState::Pressed,
-            })
+            }))
             .unwrap();
         mouse
-            .unbounded_send(MouseEvent::Motion {
+            .unbounded_send(InputEvent::new(MouseEvent::Motion {
                 delta_x: 7.0,
                 delta_y: 3.0,
-            })
+            }))
             .unwrap();
         for _ in 0..4 {
             relocade_machine::yield_now().await;
@@ -61,14 +62,14 @@ fn command_exchange_services_keyboard_and_retains_pending_auxiliary_irq() {
         // IRQ12 is already latched at the PIC when BIOS starts its command.
         inject(&io, 0x29).await;
         dos.keyboard_input()
-            .unbounded_send(KeyboardEvent::Key {
+            .unbounded_send(InputEvent::new(KeyboardEvent::Key {
                 physical_key: KeyCode::KeyA.into(),
                 logical_key: Key::Character("a".into()),
                 location: KeyLocation::Standard,
                 text: Some("a".into()),
                 state: ElementState::Pressed,
                 repeat: false,
-            })
+            }))
             .unwrap();
         let masks = (io.read_port(0x21, 1), io.read_port(0xa1, 1));
         let status = success(&mut dos, 6, 0).await;
