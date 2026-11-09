@@ -8,6 +8,8 @@ struct Slot<H: ?Sized, F> {
     users: usize,
 }
 
+/// Ordinary and configuring operations use separate pools so a recycled callback
+/// keeps its calling convention without testing the operation kind on each call.
 pub(super) struct Bindings<H: ?Sized, F> {
     slots: Vec<Slot<H, F>>,
     handlers: HashMap<usize, usize>,
@@ -48,7 +50,8 @@ impl<H: ?Sized, F: Clone> Bindings<H, F> {
     }
 
     /// One callback per distinct live operation, shared across its port range.
-    /// Replacing the last user recycles its callback.
+    /// Replacing the last user recycles its callback. Configuring callbacks hold
+    /// their own operation reference while editing bindings.
     pub(super) fn set(&mut self, port: u16, handler: Rc<H>, create: impl FnOnce(usize) -> F) -> F {
         let key = identity(&handler);
         if let Some(&slot) = self.ports.get(&port) {

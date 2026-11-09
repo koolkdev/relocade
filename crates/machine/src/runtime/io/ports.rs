@@ -4,7 +4,7 @@ mod bindings;
 
 use super::{Backend, Context};
 use crate::{
-    io::ports::{width_mask, Read, Write},
+    io::ports::{width_mask, ConfigureRead, ConfigureWrite, Operation, Read, Write},
     PortRead, PortWrite,
 };
 use bindings::Bindings;
@@ -22,6 +22,8 @@ pub(super) struct PortTables {
     write_default: WriteFunction,
     read_bindings: Bindings<Read, ReadFunction>,
     write_bindings: Bindings<Write, WriteFunction>,
+    configuring_reads: Bindings<ConfigureRead, ReadFunction>,
+    configuring_writes: Bindings<ConfigureWrite, WriteFunction>,
 }
 
 impl PortTables {
@@ -45,21 +47,28 @@ impl PortTables {
             write_default,
             read_bindings: Bindings::default(),
             write_bindings: Bindings::default(),
+            configuring_reads: Bindings::default(),
+            configuring_writes: Bindings::default(),
         })
     }
 }
 
 /// Scoped access to one CPU's live port tables, obtained from
-/// [`crate::Cpu::port_mappings`]. Edits take effect immediately in already-linked
-/// code and the interpreter. Unbound entries use the generic [`crate::IoBus`].
+/// [`crate::Cpu::port_mappings`] or a configuring port operation.
+/// Edits take effect immediately in already-linked code and the interpreter,
+/// including between REP elements. Unbound entries use the generic [`crate::IoBus`].
 /// The editor cannot be retained in device state or shared with another CPU.
 /// Generic device and host-bus accesses retain their original routing.
 ///
 /// ```
-/// use relocade_machine::{Cpu, PortRead};
+/// use relocade_machine::{Cpu, PortRead, PortWrite};
 /// fn configure(cpu: &mut Cpu) {
-///     cpu.port_mappings().set_read(0x80..=0x80, Some(PortRead::new(|_, _| 0x5a)));
-///     cpu.port_mappings().set_read(0x80..=0x80, None); // Restore generic routing.
+///     cpu.port_mappings().set_write(0x3d4..=0x3d4, Some(PortWrite::configuring(
+///         |mappings, _, _, value| {
+///             mappings.set_read(0x3d5..=0x3d5, Some(PortRead::new(move |_, _| value)));
+///         },
+///     )));
+///     cpu.port_mappings().set_read(0x3d5..=0x3d5, None); // Restore generic routing.
 /// }
 /// ```
 pub struct PortMappings<'a> {
@@ -80,12 +89,22 @@ impl<'a> PortMappings<'a> {
         // permits callback creation and table edits without borrowing backend state.
         let mut tables = self.context.state_mut().ports.take().unwrap();
         for port in ports {
-            let function = match &handler {
-                Some(handler) => tables.read_bindings.set(port, handler.0.clone(), |slot| {
-                    read_function(&mut self.context, slot)
-                }),
+            let function = match handler.as_ref().map(|handler| &handler.0) {
+                Some(Operation::Access(handler)) => {
+                    tables.configuring_reads.remove(port);
+                    tables.read_bindings.set(port, handler.clone(), |slot| {
+                        read_function(&mut self.context, slot)
+                    })
+                }
+                Some(Operation::Configure(handler)) => {
+                    tables.read_bindings.remove(port);
+                    tables.configuring_reads.set(port, handler.clone(), |slot| {
+                        configuring_read_function(&mut self.context, slot)
+                    })
+                }
                 None => {
                     tables.read_bindings.remove(port);
+                    tables.configuring_reads.remove(port);
                     tables.read_default.clone()
                 }
             };
@@ -98,17 +117,30 @@ impl<'a> PortMappings<'a> {
     }
 
     /// Overrides writes by their starting port. `None` restores generic routing.
+    /// Replacing the invoking operation preserves its captures until it returns.
     /// An empty range is a programming error.
     pub fn set_write(&mut self, ports: RangeInclusive<u16>, handler: Option<PortWrite>) {
         assert!(!ports.is_empty(), "empty port range");
         let mut tables = self.context.state_mut().ports.take().unwrap();
         for port in ports {
-            let function = match &handler {
-                Some(handler) => tables.write_bindings.set(port, handler.0.clone(), |slot| {
-                    write_function(&mut self.context, slot)
-                }),
+            let function = match handler.as_ref().map(|handler| &handler.0) {
+                Some(Operation::Access(handler)) => {
+                    tables.configuring_writes.remove(port);
+                    tables.write_bindings.set(port, handler.clone(), |slot| {
+                        write_function(&mut self.context, slot)
+                    })
+                }
+                Some(Operation::Configure(handler)) => {
+                    tables.write_bindings.remove(port);
+                    tables
+                        .configuring_writes
+                        .set(port, handler.clone(), |slot| {
+                            configuring_write_function(&mut self.context, slot)
+                        })
+                }
                 None => {
                     tables.write_bindings.remove(port);
+                    tables.configuring_writes.remove(port);
                     tables.write_default.clone()
                 }
             };
@@ -151,6 +183,49 @@ fn write_function(context: &mut Context<'_>, slot: usize) -> WriteFunction {
                 .write_bindings
                 .handler(slot);
             handler(port as u16, bytes as u8, value as u32 & mask);
+        }),
+    )
+}
+
+fn configuring_read_function(context: &mut Context<'_>, slot: usize) -> ReadFunction {
+    ReadFunction::host(
+        context,
+        Box::new(move |context, port, bytes| {
+            let mask = width_mask(bytes as u8);
+            // Only configuring operations retain their handler across mutable access:
+            // the callback may replace its own slot while still using its captures.
+            let handler = context
+                .state()
+                .ports
+                .as_ref()
+                .unwrap()
+                .configuring_reads
+                .handler(slot)
+                .clone();
+            (handler(&mut PortMappings::new(context), port as u16, bytes as u8) & mask) as i32
+        }),
+    )
+}
+
+fn configuring_write_function(context: &mut Context<'_>, slot: usize) -> WriteFunction {
+    WriteFunction::host(
+        context,
+        Box::new(move |context, port, bytes, value| {
+            let mask = width_mask(bytes as u8);
+            let handler = context
+                .state()
+                .ports
+                .as_ref()
+                .unwrap()
+                .configuring_writes
+                .handler(slot)
+                .clone();
+            handler(
+                &mut PortMappings::new(context),
+                port as u16,
+                bytes as u8,
+                value as u32 & mask,
+            );
         }),
     )
 }

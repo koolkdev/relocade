@@ -193,7 +193,9 @@ impl Cpu {
     }
 
     /// Edits this CPU's port handlers immediately. Other CPUs and retained
-    /// generic I/O buses keep their own routing.
+    /// generic I/O buses keep their own routing. State-changing port operations
+    /// receive the same editor through `PortRead::configuring` or
+    /// `PortWrite::configuring`.
     ///
     /// # Panics
     /// Panics if a host call is pending. Complete it to regain access.

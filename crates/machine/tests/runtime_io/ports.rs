@@ -129,6 +129,108 @@ async fn check_local_updates() {
     }
 }
 
+async fn check_repeated_updates() {
+    for compiled in [false, true] {
+        // All three elements execute inside one Wasm invocation. Repeating the
+        // configuration exercises recycled callbacks of both operation kinds.
+        let mut input = guest(IoBus::default(), &[0xf3, 0x66, 0x6d], &[0], compiled).await;
+        for _ in 0..2 {
+            let resource = Rc::new(0x4433_2211);
+            let lifetime = Rc::downgrade(&resource);
+            input.port_mappings().set_read(
+                0xffff..=0xffff,
+                Some(PortRead::configuring(move |mappings, port, bytes| {
+                    assert_eq!((port, bytes), (0xffff, 4));
+                    mappings.set_read(0xffff..=0xffff, Some(PortRead::new(|_, _| 0x8877_6655)));
+                    *resource
+                })),
+            );
+            input.context().cpu.set_eip(0x100);
+            input.context().cpu.set_dx(0xffff);
+            input.context().cpu.set_di(0x600);
+            input.context().cpu.set_cx(3);
+            run(&mut input).await;
+            let mut values = [0; 12];
+            input.context().memory.read(0x600, &mut values).unwrap();
+            assert_eq!(
+                values,
+                [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x55, 0x66, 0x77, 0x88]
+            );
+            assert_eq!(input.context().cpu.cx(), 0);
+            assert!(lifetime.upgrade().is_none());
+        }
+
+        let mut output = guest(IoBus::default(), &[0xf3, 0x6e], &[0], compiled).await;
+        for _ in 0..2 {
+            let writes = Rc::new(RefCell::new(Vec::new()));
+            let captured = writes.clone();
+            let resource = Rc::new(17);
+            let lifetime = Rc::downgrade(&resource);
+            output.port_mappings().set_write(
+                0x90..=0x90,
+                Some(PortWrite::configuring(
+                    move |mappings, port, bytes, value| {
+                        let captured_next = captured.clone();
+                        mappings.set_write(
+                            0x90..=0x90,
+                            Some(PortWrite::configuring(
+                                move |mappings, port, bytes, value| {
+                                    captured_next.borrow_mut().push((1, port, bytes, value));
+                                    let captured = captured_next.clone();
+                                    mappings.set_write(
+                                        0x90..=0x90,
+                                        Some(PortWrite::new(move |port, bytes, value| {
+                                            captured.borrow_mut().push((2, port, bytes, value));
+                                        })),
+                                    );
+                                },
+                            )),
+                        );
+                        // The current handler remains alive after its own slot is reused.
+                        assert_eq!(*resource, value);
+                        captured.borrow_mut().push((0, port, bytes, value));
+                    },
+                )),
+            );
+            output.context().memory.write(0x600, &[17, 29, 41]).unwrap();
+            output.context().cpu.set_eip(0x100);
+            output.context().cpu.set_dx(0x90);
+            output.context().cpu.set_si(0x600);
+            output.context().cpu.set_cx(3);
+            run(&mut output).await;
+            assert_eq!(
+                &*writes.borrow(),
+                &[(0, 0x90, 1, 17), (1, 0x90, 1, 29), (2, 0x90, 1, 41)]
+            );
+            assert!(lifetime.upgrade().is_none());
+        }
+    }
+}
+
+async fn check_index_data_configuration() {
+    for compiled in [false, true] {
+        let mut cpu = guest(IoBus::default(), &[0xef, 0x42, 0xec], &[0, 1], compiled).await;
+        let writes = Rc::new(RefCell::new(Vec::new()));
+        let captured = writes.clone();
+        cpu.port_mappings().set_write(
+            0x3d4..=0x3d4,
+            Some(PortWrite::configuring(
+                move |mappings, port, bytes, value| {
+                    assert_eq!((port, bytes), (0x3d4, 2));
+                    captured.borrow_mut().extend([value & 0xff, value >> 8]);
+                    let data = (value >> 8) ^ 0xff;
+                    mappings.set_read(0x3d5..=0x3d5, Some(PortRead::new(move |_, _| data)));
+                },
+            )),
+        );
+        cpu.context().cpu.set_dx(0x3d4);
+        cpu.context().cpu.set_eax(0xdead_7856);
+        run(&mut cpu).await;
+        assert_eq!(&*writes.borrow(), &[0x56, 0x78]);
+        assert_eq!(cpu.context().cpu.al(), 0x87);
+    }
+}
+
 async fn check_widths_and_restoration() {
     for compiled in [false, true] {
         let device = RecordingDevice::new(0);
@@ -233,6 +335,28 @@ fn cpu_local_mappings_update_existing_code_and_preserve_other_routes() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cpu_local_mappings_update_existing_code_and_preserve_other_routes() {
     check_local_updates().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn repeated_port_transfers_observe_callback_replacement() {
+    pollster::block_on(check_repeated_updates());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn repeated_port_transfers_observe_callback_replacement() {
+    check_repeated_updates().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn configuring_writes_preserve_index_data_ordering() {
+    pollster::block_on(check_index_data_configuration());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn configuring_writes_preserve_index_data_ordering() {
+    check_index_data_configuration().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
