@@ -2,6 +2,7 @@
 //!
 //! [`Interrupts`] registers vectors, guest stubs and their handlers together,
 //! including far procedures that return with RETF.
+//! Interrupt ABIs that leave saved FLAGS on the stack can use the same far return.
 //! Low-level adapters can place [`HOOK_STUB`] and install entries from [`hook`].
 //! When an interrupt handler returns, the adapter advances to the guest IRET,
 //! which restores IP, CS and FLAGS. Far procedures instead complete through RETF.
