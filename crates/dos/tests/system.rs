@@ -168,3 +168,36 @@ fn guest_multiplex_driver_chains_unclaimed_probes() {
         );
     });
 }
+
+#[test]
+fn null_and_unknown_dos_functions_clear_only_al() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        for function in [
+            0x18, 0x1d, 0x1e, 0x20, 0x61, 0x6b, 0x6d, 0x70, 0x72, 0xfe, 0xff,
+        ] {
+            for flags in [0x856, 0xa57] {
+                let state = dos.cpu().cpu_state();
+                state.set_eip(0x100);
+                state.set_eax(0xabcd_00ef | (function << 8));
+                state.set_ebx(0x1234_5678);
+                state.set_ecx(0x2345_6789);
+                state.set_edx(0x3456_789a);
+                state.set_esi(0x4567_89ab);
+                state.set_edi(0x5678_9abc);
+                state.set_eflags(flags);
+                let mut expected = state.snapshot();
+                expected.registers.eax &= !0xff;
+                assert_eq!(
+                    common::run_until(dos.cpu(), 0x102).await,
+                    ExecutionExit::Interrupted
+                );
+                assert_eq!(state.snapshot().registers, expected.registers);
+                assert_eq!(state.snapshot().segments, expected.segments);
+                assert_eq!(state.eflags(), flags);
+                assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
+            }
+        }
+    });
+}

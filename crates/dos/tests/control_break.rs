@@ -102,6 +102,22 @@ fn unchecked_character_and_raw_handle_reads_return_control_c() {
 }
 
 #[test]
+fn unknown_dos_functions_bypass_break_checking() {
+    pollster::block_on(async {
+        let mut dos = session().await;
+        service(&mut dos, 0x3301, 0, 0, 1);
+        dos.stdin().write_all(&[3]).unwrap();
+        assert_eq!(
+            service(&mut dos, 0xfe12, 0, 0, 0).registers.eax as u16,
+            0xfe00
+        );
+        assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
+        assert!(common::output(dos.stdout()).is_empty());
+        assert_eq!(service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u8, 3);
+    });
+}
+
+#[test]
 fn int23_receives_user_registers_stack_and_clear_indos_for_iret_and_retf() {
     pollster::block_on(async {
         for returns in [

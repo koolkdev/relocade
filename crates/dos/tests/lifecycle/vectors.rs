@@ -10,8 +10,8 @@ fn exits_restore_guest_edited_psp_vectors_and_preserve_other_hooks() {
             (&[0xcd, 0x20][..], Ok(0)),
             (&[0xb8, 7, 0x4c, 0xcd, 0x21][..], Ok(7)),
             (
-                &[0xb8, 0, 0xfe, 0xcd, 0x21][..],
-                Err(ServiceError::UnsupportedFunction(0xfe)),
+                &[0xb8, 0, 0x2a, 0xcd, 0x21][..],
+                Err(ServiceError::UnsupportedFunction(0x2a)),
             ),
         ] {
             for (vector, pointer) in [

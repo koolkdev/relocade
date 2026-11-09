@@ -17,6 +17,10 @@ pub const TERMINATION_ADDRESS: u8 = 0x22;
 pub const CONTROL_BREAK: u8 = 0x23;
 /// Critical-error callback (INT 24h).
 pub const CRITICAL_ERROR: u8 = 0x24;
+/// Absolute logical-disk read (INT 25h).
+pub const ABSOLUTE_READ: u8 = 0x25;
+/// Absolute logical-disk write (INT 26h).
+pub const ABSOLUTE_WRITE: u8 = 0x26;
 /// Idle callback during DOS character I/O (INT 28h).
 pub const IDLE: u8 = 0x28;
 /// Alternate Multiplex Interrupt Specification (INT 2Dh).
@@ -50,12 +54,25 @@ const DEFAULT_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x170,
 };
+const ABSOLUTE_DISK_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x180,
+};
 
 pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
     // DOS initializes unclaimed extension vectors to empty handlers. Installed
     // services, including the resident mouse driver, replace their own vectors.
     for vector in 0x2a..=0x3f {
         interrupts.register_interrupt(vector, DEFAULT_ENTRY, async |_| {});
+    }
+    // Mounted filesystems have no raw sectors. DOS returns with interrupts enabled
+    // and carry set, leaving the original FLAGS word for the caller to discard.
+    for vector in [ABSOLUTE_READ, ABSOLUTE_WRITE] {
+        interrupts.register_interrupt_with_far_return(
+            vector,
+            ABSOLUTE_DISK_ENTRY,
+            interrupt_handler!(services::absolute_disk_unavailable),
+        );
     }
     interrupts.register_interrupt(IDLE, IDLE_ENTRY, async |_| {});
     let console = session.clone();
