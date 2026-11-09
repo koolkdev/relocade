@@ -82,6 +82,11 @@ enum Action {
     Suspend(bool),
     Motion(f64, f64),
     Button(ElementState),
+    Capture,
+    #[cfg(target_arch = "wasm32")]
+    Escape,
+    #[cfg(target_arch = "wasm32")]
+    CancelCapture,
 }
 type Actions = Rc<RefCell<VecDeque<(Action, oneshot::Sender<()>)>>>;
 
@@ -145,6 +150,49 @@ impl ApplicationHandler<Event> for Fixture {
                         state,
                     },
                 ),
+                Action::Capture => {
+                    self.application.window_event(
+                        events,
+                        id,
+                        WindowEvent::MouseInput {
+                            device_id: DeviceId::dummy(),
+                            button: MouseButton::Left,
+                            state: ElementState::Pressed,
+                        },
+                    );
+                    #[cfg(not(target_arch = "wasm32"))]
+                    assert!(self.application.capture.as_ref().unwrap().captured());
+                }
+                #[cfg(target_arch = "wasm32")]
+                action @ (Action::Escape | Action::CancelCapture) => {
+                    use winit::platform::web::WindowExtWebSys;
+                    let canvas = window.winit().canvas().unwrap();
+                    if matches!(action, Action::CancelCapture) {
+                        self.application.window_event(
+                            events,
+                            id,
+                            WindowEvent::MouseInput {
+                                device_id: DeviceId::dummy(),
+                                button: MouseButton::Left,
+                                state: ElementState::Pressed,
+                            },
+                        );
+                    }
+                    let init = web_sys::KeyboardEventInit::new();
+                    init.set_code("Escape");
+                    init.set_key("Escape");
+                    init.set_bubbles(true);
+                    for name in ["keydown", "keyup"] {
+                        canvas
+                            .dispatch_event(
+                                &web_sys::KeyboardEvent::new_with_keyboard_event_init_dict(
+                                    name, &init,
+                                )
+                                .unwrap(),
+                            )
+                            .unwrap();
+                    }
+                }
                 Action::Resize => {
                     #[cfg(not(target_arch = "wasm32"))]
                     let _ = window
@@ -271,6 +319,25 @@ fn fixture(
             wait_for(|| counts.draws.load(SeqCst) > 0).await;
             // Input reaches execution even while the graphics worker is held.
             action(Action::Focus(true)).await;
+            action(Action::Motion(9.0, 9.0)).await;
+            assert!(futures_lite::future::poll_once(pointer.recv())
+                .await
+                .is_none());
+            action(Action::Capture).await;
+            #[cfg(target_arch = "wasm32")]
+            wait_for(|| {
+                web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .pointer_lock_element()
+                    .is_some()
+            })
+            .await;
+            action(Action::Button(ElementState::Released)).await;
+            assert!(futures_lite::future::poll_once(pointer.recv())
+                .await
+                .is_none());
             action(Action::Motion(1.25, -0.5)).await;
             assert_eq!(
                 pointer.recv().await.unwrap(),
@@ -310,6 +377,18 @@ fn fixture(
                 "hidden output must not draw"
             );
             action(Action::Hide(false)).await;
+            action(Action::Capture).await;
+            #[cfg(target_arch = "wasm32")]
+            wait_for(|| {
+                web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .pointer_lock_element()
+                    .is_some()
+            })
+            .await;
+            action(Action::Button(ElementState::Released)).await;
             wait_for(|| counts.draws.load(SeqCst) > draws).await;
             futures_timer::Delay::new(Duration::from_millis(20)).await;
             let draws = counts.draws.load(SeqCst);
@@ -328,6 +407,30 @@ fn fixture(
                     delta_y: -0.5
                 }
             );
+            #[cfg(target_arch = "wasm32")]
+            for escape in [Action::Escape, Action::CancelCapture] {
+                action(escape).await;
+                futures_timer::Delay::new(Duration::from_millis(20)).await;
+                assert!(web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .pointer_lock_element()
+                    .is_none());
+                assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+                assert!(futures_lite::future::poll_once(pointer.recv())
+                    .await
+                    .is_none());
+                while let Ok(key) = keys.try_recv() {
+                    assert!(!matches!(
+                        key,
+                        KeyboardEvent::Key {
+                            physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::Escape),
+                            ..
+                        }
+                    ));
+                }
+            }
             action(Action::Suspend(true)).await;
             assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
             action(Action::Motion(9.0, 9.0)).await;
@@ -336,6 +439,11 @@ fn fixture(
                 .await
                 .is_none());
             action(Action::Suspend(false)).await;
+            pointer.close();
+            action(Action::Motion(9.0, 9.0)).await;
+            let (replacement, incoming) = mouse::channel();
+            host.attach_mouse(replacement)?;
+            pointer = incoming;
             drop(updates);
             action(Action::Close).await;
             host.closing().await?;

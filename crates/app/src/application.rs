@@ -15,6 +15,7 @@ use winit::{
 mod events;
 mod host;
 mod keyboard;
+mod mouse;
 pub use host::AppHost;
 use host::HostState;
 
@@ -58,6 +59,7 @@ pub(crate) enum Event {
     Wake,
     RedrawNeeded,
     Close,
+    MouseCaptureChanged,
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -80,6 +82,7 @@ struct Application {
     error: Option<String>,
     suspended: bool,
     focused: bool,
+    capture: Option<mouse::MouseCapture>,
 }
 
 impl Application {
@@ -109,10 +112,12 @@ impl Application {
             error: None,
             suspended: true,
             focused: false,
+            capture: None,
         }
     }
 
     fn close(&mut self, result: Result<(), String>) {
+        self.release_capture();
         let mut host = self.host.borrow_mut();
         if host.phase == Phase::Finished {
             return;
@@ -184,6 +189,7 @@ impl Application {
             return;
         }
         self.host.borrow_mut().phase = Phase::Finished;
+        self.capture = None;
         self.window = None;
         if let Some(finished) = self.finished.take() {
             finished(self.error.take().map_or(Ok(()), Err));

@@ -14,6 +14,10 @@ pub(crate) mod graphics;
 #[path = "web/application.rs"]
 pub(crate) mod application;
 
+#[cfg(feature = "graphics")]
+#[path = "web/mouse.rs"]
+pub(crate) mod mouse;
+
 pub(super) fn run<T: 'static, A: ApplicationHandler<T> + 'static>(
     event_loop: EventLoop<T>,
     application: A,
