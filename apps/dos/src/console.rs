@@ -32,6 +32,5 @@ pub async fn run_console(mut console: NativeConsole<'_>) {
         } else if !command.is_empty() {
             console.write(b"Unknown command\r\n");
         }
-        futures_lite::future::yield_now().await;
     }
 }
