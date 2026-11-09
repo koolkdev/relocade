@@ -19,6 +19,10 @@ pub const CONTROL_BREAK: u8 = 0x23;
 pub const CRITICAL_ERROR: u8 = 0x24;
 /// Idle callback during DOS character I/O (INT 28h).
 pub const IDLE: u8 = 0x28;
+/// Alternate Multiplex Interrupt Specification (INT 2Dh).
+pub const AMIS: u8 = 0x2d;
+/// DOS and resident-driver multiplex services (INT 2Fh).
+pub const MULTIPLEX: u8 = 0x2f;
 /// Resident mouse driver services (INT 33h).
 pub const MOUSE_DRIVER: u8 = 0x33;
 
@@ -42,8 +46,17 @@ pub(crate) const IDLE_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
     offset: 0x140,
 };
+const DEFAULT_ENTRY: FarPointer = FarPointer {
+    segment: 0xf000,
+    offset: 0x170,
+};
 
 pub(crate) fn register_interrupts(interrupts: &mut Interrupts<'_>, session: Rc<DosState>) {
+    // DOS initializes unclaimed extension vectors to empty handlers. Installed
+    // services, including the resident mouse driver, replace their own vectors.
+    for vector in 0x2a..=0x3f {
+        interrupts.register_interrupt(vector, DEFAULT_ENTRY, async |_| {});
+    }
     interrupts.register_interrupt(IDLE, IDLE_ENTRY, async |_| {});
     let console = session.clone();
     interrupts.register_interrupt(
