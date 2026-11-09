@@ -6,9 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-audio = ["dep:cpal", "dep:async-channel"]
+audio = ["dep:cpal", "dep:async-channel", "dep:futures-lite"]
 
 [dependencies]
+futures-lite = { version = "=2.6.1", default-features = false, optional = true }
 async-channel = { version = "=2.5.0", default-features = false, optional = true }
 relocade-pit = { path = "../pit" }
 relocade-machine = { path = "../machine" }

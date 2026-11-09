@@ -48,6 +48,8 @@ rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing t
 timer frequency also changes BIOS time unless guest software compensates.
 
 The speaker retains the same PIT through `Speaker::initialize(runner, pit)` and owns
-port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2. Playback
-consumes the latest channel-2 programming state captured at a sound-changing
-write; reads and latches leave playback phase untouched.
+port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2.
+`observe_channel2` supplies the initial state and every programming or gate write
+synchronously, with a timestamp and fractional input-clock phase on `clock()`.
+The speaker retains these changes until their PCM interval is rendered. Reads
+and latches do not notify or reset playback phase.

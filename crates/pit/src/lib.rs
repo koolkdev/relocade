@@ -1,7 +1,7 @@
 //! Binary 8254 counters and the PC/AT input clock.
 
 mod timer;
-pub use timer::Pit;
+pub use timer::{Channel2State, Pit};
 
 mod clock;
 pub use clock::{clocks_at, time_at, INPUT_HZ};
