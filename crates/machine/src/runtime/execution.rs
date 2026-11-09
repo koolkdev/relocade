@@ -81,13 +81,19 @@ impl Cpu {
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
-        poll_fn(|cx| self.poll_run(cx)).await
+        poll_fn(|cx| self.poll_run(cx, true)).await
     }
 
     /// Polls execution without giving the caller ownership of pending services.
     /// Calls and their locals stay in the CPU between polls. Both the public run
     /// future and Runner use this boundary, including terminal-exit cleanup.
-    pub(crate) fn poll_run(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+    /// Without guest execution credit, ready host work and exit requests still
+    /// progress, but guest calls, IRQ entry and instruction dispatch wait.
+    pub(crate) fn poll_run(
+        &mut self,
+        cx: &mut Context<'_>,
+        allow_guest: bool,
+    ) -> Poll<ExecutionExit> {
         let exit = if let Some(exit) = self.exit.0.get() {
             exit
         } else {
@@ -96,6 +102,12 @@ impl Cpu {
                 self.pending = call.poll(cx);
             }
             loop {
+                if let Some(exit) = self.exit.0.get() {
+                    break exit;
+                }
+                if !allow_guest {
+                    return Poll::Pending;
+                }
                 let guest_entered = match self.try_enter_guest(cx) {
                     Ok(delivered) => delivered,
                     Err(exit) => break exit,

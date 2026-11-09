@@ -21,8 +21,7 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
 
     pollster::block_on(async {
         let worker = ExecutionWorker::spawn_with_guest_time(
-            NonZeroU64::new(1_000_000).unwrap(),
-            None,
+            || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
             async |runner| {
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
                 let program = [0xb8, 7, 0x4c, 0xcd, 0x21];

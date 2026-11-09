@@ -1,0 +1,48 @@
+//! Host/guest correspondence, excluding time spent between CPU bindings.
+
+use crate::{Clock, Instant, Sleep};
+
+pub(super) struct HostTime {
+    clock: Clock,
+    mapping: Option<Mapping>,
+    paused_at: Option<Instant>,
+}
+
+struct Mapping {
+    host: Instant,
+    guest: Instant,
+}
+
+impl HostTime {
+    pub(super) fn new(clock: Clock) -> Self {
+        Self {
+            clock,
+            mapping: None,
+            paused_at: None,
+        }
+    }
+
+    pub(super) fn resume(&mut self, guest: Instant) {
+        let now = self.clock.now();
+        match &mut self.mapping {
+            Some(mapping) => {
+                let paused = self.paused_at.take().expect("host time was paused");
+                mapping.host += now.saturating_duration_since(paused);
+            }
+            None => self.mapping = Some(Mapping { host: now, guest }),
+        }
+    }
+
+    pub(super) fn pause(&mut self) {
+        self.paused_at = Some(self.clock.now());
+    }
+
+    pub(super) fn sleep_until(&self, guest: Instant) -> Sleep {
+        let mapping = self
+            .mapping
+            .as_ref()
+            .expect("host pacing belongs to an active run");
+        let host = mapping.host + guest.saturating_duration_since(mapping.guest);
+        self.clock.sleep_until(host)
+    }
+}

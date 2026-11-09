@@ -41,8 +41,10 @@ async fn cpu(runner: &Runner, code: &[u8], io: IoBus) -> Cpu {
 
 async fn yield_deadline_overshoot() {
     let worker = ExecutionWorker::spawn_with_guest_time(
-        NonZeroU64::new(3).unwrap(),
-        Some(Duration::from_secs(1)),
+        || {
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(3).unwrap())
+                .with_yield_interval(Duration::from_secs(1))
+        },
         async |runner| {
             let start = runner.clock().now();
             let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
@@ -117,8 +119,10 @@ impl Device for Deadlines {
 async fn deadlines_and_final_exit() {
     for final_exit in [false, true] {
         let worker = ExecutionWorker::spawn_with_guest_time(
-            NonZeroU64::new(1000).unwrap(),
-            Some(Duration::from_millis(10)),
+            || {
+                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                    .with_yield_interval(Duration::from_millis(10))
+            },
             async move |runner| {
                 let start = runner.clock().now();
                 let device = Rc::new(RefCell::new(Deadlines {
@@ -181,8 +185,10 @@ impl Device for Periodic {
 async fn retained_service() {
     let (host_time, timers) = timer_service();
     let worker = ExecutionWorker::spawn_with_guest_time(
-        NonZeroU64::new(1000).unwrap(),
-        Some(Duration::from_millis(10)),
+        || {
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_yield_interval(Duration::from_millis(10))
+        },
         async move |runner| {
             let start = runner.clock().now();
             let device = Rc::new(RefCell::new(Periodic {
@@ -284,8 +290,7 @@ async fn immediate_exit(runner: &Runner) {
 
 async fn terminal_exit_without_notifications() {
     let worker = ExecutionWorker::spawn_with_guest_time(
-        NonZeroU64::new(1000).unwrap(),
-        None,
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -307,3 +312,8 @@ fn terminal_exit_without_ready_work_adds_no_activity_turn() {
 async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
     terminal_exit_without_notifications().await;
 }
+
+#[path = "guest_time_scheduling/host.rs"]
+mod host;
+#[path = "guest_time_scheduling/pacing.rs"]
+mod pacing;

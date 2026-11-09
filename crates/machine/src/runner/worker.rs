@@ -1,10 +1,10 @@
-use super::Runner;
+use super::{GuestTimeConfig, Runner};
 use crate::worker::{
     self, wake_connection, CancellableWorker, ThreadExt, WakeEndpoint, WakeHost, WakePeer,
 };
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_lite::future::or;
-use std::{future::Future, num::NonZeroU64, time::Duration};
+use std::future::Future;
 
 /// Owns a worker for one CPU session and its registered devices.
 /// Use `runner.create_cpu` (or `Dos::new`) inside the supplied closure. CPU
@@ -74,19 +74,15 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         )
     }
 
-    /// Runs a session on emulated guest time without pacing against host time.
-    /// Retirement advances time at `instructions_per_second`. Device deadlines
-    /// and an optional positive `yield_interval` in guest time schedule CPU yields.
-    /// Devices use the existing [`Clock`] interface.
+    /// Constructs guest-time configuration on the execution owner, then runs
+    /// the session. The factory can create a local host clock for burst pacing.
+    /// Devices keep the existing [`Clock`] interface.
     pub fn spawn_with_guest_time(
-        instructions_per_second: NonZeroU64,
-        yield_interval: Option<Duration>,
+        make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
-            move |storage, endpoint| {
-                Runner::with_guest_time(instructions_per_second, yield_interval, storage, endpoint)
-            },
+            move |storage, endpoint| Runner::with_guest_time(make_time(), storage, endpoint),
             session,
         )
     }

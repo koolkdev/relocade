@@ -53,7 +53,7 @@ pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{Device, DeviceConnection, IoBus};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
-pub use runner::{yield_now, ExecutionWorker, Runner};
+pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, InstructionTarget, Result,

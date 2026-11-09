@@ -3,6 +3,9 @@
 #[cfg(test)]
 mod tests;
 
+mod host;
+use host::HostTime;
+
 mod wait;
 use wait::{Source, Wait};
 
@@ -17,7 +20,8 @@ use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker, time::Duration};
 /// Devices use the common [`Clock`] returned by [`Self::clock`].
 ///
 /// Callback observations can lag unpublished retirement; instruction targets
-/// remain soft checkpoint limits. This driver does not pace against host time.
+/// remain soft checkpoint limits. Runner chooses pacing boundaries; the driver
+/// retains the optional host/guest time correspondence.
 pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
@@ -26,6 +30,7 @@ struct State {
     remainder: u64,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
+    host: Option<HostTime>,
 }
 
 struct Binding {
@@ -44,7 +49,22 @@ impl GuestTimeDriver {
             remainder: 0,
             cpu: None,
             waits: Vec::new(),
+            host: None,
         })))
+    }
+
+    pub(crate) fn with_host_clock(self, clock: Clock) -> Self {
+        self.0.borrow_mut().host = Some(HostTime::new(clock));
+        self
+    }
+
+    pub(crate) fn host_sleep_until(&self, deadline: Instant) -> super::Sleep {
+        self.0
+            .borrow()
+            .host
+            .as_ref()
+            .expect("configured host clock")
+            .sleep_until(deadline)
     }
 
     pub fn clock(&self) -> Clock {
@@ -63,6 +83,10 @@ impl GuestTimeDriver {
     pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
+        let now = state.observe();
+        if let Some(host) = &mut state.host {
+            host.resume(now);
+        }
         let cpu_state = cpu.cpu_state();
         state.cpu = Some(Binding {
             last_instruction_count: cpu_state.instruction_count(),
@@ -99,7 +123,9 @@ impl GuestTimeDriver {
         true
     }
 
-    fn next_deadline(&self) -> Option<Instant> {
+    /// Earliest registered sleep in guest time. Query at a stopped boundary
+    /// after ready activities have had an opportunity to replace their waits.
+    pub fn next_deadline(&self) -> Option<Instant> {
         self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
     }
 
@@ -119,7 +145,8 @@ impl GuestTimeDriver {
         }
     }
 
-    fn advance_to(&self, deadline: Instant) {
+    /// Advance only after execution and ready activities have become idle.
+    pub(crate) fn advance_to(&self, deadline: Instant) {
         {
             let mut state = self.0.borrow_mut();
             state.now = state.observe().max(deadline);
@@ -134,6 +161,9 @@ impl Drop for BindingGuard<'_> {
     fn drop(&mut self) {
         let mut state = self.0 .0.borrow_mut();
         state.observe();
+        if let Some(host) = &mut state.host {
+            host.pause();
+        }
         state.cpu.take().unwrap().target.set(None);
     }
 }

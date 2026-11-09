@@ -8,8 +8,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn pit_interrupts() {
     let worker = ExecutionWorker::spawn_with_guest_time(
-        NonZeroU64::new(1_000_000).unwrap(),
-        None,
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
         async |runner| {
             let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();

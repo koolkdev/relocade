@@ -161,6 +161,16 @@ published before polling activities, including after a terminal CPU exit.
 A terminal result returns immediately when no execution notification is pending;
 otherwise ready activities receive a turn before the result returns.
 
+Guest-time workers receive a configuration factory, following the same owner-local
+construction rule as `spawn_with_clock`. `GuestTimeConfig` selects the instruction
+rate, optional yield interval and optional host pacing. `with_host_clock(clock)`
+uses 4 ms bursts for active execution and idle advancement; `with_burst_interval`
+changes that allowance. Device deadlines subdivide each burst. The embedding
+retains and drives the host timer service. Scheduling notifications preserve the
+allowance, and ready host services remain pollable during a pacing wait. Run
+cancellation drops that wait while preserving guest progress and remaining credit;
+time between runs is excluded from the host/guest correspondence.
+
 Lower-level embeddings capture `cpu.instruction_target()` before execution and use
 `target.set(Some(absolute_count))` or `target.set(None)`. Updates take effect at
 existing checkpoints, including when made from synchronous device callbacks.

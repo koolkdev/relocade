@@ -93,20 +93,34 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 ## Execution with guest time
 
-`ExecutionWorker::spawn_with_guest_time(instructions_per_second, yield_interval,
-session)` constructs a guest time driver starting at `Instant::now()` and a
-`Runner` on the execution owner. `yield_interval` is an optional positive duration
-in guest time between periodic CPU yields; `None` uses device deadlines alone.
-The lower-level `Runner::with_guest_time` accepts prepared CPU storage and its
-wake endpoint.
+`ExecutionWorker::spawn_with_guest_time(make_time, session)` constructs a
+`GuestTimeConfig` on the execution owner. `GuestTimeConfig::new(rate)` selects
+unpaced guest time and device deadlines only. `with_yield_interval(duration)`
+adds periodic yields in guest time. `with_host_clock(clock)` paces active execution
+and idle advancement in 4 ms guest-time bursts. `with_burst_interval(duration)` changes that positive
+allowance. The host clock is constructed in the factory.
+The lower-level `Runner::with_guest_time` takes the same configuration directly.
+
+```rust
+let worker = ExecutionWorker::spawn_with_guest_time(
+    move || GuestTimeConfig::new(instructions_per_second)
+        .with_yield_interval(Duration::from_millis(10))
+        .with_host_clock(host_timers.clock()),
+    async |runner| {
+        // Devices receive runner.clock(); the host timer service runs alongside
+        // this worker and binds its wake peer.
+    },
+);
+```
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. It
 prepares the schedule, polls the CPU once and publishes guest time. Continuing
 execution gives ready activities a turn. Terminal exits yield only when an
 execution notification remains pending, including notifications from timers made
-due by the final instructions. The private `ExecutionSchedule` owns clock selection, periodic yield deadlines and idle
-scheduling. Its binding scopes the guest driver's target and notifications to
-one run; completion and cancellation release it.
+due by the final instructions. The private `ExecutionSchedule` owns clock
+selection, periodic yield deadlines and burst pacing. Its binding scopes the
+guest driver's target and notifications to one run; completion and cancellation
+release it.
 
 Pending services and suspended calls belong to `Cpu`. Both `Cpu::run` and Runner
 use the same internal `poll_run` boundary, including terminal-exit cleanup. Runner
@@ -124,11 +138,29 @@ Host waits use a separate host `Clock` constructed from `TimerHandle` on the
 execution owner. `HostTimerDriver::spawn_with_peer` binds direct notifications so
 host deadlines can wake services while guest execution stays runnable.
 
-This mode advances guest time without pacing against host time. Idle advancement
-to a guest deadline is distinct from waiting for a host deadline or an external
-event. Mapping guest time to host time and choosing those waits belongs to Runner's
-pacing policy; that policy is not implemented here. Checkpoint placement and REP
-retirement accounting also remain separate work.
+### Bursts paced by a host clock
+
+The next CPU stop is the earliest device deadline, periodic yield or burst end.
+Idle advancement stops at each device deadline within the same burst. Devices
+and the CPU receive execution opportunities between deadlines; this does not
+promise IRQ acceptance when guest interrupt state prevents it.
+
+At the burst boundary, Runner waits for the corresponding absolute host time.
+Checkpoint overshoot is included in that wait and shortens the next burst.
+Late host wakes preserve the burst grid and each intervening device deadline;
+guest time never jumps directly to the current host time. A burst can contain
+several PIT deadlines without requiring a host wait for every transition.
+
+An execution notification makes ready activities pollable while preserving the
+current allowance. Ready host services and exit requests can progress during a
+pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
+credit. Replacing a device timer does not replace the pacing wait or grant time.
+
+Completing or cancelling `run_cpu` cancels its host wait. The next run retains
+unused burst credit and the existing lead or lag. Time spent between runs is
+excluded by shifting the host origin; repeated cancellation cannot grant another
+burst. The clock driver owns this host/guest correspondence, while
+`runner/schedule/pacing.rs` owns the allowance and cancellable host wait.
 
 ## Host timers
 
