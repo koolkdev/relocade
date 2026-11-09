@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+async-channel = { version = "=2.5.0", default-features = false }
 relocade-ps2 = { path = "../ps2" }
 relocade-bios = { path = "../bios" }
 relocade-frontend = { path = "../frontend", features = ["keyboard", "mouse"] }

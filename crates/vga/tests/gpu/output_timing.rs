@@ -49,14 +49,14 @@ async fn timed_updates() {
     })));
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
 
     // Late service keeps the deadline at the retrace boundary.
     guest.advance_to(clock_origin() + common::boundary(1) + Duration::from_micros(1));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     assert_eq!(
         host.next_deadline(),
         Some(clock_origin() + common::boundary(1))
@@ -75,25 +75,26 @@ async fn timed_updates() {
     set_cell(&mut *vga.borrow_mut(), 1999, 0xdb, 2);
     guest.advance_to(clock_origin() + common::boundary(3));
     vga.borrow_mut().read_port(0x3da, 1);
+    // Pending timestamps use the mapping when the task processes them. An
+    // already-started wait keeps its original deadline across mapping changes.
+    offset.set(Duration::from_secs(1));
     common::service_video(video.as_mut());
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     assert_eq!(
         host.next_deadline(),
         Some(clock_origin() + common::boundary(1))
     );
 
-    // Pending timestamps use the mapping when the task takes them. The first
-    // capture already owns its wait, so changing the mapping cannot postpone it.
-    offset.set(Duration::from_secs(1));
     host.advance_to(clock_origin() + common::boundary(1));
     common::service_video(video.as_mut());
-    assert_eq!(source.current_capture().unwrap().sequence, 1);
+
     assert_eq!(
         host.next_deadline(),
-        Some(clock_origin() + common::boundary(3) + Duration::from_secs(1))
+        Some(clock_origin() + common::boundary(3) + offset.get())
     );
     assert_eq!(display.service(&queue).await, Some(true));
     let pixels = draw(&mut display, &device, &queue).await;
+
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);
 
@@ -102,19 +103,21 @@ async fn timed_updates() {
     assert!(display.service(&queue).now_or_never().is_none());
     host.advance_to(clock_origin() + common::boundary(2));
     common::service_video(video.as_mut());
-    assert_eq!(source.current_capture().unwrap().sequence, 1);
+
     assert!(display.service(&queue).now_or_never().is_none());
     assert_eq!(draw(&mut display, &device, &queue).await, pixels);
 
     display.device_lost();
     display.attach_device(&device, &queue).unwrap();
     assert_eq!(draw(&mut display, &device, &queue).await, pixels);
+
     assert!(display.service(&queue).now_or_never().is_none());
 
-    host.advance_to(clock_origin() + common::boundary(3) + Duration::from_secs(1));
+    host.advance_to(clock_origin() + common::boundary(3) + offset.get());
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let pixels = draw(&mut display, &device, &queue).await;
+
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 8, 0), [0, 0, 170, 255]);
     assert_eq!(pixel(&pixels, 632, 192), [0, 170, 0, 255]);
@@ -125,12 +128,12 @@ async fn timed_updates() {
     common::service_video(video.as_mut());
     assert_eq!(
         host.next_deadline(),
-        Some(clock_origin() + common::boundary(4) + Duration::from_secs(1))
+        Some(clock_origin() + common::boundary(4) + offset.get())
     );
     drop(video);
     assert_eq!(host.next_deadline(), None);
     drop(vga);
-    assert_eq!(source.current_capture().unwrap().sequence, 3);
+
     assert_eq!(display.service(&queue).await, None);
 }
 

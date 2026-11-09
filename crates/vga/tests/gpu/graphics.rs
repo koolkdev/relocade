@@ -1,7 +1,7 @@
 //! GPU comparison and distinctive palette values for graphics-layout checks.
 use super::{common::support::registers::palette, read_pixels};
 use relocade_machine::Device;
-use relocade_vga::{CapturedFrame, VgaRenderer};
+use relocade_vga::{DisplaySnapshot, VgaRenderer};
 
 pub(super) fn color(index: u8) -> ([u8; 3], [u8; 4]) {
     // Eight exact six-bit levels and their independently listed RGBA values.
@@ -52,11 +52,11 @@ impl Gpu {
 
     pub(super) async fn expect(
         &mut self,
-        capture: &CapturedFrame,
+        capture: &DisplaySnapshot,
         size: [u32; 2],
         expected: &[u8],
     ) {
-        self.renderer.upload(&self.queue, &capture.display);
+        self.renderer.upload(&self.queue, capture);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let frame = self.renderer.encode(&mut encoder).unwrap();
         self.queue.submit([encoder.finish()]);

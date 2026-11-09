@@ -40,7 +40,6 @@ pub fn context() -> Result<Context, String> {
 }
 
 pub struct Presented {
-    pub sequence: u64,
     pub size: [u32; 2],
     pub count: u32,
     pub pixel: [u8; 4],
@@ -169,7 +168,6 @@ impl Target {
         }
         self.count += 1;
         Ok(Presented {
-            sequence: frame.sequence,
             size,
             count: self.count,
             pixel,

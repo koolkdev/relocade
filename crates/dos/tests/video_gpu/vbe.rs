@@ -46,10 +46,10 @@ fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
                 common::run_until(dos.cpu(), stop).await,
                 ExecutionExit::Interrupted
             );
-            let current = dos.frame_source().current_capture().filter(|capture| {
-                matches!(capture.display.scanout(), relocade_vga::Scanout::Svga(layout)
+            let current = dos.frames().try_recv().ok().filter(|capture| {
+                matches!(capture.scanout(), relocade_vga::Scanout::Svga(layout)
                     if layout.pitch() == 1024 && layout.origin() == origin)
-                    && capture.display.vram_byte(0) == Some(2)
+                    && capture.vram_byte(0) == Some(2)
             });
             captures.push(match current {
                 Some(capture) => capture,
@@ -154,9 +154,10 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
         // The trailing BIOS queries may already have published the final write.
         // A static packed frame will not publish again without a change.
         let graphics = match dos
-            .frame_source()
-            .current_capture()
-            .filter(|capture| capture.display.vram_byte(307199) == Some(1))
+            .frames()
+            .try_recv()
+            .ok()
+            .filter(|capture| capture.vram_byte(307199) == Some(1))
         {
             Some(capture) => capture,
             None => common::next_capture(&dos).await,
@@ -183,9 +184,8 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
             }
             assert_eq!(context.memory.read_u16(base + 0x630).unwrap(), 15);
         }
-        let changed = match dos.frame_source().current_capture().filter(|capture| {
-            capture.display.geometry().size == [800, 600]
-                && capture.display.dac.colors[1] != [63, 0, 0]
+        let changed = match dos.frames().try_recv().ok().filter(|capture| {
+            capture.geometry().size == [800, 600] && capture.dac.colors[1] != [63, 0, 0]
         }) {
             Some(capture) => capture,
             None => common::next_capture(&dos).await,
@@ -208,9 +208,8 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
                 assert_eq!(context.memory.read_u16(base + offset).unwrap(), value);
             }
         }
-        let restored_graphics = match dos.frame_source().current_capture().filter(|capture| {
-            capture.display.scanout() == graphics.display.scanout()
-                && capture.display.dac.colors[1] == [63, 0, 0]
+        let restored_graphics = match dos.frames().try_recv().ok().filter(|capture| {
+            capture.scanout() == graphics.scanout() && capture.dac.colors[1] == [63, 0, 0]
         }) {
             Some(capture) => capture,
             None => common::next_capture(&dos).await,

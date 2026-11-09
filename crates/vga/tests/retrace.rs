@@ -35,7 +35,7 @@ fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     let mut vga = Vga::with_clock(clock.clock());
     crtc(&mut vga, 0x17, 0x23);
     let (vga, mut video) = common::start_video(vga);
-    let frames = vga.borrow().frame_source();
+    let frames = vga.borrow().frames();
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -50,7 +50,7 @@ fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     clock.advance_to(clock_origin() + boundary(1));
     assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
     common::service_video(video.as_mut());
-    assert_eq!(frames.current_capture().unwrap().sequence, 1);
+    assert!(frames.try_recv().is_ok());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
     crtc(&mut *vga.borrow_mut(), 0x17, 0xa3);

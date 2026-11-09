@@ -52,7 +52,7 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     let clock = ManualClock::default();
     let (vga, mut video) =
         common::start_video(Vga::with_clock(Clock::new(DelayedTimer(clock.clone()))));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -66,7 +66,7 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'B'));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
 
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'C'));
@@ -74,15 +74,11 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'D'));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1, "pending work coalesces");
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     poll_video(video.as_mut(), &mut cx);
-    let capture = source.current_capture().unwrap();
-    assert_eq!(capture.sequence, 2);
-    assert_eq!(
-        capture.display.plane(0)[0],
-        b'C',
-        "capture precedes the write"
-    );
+    let capture = source.try_recv().unwrap();
+
+    assert_eq!(capture.plane(0)[0], b'C', "capture precedes the write");
     assert_eq!(
         vga.borrow_mut().read_mmio(TEXT_MEMORY_START, 1),
         u64::from(b'D')
@@ -95,15 +91,15 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
     let mut video = Box::pin(Vga::run(vga.clone()));
-    let source = vga.borrow().frame_source();
-    assert!(source.current_capture().is_none());
+    let source = vga.borrow().frames();
+    assert!(source.is_empty());
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START, 4, 0x2fdb_1edb);
     crtc(&mut *vga.borrow_mut(), 0x0f, 1);
     tick(&clock, video.as_mut(), boundary(1));
-    let first = source.current_capture().unwrap();
+    let first = source.try_recv().unwrap();
     // An alternate renderer can consume captured state without producing CPU pixels.
-    let first_text = common::support::inspection::inspect(&first.display);
+    let first_text = common::support::inspection::inspect(&first);
     assert_eq!(first_text.cells[0].character, 0xdb);
     assert_eq!(first_text.cells[0].attribute, 0x1e);
     assert_eq!(first_text.start_address, 0);
@@ -112,7 +108,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert_eq!((first_pixels.width, first_pixels.height), (640, 200));
     assert_eq!(first_pixels.pixel_aspect_ratio, (5, 12));
     assert_eq!(first_pixels.pixels.len(), 640 * 200 * 4);
-    assert_eq!(first.sequence, 1);
+
     assert_eq!(&first_pixels.pixels[..4], [255, 255, 85, 255]);
     assert_eq!(&first_pixels.pixels[32..36], [255, 255, 255, 255]);
 
@@ -124,18 +120,18 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
         video.as_mut(),
         boundary(2) - Duration::from_nanos(1),
     );
-    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
+    assert!(source.is_empty());
     tick(&clock, video.as_mut(), boundary(2));
-    let second = source.current_capture().unwrap();
+    let second = source.try_recv().unwrap();
     assert_eq!(
-        common::support::inspection::inspect(&second.display).start_address,
+        common::support::inspection::inspect(&second).start_address,
         1
     );
     assert_eq!(
-        common::support::inspection::inspect(&first.display).start_address,
+        common::support::inspection::inspect(&first).start_address,
         0
     );
-    assert_eq!(second.sequence, 2);
+
     assert_eq!(
         &software::rasterize(&second).pixels[..4],
         [255, 255, 255, 255]
@@ -147,7 +143,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
     poll_video(video.as_mut(), &mut Context::from_waker(&waker));
-    assert_eq!(source.current_capture().unwrap().sequence, 100);
+
     assert_eq!(
         clock
             .next_deadline()
@@ -160,51 +156,48 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     drop(video);
     drop(vga);
     assert_eq!(
-        &software::rasterize(&source.current_capture().unwrap()).pixels[..4],
+        &software::rasterize(&source.try_recv().unwrap()).pixels[..4],
         [255, 255, 255, 255]
     );
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
+fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
     let mut video = Box::pin(Vga::run(vga.clone()));
-    let source = vga.borrow().frame_source();
-    let wake_a = Arc::new(WakeCount::default());
-    let wake_b = Arc::new(WakeCount::default());
-    let waker_a = waker(wake_a.clone());
-    let waker_b = waker(wake_b.clone());
-    let mut cx_a = Context::from_waker(&waker_a);
-    let mut cx_b = Context::from_waker(&waker_b);
-    let mut a = std::pin::pin!(source.next_capture(None));
-    let mut b = std::pin::pin!(source.next_capture(None));
-    assert!(a.as_mut().poll(&mut cx_a).is_pending());
-    assert!(b.as_mut().poll(&mut cx_b).is_pending());
+    let source = vga.borrow().frames();
+    let wakes = Arc::new(WakeCount::default());
+    let waker = waker(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    {
+        let mut canceled = std::pin::pin!(source.recv());
+        assert!(canceled.as_mut().poll(&mut cx).is_pending());
+    }
+    let mut first = std::pin::pin!(source.recv());
+    assert!(first.as_mut().poll(&mut cx).is_pending());
     tick(&clock, video.as_mut(), boundary(1));
-    assert!(wake_a.0.load(Ordering::Relaxed) > 0);
-    assert!(wake_b.0.load(Ordering::Relaxed) > 0);
-    assert!(matches!(a.as_mut().poll(&mut cx_a), Poll::Ready(Some(_))));
-    assert!(matches!(b.as_mut().poll(&mut cx_b), Poll::Ready(Some(_))));
+    assert!(wakes.0.load(Ordering::Relaxed) > 0);
+    assert!(matches!(first.as_mut().poll(&mut cx), Poll::Ready(Ok(_))));
+    assert!(source.is_empty());
 
     for index in 2..=20 {
         vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 1, index);
         tick(&clock, video.as_mut(), boundary(index));
+        assert_eq!(source.len(), 1);
     }
-    let mut slow = std::pin::pin!(source.next_capture(Some(0)));
-    let Poll::Ready(Some(latest)) = slow.as_mut().poll(&mut cx_a) else {
-        panic!("latest frame should be ready");
-    };
-    assert_eq!(latest.sequence, 20);
-    let mut next = std::pin::pin!(source.next_capture(Some(latest.sequence)));
-    assert!(next.as_mut().poll(&mut cx_a).is_pending());
-    let wakes = wake_a.0.load(Ordering::Relaxed);
     drop(video);
     drop(vga);
-    assert!(wake_a.0.load(Ordering::Relaxed) > wakes);
-    assert!(matches!(next.as_mut().poll(&mut cx_a), Poll::Ready(None)));
-    assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
+    assert!(source.is_closed());
+    let mut slow = std::pin::pin!(source.recv());
+    let Poll::Ready(Ok(latest)) = slow.as_mut().poll(&mut cx) else {
+        panic!("latest frame should be ready");
+    };
+    assert_eq!(latest.plane(0)[0], 20);
+    let mut next = std::pin::pin!(source.recv());
+    assert!(matches!(next.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
+    assert!(source.is_empty());
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -213,13 +206,13 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
     let mut video = std::pin::pin!(Vga::run(vga.clone()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     tick(&clock, video.as_mut(), boundary(1));
-    let first = source.current_capture().unwrap();
+    let first = source.try_recv().unwrap();
     let wakes = Arc::new(WakeCount::default());
     let change_waker = waker(wakes.clone());
     let mut cx = Context::from_waker(&change_waker);
-    let mut changed = std::pin::pin!(source.next_capture(Some(first.sequence)));
+    let mut changed = std::pin::pin!(source.recv());
     assert!(changed.as_mut().poll(&mut cx).is_pending());
 
     // Port indices and transfer positions do not change captured display inputs.
@@ -241,36 +234,34 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     );
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
     assert!(changed.as_mut().poll(&mut cx).is_pending());
-    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
-    assert_eq!(first.sequence, 1);
+    assert!(source.is_empty());
 
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     tick(&clock, video.as_mut(), boundary(3));
     tick(&clock, video.as_mut(), boundary(4));
     assert!(wakes.0.load(Ordering::Relaxed) > 0);
-    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
+    let Poll::Ready(Ok(latest)) = changed.as_mut().poll(&mut cx) else {
         panic!("changed inputs must wake the consumer");
     };
-    assert_eq!(latest.sequence, 3);
-    assert_eq!(latest.display.plane(0)[0], 0xdb);
-    assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
 
-    let mut changed = std::pin::pin!(source.next_capture(Some(latest.sequence)));
+    assert_eq!(latest.plane(0)[0], 0xdb);
+    assert_ne!(first.plane(0)[0], 0xdb);
+    assert!(source.is_empty());
+
+    let mut changed = std::pin::pin!(source.recv());
     assert!(changed.as_mut().poll(&mut cx).is_pending());
     wakes.0.store(0, Ordering::Relaxed);
     crtc(&mut *vga.borrow_mut(), 0x0f, 1);
     tick(&clock, video.as_mut(), boundary(5));
     assert!(wakes.0.load(Ordering::Relaxed) > 0, "register-only change");
-    let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
+    let Poll::Ready(Ok(latest)) = changed.as_mut().poll(&mut cx) else {
         panic!("changed registers must wake the consumer");
     };
-    assert_eq!(latest.sequence, 5);
-
-    let mut latest = latest;
+    assert_eq!(latest.vga().unwrap().crtc.values[0x0f], 1);
     // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
     // attribute phase: the cursor has completed a full cycle in between.
     for (frame, cursor_on, attribute_on) in [(8, false, true), (24, false, false)] {
-        let mut changed = std::pin::pin!(source.next_capture(Some(latest.sequence)));
+        let mut changed = std::pin::pin!(source.recv());
         assert!(changed.as_mut().poll(&mut cx).is_pending());
         wakes.0.store(0, Ordering::Relaxed);
         tick(&clock, video.as_mut(), boundary(frame));
@@ -278,16 +269,12 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
             wakes.0.load(Ordering::Relaxed) > 0,
             "blink without guest writes"
         );
-        let Poll::Ready(Some(capture)) = changed.as_mut().poll(&mut cx) else {
+        let Poll::Ready(Ok(capture)) = changed.as_mut().poll(&mut cx) else {
             panic!("either blink phase must wake the consumer");
         };
-        assert_eq!(capture.sequence, frame);
-        assert_eq!(capture.display.vga().unwrap().cursor_blink_on, cursor_on);
-        assert_eq!(
-            capture.display.vga().unwrap().attribute_blink_on,
-            attribute_on
-        );
-        latest = capture;
+
+        assert_eq!(capture.vga().unwrap().cursor_blink_on, cursor_on);
+        assert_eq!(capture.vga().unwrap().attribute_blink_on, attribute_on);
     }
 }
 
@@ -303,12 +290,12 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
     crtc(&mut *vga.borrow_mut(), 0x0f, 1);
     vga.borrow_mut().write_port(CRTC_INDEX_PORT, 2, 0x060a);
     vga.borrow_mut().write_port(CRTC_INDEX_PORT, 2, 0x070b);
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     tick(&clock, video.as_mut(), boundary(1));
-    let on = source.current_capture().unwrap();
-    assert!(on.display.vga().unwrap().cursor_blink_on);
-    assert!(on.display.vga().unwrap().attribute_blink_on);
-    let on_text = common::support::inspection::inspect(&on.display);
+    let on = source.try_recv().unwrap();
+    assert!(on.vga().unwrap().cursor_blink_on);
+    assert!(on.vga().unwrap().attribute_blink_on);
+    let on_text = common::support::inspection::inspect(&on);
     assert_eq!(on_text.cursor.start_scan_line, 6);
     assert_eq!(on_text.cursor.end_scan_line, 7);
     let pixels = software::rasterize(&on).pixels.to_vec();
@@ -323,18 +310,12 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
         (1_000_024, false, false), // Late service uses all elapsed retraces.
     ] {
         tick(&clock, video.as_mut(), boundary(frame));
-        let capture = source.current_capture().unwrap();
-        assert_eq!(capture.sequence, frame);
-        assert_eq!(capture.display.vga().unwrap().cursor_blink_on, cursor_on);
-        assert_eq!(
-            capture.display.vga().unwrap().attribute_blink_on,
-            attribute_on
-        );
+        let capture = source.try_recv().unwrap();
+
+        assert_eq!(capture.vga().unwrap().cursor_blink_on, cursor_on);
+        assert_eq!(capture.vga().unwrap().attribute_blink_on, attribute_on);
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                on.display.plane(plane),
-                capture.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(on.plane(plane), capture.plane(plane)));
         }
         let image = software::rasterize(&capture);
         assert_eq!(
@@ -356,8 +337,8 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
     }
     drop(video);
     drop(vga);
-    assert!(on.display.vga().unwrap().cursor_blink_on);
-    assert!(on.display.vga().unwrap().attribute_blink_on);
+    assert!(on.vga().unwrap().cursor_blink_on);
+    assert!(on.vga().unwrap().attribute_blink_on);
     assert_eq!(&*software::rasterize(&on).pixels, pixels);
 }
 
@@ -366,15 +347,15 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
 fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     crtc(&mut *vga.borrow_mut(), 0x0a, 0x20);
     clock.advance_to(clock_origin() + boundary(5) + Duration::from_micros(1));
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x2fdb);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     common::service_video(video.as_mut());
-    let before = source.current_capture().unwrap();
-    assert_eq!(before.sequence, 5);
+    let before = source.try_recv().unwrap();
+
     assert_eq!(
         &software::rasterize(&before).pixels[..4],
         [255, 255, 85, 255]
@@ -383,9 +364,9 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     clock.advance_to(clock_origin() + boundary(6));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let blank = source.current_capture().unwrap();
-    assert_ne!(blank.display.vga().unwrap().sequencer[1] & 0x20, 0);
-    assert_eq!(before.display.vga().unwrap().sequencer[1] & 0x20, 0);
+    let blank = source.try_recv().unwrap();
+    assert_ne!(blank.vga().unwrap().sequencer[1] & 0x20, 0);
+    assert_eq!(before.vga().unwrap().sequencer[1] & 0x20, 0);
     assert!(software::rasterize(&blank)
         .pixels
         .as_chunks::<4>()
@@ -397,7 +378,7 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     assert_eq!(
-        &software::rasterize(&source.current_capture().unwrap()).pixels[..4],
+        &software::rasterize(&source.try_recv().unwrap()).pixels[..4],
         [255, 255, 255, 255]
     );
     assert_eq!(

@@ -20,7 +20,7 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
     for offset in [-1, 0, 1] {
         let clock = ManualClock::default();
         let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-        let source = vga.borrow().frame_source();
+        let source = vga.borrow().frames();
         vga.borrow_mut().write_mmio(0xb8000, 2, 0x0441);
         vga.borrow_mut().write_mmio(0xb8200, 2, 0x0142);
         let change_time = match offset {
@@ -38,11 +38,11 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
             clock.advance_to(clock_origin() + boundary(1));
             vga.borrow_mut().read_port(0x3da, 1);
         }
-        assert!(source.current_capture().is_none());
+        assert!(source.is_empty());
         common::service_video(video.as_mut());
-        let first = source.current_capture().unwrap();
-        let first_text = common::support::inspection::inspect(&first.display);
-        assert_eq!(first.sequence, 1);
+        let first = source.try_recv().unwrap();
+        let first_text = common::support::inspection::inspect(&first);
+
         assert_eq!(first_text.start_address, if offset < 0 { 0x100 } else { 0 });
         assert_eq!(
             first_text.cells[0].character,
@@ -52,12 +52,13 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
         clock.advance_to(clock_origin() + boundary(2));
         vga.borrow_mut().read_port(0x3da, 1);
         common::service_video(video.as_mut());
-        let second = source.current_capture().unwrap();
-        assert_eq!(second.display.vga().unwrap().display_start, 0x100);
-        assert_eq!(
-            first.display.vga().unwrap().display_start,
-            first_text.start_address
-        );
+        if offset < 0 {
+            assert!(source.is_empty()); // The first snapshot already has this latch.
+        } else {
+            let second = source.try_recv().unwrap();
+            assert_eq!(second.vga().unwrap().display_start, 0x100);
+        }
+        assert_eq!(first.vga().unwrap().display_start, first_text.start_address);
     }
 }
 
@@ -66,26 +67,23 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
 fn separate_start_bytes_can_straddle_the_latch_edge() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     clock.advance_to(clock_origin() + boundary(1) - Duration::from_nanos(1));
     crtc(&mut *vga.borrow_mut(), 12, 0x12);
     clock.advance_to(clock_origin() + boundary(1));
     crtc(&mut *vga.borrow_mut(), 13, 0x34);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     common::service_video(video.as_mut());
-    let first = source.current_capture().unwrap();
-    assert_eq!(first.display.vga().unwrap().display_start, 0x1200);
-    assert_eq!(
-        &first.display.vga().unwrap().crtc.values[12..14],
-        &[0x12, 0]
-    );
+    let first = source.try_recv().unwrap();
+    assert_eq!(first.vga().unwrap().display_start, 0x1200);
+    assert_eq!(&first.vga().unwrap().crtc.values[12..14], &[0x12, 0]);
     assert_eq!(vga.borrow_mut().read_port(0x3d5, 1), 0x34);
     assert_eq!(vga.borrow().snapshot().vga().unwrap().display_start, 0x1200);
     clock.advance_to(clock_origin() + boundary(2));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let next = source.current_capture().unwrap();
-    assert_eq!(next.display.vga().unwrap().display_start, 0x1234);
+    let next = source.try_recv().unwrap();
+    assert_eq!(next.vga().unwrap().display_start, 0x1234);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -93,22 +91,22 @@ fn separate_start_bytes_can_straddle_the_latch_edge() {
 fn late_service_latches_preceding_programming_before_a_new_write() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     start(&mut *vga.borrow_mut(), 0x100);
     clock.advance_to(clock_origin() + boundary(100));
     start(&mut *vga.borrow_mut(), 0x200);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     common::service_video(video.as_mut());
-    let latest = source.current_capture().unwrap();
-    assert_eq!(latest.sequence, 100);
-    assert_eq!(latest.display.vga().unwrap().display_start, 0x100);
+    let latest = source.try_recv().unwrap();
+
+    assert_eq!(latest.vga().unwrap().display_start, 0x100);
     assert_eq!(vga.borrow().snapshot().vga().unwrap().display_start, 0x100);
     clock.advance_to(clock_origin() + boundary(101));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let next = source.current_capture().unwrap();
-    assert_eq!(next.display.vga().unwrap().display_start, 0x200);
-    assert_eq!(latest.display.vga().unwrap().display_start, 0x100);
+    let next = source.try_recv().unwrap();
+    assert_eq!(next.vga().unwrap().display_start, 0x200);
+    assert_eq!(latest.vga().unwrap().display_start, 0x100);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -116,16 +114,16 @@ fn late_service_latches_preceding_programming_before_a_new_write() {
 fn immediate_snapshots_copy_the_effective_latch_without_servicing_time() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     start(&mut *vga.borrow_mut(), 0x1234);
     clock.advance_to(clock_origin() + boundary(1));
     let snapshot = vga.borrow().snapshot();
     assert_eq!(&snapshot.vga().unwrap().crtc.values[12..14], &[0x12, 0x34]);
     assert_eq!(snapshot.vga().unwrap().display_start, 0);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let next = source.current_capture().unwrap();
-    assert_eq!(next.display.vga().unwrap().display_start, 0x1234);
+    let next = source.try_recv().unwrap();
+    assert_eq!(next.vga().unwrap().display_start, 0x1234);
     assert_eq!(snapshot.vga().unwrap().display_start, 0);
 }

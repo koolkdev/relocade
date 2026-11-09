@@ -21,8 +21,8 @@ fn text_pages_cursor_and_character_access_follow_bios_geometry() {
         );
         video(&mut dos, 0x0503, 0, 0, 0);
         let display = common::next_capture(&dos).await;
-        assert_eq!(display.display.vga().unwrap().display_start, 0x3000);
-        let cursor = &display.display.vga().unwrap().crtc.values;
+        assert_eq!(display.vga().unwrap().display_start, 0x3000);
+        let cursor = &display.vga().unwrap().crtc.values;
         assert_eq!(u16::from_be_bytes([cursor[14], cursor[15]]), 0x3f9f);
         {
             let context = dos.cpu().context();

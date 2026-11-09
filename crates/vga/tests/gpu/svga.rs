@@ -22,9 +22,9 @@ async fn check_indexed_resolutions() {
         for address in edges {
             svga::write_byte(&mut vga, address, 1);
         }
-        let capture = common::fixture::capture(&vga);
+        let capture = vga.snapshot();
         drop(vga);
-        renderer.upload(&queue, &capture.display);
+        renderer.upload(&queue, &capture);
         let mut encoder = device.create_command_encoder(&Default::default());
         let image = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
@@ -75,13 +75,13 @@ async fn check_virtual_layout() {
         svga::write_byte(&mut vga, address, 1);
     }
     svga::write_byte(&mut vga, start - 1, 2); // Row padding must not enter the image.
-    let corner = common::fixture::capture(&vga);
+    let corner = vga.snapshot();
     svga::set(&mut vga, 8, 0);
     svga::set(&mut vga, 9, 0);
-    let origin = common::fixture::capture(&vga);
+    let origin = vga.snapshot();
     drop(vga);
     for (capture, visible) in [(&corner, true), (&origin, false), (&corner, true)] {
-        renderer.upload(&queue, &capture.display);
+        renderer.upload(&queue, capture);
         let mut encoder = device.create_command_encoder(&Default::default());
         let image = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
@@ -143,8 +143,8 @@ async fn check_packed_pixels() {
         svga::write_byte(&mut vga, address, index);
     }
     vga.write_port(0x3c6, 1, 0x7f); // High palette indices obey the shared DAC mask.
-    let original = common::fixture::capture(&vga);
-    assert!(renderer.upload(&queue, &original.display));
+    let original = vga.snapshot();
+    assert!(renderer.upload(&queue, &original));
 
     // Legacy reset, blanking, geometry, panning and CPU banking do not select pixels.
     for (port, value) in [
@@ -160,12 +160,12 @@ async fn check_packed_pixels() {
     vga.write_port(0x3c0, 1, 0);
     svga::set(&mut vga, 5, 63);
     vga.write_port(0x3c8, 1, 200); // DAC transfer position is not a display input.
-    let unchanged = common::fixture::capture(&vga);
-    assert!(!renderer.upload(&queue, &unchanged.display));
+    let unchanged = vga.snapshot();
+    assert!(!renderer.upload(&queue, &unchanged));
     palette(&mut vga, 1, [0, 0, 63]);
-    let recolored = common::fixture::capture(&vga);
+    let recolored = vga.snapshot();
     svga::write_byte(&mut vga, 0x40000, 0);
-    let cleared = common::fixture::capture(&vga);
+    let cleared = vga.snapshot();
     svga::set(&mut vga, 4, 0);
     drop(vga);
 
@@ -174,7 +174,7 @@ async fn check_packed_pixels() {
         (&original, [255, 0, 0, 255], [85, 170, 255, 255]),
         (&recolored, [0, 0, 255, 255], [85, 170, 255, 255]),
     ] {
-        renderer.upload(&queue, &capture.display);
+        renderer.upload(&queue, capture);
         let mut encoder = device.create_command_encoder(&Default::default());
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
@@ -200,10 +200,10 @@ async fn check_packed_pixels() {
         palette(&mut vga, index, rgb);
     }
     planar16::write_pixels(&mut vga, &[2, 1, 0, 0, 0, 0, 0, 0]);
-    let legacy = common::fixture::capture(&vga);
+    let legacy = vga.snapshot();
     drop(vga);
-    assert_eq!(legacy.display.geometry(), original.display.geometry());
-    assert_eq!(legacy.sequence, original.sequence);
+    assert_eq!(legacy.geometry(), original.geometry());
+
     for (capture, second, extended, last) in [
         (&legacy, [0, 255, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]),
         (
@@ -214,8 +214,8 @@ async fn check_packed_pixels() {
         ),
         (&legacy, [0, 255, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]),
     ] {
-        assert!(renderer.upload(&queue, &capture.display));
-        assert!(!renderer.upload(&queue, &capture.display));
+        assert!(renderer.upload(&queue, capture));
+        assert!(!renderer.upload(&queue, capture));
         let mut encoder = device.create_command_encoder(&Default::default());
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
@@ -247,7 +247,7 @@ async fn check_published_display() {
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
     common::crtc(&mut *vga.borrow_mut(), 0x0a, 0x20);
     common::fixture::set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
     clock.advance_to(clock_origin() + entered);
@@ -275,7 +275,7 @@ async fn check_published_display() {
     clock.advance_to(clock_origin() + entered + common::svga_boundary(3));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    assert_eq!(source.current_capture().unwrap().sequence, 4);
+
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
     let packed = display.encode_image(&queue, &mut encoder).unwrap().clone();
@@ -374,22 +374,22 @@ async fn check_direct_color() {
                 svga::write_byte(&mut vga, address + byte as u32, value);
             }
         }
-        let original = common::fixture::capture(&vga);
+        let original = vga.snapshot();
         assert_eq!(
-            original.display.vram_byte(4 * 1024 * 1024 - 1),
+            original.vram_byte(4 * 1024 * 1024 - 1),
             Some(if bits == 16 { 0xf8 } else { 0xa5 })
         );
-        assert!(renderer.upload(&queue, &original.display));
+        assert!(renderer.upload(&queue, &original));
         palette(&mut vga, 0, [63, 63, 63]);
         vga.write_port(0x3c6, 1, 0);
-        let recolored = common::fixture::capture(&vga);
-        assert!(!renderer.upload(&queue, &recolored.display));
+        let recolored = vga.snapshot();
+        assert!(!renderer.upload(&queue, &recolored));
         svga::set(&mut vga, 8, 0);
         svga::set(&mut vga, 9, 0);
-        let panned = common::fixture::capture(&vga);
+        let panned = vga.snapshot();
         svga::enable(&mut vga);
         svga::write_byte(&mut vga, 0, 1);
-        let indexed = common::fixture::capture(&vga);
+        let indexed = vga.snapshot();
         drop(vga);
         // The indexed capture must upload the DAC changes skipped in direct color.
         for (capture, visible, background) in [
@@ -398,7 +398,7 @@ async fn check_direct_color() {
             (&original, true, [0, 0, 0, 255]),
             (&indexed, false, [255; 4]),
         ] {
-            renderer.upload(&queue, &capture.display);
+            renderer.upload(&queue, capture);
             let mut encoder = device.create_command_encoder(&Default::default());
             let image = renderer.encode(&mut encoder).unwrap();
             queue.submit([encoder.finish()]);

@@ -58,7 +58,7 @@ fn write_blocks(
                 write(base + range.start, &bytes[range]);
             }
         } else {
-            // A new renderer or independently retained snapshot may have another baseline.
+            // A new renderer or a skipped queued snapshot may have another baseline.
             // Restore this block even if the latest dirty bitmap is empty.
             write(base, bytes);
         }

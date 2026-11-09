@@ -22,7 +22,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
-        assert!(source.send(vga.borrow().frame_source()).is_ok());
+        assert!(source.send(vga.borrow().frames()).is_ok());
         let config = MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([
@@ -118,25 +118,21 @@ pub async fn vga_workers() -> Result<(), String> {
         let display = display_source.await.unwrap();
         input_waiting.await.unwrap();
         // Convert immutable captures on this worker; live VGA state remains on execution.
-        let mut after = None;
         let frame = loop {
-            let frame = software::rasterize(&display.next_capture(after).await.unwrap());
+            let frame = software::rasterize(&display.recv().await.unwrap());
             if glyph_top(&frame, 0, [255, 255, 85, 255]) == [124, 198, 198, 254, 198]
                 && glyph_top(&frame, 8, [255, 255, 255, 255]) == [252, 102, 102, 124, 102]
             {
                 break frame;
             }
-            after = Some(frame.sequence);
         };
         assert_eq!(frame.pixels.len(), 640 * 200 * 4);
         let retained = frame.pixels.to_vec();
         // Input is already waiting. Sending it must not depend on graphics
         // catching up with the capture producer or reaching a Pending poll.
         input.send(b'Z').unwrap();
-        let mut sequence = frame.sequence;
         let next = loop {
-            let next = software::rasterize(&display.next_capture(Some(sequence)).await.unwrap());
-            sequence = next.sequence;
+            let next = software::rasterize(&display.recv().await.unwrap());
             if glyph_top(&next, 0, [255, 255, 85, 255]) == [254, 198, 140, 24, 50] {
                 break next;
             }
@@ -147,15 +143,12 @@ pub async fn vga_workers() -> Result<(), String> {
         );
         assert_eq!(&*frame.pixels, retained);
         rendered.send(()).unwrap();
-        while let Some(frame) = display.next_capture(Some(sequence)).await {
-            sequence = frame.sequence;
+        let mut last = next;
+        while let Ok(snapshot) = display.recv().await {
+            last = software::rasterize(&snapshot);
         }
         assert_eq!(
-            glyph_top(
-                &software::rasterize(&display.current_capture().unwrap()),
-                0,
-                [255, 255, 85, 255]
-            ),
+            glyph_top(&last, 0, [255, 255, 85, 255]),
             [254, 198, 140, 24, 50]
         );
     });

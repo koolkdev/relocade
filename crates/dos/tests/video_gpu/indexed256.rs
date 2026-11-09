@@ -22,7 +22,7 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
         }
         program.push(0xc3); // RET exits the COM program through its PSP.
         let graphics = run(&mut dos, &program).await;
-        assert_eq!(graphics.display.geometry().pixel_aspect_ratio(), (5, 6));
+        assert_eq!(graphics.geometry().pixel_aspect_ratio(), (5, 6));
         let pixels = gpu.render(&graphics, [320, 200]).await;
         for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let expected = if offsets.contains(&(offset as u16)) {
@@ -45,10 +45,7 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
         )
         .await;
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                graphics.display.plane(plane),
-                recolored.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(graphics.plane(plane), recolored.plane(plane)));
         }
         let green = gpu.render(&recolored, [320, 200]).await;
         assert_eq!(&green[..4], &[0, 255, 0, 255]);

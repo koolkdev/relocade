@@ -34,10 +34,10 @@ mod unchained256;
 mod vbe;
 
 use relocade_dos::Dos;
-use relocade_vga::{CapturedFrame, VgaRenderer};
+use relocade_vga::{DisplaySnapshot, VgaRenderer};
 use relocade_x86::{ExecutionExit, HostExit};
 
-async fn run(dos: &mut Dos, program: &[u8]) -> std::sync::Arc<CapturedFrame> {
+async fn run(dos: &mut Dos, program: &[u8]) -> DisplaySnapshot {
     dos.launch_com(program, Default::default()).unwrap();
     assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     common::next_capture(dos).await
@@ -65,8 +65,8 @@ impl Gpu {
         }
     }
 
-    async fn render(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
-        self.renderer.upload(&self.queue, &capture.display);
+    async fn render(&mut self, capture: &DisplaySnapshot, size: [u32; 2]) -> Vec<u8> {
+        self.renderer.upload(&self.queue, capture);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let image = self.renderer.encode(&mut encoder).unwrap();
         self.queue.submit([encoder.finish()]);

@@ -42,7 +42,7 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
             ],
         )
         .await;
-        assert_eq!(scrolled.display.vga().unwrap().display_start, 0x4000);
+        assert_eq!(scrolled.vga().unwrap().display_start, 0x4000);
         // The preset keeps physical rows. Panning exposes only the fourth white
         // pixel, and the lower split starts at cleared memory.
         assert_white_prefix(&gpu.render(&scrolled, [320, 400]).await, 1);
@@ -52,14 +52,8 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
         let restored = run(&mut dos, &[0xba, 0xc4, 3, 0xb8, 1, 1, 0xef, 0xc3]).await;
         assert_white_prefix(&gpu.render(&restored, [320, 400]).await, 1);
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                scrolled.display.plane(plane),
-                blanked.display.plane(plane)
-            ));
-            assert!(std::ptr::eq(
-                scrolled.display.plane(plane),
-                restored.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(scrolled.plane(plane), blanked.plane(plane)));
+            assert!(std::ptr::eq(scrolled.plane(plane), restored.plane(plane)));
         }
 
         let mut retained = Vec::new();
@@ -74,7 +68,7 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
                 ],
             )
             .await;
-            assert_eq!(capture.display.vga().unwrap().display_start, 0);
+            assert_eq!(capture.vga().unwrap().display_start, 0);
             assert_white_prefix(&gpu.render(&capture, size).await, 8);
             retained.push((capture, size));
         }

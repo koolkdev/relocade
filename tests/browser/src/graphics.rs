@@ -20,6 +20,7 @@ pub async fn graphics_workers() -> Result<(), String> {
         let guest::Guest {
             execution,
             source,
+            retraces,
             progress,
         } = guest::spawn(clock).await;
         // A single Sender with buffer size zero has one reserved request slot.
@@ -41,17 +42,21 @@ pub async fn graphics_workers() -> Result<(), String> {
             let mut before_conversion = Some((selected, conversion_allowed));
             let mut after_present = Some(resumed);
             while let Some(size) = incoming.next().await {
-                let Some(capture) = worker_source.next_capture(None).await else {
-                    continue;
+                let capture = if cached.is_none() {
+                    loop {
+                        let capture = worker_source.recv().await.unwrap();
+                        if capture.plane(0)[0] == 0xdb {
+                            break Some(capture);
+                        }
+                    }
+                } else {
+                    worker_source.try_recv().ok()
                 };
-                if let Some((selected, allowed)) = before_conversion.take() {
-                    selected.send(capture.sequence).unwrap();
-                    allowed.await.unwrap(); // Hold the first conversion, not the CPU.
-                }
-                if cached
-                    .as_ref()
-                    .is_none_or(|image| image.sequence != capture.sequence)
-                {
+                if let Some(capture) = capture {
+                    if let Some((selected, allowed)) = before_conversion.take() {
+                        selected.send(()).unwrap();
+                        allowed.await.unwrap(); // Hold the first conversion, not the CPU.
+                    }
                     conversion_count.fetch_add(1, Ordering::Release);
                     cached = Some(Arc::new(software::rasterize(&capture)));
                 }
@@ -66,20 +71,18 @@ pub async fn graphics_workers() -> Result<(), String> {
         });
 
         request(&mut requests, [64, 48]);
-        let selected = selected_capture.await.unwrap();
-        let mut sequence = source.next_capture(Some(selected)).await.unwrap().sequence;
+        selected_capture.await.unwrap();
         let before = progress.load(Ordering::Acquire);
         for _ in 0..10 {
             for _ in 0..100 {
                 request(&mut requests, [96, 72]);
             }
-            sequence = source.next_capture(Some(sequence)).await.unwrap().sequence;
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(conversions.load(Ordering::Acquire), 0);
         convert.send(()).unwrap();
         let (first, first_image) = reports.next().await.unwrap();
-        assert_eq!(first.sequence, selected);
         assert_eq!(first.size, [64, 48]);
         assert_eq!(first.pixel, [255, 255, 85, 255]);
 
@@ -90,13 +93,12 @@ pub async fn graphics_workers() -> Result<(), String> {
             for _ in 0..100 {
                 request(&mut requests, [96, 72]);
             }
-            sequence = source.next_capture(Some(sequence)).await.unwrap().sequence;
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(conversions.load(Ordering::Acquire), 1);
         resume.send(()).unwrap();
         let (second, retained) = reports.next().await.unwrap();
-        assert!(second.sequence >= sequence);
         assert_eq!(second.size, [96, 72]);
         assert_eq!(second.count, 2);
         assert_eq!(second.pixel, first.pixel);
@@ -104,16 +106,14 @@ pub async fn graphics_workers() -> Result<(), String> {
 
         // No requests: captures and the CPU progress without any conversion.
         let before = progress.load(Ordering::Acquire);
-        sequence = second.sequence;
         for _ in 0..10 {
-            sequence = source.next_capture(Some(sequence)).await.unwrap().sequence;
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(conversions.load(Ordering::Acquire), 2);
         assert!(reports.next().now_or_never().is_none());
         request(&mut requests, [48, 36]);
         let (third, _) = reports.next().await.unwrap();
-        assert!(third.sequence >= sequence);
         assert_eq!(third.size, [48, 36]);
         assert_eq!(third.count, 3);
         assert_eq!(third.pixel, first.pixel);
@@ -121,12 +121,11 @@ pub async fn graphics_workers() -> Result<(), String> {
         // Source closure does not close the host's surface or its worker. The
         // application may render the last capture and present it repeatedly.
         assert_eq!(execution.stop().await.map_err(|e| e.to_string())?, None);
-        let last = source.current_capture().unwrap();
-        assert!(source.next_capture(Some(last.sequence)).await.is_none());
+        assert!(source.is_closed());
         assert!(!dropped.load(Ordering::Acquire));
         request(&mut requests, [64, 48]);
         let (closed, last_image) = reports.next().await.unwrap();
-        assert_eq!(closed.sequence, last.sequence);
+        assert_eq!(closed.pixel, first.pixel);
         let count = conversions.load(Ordering::Acquire);
         request(&mut requests, [64, 48]);
         let (repeated, repeated_image) = reports.next().await.unwrap();

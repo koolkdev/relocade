@@ -595,9 +595,9 @@ for the following active display: shared physical memory blocks, the active
 scanout settings, and DAC colors and mask. VGA first latches its display start
 and also captures sequencer/CRTC/graphics/attribute settings, font memory,
 the effective start address, and both blink phases.
-When these inputs change, the device stages a `CapturedFrame` with the hardware
-retrace count. Its async task synchronizes with host time before publishing it.
-Unchanged refreshes retain the previous capture; sequence numbers can have gaps.
+When these inputs change, the device stages the snapshot and its retrace timestamp.
+Its async task synchronizes with host time before sending the snapshot.
+Unchanged refreshes produce no new snapshot.
 Late service coalesces missed boundaries; display mutations first service elapsed
 time using the preceding state. A write exactly at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
@@ -636,26 +636,31 @@ write modes and masks apply before that comparison. Subsequent writes reuse the
 device's private block until the next capture. Retaining many distinct captures
 can therefore retain many versions of a block.
 
-`FrameSource` retains just the latest immutable `CapturedFrame`. Readers have no
-observation bookkeeping, and a slow reader can skip any number of captures. The
-capture has no RGBA image. It can cross workers and survive device destruction.
-Waiting for `next_capture` observes changed inputs captured at a refresh boundary,
+`Vga::frames()` returns an `async_channel::Receiver<DisplaySnapshot>` for a
+capacity-one queue. Sending replaces an older queued snapshot, so a slow consumer
+receives recent state without a backlog. Use one consumer; cloned receivers compete
+for the same snapshots. The consumer owns any snapshot it retains. Snapshots have
+no RGBA image and can cross workers and survive device destruction.
+Waiting on `recv()` observes changed inputs captured at a refresh boundary,
 not every hardware refresh, pixel output or presentation. Comparison uses block
 identities and inputs consumed by the active display without scanning VRAM.
 VGA includes display registers and blink phases; SVGA uses its layout and the
 shared DAC. Hidden captured memory can conservatively cause publication;
 CPU port indices and transfer positions do not. Hardware
 timing and status-port behavior continue through unchanged refreshes, while the
-CPU waits for input and while the app is not drawing. Destroying VGA closes this
-source and wakes waiters without creating an extra frame.
+CPU waits for input and while the app is not drawing. After its task stops,
+destroying VGA closes the queue and wakes waiters. Any queued snapshot can still
+be received before `recv()` reports closure.
 
-Pending captures retain their guest timestamp. When the CPU owner's VGA task
-takes one, `Clock::sync_to_host(boundary)` uses the current mapping and configured
-host timer. Host-clock captures are already due; paced guest
+The CPU owner's VGA task calls `clock.sync_to_host(boundary).await` when it takes
+a pending snapshot. This uses the mapping at task processing time and the
+configured host timer. Host-clock captures are already due; paced guest
 captures may be ahead of the host. Without an active mapping, the wait completes
 immediately. The task keeps one capture through its wait while newer captures
 replace one pending slot, merging their dirty pages. Newer captures cannot
-postpone the in-flight deadline. A newly occupied slot wakes the task even when
+postpone the in-flight deadline. A pause or resume before the task takes a pending
+snapshot can change its mapping; an already-started wait keeps its deadline.
+A newly occupied slot wakes the task even when
 the guest timer has not delivered its notification. No device borrow spans a wait.
 Keep the host timer service running while execution tasks have pending waits.
 
@@ -675,7 +680,7 @@ queued GPU contents, otherwise it restores the affected block.
 `renderer/state` uploads mode-specific settings separately from the shared DAC.
 `renderer/pipelines` builds two cached pipelines with one explicit input layout;
 the uploaded scanout selects which decoder `encode` records, even when geometry
-and capture metadata stay the same. The packed pipeline selects pixel decoding
+stays the same. The packed pipeline selects pixel decoding
 from the captured format.
 Both shaders share physical VRAM reads, DAC lookup and fullscreen drawing.
 VGA alone owns raw register decoding, blink, blanking, fonts and row interpretation.
@@ -718,7 +723,7 @@ sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
 memory aperture and ports, and starts display capture. It returns the device
 handle and a connection to include in the CPU bus.
 
-DOS supplies this same capture source through `dos.frame_source()`. Construct
+DOS supplies this same snapshot queue through `dos.frames()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
 through input waits, process exits and later launches. Keep the session alive
 long enough to capture a program's final writes. An embedding may retain and
@@ -737,14 +742,14 @@ command encoder:
 ```rust,ignore
 let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
-if let Some(capture) = source.take_capture() {
+if let Ok(snapshot) = frames.try_recv() {
     let mut encoder = device.create_command_encoder(&Default::default());
-    vga_renderer.upload(&queue, &capture.display);
-    let frame = vga_renderer.encode(&mut encoder).unwrap();
-    let destination = relocade_renderer::fit_image(&frame, output_bounds);
+    vga_renderer.upload(&queue, &snapshot);
+    let image = vga_renderer.encode(&mut encoder).unwrap();
+    let destination = relocade_renderer::fit_image(&image, output_bounds);
     {
         let mut pass = encoder.begin_render_pass(&output_pass);
-        renderer.draw_image(&mut pass, &frame, destination);
+        renderer.draw_image(&mut pass, &image, destination);
     }
     queue.submit([encoder.finish()]);
 }
@@ -770,27 +775,26 @@ Consecutive dirty pages in each block become one upload. Character,
 attribute and font planes update independently. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
-Captures remain complete. Publication merges dirty pages into the latest capture's
-private transfer hints until `FrameSource::take_capture()` hands them to the
-uploading renderer. Taking atomically returns the capture with all pending changes
-and starts a fresh bitmap for later writes. The latest capture remains readable;
-`current_capture()` and `next_capture()` never consume its hints. Retained captures
-stay immutable. Only block versions and one fixed bitmap are retained, not a queue
-of captures. Publication clears the device's local bitmap; immediate snapshots
-leave it alone. The renderer compares block identities and walks the bitmap,
-without scanning VRAM or maintaining a separate CPU shadow.
+Snapshots remain complete. Their private transfer hints contain dirty pages and
+the immutable memory baseline those changes describe. Sampling clears the device's
+local bitmap; immediate snapshots leave it alone. Snapshots coalesced before the
+output task takes them merge their hints. Replacing a snapshot already in the
+queue does not merge hints. Retained snapshots stay immutable, and baseline block
+references retain no history of earlier snapshot objects. The renderer compares
+block identities and walks the bitmap without scanning VRAM or maintaining a
+separate CPU shadow.
 Settings, DAC mask and palette are compared and uploaded independently when
 changed. Blink, cursor or geometry updates do not resend the palette;
 palette-only updates do not resend settings or font memory.
 
 If a captured block already matches the last queued GPU version, no memory upload
 is needed. If its change baseline matches, the renderer uploads dirty pages.
-Skipped publications retain their dirty pages, so a slower uploading renderer
-does not need full-block transfers just because it missed captures. Use one
-consuming renderer per source, and upload each taken capture before taking the
-next. New renderers, independent readers, other sources, immediate snapshots and
-reverse playback can have a different baseline; they restore the affected 64-KiB
-block instead. Taking requires no GPU-completion acknowledgement or update queue.
+If the baseline differs, it restores the affected 64-KiB block. This handles
+dropped queued snapshots without a sequence number or dropped-frame notification.
+New renderers, other sources, immediate snapshots and reverse playback can also
+have different baselines. Consecutive snapshots keep sparse transfers; skipping
+queued snapshots can require larger uploads. Receiving requires no GPU-completion
+acknowledgement.
 
 The device never waits for GPU mapping or completion. Snapshot storage still
 uses shared CPU blocks with copy-on-write, so a changed retained block can copy
@@ -798,11 +802,11 @@ uses shared CPU blocks with copy-on-write, so a changed retained block can copy
 not change CPU copy-on-write granularity. Device-only builds omit transfer hints
 and dirty tracking along with the optional renderer.
 
-`upload(queue, &snapshot)` synchronizes persistent input resources without decoding
+`upload(queue, snapshot)` synchronizes persistent input resources without decoding
 or presenting, and returns whether rendering inputs or output geometry changed.
-The renderer accepts `DisplaySnapshot` directly. Uploads can share the
-submission that decodes and draws the image. `encode(encoder)` decodes the
-latest uploaded inputs and returns `None` before the first upload. It always records
+Uploads can share the submission that decodes and draws the image.
+`encode(encoder)` decodes the latest uploaded inputs and returns `None` before
+the first upload. It always records
 a decode, including retries after an encoder was discarded. Uploading inputs does
 not imply that image pixels have been generated.
 
@@ -817,9 +821,8 @@ run before submitted commands, and the persistent input resources hold one versi
 Neither operation reads live VRAM or converts CPU pixels; the caller creates
 encoders and submits work.
 
-`encode` returns `Option<Image>` with dimensions and pixel aspect ratio; it
-retains no capture sequence or timestamp. Submit the recorded commands before
-consuming image contents in later batches.
+`encode` returns the renderer's `Image` directly, including its dimensions and
+pixel aspect ratio. Submit the update before consuming its contents in later batches.
 Image storage is reused while geometry stays the same; retaining it does not
 retain historical pixels. Geometry changes allocate new output storage. Retain
 the image and call `Renderer::draw_image` at a different destination for a
@@ -830,10 +833,9 @@ including its attachments, placement and load/clear policy, and submits the whol
 command batch. Neither renderer creates a surface, worker, timer or background
 task. Production rendering records commands without waiting for GPU completion.
 
-`VgaDisplay` connects a `FrameSource` to a host through
+`VgaDisplay` connects a snapshot receiver to a host through
 `relocade_frontend::display::DisplayRenderer`. Its `service(queue)` waits on
-`FrameSource::next_capture(after)`, takes the newest capture and its accumulated
-dirty pages, uploads the changes, submits those writes and requests a redraw.
+`frames.recv()`, uploads the snapshot, submits those writes and requests a redraw.
 The VGA task has already synchronized each publication with host time.
 Unchanged refreshes leave the receive wait asleep.
 
@@ -851,7 +853,7 @@ GPU environment and remains on the graphics owner:
 let mut graphics = relocade_app::graphics::Graphics::spawn(
     surface_setup,
     move |device, _queue| {
-        relocade_vga::VgaDisplay::new(device, frame_source).map_err(|e| e.to_string())
+        relocade_vga::VgaDisplay::new(device, frames).map_err(|e| e.to_string())
     },
     notify_redraw_needed,
 );

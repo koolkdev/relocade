@@ -31,10 +31,7 @@ fn guest_unchains_vram_and_flips_pages_without_rewriting_pixels() {
         )
         .await;
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                first.display.plane(plane),
-                second.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(first.plane(plane), second.plane(plane)));
         }
         drop(dos);
         for (capture, colors) in [

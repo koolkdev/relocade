@@ -6,7 +6,6 @@
 //! scanout within a frame and CPU-cycle timing are separate fidelity milestones.
 #![forbid(unsafe_code)]
 
-mod capture;
 mod device;
 #[cfg(feature = "renderer")]
 mod display;
@@ -25,7 +24,7 @@ mod state;
 mod svga;
 mod timing;
 
-pub use capture::{CapturedFrame, FrameSource};
+use async_channel::Receiver;
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
 use event_listener::Event;
@@ -60,7 +59,7 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 
 /// An emulated VGA device owned by the execution worker.
 /// Registers and video memory are ordinary mutable state. Other workers receive
-/// immutable display captures through [`FrameSource`], without accessing the live device.
+/// immutable display snapshots through [`Vga::frames`], without accessing the live device.
 /// New video memory is zeroed. The BIOS initializes its font memory, text pages and registers.
 pub struct Vga {
     memory: VideoMemory,
@@ -100,9 +99,11 @@ impl Vga {
         }
     }
 
-    /// Read-only captured inputs for a caller-selected renderer.
-    pub fn frame_source(&self) -> FrameSource {
-        self.output.source.clone()
+    /// Receives snapshots synchronized to host time. The capacity-one queue keeps
+    /// the latest pending snapshot. Cloned receivers compete for the same items;
+    /// use one graphics consumer and retain its last snapshot for redraws.
+    pub fn frames(&self) -> Receiver<DisplaySnapshot> {
+        self.output.frames.clone()
     }
 
     /// Inspect live VGA register banks on the execution owner, including CPU
@@ -115,6 +116,5 @@ impl Vga {
 impl Drop for Vga {
     fn drop(&mut self) {
         self.programming_changed.notify(usize::MAX);
-        self.output.source.close();
     }
 }

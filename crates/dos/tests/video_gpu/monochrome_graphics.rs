@@ -38,10 +38,7 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
         assert_two_color(&white, [255, 255, 255, 255]);
         let preserved = run(&mut dos, &[0xb8, 0x91, 0, 0xcd, 0x10, 0xc3]).await;
         for plane in 0..4 {
-            assert_eq!(
-                preserved.display.plane(plane),
-                original.display.plane(plane)
-            );
+            assert_eq!(preserved.plane(plane), original.plane(plane));
         }
         assert_two_color(
             &gpu.render(&preserved, [640, 480]).await,
@@ -100,29 +97,25 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
         )
         .await;
         let original = gpu.render(&first, [640, 350]).await;
-        assert_monochrome_pattern(&original, first.display.vga().unwrap().attribute_blink_on);
+        assert_monochrome_pattern(&original, first.vga().unwrap().attribute_blink_on);
         // A real device phase change publishes the same memory with new colors.
         let opposite = loop {
             let capture = common::next_capture(&dos).await;
-            if capture.display.vga().unwrap().attribute_blink_on
-                != first.display.vga().unwrap().attribute_blink_on
+            if capture.vga().unwrap().attribute_blink_on != first.vga().unwrap().attribute_blink_on
             {
                 break capture;
             }
         };
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                first.display.plane(plane),
-                opposite.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(first.plane(plane), opposite.plane(plane)));
         }
         assert_monochrome_pattern(
             &gpu.render(&opposite, [640, 350]).await,
-            opposite.display.vga().unwrap().attribute_blink_on,
+            opposite.vga().unwrap().attribute_blink_on,
         );
 
         let page = run(&mut dos, &[0xb8, 1, 5, 0xcd, 0x10, 0xc3]).await;
-        assert_eq!(page.display.vga().unwrap().display_start, 0x8000);
+        assert_eq!(page.vga().unwrap().display_start, 0x8000);
         let image = gpu.render(&page, [640, 350]).await;
         for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
             let (x, y) = (index % 640, index / 640);
@@ -151,7 +144,7 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
         assert_eq!(gpu.render(&first, [640, 350]).await, original);
         assert_monochrome_pattern(
             &gpu.render(&opposite, [640, 350]).await,
-            opposite.display.vga().unwrap().attribute_blink_on,
+            opposite.vga().unwrap().attribute_blink_on,
         );
     });
 }

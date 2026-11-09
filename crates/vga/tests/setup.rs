@@ -3,7 +3,7 @@ mod common;
 use common::{boundary, poll_video};
 use relocade_machine::Device;
 use relocade_vga::Vga;
-use std::{cell::RefCell, rc::Rc, sync::Arc, task::Context, task::Waker};
+use std::{cell::RefCell, rc::Rc, task::Context, task::Waker};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -102,33 +102,30 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
     vga.borrow_mut().write_mmio(0xb8000, 2, 0x0741);
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let mut video = std::pin::pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     clock.advance_to(clock_origin() + boundary(1));
     poll_video(video.as_mut(), &mut cx);
-    let first = source.current_capture().unwrap();
+    let first = source.try_recv().unwrap();
     let registers = vga.borrow().registers().clone();
     vga.borrow_mut().write_port(0x46e8, 1, 0);
     clock.advance_to(clock_origin() + boundary(2));
     poll_video(video.as_mut(), &mut cx);
-    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
+    assert!(source.is_empty());
 
     // Blink and capture timing keep running while CPU access is blocked.
     clock.advance_to(clock_origin() + boundary(16));
     poll_video(video.as_mut(), &mut cx);
-    let blinking = source.current_capture().unwrap();
-    assert_eq!(blinking.sequence, 16);
+    let blinking = source.try_recv().unwrap();
+
     assert_ne!(
-        blinking.display.vga().unwrap().attribute_blink_on,
-        first.display.vga().unwrap().attribute_blink_on
+        blinking.vga().unwrap().attribute_blink_on,
+        first.vga().unwrap().attribute_blink_on
     );
     assert_eq!(vga.borrow().registers(), &registers);
-    assert_eq!(blinking.display.dac, first.display.dac);
+    assert_eq!(blinking.dac, first.dac);
     for plane in 0..4 {
-        assert!(std::ptr::eq(
-            blinking.display.plane(plane),
-            first.display.plane(plane)
-        ));
+        assert!(std::ptr::eq(blinking.plane(plane), first.plane(plane)));
     }
 }

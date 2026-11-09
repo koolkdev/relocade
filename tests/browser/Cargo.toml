@@ -9,6 +9,7 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+async-channel = { version = "=2.5.0", default-features = false }
 relocade-clock-test-support = { path = "../clock-support" }
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }

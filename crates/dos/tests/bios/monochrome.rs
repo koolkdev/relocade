@@ -122,11 +122,8 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
         );
         video(&mut dos, 0x0507, 0, 0, 0);
         let capture = common::next_capture(&dos).await;
-        assert_eq!(capture.display.vga().unwrap().display_start, 0x3800);
-        assert_eq!(
-            &capture.display.vga().unwrap().crtc.values[14..16],
-            &[0x3f, 0xcf]
-        );
+        assert_eq!(capture.vga().unwrap().display_start, 0x3800);
+        assert_eq!(&capture.vga().unwrap().crtc.values[14..16], &[0x3f, 0xcf]);
         video(&mut dos, 0x0e5a, 0, 0, 0);
         assert_eq!(
             dos.cpu().context().memory.read_u16(0xb7efe).unwrap(),

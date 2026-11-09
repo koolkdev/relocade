@@ -49,10 +49,3 @@ pub fn set_cell(vga: &mut impl Device, cell: usize, character: u8, attribute: u8
         u64::from(u16::from_le_bytes([character, attribute])),
     );
 }
-
-pub fn capture(vga: &relocade_vga::Vga) -> relocade_vga::CapturedFrame {
-    relocade_vga::CapturedFrame {
-        display: vga.snapshot(),
-        sequence: 42,
-    }
-}

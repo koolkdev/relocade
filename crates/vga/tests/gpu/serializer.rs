@@ -32,7 +32,7 @@ async fn check_load_and_count() {
         first, [15; 8], [2; 8], [7; 8], [4; 8], [11; 8], [8; 8], [13; 8],
     ];
     write_pixels(&mut vga, memory.as_flattened());
-    let ordinary = common::fixture::capture(&vga);
+    let ordinary = vga.snapshot();
     gpu.expect(&ordinary, [64, 1], &pixels(memory.into_iter().flatten()))
         .await;
 
@@ -55,7 +55,7 @@ async fn check_load_and_count() {
     ] {
         indexed(&mut vga, 0x3c4, 1, clocking);
         gpu.expect(
-            &common::fixture::capture(&vga),
+            &vga.snapshot(),
             [64, 1],
             &pixels(groups.into_iter().flatten()),
         )
@@ -66,7 +66,7 @@ async fn check_load_and_count() {
     indexed(&mut vga, 0x3d4, 0x17, 0xeb);
     let groups = [first, second, third, fourth, [2; 8], [1; 8], [8; 8], [4; 8]];
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [64, 1],
         &pixels(groups.into_iter().flatten()),
     )
@@ -78,7 +78,7 @@ async fn check_load_and_count() {
         first, second, third, fourth, [15; 8], [15; 8], [15; 8], [15; 8],
     ];
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [64, 1],
         &pixels(groups.into_iter().flatten()),
     )
@@ -89,7 +89,7 @@ async fn check_load_and_count() {
         first, first, first, first, [15; 8], [15; 8], [15; 8], [15; 8],
     ];
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [64, 1],
         &pixels(groups.into_iter().flatten()),
     )
@@ -113,16 +113,12 @@ async fn check_packed_output() {
         0, 1, 6, 7, 11, 10, 13, 12, 0, 8, 3, 11, 13, 5, 14, 6, 0, 4, 9, 13, 14, 10, 7, 3, 0, 2, 12,
         14, 7, 5, 11, 9,
     ];
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [32, 1],
-        &pixels(interleaved),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [32, 1], &pixels(interleaved))
+        .await;
     // Attribute plane masking applies to the serializer outputs, not VRAM planes.
     attribute(&mut vga, 0x12, 5);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [32, 1],
         &pixels(interleaved.map(|c| c & 5)),
     )
@@ -136,15 +132,10 @@ async fn check_packed_output() {
         0x1b, 0xe4, 0x05, 0xaf, 0x8d, 0x72, 0x0a, 0x5f, 0x4e, 0xb1, 0x05, 0xaf, 0x27, 0xd8, 0x0a,
         0x5f,
     ];
-    gpu.expect(&common::fixture::capture(&vga), [16, 1], &pixels(indexed))
-        .await;
+    gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed)).await;
     vga.write_port(0x3c6, 1, 0x7f);
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [16, 1],
-        &pixels(indexed.map(|c| c & 0x7f)),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed.map(|c| c & 0x7f)))
+        .await;
 }
 
 async fn check_text() {
@@ -155,8 +146,7 @@ async fn check_text() {
     let expected = super::software::render(&vga.snapshot());
     for clocking in [5, 0x11, 0x15] {
         indexed(&mut vga, 0x3c4, 1, clocking);
-        gpu.expect(&common::fixture::capture(&vga), [640, 200], &expected)
-            .await;
+        gpu.expect(&vga.snapshot(), [640, 200], &expected).await;
     }
 }
 
@@ -173,7 +163,7 @@ async fn check_byte_pan() {
     attribute(&mut vga, 0x13, 7);
     // Byte pan 3 plus pel pan 7 starts at the last dot of the 32-dot load.
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 1],
         &pixels([1, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]),
     )
@@ -181,7 +171,7 @@ async fn check_byte_pan() {
     // The same pan still precedes address counting when loads occur every clock.
     indexed(&mut vga, 0x3c4, 1, 1);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 1],
         &pixels([8, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]),
     )

@@ -51,13 +51,10 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         let initial = common::next_capture(&dos).await;
         video(&mut dos, 0x1201, 0x36, 0, 0);
         let blank = common::next_capture(&dos).await;
-        assert!(blank.sequence > initial.sequence);
-        assert_eq!(blank.display.vga().unwrap().sequencer[1], 0x20);
+
+        assert_eq!(blank.vga().unwrap().sequencer[1], 0x20);
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                blank.display.plane(plane),
-                initial.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(blank.plane(plane), initial.plane(plane)));
         }
         // The CPU can still read and write the text aperture while output is off.
         dos.cpu()
@@ -70,10 +67,10 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
             0x4f41
         );
         let written = common::next_capture(&dos).await;
-        assert!(written.sequence > blank.sequence);
-        assert_eq!(written.display.plane(0)[0], b'A');
-        assert_eq!(written.display.plane(1)[0], 0x4f);
-        assert!(software::render(&written.display)
+
+        assert_eq!(written.plane(0)[0], b'A');
+        assert_eq!(written.plane(1)[0], 0x4f);
+        assert!(software::render(&written)
             .as_chunks::<4>()
             .0
             .iter()
@@ -81,20 +78,17 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
 
         video(&mut dos, 0x1200, 0x36, 0, 0);
         let visible = common::next_capture(&dos).await;
-        assert_eq!(visible.display.vga().unwrap().sequencer[1], 0);
+        assert_eq!(visible.vga().unwrap().sequencer[1], 0);
         for plane in 0..4 {
-            assert!(std::ptr::eq(
-                visible.display.plane(plane),
-                written.display.plane(plane)
-            ));
+            assert!(std::ptr::eq(visible.plane(plane), written.plane(plane)));
         }
         // A's third glyph row is 38h: column one is background, column two foreground.
         let offset = (2 * 720 + 1) * 4;
         assert_eq!(
-            &software::render(&visible.display)[offset..offset + 8],
+            &software::render(&visible)[offset..offset + 8],
             &[170, 0, 0, 255, 255, 255, 255, 255]
         );
-        assert_eq!(initial.display.plane(0)[0], b' '); // The retained capture is immutable.
+        assert_eq!(initial.plane(0)[0], b' '); // The retained capture is immutable.
 
         video(&mut dos, 0x1201, 0x36, 0, 0);
         video(&mut dos, 0x83, 0, 0, 0); // A mode set restores output while preserving cells.

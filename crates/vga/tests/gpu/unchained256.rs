@@ -43,7 +43,7 @@ async fn check_pages() {
             })
         }))
     };
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let mut retained = Vec::new();
     for (frame, base) in [0, 0x4000, 0x8000, 0xc000].into_iter().enumerate() {
         start(&mut *vga.borrow_mut(), base);
@@ -51,7 +51,7 @@ async fn check_pages() {
         // the previous latch. The shader must not decode the raw start bytes.
         let previous_base = frame.saturating_sub(1) as u16 * 0x4000;
         gpu.expect(
-            &common::capture(&vga),
+            &common::snapshot(&vga),
             [320, 200],
             &expected(previous_base, 0, 200),
         )
@@ -59,7 +59,7 @@ async fn check_pages() {
         clock.advance_to(clock_origin() + common::boundary(frame as u64 + 1));
         vga.borrow_mut().read_port(0x3da, 1);
         common::service_video(video.as_mut());
-        let capture = source.current_capture().unwrap();
+        let capture = source.try_recv().unwrap();
         gpu.expect(&capture, [320, 200], &expected(base, 0, 200))
             .await;
         retained.push(capture);
@@ -78,7 +78,7 @@ async fn check_pages() {
         indexed(&mut *vga.borrow_mut(), 0x3d4, index, value);
     }
     gpu.expect(
-        &common::capture(&vga),
+        &common::snapshot(&vga),
         [320, 240],
         &expected(0xc000, 0, 240),
     )
@@ -94,7 +94,7 @@ async fn check_pages() {
     clock.advance_to(clock_origin() + reset_at + common::boundary(1));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let panned = source.current_capture().unwrap();
+    let panned = source.try_recv().unwrap();
     let mut changed = expected(0x8001, 3, 200);
     gpu.expect(&panned, [320, 200], &changed).await;
 
@@ -110,7 +110,7 @@ async fn check_pages() {
     clock.advance_to(clock_origin() + reset_at + common::boundary(2));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    gpu.expect(&source.current_capture().unwrap(), [320, 200], &changed)
+    gpu.expect(&source.try_recv().unwrap(), [320, 200], &changed)
         .await;
     drop(video);
     drop(vga);
@@ -158,9 +158,9 @@ async fn check_split() {
     }
     attribute(&mut vga, 0x13, 6);
     attribute(&mut vga, 0x10, 0x61);
-    let reset_pan = common::fixture::capture(&vga);
+    let reset_pan = vga.snapshot();
     attribute(&mut vga, 0x10, 0x41);
-    let keep_pan = common::fixture::capture(&vga);
+    let keep_pan = vga.snapshot();
     drop(vga);
     gpu.expect(
         &reset_pan,

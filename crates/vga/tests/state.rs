@@ -156,7 +156,7 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     }
     let larger = vga.borrow().dispi_state();
     vga.borrow_mut().restore_state(None, None, Some(original));
-    let frames = vga.borrow().frame_source();
+    let frames = vga.borrow().frames();
     let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     let mut cx = Context::from_waker(Waker::noop());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
@@ -171,8 +171,8 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
         wait.as_mut().poll(&mut cx),
         Poll::Ready(RetraceEvent::Reprogrammed)
     );
-    let old = frames.current_capture().unwrap();
-    assert!(matches!(old.display.scanout(), Scanout::Svga(layout)
+    let old = frames.try_recv().unwrap();
+    assert!(matches!(old.scanout(), Scanout::Svga(layout)
         if layout.size() == [640, 480] && layout.format() == PixelFormat::Indexed8));
     let mut next = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     assert!(next.as_mut().poll(&mut cx).is_pending());

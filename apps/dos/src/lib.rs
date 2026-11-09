@@ -47,7 +47,7 @@ pub fn run() -> Result<(), String> {
                 let _ = endpoints.send(
                     startup
                         .as_ref()
-                        .map(|dos| (keyboard, dos.mouse_input(), dos.frame_source()))
+                        .map(|dos| (keyboard, dos.mouse_input(), dos.frames()))
                         .map_err(Clone::clone),
                 );
                 let mut dos = startup?;

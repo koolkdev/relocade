@@ -26,27 +26,24 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
 
         video(&mut dos, 0x93, 0, 0, 0); // Change interpretation, preserve pixels/fonts.
         let graphics = common::next_capture(&dos).await;
-        assert_eq!(graphics.display.geometry().size, [320, 200]);
+        assert_eq!(graphics.geometry().size, [320, 200]);
         assert_eq!(
             state(&mut dos, 2, 7, 0x5000, 0xfffc).registers.eax as u16,
             0x1c1c
         );
         let restored = common::next_capture(&dos).await;
-        assert_eq!(
-            restored.display.geometry().size,
-            original.display.geometry().size
-        );
+        assert_eq!(restored.geometry().size, original.geometry().size);
         assert_eq!(common::screen(&dos), expected_screen);
         assert_eq!(dos.vga().borrow().registers().clone(), saved_registers);
         assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
         for plane in 0..4 {
-            assert_eq!(restored.display.plane(plane), saved.plane(plane));
+            assert_eq!(restored.plane(plane), saved.plane(plane));
             assert_eq!(
-                &original.display.plane(plane)[..0xffff],
+                &original.plane(plane)[..0xffff],
                 &saved.plane(plane)[..0xffff]
             );
         }
-        assert_eq!(graphics.display.geometry().size, [320, 200]); // Retained capture.
+        assert_eq!(graphics.geometry().size, [320, 200]); // Retained capture.
     });
 }
 

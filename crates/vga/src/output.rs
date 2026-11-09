@@ -2,30 +2,32 @@
 
 #[cfg(feature = "renderer")]
 use crate::snapshot::MemoryChanges;
-use crate::{
-    CapturedFrame, DacSnapshot, DisplaySnapshot, FrameSource, Scanout, Vga, VgaDisplayState,
-};
+use crate::{DacSnapshot, DisplaySnapshot, Scanout, Vga, VgaDisplayState};
+use async_channel::{Receiver, Sender};
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::Instant;
 use std::{cell::RefCell, rc::Rc};
 
 pub(super) struct Output {
-    pub source: FrameSource,
+    sender: Sender<DisplaySnapshot>,
+    pub frames: Receiver<DisplaySnapshot>,
     captured: Option<DisplaySnapshot>,
-    pending: Option<PendingCapture>,
+    pending: Option<PendingSnapshot>,
     ready: Event,
 }
 
-struct PendingCapture {
-    frame: CapturedFrame,
+struct PendingSnapshot {
+    snapshot: DisplaySnapshot,
     time: Instant,
 }
 
 impl Output {
     pub fn new() -> Self {
+        let (sender, frames) = async_channel::bounded(1);
         Self {
-            source: FrameSource::new(),
+            sender,
+            frames,
             captured: None,
             pending: None,
             ready: Event::new(),
@@ -40,7 +42,7 @@ impl Vga {
     /// Packed SVGA captures own their layout independently of the CPU bank.
     /// The display-start latch stays at the last serviced VGA retrace; this does not
     /// force pending CRTC start-address writes to become effective.
-    /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
+    /// Unlike [`Vga::frames`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
         let scanout = match self.dispi.display_layout() {
             Some(layout) => Scanout::Svga(layout),
@@ -95,22 +97,19 @@ impl Vga {
         }
         self.output.captured = Some(display.clone());
         // Sampling starts a new dirty interval. Coalesced pending captures retain
-        // every interval since the task last took a capture. Publication separately
-        // accumulates intervals skipped by the renderer.
+        // every interval since the task last took a snapshot. A renderer that skips
+        // a queued snapshot uses complete changed blocks when its baseline differs.
         #[cfg(feature = "renderer")]
         let display = {
             let mut display = display;
             self.memory.clear_changes();
             if let Some(pending) = &self.output.pending {
-                display.merge_changes(&pending.frame.display);
+                display.merge_changes(&pending.snapshot);
             }
             display
         };
-        let pending = PendingCapture {
-            frame: CapturedFrame {
-                display,
-                sequence: self.raster.retrace_count,
-            },
+        let pending = PendingSnapshot {
+            snapshot: display,
             time,
         };
         if self.output.pending.replace(pending).is_none() {
@@ -124,9 +123,9 @@ impl Vga {
 /// The task maps each taken timestamp to host time before waiting. New captures
 /// replace pending work without extending a wait already in progress.
 pub(super) async fn run(device: Rc<RefCell<Vga>>) {
-    let (clock, source) = {
+    let (clock, sender) = {
         let device = device.borrow();
-        (device.clock.clone(), device.frame_source())
+        (device.clock.clone(), device.output.sender.clone())
     };
     loop {
         let pending = {
@@ -136,7 +135,9 @@ pub(super) async fn run(device: Rc<RefCell<Vga>>) {
         };
         if let Some(pending) = pending {
             clock.sync_to_host(pending.time).await;
-            source.publish(pending.frame);
+            if sender.force_send(pending.snapshot).is_err() {
+                return;
+            }
         } else {
             // All producers are on this owner. No await separates the pending
             // check from installing both wake paths, and no borrow spans a wait.
