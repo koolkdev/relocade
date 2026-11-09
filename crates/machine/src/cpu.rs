@@ -11,8 +11,9 @@ use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMe
 /// Operations copy values and apply writes immediately; no references into Wasm
 /// storage escape. The execution driver serializes guest execution and service
 /// polling. Generated entries may cache fields until they publish state on exit;
-/// use this resource at stopped host boundaries, not from synchronous guest
-/// device callbacks. Clones share state and remain usable after the runner is dropped.
+/// use this resource at stopped host boundaries. [`Self::instruction_count`] also
+/// permits approximate progress observations from synchronous device callbacks.
+/// Clones share state and remain usable after the runner is dropped.
 /// The handle stays on the execution thread even when its backing supports sharing.
 ///
 /// ```compile_fail
@@ -62,14 +63,11 @@ impl CpuStateAccess {
         self.store(offset_of!(CpuState, eip), value);
     }
 
+    /// Published retirement count. During a synchronous device callback this can
+    /// omit progress cached by generated execution until its next publication.
     #[inline]
     pub fn instruction_count(&self) -> u64 {
         self.load(offset_of!(CpuState, instruction_count))
-    }
-
-    #[inline]
-    pub fn set_instruction_count(&self, value: u64) {
-        self.store(offset_of!(CpuState, instruction_count), value);
     }
 
     #[inline]
@@ -170,15 +168,19 @@ impl CpuStateAccess {
         CpuState::from_bytes(self.read(0))
     }
 
-    /// Restores a compatible CPU snapshot without changing execution controls,
-    /// including the pending execution interrupt.
+    /// Restores architectural state without changing cumulative retirement or
+    /// execution controls, including the pending interrupt and instruction target.
+    /// The snapshot's instruction count is informational; initialize a new CPU
+    /// through [`CpuConfig`] to start a different execution history.
     ///
     /// # Errors
     /// Returns an error without writing if the snapshot violates this CPU's
     /// execution target.
     pub fn restore(&self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
         crate::config::validate_cpu(self.target, snapshot)?;
-        self.write(0, &snapshot.to_bytes());
+        let mut restored = *snapshot;
+        restored.instruction_count = self.instruction_count();
+        self.write(0, &restored.to_bytes());
         Ok(())
     }
 

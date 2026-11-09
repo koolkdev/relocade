@@ -1,13 +1,11 @@
 //! The driver alternates guest execution with polling retained host services.
 
-mod budget;
 mod entry;
 mod guest_call;
 mod requests;
 mod suspended;
 
 use super::{call::Call, Cpu};
-use budget::RunBudget;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
@@ -50,12 +48,15 @@ impl Cpu {
         self.exit.clone()
     }
 
-    /// Runs until the guest exits or an execution interrupt is requested,
-    /// awaiting host services as needed. Ready services complete in the same poll.
+    /// Runs until the guest exits, its instruction target is reached, or an
+    /// execution interrupt is requested, awaiting host services as needed. Ready services complete in the same poll.
     /// Guest checkpoints return `Interrupted` independently of IF and preserve
     /// suspended calls. The request remains set until its owner acknowledges it
     /// with `ExecutionInterrupt::take`. Checkpoints occur at completed blocks;
     /// straight-line execution and REP have no fixed notification-latency bound.
+    ///
+    /// Reaching the instruction target returns `BudgetExhausted`; the external
+    /// controller owns target updates and cleanup, independently of this waiter.
     ///
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
@@ -75,19 +76,6 @@ impl Cpu {
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
-        self.run_with_budget(0).await
-    }
-
-    /// Like [`Self::run`], with a soft instruction allowance. Zero is unlimited.
-    /// Returns [`ExecutionExit::BudgetExhausted`] at a checkpoint, which may overshoot.
-    /// The allowance spans service waits and clears on completion or drop. Preserve
-    /// the retirement count while a budget is active.
-    ///
-    /// # Panics
-    /// Panics if the allowance exceeds `i64::MAX`, or is nonzero when this CPU's
-    /// execution target disables instruction budgets.
-    pub async fn run_with_budget(&mut self, instruction_budget: u64) -> ExecutionExit {
-        let _budget = RunBudget::new(&self.machine.bindings, instruction_budget);
         let exit = poll_fn(|cx| {
             if let Some(exit) = self.exit.0.get() {
                 return Poll::Ready(exit);

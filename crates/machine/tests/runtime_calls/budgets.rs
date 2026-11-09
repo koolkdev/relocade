@@ -34,15 +34,16 @@ async fn suspended_service() {
         .await
         .unwrap();
     input.send(10);
-    pending(runner.run_with_budget(10));
+    let target = runner.instruction_target();
+    target.set(Some(10));
+    pending(runner.run());
     irq.borrow_mut().raise();
-    assert_eq!(
-        runner.run_with_budget(1).await,
-        ExecutionExit::BudgetExhausted
-    );
+    target.set(Some(state.instruction_count() + 1));
+    assert_eq!(runner.run().await, ExecutionExit::BudgetExhausted);
     assert_eq!(state.eip(), 0x306);
     assert_eq!(state.instruction_count(), 3); // INT 21h, then ISR INC and JMP.
     assert_eq!(drops.get(), 0);
+    target.set(None);
     input.send(7);
     assert_eq!(input.consumed.get(), 1); // The service stays parked until guest IRET.
     assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));

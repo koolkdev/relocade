@@ -45,6 +45,7 @@ mod error;
 mod execution;
 mod execution_interrupt;
 mod hooks;
+mod instruction_target;
 mod io;
 mod machine;
 mod memory;
@@ -62,6 +63,7 @@ pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
+pub use instruction_target::InstructionTarget;
 use machine::Machine;
 use memory::RuntimeMemory;
 pub use storage::CpuStorage;
@@ -75,6 +77,7 @@ pub struct Cpu {
     guest_calls: GuestCalls,
     machine: Machine,
     exit: ExitHandle,
+    instruction_target: InstructionTarget,
     // Identifies the owning session once at run entry, never during hooks.
     pub(crate) executor: std::rc::Weak<crate::worker::Executor<ExecutionInterrupt>>,
 }
@@ -97,6 +100,7 @@ impl Cpu {
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let instruction_target = InstructionTarget::new(&bindings);
         let machine = Machine {
             backend,
             bindings,
@@ -109,6 +113,7 @@ impl Cpu {
             guest_calls: GuestCalls::default(),
             machine,
             exit: ExitHandle::new(),
+            instruction_target,
             executor: std::rc::Weak::new(),
         })
     }
