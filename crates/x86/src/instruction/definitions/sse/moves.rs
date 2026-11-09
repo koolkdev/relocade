@@ -6,7 +6,7 @@ use crate::{
     execution::OperandSpan,
     instruction::{VectorAlignment, XmmLocation, XmmType},
     memory::Intent,
-    register::{Gpr32, RegisterCode},
+    register::{Gpr32, RegisterSelector},
 };
 use relocade_compiler::{VectorLane, I64, V128};
 
@@ -117,7 +117,7 @@ instruction_families! {
 
 fn move_dword_to_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: Input<I32>,
 ) -> Result<(), BuildError> {
     let value = source.read(execution)?;
@@ -128,7 +128,7 @@ fn move_dword_to_xmm(
 fn move_dword_from_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: RegisterCode,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     let value = execution.read_xmm(source)?.extract_lane::<I32>(0);
     destination.write(execution, value)
@@ -179,7 +179,7 @@ fn move_scalar<T: VectorLane + XmmType>(
 fn store_non_temporal(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: MemoryAddress<Val<I32>>,
-    source: RegisterCode,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     let value = execution.read_xmm(source)?;
     execution
@@ -194,8 +194,8 @@ fn store_non_temporal(
 
 fn store_masked(
     execution: &mut ExecutionBuilder<'_, '_>,
-    source: RegisterCode,
-    mask: RegisterCode,
+    source: RegisterSelector,
+    mask: RegisterSelector,
 ) -> Result<(), BuildError> {
     let value = execution.read_xmm(source)?;
     let mask = execution.read_xmm(mask)?;

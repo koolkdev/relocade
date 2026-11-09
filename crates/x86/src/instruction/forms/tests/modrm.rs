@@ -115,13 +115,14 @@ fn register_only_forms_admit_both_register_fields_without_overlapping_memory() {
                 let (decoded, remaining) =
                     crate::decode::snapshot(&code, 0x1000, crate::SegmentDefaultSize::Bits32)
                         .unwrap();
+                let decoded = decoded.bind();
                 assert_eq!(remaining, [0x90]);
                 assert!(matches!(decoded.instruction.call,
                     HandlerCall::Binary {
-                        left: Operand::Location(Location::Xmm(RegisterCode::Known(destination))),
-                        right: Operand::Location(Location::Xmm(RegisterCode::Known(source))),
+                        left: Operand::Location(Location::Xmm(RegisterSelector::Fixed(destination))),
+                        right: Operand::Location(Location::Xmm(RegisterSelector::Fixed(source))),
                         ..
-                    } if (destination & 7) == ((modrm >> 3) & 7) && (source & 7) == (modrm & 7)));
+                    } if destination.bits() == ((modrm >> 3) & 7) && source.bits() == (modrm & 7)));
             }
         }
     }
@@ -152,6 +153,7 @@ fn modrm_register_ranges_cover_eight_stack_offsets_without_accepting_memory() {
                 let (decoded, remaining) =
                     crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32)
                         .unwrap();
+                let decoded = decoded.bind();
                 assert_eq!(remaining, [0x62]);
                 assert_eq!(decoded.eip, 0x1000);
                 assert_eq!(decoded.fallthrough_eip, 0x1000 + bytes.len() as u32 - 1);
@@ -177,6 +179,7 @@ fn x87_memory_encoding_retains_modrm_before_sib_and_displacement() {
         let bytes = [0x66, 0x64, 0xdb, modrm, 0x93, 0x78, 0x56, 0x34, 0x12, 0x62];
         let (decoded, remaining) =
             crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, 0x1009);
         let provenance = decoded.instruction.x87_opcode.unwrap();
@@ -187,6 +190,7 @@ fn x87_memory_encoding_retains_modrm_before_sib_and_displacement() {
     }
     let (integer, _) =
         crate::decode::snapshot(&[0x8b, 0xc1], 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+    let integer = integer.bind();
     assert!(integer.instruction.x87_opcode.is_none());
 }
 

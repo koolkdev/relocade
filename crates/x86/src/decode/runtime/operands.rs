@@ -8,9 +8,9 @@ use crate::{
     decode::DecodeState,
     instruction::{
         forms_by_opcode, DecodedFields, DecodedInstruction, Form, Location, OpcodeMap,
-        OperandEncoding, ResolvedForm,
+        OperandEncoding, ResolvedForm, SegmentOverride,
     },
-    register::RegisterCode,
+    register::{RegisterCode, RegisterSelector},
 };
 
 use super::{cursor::RuntimeCursor, selectors::dispatch_modrm_form, InstructionDecoder};
@@ -26,11 +26,12 @@ where
         mut cursor: RuntimeCursor<'_>,
         opcode: u8,
         form: &ResolvedForm,
+        segment_override: &SegmentOverride,
     ) -> Result<(), BuildError> {
         let mut fields = match form.encoding().operands {
             OperandEncoding::None => DecodedFields::default(),
             OperandEncoding::OpcodeRegister => DecodedFields {
-                register: Some(RegisterCode::from_code(opcode)),
+                register: Some(RegisterSelector::Fixed(RegisterCode::from_bits(opcode))),
                 ..DecodedFields::default()
             },
             OperandEncoding::AbsoluteOffset => DecodedFields {
@@ -40,8 +41,12 @@ where
             OperandEncoding::ModRm => unreachable!("the selected form has no ModRM"),
         };
         cursor.read_immediates(&mut body, form, &mut fields)?;
-        let decoded_instruction =
-            form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
+        let decoded_instruction = form.bind(
+            fields,
+            cursor.instruction_eip().clone(),
+            cursor.next_eip(),
+            segment_override,
+        );
         (self.complete_instruction)(body, decoded_instruction)
     }
 
@@ -81,12 +86,20 @@ where
             if !form.accepts_register_rm(&state.prefixes) {
                 return state.return_unsupported(arm, &cursor, &opcode_value);
             }
-            let rm =
-                Location::Register(RegisterCode::indexed(modrm.unsigned().extend::<I32>()).into());
+            let rm = Location::Register(
+                RegisterSelector::Runtime(modrm.unsigned().extend::<I32>()).into(),
+            );
             let form = form
                 .resolve(&state.prefixes)
                 .expect("opcode selection accepted the prefix state");
-            self.complete_modrm_instruction(arm, cursor.clone(), &modrm, &form, rm)
+            self.complete_modrm_instruction(
+                arm,
+                cursor.clone(),
+                &modrm,
+                &form,
+                rm,
+                state.prefixes.segment_override(),
+            )
         })
     }
 
@@ -118,6 +131,7 @@ where
         modrm: &Val<I8>,
         form: &ResolvedForm,
         rm: Location<Val<I32>>,
+        segment_override: &SegmentOverride,
     ) -> Result<(), BuildError> {
         let mut fields = DecodedFields {
             modrm: Some(modrm.unsigned().extend::<I32>()),
@@ -126,10 +140,15 @@ where
             ..DecodedFields::default()
         };
         cursor.read_immediates(&mut body, form, &mut fields)?;
-        fields.register = Some(RegisterCode::indexed(
+        fields.register = Some(RegisterSelector::Runtime(
             modrm.unsigned().shr(3).unsigned().extend::<I32>(),
         ));
-        let instruction = form.bind(fields, cursor.instruction_eip().clone(), cursor.next_eip());
+        let instruction = form.bind(
+            fields,
+            cursor.instruction_eip().clone(),
+            cursor.next_eip(),
+            segment_override,
+        );
         (self.complete_instruction)(body, instruction)
     }
 
@@ -165,6 +184,7 @@ where
                         modrm,
                         &form,
                         Location::Memory(address.clone().memory().into()),
+                        state.prefixes.segment_override(),
                     )
                 })?;
                 body.trap()

@@ -13,7 +13,7 @@ instruction_families! {
 
 fn shuffle(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: MmxLocation,
     control: Input<I8>,
 ) -> Result<(), BuildError> {

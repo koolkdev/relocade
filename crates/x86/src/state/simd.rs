@@ -4,15 +4,15 @@ mod mxcsr;
 pub(crate) use mxcsr::Mxcsr;
 
 use super::{access::cpu_location, ExecutionContext, SimdState, State};
-use crate::{register::RegisterCode, simd::SimdExceptions, ssa::Location};
+use crate::{register::RegisterSelector, simd::SimdExceptions, ssa::Location};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, V128};
 use std::mem::offset_of;
 
-fn xmm_location(register: RegisterCode) -> Location<V128> {
+fn xmm_location(register: RegisterSelector) -> Location<V128> {
     let base = offset_of!(ExecutionContext, cpu.simd.xmm) as u32;
     match register {
-        RegisterCode::Known(code) => Location::new(base + u32::from(code & 7) * 16),
-        RegisterCode::Indexed(code) => Location::indexed(base, 128, code.and(7).shl(4)),
+        RegisterSelector::Fixed(code) => Location::new(base + u32::from(code.bits()) * 16),
+        RegisterSelector::Runtime(code) => Location::indexed(base, 128, code.and(7).shl(4)),
     }
 }
 
@@ -46,7 +46,7 @@ impl State<'_> {
     pub(crate) fn read_xmm(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        register: RegisterCode,
+        register: RegisterSelector,
     ) -> Result<Val<V128>, BuildError> {
         self.simd.read(body, xmm_location(register))
     }
@@ -54,7 +54,7 @@ impl State<'_> {
     pub(crate) fn write_xmm(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        register: RegisterCode,
+        register: RegisterSelector,
         value: Val<V128>,
     ) -> Result<(), BuildError> {
         self.simd.define(body, xmm_location(register), value)

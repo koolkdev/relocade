@@ -2,7 +2,7 @@
 
 use crate::{
     instruction::{Location, OperandSize},
-    register::RegisterCode,
+    register::RegisterSelector,
 };
 
 /// Storage width of an integer field in the instruction encoding.
@@ -72,17 +72,17 @@ impl Encoding {
 }
 
 /// Decoders fill the fields required by the form. Binding selects them by role.
-pub(crate) struct DecodedFields<V> {
+pub(crate) struct DecodedFields<V, R = RegisterSelector, L = Location<V>> {
     /// The complete byte is retained separately from its operand field roles.
     pub(crate) modrm: Option<V>,
     pub(crate) rm_index: Option<V>,
-    pub(crate) register: Option<RegisterCode>,
-    pub(crate) rm: Option<Location<V>>,
+    pub(crate) register: Option<R>,
+    pub(crate) rm: Option<L>,
     pub(crate) absolute_offset: Option<V>,
     pub(crate) immediates: [Option<V>; 2],
 }
 
-impl<V> Default for DecodedFields<V> {
+impl<V, R, L> Default for DecodedFields<V, R, L> {
     fn default() -> Self {
         Self {
             modrm: None,
@@ -91,6 +91,23 @@ impl<V> Default for DecodedFields<V> {
             rm: None,
             absolute_offset: None,
             immediates: [None, None],
+        }
+    }
+}
+
+impl<V, R, L> DecodedFields<V, R, L> {
+    pub(crate) fn map_locations<S, M>(
+        self,
+        register: impl FnOnce(R) -> S,
+        rm: impl FnOnce(L) -> M,
+    ) -> DecodedFields<V, S, M> {
+        DecodedFields {
+            modrm: self.modrm,
+            rm_index: self.rm_index,
+            register: self.register.map(register),
+            rm: self.rm.map(rm),
+            absolute_offset: self.absolute_offset,
+            immediates: self.immediates,
         }
     }
 }

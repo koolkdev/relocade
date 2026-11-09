@@ -9,7 +9,7 @@ mod tests;
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32, I8};
 
 use crate::{
-    register::RegisterCode, ssa::StateFields, state::access::cpu_location, x87::ExtendedValue,
+    register::RegisterSelector, ssa::StateFields, state::access::cpu_location, x87::ExtendedValue,
 };
 
 use bank::Bank;
@@ -87,14 +87,14 @@ impl Registers {
     pub(super) fn physical(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        register: RegisterCode,
+        register: RegisterSelector,
     ) -> Result<Slot, BuildError> {
         let address = match register {
-            RegisterCode::Known(code) => Address {
+            RegisterSelector::Fixed(code) => Address {
                 origin: 0.into(),
-                offset: usize::from(code & 7),
+                offset: usize::from(code.bits()),
             },
-            RegisterCode::Indexed(code) => Address {
+            RegisterSelector::Runtime(code) => Address {
                 origin: body.value(code.and(7))?,
                 offset: 0,
             },

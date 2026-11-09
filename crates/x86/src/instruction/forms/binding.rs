@@ -4,12 +4,13 @@ use super::{DecodedFields, LocationBinding, OperandBinding, RegisterClass, Resol
 use crate::{
     address::EffectiveAddress,
     instruction::{
-        handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand, X87Opcode,
+        handlers::HandlerCall, DecodedInstruction, Instruction, Location, Operand, SegmentOverride,
+        X87Opcode,
     },
 };
 
 impl RegisterClass {
-    fn location<V>(self, code: crate::register::RegisterCode) -> Location<V> {
+    fn location<V>(self, code: crate::register::RegisterSelector) -> Location<V> {
         match self {
             Self::Gpr => Location::Register(code.into()),
             Self::Mmx => Location::Mmx(code),
@@ -24,6 +25,7 @@ impl ResolvedForm {
         fields: DecodedFields<V>,
         eip: P,
         fallthrough_eip: P,
+        segment_override: &SegmentOverride,
     ) -> DecodedInstruction<V, P> {
         let call = match self.call {
             HandlerCall::Nullary { handler } => HandlerCall::Nullary { handler },
@@ -33,12 +35,12 @@ impl ResolvedForm {
                 right,
             } => HandlerCall::Binary {
                 handler,
-                left: self.bind_operand(&fields, left),
-                right: self.bind_operand(&fields, right),
+                left: self.bind_operand(&fields, left, segment_override),
+                right: self.bind_operand(&fields, right, segment_override),
             },
             HandlerCall::Unary { handler, operand } => HandlerCall::Unary {
                 handler,
-                operand: self.bind_operand(&fields, operand),
+                operand: self.bind_operand(&fields, operand, segment_override),
             },
             HandlerCall::Ternary {
                 handler,
@@ -47,9 +49,9 @@ impl ResolvedForm {
                 second_source,
             } => HandlerCall::Ternary {
                 handler,
-                destination: self.bind_location(&fields, destination),
-                first_source: self.bind_operand(&fields, first_source),
-                second_source: self.bind_operand(&fields, second_source),
+                destination: self.bind_location(&fields, destination, segment_override),
+                first_source: self.bind_operand(&fields, first_source, segment_override),
+                second_source: self.bind_operand(&fields, second_source, segment_override),
             },
         };
         DecodedInstruction {
@@ -59,7 +61,7 @@ impl ResolvedForm {
                 condition: self.form.condition,
                 ends_block: self.form.ends_block,
                 requirements: self.form.requirements,
-                segment_override: self.segment_override.clone(),
+                segment_override: segment_override.clone(),
                 locked: self.locked,
                 x87_opcode: (self.form.map == super::OpcodeMap::Primary
                     && (0xd8..=0xdf).contains(&self.form.opcode))
@@ -80,6 +82,7 @@ impl ResolvedForm {
         &self,
         fields: &DecodedFields<V>,
         binding: LocationBinding,
+        segment_override: &SegmentOverride,
     ) -> Location<V> {
         let mut location = match binding {
             LocationBinding::Register(class) => class.location(
@@ -111,7 +114,7 @@ impl ResolvedForm {
             ),
         };
         if let Location::Memory(address) = &mut location {
-            address.segment = self.segment_override.apply(&address.segment);
+            address.segment = segment_override.apply(&address.segment);
         }
         location
     }
@@ -120,6 +123,7 @@ impl ResolvedForm {
         &self,
         fields: &DecodedFields<V>,
         binding: OperandBinding,
+        segment_override: &SegmentOverride,
     ) -> Operand<V> {
         match binding {
             OperandBinding::X87StackIndex => {
@@ -127,11 +131,15 @@ impl ResolvedForm {
             }
             OperandBinding::Segment(segment) => Operand::Segment(segment),
             OperandBinding::Constant(bits) => Operand::Immediate(bits.into()),
-            OperandBinding::Location(location) => self.bind_location(fields, location).into(),
+            OperandBinding::Location(location) => self
+                .bind_location(fields, location, segment_override)
+                .into(),
             OperandBinding::RmAddress => {
-                let Location::Memory(address) =
-                    self.bind_location(fields, LocationBinding::Rm(RegisterClass::Gpr))
-                else {
+                let Location::Memory(address) = self.bind_location(
+                    fields,
+                    LocationBinding::Rm(RegisterClass::Gpr),
+                    segment_override,
+                ) else {
                     unreachable!("address bindings require a memory addressing mode");
                 };
                 Operand::Address(address.offset)

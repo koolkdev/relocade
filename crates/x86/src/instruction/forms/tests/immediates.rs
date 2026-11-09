@@ -35,6 +35,7 @@ fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
     ] {
         let (decoded, remaining) =
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded.instruction.ends_block());
@@ -79,16 +80,19 @@ fn immediates_bind_after_location_operands() {
             .form();
             let fields = DecodedFields {
                 register: matches!(location, OperandSpec::OpcodeRegister | OperandSpec::Rm(_))
-                    .then(|| RegisterCode::from_code(0)),
-                rm: matches!(location, OperandSpec::Rm(_))
-                    .then(|| Location::Register(RegisterCode::from_code(0).into())),
+                    .then(|| RegisterSelector::Fixed(RegisterCode::from_bits(0))),
+                rm: matches!(location, OperandSpec::Rm(_)).then(|| {
+                    Location::Register(RegisterSelector::Fixed(RegisterCode::from_bits(0)).into())
+                }),
                 immediates: [Some(0x9234_5678u32), two.then_some(0xf327)],
                 ..DecodedFields::default()
             };
-            let decoded = form
-                .resolve(&PrefixState::default())
-                .unwrap()
-                .bind(fields, 0x1000, 0x1007);
+            let decoded = form.resolve(&PrefixState::default()).unwrap().bind(
+                fields,
+                0x1000,
+                0x1007,
+                &crate::instruction::SegmentOverride::None,
+            );
             if two {
                 assert!(matches!(
                     decoded.instruction.call,
@@ -140,6 +144,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
     ] {
         let (decoded, remaining) =
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(decoded.instruction.ends_block());

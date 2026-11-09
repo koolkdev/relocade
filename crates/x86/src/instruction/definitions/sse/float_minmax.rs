@@ -50,7 +50,7 @@ instruction_families! {
 
 fn scalar<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatMinMax,
 ) -> Result<(), BuildError>
@@ -65,7 +65,7 @@ where
 
 fn packed<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatMinMax,
 ) -> Result<(), BuildError> {

@@ -74,7 +74,7 @@ instruction_families! {
 
 fn shift<T: VectorLane + MemoryInt>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     count: impl PackedShiftCount,
     operation: PackedShiftOp,
 ) -> Result<(), BuildError> {

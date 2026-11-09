@@ -34,7 +34,7 @@ mod words;
 use super::*;
 use crate::{
     instruction::{VectorAlignment, XmmLocation},
-    register::RegisterCode,
+    register::RegisterSelector,
 };
 use relocade_compiler::V128;
 
@@ -73,7 +73,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
 /// Legacy XMM binary operations read an aligned m128 source before updating state.
 fn binary(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: impl FnOnce(Val<V128>, Val<V128>) -> Val<V128>,
 ) -> Result<(), BuildError> {

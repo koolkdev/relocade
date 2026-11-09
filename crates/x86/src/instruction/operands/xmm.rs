@@ -4,7 +4,7 @@ use crate::{
     execution::{ExecutionBuilder, OperandSpan},
     instruction::{Location, Operand},
     memory::{Intent, TransferType},
-    register::RegisterCode,
+    register::RegisterSelector,
 };
 use relocade_compiler::{BuildError, Val, I32, I64, V128};
 
@@ -27,12 +27,12 @@ impl VectorAlignment {
 pub(crate) trait XmmType: TransferType {
     fn read_register(
         execution: &mut ExecutionBuilder<'_, '_>,
-        register: RegisterCode,
+        register: RegisterSelector,
     ) -> Result<Val<Self>, BuildError>;
 
     fn write_register(
         execution: &mut ExecutionBuilder<'_, '_>,
-        register: RegisterCode,
+        register: RegisterSelector,
         value: Val<Self>,
     ) -> Result<(), BuildError>;
 }
@@ -42,14 +42,14 @@ macro_rules! scalar_xmm_types {
         impl XmmType for $ty {
             fn read_register(
                 execution: &mut ExecutionBuilder<'_, '_>,
-                register: RegisterCode,
+                register: RegisterSelector,
             ) -> Result<Val<Self>, BuildError> {
                 Ok(execution.read_xmm(register)?.extract_lane(0))
             }
 
             fn write_register(
                 execution: &mut ExecutionBuilder<'_, '_>,
-                register: RegisterCode,
+                register: RegisterSelector,
                 value: Val<Self>,
             ) -> Result<(), BuildError> {
                 let vector = execution.read_xmm(register.clone())?;
@@ -63,14 +63,14 @@ scalar_xmm_types!(I32, I64);
 impl XmmType for V128 {
     fn read_register(
         execution: &mut ExecutionBuilder<'_, '_>,
-        register: RegisterCode,
+        register: RegisterSelector,
     ) -> Result<Val<Self>, BuildError> {
         execution.read_xmm(register)
     }
 
     fn write_register(
         execution: &mut ExecutionBuilder<'_, '_>,
-        register: RegisterCode,
+        register: RegisterSelector,
         value: Val<Self>,
     ) -> Result<(), BuildError> {
         execution.write_xmm(register, value)
@@ -79,12 +79,12 @@ impl XmmType for V128 {
 
 /// A location in the XMM register class or a memory operand.
 pub(crate) enum XmmLocation {
-    Register(RegisterCode),
+    Register(RegisterSelector),
     Memory(Box<MemoryAddress<Val<I32>>>),
 }
 
-impl From<RegisterCode> for XmmLocation {
-    fn from(register: RegisterCode) -> Self {
+impl From<RegisterSelector> for XmmLocation {
+    fn from(register: RegisterSelector) -> Self {
         Self::Register(register)
     }
 }

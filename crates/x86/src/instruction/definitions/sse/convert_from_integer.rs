@@ -33,7 +33,7 @@ instruction_families! {
 
 fn scalar(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: Input<I32>,
     format: BinaryFormat,
 ) -> Result<(), BuildError> {
@@ -47,7 +47,7 @@ fn scalar(
 
 fn write_scalar<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: Val<I32>,
     rounding: &RoundingMode,
 ) -> Result<(), BuildError>
@@ -61,7 +61,7 @@ where
 
 fn packed<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let rounding = floating::rounding_for_integer_source(execution, T::FORMAT)?;

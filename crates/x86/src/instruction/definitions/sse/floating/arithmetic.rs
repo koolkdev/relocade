@@ -8,7 +8,7 @@ use relocade_compiler::{AtLeast, I64};
 
 pub(in crate::instruction::definitions::sse) fn scalar_arithmetic<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatArithmetic,
 ) -> Result<(), BuildError>
@@ -41,7 +41,7 @@ where
 
 pub(in crate::instruction::definitions::sse) fn packed_arithmetic<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatArithmetic,
 ) -> Result<(), BuildError>
@@ -67,7 +67,7 @@ where
 
 pub(in crate::instruction::definitions::sse) fn scalar_square_root<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError>
 where
@@ -94,7 +94,7 @@ where
 
 pub(in crate::instruction::definitions::sse) fn packed_square_root<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError>
 where

@@ -55,7 +55,7 @@ fn restore(
         .x87()
         .restore_fx(pointer_size, &environment, &registers)?;
     for (index, value) in xmm.into_iter().enumerate() {
-        execution.write_xmm(RegisterCode::from_code(index as u8), value)?;
+        execution.write_xmm(RegisterCode::from_bits(index as u8).into(), value)?;
     }
     Ok(())
 }
@@ -85,7 +85,7 @@ fn save(
         operand.write(execution, offset + 8, &register.sign_exponent)?;
     }
     for index in 0..8 {
-        let xmm = execution.read_xmm(RegisterCode::from_code(index))?;
+        let xmm = execution.read_xmm(RegisterCode::from_bits(index).into())?;
         operand.write(execution, 160 + u32::from(index) * 16, xmm)?;
     }
     Ok(())

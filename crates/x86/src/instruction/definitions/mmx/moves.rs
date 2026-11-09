@@ -46,7 +46,7 @@ instruction_families! {
 
 fn load_doubleword(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: TypedLocation<I32>,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
@@ -58,7 +58,7 @@ fn load_doubleword(
 fn store_doubleword(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: RegisterCode,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let value = execution.read_mmx(source)?.truncate::<I32>();
@@ -79,8 +79,8 @@ fn move_quadword(
 
 fn move_to_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: RegisterCode,
+    destination: RegisterSelector,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let bits = execution.read_mmx(source)?;
@@ -90,8 +90,8 @@ fn move_to_xmm(
 
 fn move_from_xmm(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: RegisterCode,
+    destination: RegisterSelector,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let bits = execution.read_xmm(source)?.low_half().to_bits();
@@ -102,7 +102,7 @@ fn move_from_xmm(
 fn store_non_temporal(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: MemoryAddress<Val<I32>>,
-    source: RegisterCode,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let value = execution.read_mmx(source)?;
@@ -114,8 +114,8 @@ fn store_non_temporal(
 
 fn store_masked(
     execution: &mut ExecutionBuilder<'_, '_>,
-    source: RegisterCode,
-    mask: RegisterCode,
+    source: RegisterSelector,
+    mask: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let value = Val::<V64>::from_bits(execution.read_mmx(source)?);

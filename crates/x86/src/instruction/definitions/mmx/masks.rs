@@ -13,7 +13,7 @@ instruction_families! {
 fn byte_mask(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: RegisterCode,
+    source: RegisterSelector,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {
         let bits = execution.read_mmx(source)?;

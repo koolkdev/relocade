@@ -1,7 +1,7 @@
 //! Half-register transfers preserve the other half and use exact m64 accesses.
 
 use super::*;
-use crate::{address::MemoryAddress, memory::Intent, register::RegisterCode};
+use crate::{address::MemoryAddress, memory::Intent, register::RegisterSelector};
 use relocade_compiler::I64;
 
 #[derive(Clone, Copy)]
@@ -74,7 +74,7 @@ instruction_families! {
 
 fn load_half(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: MemoryAddress<Val<I32>>,
     half: Half,
 ) -> Result<(), BuildError> {
@@ -88,7 +88,7 @@ fn load_half(
 fn store_half(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: MemoryAddress<Val<I32>>,
-    source: RegisterCode,
+    source: RegisterSelector,
     half: Half,
 ) -> Result<(), BuildError> {
     let value = execution.read_xmm(source)?.extract_lane::<I64>(half.lane());
@@ -99,8 +99,8 @@ fn store_half(
 
 fn move_half(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
-    source: RegisterCode,
+    destination: RegisterSelector,
+    source: RegisterSelector,
     destination_half: Half,
     source_half: Half,
 ) -> Result<(), BuildError> {

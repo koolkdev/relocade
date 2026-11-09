@@ -53,7 +53,7 @@ impl<'a> BlockModule<'a> {
                     .with_observed_cpu(observed_cpu.as_ref());
                 execution.guard_fetch_span(block.entry.byte_len)?;
                 for instruction in block.instructions {
-                    execution.execute(instruction)?;
+                    execution.execute(instruction.bind())?;
                 }
                 execution.dispatch()
             });

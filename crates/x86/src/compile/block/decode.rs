@@ -1,12 +1,12 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
 use super::{BlockEntry, BlockSnapshot};
-use crate::{instruction::DecodedInstruction, BlockError, ExecutionTarget};
+use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget};
 use std::collections::BTreeSet;
 
 pub(super) struct DecodedBlock {
     pub(super) entry: BlockEntry,
-    pub(super) instructions: Vec<DecodedInstruction<u32, u32>>,
+    pub(super) instructions: Vec<SnapshotInstruction>,
 }
 
 pub(super) fn blocks(
@@ -47,8 +47,7 @@ impl DecodedBlock {
             )?;
             eip = decoded.fallthrough_eip;
             remaining = rest;
-            let ends_block =
-                decoded.instruction.ends_block() || decoded.instruction.fails_requirements(target);
+            let ends_block = decoded.ends_block(target);
             instructions.push(decoded);
             if ends_block || boundaries.contains(&eip) {
                 break;

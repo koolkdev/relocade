@@ -32,7 +32,7 @@ instruction_families! {
 
 fn widen_scalar(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
@@ -44,7 +44,7 @@ fn widen_scalar(
 
 fn narrow_scalar(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
@@ -71,7 +71,7 @@ fn narrow_scalar(
 
 fn widen_packed(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
@@ -96,7 +96,7 @@ fn widen_packed(
 
 fn narrow_packed(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;

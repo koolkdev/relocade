@@ -14,7 +14,7 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{HandlerCall, SizedHandlers},
-    Availability, Group1Prefix, OperandSize, PrefixState, Requirements, SegmentOverride,
+    Availability, Group1Prefix, OperandSize, PrefixState, Requirements,
 };
 use crate::register::NamedRegister;
 use crate::{address::AddressSize, flags::Condition};
@@ -143,7 +143,6 @@ impl Form {
             operand_size,
             address_size: prefixes.selection().address_size(),
             call: self.handlers.resolve(operand_size),
-            segment_override: prefixes.segment_override().clone(),
             locked: prefixes.selection().group1() == Some(Group1Prefix::F0),
         })
     }
@@ -175,11 +174,14 @@ pub(crate) struct ResolvedForm {
     operand_size: OperandSize,
     address_size: AddressSize,
     call: HandlerBinding,
-    segment_override: SegmentOverride,
     locked: bool,
 }
 
 impl ResolvedForm {
+    pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
+        self.form.ends_block || self.form.requirements.fault(target).is_some()
+    }
+
     pub(crate) fn address_size(&self) -> AddressSize {
         self.address_size
     }
