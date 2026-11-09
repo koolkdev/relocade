@@ -14,14 +14,7 @@ use std::future::pending;
 pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
     let mut protocol = Protocol::new(clock.now());
     let mut events = Some(events);
-    let mut turns = 0;
     loop {
-        // Bound work when the host input queue stays continuously ready.
-        if turns == 64 {
-            relocade_machine::yield_now().await;
-            turns = 0;
-        }
-        turns += 1;
         let wake = {
             let command = controller.receive_device(Port::Auxiliary).fuse();
             let output = async {
