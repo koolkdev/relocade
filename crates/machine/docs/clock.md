@@ -23,6 +23,8 @@ polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
 `ClockSource` supplies `now() -> Instant` and `sleep_until(Instant) -> Sleep`.
+Its optional `sync(Option<Instant>) -> Sleep` captures a mapped host deadline;
+`None` samples the source's configured host clock. The default completes immediately.
 `Clock::new(source)` wraps a source behind the common consumer API, and
 `Sleep::new(future)` owns its wait state. Custom sources must preserve monotonic
 readings and first-poll registration/drop cancellation. `Runner`, `Pc`, `Dos`, and
@@ -169,6 +171,40 @@ the same slice boundary and the existing lead or lag. Time spent between runs is
 excluded by shifting the host origin; repeated cancellation cannot grant another
 slice. The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
+
+### Synchronizing external work
+
+`clock.sync().await` captures the current host time once, maps it to guest time
+and awaits an ordinary guest timer. Earlier device deadlines and IRQ opportunities
+remain part of normal execution. If guest time has already reached that point,
+the wait completes immediately; it never rewinds time or waits for the host.
+Burst pacing separately limits execution ahead of host time.
+
+For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
+The timestamp must use the configured host clock's timebase. Both forms capture
+the current mapping when the wait is constructed, register on first poll and
+cancel on drop. A retained wait keeps its guest deadline across cancelled CPU
+runs. Host clocks, unpaced guest clocks and calls outside an active CPU run
+complete immediately. The current run's correspondence maps timestamps; this
+API does not reconstruct historical mappings across paused sessions.
+
+Consumers that race input against device commands or timers must retain the
+receive-and-sync operation across cancelled waiters. A persistent async stream
+can own it using the standard `StreamExt::then` combinator:
+
+```rust,ignore
+let events = source.then(move |input| {
+    let sync = clock.sync_to(input.host_time);
+    async move {
+        sync.await;
+        input.event
+    }
+});
+```
+
+A later event remains queued while the current event synchronizes. It cannot
+postpone the current deadline. Equal-time events follow the execution owner's
+existing activity polling order.
 
 ## Host timers
 

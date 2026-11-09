@@ -333,9 +333,14 @@ async fn ready_service_during_pacing() {
             let mut cpu = cpu(runner, &[0x90], io).await;
             let exit = cpu.exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
+            let clock = runner.clock().clone();
             cpu.install([Hook::host(0x100, async move || {
                 let completion = completion.borrow_mut().take().unwrap();
                 completion.await.unwrap();
+                // Guest time is ahead of the host while this pacing wait remains
+                // unresolved. Synchronization must not wait for host progress.
+                clock.sync().await;
+                clock.sync_to(host_start).await;
                 exit.request();
             })])
             .await

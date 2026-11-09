@@ -28,6 +28,13 @@ pub struct Clock(Rc<dyn ClockSource>);
 pub trait ClockSource {
     fn now(&self) -> Instant;
     fn sleep_until(&self, deadline: Instant) -> Sleep;
+
+    /// Captures a host-to-source deadline and returns an ordinary source wait.
+    /// `None` samples the configured host clock now; `Some` uses a timestamp
+    /// from that host timebase. Sources without a host mapping complete immediately.
+    fn sync(&self, _host_time: Option<Instant>) -> Sleep {
+        Sleep::new(async {})
+    }
 }
 
 impl Clock {
@@ -50,6 +57,23 @@ impl Clock {
     /// complete immediately, so awaiting a sleep does not promise an executor yield.
     pub fn sleep_until(&self, deadline: Instant) -> Sleep {
         self.0.sleep_until(deadline)
+    }
+
+    /// Waits until guest time reaches the host's current mapped time, captured
+    /// now. A guest already ahead completes immediately. This is a guest timer,
+    /// not a host pacing wait; later host progress does not extend its deadline.
+    /// Host clocks, unpaced guest clocks and clocks outside a CPU run do not wait.
+    pub fn sync(&self) -> Sleep {
+        self.0.sync(None)
+    }
+
+    /// Like [`Self::sync`], using a timestamp from the configured host clock's
+    /// timebase, such as the time an input event was enqueued. The current
+    /// host/guest correspondence is captured now and retained by the wait.
+    /// It does not reconstruct past mappings: input first consumed after a pause
+    /// uses the resumed correspondence, while an already-created wait is unchanged.
+    pub fn sync_to(&self, host_time: Instant) -> Sleep {
+        self.0.sync(Some(host_time))
     }
 }
 
