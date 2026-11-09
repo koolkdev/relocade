@@ -1,6 +1,8 @@
 //! CPU execution and registered device activities on one owner.
 
+mod guest_time;
 mod schedule;
+pub use guest_time::GuestTimeConfig;
 mod worker;
 
 use schedule::ExecutionSchedule;
@@ -24,12 +26,10 @@ use relocade_x86::ExecutionExit;
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
-    num::NonZeroU64,
     ops::RangeInclusive,
     pin::pin,
     rc::Rc,
     task::Poll,
-    time::Duration,
 };
 
 /// Owns a worker's execution session, including its CPU storage and device activities.
@@ -171,12 +171,7 @@ impl Runner {
         let interrupt = cpu.interrupt_handle();
         self.executor.yield_now().await;
         loop {
-            let exit = poll_fn(|cx| {
-                self.schedule.before_cpu_poll();
-                let result = cpu.poll_run(cx);
-                self.schedule.after_cpu_poll(result, &interrupt)
-            })
-            .await;
+            let exit = poll_fn(|cx| self.schedule.poll_cpu(cpu, cx)).await;
             if exit.is_none() || interrupt.is_requested() {
                 self.executor.yield_now().await;
             }
@@ -186,21 +181,18 @@ impl Runner {
         }
     }
 
-    /// Runs on emulated guest time without pacing against host time.
-    /// Retirement advances time at `instructions_per_second`. Device deadlines
-    /// and an optional `yield_interval` in guest time stop execution at soft
-    /// checkpoints, which can overshoot. Ready activities run before idle time
-    /// advances to the next registered sleep. Time pauses between calls to
-    /// [`Self::run_cpu`]. A supplied yield interval must be positive;
-    /// `None` adds no periodic yields beyond those required by device deadlines.
+    /// Runs on emulated guest time with optional host pacing for active and idle
+    /// execution. Device deadlines subdivide each execution slice. Instruction targets
+    /// remain soft checkpoint limits, so a slice can overshoot.
+    /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
+    /// the host/guest offset survive those pauses.
     pub fn with_guest_time(
-        instructions_per_second: NonZeroU64,
-        yield_interval: Option<Duration>,
+        config: GuestTimeConfig,
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Self {
         Self::with_schedule(
-            ExecutionSchedule::with_guest_time(instructions_per_second, yield_interval),
+            ExecutionSchedule::with_guest_time(config),
             storage,
             endpoint,
         )

@@ -1,49 +1,40 @@
-//! Execution deadlines and idle scheduling, independent of CPU polling.
+//! Drives CPU turns, guest deadlines and host pacing.
 
-use crate::{Clock, Cpu, ExecutionInterrupt, GuestTimeDriver, Instant};
+mod slice;
+use slice::ExecutionSlice;
+
+use super::GuestTimeConfig;
+use crate::{Clock, Cpu, GuestTimeDriver, Instant};
 use relocade_x86::ExecutionExit;
-use std::{
-    cell::Cell,
-    num::NonZeroU64,
-    task::{Poll, Waker},
-    time::Duration,
-};
+use std::task::{ready, Context, Poll, Waker};
 
 pub(super) struct ExecutionSchedule {
     clock: Clock,
-    guest_time: Option<GuestTimeDriver>,
-    yield_origin: Instant,
-    yield_interval: Option<Duration>,
-    yield_deadline: Cell<Option<Instant>>,
+    guest: Option<GuestSchedule>,
+}
+
+struct GuestSchedule {
+    driver: GuestTimeDriver,
+    slice: Option<ExecutionSlice>,
 }
 
 impl ExecutionSchedule {
     pub(super) fn from_clock(clock: Clock) -> Self {
-        Self {
-            yield_origin: clock.now(),
-            clock,
-            guest_time: None,
-            yield_interval: None,
-            yield_deadline: Cell::new(None),
-        }
+        Self { clock, guest: None }
     }
 
-    pub(super) fn with_guest_time(
-        instructions_per_second: NonZeroU64,
-        yield_interval: Option<Duration>,
-    ) -> Self {
-        assert!(
-            yield_interval.is_none_or(|interval| !interval.is_zero()),
-            "guest time scheduling needs a positive yield interval"
-        );
+    pub(super) fn with_guest_time(config: GuestTimeConfig) -> Self {
         let start = Instant::now();
-        let driver = GuestTimeDriver::new(start, instructions_per_second);
+        let slice = config
+            .slice_duration
+            .map(|duration| ExecutionSlice::new(start, duration, config.host_clock.is_some()));
+        let mut driver = GuestTimeDriver::new(start, config.instructions_per_second);
+        if let Some(host) = config.host_clock {
+            driver = driver.with_host_clock(host);
+        }
         Self {
             clock: driver.clock(),
-            guest_time: Some(driver),
-            yield_origin: start,
-            yield_interval,
-            yield_deadline: Cell::new(None),
+            guest: Some(GuestSchedule { driver, slice }),
         }
     }
 
@@ -51,63 +42,79 @@ impl ExecutionSchedule {
         &self.clock
     }
 
-    /// Keeps target ownership and wait-change notifications scoped to one run.
+    /// Retains the slice boundary across runs while cancelling each run's host wait.
     #[must_use]
     pub(super) fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> Option<impl Drop + use<'a>> {
-        self.guest_time
-            .as_ref()
-            .map(|driver| driver.bind(cpu, changed))
+        self.guest.as_ref().map(|guest| Binding {
+            _cpu: guest.driver.bind(cpu, changed),
+            slice: guest.slice.as_ref(),
+        })
     }
 
-    pub(super) fn before_cpu_poll(&self) {
-        let Some(driver) = &self.guest_time else {
-            return;
-        };
-        let deadline = self.yield_interval.map(|interval| {
-            let now = self.clock.now();
-            let remaining = interval.as_nanos()
-                - now.duration_since(self.yield_origin).as_nanos() % interval.as_nanos();
-            now + Duration::new(
-                (remaining / 1_000_000_000) as u64,
-                (remaining % 1_000_000_000) as u32,
-            )
-        });
-        self.yield_deadline.set(deadline);
-        driver.synchronize(deadline);
-    }
-
-    /// Publishes retirement before devices run, including on terminal exits.
-    /// Ready(None) requests an activity turn; Ready(Some(exit)) returns the CPU
-    /// result. Runner yields before returning only when work was notified.
-    /// Pending parks until an external notification arrives.
-    pub(super) fn after_cpu_poll(
+    /// Polls host work before pacing guest entry, then publishes progress and
+    /// chooses whether to yield, wait or return. Pending pacing waits do not
+    /// advance idle time. Ready(None) gives activities a turn; Ready(Some(exit))
+    /// returns the CPU result, with terminal-exit cleanup already complete.
+    pub(super) fn poll_cpu(
         &self,
-        result: Poll<ExecutionExit>,
-        interrupt: &ExecutionInterrupt,
+        cpu: &mut Cpu,
+        cx: &mut Context<'_>,
     ) -> Poll<Option<ExecutionExit>> {
-        if let Some(driver) = &self.guest_time {
-            driver.synchronize(self.yield_deadline.get());
+        let result = if let Some(exit) = cpu.poll_host_work(cx) {
+            Poll::Ready(exit)
+        } else {
+            if let Some(guest) = &self.guest {
+                if let Some(slice) = &guest.slice {
+                    ready!(slice.poll(&guest.driver, self.clock.now(), cx));
+                }
+                guest
+                    .driver
+                    .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
+            }
+            cpu.poll_execution(cx)
+        };
+        if let Some(guest) = &self.guest {
+            guest
+                .driver
+                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
         }
         match result {
             Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
-            Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest_time.is_some() => {
+            Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
                 Poll::Ready(None)
             }
             Poll::Ready(exit) => Poll::Ready(Some(exit)),
             Poll::Pending => {
-                // Ready activities may replace a wait. Give them a turn before
-                // choosing an idle deadline, then poll the CPU again.
-                if interrupt.is_requested()
-                    || self
-                        .guest_time
-                        .as_ref()
-                        .is_some_and(|driver| driver.advance_to_next_deadline())
-                {
-                    Poll::Ready(None)
-                } else {
-                    Poll::Pending
+                // Let ready activities replace their waits before advancing idle
+                // time. Neither a wake nor a replaced deadline resets the slice.
+                if cpu.interrupt_handle().is_requested() {
+                    return Poll::Ready(None);
                 }
+                let Some(guest) = &self.guest else {
+                    return Poll::Pending;
+                };
+                let Some(mut deadline) = guest.driver.next_deadline() else {
+                    return Poll::Pending;
+                };
+                if let Some(slice) = &guest.slice {
+                    deadline = slice.idle_deadline(deadline);
+                }
+                guest.driver.advance_to(deadline);
+                Poll::Ready(None)
             }
+        }
+    }
+}
+
+struct Binding<'a, T> {
+    _cpu: T,
+    slice: Option<&'a ExecutionSlice>,
+}
+
+impl<T> Drop for Binding<'_, T> {
+    fn drop(&mut self) {
+        if let Some(slice) = self.slice {
+            slice.cancel_wait();
         }
     }
 }

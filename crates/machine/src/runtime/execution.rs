@@ -81,49 +81,61 @@ impl Cpu {
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
-        poll_fn(|cx| self.poll_run(cx)).await
+        poll_fn(|cx| match self.poll_host_work(cx) {
+            Some(exit) => Poll::Ready(exit),
+            None => self.poll_execution(cx),
+        })
+        .await
     }
 
-    /// Polls execution without giving the caller ownership of pending services.
-    /// Calls and their locals stay in the CPU between polls. Both the public run
-    /// future and Runner use this boundary, including terminal-exit cleanup.
-    pub(crate) fn poll_run(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
-        let exit = if let Some(exit) = self.exit.0.get() {
-            exit
-        } else {
-            // Poll active work once; guest entries below poll new or resumed calls.
+    /// Polls the active host service once and observes exit requests without
+    /// entering guest code. Pending and parked calls remain owned by the CPU.
+    /// `None` means no exit; it does not imply that guest execution is runnable.
+    pub(crate) fn poll_host_work(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
+        if self.exit.0.get().is_none() {
             if let Some(call) = self.pending.take() {
                 self.pending = call.poll(cx);
             }
-            loop {
-                let guest_entered = match self.try_enter_guest(cx) {
-                    Ok(delivered) => delivered,
-                    Err(exit) => break exit,
-                };
-                if !guest_entered && self.pending.is_some() {
-                    return Poll::Pending;
-                }
+        }
+        self.exit.0.get().map(|exit| self.finish_exit(exit))
+    }
 
-                let exit = self.run_guest();
-                if self.exit.0.get().is_some() {
-                    continue;
-                }
-                self.pending = match exit {
-                    ExecutionExit::Host(HostExit::Call { service_id }) => {
-                        Call::start(self.machine.dispatch.handler(service_id), cx)
-                    }
-                    ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
-                        Ok(call) => call,
-                        Err(exit) => break exit,
-                    },
-                    ExecutionExit::StepComplete
-                    | ExecutionExit::InterruptsEnabled
-                    | ExecutionExit::InterruptEntered
-                    | ExecutionExit::FarCallEntered => continue,
-                    exit => break exit,
-                };
+    /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
+    /// exit or pending service stops execution. New and resumed host calls are
+    /// polled at their entries; existing host work is polled by `poll_host_work`.
+    pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+        let exit = loop {
+            let guest_entered = match self.try_enter_guest(cx) {
+                Ok(delivered) => delivered,
+                Err(exit) => break exit,
+            };
+            if !guest_entered && self.pending.is_some() {
+                return Poll::Pending;
             }
+
+            let exit = self.run_guest();
+            if self.exit.0.get().is_some() {
+                continue;
+            }
+            self.pending = match exit {
+                ExecutionExit::Host(HostExit::Call { service_id }) => {
+                    Call::start(self.machine.dispatch.handler(service_id), cx)
+                }
+                ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
+                    Ok(call) => call,
+                    Err(exit) => break exit,
+                },
+                ExecutionExit::StepComplete
+                | ExecutionExit::InterruptsEnabled
+                | ExecutionExit::InterruptEntered
+                | ExecutionExit::FarCallEntered => continue,
+                exit => break exit,
+            };
         };
+        Poll::Ready(self.finish_exit(exit))
+    }
+
+    fn finish_exit(&mut self, exit: ExecutionExit) -> ExecutionExit {
         if matches!(
             exit,
             ExecutionExit::Host(HostExit::Return) | ExecutionExit::UnhandledException(_)
@@ -133,7 +145,7 @@ impl Cpu {
             // Coalesce any requests made while destroying the retained work.
             self.exit.0.set(None);
         }
-        Poll::Ready(exit)
+        exit
     }
 
     /// Runs guest code to the next host entry or guest exit, including any

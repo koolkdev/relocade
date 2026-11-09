@@ -8,8 +8,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn pit_interrupts() {
     let worker = ExecutionWorker::spawn_with_guest_time(
-        NonZeroU64::new(1_000_000).unwrap(),
-        None,
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
         async |runner| {
             let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
@@ -68,7 +67,7 @@ async fn pit_interrupts() {
             assert!(samples[0] > 0);
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
             // PIT deadlines must drive eight approximately 2 ms periods
-            // without a periodic yield interval.
+            // without an execution slice duration.
             assert!(runner.clock().now() >= start + Duration::from_millis(14));
             assert!(runner.clock().now() < start + Duration::from_millis(20));
         },
@@ -78,11 +77,11 @@ async fn pit_interrupts() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pit_deadlines_interrupt_a_busy_pc_without_a_yield_interval() {
+fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
     pollster::block_on(pit_interrupts());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pit_deadlines_interrupt_a_busy_pc_without_a_yield_interval() {
+async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
     pit_interrupts().await;
 }
