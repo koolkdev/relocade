@@ -102,4 +102,57 @@ impl Timing {
         (vertical_count >= start && vertical_count < self.vertical_retrace_end)
             || vertical_count < self.wrapped_retrace_end
     }
+
+    pub fn input_status_1(self, dot: u64) -> u8 {
+        let horizontal = dot % self.horizontal_total;
+        let vertical = dot / self.horizontal_total / self.scanlines_per_vertical_count;
+        // Bit zero is inverted display enable, independent of programmed blanking.
+        let disabled = self.reset_active
+            || horizontal < self.horizontal_display_skew
+            || horizontal >= self.horizontal_display_skew + self.horizontal_display
+            || vertical >= self.vertical_display;
+        u8::from(disabled) | (u8::from(self.vertical_retrace_active(vertical)) << 3)
+    }
+
+    /// Distance to the next possible status edge. While vertically outside the
+    /// display, horizontal edges cannot change display enable and are skipped.
+    /// Candidates at or beyond the programmed total do not occur in that frame.
+    pub fn next_status_in_dots(self, dot: u64) -> Option<u64> {
+        if !self.clock_running() {
+            return None;
+        }
+        let total = self.frame_dots();
+        let vertical_dots = self.horizontal_total * self.scanlines_per_vertical_count;
+        let vertical = dot / vertical_dots;
+        // Wrapping can change either signal, including a pulse spanning frames.
+        let mut next = total - dot;
+        for boundary in [
+            self.vertical_display,
+            self.vertical_retrace_start,
+            self.vertical_retrace_end,
+            self.wrapped_retrace_end,
+        ] {
+            if boundary < self.vertical_total {
+                let boundary = boundary * vertical_dots;
+                if boundary > dot {
+                    next = next.min(boundary - dot);
+                }
+            }
+        }
+        let start = self.horizontal_display_skew;
+        let end = (start + self.horizontal_display).min(self.horizontal_total);
+        if vertical < self.vertical_display && start < end {
+            let horizontal = dot % self.horizontal_total;
+            if horizontal < start {
+                next = next.min(start - horizontal);
+            } else if horizontal < end {
+                if end < self.horizontal_total || start != 0 {
+                    next = next.min(end - horizontal);
+                }
+            } else {
+                next = next.min(self.horizontal_total - horizontal + start);
+            }
+        }
+        Some(next)
+    }
 }

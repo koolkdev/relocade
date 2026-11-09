@@ -26,7 +26,7 @@ impl Vga {
         if !self.setup.enabled() {
             return None;
         }
-        self.sync_to_clock();
+        self.advance_raster(self.clock.now());
         let deadline = if self.raster.in_retrace() {
             Some(self.clock.now())
         } else {

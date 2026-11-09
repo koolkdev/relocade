@@ -21,7 +21,7 @@ pub trait FramebufferAccess {
 
 impl FramebufferAccess for Vga {
     fn framebuffer(&mut self) -> Framebuffer<'_> {
-        self.sync_to_clock();
+        self.capture_if_due();
         let scanout = match self.dispi.display_layout() {
             Some(layout) => Scanout::Svga(layout),
             None => {

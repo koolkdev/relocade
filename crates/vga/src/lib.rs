@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod capture;
+mod device;
 #[cfg(feature = "renderer")]
 mod display;
 mod framebuffer;
@@ -29,12 +30,12 @@ pub use display::VgaDisplay;
 use event_listener::Event;
 pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel, TextCell};
 pub use geometry::DisplayGeometry;
+use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
-use memory::{VideoMemory, VramAccess};
 use raster::Raster;
-use registers::{dispi, setup::Setup, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT};
+use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, Device, DeviceConnection, Instant, Runner};
+use relocade_machine::{Clock, DeviceConnection, Instant, Runner};
 #[cfg(feature = "renderer")]
 pub use renderer::{VgaImage, VgaRenderer};
 pub use retrace::RetraceEvent;
@@ -143,10 +144,19 @@ impl Vga {
         }
     }
 
-    /// Bring raster state up to the shared clock and publish changed display inputs.
-    /// Guest writes call this first, while the preceding registers and VRAM still apply.
-    fn sync_to_clock(&mut self) {
-        if let Some(time) = self.raster.update_to(self.clock.now()) {
+    /// Display writes only need to sample if the cached retrace deadline elapsed.
+    /// Preserve the preceding registers and VRAM before applying the mutation.
+    fn capture_if_due(&mut self) {
+        if let Some(deadline) = self.raster.next_retrace_at() {
+            let now = self.clock.now();
+            if now >= deadline {
+                self.advance_raster(now);
+            }
+        }
+    }
+
+    fn advance_raster(&mut self, now: Instant) {
+        if let Some(time) = self.raster.update_to(now) {
             if self.dispi.display_layout().is_none() {
                 self.registers.crtc.latch_display_start();
             }
@@ -168,82 +178,6 @@ impl Vga {
                 sequence: self.raster.retrace_count,
             });
         }
-    }
-}
-
-impl Device for Vga {
-    /// Capture display inputs while the CPU is busy, idle, or awaiting a service.
-    /// The runner polls this activity alongside CPU execution. No device borrow
-    /// spans a wait. Late service coalesces missed retraces before preparing the
-    /// next deadline.
-    async fn run(device: Rc<RefCell<Self>>) {
-        loop {
-            let wait = {
-                let mut device = device.borrow_mut();
-                device.sync_to_clock();
-                device.retrace_wait(device.raster.next_retrace_at())
-            };
-            wait.await;
-        }
-    }
-
-    fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
-        let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
-        self.memory.read(address, bytes, access)
-    }
-
-    fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
-        self.sync_to_clock();
-        let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
-        self.memory.write(address, bytes, value, access);
-    }
-
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
-        self.sync_to_clock();
-        if dispi::PORT_RANGE.contains(&port) {
-            return if self.setup.enabled() {
-                self.dispi.read_port(port, bytes)
-            } else {
-                u32::MAX >> ((4 - bytes) * 8)
-            };
-        }
-        let mut value = [0; 4];
-        for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            let port = port.wrapping_add(index as u16);
-            *byte = match port {
-                OPTION_SELECT_PORT => self.setup.read_option(),
-                port if self.setup.enabled() => {
-                    self.registers.read_port(port, self.raster.input_status_1())
-                }
-                _ => 0xff,
-            };
-        }
-        u32::from_le_bytes(value)
-    }
-
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
-        self.sync_to_clock();
-        let previous_layout = self.dispi.display_layout();
-        let previous_status_port = self.registers.status_port();
-        let was_enabled = self.setup.enabled();
-        if dispi::PORT_RANGE.contains(&port) {
-            if self.setup.enabled() {
-                match self.dispi.write_port(port, bytes, value) {
-                    dispi::WriteEffect::None => {}
-                    dispi::WriteEffect::ClearVram => self.memory.clear_vram(),
-                }
-            }
-        } else {
-            for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-                match port.wrapping_add(index as u16) {
-                    ADAPTER_CONTROL_PORT => self.setup.write_control(*byte),
-                    OPTION_SELECT_PORT => self.setup.write_option(*byte),
-                    port if self.setup.enabled() => self.registers.write_port(port, *byte),
-                    _ => {}
-                }
-            }
-        }
-        self.reconfigure(previous_layout, previous_status_port, was_enabled);
     }
 }
 

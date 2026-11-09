@@ -75,6 +75,17 @@ struct ActiveMode {
 }
 
 impl Dispi {
+    pub(crate) fn write_kind(&self, port: u16, bytes: u8) -> super::WriteKind {
+        if port != DATA_PORT || bytes != 2 {
+            return super::WriteKind::Access;
+        }
+        match self.index {
+            ENABLE => super::WriteKind::Timing,
+            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => super::WriteKind::Display,
+            _ => super::WriteKind::Access,
+        }
+    }
+
     pub fn to_state_bytes(&self) -> [u8; 18] {
         let layout = self.display_layout();
         let [x, y] = layout.map_or([0, 0], SvgaLayout::origin);

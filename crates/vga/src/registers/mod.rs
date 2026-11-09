@@ -53,6 +53,14 @@ pub const PORT_RANGES: [RangeInclusive<u16>; 8] = [
     ADAPTER_CONTROL_PORT..=ADAPTER_CONTROL_PORT,
 ];
 
+/// Work needed before a port write changes the live register state.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WriteKind {
+    Access,
+    Display,
+    Timing,
+}
+
 /// Live VGA register banks, inspected on the execution owner.
 /// Bank indices and transfer phases are retained alongside the raw values;
 /// cloning this state never advances a CPU access or evaluates display settings.
@@ -83,6 +91,34 @@ impl Default for Registers {
 }
 
 impl Registers {
+    pub(crate) fn write_kind(&self, port: u16) -> WriteKind {
+        match port {
+            MISC_OUTPUT_WRITE_PORT => WriteKind::Timing,
+            SEQUENCER_DATA_PORT => match self.sequencer.index() {
+                sequencer::RESET | sequencer::CLOCKING_MODE => WriteKind::Timing,
+                sequencer::MAP_MASK..=sequencer::MEMORY_MODE => WriteKind::Display,
+                _ => WriteKind::Access,
+            },
+            port if port == self.crtc_ports().1 => match self.crtc.index() {
+                crtc::HORIZONTAL_TOTAL
+                | crtc::HORIZONTAL_DISPLAY_END
+                | crtc::HORIZONTAL_BLANK_END
+                | crtc::VERTICAL_TOTAL
+                | crtc::OVERFLOW
+                | crtc::VERTICAL_RETRACE_START
+                | crtc::VERTICAL_RETRACE_END
+                | crtc::VERTICAL_DISPLAY_END
+                | crtc::MODE_CONTROL => WriteKind::Timing,
+                crtc::HORIZONTAL_TOTAL..=crtc::LINE_COMPARE => WriteKind::Display,
+                _ => WriteKind::Access,
+            },
+            // The Attribute address phase also controls display enable.
+            ATTRIBUTE_ADDRESS_PORT | DAC_MASK_PORT | DAC_DATA_PORT => WriteKind::Display,
+            GRAPHICS_DATA_PORT if self.graphics.index() <= graphics::BIT_MASK => WriteKind::Display,
+            _ => WriteKind::Access,
+        }
+    }
+
     pub(crate) fn status_port(&self) -> u16 {
         if self.miscellaneous & 1 == 0 {
             MONO_INPUT_STATUS_1_PORT

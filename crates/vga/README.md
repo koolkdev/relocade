@@ -68,10 +68,20 @@ end comparison and its wrap across the vertical counter reset. `timing/svga`
 supplies the fixed preset. Both produce common `Timing` counts, explicit retrace
 intervals and clock rates. `Raster` retains position, fractional progress and
 the lifetime retrace count; it knows no CRTC encoding or VGA blink divider.
-`Vga::sync_to_clock()` publishes due inputs before a guest mutation. Timing
-changes replace the pending deadline. In VGA, sequencer reset holds the raster,
-and disconnected external or reserved clock selections stop it. Screen-off continues to generate
-retraces. Disabling CRTC sync suppresses the status pulse while internal sampling
+Status reads reuse cached bits until the next possible display-enable, retrace,
+or internal capture edge. Repeated reads before that deadline only record the
+observed time and compare it with the deadline. Timing changes materialize the
+exact old phase at that observed time before remapping counters, including partial
+dots and stopped clocks. Horizontal status edges are skipped outside vertical
+display. Late observations catch up all elapsed retraces without a per-frame loop.
+
+`device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
+changes do not advance the raster. Display writes compare the cached retrace
+deadline and preserve overdue inputs before mutation; timing writes additionally
+reconcile the old phase. Timing changes replace the pending deadline. In VGA,
+sequencer reset holds the raster, and disconnected external or reserved clock
+selections stop it. Screen-off continues to generate retraces. Disabling CRTC
+sync suppresses the status pulse while internal sampling
 continues. Integer arithmetic carries fractional progress so repeated polling
 cannot accumulate drift.
 The shared clock measures session elapsed time, not CPU instruction cycles.
