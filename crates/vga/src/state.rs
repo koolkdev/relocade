@@ -81,7 +81,7 @@ impl Vga {
         if core.is_none() && dac.is_none() && dispi.is_none() {
             return;
         }
-        self.sync_to_clock();
+        self.advance_raster(self.clock.now());
         let previous_layout = self.dispi.display_layout();
         let previous_status_port = self.registers.status_port();
         let was_enabled = self.setup.enabled();
