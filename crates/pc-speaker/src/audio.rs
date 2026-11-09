@@ -1,35 +1,49 @@
 use crate::Speaker;
 use async_channel::Sender;
-use relocade_pit::{Counter, INPUT_HZ};
-use std::{cell::RefCell, rc::Rc};
+use futures_lite::future::or;
+use relocade_machine::Clock;
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+
+mod synthesis;
+use synthesis::{Signal, Synthesis};
 
 impl Speaker {
-    /// Attaches output once, including after the device activity has started.
-    /// Synthesis runs on the execution worker. Connect a bounded channel
-    /// consumed at the configured playback rate: backpressure provides scheduling
-    /// cooperation. Unpaced sinks require external pacing. Muted output submits
-    /// silence.
+    /// Attaches output once. The PIT's clock drives synthesis in either host
+    /// or guest time; the PCM receiver supplies playback at the configured rate.
+    /// Control changes are retained until their sample interval is rendered.
     pub fn attach_audio(
         &mut self,
         config: cpal::StreamConfig,
         samples: Sender<Vec<f32>>,
     ) -> Result<(), String> {
-        if self.audio.is_some() {
+        if self.audio.is_some() || self.audio_ready.0.is_closed() {
             return Err("speaker output is already attached".into());
         }
-        if config.sample_rate == 0 || config.channels == 0 {
-            return Err("speaker output needs a nonzero sample rate and channel count".into());
+        if config.sample_rate == 0 || config.sample_rate > 1_000_000_000 || config.channels == 0 {
+            return Err(
+                "speaker output needs a representable sample rate and nonzero channel count".into(),
+            );
         }
         if samples.capacity().is_none() {
             return Err("speaker output needs a bounded sample channel".into());
         }
         let mut pit = self.pit.borrow_mut();
-        pit.take_channel2_update();
+        let changes = Rc::new(RefCell::new(VecDeque::new()));
+        let recorded = Rc::downgrade(&changes);
+        let control = self.control.clone();
+        pit.observe_channel2(move |state| {
+            if let Some(changes) = recorded.upgrade() {
+                changes.borrow_mut().push_back(Signal {
+                    state,
+                    enabled: control.get() & 2 != 0,
+                });
+            }
+        });
         self.audio = Some(Audio {
+            clock: pit.clock().clone(),
             config,
             samples,
-            counter: pit.channel2(),
-            fraction: 0,
+            changes,
         });
         self.audio_ready.0.try_send(()).unwrap();
         Ok(())
@@ -37,61 +51,40 @@ impl Speaker {
 }
 
 pub(super) struct Audio {
+    clock: Clock,
     config: cpal::StreamConfig,
     samples: Sender<Vec<f32>>,
-    // Playback advances ahead of the machine clock by the queued audio duration.
-    counter: Counter,
-    // Fraction of one PIT clock, measured in units of the output sample rate.
-    fraction: u64,
-}
-
-impl Audio {
-    pub(super) fn update(&mut self, counter: &Counter) {
-        self.counter = counter.clone();
-        self.fraction = 0;
-    }
-
-    fn buffer(&mut self, enabled: bool) -> Vec<f32> {
-        let batch = match self.config.buffer_size {
-            cpal::BufferSize::Fixed(n) => n.clamp(1, 256) as usize,
-            cpal::BufferSize::Default => 256,
-        };
-        let channels = usize::from(self.config.channels);
-        let mut buffer = vec![0.0; batch * channels];
-        if enabled {
-            let rate = u64::from(self.config.sample_rate);
-            for output in buffer.chunks_exact_mut(channels) {
-                let initial_high = u64::from(self.counter.output());
-                let span = self.fraction + INPUT_HZ;
-                let high = self.counter.advance(span / rate);
-                let next_fraction = span % rate;
-                // Integrate the whole clocks plus the two fractional endpoints.
-                let integral = high * rate + next_fraction * u64::from(self.counter.output())
-                    - self.fraction * initial_high;
-                output.fill((0.2 * integral as f64 / INPUT_HZ as f64) as f32);
-                self.fraction = next_fraction;
-            }
-        }
-        buffer
-    }
+    changes: Rc<RefCell<VecDeque<Signal>>>,
 }
 
 pub(super) async fn run(device: Rc<RefCell<Speaker>>) {
     let ready = device.borrow().audio_ready.1.clone();
     ready.recv().await.unwrap();
-    let samples = device.borrow().audio.as_ref().unwrap().samples.clone();
-    loop {
-        let buffer = {
-            let mut device = device.borrow_mut();
-            let enabled = device.control & 2 != 0;
-            let update = device.pit.borrow_mut().take_channel2_update();
-            let audio = device.audio.as_mut().unwrap();
-            if let Some(counter) = update {
-                audio.update(&counter);
-            }
-            audio.buffer(enabled)
-        };
-        if samples.send(buffer).await.is_err() {
+    // Attachment remains one-shot after the activity takes ownership.
+    ready.close();
+    let audio = device.borrow_mut().audio.take().unwrap();
+    let initial = audio.changes.borrow_mut().pop_front().unwrap();
+    let mut synthesis = Synthesis::new(audio.config.sample_rate, initial);
+    let batch = match audio.config.buffer_size {
+        cpal::BufferSize::Fixed(frames) => frames.clamp(1, 256) as usize,
+        cpal::BufferSize::Default => 256,
+    };
+    while !audio.samples.is_closed() {
+        or(audio.clock.sleep_until(synthesis.deadline(batch)), async {
+            audio.samples.closed().await
+        })
+        .await;
+        if audio.samples.is_closed() {
+            return;
+        }
+        let buffer = synthesis.buffer(
+            batch,
+            usize::from(audio.config.channels),
+            &mut audio.changes.borrow_mut(),
+        );
+        // An unplayed or stalled sink keeps recent PCM. Do not leave register
+        // changes accumulating while the output channel is full.
+        if audio.samples.force_send(buffer).is_err() {
             return;
         }
     }

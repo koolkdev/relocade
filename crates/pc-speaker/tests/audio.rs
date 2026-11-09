@@ -26,7 +26,7 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
 async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
-    let (clock, _timers) = timer_service();
+    let (clock, timers) = timer_service();
     let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
         let (pit, pit_device) =
             relocade_pit::Pit::initialize(runner, &relocade_pic::Pic::default()).await;
@@ -83,6 +83,7 @@ async fn exercise_audio_device() {
             runner.run_cpu(&mut cpu).await
         );
     });
+    let timers = timers.spawn_with_peer(worker.wake_peer());
     timeout(ready.recv()).await.unwrap();
     // Initial queued silence can precede the guest's programming writes.
     for index in 0..12 {
@@ -99,6 +100,7 @@ async fn exercise_audio_device() {
         buffers.is_closed(),
         "session shutdown drops the device's sender"
     );
+    timeout(timers.join()).await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

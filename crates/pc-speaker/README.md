@@ -40,12 +40,12 @@ speaker.borrow_mut().attach_audio(config, samples)?;
 The runner drives `Speaker::run` alongside the CPU, including while the guest
 awaits input. Until output is attached, the activity waits on an ordinary Rust
 channel while hardware port access remains available. Attachment is allowed once;
-it uses the current timer and speaker state. The activity produces interleaved f32 buffers and awaits
-`samples.send(buffer)`. The full queue suspends production until output frees
-space. Output must consume at its configured playback rate; an unpaced sink
-needs external pacing to let CPU execution and cancellation progress. Muted
-output uses the same path with zero-filled buffers. There is no
-speaker-state channel, synthesis worker, refill timer or explicit yielding loop.
+it uses the current timer and speaker state. The activity waits on the PIT's
+supplied clock until an entire sample interval has elapsed, renders interleaved
+f32 PCM, and submits it through the bounded channel. Host and guest clocks use
+the same path. Muted output submits silence while retaining the timer's phase.
+When output is stopped or its queue fills, the oldest queued buffer is replaced;
+register changes keep being consumed instead of accumulating behind a stalled sink.
 Dropping app output closes submission and ends the activity. Stopping execution
 drops the device and its activity on their owner; platform output can drain to
 silence or be dropped separately.
@@ -53,17 +53,15 @@ silence or be dropped separately.
 The shared PIT counter integrates each sample's high time; fractional input
 clocks carry across buffers. Mono drive is duplicated across output channels
 with amplitude 0.2. A fixed CPAL buffer hint is clamped to 1–256 frames; the default
-is 256. The app's 16-buffer queue can hold about 85 ms at 48 kHz, plus a pending
-submission, callback and platform buffering. Control changes, including unmuting,
-follow already prepared samples.
+is 256: one interval is about 5.33 ms at 48 kHz. The app's existing 16-buffer
+queue can hold about 85 ms at that rate, plus callback and platform buffering.
+CPAL consumes the PCM at its configured rate; buffers need no separate host wait.
 
-Playback keeps its own counter phase because queued samples extend ahead of the
-machine clock. Sound-changing writes retain the latest counter state in PIT; playback consumes
-that state before generating its next buffer. Reads,
-latches and unchanged speaker-control writes leave playback alone. Guest register
-readback follows the machine clock; waveform generation follows the output sample
-clock between control changes.
+Sound-changing writes append timestamped counter states and the speaker enable
+bit to a local queue. Synthesis consumes every change at its position within the
+sample interval, including multiple changes in one sample. Reads, latches and
+unchanged speaker-control writes leave playback alone. The supplied clock sets
+the timing precision; this is not a CPU-cycle model.
 
-This first implementation accepts scheduling and buffering latency. Controls
-can coalesce before the next buffer; guest write timestamps are not reproduced.
-It supports programmed tones, not cycle-accurate bit-banged audio or PWM.
+The PCM transport is independent of PIT and speaker state. A future AdLib
+synthesizer can use the same elapsed-time synthesis and ordinary PCM handoff.

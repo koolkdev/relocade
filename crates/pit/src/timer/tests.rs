@@ -143,7 +143,10 @@ fn readback_latches_both_channels_without_changing_speaker_playback() {
     pit.write_port(CHANNEL_2_PORT, 1, 6);
     pit.write_port(CHANNEL_2_PORT, 1, 0);
     pit.set_channel2_gate(true);
-    pit.take_channel2_update();
+    let changes = Rc::new(RefCell::new(Vec::new()));
+    let recorded = changes.clone();
+    pit.observe_channel2(move |state| recorded.borrow_mut().push(state));
+    changes.borrow_mut().clear();
     clock.advance_to(clock_origin() + Duration::from_nanos(2_515)); // Three clocks: load plus two decrements.
     pit.write_port(CONTROL_PORT, 1, 0xca); // Count and status for channels 0 and 2.
     clock.advance_to(clock_origin() + Duration::from_nanos(5_029));
@@ -154,7 +157,7 @@ fn readback_latches_both_channels_without_changing_speaker_playback() {
     assert_eq!(pit.read_port(CHANNEL_2_PORT, 1), 2);
     assert_eq!(pit.read_port(CHANNEL_2_PORT, 1), 0);
     program(&mut pit, 0x36, 8);
-    assert!(pit.take_channel2_update().is_none());
+    assert!(changes.borrow().is_empty());
     assert_eq!(pit.read_port(0x41, 1), u32::MAX);
     assert_eq!(pit.read_port(CHANNEL_0_PORT, 2), u32::MAX);
 }

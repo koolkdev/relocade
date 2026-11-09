@@ -7,6 +7,16 @@ use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Instant, Runn
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
+/// Channel-2 state at an exact point on the PIT's supplied clock.
+#[derive(Clone, Debug)]
+pub struct Channel2State {
+    pub at: Instant,
+    pub counter: Counter,
+    /// Fraction of an input clock already elapsed, in billionths. The counter
+    /// has consumed all whole input clocks before this fraction.
+    pub fraction: u32,
+}
+
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit {
@@ -15,7 +25,7 @@ pub struct Pit {
     at: Instant,
     channel0: Counter,
     channel2: Counter,
-    channel2_update: Option<Counter>,
+    channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
     irq: IrqLine,
     changed: Event,
 }
@@ -45,16 +55,15 @@ impl Pit {
             clock,
             channel0,
             channel2: Counter::default(),
-            channel2_update: None,
+            channel2_observer: None,
             irq,
             changed: Event::new(),
         }
     }
 
-    /// Current channel-2 state for starting playback at the machine clock.
-    pub fn channel2(&mut self) -> Counter {
-        self.sync_to_clock();
-        self.channel2.clone()
+    /// The timebase shared by hardware access and dependent devices.
+    pub fn clock(&self) -> &Clock {
+        &self.clock
     }
 
     pub fn channel2_output(&mut self) -> bool {
@@ -66,13 +75,33 @@ impl Pit {
     pub fn set_channel2_gate(&mut self, high: bool) {
         self.sync_to_clock();
         self.channel2.set_gate(high);
-        self.channel2_update = Some(self.channel2.clone());
+        self.notify_channel2();
     }
 
-    /// Takes the latest programming state for the single speaker playback owner.
-    /// Reads and latches leave this state untouched; writes may coalesce.
-    pub fn take_channel2_update(&mut self) -> Option<Counter> {
-        self.channel2_update.take()
+    /// Replaces the channel-2 observer and supplies its initial state now.
+    /// Every programming/gate write is observed synchronously, including writes
+    /// at the same timestamp. Reads and latches do not notify. The observer must
+    /// not borrow this PIT again while handling the notification.
+    pub fn observe_channel2(&mut self, mut observer: impl FnMut(Channel2State) + 'static) {
+        self.sync_to_clock();
+        observer(self.channel2_snapshot());
+        self.channel2_observer = Some(Box::new(observer));
+    }
+
+    fn channel2_snapshot(&self) -> Channel2State {
+        Channel2State {
+            at: self.at,
+            counter: self.channel2.clone(),
+            fraction: (self.at.duration_since(self.origin).as_nanos() * u128::from(crate::INPUT_HZ)
+                % 1_000_000_000) as u32,
+        }
+    }
+
+    fn notify_channel2(&mut self) {
+        let state = self.channel2_snapshot();
+        if let Some(observer) = &mut self.channel2_observer {
+            observer(state);
+        }
     }
 
     fn sync_to_clock(&mut self) {
@@ -171,7 +200,7 @@ impl Device for Pit {
             self.irq.set_level(self.channel0.output());
             self.changed.notify(1);
         } else {
-            self.channel2_update = Some(self.channel2.clone());
+            self.notify_channel2();
         }
     }
 }
