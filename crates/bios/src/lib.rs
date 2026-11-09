@@ -2,6 +2,8 @@
 //!
 //! INT 11h/12h return the equipment word and conventional-memory size directly
 //! from guest RAM at 0040:0010 and 0040:0013, initialized from PC configuration.
+//! No disk, COM or LPT devices are connected. INT 13h reports absent drives;
+//! INT 14h/17h return unchanged, following IBM BIOS's zero-port-address case.
 //! INT 10h sets text modes 00h–03h and 07h with output, cursors, pages and scrolling.
 //! Mode 07h uses the VGA monochrome palette, nine-dot cells and B0000 aperture.
 //! Graphics modes 04h–06h and 0Dh–13h program VGA for direct guest pixel
@@ -66,6 +68,7 @@
 #![forbid(unsafe_code)]
 
 pub mod clock;
+mod disk;
 mod information;
 pub mod interrupts;
 mod keyboard;

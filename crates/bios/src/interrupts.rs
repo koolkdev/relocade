@@ -1,6 +1,6 @@
 //! BIOS interrupt registration and shared return handling.
 
-use crate::{clock, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
+use crate::{clock, disk, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
@@ -21,10 +21,16 @@ pub const VIDEO: u8 = 0x10;
 pub const EQUIPMENT: u8 = 0x11;
 /// Conventional memory size (INT 12h).
 pub const MEMORY_SIZE: u8 = 0x12;
+/// Disk services (INT 13h).
+pub const DISK: u8 = 0x13;
+/// Serial-port services (INT 14h).
+pub const SERIAL: u8 = 0x14;
 /// System services, including the PS/2 pointing device (INT 15h/C2h).
 pub const SYSTEM: u8 = 0x15;
 /// Keyboard services (INT 16h).
 pub const KEYBOARD: u8 = 0x16;
+/// Printer services (INT 17h).
+pub const PRINTER: u8 = 0x17;
 /// Time-of-day services (INT 1Ah).
 pub const TIME_OF_DAY: u8 = 0x1a;
 /// Ctrl-Break callback invoked by the keyboard IRQ handler (INT 1Bh).
@@ -71,6 +77,14 @@ const EQUIPMENT_ENTRY: FarPointer = FarPointer {
 const MEMORY_SIZE_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xff90,
+};
+const DISK_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xffc0,
+};
+const RETURN_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xffd0,
 };
 
 const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
@@ -148,6 +162,11 @@ pub fn register_interrupts(
         },
     );
     interrupts.register_interrupt(CONTROL_BREAK, BREAK_CALLBACK_ENTRY, async |_| {});
+    // No COM/LPT devices are connected. IBM BIOS returns unchanged for a port
+    // with a zero base address.
+    for vector in [SERIAL, PRINTER] {
+        interrupts.register_interrupt(vector, RETURN_ENTRY, async |_| {});
+    }
     register_irq(
         interrupts,
         TIMER_IRQ,
@@ -156,6 +175,12 @@ pub fn register_interrupts(
         clock::timer,
     );
     interrupts.register_interrupt(TIMER_TICK, TIMER_CALLBACK_ENTRY, async |_| {});
+    register_service(
+        interrupts,
+        DISK,
+        DISK_ENTRY,
+        interrupt_handler!(disk::dispatch),
+    );
     register_service(
         interrupts,
         EQUIPMENT,

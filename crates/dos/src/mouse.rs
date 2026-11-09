@@ -73,7 +73,7 @@ impl Mouse {
 pub(crate) fn register(interrupts: &mut Interrupts<'_>, session: Rc<DosState>, clock: Clock) {
     let driver = session.clone();
     interrupts.register_interrupt(
-        crate::interrupts::MOUSE,
+        crate::interrupts::MOUSE_DRIVER,
         SERVICE_ENTRY,
         interrupt_handler!(driver.mouse.dispatch),
     );

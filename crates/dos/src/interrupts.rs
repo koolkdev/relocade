@@ -20,7 +20,7 @@ pub const CRITICAL_ERROR: u8 = 0x24;
 /// Idle callback during DOS character I/O (INT 28h).
 pub const IDLE: u8 = 0x28;
 /// Resident mouse driver services (INT 33h).
-pub const MOUSE: u8 = 0x33;
+pub const MOUSE_DRIVER: u8 = 0x33;
 
 const TERMINATE_ENTRY: FarPointer = FarPointer {
     segment: 0xf000,
