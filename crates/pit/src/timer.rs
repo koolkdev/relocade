@@ -98,9 +98,9 @@ impl Pit {
     }
 
     fn notify_channel2(&mut self) {
-        if self.channel2_observer.is_some() {
-            let state = self.channel2_snapshot();
-            self.channel2_observer.as_mut().unwrap()(state);
+        let state = self.channel2_snapshot();
+        if let Some(observer) = &mut self.channel2_observer {
+            observer(state);
         }
     }
 
