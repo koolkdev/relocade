@@ -2351,6 +2351,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-cache"
+version = "0.0.0"
+dependencies = [
+ "cacache",
+ "directories-next",
+ "js-sys",
+ "pollster",
+ "tempfile",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "relocade-clock-test-support"
 version = "0.0.0"
 dependencies = [
@@ -2440,17 +2455,9 @@ dependencies = [
 name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
- "cacache",
- "directories-next",
- "js-sys",
- "pollster",
+ "relocade-cache",
  "relocade-x86-profile",
  "sha2",
- "tempfile",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
 ]
 
 [[package]]

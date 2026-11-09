@@ -23,6 +23,7 @@ the crates are not published.
 | [relocade-frontend](crates/frontend/README.md) | Shared winit input and wgpu display contracts for application integration. |
 | [relocade-app](crates/app/README.md) | Main-thread winit application startup on native platforms and the browser. |
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
+| [relocade-cache](crates/cache/src/lib.rs) | Persistent byte artifacts with native and browser storage. Callers define keys and formats. |
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Versioned interpreter Wasm generated on demand and cached on native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
@@ -63,7 +64,7 @@ CPU/device runner, execution ownership and input delivery for an interactive emb
 
 `Cpu::new` prepares only the requested interpreter profile. The module exports
 both `step` and `run`; CPU features remain live execution-context inputs. Generated
-Wasm is cached in the user's platform cache directory under `relocade/interpreters`
+Wasm is cached in the user's platform cache directory under `relocade/artifacts`
 on native targets and in origin-scoped CacheStorage in browsers. The cache key
 includes the execution profile and a fingerprint of the generator, ABI sources,
 manifests and dependency lockfile, including uncommitted source changes. Cargo's
@@ -74,6 +75,22 @@ writes do not prevent startup, and generation failures remain visible to the
 caller. Native Wasmtime compilation continues to use its own disk cache. Cache
 entries are disposable; automatic eviction of old interpreter revisions is not
 currently provided.
+
+`relocade-cache::ArtifactCache` owns the reusable storage and read-through policy:
+
+```rust
+let cache = relocade_cache::ArtifactCache::open().await;
+let bytes = cache.load_or_generate(&artifact_key, generate).await?;
+```
+
+Keys are opaque strings shared across consumers: include a consumer namespace,
+format/generator version and every generation input. Artifact bytes can contain
+Wasm plus serialized metadata; the consumer owns that format. The interpreter
+layer defines its revision/profile keys and uses this common cache. Future JIT
+artifacts can use the same storage while keeping snapshot identity, entry metadata
+and runtime validity with their execution owner. JIT persistence is not enabled yet.
+Concurrent misses may generate independently; in-memory coordination of compiled
+Wasm modules remains in `relocade-wasm-runtime::ModuleCache`.
 
 Default CPU preparation generates a missing artifact on its calling thread.
 Embeddings that own compilation workers can prepare the persistent artifact first:

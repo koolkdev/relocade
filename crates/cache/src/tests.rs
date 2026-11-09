@@ -1,11 +1,11 @@
-use super::{storage::Storage, Cache};
-use crate::{key, ExecutionProfile, SegmentProfile};
+use super::{storage::Storage, ArtifactCache};
 use std::{cell::Cell, path::Path};
 
-const WASM: &[u8] = b"\0asm\x01\0\0\0";
+const ARTIFACT: &[u8] = b"generated artifact";
+const KEY: &str = "consumer/version/inputs";
 
-fn at(path: &Path) -> Cache {
-    Cache {
+fn at(path: &Path) -> ArtifactCache {
+    ArtifactCache {
         storage: Some(Storage {
             directory: path.to_owned(),
         }),
@@ -13,32 +13,32 @@ fn at(path: &Path) -> Cache {
 }
 
 #[test]
-fn artifacts_survive_reopening_and_keys_separate_profiles_and_revisions() {
+fn artifacts_survive_reopening_and_distinct_keys_do_not_alias() {
     pollster::block_on(async {
         let directory = tempfile::tempdir().unwrap();
-        let profile = key(SegmentProfile::Flat32.into());
         let first = at(directory.path())
-            .load_or_generate(profile, || async { Ok::<_, ()>(WASM.to_vec()) })
+            .load_or_generate(KEY, || async { Ok::<_, ()>(ARTIFACT.to_vec()) })
             .await
             .unwrap();
-        assert_eq!(first, WASM);
+        assert_eq!(first, ARTIFACT);
         let reopened = at(directory.path());
         assert_eq!(
             reopened
-                .load_or_generate(profile, || async {
+                .load_or_generate(KEY, || async {
                     Err::<Vec<u8>, _>("cache hit must skip generation")
                 })
                 .await
                 .unwrap(),
-            WASM
+            ARTIFACT
         );
         for other in [
-            key(ExecutionProfile::Real16).to_owned(),
-            format!("{profile}/new-revision"),
+            "other-consumer/version/inputs",
+            "consumer/other-version/inputs",
+            "consumer/version/other-inputs",
         ] {
             assert_eq!(
                 reopened
-                    .load_or_generate(&other, || async {
+                    .load_or_generate(other, || async {
                         Err::<Vec<u8>, _>("different artifact must generate")
                     })
                     .await,
@@ -53,32 +53,28 @@ fn missing_content_regenerates_and_unwritable_cache_does_not_fail_generation() {
     pollster::block_on(async {
         let directory = tempfile::tempdir().unwrap();
         let cache = at(directory.path());
-        let artifact = key(ExecutionProfile::Real16);
-        let integrity = cacache::write_sync(directory.path(), artifact, WASM).unwrap();
+        let integrity = cacache::write_sync(directory.path(), KEY, ARTIFACT).unwrap();
         cacache::remove_hash_sync(directory.path(), &integrity).unwrap();
         let generated = Cell::new(0);
         let bytes = cache
-            .load_or_generate(artifact, || async {
+            .load_or_generate(KEY, || async {
                 generated.set(generated.get() + 1);
-                Ok::<_, ()>(WASM.to_vec())
+                Ok::<_, ()>(ARTIFACT.to_vec())
             })
             .await
             .unwrap();
-        assert_eq!(bytes, WASM);
+        assert_eq!(bytes, ARTIFACT);
         assert_eq!(generated.get(), 1);
-        assert_eq!(
-            cacache::read_sync(directory.path(), artifact).unwrap(),
-            WASM
-        );
+        assert_eq!(cacache::read_sync(directory.path(), KEY).unwrap(), ARTIFACT);
 
         let blocked = directory.path().join("file");
         std::fs::write(&blocked, b"not a directory").unwrap();
         assert_eq!(
             at(&blocked)
-                .load_or_generate(artifact, || async { Ok::<_, ()>(WASM.to_vec()) })
+                .load_or_generate(KEY, || async { Ok::<_, ()>(ARTIFACT.to_vec()) })
                 .await
                 .unwrap(),
-            WASM
+            ARTIFACT
         );
     });
 }
@@ -88,31 +84,26 @@ fn generation_errors_are_preserved_and_allow_retry() {
     pollster::block_on(async {
         let directory = tempfile::tempdir().unwrap();
         let cache = at(directory.path());
-        let artifact = key(ExecutionProfile::Real16);
         assert_eq!(
             cache
-                .load_or_generate(artifact, || async {
-                    Err::<Vec<u8>, _>("generation failed")
-                })
+                .load_or_generate(KEY, || async { Err::<Vec<u8>, _>("generation failed") })
                 .await,
             Err("generation failed")
         );
-        assert!(cacache::metadata_sync(directory.path(), artifact)
+        assert!(cacache::metadata_sync(directory.path(), KEY)
             .unwrap()
             .is_none());
         assert_eq!(
             cache
-                .load_or_generate(artifact, || async { Ok::<_, ()>(WASM.to_vec()) })
+                .load_or_generate(KEY, || async { Ok::<_, ()>(ARTIFACT.to_vec()) })
                 .await
                 .unwrap(),
-            WASM
+            ARTIFACT
         );
-        let unavailable = Cache { storage: None };
+        let unavailable = ArtifactCache { storage: None };
         assert_eq!(
             unavailable
-                .load_or_generate(artifact, || async {
-                    Err::<Vec<u8>, _>("generation failed")
-                })
+                .load_or_generate(KEY, || async { Err::<Vec<u8>, _>("generation failed") })
                 .await,
             Err("generation failed")
         );

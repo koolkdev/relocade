@@ -8,7 +8,7 @@ impl Storage {
     pub(super) async fn open() -> Option<Self> {
         let directories = directories_next::ProjectDirs::from("", "", "relocade")?;
         Some(Self {
-            directory: directories.cache_dir().join("interpreters"),
+            directory: directories.cache_dir().join("artifacts"),
         })
     }
 

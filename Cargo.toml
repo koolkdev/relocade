@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/derive", "crates/compiler", "crates/x86", "crates/x86-profile", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/frontend", "crates/vga", "crates/pit", "crates/pic", "crates/ps2", "crates/pc-speaker", "tests/browser", "tests/clock-support", "crates/app", "apps/dos"]
+members = ["crates/derive", "crates/compiler", "crates/x86", "crates/x86-profile", "crates/cache", "crates/interpreter", "crates/test-support", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/frontend", "crates/vga", "crates/pit", "crates/pic", "crates/ps2", "crates/pc-speaker", "tests/browser", "tests/clock-support", "crates/app", "apps/dos"]
 default-members = ["crates/compiler", "crates/x86", "crates/machine", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/vga", "crates/pit", "crates/pic", "crates/ps2", "crates/pc-speaker"]
 
 [workspace.package]

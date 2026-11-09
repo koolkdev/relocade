@@ -8,8 +8,6 @@ use std::future::Future;
 
 pub use relocade_x86_profile::{ExecutionProfile, SegmentProfile};
 
-mod cache;
-
 /// Identifies the generator revision, ABI and execution assumptions of an artifact.
 /// Use this key when retaining an engine-compiled module in memory too.
 pub fn key(profile: ExecutionProfile) -> &'static str {
@@ -59,7 +57,7 @@ pub async fn load_or_generate<E, F>(
 where
     F: Future<Output = Result<Vec<u8>, E>>,
 {
-    cache::Cache::open()
+    relocade_cache::ArtifactCache::open()
         .await
         .load_or_generate(key(profile), generate)
         .await

@@ -13,7 +13,7 @@ impl Storage {
             .ok()?
             .dyn_into::<CacheStorage>()
             .ok()?;
-        let cache = JsFuture::from(storage.open("relocade-interpreters-v1"))
+        let cache = JsFuture::from(storage.open("relocade-artifacts-v1"))
             .await
             .ok()?
             .dyn_into::<Cache>()
@@ -43,7 +43,11 @@ impl Storage {
 
 fn url(key: &str) -> String {
     // CacheStorage uses URL keys; this request is never sent over the network.
-    format!("https://relocade.invalid/{key}")
+    // An encoded query preserves opaque keys without path or fragment normalization.
+    format!(
+        "https://relocade.invalid/artifact?key={}",
+        js_sys::encode_uri_component(key)
+    )
 }
 
 #[cfg(test)]
@@ -54,43 +58,51 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
-    async fn browser_cache_survives_reopening_and_skips_generation() {
+    async fn browser_cache_survives_reopening_and_preserves_opaque_keys() {
         let storage = Reflect::get(&js_sys::global(), &JsValue::from_str("caches"))
             .unwrap()
             .dyn_into::<CacheStorage>()
             .unwrap();
-        let name = format!("relocade-interpreter-test-{}", js_sys::Date::now());
+        let name = format!("relocade-artifact-test-{}", js_sys::Date::now());
         let open = || async {
             let cache = JsFuture::from(storage.open(&name))
                 .await
                 .unwrap()
                 .dyn_into::<Cache>()
                 .unwrap();
-            super::super::Cache {
+            crate::ArtifactCache {
                 storage: Some(Storage { cache }),
             }
         };
-        let bytes = b"\0asm\x01\0\0\0";
-        assert_eq!(
-            open()
-                .await
-                .load_or_generate("test/revision/real16", || async {
-                    Ok::<_, ()>(bytes.to_vec())
-                })
-                .await
-                .unwrap(),
-            bytes
-        );
-        assert_eq!(
-            open()
-                .await
-                .load_or_generate("test/revision/real16", || async {
-                    Err::<Vec<u8>, _>("cache hit must skip generation")
-                })
-                .await
-                .unwrap(),
-            bytes
-        );
+        let keys = [
+            "", ".", "..", "a/../b", "b", "b#one", "b#two", "b?one", "b?two", "a\\b", "a/b", "%2E",
+            "%2F", " ", "%20", "B", "λ",
+        ];
+        let cache = open().await;
+        for (index, key) in keys.iter().enumerate() {
+            let bytes = vec![index as u8];
+            assert_eq!(
+                cache
+                    .load_or_generate(key, || async { Ok::<_, ()>(bytes.clone()) })
+                    .await
+                    .unwrap(),
+                bytes,
+                "distinct key must generate: {key:?}"
+            );
+        }
+        let reopened = open().await;
+        for (index, key) in keys.iter().enumerate() {
+            assert_eq!(
+                reopened
+                    .load_or_generate(key, || async {
+                        Err::<Vec<u8>, _>("cache hit must skip generation")
+                    })
+                    .await
+                    .unwrap(),
+                [index as u8],
+                "reopening must preserve key: {key:?}"
+            );
+        }
         JsFuture::from(storage.delete(&name)).await.unwrap();
     }
 }
