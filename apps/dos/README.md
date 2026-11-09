@@ -19,7 +19,11 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
-The application entrypoint connects existing owners. One execution worker owns
+The application entrypoint uses `relocade_machine::run_session`; the machine
+runtime owns execution, host timers and compilation. The compiler starts only
+when the runtime receives an explicit compilation request, so the Rust console
+does not start a compiler worker. DOS construction and the console callback
+manage no compiler connections or tasks. One execution worker owns
 DOS/keyboard/VGA/speaker and the Rust command loop. It sends the native console's
 input sender, `dos.mouse_input()` and `dos.frame_source()` through a startup
 channel. Main attaches those endpoints to its `AppHost` while driving the

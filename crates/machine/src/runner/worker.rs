@@ -70,7 +70,8 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
-            move |storage, endpoint| Runner::with_host_timers(host_timers, storage, endpoint),
+            move |storage, endpoint, ()| Runner::with_host_timers(host_timers, storage, endpoint),
+            (),
             session,
         )
     }
@@ -83,7 +84,8 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
-            move |storage, endpoint| Runner::new(make_clock(), storage, endpoint),
+            move |storage, endpoint, ()| Runner::new(make_clock(), storage, endpoint),
+            (),
             session,
         )
     }
@@ -96,21 +98,32 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
-            move |storage, endpoint| Runner::with_guest_time(make_time(), storage, endpoint),
+            move |storage, endpoint, ()| Runner::with_guest_time(make_time(), storage, endpoint),
+            (),
             session,
         )
     }
 
-    fn spawn_runner(
-        runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner + Send + 'static,
+    // Runtime startup resources travel with CPU storage, before its session runs.
+    pub(super) fn spawn_runner<R: worker::WorkerResource>(
+        runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>, R) -> Runner + Send + 'static,
+        resources: R,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> Self {
+    ) -> Self
+    where
+        (<CpuStorage as worker::WorkerResource>::Posted, R::Posted): worker::Post,
+    {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let worker = CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(storage, move |storage| async move {
-                runner(storage, endpoint).run(stopped, session).await
-            })
+            thread.run_resource(
+                (storage, resources),
+                move |(storage, resources)| async move {
+                    runner(storage, endpoint, resources)
+                        .run(stopped, session)
+                        .await
+                },
+            )
         });
         Self { worker, wake_host }
     }

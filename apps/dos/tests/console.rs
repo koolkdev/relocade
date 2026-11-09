@@ -3,13 +3,13 @@
 use futures_lite::future::or;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
-use relocade_machine::ExecutionWorker;
+use relocade_machine::run_session;
 use std::{io::Read, time::Duration};
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 6;
-    let console = ExecutionWorker::run_until(std::future::pending::<()>(), async move |runner| {
+    let console = run_session(std::future::pending::<()>(), async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,

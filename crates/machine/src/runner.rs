@@ -1,9 +1,12 @@
 //! CPU execution and registered device activities on one owner.
 
+mod compilation;
 mod guest_time;
 mod host;
 mod schedule;
+mod session;
 pub use guest_time::GuestTimeConfig;
+pub use session::run_session;
 mod worker;
 
 use schedule::ExecutionSchedule;
@@ -42,6 +45,7 @@ pub struct Runner {
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     storage: RefCell<Option<CpuStorage>>,
+    compilation: Option<compilation::Compilation>,
 }
 
 impl Runner {
@@ -93,6 +97,7 @@ impl Runner {
             pending: Some(pending),
             executor,
             storage: RefCell::new(Some(storage)),
+            compilation: None,
         }
     }
 
@@ -110,6 +115,9 @@ impl Runner {
             .expect("session CPU storage already consumed");
         let mut cpu = storage.into_cpu(memory, config, io).await?;
         cpu.executor = Rc::downgrade(&self.executor);
+        if let Some(compilation) = &self.compilation {
+            compilation.register(&cpu);
+        }
         Ok(cpu)
     }
 
