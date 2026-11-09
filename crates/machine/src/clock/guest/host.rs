@@ -1,39 +1,20 @@
 //! Host/guest correspondence, excluding pauses and excessive execution lag.
 
 use crate::{Clock, Instant, Sleep};
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::time::Duration;
 
 const MAX_LAG: Duration = Duration::from_millis(20);
-
-#[cfg(test)]
-mod tests;
 
 pub(super) struct HostTime {
     clock: Clock,
     mapping: Option<Mapping>,
     paused_at: Option<Instant>,
-    discarded_lag: Rc<Cell<Duration>>,
+    pub(super) discarded_lag: Duration,
 }
 
 struct Mapping {
     host: Instant,
     guest: Instant,
-}
-
-/// A captured host-derived deadline follows lag recovery, including before its
-/// first poll. Ordinary pauses leave the captured deadline unchanged.
-pub(super) struct SyncDeadline {
-    origin: Instant,
-    offset: Duration,
-    discarded_at_capture: Duration,
-    discarded_lag: Rc<Cell<Duration>>,
-}
-
-impl SyncDeadline {
-    pub(super) fn at(&self) -> Instant {
-        let discarded = self.discarded_lag.get() - self.discarded_at_capture;
-        self.origin + self.offset.saturating_sub(discarded)
-    }
 }
 
 impl HostTime {
@@ -42,7 +23,7 @@ impl HostTime {
             clock,
             mapping: None,
             paused_at: None,
-            discarded_lag: Rc::new(Cell::new(Duration::ZERO)),
+            discarded_lag: Duration::ZERO,
         }
     }
 
@@ -63,29 +44,24 @@ impl HostTime {
 
     /// Called only at stopped execution boundaries. Discard the entire lag once
     /// it exceeds the tolerance, without advancing guest time or device timers.
-    pub(super) fn discard_lag(&mut self, guest: Instant) {
-        let Some(mapped) = self.host_time(guest) else {
-            return;
-        };
+    pub(super) fn discard_lag(&mut self, guest: Instant) -> Option<Duration> {
+        let mapped = self.host_time(guest)?;
         let lag = self.clock.now().saturating_duration_since(mapped);
-        if lag > MAX_LAG {
-            self.mapping.as_mut().unwrap().host += lag;
-            self.discarded_lag.set(self.discarded_lag.get() + lag);
+        if lag <= MAX_LAG {
+            return None;
         }
+        self.mapping.as_mut().unwrap().host += lag;
+        self.discarded_lag += lag;
+        Some(lag)
     }
 
-    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<SyncDeadline> {
+    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<Instant> {
         if self.paused_at.is_some() {
             return None;
         }
         let mapping = self.mapping.as_ref()?;
         let host_time = host_time.unwrap_or_else(|| self.clock.now());
-        Some(SyncDeadline {
-            origin: mapping.guest,
-            offset: host_time.saturating_duration_since(mapping.host),
-            discarded_at_capture: self.discarded_lag.get(),
-            discarded_lag: self.discarded_lag.clone(),
-        })
+        Some(mapping.guest + host_time.saturating_duration_since(mapping.host))
     }
 
     fn host_time(&self, guest: Instant) -> Option<Instant> {

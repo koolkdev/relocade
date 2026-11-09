@@ -118,19 +118,22 @@ impl GuestTimeDriver {
     /// Earliest registered sleep in guest time. Query at a stopped boundary
     /// after ready activities have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.0.borrow().waits.iter().map(Wait::deadline).min()
+        self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
     }
 
     fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.observe();
-            if let Some(host) = &mut state.host {
-                host.discard_lag(now);
-            }
+            let lag = state.host.as_mut().and_then(|host| host.discard_lag(now));
             let due = state
                 .waits
-                .extract_if(.., |wait| wait.deadline() <= now)
+                .extract_if(.., |wait| {
+                    if let Some(lag) = lag.filter(|_| wait.host_sync) {
+                        wait.deadline = wait.deadline.checked_sub(lag).unwrap_or(now);
+                    }
+                    wait.deadline <= now
+                })
                 .collect::<Vec<_>>();
             state.refresh_target();
             due
@@ -186,7 +189,7 @@ impl State {
         let deadline = self
             .waits
             .iter()
-            .map(Wait::deadline)
+            .map(|wait| wait.deadline)
             .chain(cpu.yield_deadline)
             .min();
         let target = deadline.map(|deadline| {
