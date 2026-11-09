@@ -1,6 +1,7 @@
 //! Compile retained functions, then assemble their bodies in declaration order.
 
 mod declarations;
+mod emission;
 mod functions;
 
 use crate::{CompileExecutor, Program};

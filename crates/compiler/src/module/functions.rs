@@ -1,6 +1,6 @@
 //! Retention follows calls that survive each function's placement.
 
-use super::declarations::Emission;
+use super::emission::Emission;
 use crate::{body::FunctionGraph, place::Placement, FunctionKind, Program};
 use std::sync::Arc;
 
