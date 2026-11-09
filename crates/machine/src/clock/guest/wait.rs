@@ -1,7 +1,7 @@
 //! Owned sleep registration and synchronous cancellation.
 
 use super::State;
-use crate::{ClockSource, Instant, Sleep};
+use crate::{ClockSource, HostSync, Instant, Sleep};
 use futures_channel::oneshot;
 use std::{cell::RefCell, rc::Rc};
 
@@ -48,12 +48,13 @@ impl ClockSource for Source {
         self.0.borrow_mut().observe()
     }
 
-    fn host_time(&self, time: Instant) -> Option<Instant> {
+    fn sync_to_host(&self, time: Instant) -> HostSync {
         self.0
             .borrow()
             .host
             .as_ref()
-            .and_then(|host| host.host_time(time))
+            .map(|host| host.sync_to_host(time))
+            .unwrap_or_default()
     }
 
     fn sync(&self, host_time: Option<Instant>) -> Sleep {

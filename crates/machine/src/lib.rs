@@ -45,7 +45,7 @@ mod runner;
 pub mod runtime;
 
 pub use clock::{
-    timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Sleep,
+    timer_service, Clock, ClockSource, GuestTimeDriver, HostSync, HostTimerDriver, Instant, Sleep,
     TimerHandle,
 };
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};

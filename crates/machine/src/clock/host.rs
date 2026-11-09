@@ -1,4 +1,4 @@
-use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep};
+use super::{driver, Clock, ClockSource, HostSync, HostTimerDriver, Instant, Sleep};
 use futures_channel::{mpsc, oneshot};
 
 /// Transferable access to the host timer service. Construct a local [`Clock`]
@@ -34,8 +34,8 @@ impl ClockSource for TimerHandle {
         Instant::now()
     }
 
-    fn host_time(&self, time: Instant) -> Option<Instant> {
-        Some(time)
+    fn sync_to_host(&self, time: Instant) -> HostSync {
+        HostSync::new(self.clone(), time)
     }
 
     fn sleep_until(&self, deadline: Instant) -> Sleep {

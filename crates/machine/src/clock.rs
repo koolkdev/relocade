@@ -3,9 +3,11 @@
 mod driver;
 mod guest;
 mod host;
+mod sync;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
+pub use sync::HostSync;
 pub use web_time::Instant;
 
 use std::{
@@ -24,15 +26,16 @@ pub struct Clock(Rc<dyn ClockSource>);
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
 /// Implementations register waits on first poll and release them on drop.
-/// Sources stay on their execution owner; controllers may have broader lifetimes.
+/// `Clock` consumers stay on their execution owner. A transferable host source
+/// can also supply captured output synchronization through [`HostSync`].
 pub trait ClockSource {
     fn now(&self) -> Instant;
     fn sleep_until(&self, deadline: Instant) -> Sleep;
 
-    /// Converts a source timestamp to the configured host timebase. Sources
-    /// without an active correspondence return `None`.
-    fn host_time(&self, _time: Instant) -> Option<Instant> {
-        None
+    /// Captures a transferable wait on the configured host timebase. Sources
+    /// without an active correspondence return an immediately ready sync.
+    fn sync_to_host(&self, _time: Instant) -> HostSync {
+        HostSync::default()
     }
 
     /// Captures a host-to-source deadline and returns an ordinary source wait.
@@ -53,17 +56,18 @@ impl Clock {
         self.0.now()
     }
 
-    /// Captures the host time corresponding to a timestamp from this clock.
-    /// Output producers can send the result to another worker and schedule
-    /// presentation there without sharing this execution-local clock.
+    /// Captures host synchronization for a timestamp from this clock.
+    /// Send the result with output, then await [`HostSync::sync`] on its receiver.
+    /// The wait uses the configured host timer source, without sharing this
+    /// execution-local clock or requiring a separate timer on the receiver.
     ///
-    /// Host clocks return the timestamp unchanged. Paced guest clocks use the
+    /// Host clocks use the timestamp unchanged. Paced guest clocks use the
     /// current correspondence, excluding pauses between CPU runs. Unpaced guest
-    /// clocks and clocks outside an active run return `None`. Convert when the
-    /// output is captured: a later run may have a different correspondence.
-    /// The returned timestamp stays fixed, including across pauses.
-    pub fn host_time(&self, time: Instant) -> Option<Instant> {
-        self.0.host_time(time)
+    /// clocks and clocks outside an active run complete immediately. Capture when
+    /// the output is produced: a later run may have a different correspondence.
+    /// The captured deadline stays fixed, including across pauses.
+    pub fn sync_to_host(&self, time: Instant) -> HostSync {
+        self.0.sync_to_host(time)
     }
 
     /// Captures the deadline now, even if the returned future is polled later.

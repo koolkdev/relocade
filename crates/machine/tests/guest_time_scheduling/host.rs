@@ -1,7 +1,7 @@
 use super::*;
 use futures_channel::mpsc;
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{ClockSource, GuestTimeConfig, Sleep};
+use relocade_machine::{ClockSource, GuestTimeConfig, HostSync, Sleep};
 
 #[derive(Clone)]
 pub(super) struct ObservedHost {
@@ -10,6 +10,10 @@ pub(super) struct ObservedHost {
 }
 
 impl ClockSource for ObservedHost {
+    fn sync_to_host(&self, time: Instant) -> HostSync {
+        HostSync::new(self.clone(), time)
+    }
+
     fn now(&self) -> Instant {
         self.time.clock().now()
     }
