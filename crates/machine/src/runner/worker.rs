@@ -1,8 +1,10 @@
 use super::Runner;
-use crate::worker::{self, wake_connection, CancellableWorker, ThreadExt, WakeHost, WakePeer};
+use crate::worker::{
+    self, wake_connection, CancellableWorker, ThreadExt, WakeEndpoint, WakeHost, WakePeer,
+};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_lite::future::or;
-use std::future::Future;
+use std::{future::Future, num::NonZeroU64, time::Duration};
 
 /// Owns a worker for one CPU session and its registered devices.
 /// Use `runner.create_cpu` (or `Dos::new`) inside the supplied closure. CPU
@@ -59,18 +61,45 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         Self::spawn_with_clock(move || host_timers.into(), session)
     }
 
-    /// Constructs the clock on its execution owner before starting the session.
+    /// Constructs a clock on the execution owner before starting the session.
+    /// A transferable factory can supply a custom clock on that owner.
+    /// Use [`Self::spawn_with_guest_time`] for emulated guest time.
     pub fn spawn_with_clock(
         make_clock: impl FnOnce() -> Clock + Send + 'static,
+        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+    ) -> Self {
+        Self::spawn_runner(
+            move |storage, endpoint| Runner::new(make_clock(), storage, endpoint),
+            session,
+        )
+    }
+
+    /// Runs a session on emulated guest time without pacing against host time.
+    /// Retirement advances time at `instructions_per_second`. Device deadlines
+    /// and an optional positive `yield_interval` in guest time schedule CPU yields.
+    /// Devices use the existing [`Clock`] interface.
+    pub fn spawn_with_guest_time(
+        instructions_per_second: NonZeroU64,
+        yield_interval: Option<Duration>,
+        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+    ) -> Self {
+        Self::spawn_runner(
+            move |storage, endpoint| {
+                Runner::with_guest_time(instructions_per_second, yield_interval, storage, endpoint)
+            },
+            session,
+        )
+    }
+
+    fn spawn_runner(
+        runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner + Send + 'static,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
         let worker = CancellableWorker::spawn(|thread, stopped| {
             thread.run_resource(storage, move |storage| async move {
-                Runner::new(make_clock(), storage, endpoint)
-                    .run(stopped, session)
-                    .await
+                runner(storage, endpoint).run(stopped, session).await
             })
         });
         Self { worker, wake_host }

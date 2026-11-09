@@ -9,7 +9,12 @@ use super::{call::Call, Cpu};
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
-use std::{cell::Cell, future::poll_fn, rc::Rc, task::Poll};
+use std::{
+    cell::Cell,
+    future::poll_fn,
+    rc::Rc,
+    task::{Context, Poll},
+};
 pub(super) use suspended::SuspendedCall;
 
 /// Requests a return to the embedding after the current guest dispatch or host poll.
@@ -76,10 +81,16 @@ impl Cpu {
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
     pub async fn run(&mut self) -> ExecutionExit {
-        let exit = poll_fn(|cx| {
-            if let Some(exit) = self.exit.0.get() {
-                return Poll::Ready(exit);
-            }
+        poll_fn(|cx| self.poll_run(cx)).await
+    }
+
+    /// Polls execution without giving the caller ownership of pending services.
+    /// Calls and their locals stay in the CPU between polls. Both the public run
+    /// future and Runner use this boundary, including terminal-exit cleanup.
+    pub(crate) fn poll_run(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+        let exit = if let Some(exit) = self.exit.0.get() {
+            exit
+        } else {
             // Poll active work once; guest entries below poll new or resumed calls.
             if let Some(call) = self.pending.take() {
                 self.pending = call.poll(cx);
@@ -87,7 +98,7 @@ impl Cpu {
             loop {
                 let guest_entered = match self.try_enter_guest(cx) {
                     Ok(delivered) => delivered,
-                    Err(exit) => return Poll::Ready(exit),
+                    Err(exit) => break exit,
                 };
                 if !guest_entered && self.pending.is_some() {
                     return Poll::Pending;
@@ -103,17 +114,16 @@ impl Cpu {
                     }
                     ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
                         Ok(call) => call,
-                        Err(exit) => return Poll::Ready(exit),
+                        Err(exit) => break exit,
                     },
                     ExecutionExit::StepComplete
                     | ExecutionExit::InterruptsEnabled
                     | ExecutionExit::InterruptEntered
                     | ExecutionExit::FarCallEntered => continue,
-                    exit => return Poll::Ready(exit),
+                    exit => break exit,
                 };
             }
-        })
-        .await;
+        };
         if matches!(
             exit,
             ExecutionExit::Host(HostExit::Return) | ExecutionExit::UnhandledException(_)
@@ -123,7 +133,7 @@ impl Cpu {
             // Coalesce any requests made while destroying the retained work.
             self.exit.0.set(None);
         }
-        exit
+        Poll::Ready(exit)
     }
 
     /// Runs guest code to the next host entry or guest exit, including any

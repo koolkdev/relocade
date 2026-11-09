@@ -152,9 +152,12 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 `run_cpu` cooperates with the main/device task set when a wake requests an
 execution interrupt. Host-timed runners leave the instruction target unarmed.
-Embeddings can bind `GuestTimeDriver` to control guest time and target
-updates. They own CPU polling, synchronize at stopped boundaries and choose when
-to advance idle time. The driver has no execution loop or executor callback.
+The same runner loop handles guest time. Runner polls the CPU through its internal
+`poll_run` boundary and gives ready activities a turn. Pending services and
+suspended calls remain owned by the CPU. The private `ExecutionSchedule` owns
+clock selection, yield cadence, time synchronization and idle decisions; the
+`GuestTimeDriver` owns registered sleeps and instruction-target updates. Time is
+published before polling activities, including after a terminal CPU exit.
 
 Lower-level embeddings capture `cpu.instruction_target()` before execution and use
 `target.set(Some(absolute_count))` or `target.set(None)`. Updates take effect at

@@ -15,6 +15,39 @@ use std::{
 };
 
 #[test]
+fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
+    use relocade_machine::ExecutionWorker;
+    use std::num::NonZeroU64;
+
+    pollster::block_on(async {
+        let worker = ExecutionWorker::spawn_with_guest_time(
+            NonZeroU64::new(1_000_000).unwrap(),
+            None,
+            async |runner| {
+                let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
+                let program = [0xb8, 7, 0x4c, 0xcd, 0x21];
+                for mz in [false, true, false] {
+                    let count = dos.cpu().cpu_state().instruction_count();
+                    let time = runner.clock().now();
+                    if mz {
+                        dos.launch_mz(&common::mz_image(&program), Default::default())
+                            .unwrap();
+                    } else {
+                        dos.launch_com(&program, Default::default()).unwrap();
+                    }
+                    assert_eq!(dos.cpu().cpu_state().instruction_count(), count);
+                    assert_eq!(runner.clock().now(), time);
+                    assert_eq!(dos.run(runner).await, Ok(7));
+                    assert!(dos.cpu().cpu_state().instruction_count() > count);
+                    assert!(runner.clock().now() > time);
+                }
+            },
+        );
+        assert_eq!(worker.join().await.unwrap(), Some(()));
+    });
+}
+
+#[test]
 fn installing_dos_preserves_the_existing_pc_and_bios() {
     use relocade_machine::timer_service;
 
