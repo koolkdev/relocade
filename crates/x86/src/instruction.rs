@@ -21,7 +21,7 @@ use requirements::{Availability, Requirements};
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
-use crate::{ExecutionTarget, Segment};
+use crate::Segment;
 use relocade_compiler::{Val, I16, I32};
 
 pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
@@ -49,8 +49,8 @@ pub(super) enum Operand<V> {
 #[derive(Clone)]
 pub(super) enum Location<V> {
     Register(RegisterOperand),
-    Mmx(crate::register::RegisterCode),
-    Xmm(crate::register::RegisterCode),
+    Mmx(crate::register::RegisterSelector),
+    Xmm(crate::register::RegisterSelector),
     // Keep register operands compact while memory retains its full address terms.
     Memory(Box<MemoryAddress<V>>),
 }
@@ -98,9 +98,5 @@ impl<V: Into<Val<I32>>> X87Opcode<V> {
 impl<V> Instruction<V> {
     pub(super) fn ends_block(&self) -> bool {
         self.ends_block
-    }
-
-    pub(super) fn fails_requirements(&self, target: ExecutionTarget) -> bool {
-        self.requirements.fault(target).is_some()
     }
 }

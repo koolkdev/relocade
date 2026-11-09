@@ -7,16 +7,16 @@ use crate::{
     execution::ExecutionBuilder,
     instruction::{Location, Operand},
     memory::{Intent, TransferType},
-    register::RegisterCode,
+    register::RegisterSelector,
 };
 
 pub(crate) enum MmxLocation {
-    Register(RegisterCode),
+    Register(RegisterSelector),
     Memory(Box<MemoryAddress<Val<I32>>>),
 }
 
-impl From<RegisterCode> for MmxLocation {
-    fn from(register: RegisterCode) -> Self {
+impl From<RegisterSelector> for MmxLocation {
+    fn from(register: RegisterSelector) -> Self {
         Self::Register(register)
     }
 }

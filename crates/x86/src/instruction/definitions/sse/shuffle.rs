@@ -33,7 +33,7 @@ instruction_families! {
 
 fn shuffle_pair(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     control: Input<I8>,
     operation: impl FnOnce(Val<V128>, Val<V128>, Val<I8>) -> Val<V128>,
@@ -46,7 +46,7 @@ fn shuffle_pair(
 
 fn shuffle(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     control: Input<I8>,
     operation: impl FnOnce(Val<V128>, Val<I8>) -> Val<V128>,

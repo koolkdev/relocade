@@ -2,7 +2,7 @@
 
 use super::ExecutionBuilder;
 use crate::{
-    register::RegisterCode,
+    register::RegisterSelector,
     simd::{FloatResult, PackedFloatCandidate, SimdExceptions},
     state::Mxcsr,
     Exception, SimdState,
@@ -80,13 +80,13 @@ impl ExecutionBuilder<'_, '_> {
         self.state.write_mxcsr(&mut self.body, value)
     }
 
-    pub(crate) fn read_xmm(&mut self, register: RegisterCode) -> Result<Val<V128>, BuildError> {
+    pub(crate) fn read_xmm(&mut self, register: RegisterSelector) -> Result<Val<V128>, BuildError> {
         self.state.read_xmm(&mut self.body, register)
     }
 
     pub(crate) fn write_xmm(
         &mut self,
-        register: RegisterCode,
+        register: RegisterSelector,
         value: Val<V128>,
     ) -> Result<(), BuildError> {
         self.state.write_xmm(&mut self.body, register, value)

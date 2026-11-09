@@ -3,14 +3,14 @@
 use relocade_compiler::{BuildError, Val, I64};
 
 use crate::{
-    register::RegisterCode,
+    register::RegisterSelector,
     x87::{ExtendedBits, ExtendedValue},
 };
 
 use super::X87Access;
 
 impl X87Access<'_, '_> {
-    pub(crate) fn read_mmx(&mut self, register: RegisterCode) -> Result<Val<I64>, BuildError> {
+    pub(crate) fn read_mmx(&mut self, register: RegisterSelector) -> Result<Val<I64>, BuildError> {
         let slot = self.state.registers.physical(self.body, register)?;
         Ok(self
             .state
@@ -22,7 +22,7 @@ impl X87Access<'_, '_> {
 
     pub(crate) fn write_mmx(
         &mut self,
-        register: RegisterCode,
+        register: RegisterSelector,
         value: Val<I64>,
     ) -> Result<(), BuildError> {
         let slot = self.state.registers.physical(self.body, register)?;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::register::RegisterCode;
 use crate::{
     state::Cpu,
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
@@ -79,7 +80,7 @@ fn check(
 fn known_stack_and_physical_aliases_share_values_across_top_and_tag_changes() {
     let compiled = module(|body, registers| {
         registers.reset(body, 0)?;
-        let physical = registers.physical(body, RegisterCode::from_code(0))?;
+        let physical = registers.physical(body, RegisterCode::from_bits(0).into())?;
         registers.write_value(body, &physical, &value(0x1234, 0xffff), &true.into())?;
         registers.advance(body, 1, true)?;
         let stack = registers.slot(body, 7.into())?;
@@ -87,7 +88,7 @@ fn known_stack_and_physical_aliases_share_values_across_top_and_tag_changes() {
         registers.write(body, &stack, &retained, 2.into(), &true.into())?;
         registers.reset(body, 0xffff)?;
         registers.discard_write_guards(body)?;
-        let physical = registers.physical(body, RegisterCode::from_code(0))?;
+        let physical = registers.physical(body, RegisterCode::from_bits(0).into())?;
         let result = registers.read(body, &physical)?.bits().significand;
         registers.publish(body)?;
         Ok(result)
@@ -151,7 +152,7 @@ fn indexed_guarded_writes_publish_without_reading_the_old_payload() {
     let compiled = module(|body, registers| {
         let index = body.parameter::<I32>(0)?;
         let enabled = body.parameter::<I1>(1)?;
-        let slot = registers.physical(body, RegisterCode::indexed(index))?;
+        let slot = registers.physical(body, RegisterSelector::Runtime(index))?;
         registers.write_value(body, &slot, &value(0x1234, 0x4567), &enabled)?;
         registers.publish(body)?;
         Ok(0_u64.into())
@@ -183,7 +184,7 @@ fn uncertain_aliases_preserve_guarded_writes_and_captured_reads() {
         let stack = registers.slot(body, 0.into())?;
         let old = registers.read(body, &stack)?.bits().significand;
         registers.write(body, &stack, &value(0x1234, 0x4567), 2.into(), &enabled)?;
-        let physical = registers.physical(body, RegisterCode::indexed(index))?;
+        let physical = registers.physical(body, RegisterSelector::Runtime(index))?;
         let middle = registers.read(body, &physical)?.bits().significand;
         registers.write_value(body, &physical, &value(0x5678, 0xffff), &true.into())?;
         let stack = registers.slot(body, 0.into())?;

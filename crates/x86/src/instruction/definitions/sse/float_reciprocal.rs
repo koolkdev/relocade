@@ -31,7 +31,7 @@ instruction_families! {
 
 fn scalar(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatEstimate,
 ) -> Result<(), BuildError> {
@@ -41,7 +41,7 @@ fn scalar(
 
 fn packed(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     operation: FloatEstimate,
 ) -> Result<(), BuildError> {

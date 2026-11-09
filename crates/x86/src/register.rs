@@ -75,22 +75,35 @@ impl From<Gpr32> for NamedRegister {
     }
 }
 
-/// An x86 register code whose low three bits are interpreted at the operand width.
-#[derive(Clone)]
-pub(super) enum RegisterCode {
-    Known(u8),
-    Indexed(Val<I32>),
-}
+/// Three encoded bits, interpreted by the register class and operand width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RegisterCode(u8);
 
 impl RegisterCode {
-    pub(super) fn from_code(code: u8) -> Self {
-        Self::Known(code)
+    pub(super) const fn from_bits(bits: u8) -> Self {
+        Self(bits & 7)
     }
 
-    pub(super) fn indexed(code: Val<I32>) -> Self {
-        Self::Indexed(code)
+    pub(super) const fn bits(self) -> u8 {
+        self.0
     }
+}
 
+/// A register code fixed during generation or selected at guest execution.
+/// Runtime selectors contain body-local IR; snapshots store `RegisterCode` instead.
+#[derive(Clone)]
+pub(super) enum RegisterSelector {
+    Fixed(RegisterCode),
+    Runtime(Val<I32>),
+}
+
+impl From<RegisterCode> for RegisterSelector {
+    fn from(code: RegisterCode) -> Self {
+        Self::Fixed(code)
+    }
+}
+
+impl RegisterSelector {
     pub(super) fn view<T: RegisterType>(self) -> Register<T> {
         Register {
             selection: T::select(self),
@@ -103,7 +116,7 @@ impl RegisterCode {
 #[derive(Clone)]
 pub(super) enum RegisterOperand {
     Named(NamedRegister),
-    Encoded(RegisterCode),
+    Encoded(RegisterSelector),
 }
 
 impl RegisterOperand {
@@ -127,12 +140,13 @@ impl From<NamedRegister> for RegisterOperand {
     }
 }
 
-impl From<RegisterCode> for RegisterOperand {
-    fn from(code: RegisterCode) -> Self {
+impl From<RegisterSelector> for RegisterOperand {
+    fn from(code: RegisterSelector) -> Self {
         Self::Encoded(code)
     }
 }
 
+/// A width-resolved general-purpose register slot and byte offset.
 #[derive(Clone)]
 pub(super) enum RegisterSelection {
     Named {
@@ -149,19 +163,19 @@ pub(super) trait RegisterType: SsaType + MemoryInt + TransferType {
     /// Number of parent slots reachable by an indexed encoded register.
     const BACKING_SLOT_COUNT: u32;
 
-    fn select(code: RegisterCode) -> RegisterSelection;
+    fn select(code: RegisterSelector) -> RegisterSelection;
 }
 
 impl RegisterType for I8 {
     const BACKING_SLOT_COUNT: u32 = 4;
 
-    fn select(code: RegisterCode) -> RegisterSelection {
+    fn select(code: RegisterSelector) -> RegisterSelection {
         match code {
-            RegisterCode::Known(code) => RegisterSelection::Named {
-                parent: Gpr32::from_code(code & 3),
-                byte: u32::from((code >> 2) & 1),
+            RegisterSelector::Fixed(code) => RegisterSelection::Named {
+                parent: Gpr32::from_code(code.bits() & 3),
+                byte: u32::from(code.bits() >> 2),
             },
-            RegisterCode::Indexed(code) => RegisterSelection::Indexed {
+            RegisterSelector::Runtime(code) => RegisterSelection::Indexed {
                 slot: code.and(3),
                 byte: Some(code.unsigned().shr(2).and(1)),
             },
@@ -170,13 +184,13 @@ impl RegisterType for I8 {
 }
 
 impl RegisterSelection {
-    fn at_slot_start(code: RegisterCode) -> Self {
+    fn at_slot_start(code: RegisterSelector) -> Self {
         match code {
-            RegisterCode::Known(code) => Self::Named {
-                parent: Gpr32::from_code(code),
+            RegisterSelector::Fixed(code) => Self::Named {
+                parent: Gpr32::from_code(code.bits()),
                 byte: 0,
             },
-            RegisterCode::Indexed(code) => Self::Indexed {
+            RegisterSelector::Runtime(code) => Self::Indexed {
                 slot: code.and(7),
                 byte: None,
             },
@@ -187,7 +201,7 @@ impl RegisterSelection {
 impl RegisterType for I16 {
     const BACKING_SLOT_COUNT: u32 = 8;
 
-    fn select(code: RegisterCode) -> RegisterSelection {
+    fn select(code: RegisterSelector) -> RegisterSelection {
         RegisterSelection::at_slot_start(code)
     }
 }
@@ -195,7 +209,7 @@ impl RegisterType for I16 {
 impl RegisterType for I32 {
     const BACKING_SLOT_COUNT: u32 = 8;
 
-    fn select(code: RegisterCode) -> RegisterSelection {
+    fn select(code: RegisterSelector) -> RegisterSelection {
         RegisterSelection::at_slot_start(code)
     }
 }
@@ -221,7 +235,7 @@ impl<T: RegisterType> Register<T> {
     }
 
     pub(super) fn indexed(code: Val<I32>) -> Self {
-        RegisterCode::indexed(code).view()
+        RegisterSelector::Runtime(code).view()
     }
 }
 

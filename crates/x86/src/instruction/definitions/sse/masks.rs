@@ -24,7 +24,7 @@ instruction_families! {
 fn mask(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: RegisterCode,
+    source: RegisterSelector,
     operation: impl FnOnce(Val<V128>) -> Val<I32>,
 ) -> Result<(), BuildError> {
     let mask = operation(execution.read_xmm(source)?);

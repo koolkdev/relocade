@@ -46,7 +46,7 @@ pub(super) fn rounding_for_integer_source(
 /// Scalar calculations see only the active lane and preserve the other XMM bits.
 pub(super) fn scalar_binary<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     calculate: impl FnOnce(
         &mut ExecutionBuilder<'_, '_>,
@@ -64,7 +64,7 @@ pub(super) fn scalar_binary<T: BinaryEncoding + XmmType>(
 /// Packed calculations collect all lane exceptions before publishing the result.
 pub(super) fn packed_binary(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     calculate: impl FnOnce(
         &mut ExecutionBuilder<'_, '_>,

@@ -86,7 +86,7 @@ instruction_families! {
 
 fn shift_bytes(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     count: Input<I8>,
     operation: ByteShiftOp,
 ) -> Result<(), BuildError> {
@@ -97,7 +97,7 @@ fn shift_bytes(
 
 fn shift<T: VectorLane + MemoryInt>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     count: impl PackedShiftCount,
     operation: PackedShiftOp,
 ) -> Result<(), BuildError> {

@@ -67,7 +67,13 @@ where
                         let form = form
                             .resolve(&state.prefixes)
                             .expect("opcode selection accepted the prefix state");
-                        self.decode_opcode_operands(arm, cursor.clone(), opcode_case as u8, &form)
+                        self.decode_opcode_operands(
+                            arm,
+                            cursor.clone(),
+                            opcode_case as u8,
+                            &form,
+                            state.prefixes.segment_override(),
+                        )
                     }
                 }
                 OpcodeAction::ExtendedMap(extended) => {

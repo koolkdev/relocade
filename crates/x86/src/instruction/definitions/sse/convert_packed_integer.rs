@@ -29,7 +29,7 @@ instruction_families! {
 
 fn convert<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     rounding: IntegerRounding,
 ) -> Result<(), BuildError> {

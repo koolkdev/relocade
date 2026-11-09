@@ -43,7 +43,7 @@ instruction_families! {
 
 fn from_integer<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: MmxLocation,
 ) -> Result<(), BuildError>
 where
@@ -74,7 +74,7 @@ where
 
 fn to_integer<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     rounding: IntegerRounding,
 ) -> Result<(), BuildError>

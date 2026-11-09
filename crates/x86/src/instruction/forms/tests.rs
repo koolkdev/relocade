@@ -11,7 +11,7 @@ use crate::{
         handlers::{Handler, HandlerCall},
         opcode_forms, Location, Operand, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
     },
-    register::{Gpr32, RegisterCode, RegisterOperand, RegisterSelection},
+    register::{Gpr32, RegisterCode, RegisterOperand, RegisterSelection, RegisterSelector},
 };
 
 fn word_prefixes() -> PrefixState {
@@ -227,20 +227,21 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
             for prefixes in [word_prefixes(), PrefixState::default()] {
                 let decoded = form.resolve(&prefixes).unwrap().bind(
                     DecodedFields {
-                        register: Some(RegisterCode::from_code(code)),
+                        register: Some(RegisterSelector::Fixed(RegisterCode::from_bits(code))),
                         immediates: [Some(0x7au32), None],
                         ..DecodedFields::default()
                     },
                     0x1000,
                     0x1002,
+                    prefixes.segment_override(),
                 );
                 assert!(matches!(
                     decoded.instruction.call,
                     HandlerCall::Binary {
-                        left: Operand::Location(Location::Register(RegisterOperand::Encoded(RegisterCode::Known(actual)))),
+                        left: Operand::Location(Location::Register(RegisterOperand::Encoded(RegisterSelector::Fixed(actual)))),
                         right: Operand::Immediate(0x7a),
                         ..
-                    } if actual == code
+                    } if actual.bits() == code
                 ));
             }
         }
@@ -257,6 +258,7 @@ fn modrm_direction_selects_the_handler_destination_and_source() {
         let bytes = [opcode, 0xd9];
         let (decoded, remaining) =
             crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert!(remaining.is_empty());
         let HandlerCall::Binary {
             left: Operand::Location(Location::Register(left)),
@@ -284,6 +286,7 @@ fn width_alternatives_share_one_opcode_and_preserve_implicit_register_bindings()
     ] {
         let (decoded, remaining) =
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert_eq!(remaining, [0x62]);
         assert_eq!(decoded.fallthrough_eip, fallthrough);
         assert!(!decoded.instruction.ends_block());
@@ -309,6 +312,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
                 DecodedFields::<u32>::default(),
                 0x1000,
                 0x1001,
+                prefixes.segment_override(),
             );
             assert!(!decoded.instruction.ends_block());
             assert!(matches!(
@@ -338,6 +342,7 @@ fn opcode_extensions_can_decode_without_binding_operands() {
     ] {
         let (decoded, remaining) =
             crate::decode::snapshot(bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert!(remaining.is_empty());
         assert_eq!(decoded.fallthrough_eip, 0x1000 + bytes.len() as u32);
         assert!(matches!(
@@ -361,7 +366,7 @@ fn effective_addresses_bind_separately_from_memory_operands() {
     }
     for prefixes in [word_prefixes(), PrefixState::default()] {
         let fields = || DecodedFields {
-            register: Some(RegisterCode::from_code(2)),
+            register: Some(RegisterSelector::Fixed(RegisterCode::from_bits(2))),
             rm: Some(Location::Memory(
                 EffectiveAddress {
                     size: crate::address::AddressSize::Bits32,
@@ -374,10 +379,12 @@ fn effective_addresses_bind_separately_from_memory_operands() {
             )),
             ..DecodedFields::default()
         };
-        let address = lea
-            .resolve(&prefixes)
-            .unwrap()
-            .bind(fields(), 0x1000, 0x1006);
+        let address = lea.resolve(&prefixes).unwrap().bind(
+            fields(),
+            0x1000,
+            0x1006,
+            prefixes.segment_override(),
+        );
         assert!(matches!(
             address.instruction.call,
             HandlerCall::Binary {
@@ -388,10 +395,12 @@ fn effective_addresses_bind_separately_from_memory_operands() {
                 ..
             }
         ));
-        let load = mov
-            .resolve(&prefixes)
-            .unwrap()
-            .bind(fields(), 0x1000, 0x1006);
+        let load = mov.resolve(&prefixes).unwrap().bind(
+            fields(),
+            0x1000,
+            0x1006,
+            prefixes.segment_override(),
+        );
         assert!(matches!(
             load.instruction.call,
             HandlerCall::Binary {
@@ -408,6 +417,7 @@ fn prefetch_binds_an_effective_address() {
         let bytes = [0x0f, 0x18, 0x84 | hint << 3, 0x8b, 0x78, 0x56, 0x34, 0x12];
         let (decoded, remaining) =
             crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32).unwrap();
+        let decoded = decoded.bind();
         assert!(remaining.is_empty());
         assert_eq!(decoded.fallthrough_eip, 0x1008);
         assert!(matches!(

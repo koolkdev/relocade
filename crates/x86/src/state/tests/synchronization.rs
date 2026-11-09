@@ -5,7 +5,7 @@ use crate::test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, T
 
 use relocade_compiler::{I64, I8};
 
-use crate::register::RegisterCode;
+use crate::register::{RegisterCode, RegisterSelector};
 use crate::{CpuState, Gpr32, Registers};
 
 enum IndexSource {
@@ -144,10 +144,17 @@ fn synchronized_byte_registers() -> crate::CompiledModule {
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn(u32, bool) -> u64>(move |mut body, (index, stop)| {
         let mut state = State::new(&cpu);
-        let old_high = state.read_register(&mut body, RegisterCode::from_code(4).view::<I8>())?;
+        let old_high = state.read_register(
+            &mut body,
+            RegisterSelector::Fixed(RegisterCode::from_bits(4)).view::<I8>(),
+        )?;
         state.write_register(&mut body, Gpr32::Eax, 0x1122_3344)?;
         state.write_register(&mut body, Gpr32::Esp, 0x1357_9bdf)?;
-        state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
+        state.write_register(
+            &mut body,
+            RegisterSelector::Fixed(RegisterCode::from_bits(4)).view::<I8>(),
+            0xaa,
+        )?;
         body.if_(stop, |mut branch| {
             state.publish(&mut branch, 0x1007, 2)?;
             branch.return_(7)
@@ -235,7 +242,11 @@ fn synchronized_word_registers() -> crate::CompiledModule {
             Register::<I16>::named(Gpr32::Eax),
             old_word.add(1),
         )?;
-        state.write_register(&mut body, RegisterCode::from_code(4).view::<I8>(), 0xaa)?;
+        state.write_register(
+            &mut body,
+            RegisterSelector::Fixed(RegisterCode::from_bits(4)).view::<I8>(),
+            0xaa,
+        )?;
         body.if_(stop, |mut branch| {
             state.publish(&mut branch, 0x1009, 4)?;
             branch.return_(7)

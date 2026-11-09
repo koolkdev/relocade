@@ -3,7 +3,7 @@
 use super::*;
 use crate::instruction::MmxLocation;
 use crate::memory::TransferType;
-use crate::register::RegisterCode;
+use crate::register::RegisterSelector;
 use relocade_compiler::{MemoryInt, I16, I64, V64};
 
 mod average;
@@ -38,7 +38,7 @@ pub(super) fn forms() -> impl Iterator<Item = &'static Form> + Clone {
 
 fn binary<T: MemoryInt + TransferType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: MmxLocation,
     operation: impl FnOnce(Val<V64>, Val<V64>) -> Val<V64>,
 ) -> Result<(), BuildError>

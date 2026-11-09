@@ -17,7 +17,7 @@ instruction_families! {
 
 fn insert(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: TypedLocation<I16>,
     index: Input<I8>,
 ) -> Result<(), BuildError> {
@@ -33,7 +33,7 @@ fn insert(
 fn extract(
     execution: &mut ExecutionBuilder<'_, '_>,
     destination: TypedLocation<I32>,
-    source: RegisterCode,
+    source: RegisterSelector,
     index: Input<I8>,
 ) -> Result<(), BuildError> {
     execution.execute_mmx(|execution| {

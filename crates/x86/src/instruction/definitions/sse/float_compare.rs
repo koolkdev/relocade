@@ -54,7 +54,7 @@ instruction_families! {
 
 fn compare_scalar_mask<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     predicate: Input<I8>,
 ) -> Result<(), BuildError>
@@ -73,7 +73,7 @@ where
 
 fn compare_packed_mask<T: BinaryEncoding>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     predicate: Input<I8>,
 ) -> Result<(), BuildError> {
@@ -88,7 +88,7 @@ fn compare_packed_mask<T: BinaryEncoding>(
 
 fn compare_flags<T: BinaryEncoding + XmmType>(
     execution: &mut ExecutionBuilder<'_, '_>,
-    destination: RegisterCode,
+    destination: RegisterSelector,
     source: XmmLocation,
     signal_quiet_nan: bool,
 ) -> Result<(), BuildError>
