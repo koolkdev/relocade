@@ -3,12 +3,12 @@
 use super::ExecutionBuilder;
 use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
 use relocade_compiler::{BlockBuilder, BuildError, Program, TypedFunc, Val, I32};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct ExecutionModule {
-    pub(crate) cpu: Rc<Cpu>,
-    pub(crate) memory: Rc<Memory>,
+    pub(crate) cpu: Arc<Cpu>,
+    pub(crate) memory: Arc<Memory>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
@@ -17,8 +17,8 @@ pub(crate) struct ExecutionModule {
 impl ExecutionModule {
     pub(crate) fn declare(program: &mut Program, target: ExecutionTarget) -> Self {
         let mut module = Self {
-            cpu: Rc::new(Cpu::declare(program)),
-            memory: Rc::new(Memory::declare(program, target.profile)),
+            cpu: Arc::new(Cpu::declare(program)),
+            memory: Arc::new(Memory::declare(program, target.profile)),
             runtime: Runtime::declare(program),
             target,
             interrupt: None,

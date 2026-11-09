@@ -2,7 +2,7 @@ use super::*;
 
 fn field_module() -> TestModule {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));
@@ -111,7 +111,7 @@ const REPLACEMENT_FIELDS: [u8; 10] = [0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 
 
 fn wide_field_modules() -> [TestModule; 2] {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));

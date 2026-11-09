@@ -3,18 +3,17 @@
 mod flags;
 mod segments;
 
-use std::cell::OnceCell;
-
 use relocade_compiler::{BlockBuilder, BuildError, Func, Mem, Program, Val, I32};
 
-use crate::flags::{Condition, StatusFlag};
+use crate::flags::{Condition, FlagMask, StatusFlag};
+use flags::FlagQuery;
 
 use super::access::cpu_load;
 
 pub(crate) struct Cpu {
     memory: Mem,
-    condition_resolvers: [OnceCell<Func>; Condition::CANONICAL.len()],
-    flag_resolvers: [OnceCell<Func>; 1 << StatusFlag::ALL.len()],
+    condition_resolvers: [Func; Condition::CANONICAL.len()],
+    flag_resolvers: [Func; (1 << StatusFlag::ALL.len()) - 1],
 }
 
 impl Cpu {
@@ -22,8 +21,15 @@ impl Cpu {
         let memory = program.import_memory(crate::abi::EXECUTION_CONTEXT);
         Self {
             memory,
-            condition_resolvers: std::array::from_fn(|_| OnceCell::new()),
-            flag_resolvers: std::array::from_fn(|_| OnceCell::new()),
+            condition_resolvers: Condition::CANONICAL
+                .map(|condition| FlagQuery::Condition(condition).declare(program, memory)),
+            flag_resolvers: std::array::from_fn(|index| {
+                let mask = StatusFlag::ALL
+                    .into_iter()
+                    .filter(|flag| (index + 1) & (1 << *flag as usize) != 0)
+                    .fold(FlagMask::EMPTY, |mask, flag| mask.union(FlagMask::of(flag)));
+                FlagQuery::Flags(mask).declare(program, memory)
+            }),
         }
     }
 

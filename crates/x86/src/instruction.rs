@@ -15,7 +15,7 @@ pub(crate) use operands::{
     Input, MmxLocation, PackedShiftCount, TypedLocation, VectorAlignment, X87StackIndex,
     XmmLocation, XmmType,
 };
-pub(crate) use prefixes::{Group1Prefix, Prefix, PrefixState, SegmentOverride};
+pub(crate) use prefixes::{FormSelection, Group1Prefix, Prefix, PrefixState, SegmentOverride};
 use requirements::{Availability, Requirements};
 
 use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};

@@ -1,18 +1,19 @@
 //! Guest virtual memory backed by a host-managed page table.
 
-use std::cell::OnceCell;
+use relocade_compiler::{Func, Mem, Program, TypedFunc, I16, I32, I64, I8, V128};
 
-use relocade_compiler::{Func, Mem, Program, TypedFunc};
-
-use super::page_table::{PageTable, ResolveRange};
+use super::{
+    page_table::{PageTable, ResolveRange},
+    transfer::{declare_reader, declare_writer},
+};
 
 /// Module handles for guest memory and its shared access helpers.
 pub(crate) struct VirtualMemory {
     pub(super) guest: Mem,
     pub(super) table: PageTable,
     pub(super) range_resolver: TypedFunc<ResolveRange>,
-    pub(super) scattered_readers: [OnceCell<Func>; 5],
-    pub(super) scattered_writers: [OnceCell<Func>; 5],
+    pub(super) scattered_readers: [Func; 5],
+    pub(super) scattered_writers: [Func; 5],
 }
 
 impl VirtualMemory {
@@ -24,8 +25,20 @@ impl VirtualMemory {
             guest,
             table,
             range_resolver,
-            scattered_readers: std::array::from_fn(|_| OnceCell::new()),
-            scattered_writers: std::array::from_fn(|_| OnceCell::new()),
+            scattered_readers: [
+                declare_reader::<I8>(program, guest, table),
+                declare_reader::<I16>(program, guest, table),
+                declare_reader::<I32>(program, guest, table),
+                declare_reader::<I64>(program, guest, table),
+                declare_reader::<V128>(program, guest, table),
+            ],
+            scattered_writers: [
+                declare_writer::<I8>(program, guest, table),
+                declare_writer::<I16>(program, guest, table),
+                declare_writer::<I32>(program, guest, table),
+                declare_writer::<I64>(program, guest, table),
+                declare_writer::<V128>(program, guest, table),
+            ],
         }
     }
 }

@@ -149,7 +149,7 @@ where
             body,
             cursor,
             modrm,
-            state.prefixes.address_size(),
+            state.prefixes.selection().address_size(),
             |mut body, cursor, address| {
                 body.switch(form_index, &indices, |arm, index| {
                     let Some(index) = index else {

@@ -27,7 +27,7 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
         StatusSource<T>: Into<AnyStatusSource>,
     {
         let mut program = Program::new();
-        let cpu = std::rc::Rc::new(Cpu::declare(&mut program));
+        let cpu = std::sync::Arc::new(Cpu::declare(&mut program));
         for (name, condition) in QUERIES {
             let cpu = cpu.clone();
             let function = program.function::<fn(T, T, bool) -> u64>(move |mut body, _| {

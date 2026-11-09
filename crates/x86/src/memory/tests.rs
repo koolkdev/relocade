@@ -17,7 +17,7 @@ mod spans;
 
 fn define_read<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &std::rc::Rc<Memory>,
+    memory: &std::sync::Arc<Memory>,
     name: &str,
 ) where
     I64: AtLeast<T>,
@@ -51,7 +51,7 @@ fn define_read<T: MemoryInt + crate::memory::TransferType>(
 
 fn define_write<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &std::rc::Rc<Memory>,
+    memory: &std::sync::Arc<Memory>,
     name: &str,
 ) {
     let memory = memory.clone();
@@ -84,7 +84,7 @@ fn define_write<T: MemoryInt + crate::memory::TransferType>(
 
 fn accesses() -> Vec<u8> {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));

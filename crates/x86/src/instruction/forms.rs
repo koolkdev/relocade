@@ -89,13 +89,21 @@ pub(super) enum MandatoryPrefix {
 impl MandatoryPrefix {
     fn matches(self, prefixes: &PrefixState) -> bool {
         match self {
-            Self::None => !prefixes.has_operand_override() && prefixes.group1().is_none(),
-            Self::P66 => prefixes.has_operand_override() && prefixes.group1().is_none(),
+            Self::None => {
+                !prefixes.selection().has_operand_override()
+                    && prefixes.selection().group1().is_none()
+            }
+            Self::P66 => {
+                prefixes.selection().has_operand_override()
+                    && prefixes.selection().group1().is_none()
+            }
             Self::F2 => {
-                !prefixes.has_operand_override() && prefixes.group1() == Some(Group1Prefix::F2)
+                !prefixes.selection().has_operand_override()
+                    && prefixes.selection().group1() == Some(Group1Prefix::F2)
             }
             Self::F3 => {
-                !prefixes.has_operand_override() && prefixes.group1() == Some(Group1Prefix::F3)
+                !prefixes.selection().has_operand_override()
+                    && prefixes.selection().group1() == Some(Group1Prefix::F3)
             }
         }
     }
@@ -120,7 +128,7 @@ impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
         let accepts_prefix = match self.prefix {
-            PrefixRule::Modifiers(required) => match prefixes.group1() {
+            PrefixRule::Modifiers(required) => match prefixes.selection().group1() {
                 Some(Group1Prefix::F0) => self.lockable,
                 prefix => required == prefix,
             },
@@ -129,14 +137,14 @@ impl Form {
         if !accepts_prefix {
             return None;
         }
-        let operand_size = prefixes.operand_size();
+        let operand_size = prefixes.selection().operand_size();
         Some(ResolvedForm {
             form: *self,
             operand_size,
-            address_size: prefixes.address_size(),
+            address_size: prefixes.selection().address_size(),
             call: self.handlers.resolve(operand_size),
             segment_override: prefixes.segment_override().clone(),
-            locked: prefixes.group1() == Some(Group1Prefix::F0),
+            locked: prefixes.selection().group1() == Some(Group1Prefix::F0),
         })
     }
 
@@ -152,7 +160,7 @@ impl Form {
 
     pub(crate) fn accepts_register_rm(&self, prefixes: &PrefixState) -> bool {
         self.modrm.is_some_and(ModRmSelector::accepts_register)
-            && prefixes.group1() != Some(Group1Prefix::F0)
+            && prefixes.selection().group1() != Some(Group1Prefix::F0)
     }
 
     pub(crate) fn accepts_memory_rm(&self) -> bool {
