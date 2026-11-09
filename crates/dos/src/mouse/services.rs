@@ -1,6 +1,7 @@
 //! INT 33h register adapters; state changes are synchronous except BIOS reset.
 
 use super::{
+    snapshot,
     state::{Callback, Counter, Point},
     Mouse,
 };
@@ -31,8 +32,12 @@ impl Mouse {
                 0x000f => self.set_ratio,
                 0x0013 => self.set_threshold,
                 0x0014 => self.exchange_callback,
+                0x0015 => self.storage_size,
+                0x0016 => self.save_state,
+                0x0017 => self.restore_state,
                 0x001a => self.set_sensitivity,
                 0x001b => self.sensitivity,
+                0x0024 => self.version,
                 _ => unsupported,
             }
         );
@@ -147,6 +152,43 @@ impl Mouse {
         state.x.set_sensitivity(x);
         state.y.set_sensitivity(y);
         state.acceleration.set_threshold(threshold);
+    }
+
+    #[interrupt(returns { size => { bx = size } })]
+    fn storage_size(&self) -> u16 {
+        snapshot::BYTE_LEN as u16
+    }
+
+    #[interrupt(context(memory), args(destination = ptr(es, dx)))]
+    fn save_state(&self, memory: &mut MemoryView<'_>, destination: FarPointer) {
+        let bytes = snapshot::encode(&self.state.borrow(), &self.cursor.borrow());
+        memory
+            .write_wrapping(destination, &bytes)
+            .expect("mouse state buffer");
+    }
+
+    #[interrupt(context(memory), args(source = ptr(es, dx)))]
+    fn restore_state(&self, memory: &MemoryView<'_>, source: FarPointer) {
+        let mut bytes = [0; snapshot::BYTE_LEN];
+        memory
+            .read_wrapping(source, &mut bytes)
+            .expect("mouse state buffer");
+        let Some((state, cursor)) = snapshot::decode(&bytes) else {
+            return;
+        };
+        {
+            let mut video = self.video.borrow_mut();
+            self.cursor.borrow_mut().reset(&mut video.framebuffer());
+        }
+        *self.state.borrow_mut() = state;
+        *self.cursor.borrow_mut() = cursor;
+        self.update_cursor();
+    }
+
+    #[interrupt(returns { (version, interface) => { bx = version, cx = interface } })]
+    fn version(&self) -> (u16, u16) {
+        // Relocade driver 1.0; PS/2 uses type 4 and the conventional IRQ field 0.
+        (0x0100, 0x0400)
     }
 
     #[interrupt(returns { (x, y, threshold) => { bx = x, cx = y, dx = threshold } })]

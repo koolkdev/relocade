@@ -24,6 +24,25 @@ cursor masks (000Ah, BX=0) apply `(cell & screen_mask) ^ cursor_mask` to the gue
 character/attribute word. Graphics cursor definition (0009h) reads 16 screen-mask
 words followed by 16 cursor-mask words from ES:DX, with signed BX/CX hotspots.
 Hardware text cursor selection is not implemented.
+
+Driver storage size/save/restore (0015h/0016h/0017h) use an opaque 172-byte
+Relocade snapshot at ES:DX, with 16-bit offset wrapping. `snapshot.rs`
+owns the format; programs retain its bytes unchanged for a later restore. BX is
+not required on save/restore. The buffer may be copied elsewhere. It saves
+logical position, bounds, fractional motion, counters, buttons, callback, masks,
+sensitivity and nested visibility. Restore validates the whole buffer before
+changing live state; malformed buffers are ignored. The old drawn cursor is
+removed and the restored cursor saves a fresh background from the current video
+page. Physical background locations and the acceleration clock sample stay private;
+restore starts a new speed-measurement interval. Restore the video mode before
+restoring mouse state, and keep any saved callback's code valid.
+
+Version/type query (0024h) reports Relocade driver 1.0 and PS/2 (CH=4, CL=0).
+This identifies the built-in driver and the service subset listed here; it does
+not advertise a complete Microsoft 6.x implementation. Separate INT 33h display
+page selection, cursor exclusion regions and alternate modifier callbacks remain
+unsupported; the cursor follows the programmed VGA viewport. The driver remains
+built in, with no `.sys` loader or disable option.
 Unknown functions leave registers and flags unchanged.
 
 Physical motion, logical position, and cursor drawing coordinates are distinct.

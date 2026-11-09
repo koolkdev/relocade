@@ -1,15 +1,15 @@
 //! Cursor visibility and ownership of the background saved by each drawing mode.
 
-mod graphics;
-mod text;
+pub(super) mod graphics;
+pub(super) mod text;
 
 use relocade_machine::{FarPointer, MemoryView};
 use relocade_vga::{Framebuffer, FramebufferGeometry};
 
 pub(super) struct Cursor {
-    visibility: i16,
-    text: text::Shape,
-    graphics: graphics::Shape,
+    pub(super) visibility: i16,
+    pub(super) text: text::Shape,
+    pub(super) graphics: graphics::Shape,
     saved: Option<Background>,
 }
 
@@ -20,16 +20,24 @@ enum Background {
 
 impl Default for Cursor {
     fn default() -> Self {
-        Self {
-            visibility: -1,
-            text: text::Shape::default(),
-            graphics: graphics::Shape::default(),
-            saved: None,
-        }
+        Self::from_state(-1, text::Shape::default(), graphics::Shape::default())
     }
 }
 
 impl Cursor {
+    pub(super) fn from_state(
+        visibility: i16,
+        text: text::Shape,
+        graphics: graphics::Shape,
+    ) -> Self {
+        Self {
+            visibility,
+            text,
+            graphics,
+            saved: None,
+        }
+    }
+
     pub fn reset(&mut self, frame: &mut Framebuffer<'_>) {
         self.restore(frame);
         *self = Self::default();

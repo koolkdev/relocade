@@ -3,10 +3,10 @@
 use relocade_machine::{FarPointer, MemoryView};
 use relocade_vga::{Framebuffer, Pixel, PixelFormat};
 
-pub(super) struct Shape {
-    hotspot: [i16; 2],
-    screen: [u16; 16],
-    cursor: [u16; 16],
+pub(in crate::mouse) struct Shape {
+    pub(in crate::mouse) hotspot: [i16; 2],
+    pub(in crate::mouse) screen: [u16; 16],
+    pub(in crate::mouse) cursor: [u16; 16],
 }
 
 pub(super) struct Background {
@@ -46,7 +46,7 @@ impl Shape {
         }
     }
 
-    pub fn draw(&self, frame: &mut Framebuffer<'_>, position: [i32; 2]) -> Background {
+    pub(super) fn draw(&self, frame: &mut Framebuffer<'_>, position: [i32; 2]) -> Background {
         let left = position[0] - i32::from(self.hotspot[0]);
         let top = position[1] - i32::from(self.hotspot[1]);
         let mut pixels = Vec::new();
