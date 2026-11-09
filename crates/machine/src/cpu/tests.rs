@@ -94,7 +94,7 @@ fn saved_registers_restore_only_the_named_views() {
     cpu.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0xabcd));
     cpu.set_eflags(0x647);
     cpu.set_eip(0x3210);
-    cpu.set_instruction_count(99);
+    cpu.store(std::mem::offset_of!(CpuState, instruction_count), 99_u64);
     let mut expected = cpu.snapshot();
     expected.registers.eax = 0xaabb_5678;
     expected.registers.ebx = 0x99aa_33cc;
@@ -105,7 +105,7 @@ fn saved_registers_restore_only_the_named_views() {
 }
 
 #[test]
-fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
+fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
     let config = configuration();
     let storage = cpu_memory(&config);
     let context = storage.clone();
@@ -117,8 +117,11 @@ fn snapshots_preserve_the_whole_cpu_without_changing_execution_controls() {
         tr: relocade_x86::SystemSegmentRegister::default(),
         ..CpuState::filled(0xa5)
     };
+    cpu.store(std::mem::offset_of!(CpuState, instruction_count), 99_u64);
     cpu.restore(&snapshot).unwrap();
-    assert_eq!(cpu.snapshot(), snapshot);
+    let mut expected = snapshot;
+    expected.instruction_count = 99;
+    assert_eq!(cpu.snapshot(), expected);
     assert_eq!(read::<8>(&context, 536), [0xfd, 1, 0, 0, 1, 0, 0, 0]);
 }
 

@@ -248,14 +248,33 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 async fn saturated_count() {
     let (clock, _timers) = timer_service();
     let worker = ExecutionWorker::spawn(clock, async |runner| {
-        let mut cpu = cpu_with_runner(&[0xeb, 0xfe], true, IoBus::default(), Some(runner)).await;
+        let config = support::configuration(
+            Compiler::new(ExecutionProfile::Real16).target(),
+            CpuState {
+                eip: 0x100,
+                instruction_count: u64::MAX,
+                segments: Segments::real_mode(),
+                ..CpuState::default()
+            },
+            0x10000,
+            PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
+        )
+        .unwrap();
+        let mut cpu = runner
+            .create_cpu(
+                Memory::new(config.machine).unwrap(),
+                config.cpu,
+                IoBus::default(),
+            )
+            .await
+            .unwrap();
         let exit = cpu.exit_handle();
         cpu.install([relocade_machine::Hook::host(0x100, async move || {
             exit.request()
         })])
         .await
         .unwrap();
-        cpu.cpu_state().set_instruction_count(u64::MAX);
         assert_eq!(
             runner.run_cpu(&mut cpu).await,
             ExecutionExit::Host(relocade_x86::HostExit::Return),

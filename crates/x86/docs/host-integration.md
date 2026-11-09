@@ -150,11 +150,13 @@ Existing checkpoints return `BudgetExhausted` when
 passed. This signed distance handles ordinary counter wrap; a plain comparison of
 count and target does not. Interrupt requests take precedence when both controls
 request an exit.
-Guest faults and host returns retain their existing exits. Clear the target when
-the run completes or is cancelled.
+Guest faults and host returns retain their existing exits. The controller owns
+when to rearm or clear the target.
 
-The owner changes the target only while guest execution is stopped, and host
-services must preserve the retirement count while it is active. Target ordering
+The execution owner can change the target at stopped boundaries or from
+synchronous host callbacks. Checkpoints reload it from backing storage. Host
+services must preserve the retirement count while it is active. The machine
+runtime preserves this count when restoring architectural state. Target ordering
 assumes checkpoints occur before overshoot reaches half the counter range; the
 allowance limit does not impose a checkpoint-latency bound. CPU state includes
 actual completed work, including overshoot: this is a soft allowance, not an exact
@@ -163,15 +165,20 @@ checkpoints to straight-line execution and does not split REP operations. REP st
 retires once after all elements complete. The snapshot compiler's instruction limit
 continues to bound compilation only.
 
-In `relocade-machine`, `cpu.run_with_budget(allowance).await` arms and clears the
-controls for one run, including pending host-service polls. Dropping that waiter
-clears its allowance while preserving active and suspended services; the next run
-starts a fresh allowance. `cpu.run().await` and `cpu.run_with_budget(0).await` are
-unlimited. Completed work is available through the existing
-`cpu.cpu_state().instruction_count()` before and after each run, using wrapping
-subtraction. This API rejects positive allowances on targets with budget support
-disabled. Shared interpreter modules keep dynamic checks for either target policy;
-the disabled target guarantees their live allowance stays zero.
+In `relocade-machine`, `cpu.instruction_target()` retains an execution-local
+controller. `set(Some(absolute_count))` arms the target and `set(None)` clears it.
+Updates apply independently of a `cpu.run()` waiter's lifetime, including while
+its host service is pending or an IO/MMIO callback is executing. Dropping the
+waiter preserves active and suspended services and leaves target ownership with
+the controller.
+
+Completed work is available through `cpu.cpu_state().instruction_count()` using
+wrapping subtraction. `CpuStateAccess::restore` preserves this cumulative count;
+initial counts are configured when creating a CPU. Callback observations can lag
+unpublished retirement.
+Arming a target rejects execution profiles with budget support disabled. Shared
+interpreter modules keep dynamic checks for either target policy; disabled
+profiles require their live target to remain zero.
 
 ### Explicit stepping and IRQ eligibility
 

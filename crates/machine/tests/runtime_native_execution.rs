@@ -52,9 +52,18 @@ fn steps_publish_each_instruction_and_retirement_wraps() {
         );
         assert_eq!(cpu.instruction_count, u64::from(iteration) * 3);
     }
-    runtime.cpu_state().set_instruction_count(u64::MAX - 1);
-    support::steps(&mut runtime, 3);
-    assert_eq!(runtime.cpu_state().instruction_count(), 1);
+    let mut config = configuration();
+    let mut initial = *config.cpu.cpu();
+    initial.instruction_count = u64::MAX - 1;
+    config.cpu = relocade_machine::CpuConfig::new(config.cpu.execution_target(), initial).unwrap();
+    let mut wrapping = create(config);
+    wrapping
+        .memory()
+        .view()
+        .write(0x100, &[0x40, 0x43, 0xeb, 0xfc])
+        .unwrap();
+    support::steps(&mut wrapping, 3);
+    assert_eq!(wrapping.cpu_state().instruction_count(), 1);
 }
 
 #[test]
