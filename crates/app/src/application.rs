@@ -79,6 +79,7 @@ struct Application {
     finished: Option<Finished>,
     error: Option<String>,
     suspended: bool,
+    focused: bool,
 }
 
 impl Application {
@@ -107,6 +108,7 @@ impl Application {
             finished: Some(Box::new(finished)),
             error: None,
             suspended: true,
+            focused: false,
         }
     }
 
@@ -127,7 +129,9 @@ impl Application {
             host.audio = None;
         }
         host.display = None;
+        host.release_input();
         host.keyboard = None;
+        host.mouse = None;
         if let Some(closing) = self.closing.take() {
             let _ = closing.try_send(self.error.clone().map_or(Ok(()), Err));
         }

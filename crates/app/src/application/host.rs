@@ -3,6 +3,7 @@ use crate::graphics::{Graphics, SurfaceSetup};
 use relocade_frontend::{
     display::DisplayRenderer,
     keyboard::{KeyboardEvent, KeyboardInput, ModifiersState},
+    mouse::{MouseEvent, MouseInput},
 };
 use std::{cell::RefCell, future::Future, rc::Rc, sync::Arc};
 use winit::event_loop::EventLoopProxy;
@@ -17,11 +18,25 @@ pub(super) struct HostState {
     pub(super) display: Option<StartGraphics>,
     display_attached: bool,
     pub(super) keyboard: Option<KeyboardInput>,
+    pub(super) mouse: Option<MouseInput>,
     modifiers: ModifiersState,
     pub(super) phase: Phase,
 }
 
 impl HostState {
+    pub(super) fn release_input(&mut self) {
+        self.send_key(KeyboardEvent::FocusLost);
+        self.send_mouse(MouseEvent::FocusLost);
+    }
+
+    pub(super) fn send_mouse(&mut self, event: MouseEvent) {
+        if let Some(input) = &self.mouse {
+            if input.unbounded_send(event).is_err() {
+                self.mouse = None;
+            }
+        }
+    }
+
     pub(super) fn send_key(&mut self, event: KeyboardEvent) {
         match &event {
             KeyboardEvent::Modifiers(modifiers) => self.modifiers = *modifiers,
@@ -100,6 +115,20 @@ impl AppHost {
         }
         let _ = input.unbounded_send(KeyboardEvent::Modifiers(state.modifiers));
         state.keyboard = Some(input);
+        Ok(())
+    }
+
+    /// Routes relative motion and buttons to an execution-side input adapter.
+    /// Host units are preserved; guest sensitivity and scaling belong to the adapter.
+    pub fn attach_mouse(&mut self, input: MouseInput) -> Result<(), String> {
+        let mut state = self.state.borrow_mut();
+        if state.phase != Phase::Running {
+            return Err("The application is closing".into());
+        }
+        if state.mouse.is_some() {
+            return Err("A mouse is already attached".into());
+        }
+        state.mouse = Some(input);
         Ok(())
     }
 

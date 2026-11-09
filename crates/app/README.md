@@ -79,14 +79,20 @@ Chromium. Physical output and other browsers still need playback testing.
 
 With the `graphics` feature, `run_app` hosts one window and drives an application
 lifecycle future on main. `AppHost` stays on main and accepts one display factory
-and one keyboard input for its window. Execution returns ordinary endpoints over
-a channel; the application attaches them. Display factories run on graphics;
-keyboard interpretation belongs to the execution-side adapter.
+and keyboard and mouse input for its window. Execution returns ordinary endpoints
+over a channel; the application attaches them. Display factories run on graphics;
+keyboard interpretation and mouse sensitivity belong to the execution-side adapters.
+`host.attach_mouse(input)` forwards relative winit motion and button events while
+the window has focus, independently of display updates. It preserves fractional
+host units; resizing and pixel aspect ratio do not rescale motion. Focus loss,
+occlusion, suspension and closing release transient input state; hidden and
+suspended windows do not forward mouse input.
 
 ```rust,ignore
 relocade_app::run_app("My application", |mut app| async move {
     app.attach_display(create_display)?;
     app.attach_keyboard(keyboard_input)?;
+    app.attach_mouse(mouse_input)?;
     let closing = app.closing().await;
     // Await application-owned worker cleanup, even when closing reports an error.
     closing
