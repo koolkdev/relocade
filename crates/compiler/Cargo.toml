@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-derive = { path = "../derive" }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 hashbrown = { version = "=0.15.5", default-features = false }
@@ -13,6 +14,7 @@ rustc-hash = "=2.1.3"
 wasm-encoder.workspace = true
 
 [dev-dependencies]
+futures-channel = "=0.3.34"
 relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["features", "simd", "std", "validate"] }
 wasmtime.workspace = true

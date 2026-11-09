@@ -27,6 +27,7 @@ mod body;
 mod call;
 mod control;
 mod emit;
+mod executor;
 mod expression;
 mod floating;
 mod function;
@@ -44,6 +45,7 @@ use std::fmt;
 use body::FunctionGraph;
 pub use call::{FunctionImport, Table, TableImport};
 pub use control::{Label, LoopLabels};
+pub use executor::{CompileError, CompileExecutor};
 use expression::Expression;
 pub use function::{BlockBuilder, TypedFunc};
 pub use memory::{AtomicAccess, Mem, MemoryImport, MemoryInt, MemoryType};
@@ -217,5 +219,24 @@ impl Program {
     pub fn compile(mut self) -> Result<Vec<u8>, BuildError> {
         self.build_reachable_functions()?;
         Ok(module::encode(self))
+    }
+
+    /// Compiles using caller-provided execution resources for function placement
+    /// and Wasm emission. Body construction and effect analysis run on the calling
+    /// thread; existing body builders may retain non-`Send` captures.
+    ///
+    /// Independent functions may complete in any order. Retention, function indices
+    /// and module bytes follow the same rules as [`Self::compile`]. The executor
+    /// controls concurrency across this compilation and any other submitted work.
+    /// Dropping this future stops waiting, but accepted jobs can finish with their
+    /// owned inputs. The executor owns their lifetime and shutdown policy.
+    pub async fn compile_with<E: CompileExecutor>(
+        mut self,
+        executor: &E,
+    ) -> Result<Vec<u8>, CompileError<E::Error>> {
+        self.build_reachable_functions()?;
+        module::encode_with(self, executor)
+            .await
+            .map_err(CompileError::Execution)
     }
 }
