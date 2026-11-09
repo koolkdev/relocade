@@ -177,8 +177,9 @@ impl Runner {
                 self.schedule.after_cpu_poll(result, &interrupt)
             })
             .await;
-            // Publish time before this turn, including when the CPU has exited.
-            self.executor.yield_now().await;
+            if exit.is_none() || interrupt.is_requested() {
+                self.executor.yield_now().await;
+            }
             if let Some(exit) = exit {
                 return exit;
             }

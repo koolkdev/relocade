@@ -77,8 +77,9 @@ impl ExecutionSchedule {
     }
 
     /// Publishes retirement before devices run, including on terminal exits.
-    /// Ready(None) requests an activity turn; Ready(Some(exit)) ends the run
-    /// after that turn. Pending parks until an external notification arrives.
+    /// Ready(None) requests an activity turn; Ready(Some(exit)) returns the CPU
+    /// result. Runner yields before returning only when work was notified.
+    /// Pending parks until an external notification arrives.
     pub(super) fn after_cpu_poll(
         &self,
         result: Poll<ExecutionExit>,
