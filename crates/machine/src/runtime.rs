@@ -64,11 +64,12 @@ use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 pub use instruction_target::InstructionTarget;
+pub use io::PortMappings;
 use machine::Machine;
 use memory::RuntimeMemory;
 pub use storage::CpuStorage;
 
-type Backend = relocade_wasm_runtime::Backend<IoBus>;
+type Backend = relocade_wasm_runtime::Backend<io::State>;
 
 /// Executes one guest and owns its machine, registered services and suspended calls.
 pub struct Cpu {
@@ -85,7 +86,7 @@ pub struct Cpu {
 impl Cpu {
     /// Creates CPU state and dispatch over existing guest memory.
     /// Guest bytes are preserved. Host services capture their application resources.
-    /// Port and MMIO accesses use the supplied execution-local device bus.
+    /// Unbound port and MMIO accesses use the supplied execution-local device bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         CpuStorage::new()?.into_cpu(memory, cpu, io).await
     }
@@ -96,7 +97,7 @@ impl Cpu {
         io: IoBus,
         storage: CpuStorage,
     ) -> Result<Self> {
-        let mut backend = Backend::with_state(io.clone())?;
+        let mut backend = Backend::with_state(io::State::new(io.clone()))?;
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
         let dispatch = Dispatch::new(&mut backend, &bindings).await?;
         let instruction_target = InstructionTarget::new(&bindings);
@@ -189,6 +190,16 @@ impl Cpu {
             "host call is pending; complete it before accessing the machine"
         );
         &mut self.machine
+    }
+
+    /// Edits this CPU's port handlers immediately. Other CPUs and retained
+    /// generic I/O buses keep their own routing.
+    ///
+    /// # Panics
+    /// Panics if a host call is pending. Complete it to regain access.
+    pub fn port_mappings(&mut self) -> PortMappings<'_> {
+        use relocade_wasm_runtime::WasmBackend;
+        PortMappings::new(self.machine_mut().backend.context())
     }
 
     /// Retains live CPU state independently of the runner and its backend.

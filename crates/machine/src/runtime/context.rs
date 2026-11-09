@@ -24,7 +24,7 @@ pub struct CpuContext<'a> {
     pub cpu: &'a CpuStateAccess,
     /// Guest memory through the machine's physical map.
     pub memory: MemoryView<'a>,
-    /// The same device bus used by guest port and MMIO instructions.
+    /// Generic device routing for unbound guest ports and MMIO instructions.
     pub io: &'a IoBus,
     pub(super) guest_calls: Option<&'a GuestCalls>,
 }

@@ -1,5 +1,8 @@
 //! Device connections local to guest execution and its host services.
 
+pub(crate) mod ports;
+pub use ports::{PortRead, PortWrite};
+
 use std::{
     cell::RefCell,
     future::{ready, Future},
@@ -60,9 +63,10 @@ pub struct DeviceConnection {
     pub ports: Vec<RangeInclusive<u16>>,
 }
 
-/// Immutable routing on one execution worker. Clones retain the same local
+/// Device routing on one execution worker. Clones retain the same local
 /// devices; the bus cannot be sent or shared across threads.
-/// Unconnected reads return FF bytes and unconnected writes are ignored.
+/// Accesses use the connected device ranges; unconnected reads return FF and
+/// writes are ignored. CPU-specific port handlers do not alter this generic bus.
 ///
 /// ```compile_fail
 /// let io = relocade_machine::IoBus::default();
@@ -145,19 +149,17 @@ impl IoBus {
     /// Routes one architectural transfer by its starting port. The device owns
     /// the meaning of a wide transfer, including paired index/data registers.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
+        let mask = ports::width_mask(bytes);
         let value = self.port_device(port).map_or(u32::MAX, |device| {
             device.borrow_mut().read_port(port, bytes)
         });
-        value & (u32::MAX >> ((4 - bytes) * 8))
+        value & mask
     }
 
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
-        assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
+        let mask = ports::width_mask(bytes);
         if let Some(device) = self.port_device(port) {
-            device
-                .borrow_mut()
-                .write_port(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+            device.borrow_mut().write_port(port, bytes, value & mask);
         }
     }
 
