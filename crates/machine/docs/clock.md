@@ -206,26 +206,24 @@ A later event remains queued while the current event synchronizes. It cannot
 postpone the current deadline. Equal-time events follow the execution owner's
 existing activity polling order.
 
-Output goes in the opposite direction. Capture `clock.sync_to_host(time)` with
-the output on the execution owner, then await the returned `HostSync` at the
-receiver before applying it:
+Output goes in the opposite direction. Construct `clock.sync_to_host(time)`
+when output is captured, then await its ordinary local `Sleep` in the device's
+async task before publishing to another worker:
 
 ```rust,ignore
 clock.sync_to_host(output_time).await;
 ```
 
-`HostSync` retains the mapped deadline and the configured host timer source. It
-can also be retained with output and sent between workers before awaiting it.
-Waiting uses that source's ordinary `sleep_until`, including the dedicated timer
-service's native and browser waits;
-consumers do not choose another timer backend. Registration happens on first
-poll, cancellation releases that wait, and the captured value can be awaited
-again by awaiting a clone. Already elapsed deadlines complete immediately.
+CPU pacing uses this same operation. The wait retains the mapped deadline and
+the configured host clock. It uses that clock's ordinary `sleep_until`, including
+the dedicated timer service's native and browser waits. Registration happens on
+first poll, cancellation releases the timer, and elapsed deadlines complete
+without registering one. Clocks and waits remain on their execution owner.
 
-The mapping is captured before output leaves its execution owner, so a later
-CPU pause or resume cannot remap pending output. Host-clock output uses the same
-timestamp; unpaced guest clocks and inactive runs produce an immediately ready
-sync. Keep the host timer service alive until output consumers finish waiting.
+The mapping is captured at construction, so a later CPU pause or resume cannot
+remap pending output. Host-clock output uses the same timestamp; unpaced guest
+clocks and inactive runs produce an immediately ready wait. Keep the host timer
+service alive while execution-owner tasks use it.
 
 ## Host timers
 

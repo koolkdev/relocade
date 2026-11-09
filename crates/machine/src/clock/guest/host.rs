@@ -1,6 +1,6 @@
 //! Host/guest correspondence, excluding time spent between CPU bindings.
 
-use crate::{Clock, HostSync, Instant, Sleep};
+use crate::{Clock, Instant, Sleep};
 
 pub(super) struct HostTime {
     clock: Clock,
@@ -62,16 +62,9 @@ impl HostTime {
         }
     }
 
-    pub(super) fn sleep_until(&self, guest: Instant) -> Sleep {
-        self.clock.sleep_until(
-            self.host_time(guest)
-                .expect("host pacing belongs to an active run"),
-        )
-    }
-
-    pub(super) fn sync_to_host(&self, guest: Instant) -> HostSync {
+    pub(super) fn sync_to_host(&self, guest: Instant) -> Sleep {
         self.host_time(guest)
-            .map(|time| self.clock.sync_to_host(time))
-            .unwrap_or_default()
+            .map(|time| self.clock.sleep_until_if_needed(time))
+            .unwrap_or_else(|| Sleep::new(async {}))
     }
 }

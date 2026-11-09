@@ -3,11 +3,9 @@
 mod driver;
 mod guest;
 mod host;
-mod sync;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
-pub use sync::HostSync;
 pub use web_time::Instant;
 
 use std::{
@@ -26,16 +24,15 @@ pub struct Clock(Rc<dyn ClockSource>);
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
 /// Implementations register waits on first poll and release them on drop.
-/// `Clock` consumers stay on their execution owner. A transferable host source
-/// can also supply captured output synchronization through [`HostSync`].
+/// Clocks and their waits stay on their execution owner.
 pub trait ClockSource {
     fn now(&self) -> Instant;
     fn sleep_until(&self, deadline: Instant) -> Sleep;
 
-    /// Captures a transferable wait on the configured host timebase. Sources
-    /// without an active correspondence return an immediately ready sync.
-    fn sync_to_host(&self, _time: Instant) -> HostSync {
-        HostSync::default()
+    /// Captures a local wait on the configured host timebase. Sources without
+    /// an active correspondence complete immediately.
+    fn sync_to_host(&self, _time: Instant) -> Sleep {
+        Sleep::new(async {})
     }
 
     /// Captures a host-to-source deadline and returns an ordinary source wait.
@@ -56,18 +53,27 @@ impl Clock {
         self.0.now()
     }
 
-    /// Captures host synchronization for a timestamp from this clock.
-    /// Await the result directly, or send it with output and await it on the receiver.
-    /// The wait uses the configured host timer source, without sharing this
-    /// execution-local clock or requiring a separate timer on the receiver.
+    /// Waits for the host time corresponding to a timestamp from this clock.
+    /// CPU pacing and device output use the configured host timer on this owner.
+    /// Output tasks await this before publishing to another worker.
     ///
     /// Host clocks use the timestamp unchanged. Paced guest clocks use the
     /// current correspondence, excluding pauses between CPU runs. Unpaced guest
-    /// clocks and clocks outside an active run complete immediately. Capture when
-    /// the output is produced: a later run may have a different correspondence.
-    /// The captured deadline stays fixed, including across pauses.
-    pub fn sync_to_host(&self, time: Instant) -> HostSync {
+    /// clocks and clocks outside an active run complete immediately. Construct
+    /// the wait when output is captured: a later run may have a different
+    /// correspondence. The deadline stays fixed, including across pauses.
+    /// Registration happens on first poll; elapsed deadlines need no timer.
+    pub fn sync_to_host(&self, time: Instant) -> Sleep {
         self.0.sync_to_host(time)
+    }
+
+    fn sleep_until_if_needed(&self, deadline: Instant) -> Sleep {
+        let clock = self.clone();
+        Sleep::new(async move {
+            if clock.now() < deadline {
+                clock.sleep_until(deadline).await;
+            }
+        })
     }
 
     /// Captures the deadline now, even if the returned future is polled later.

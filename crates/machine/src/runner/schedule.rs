@@ -65,7 +65,7 @@ impl ExecutionSchedule {
         } else {
             if let Some(guest) = &self.guest {
                 if let Some(slice) = &guest.slice {
-                    ready!(slice.poll(&guest.driver, self.clock.now(), cx));
+                    ready!(slice.poll(&self.clock, self.clock.now(), cx));
                 }
                 guest
                     .driver

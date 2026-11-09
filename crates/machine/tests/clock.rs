@@ -14,7 +14,6 @@ async fn clock_waits() {
     let waits = async move {
         let deadline = clock.now() + Duration::from_millis(10);
         let output = clock.sync_to_host(deadline);
-        assert_eq!(output.deadline(), Some(deadline));
         let long = async {
             output.await;
             assert!(clock.now() >= deadline);
