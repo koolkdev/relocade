@@ -12,7 +12,10 @@ clock.sleep(Duration::from_millis(2)).await;
 
 `Instant` is re-exported from `web_time`, which uses the standard library type
 on native targets. `Instant` is monotonic; `Duration` is
-an interval. Host clocks use the host's absolute monotonic timebase.
+an interval. Host time follows the host's monotonic clock. Emulated guest time
+starts at an explicitly supplied instant and advances independently. Sharing an
+origin does not make guest time follow host time. Pacing is the execution policy
+that controls their relationship.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
@@ -38,6 +41,54 @@ in application builds. Its `clock()` uses the same public `ClockSource` interfac
 an earlier instant leaves time unchanged. Cloned controllers share time and can
 move between workers; consumer clocks remain local. Fixtures share a monotonic
 anchor through the test helper's `origin()`; clock progress remains independent.
+
+## Emulated guest time
+
+`GuestTimeDriver::new(start, instructions_per_second)` owns emulated guest time,
+pending sleeps and the corresponding CPU instruction target. While the CPU runs,
+retired instructions advance guest time at the configured rate. While the CPU is
+idle, the embedding may advance time to the next registered sleep. The driver is
+synchronous; the embedding owns execution and executor turns.
+
+```rust,ignore
+let driver = GuestTimeDriver::new(start, instructions_per_second);
+let guest_clock = driver.clock();
+// Connect devices using guest_clock, then construct the CPU.
+let binding = driver.bind(&cpu, &execution_waker);
+driver.synchronize(None); // No additional yield deadline.
+// Run the CPU. At each stopped boundary:
+driver.synchronize(None);
+// Poll awakened activities before continuing or deciding that execution is idle.
+// Only when idle, driver.advance_to_next_deadline() services the next guest deadline.
+drop(binding);
+```
+
+`bind` retains CPU progress and target handles without borrowing the CPU. The
+returned guard scopes target ownership and wait-change notifications. Dropping
+it records final retirement, clears the target and releases the execution waker.
+The clock pauses between bindings, and pending device waits remain registered.
+Each binding starts from the CPU's current count without charging earlier work.
+
+`synchronize(yield_deadline)` observes retirement, completes due sleeps and arms
+the next CPU target. `yield_deadline` is an optional absolute guest time at
+which the embedding wants execution to yield. The driver does not choose yield
+intervals. Registration and cancellation notify the embedding, which calls
+`synchronize` before resuming execution to arm the updated deadline. With
+neither device waits nor a yield deadline, synchronization leaves the target
+unarmed. Changed waits also wake the embedding while a CPU service is pending.
+
+`advance_to_next_deadline()` advances guest time to the earliest registered sleep
+and completes all due sleeps. The embedding calls it only after polling ready
+activities and finding execution still idle. It returns false if there is no
+registered sleep. The yield deadline does not cause this advance. Completing
+sleeps wakes device activities; those activities deliver IRQs through the existing
+interrupt path. Advancing guest time does not add retired CPU instructions.
+
+Reads preserve fractional nanoseconds and counter wrap. Synchronous callbacks
+can observe a count that lags execution; targets use that same published count
+and retain soft checkpoint overshoot. Reading time does not dispatch device work.
+`CpuStateAccess::restore` preserves cumulative retirement when restoring guest
+registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 ## Host timers
 

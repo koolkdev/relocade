@@ -165,7 +165,9 @@ controller. `set(Some(absolute_count))` arms the target and `set(None)` clears i
 Updates apply independently of a `cpu.run()` waiter's lifetime, including while
 its host service is pending or an IO/MMIO callback is executing. Dropping the
 waiter preserves active and suspended services and leaves target ownership with
-the controller.
+the controller. `GuestTimeDriver` manages that lifetime for guest-time
+scheduling through a scoped binding. Releasing the binding clears the target;
+the execution owner retains it across CPU polls.
 
 Completed work is available through `cpu.cpu_state().instruction_count()` using
 wrapping subtraction. `CpuStateAccess::restore` preserves this cumulative count;
