@@ -131,7 +131,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
         } else {
             immediate(false, 0x200, 0x27)
         };
-        let code = [&instruction[..], &[0xf4]].concat();
+        let code = [&instruction[..], &[0xf1]].concat();
         let mut image = image_with_stack(&code, if returning { 0x9000 } else { 0x9008 });
         image.cpu.segments.cs.limit = 0x1000 + instruction.len() as u32 - 1;
         image.data(0x8000, &pointer(false, 0x200, 0x27));

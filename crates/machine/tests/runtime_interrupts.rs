@@ -238,3 +238,6 @@ mod eligibility;
 
 #[path = "runtime_interrupts/exceptions.rs"]
 mod exceptions;
+
+#[path = "runtime_interrupts/halt.rs"]
+mod halt;

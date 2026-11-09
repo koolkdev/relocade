@@ -77,9 +77,10 @@ and starts with fresh prefix state. REP completes its repetition; port strings
 dispatch and other strings continue to the next instruction in both frontends.
 
 Interpreter `step` executes one instruction, including all elements of a supported
-REP instruction. After publishing state and checking execution controls, it returns
-`ExecutionExit::StepComplete` without dispatching or fetching the successor. This
-applies to taken and untaken branches, interrupt transfers and port operations too.
+REP instruction. After publishing state and checking execution controls, it normally
+returns `ExecutionExit::StepComplete` without dispatching or fetching the successor.
+Interrupt inhibition, IF-enabling flag restores and HLT have the dedicated outcomes
+described below. Taken and untaken branches and port operations also complete a step.
 Supported Real16 faults instead enter their IVT handler and return
 `ExecutionExit::InterruptEntered`, without retiring or executing the handler.
 
@@ -186,9 +187,10 @@ profiles require their live target to remain zero.
 
 Interpreter STEP publishes one completed instruction and returns `StepComplete`
 without dispatching its successor. A pending execution interrupt or exhausted
-allowance takes precedence at that completed boundary, in that order. Real16
-#DE/#BR/#UD enter their IVT handler before returning `InterruptEntered`. Other
-faults retain their direct exit reasons.
+allowance takes precedence at that completed boundary, in that order, except for
+`InterruptInhibited` and `Halted`: the driver must handle those transitions first.
+Real16 #DE/#BR/#UD enter their IVT handler before returning `InterruptEntered`.
+Other faults retain their direct exit reasons.
 `relocade-machine::Cpu::step()` also completes any interrupt-inhibited successor
 chain before returning. It bypasses registered hooks and device IRQ polling and
 requires that no host calls remain active or suspended.
@@ -982,6 +984,16 @@ PUSHF/POPF transfer word or dword images through SS:SP. Real16 POPF restores IF
 and IOPL regardless of their entry values; only dword transfers change AC and ID.
 Reserved and unrepresented image bits are ignored.
 
+HLT retires in Real16 without changing flags and returns `ExecutionExit::Halted`
+with IP pointing to its successor. It neither fetches that successor nor checks
+execution interrupts or instruction targets first: the embedding must retain the halt
+before processing host notifications. HLT raises #GP(0) in the supported protected
+profiles, which execute at CPL3; IOPL does not grant permission to halt.
+The machine driver waits for an accepted device IRQ before resuming dispatch.
+IRQ entry saves the post-HLT IP, and recognition ends the halt even if frame
+construction faults. A queued maskable IRQ cannot wake HLT with IF clear.
+These rules follow Intel SDM [Volume 2, HLT](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
+
 CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
 fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
 MOV/POP SS publish their effects, retire and return
@@ -1214,6 +1226,7 @@ match exit {
         let _ = (linear_address, error_code);
     }
     ExecutionExit::Interrupted => { /* Poll notified host work before resuming. */ }
+    ExecutionExit::Halted => { /* Retain halt until an eligible guest event. */ }
     _ => { /* Handle the other execution outcomes. */ }
 }
 # }

@@ -33,6 +33,10 @@ impl ExitHandle {
         Self(Rc::default())
     }
 
+    pub(super) fn is_requested(&self) -> bool {
+        self.0.get().is_some()
+    }
+
     /// Requests an execution exit. The current host poll completes normally.
     pub fn request(&self) {
         self.0.set(Some(ExecutionExit::Host(HostExit::Return)));
@@ -65,7 +69,7 @@ impl Cpu {
     ///
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
-    /// exit request releases retained calls and returns its requested host result.
+    /// exit request releases retained calls, clears HLT and returns its requested result.
     /// Dropping the CPU drops retained calls innermost first, before the machine.
     ///
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
@@ -80,6 +84,9 @@ impl Cpu {
     /// request queued while masked needs no later notification to become eligible.
     /// Awaited guest interrupt and far calls use the same entry and resume machinery,
     /// taking precedence over device IRQ polling and entering regardless of IF.
+    /// HLT retires and waits without executing its successor until an eligible
+    /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
+    /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
         poll_fn(|cx| match self.poll_host_work(cx) {
             Some(exit) => Poll::Ready(exit),
@@ -109,7 +116,7 @@ impl Cpu {
                 Ok(delivered) => delivered,
                 Err(exit) => break exit,
             };
-            if !guest_entered && self.pending.is_some() {
+            if !guest_entered && (self.pending.is_some() || self.halted) {
                 return Poll::Pending;
             }
 
@@ -128,7 +135,8 @@ impl Cpu {
                 ExecutionExit::StepComplete
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered
-                | ExecutionExit::FarCallEntered => continue,
+                | ExecutionExit::FarCallEntered
+                | ExecutionExit::Halted => continue,
                 exit => break exit,
             };
         };
@@ -142,22 +150,9 @@ impl Cpu {
         ) {
             self.pending.take();
             self.abandon_suspended_calls();
+            self.halted = false;
             // Coalesce any requests made while destroying the retained work.
             self.exit.0.set(None);
-        }
-        exit
-    }
-
-    /// Runs guest code to the next host entry or guest exit, including any
-    /// successor protected by an interrupt-inhibiting instruction.
-    fn run_guest(&mut self) -> ExecutionExit {
-        let machine = &mut self.machine;
-        let mut exit = machine.dispatch();
-        // Finish protected successors before polling IRQs or returning for a
-        // checkpoint. The execution step also delivers supported faults, then
-        // publishes its result without dispatching the target.
-        while exit == ExecutionExit::InterruptInhibited && self.exit.0.get().is_none() {
-            exit = machine.dispatch.step(&mut machine.backend);
         }
         exit
     }

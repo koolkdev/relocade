@@ -48,6 +48,9 @@ pub enum ExecutionExit {
     /// The active instruction allowance was reached at a completed checkpoint.
     /// CPU state includes all completed work, including any block overshoot.
     BudgetExhausted,
+    /// HLT completed. IP names its successor; retain the halt until an eligible
+    /// interrupt is accepted. Ordinary host notifications do not resume the guest.
+    Halted,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

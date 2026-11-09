@@ -331,3 +331,6 @@ mod far_calls;
 
 #[path = "runtime_calls/budgets.rs"]
 mod budgets;
+
+#[path = "runtime_calls/halt.rs"]
+mod halt;
