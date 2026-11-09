@@ -120,6 +120,67 @@ async fn default_exceptions() {
         .expect("PC guest timed out");
 }
 
+async fn absent_services() {
+    let clock = ManualClock::default();
+    let storage = CpuStorage::new().unwrap();
+    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
+    let runner = Runner::new(clock.clock(), storage, endpoint);
+    runner
+        .run(
+            futures_timer::Delay::new(Duration::from_secs(30)),
+            async |runner| {
+                let mut pc = Pc::new(runner).await.unwrap();
+                let memory = pc.cpu().memory();
+                let vectors = [0x14, 0x17];
+                let mut code = Vec::new();
+                for vector in vectors {
+                    code.extend_from_slice(&[0xcd, vector]);
+                }
+                code.extend_from_slice(&[0xcd, 0x1b, 0xcd, 0x1c]);
+                memory.view().write(0x1000, &code).unwrap();
+                let exit = pc.cpu().exit_handle();
+                pc.cpu()
+                    .install([Hook::host(0x1000 + code.len() as u32, async move || {
+                        exit.request()
+                    })])
+                    .await
+                    .unwrap();
+                let state = pc.cpu().cpu_state();
+                state.set_eip(0x1000);
+                state.set_sp(0x8000);
+                state.set_eax(0x1234_5678);
+                state.set_ebx(0x5678_abcd);
+                state.set_ecx(0x1357_2468);
+                state.set_edx(0xfedc_ba98);
+                state.set_eflags(0xa57);
+                let before = state.snapshot();
+                assert_eq!(
+                    runner.run_cpu(pc.cpu()).await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+                assert_eq!(state.snapshot().registers, before.registers);
+                assert_eq!(state.snapshot().segments, before.segments);
+                assert_eq!(state.eflags(), 0xa57);
+                for vector in [0x21, 0x33] {
+                    assert_eq!(
+                        memory.view().read_u32(vector * 4).unwrap(),
+                        0,
+                        "DOS is not installed"
+                    );
+                }
+                for vector in [0x1f, 0x43] {
+                    assert_ne!(
+                        read_vector(&memory.view(), vector),
+                        read_vector(&memory.view(), 0x14),
+                        "font data is not a callable default"
+                    );
+                }
+            },
+        )
+        .await
+        .expect("PC guest timed out");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
@@ -142,4 +203,16 @@ fn pc_installs_default_exception_handlers() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_installs_default_exception_handlers() {
     default_exceptions().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pc_returns_from_absent_services_and_default_callbacks() {
+    pollster::block_on(absent_services());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn pc_returns_from_absent_services_and_default_callbacks() {
+    absent_services().await;
 }

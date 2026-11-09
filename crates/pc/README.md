@@ -10,6 +10,14 @@ and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. Devices run on the supplied runner and
 share its clock.
 
+The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
+drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,
+including EDD probes, fail with AH=01h and carry set. AH=01h reads the previous
+floppy/hard-disk status from the BIOS data area. No disk transfers occur.
+INT 14h/17h return unchanged, as IBM BIOS does for a zero COM/LPT base address.
+DOS can replace these vectors; unrelated vectors and IVT data pointers are not
+filled with a universal fallback.
+
 The caller supplies guest code and CPU entry state through `pc.cpu()`, then runs
 it with `runner.run_cpu(pc.cpu()).await`. This starts from initialized firmware
 state; reset-ROM execution, POST and disk booting are not implemented.
