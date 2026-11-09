@@ -31,7 +31,7 @@ mod unchained256;
 use common::support::software;
 
 use relocade_vga::{CapturedFrame, VgaRenderer};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -57,14 +57,12 @@ async fn check_image() {
     let input = common::fixture::capture(&vga);
     let input = Arc::new(input);
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(&queue, &input);
+    renderer.upload(&queue, &input.display);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
-    assert_eq!(frame.image.size(), [640, 200]);
-    assert_eq!(frame.image.pixel_aspect_ratio(), (5, 12));
-    assert_eq!(frame.time, input.time);
-    assert_eq!(frame.sequence, input.sequence);
-    let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+    assert_eq!(frame.size(), [640, 200]);
+    assert_eq!(frame.pixel_aspect_ratio(), (5, 12));
+    let pixels = read_pixels(&device, &queue, frame.texture()).await;
     // Literal font rows and palette values check packing, glyph direction and
     // colors independently of the software conversion implementation.
     for (y, bits) in [0xfe, 0x62, 0x68, 0x78, 0x68, 0x60, 0xf0, 0]
@@ -82,22 +80,18 @@ async fn check_image() {
     }
     assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 639, 199), [85, 85, 255, 255]);
-    let image = frame.image.clone();
+    let image = frame.clone();
 
-    // Another capture updates reusable storage, including retained Image handles,
-    // even when the sequence is unchanged.
+    // Another snapshot updates reusable storage, including retained Image handles.
     let mut vga = text_device();
     set_cell(&mut vga, 0, 0xdb, 4);
-    let mut other = common::fixture::capture(&vga);
-    other.time += Duration::from_secs(1);
+    let other = common::fixture::capture(&vga);
     let other = Arc::new(other);
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(&queue, &other);
+    renderer.upload(&queue, &other.display);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
-    assert_eq!(frame.sequence, input.sequence);
-    assert_eq!(frame.time, other.time);
-    assert_eq!(frame.image.texture(), image.texture());
+    assert_eq!(frame.texture(), image.texture());
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 639, 199), [0, 0, 0, 255]);

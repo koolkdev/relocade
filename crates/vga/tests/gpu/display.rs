@@ -29,7 +29,7 @@ async fn check_display() {
     vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     assert_eq!(display.service(&queue).await, Some(true));
     assert!(
-        display.current_frame().is_none(),
+        display.current_image().is_none(),
         "observing captures does not decode an image"
     );
 
@@ -39,8 +39,6 @@ async fn check_display() {
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     let first = source.current_capture().unwrap();
-    assert_eq!(display.current_frame().unwrap().sequence, first.sequence);
-    assert_eq!(display.current_frame().unwrap().time, first.time);
 
     // Mark one output pixel to distinguish reusing the image from decoding again.
     queue.write_texture(
@@ -74,7 +72,6 @@ async fn check_display() {
         [0, 255, 255, 255],
         "unchanged captures and another redraw must reuse decoded pixels"
     );
-    assert_eq!(display.current_frame().unwrap().sequence, first.sequence);
 
     set_cell(&mut vga, 0, 0xdb, 1);
     clock.advance_to(clock_origin() + common::boundary(9));
@@ -100,8 +97,6 @@ async fn check_display() {
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     let last = source.current_capture().unwrap();
     assert_eq!((last.sequence, last.time), (10, common::boundary(10)));
-    assert_eq!(display.current_frame().unwrap().sequence, last.sequence);
-    assert_eq!(display.current_frame().unwrap().time, last.time);
     assert!(display.service(&queue).now_or_never().is_none());
 
     drop(vga);
@@ -120,7 +115,7 @@ async fn check_display() {
     // The same connection must restore its closed source on a replacement GPU,
     // without another guest write or a new capture sequence.
     display.device_lost();
-    assert!(display.current_frame().is_none());
+    assert!(display.current_image().is_none());
     drop((image, latest));
     device.destroy();
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
@@ -128,7 +123,7 @@ async fn check_display() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     display.attach_device(&device, &queue).unwrap();
     assert!(
-        display.current_frame().is_none(),
+        display.current_image().is_none(),
         "replacement waits for redraw before restoring pixels"
     );
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -136,8 +131,6 @@ async fn check_display() {
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(&device, &queue, restored.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
-    assert_eq!(display.current_frame().unwrap().sequence, last.sequence);
-    assert_eq!(display.current_frame().unwrap().time, last.time);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

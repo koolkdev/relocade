@@ -24,9 +24,9 @@ async fn check_indexed_resolutions() {
         }
         let capture = common::fixture::capture(&vga);
         drop(vga);
-        renderer.upload(&queue, &capture);
+        renderer.upload(&queue, &capture.display);
         let mut encoder = device.create_command_encoder(&Default::default());
-        let image = renderer.encode(&mut encoder).unwrap().image;
+        let image = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
         assert_eq!(image.size(), [width, height]);
         let pixels = read_pixels(&device, &queue, image.texture()).await;
@@ -81,9 +81,9 @@ async fn check_virtual_layout() {
     let origin = common::fixture::capture(&vga);
     drop(vga);
     for (capture, visible) in [(&corner, true), (&origin, false), (&corner, true)] {
-        renderer.upload(&queue, capture);
+        renderer.upload(&queue, &capture.display);
         let mut encoder = device.create_command_encoder(&Default::default());
-        let image = renderer.encode(&mut encoder).unwrap().image;
+        let image = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
         let pixels = read_pixels(&device, &queue, image.texture()).await;
         for (offset, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
@@ -144,7 +144,7 @@ async fn check_packed_pixels() {
     }
     vga.write_port(0x3c6, 1, 0x7f); // High palette indices obey the shared DAC mask.
     let original = common::fixture::capture(&vga);
-    assert!(renderer.upload(&queue, &original));
+    assert!(renderer.upload(&queue, &original.display));
 
     // Legacy reset, blanking, geometry, panning and CPU banking do not select pixels.
     for (port, value) in [
@@ -161,7 +161,7 @@ async fn check_packed_pixels() {
     svga::set(&mut vga, 5, 63);
     vga.write_port(0x3c8, 1, 200); // DAC transfer position is not a display input.
     let unchanged = common::fixture::capture(&vga);
-    assert!(!renderer.upload(&queue, &unchanged));
+    assert!(!renderer.upload(&queue, &unchanged.display));
     palette(&mut vga, 1, [0, 0, 63]);
     let recolored = common::fixture::capture(&vga);
     svga::write_byte(&mut vga, 0x40000, 0);
@@ -174,13 +174,13 @@ async fn check_packed_pixels() {
         (&original, [255, 0, 0, 255], [85, 170, 255, 255]),
         (&recolored, [0, 0, 255, 255], [85, 170, 255, 255]),
     ] {
-        renderer.upload(&queue, capture);
+        renderer.upload(&queue, &capture.display);
         let mut encoder = device.create_command_encoder(&Default::default());
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
-        assert_eq!(frame.image.size(), [640, 480]);
-        assert_eq!(frame.image.pixel_aspect_ratio(), (1, 1));
-        let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+        assert_eq!(frame.size(), [640, 480]);
+        assert_eq!(frame.pixel_aspect_ratio(), (1, 1));
+        let pixels = read_pixels(&device, &queue, frame.texture()).await;
         assert_eq!(pixel(&pixels, 0, 0), edge);
         assert_eq!(pixel(&pixels, 639, 0), [0, 255, 0, 255]);
         assert_eq!(pixel(&pixels, 0, 1), [0, 0, 255, 255]);
@@ -217,12 +217,12 @@ async fn check_packed_pixels() {
         ),
         (&legacy, [0, 255, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]),
     ] {
-        assert!(renderer.upload(&queue, capture));
-        assert!(!renderer.upload(&queue, capture));
+        assert!(renderer.upload(&queue, &capture.display));
+        assert!(!renderer.upload(&queue, &capture.display));
         let mut encoder = device.create_command_encoder(&Default::default());
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
-        let pixels = read_pixels(&device, &queue, frame.image.texture()).await;
+        let pixels = read_pixels(&device, &queue, frame.texture()).await;
         assert_eq!(pixel(&pixels, 0, 0), [255, 0, 0, 255]);
         assert_eq!(pixel(&pixels, 1, 0), second);
         assert_eq!(pixel(&pixels, 384, 409), extended);
@@ -283,7 +283,6 @@ async fn check_published_display() {
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 384, 409), [170, 0, 170, 255]);
     assert_eq!(pixel(&pixels, 639, 479), [170, 85, 0, 255]);
-    assert_eq!(display.current_frame().unwrap().sequence, 4);
 
     // New GPU resources reconstruct the latest complete packed state after the
     // producer is gone, even though the first renderer consumed its dirty hints.
@@ -377,11 +376,11 @@ async fn check_direct_color() {
             original.display.vram_byte(4 * 1024 * 1024 - 1),
             Some(if bits == 16 { 0xf8 } else { 0xa5 })
         );
-        assert!(renderer.upload(&queue, &original));
+        assert!(renderer.upload(&queue, &original.display));
         palette(&mut vga, 0, [63, 63, 63]);
         vga.write_port(0x3c6, 1, 0);
         let recolored = common::fixture::capture(&vga);
-        assert!(!renderer.upload(&queue, &recolored));
+        assert!(!renderer.upload(&queue, &recolored.display));
         svga::set(&mut vga, 8, 0);
         svga::set(&mut vga, 9, 0);
         let panned = common::fixture::capture(&vga);
@@ -396,9 +395,9 @@ async fn check_direct_color() {
             (&original, true, [0, 0, 0, 255]),
             (&indexed, false, [255; 4]),
         ] {
-            renderer.upload(&queue, capture);
+            renderer.upload(&queue, &capture.display);
             let mut encoder = device.create_command_encoder(&Default::default());
-            let image = renderer.encode(&mut encoder).unwrap().image;
+            let image = renderer.encode(&mut encoder).unwrap();
             queue.submit([encoder.finish()]);
             assert_eq!(image.size(), [640, 480]);
             let pixels = read_pixels(&device, &queue, image.texture()).await;

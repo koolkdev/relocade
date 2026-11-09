@@ -1,4 +1,4 @@
-use crate::{FrameSource, VgaImage, VgaRenderer};
+use crate::{FrameSource, VgaRenderer};
 use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::{FrameError, Image};
 
@@ -12,7 +12,7 @@ pub struct VgaDisplay {
     source: FrameSource,
     renderer: Option<VgaRenderer>,
     observed_sequence: Option<u64>,
-    frame: Option<VgaImage>,
+    image: Option<Image>,
 }
 
 impl VgaDisplay {
@@ -23,22 +23,21 @@ impl VgaDisplay {
             source,
             renderer: Some(VgaRenderer::new(device)?),
             observed_sequence: None,
-            frame: None,
+            image: None,
         })
     }
 
-    /// Image and source metadata from the most recent decode. Redraws with
-    /// unchanged rendering inputs leave both intact. Submit recorded commands
-    /// before consuming the pixels.
-    /// Storage is reusable, not a historical frame.
-    pub fn current_frame(&self) -> Option<&VgaImage> {
-        self.frame.as_ref()
+    /// Image from the most recent decode. Redraws with unchanged rendering inputs
+    /// reuse it. Submit recorded commands before consuming the pixels.
+    /// Storage is reused across decodes and does not retain historical pixels.
+    pub fn current_image(&self) -> Option<&Image> {
+        self.image.as_ref()
     }
 }
 
 impl DisplayRenderer for VgaDisplay {
     fn device_lost(&mut self) {
-        self.frame = None;
+        self.image = None;
         self.renderer = None;
     }
 
@@ -46,7 +45,7 @@ impl DisplayRenderer for VgaDisplay {
         // Fresh storage forces a full upload on the next redraw, even when the
         // source sequence did not change or capture production has already ended.
         self.renderer = Some(VgaRenderer::new(device).map_err(|error| error.to_string())?);
-        self.frame = None;
+        self.image = None;
         Ok(())
     }
 
@@ -63,11 +62,11 @@ impl DisplayRenderer for VgaDisplay {
     ) -> Option<&Image> {
         let renderer = self.renderer.as_mut()?;
         let capture = self.source.take_capture()?;
-        let changed = renderer.upload(queue, &capture);
+        let changed = renderer.upload(queue, &capture.display);
         self.observed_sequence = Some(capture.sequence);
-        if changed || self.frame.is_none() {
-            self.frame = renderer.encode(encoder);
+        if changed || self.image.is_none() {
+            self.image = renderer.encode(encoder);
         }
-        self.frame.as_ref().map(|frame| &frame.image)
+        self.image.as_ref()
     }
 }
