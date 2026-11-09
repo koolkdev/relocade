@@ -7,7 +7,7 @@ use operations::Accesses;
 use ranges::MemoryRange;
 
 use crate::{
-    body::{BlockItem, Exit, FunctionGraph, Operation, OperationKind},
+    body::{BlockItem, CallTarget, Exit, FunctionGraph, Operation, OperationKind},
     BuiltProgram,
 };
 
@@ -77,7 +77,9 @@ impl<R: AsRef<[MemoryRange]>> Effects<R> {
 pub(super) fn observable(operation: &Operation, summaries: &[Effects]) -> bool {
     match operation.kind() {
         OperationKind::Load { .. } => false,
-        OperationKind::Call { target } => summaries[target.0].must_execute(),
+        OperationKind::Call {
+            target: CallTarget::Function(target),
+        } => summaries[target.0].must_execute(),
         _ => true,
     }
 }
@@ -122,7 +124,10 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
             };
             let operation = &body.effects[effect.0].operation;
             if let OperationKind::Call { target } = operation.kind() {
-                callees.push(target);
+                match target {
+                    CallTarget::Function(function) => callees.push(function),
+                    CallTarget::Table(_) => return Some(Effects::Unknown),
+                }
                 continue;
             }
             let Effects::Known {

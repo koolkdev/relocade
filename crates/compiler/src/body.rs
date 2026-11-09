@@ -6,7 +6,7 @@ mod operation;
 mod producer;
 mod prune;
 mod values;
-pub(super) use operation::{Operation, OperationKind};
+pub(super) use operation::{CallTarget, Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};
 pub(super) use values::{BitBounds, ValueTable};
 
@@ -56,7 +56,7 @@ pub(super) struct Block {
     pub(super) items: Vec<BlockItem>,
     // Ordinary-call targets recorded during construction and rebuilt during
     // compaction. Terminal call targets are already stored in `exit`.
-    pub(super) callees: Vec<Func>,
+    pub(super) callees: Vec<CallTarget>,
     pub(super) exit: Exit,
     pub(super) scope: usize,
 }
@@ -211,7 +211,10 @@ impl FunctionGraph {
                 _ => {}
             }
             for &target in &block.callees {
-                visit_function(target);
+                match target {
+                    CallTarget::Function(function) => visit_function(function),
+                    CallTarget::Table(table) => visit_table(table),
+                }
             }
         }
     }

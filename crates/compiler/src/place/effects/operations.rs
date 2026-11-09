@@ -1,6 +1,6 @@
 //! Allocation-free effect descriptions for individual operations.
 use super::{Effects, MemoryRange};
-use crate::body::{FunctionGraph, Operation, OperationKind};
+use crate::body::{CallTarget, FunctionGraph, Operation, OperationKind};
 
 // Direct operations keep their single access inline; calls borrow summary slices.
 pub(super) enum Accesses<'a> {
@@ -72,7 +72,12 @@ pub(super) fn describe<'a>(
     summaries: &'a [Effects],
 ) -> Effects<Accesses<'a>> {
     match operation.kind() {
-        OperationKind::Call { target } => summaries[target.0].borrowed(),
+        OperationKind::Call {
+            target: CallTarget::Function(target),
+        } => summaries[target.0].borrowed(),
+        OperationKind::Call {
+            target: CallTarget::Table(_),
+        } => Effects::Unknown,
         _ => direct(operation, body),
     }
 }

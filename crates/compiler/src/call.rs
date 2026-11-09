@@ -106,14 +106,7 @@ impl BlockBuilder<'_> {
         arguments: &[Argument],
     ) -> Result<(), BuildError> {
         self.terminate(|body| {
-            let signature = &body
-                .declarations
-                .tables
-                .get(table.0)
-                .ok_or(BuildError::UnknownTable)?
-                .signature;
-            let arguments =
-                body.resolve_arguments(signature, arguments, &body.signature().results)?;
+            let arguments = body.resolve_table_call(table, arguments, &body.signature().results)?;
             let slot = body.operand(slot)?;
             Ok(Exit::TailCallIndirect {
                 table,
@@ -161,6 +154,39 @@ impl BlockBuilder<'_> {
         let outputs = self.execute(Operation::call(target, arguments), &types)?;
         let values = results::bind::<R>(self, &outputs);
         Ok(values)
+    }
+
+    /// Calls a function in an imported table and returns its typed result shape.
+    /// The slot is resolved at each invocation. Indirect calls execute in authored
+    /// order even when their results are unused, and may change any imported
+    /// memory or table. Narrow arguments and results use the same logical calling
+    /// convention as [`Self::call`]. Invalid slots or Wasm signatures trap.
+    pub fn call_indirect<R: Results>(
+        &mut self,
+        table: Table,
+        slot: impl Into<Val<I32>>,
+        arguments: &[Argument],
+    ) -> Result<R::Values, BuildError> {
+        let types = results::types::<R>();
+        let arguments = self.resolve_table_call(table, arguments, &types)?;
+        let slot = self.operand(slot)?;
+        let outputs = self.execute(Operation::call_indirect(table, slot, arguments), &types)?;
+        Ok(results::bind::<R>(self, &outputs))
+    }
+
+    fn resolve_table_call(
+        &self,
+        table: Table,
+        arguments: &[Argument],
+        expected: &[Type],
+    ) -> Result<Vec<usize>, BuildError> {
+        let signature = &self
+            .declarations
+            .tables
+            .get(table.0)
+            .ok_or(BuildError::UnknownTable)?
+            .signature;
+        self.resolve_arguments(signature, arguments, expected)
     }
 
     fn resolve_call(
@@ -212,6 +238,10 @@ impl BlockBuilder<'_> {
 #[cfg(test)]
 #[path = "call/tables.rs"]
 mod tables;
+
+#[cfg(test)]
+#[path = "call/indirect.rs"]
+mod indirect;
 
 #[cfg(test)]
 mod tests {
