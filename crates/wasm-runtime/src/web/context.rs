@@ -2,7 +2,7 @@ use super::{Memory, Store};
 use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
 use std::cell::RefMut;
 
-/// Scoped exclusive access to retained host state.
+/// Scoped exclusive access to retained host state, memories and tables.
 pub struct Context<'a, T>(pub(super) RefMut<'a, Store<T>>);
 
 impl<T: 'static> WasmContext for Context<'_, T> {

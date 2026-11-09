@@ -2,7 +2,7 @@ use super::Memory;
 use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
 use wasmtime::{AsContextMut, StoreContextMut};
 
-/// Scoped exclusive access to a store and its memories.
+/// Scoped exclusive access to a store, its memories and its tables.
 pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, T>);
 
 impl<T: 'static> WasmContext for Context<'_, T> {

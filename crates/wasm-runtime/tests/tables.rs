@@ -4,6 +4,9 @@ use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[path = "tables/callbacks.rs"]
+mod callbacks;
+
 async fn check_table_defaults() {
     type Read = fn(u16) -> u32;
     const READ: abi::Table<Read> = {
