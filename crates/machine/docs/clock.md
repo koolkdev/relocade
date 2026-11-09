@@ -91,6 +91,44 @@ and retain soft checkpoint overshoot. Reading time does not dispatch device work
 `CpuStateAccess::restore` preserves cumulative retirement when restoring guest
 registers, including across program loads. Initial counts belong in `CpuConfig`.
 
+## Execution with guest time
+
+`ExecutionWorker::spawn_with_guest_time(instructions_per_second, yield_interval,
+session)` constructs a guest time driver starting at `Instant::now()` and a
+`Runner` on the execution owner. `yield_interval` is an optional positive duration
+in guest time between periodic CPU yields; `None` uses device deadlines alone.
+The lower-level `Runner::with_guest_time` accepts prepared CPU storage and its
+wake endpoint.
+
+`Runner::run_cpu` uses one execution loop for both host and guest clocks. It
+prepares the schedule, polls the CPU once, publishes guest time and gives ready
+activities a turn before continuing or returning an exit. The private
+`ExecutionSchedule` owns clock selection, periodic yield deadlines and idle
+scheduling. Its binding scopes the guest driver's target and notifications to
+one run; completion and cancellation release it.
+
+Pending services and suspended calls belong to `Cpu`. Both `Cpu::run` and Runner
+use the same internal `poll_run` boundary, including terminal-exit cleanup. Runner
+does not retain a separate CPU-run future. Ready device work runs before idle
+time advances, and the CPU is polled again before choosing an idle deadline.
+
+The execution schedule computes periodic yield deadlines from the optional
+interval.
+Boundaries remain anchored to the session origin, including after checkpoint
+overshoot and device reprogramming. The driver receives the next absolute guest
+time at which execution should yield. Devices use the same `Clock`
+API in either mode, and the guest time driver has no CPU execution or yield callback.
+
+Host waits use a separate host `Clock` constructed from `TimerHandle` on the
+execution owner. `HostTimerDriver::spawn_with_peer` binds direct notifications so
+host deadlines can wake services while guest execution stays runnable.
+
+This mode advances guest time without pacing against host time. Idle advancement
+to a guest deadline is distinct from waiting for a host deadline or an external
+event. Mapping guest time to host time and choosing those waits belongs to Runner's
+pacing policy; that policy is not implemented here. Checkpoint placement and REP
+retirement accounting also remain separate work.
+
 ## Host timers
 
 `timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts

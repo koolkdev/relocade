@@ -1,6 +1,9 @@
 //! CPU execution and registered device activities on one owner.
 
+mod schedule;
 mod worker;
+
+use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, WakeEndpoint, WakePeer};
@@ -18,13 +21,22 @@ use futures_util::{
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
-use std::{cell::RefCell, future::Future, ops::RangeInclusive, pin::pin, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::{poll_fn, Future},
+    num::NonZeroU64,
+    ops::RangeInclusive,
+    pin::pin,
+    rc::Rc,
+    task::Poll,
+    time::Duration,
+};
 
 /// Owns a worker's execution session, including its CPU storage and device activities.
 /// [`ExecutionWorker`] prepares the resources before starting the owner thread.
 /// Notifications interrupt guest execution so ready Rust activities can run.
 pub struct Runner {
-    clock: Clock,
+    schedule: ExecutionSchedule,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
@@ -40,10 +52,18 @@ impl Runner {
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Self {
+        Self::with_schedule(ExecutionSchedule::from_clock(clock), storage, endpoint)
+    }
+
+    fn with_schedule(
+        schedule: ExecutionSchedule,
+        storage: CpuStorage,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Self {
         let (activities, pending) = mpsc::unbounded();
         let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
         Self {
-            clock,
+            schedule,
             activities,
             pending: Some(pending),
             executor,
@@ -69,7 +89,7 @@ impl Runner {
     }
 
     pub fn clock(&self) -> &Clock {
-        &self.clock
+        self.schedule.clock()
     }
 
     /// Post this resource to another worker and retain its `bind()` guard there
@@ -146,14 +166,42 @@ impl Runner {
             std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
             "construct the session CPU with runner.create_cpu"
         );
-        // Let siblings in CPU-first async composition register their waits.
-        // Device activities were already started by connect().await.
+        let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+        let _binding = self.schedule.bind(cpu, &changed);
+        let interrupt = cpu.interrupt_handle();
         self.executor.yield_now().await;
         loop {
-            match cpu.run().await {
-                ExecutionExit::Interrupted => self.executor.yield_now().await,
-                exit => return exit,
+            let exit = poll_fn(|cx| {
+                self.schedule.before_cpu_poll();
+                let result = cpu.poll_run(cx);
+                self.schedule.after_cpu_poll(result, &interrupt)
+            })
+            .await;
+            // Publish time before this turn, including when the CPU has exited.
+            self.executor.yield_now().await;
+            if let Some(exit) = exit {
+                return exit;
             }
         }
+    }
+
+    /// Runs on emulated guest time without pacing against host time.
+    /// Retirement advances time at `instructions_per_second`. Device deadlines
+    /// and an optional `yield_interval` in guest time stop execution at soft
+    /// checkpoints, which can overshoot. Ready activities run before idle time
+    /// advances to the next registered sleep. Time pauses between calls to
+    /// [`Self::run_cpu`]. A supplied yield interval must be positive;
+    /// `None` adds no periodic yields beyond those required by device deadlines.
+    pub fn with_guest_time(
+        instructions_per_second: NonZeroU64,
+        yield_interval: Option<Duration>,
+        storage: CpuStorage,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Self {
+        Self::with_schedule(
+            ExecutionSchedule::with_guest_time(instructions_per_second, yield_interval),
+            storage,
+            endpoint,
+        )
     }
 }
