@@ -211,17 +211,16 @@ the output on the execution owner, then await the returned `HostSync` at the
 receiver before applying it:
 
 ```rust,ignore
-let sync = clock.sync_to_host(output_time);
-// Transfer sync with the output to its receiving worker.
-sync.sync().await;
+clock.sync_to_host(output_time).await;
 ```
 
 `HostSync` retains the mapped deadline and the configured host timer source. It
-can be cloned and sent between workers. Waiting uses that source's ordinary
-`sleep_until`, including the dedicated timer service's native and browser waits;
+can also be retained with output and sent between workers before awaiting it.
+Waiting uses that source's ordinary `sleep_until`, including the dedicated timer
+service's native and browser waits;
 consumers do not choose another timer backend. Registration happens on first
 poll, cancellation releases that wait, and the captured value can be awaited
-again. Already elapsed deadlines complete immediately.
+again by awaiting a clone. Already elapsed deadlines complete immediately.
 
 The mapping is captured before output leaves its execution owner, so a later
 CPU pause or resume cannot remap pending output. Host-clock output uses the same

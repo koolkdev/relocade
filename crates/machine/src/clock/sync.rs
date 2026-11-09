@@ -1,11 +1,12 @@
 use super::{ClockSource, Instant, Sleep};
-use std::sync::Arc;
+use std::{future::IntoFuture, sync::Arc};
 
 /// A captured host deadline and its timer source, transferable with output.
 /// Clones retain the same deadline. Waiting registers on the receiving owner;
-/// dropping that wait cancels it without consuming this captured synchronization.
+/// dropping that wait cancels it while retained clones remain usable.
 /// Keep the host timer service running until its output consumers finish waiting.
 /// The default value is immediately ready, for output without a host mapping.
+/// Await this value directly, or clone it before awaiting to retain it.
 #[derive(Clone, Default)]
 pub struct HostSync(Option<Deadline>);
 
@@ -29,10 +30,13 @@ impl HostSync {
     pub fn deadline(&self) -> Option<Instant> {
         self.0.as_ref().map(|deadline| deadline.at)
     }
+}
 
-    /// Waits through the retained host timer source. Already elapsed deadlines
-    /// and output without a host mapping complete immediately.
-    pub fn sync(&self) -> Sleep {
+impl IntoFuture for HostSync {
+    type Output = ();
+    type IntoFuture = Sleep;
+
+    fn into_future(self) -> Sleep {
         match &self.0 {
             Some(deadline) if deadline.at > deadline.source.now() => {
                 deadline.source.sleep_until(deadline.at)

@@ -57,7 +57,7 @@ impl Clock {
     }
 
     /// Captures host synchronization for a timestamp from this clock.
-    /// Send the result with output, then await [`HostSync::sync`] on its receiver.
+    /// Await the result directly, or send it with output and await it on the receiver.
     /// The wait uses the configured host timer source, without sharing this
     /// execution-local clock or requiring a separate timer on the receiver.
     ///

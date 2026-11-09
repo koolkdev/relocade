@@ -5,6 +5,7 @@ use futures_util::{
     future::{select, Either},
     StreamExt,
 };
+use std::future::IntoFuture;
 
 async fn captured_deadline() {
     for timestamped in [false, true] {
@@ -179,7 +180,7 @@ async fn clocks_without_host_mapping() {
     for clock in [host, unpaced] {
         let output = clock.sync_to_host(clock.now());
         assert_eq!(output.deadline(), None);
-        assert!(poll_once(output.sync()).await.is_some());
+        assert!(poll_once(output.into_future()).await.is_some());
         assert!(poll_once(clock.sync()).await.is_some());
         assert!(poll_once(clock.sync_to(Instant::now())).await.is_some());
     }
@@ -222,7 +223,7 @@ async fn output_sync_on_receiver() {
         "capture does not register a timer"
     );
     {
-        let mut waiting = sync.sync();
+        let mut waiting = sync.clone().into_future();
         assert!(poll_once(&mut waiting).await.is_none());
         assert_eq!(host.next_deadline(), sync.deadline());
     }
@@ -231,13 +232,13 @@ async fn output_sync_on_receiver() {
         None,
         "cancelling the receiving wait releases it"
     );
-    let mut waiting = sync.clone().sync();
+    let mut waiting = sync.clone().into_future();
     assert!(poll_once(&mut waiting).await.is_none());
     host.advance_by(Duration::from_millis(9));
     assert!(poll_once(&mut waiting).await.is_none());
     host.advance_by(Duration::from_millis(1));
     waiting.await;
-    assert!(poll_once(sync.sync()).await.is_some());
+    assert!(poll_once(sync.into_future()).await.is_some());
     assert_eq!(host.next_deadline(), None);
 }
 

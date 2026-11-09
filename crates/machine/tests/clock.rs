@@ -16,7 +16,7 @@ async fn clock_waits() {
         let output = clock.sync_to_host(deadline);
         assert_eq!(output.deadline(), Some(deadline));
         let long = async {
-            output.sync().await;
+            output.await;
             assert!(clock.now() >= deadline);
         };
         let short = async {
