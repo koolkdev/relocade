@@ -1,8 +1,9 @@
 # Worker tasks and messages
 
 The machine exposes `worker::Thread` and `ExecutionWorker` without feature flags.
-The Wasm runtime reexports `web-thread-select` and adds `ThreadExt::run_resource`
-for typed resource handles. The application creates workers and keeps them alive
+The Wasm runtime reexports `relocade-workers`, which uses `web-thread-select`
+and adds typed resource transfer for task inputs and messages.
+The application creates workers and keeps them alive
 until their tasks finish. `ExecutionWorker::spawn` creates a worker and supplies
 its fully initialized `Runner`; CPU-level work can use `Cpu` directly.
 
@@ -35,8 +36,9 @@ let exit = task.await??;
 ```
 
 `Memory` derives `WorkerResource` and marks its backing with `#[worker(post)]`.
-The common derive supports named and tuple structs with one posted field; other
-fields stay in Rust as `Send` captures. It retains the existing configuration and
+The common derive supports named and tuple structs with one `#[worker(post)]`
+leaf or `#[worker(resource)]` nested resource; other fields stay in Rust as
+`Send` captures. It retains the existing configuration and
 posts shared backing through an opaque `ResourceTransfer`. The
 worker adapter reconstructs the complete handle before invoking the task. Callers
 do not extract backing or pair it with configuration, and the transfer does not
@@ -80,6 +82,77 @@ existing transfer instead of posting it again through a registration channel.
 `ExecutionWorker` does this automatically with `CpuStorage`; callers construct
 its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
 binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
+
+## Resource messages
+
+Use the same `WorkerResource` definition for task inputs and persistent
+messages. A resource can combine a posted module with Rust metadata:
+
+```rust,ignore
+#[derive(worker::WorkerResource)]
+struct CompiledCode {
+    #[worker(post)]
+    module: Module,
+    entries: Vec<BlockEntry>,
+}
+```
+
+For repeated delivery, create a typed resource channel:
+
+```rust,ignore
+let (sender, endpoint) = worker::channel::<CompiledCode>()?;
+let compile = compiler_thread.run_resource(sender, move |mut sender| async move {
+    while let Some(request) = requests.next().await {
+        sender.send(compile_request(request).await?)?;
+    }
+    Ok::<(), Error>(())
+});
+```
+
+The sender and receiver endpoint are themselves worker resources. Transfer the
+endpoint to its final owner, then call `bind()` to obtain a local receiver.
+Embed either handle in another resource using `#[worker(resource)]`. The channel
+uses the object's transfer definition to keep its module and metadata together;
+callers do not encode payloads or match two deliveries.
+
+Sending posts the engine payload before publishing the Rust reconstruction state.
+It does not acknowledge receipt. Cancelling `recv()` preserves a partially
+received object. Normal sender closure drains accepted objects before EOF,
+including payloads still awaiting browser delivery. Abrupt browser worker
+termination cannot promise Rust cleanup or orderly closure. Await accepted tasks
+before releasing their workers.
+
+`Result<R, E>` is a worker resource when `R` is one and `E` is sendable. Only the
+success payload or error variant marker is posted; error data stays in Rust.
+Success and failure therefore occupy the same ordered channel.
+
+Requests and readiness notifications can continue to use Rust channels.
+Receiving a posted resource still needs a browser event-loop turn. A Rust
+readiness notification can interrupt guest execution, but cannot itself deliver
+the engine handle. Resource transport does not choose execution scheduling.
+
+For a one-time handoff to an existing session, `worker::oneshot::channel` creates
+an ordinary Rust sender and endpoint. The endpoint can be captured in a `Send`
+closure; it binds a local receiver on the destination worker:
+
+```rust,ignore
+let (sender, endpoint) = worker::oneshot::channel::<CompiledCode>();
+let receive = execution_thread.run_send((), move |()| async move {
+    let code = endpoint.bind()?.receive().await?;
+    use_compiled_code(code).await
+});
+sender.send(&execution_thread, code).await?;
+receive.await??;
+```
+
+`send` waits for binding and uses the existing `run_resource` transport. Await it
+before releasing the thread. `CancellableWorker::send_resource` exposes the same
+operation on an owned worker. The resource stays local after reconstruction;
+only registration and completion notifications travel through Rust channels.
+A failed dispatch also resolves the receive. Busy execution can first await
+`receiver.posted()` through Rust, then apply its host-turn policy while awaiting
+`receiver.receive()`. Receipt includes the posting task's completion so that task
+can finish even when the session stays busy afterward.
 
 ## Browser build and lifetime
 
