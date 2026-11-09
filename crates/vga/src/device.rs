@@ -2,6 +2,7 @@
 
 use crate::{
     memory::VramAccess,
+    output,
     registers::{dispi, WriteKind, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT},
     Vga,
 };
@@ -9,19 +10,8 @@ use relocade_machine::Device;
 use std::{cell::RefCell, rc::Rc};
 
 impl Device for Vga {
-    /// Capture display inputs while the CPU is busy, idle, or awaiting a service.
-    /// The runner polls this activity alongside CPU execution. No device borrow
-    /// spans a wait. Late service coalesces missed retraces before preparing the
-    /// next deadline.
     async fn run(device: Rc<RefCell<Self>>) {
-        loop {
-            let wait = {
-                let mut device = device.borrow_mut();
-                device.capture_if_due();
-                device.retrace_wait(device.raster.next_retrace_at())
-            };
-            wait.await;
-        }
+        output::run(device).await;
     }
 
     fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {

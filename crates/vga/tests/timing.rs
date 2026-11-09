@@ -24,9 +24,9 @@ fn sequencer(vga: &mut impl Device, index: u8, value: u8) {
 fn blink_dividers_follow_retraces_at_different_dot_clocks() {
     for (miscellaneous, frequency) in [(0x43, 25_175_000), (0x47, 28_322_000)] {
         let clock = ManualClock::default();
-        let mut vga = Vga::with_clock(clock.clock());
-        vga.write_port(0x3c2, 1, miscellaneous);
-        let source = vga.frame_source();
+        let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+        vga.borrow_mut().write_port(0x3c2, 1, miscellaneous);
+        let source = vga.borrow().frame_source();
         // Cursor and attribute phases differ over each half of a 32-frame cycle.
         for (frame, cursor_on, attribute_on) in [
             (1, true, true),
@@ -40,7 +40,8 @@ fn blink_dividers_follow_retraces_at_different_dot_clocks() {
             (32, true, true),
         ] {
             clock.advance_to(clock_origin() + dots((412 + (frame - 1) * 449) * 800, frequency));
-            vga.read_port(0x3da, 1);
+            vga.borrow_mut().read_port(0x3da, 1);
+            common::service_video(video.as_mut());
             let capture = source.current_capture().unwrap();
             assert_eq!(
                 capture.display.vga().unwrap().cursor_blink_on,
@@ -102,17 +103,17 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
         (0x47, 8, 0xbf, 0x1f, 0x9c, 0x8f, 18, 28_322_000),
     ] {
         let clock = ManualClock::default();
-        let mut vga = Vga::with_clock(clock.clock());
-        sequencer(&mut vga, 0, 1);
-        vga.write_port(0x3c2, 1, misc);
-        sequencer(&mut vga, 1, clocking);
-        crtc(&mut vga, 0x11, 0x2e); // Unlock timing registers.
-        crtc(&mut vga, 6, total);
-        crtc(&mut vga, 7, overflow);
-        crtc(&mut vga, 0x10, retrace);
-        crtc(&mut vga, 0x12, display_end);
-        sequencer(&mut vga, 0, 3);
-        let source = vga.frame_source();
+        let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+        sequencer(&mut *vga.borrow_mut(), 0, 1);
+        vga.borrow_mut().write_port(0x3c2, 1, misc);
+        sequencer(&mut *vga.borrow_mut(), 1, clocking);
+        crtc(&mut *vga.borrow_mut(), 0x11, 0x2e); // Unlock timing registers.
+        crtc(&mut *vga.borrow_mut(), 6, total);
+        crtc(&mut *vga.borrow_mut(), 7, overflow);
+        crtc(&mut *vga.borrow_mut(), 0x10, retrace);
+        crtc(&mut *vga.borrow_mut(), 0x12, display_end);
+        sequencer(&mut *vga.borrow_mut(), 0, 3);
+        let source = vga.borrow().frame_source();
         let (retrace_line, total_lines) = if total == 0x0b {
             (490, 525)
         } else {
@@ -120,19 +121,22 @@ fn programmed_totals_and_clock_selection_determine_frame_boundaries() {
         };
         let first = dots(retrace_line * 100 * dot_width, frequency);
         clock.advance_to(clock_origin() + first - Duration::from_nanos(1));
-        assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+        assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
+        common::service_video(video.as_mut());
         assert!(source.current_capture().is_none());
         clock.advance_to(clock_origin() + first);
-        assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
+        assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 8);
+        common::service_video(video.as_mut());
         let capture = source.current_capture().unwrap();
-        assert_eq!(capture.time, first);
         assert_eq!(capture.sequence, 1);
 
         let second = dots((retrace_line + total_lines) * 100 * dot_width, frequency);
         clock.advance_to(clock_origin() + second - Duration::from_nanos(1));
-        assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+        assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
+        common::service_video(video.as_mut());
         clock.advance_to(clock_origin() + second);
-        assert_eq!(vga.read_port(0x3da, 1) & 8, 8);
+        assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 8);
+        common::service_video(video.as_mut());
         // Retrace still advances without replacing unchanged display inputs.
         assert!(Arc::ptr_eq(&capture, &source.current_capture().unwrap()));
     }
@@ -203,19 +207,21 @@ fn retrace_end_comparison_continues_after_the_vertical_counter_wraps() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn disabling_sync_suppresses_the_pulse_without_resetting_counters_or_capture_boundary() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    let source = vga.frame_source();
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    let source = vga.borrow().frame_source();
     clock.advance_to(clock_origin() + dots(411 * 800, 25_175_000));
-    crtc(&mut vga, 0x17, 0x23);
+    crtc(&mut *vga.borrow_mut(), 0x17, 0x23);
     clock.advance_to(clock_origin() + boundary(1));
-    assert_eq!(vga.read_port(0x3da, 1), 1);
+    assert_eq!(vga.borrow_mut().read_port(0x3da, 1), 1);
+    common::service_video(video.as_mut());
     let capture = source.current_capture().unwrap();
-    assert_eq!(capture.time, boundary(1));
     assert_eq!(capture.sequence, 1);
-    crtc(&mut vga, 0x17, 0xa3);
-    assert_eq!(vga.read_port(0x3da, 1), 9);
+    crtc(&mut *vga.borrow_mut(), 0x17, 0xa3);
+    assert_eq!(vga.borrow_mut().read_port(0x3da, 1), 9);
+    common::service_video(video.as_mut());
     clock.advance_to(clock_origin() + dots(414 * 800, 25_175_000));
-    assert_eq!(vga.read_port(0x3da, 1), 1);
+    assert_eq!(vga.borrow_mut().read_port(0x3da, 1), 1);
+    common::service_video(video.as_mut());
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

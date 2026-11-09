@@ -32,33 +32,34 @@ impl Wake for Wakes {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    crtc(&mut vga, 0x17, 0x23);
-    let frames = vga.frame_source();
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    crtc(&mut *vga.borrow_mut(), 0x17, 0x23);
+    let frames = vga.borrow().frame_source();
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
-    let mut wait = pin!(vga.wait_for_retrace().unwrap());
+    let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         clock
             .next_deadline()
             .map(|at| at.duration_since(clock_origin())),
-        None
+        Some(boundary(1)) // The output task still samples internal retraces.
     );
     clock.advance_to(clock_origin() + boundary(1));
-    assert_eq!(vga.read_port(0x3da, 1) & 8, 0);
+    assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
+    common::service_video(video.as_mut());
     assert_eq!(frames.current_capture().unwrap().sequence, 1);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    crtc(&mut vga, 0x17, 0xa3);
+    crtc(&mut *vga.borrow_mut(), 0x17, 0xa3);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(
         wait.as_mut().poll(&mut cx),
         Poll::Ready(RetraceEvent::Reprogrammed)
     );
     assert_eq!(
-        pin!(vga.wait_for_retrace().unwrap()).poll(&mut cx),
+        pin!(vga.borrow_mut().wait_for_retrace().unwrap()).poll(&mut cx),
         Poll::Ready(RetraceEvent::Started)
     );
 }

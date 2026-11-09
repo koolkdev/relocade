@@ -14,10 +14,10 @@ async fn check_display() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
-    set_cell(&mut vga, 0, 0xdb, 4);
-    let source = vga.frame_source();
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
+    let source = vga.borrow().frame_source();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
 
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -26,11 +26,12 @@ async fn check_display() {
     // The host can cancel an input wait to service a redraw without losing input.
     assert!(display.service(&queue).now_or_never().is_none());
     clock.advance_to(clock_origin() + common::boundary(1));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     assert!(
         display.current_image().is_none(),
-        "observing captures does not decode an image"
+        "uploading a capture does not decode an image"
     );
 
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -53,7 +54,8 @@ async fn check_display() {
     );
     for frame in 2..=7 {
         clock.advance_to(clock_origin() + common::boundary(frame));
-        vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        common::service_video(video.as_mut());
         assert!(display.service(&queue).now_or_never().is_none());
     }
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
@@ -73,17 +75,20 @@ async fn check_display() {
         "unchanged captures and another redraw must reuse decoded pixels"
     );
 
-    set_cell(&mut vga, 0, 0xdb, 1);
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 1);
     clock.advance_to(clock_origin() + common::boundary(9));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
-    // A later changed capture is selected at draw time, even without servicing
-    // another notification. An unchanged capture after it must not hide the change.
-    set_cell(&mut vga, 0, 0xdb, 2);
+    // Publication alone cannot change the state used by independent redraws.
+    // The later capture becomes visible only after it has been serviced.
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 2);
     clock.advance_to(clock_origin() + common::boundary(10));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     clock.advance_to(clock_origin() + common::boundary(11));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(
         pixel(&pixels, 0, 0),
@@ -91,14 +96,21 @@ async fn check_display() {
         "new inputs must leave existing pixels intact"
     );
     let mut encoder = device.create_command_encoder(&Default::default());
+    let uploaded = display.encode_image(&queue, &mut encoder).unwrap().clone();
+    queue.submit([encoder.finish()]);
+    let pixels = read_pixels(&device, &queue, uploaded.texture()).await;
+    assert_eq!(pixel(&pixels, 0, 0), [0, 0, 170, 255]);
+    assert_eq!(display.service(&queue).await, Some(true));
+    let mut encoder = device.create_command_encoder(&Default::default());
     let latest = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(&device, &queue, latest.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     let last = source.current_capture().unwrap();
-    assert_eq!((last.sequence, last.time), (10, common::boundary(10)));
+    assert_eq!(last.sequence, 10);
     assert!(display.service(&queue).now_or_never().is_none());
 
+    drop(video);
     drop(vga);
     assert_eq!(display.service(&queue).await, None);
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -116,7 +128,7 @@ async fn check_display() {
     // without another guest write or a new capture sequence.
     display.device_lost();
     assert!(display.current_image().is_none());
-    drop((image, latest));
+    drop((image, uploaded, latest));
     device.destroy();
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
@@ -135,13 +147,13 @@ async fn check_display() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn display_connection_uploads_on_redraw_and_reuses_decoded_pixels() {
+fn display_connection_services_updates_and_reuses_decoded_pixels() {
     pollster::block_on(check_display());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn display_connection_uploads_on_redraw_and_reuses_decoded_pixels() {
+async fn display_connection_services_updates_and_reuses_decoded_pixels() {
     check_display().await;
 }
 
@@ -150,14 +162,14 @@ async fn check_display_state_changes() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    common::support::registers::attribute(&mut vga, attribute::MODE_CONTROL, 0x08);
-    set_cell(&mut vga, 0, 0xdb, 0x84); // Blinking red glyph.
-    set_cell(&mut vga, 1, b' ', 0x82); // Green cursor over a blinking blank cell.
-    common::crtc(&mut vga, crtc::CURSOR_ADDRESS_LOW, 1);
-    common::crtc(&mut vga, crtc::CURSOR_START, 6);
-    common::crtc(&mut vga, crtc::CURSOR_END, 7);
-    let mut display = VgaDisplay::new(&device, vga.frame_source()).unwrap();
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    common::support::registers::attribute(&mut *vga.borrow_mut(), attribute::MODE_CONTROL, 0x08);
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 0x84); // Blinking red glyph.
+    set_cell(&mut *vga.borrow_mut(), 1, b' ', 0x82); // Green cursor over a blinking blank cell.
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_ADDRESS_LOW, 1);
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 6);
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_END, 7);
+    let mut display = VgaDisplay::new(&device, vga.borrow().frame_source()).unwrap();
 
     // Only blink phases change; no guest writes occur between captures.
     for (frame, changed, glyph, cursor) in [
@@ -172,7 +184,8 @@ async fn check_display_state_changes() {
         (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
     ] {
         clock.advance_to(clock_origin() + common::boundary(frame));
-        vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        common::service_video(video.as_mut());
         if changed {
             assert_eq!(display.service(&queue).await, Some(true));
         } else {
@@ -187,9 +200,10 @@ async fn check_display_state_changes() {
     }
 
     // Palette and geometry changes must also redraw with unchanged VRAM.
-    common::support::registers::palette(&mut vga, 4, [0, 0, 63]);
+    common::support::registers::palette(&mut *vga.borrow_mut(), 4, [0, 0, 63]);
     clock.advance_to(clock_origin() + common::boundary(33));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
     let image = display.encode_image(&queue, &mut encoder).unwrap().clone();
@@ -198,12 +212,21 @@ async fn check_display_state_changes() {
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 255, 255]);
 
     let retrace_end =
-        vga.snapshot().vga().unwrap().crtc.values[crtc::VERTICAL_RETRACE_END as usize];
-    common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end & 0x7f);
-    common::crtc(&mut vga, crtc::HORIZONTAL_DISPLAY_END, 39);
-    common::crtc(&mut vga, crtc::VERTICAL_RETRACE_END, retrace_end);
+        vga.borrow().snapshot().vga().unwrap().crtc.values[crtc::VERTICAL_RETRACE_END as usize];
+    common::crtc(
+        &mut *vga.borrow_mut(),
+        crtc::VERTICAL_RETRACE_END,
+        retrace_end & 0x7f,
+    );
+    common::crtc(&mut *vga.borrow_mut(), crtc::HORIZONTAL_DISPLAY_END, 39);
+    common::crtc(
+        &mut *vga.borrow_mut(),
+        crtc::VERTICAL_RETRACE_END,
+        retrace_end,
+    );
     clock.advance_to(clock_origin() + common::boundary(34));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
     let resized = display.encode_image(&queue, &mut encoder).unwrap().clone();

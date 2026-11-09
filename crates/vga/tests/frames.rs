@@ -1,6 +1,6 @@
 use futures_util::task::{waker, ArcWake};
 use relocade_clock_test_support::{origin as clock_origin, ManualClock};
-use relocade_machine::Device;
+use relocade_machine::{Clock, ClockSource, Device, Instant, Sleep};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
@@ -36,6 +36,61 @@ impl ArcWake for WakeCount {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
+    struct DelayedTimer(ManualClock);
+    impl ClockSource for DelayedTimer {
+        fn now(&self) -> Instant {
+            self.0.now()
+        }
+
+        fn sleep_until(&self, _deadline: Instant) -> Sleep {
+            // Guest time advances, but the timer has not delivered its wake yet.
+            Sleep::new(std::future::pending())
+        }
+    }
+
+    let clock = ManualClock::default();
+    let (vga, mut video) =
+        common::start_video(Vga::with_clock(Clock::new(DelayedTimer(clock.clone()))));
+    let source = vga.borrow().frame_source();
+    let wakes = Arc::new(WakeCount::default());
+    let waker = waker(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    poll_video(video.as_mut(), &mut cx);
+
+    vga.borrow_mut()
+        .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'A'));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    clock.advance_to(clock_origin() + boundary(1));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    vga.borrow_mut()
+        .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'B'));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+    assert!(source.current_capture().is_none());
+
+    vga.borrow_mut()
+        .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'C'));
+    clock.advance_to(clock_origin() + boundary(2));
+    vga.borrow_mut()
+        .write_mmio(TEXT_MEMORY_START, 1, u64::from(b'D'));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 1, "pending work coalesces");
+    assert!(source.current_capture().is_none());
+    poll_video(video.as_mut(), &mut cx);
+    let capture = source.current_capture().unwrap();
+    assert_eq!(capture.sequence, 2);
+    assert_eq!(
+        capture.display.plane(0)[0],
+        b'C',
+        "capture precedes the write"
+    );
+    assert_eq!(
+        vga.borrow_mut().read_mmio(TEXT_MEMORY_START, 1),
+        u64::from(b'D')
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(common::text_vga(clock.clock())));
@@ -47,7 +102,6 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     crtc(&mut *vga.borrow_mut(), 0x0f, 1);
     tick(&clock, video.as_mut(), boundary(1));
     let first = source.current_capture().unwrap();
-    assert_eq!(first.time, boundary(1));
     // An alternate renderer can consume captured state without producing CPU pixels.
     let first_text = common::support::inspection::inspect(&first.display);
     assert_eq!(first_text.cells[0].character, 0xdb);
@@ -73,7 +127,6 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
     tick(&clock, video.as_mut(), boundary(2));
     let second = source.current_capture().unwrap();
-    assert_eq!(second.time, boundary(2));
     assert_eq!(
         common::support::inspection::inspect(&second.display).start_address,
         1
@@ -94,7 +147,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
     poll_video(video.as_mut(), &mut Context::from_waker(&waker));
-    assert_eq!(source.current_capture().unwrap().time, boundary(100));
+    assert_eq!(source.current_capture().unwrap().sequence, 100);
     assert_eq!(
         clock
             .next_deadline()
@@ -143,7 +196,7 @@ fn consumers_wake_independently_skip_old_frames_and_finish_on_close() {
     let Poll::Ready(Some(latest)) = slow.as_mut().poll(&mut cx_a) else {
         panic!("latest frame should be ready");
     };
-    assert_eq!(latest.time, boundary(20));
+    assert_eq!(latest.sequence, 20);
     let mut next = std::pin::pin!(source.next_capture(Some(latest.sequence)));
     assert!(next.as_mut().poll(&mut cx_a).is_pending());
     let wakes = wake_a.0.load(Ordering::Relaxed);
@@ -189,7 +242,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
     assert!(changed.as_mut().poll(&mut cx).is_pending());
     assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
-    assert_eq!((first.sequence, first.time), (1, boundary(1)));
+    assert_eq!(first.sequence, 1);
 
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     tick(&clock, video.as_mut(), boundary(3));
@@ -198,7 +251,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
         panic!("changed inputs must wake the consumer");
     };
-    assert_eq!((latest.sequence, latest.time), (3, boundary(3)));
+    assert_eq!(latest.sequence, 3);
     assert_eq!(latest.display.plane(0)[0], 0xdb);
     assert!(Arc::ptr_eq(&latest, &source.current_capture().unwrap()));
 
@@ -211,7 +264,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let Poll::Ready(Some(latest)) = changed.as_mut().poll(&mut cx) else {
         panic!("changed registers must wake the consumer");
     };
-    assert_eq!((latest.sequence, latest.time), (5, boundary(5)));
+    assert_eq!(latest.sequence, 5);
 
     let mut latest = latest;
     // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
@@ -228,7 +281,7 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
         let Poll::Ready(Some(capture)) = changed.as_mut().poll(&mut cx) else {
             panic!("either blink phase must wake the consumer");
         };
-        assert_eq!((capture.sequence, capture.time), (frame, boundary(frame)));
+        assert_eq!(capture.sequence, frame);
         assert_eq!(capture.display.vga().unwrap().cursor_blink_on, cursor_on);
         assert_eq!(
             capture.display.vga().unwrap().attribute_blink_on,
@@ -312,22 +365,24 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    let source = vga.frame_source();
-    vga.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
-    crtc(&mut vga, 0x0a, 0x20);
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    let source = vga.borrow().frame_source();
+    vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
+    crtc(&mut *vga.borrow_mut(), 0x0a, 0x20);
     clock.advance_to(clock_origin() + boundary(5) + Duration::from_micros(1));
-    vga.write_mmio(TEXT_MEMORY_START, 2, 0x2fdb);
+    vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x2fdb);
+    assert!(source.current_capture().is_none());
+    common::service_video(video.as_mut());
     let before = source.current_capture().unwrap();
     assert_eq!(before.sequence, 5);
-    assert_eq!(before.time, boundary(5));
     assert_eq!(
         &software::rasterize(&before).pixels[..4],
         [255, 255, 85, 255]
     );
-    vga.write_port(0x3c4, 2, 0x2101);
+    vga.borrow_mut().write_port(0x3c4, 2, 0x2101);
     clock.advance_to(clock_origin() + boundary(6));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let blank = source.current_capture().unwrap();
     assert_ne!(blank.display.vga().unwrap().sequencer[1] & 0x20, 0);
     assert_eq!(before.display.vga().unwrap().sequencer[1] & 0x20, 0);
@@ -337,9 +392,10 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
         .0
         .iter()
         .all(|p| *p == [0, 0, 0, 255]));
-    vga.write_port(0x3c4, 2, 0x0101);
+    vga.borrow_mut().write_port(0x3c4, 2, 0x0101);
     clock.advance_to(clock_origin() + boundary(7));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     assert_eq!(
         &software::rasterize(&source.current_capture().unwrap()).pixels[..4],
         [255, 255, 255, 255]
