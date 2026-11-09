@@ -88,3 +88,83 @@ fn dos_reports_version_vectors_and_absent_lfn_services() {
 fn dos_installs_a_guest_interrupt_handler() {
     pollster::block_on(check_guest_interrupt_vector());
 }
+
+#[test]
+fn unclaimed_dos_vectors_and_driver_probes_preserve_registers_and_flags() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        let program: Vec<_> = (0x2a..=0x3f)
+            .flat_map(|vector| [0xcd, vector, 0xeb, 0xfe])
+            .collect();
+        dos.launch_com(&program, Default::default()).unwrap();
+        // The resident mouse driver replaces INT 33h during DOS installation.
+        let unclaimed = (0x2au8..=0x3f)
+            .filter(|&vector| vector != 0x33)
+            .map(|vector| (vector, 0xcafe, 0x1234));
+        for (vector, ax, bx) in unclaimed.chain([
+            (0x2f, 0x4300, 0x1234), // XMS: AL must not become 80h.
+            (0x2f, 0x1687, 0x1234), // DPMI: AX must stay nonzero.
+            (0x2f, 0x1500, 0),      // MSCDEX: caller initializes the drive count.
+            (0x2f, 0x1a00, 0x1234), // ANSI.
+            (0x2f, 0x1000, 0x1234), // SHARE.
+            (0x2f, 0x1600, 0x1234), // Windows.
+            (0x2f, 0x7a00, 0x1234), // IPX.
+            (0x2d, 0x0000, 0x1234), // AMIS AL=0 installation checks.
+            (0x2d, 0x8000, 0x1234),
+            (0x2d, 0xff00, 0x1234),
+        ]) {
+            let ip = 0x100 + u32::from(vector - 0x2a) * 4;
+            for flags in [0x856, 0xa57] {
+                let state = dos.cpu().cpu_state();
+                state.set_eip(ip);
+                state.set_ax(ax);
+                state.set_bx(bx);
+                state.set_ecx(0x2345_6789);
+                state.set_edx(0x3456_789a);
+                state.set_esi(0x4567_89ab);
+                state.set_edi(0x5678_9abc);
+                state.set_eflags(flags);
+                let before = state.snapshot();
+                assert_eq!(
+                    common::run_until(dos.cpu(), ip + 2).await,
+                    ExecutionExit::Interrupted
+                );
+                assert_eq!(state.snapshot().registers, before.registers);
+                assert_eq!(state.snapshot().segments, before.segments);
+                assert_eq!(state.eflags(), flags);
+                assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
+            }
+        }
+    });
+}
+
+#[test]
+fn guest_multiplex_driver_chains_unclaimed_probes() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        let mut program = vec![
+            0xb8, 0x2f, 0x35, 0xcd, 0x21, // Get original INT 2Fh.
+            0x89, 0x1e, 0, 3, // MOV [0300],BX.
+            0x8c, 0x06, 2, 3, // MOV [0302],ES.
+            0xba, 0x40, 1, 0xb8, 0x2f, 0x25, 0xcd, 0x21, // Install DS:0140.
+            0xb8, 0xfe, 0xca, 0xcd, 0x2f, 0xa3, 4, 3, // Claimed function.
+            0xb8, 0, 0x43, 0xcd, 0x2f, 0xa3, 6, 3, // XMS probe chains.
+            0xb8, 0, 0x4c, 0xcd, 0x21,
+        ];
+        program.resize(0x40, 0);
+        program.extend_from_slice(&[
+            0x3d, 0xfe, 0xca, // CMP AX,CAFE.
+            0x75, 4, // JNE unclaimed.
+            0xb8, 0xef, 0xbe, 0xcf, // MOV AX,BEEF; IRET.
+            0x2e, 0xff, 0x2e, 0, 3, // JMP FAR CS:[0300].
+        ]);
+        dos.launch_com(&program, Default::default()).unwrap();
+        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(dos.cpu().memory().view().read_u16(0x10304).unwrap(), 0xbeef);
+        assert_eq!(dos.cpu().memory().view().read_u16(0x10306).unwrap(), 0x4300);
+        assert_eq!(
+            dos.process().unwrap().status(),
+            ProcessStatus::Exited(Ok(0))
+        );
+    });
+}

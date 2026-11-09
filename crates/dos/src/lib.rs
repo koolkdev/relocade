@@ -9,6 +9,14 @@
 //! vectors from guest RAM, including guest edits, while preserving unrelated IVT
 //! entries. The root process returns to its host caller; it does not execute
 //! INT 22h. Child EXEC and critical-error dispatch are not implemented.
+//! DOS initializes INT 2Ah through 3Fh to empty handlers that preserve registers
+//! and FLAGS. Installed services replace their vectors; the built-in mouse driver
+//! takes INT 33h. INT 2Dh/2Fh therefore begin as empty multiplex chains.
+//! XMS (4300h), DPMI (1687h), MSCDEX (1500h with BX=0), ANSI (1A00h),
+//! SHARE (1000h), Windows (1600h), IPX (7A00h) and AMIS installation probes
+//! therefore report absence. A guest resident service can replace either vector
+//! and chain unclaimed calls to its saved target. No driver entry point or
+//! installed signature is advertised by the empty chain.
 //! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. PIT channel 0 raises
 //! IRQ0 about 18.2 times per second by default; guest programming can change its
 //! rate. The BIOS handler advances the clock on each delivered interrupt.
