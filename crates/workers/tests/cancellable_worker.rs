@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use futures_util::FutureExt;
-use relocade_wasm_runtime::worker::CancellableWorker;
+use relocade_workers::CancellableWorker;
 use std::{
     pin::pin,
     rc::Rc,

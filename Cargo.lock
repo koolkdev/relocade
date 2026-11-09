@@ -2493,8 +2493,8 @@ dependencies = [
  "js-sys",
  "pollster",
  "relocade-compiler",
- "relocade-derive",
  "relocade-wasm-bindings",
+ "relocade-workers",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
@@ -2502,6 +2502,19 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-encoder 0.254.0",
  "wasmtime",
+]
+
+[[package]]
+name = "relocade-workers"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "pollster",
+ "relocade-compiler",
+ "relocade-derive",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-thread-select",
 ]
 

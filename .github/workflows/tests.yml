@@ -33,7 +33,7 @@ jobs:
             packages: >-
               -p relocade-derive -p relocade-compiler -p relocade-x86
               -p relocade-interpreter -p relocade-test-support
-              -p relocade-wasm-bindings -p relocade-wasm-runtime
+              -p relocade-wasm-bindings -p relocade-wasm-runtime -p relocade-workers
             system-packages: ''
           - suite: Native integration
             name: DOS and application
@@ -42,7 +42,7 @@ jobs:
               --workspace --exclude relocade-derive --exclude relocade-compiler
               --exclude relocade-x86 --exclude relocade-interpreter
               --exclude relocade-test-support --exclude relocade-wasm-bindings
-              --exclude relocade-wasm-runtime
+              --exclude relocade-wasm-runtime --exclude relocade-workers
             system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
     env:
       # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.

@@ -57,7 +57,7 @@ pub use module_cache::ModuleCache;
 compile_error!("the Wasm runtime requires a threaded browser build; see tests/browser/README.md");
 
 /// Rust async workers with native value transfer and browser resource posting.
-pub mod worker;
+pub use relocade_workers as worker;
 
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
