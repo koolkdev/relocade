@@ -42,8 +42,18 @@ pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "i
 /// The host fills the reserved bytes before dispatch; flags remain unchanged.
 pub const FAR_CALL: Function<FarCallSignature> = Function::new("relocade", "farCall");
 
-pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
-pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");
+pub type PortReadSignature = fn(I16, I32) -> I32;
+pub type PortWriteSignature = fn(I16, I32, I32);
+pub const PORT_READS: Table<PortReadSignature> = {
+    let mut table = Table::new("relocade", "portReads", 65536);
+    table.maximum = Some(65536);
+    table
+};
+pub const PORT_WRITES: Table<PortWriteSignature> = {
+    let mut table = Table::new("relocade", "portWrites", 65536);
+    table.maximum = Some(65536);
+    table
+};
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
 

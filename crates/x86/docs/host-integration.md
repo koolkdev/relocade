@@ -404,12 +404,19 @@ The instruction-based progression is this virtual CPU's explicit timing policy.
 
 ## Port I/O
 
-Real16 IN/OUT and INS/OUTS use synchronous `relocade` imports:
+Real16 IN/OUT and INS/OUTS call entries in two synchronous `relocade` function tables:
 
-| Import | Wasm signature |
+| Table import | Entry's Wasm signature |
 | --- | --- |
-| `readPort` | `(port: i32, bytes: i32) -> i32` |
-| `writePort` | `(port: i32, bytes: i32, value: i32) -> ()` |
+| `portReads` | `(port: i32, bytes: i32) -> i32` |
+| `portWrites` | `(port: i32, bytes: i32, value: i32) -> ()` |
+
+Both tables have exactly 65536 entries and are indexed by the unsigned port
+number. Bind the same live tables to snapshot blocks and the interpreter. Initialize
+all entries with generic callbacks; entries may share a function. Already-linked
+code reads the current entry at every transfer, including each REP element.
+Replacing an entry does not require recompiling code. Function signatures retain
+logical 16-bit ports even though their Wasm carrier is i32.
 
 The unsigned port address is 0..65535; `bytes` is 1, 2 or 4. An immediate port
 is zero-extended from its encoded byte; DX contributes only its low 16 bits.
