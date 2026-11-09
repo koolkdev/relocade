@@ -1,29 +1,25 @@
-//! Configuration and construction of snapshot and runtime-decoded execution entries.
+//! Configuration and compilation of snapshot blocks and dispatch.
 
 mod block;
 mod dispatch;
-mod interpreter;
 
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockEntry, BlockSnapshot,
     CompiledBlocks,
 };
 pub use dispatch::EntryTable;
-pub use interpreter::{compile_interpreter, compile_interpreter_step};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 
-/// Generates snapshot blocks and interpreter entries for one execution target.
-/// CPU observations specialize snapshot blocks; interpreters read live state.
+/// Compiles snapshot blocks and dispatch for one execution target.
+/// CPU observations specialize snapshot blocks. Use [`crate::build_interpreter`]
+/// to construct the interpreter program for an execution profile.
 ///
 /// ```
 /// use relocade_x86::{Compiler, SegmentProfile};
 /// let compiler = Compiler::new(SegmentProfile::Flat32);
 /// let block = compiler.compile_block(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
-/// let run = compiler.compile_interpreter()?;
-/// let step = compiler.compile_interpreter_step()?;
-/// assert_eq!(run.entry, "run");
-/// assert_eq!(step.entry, "step");
+/// assert_eq!(block.entry, "block_1000");
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub struct Compiler {
@@ -44,7 +40,7 @@ impl Compiler {
         }
     }
 
-    /// Selects the same processor capabilities for blocks and interpreter entries.
+    /// Selects processor capabilities for snapshot blocks and dispatch.
     ///
     /// ```
     /// use relocade_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};

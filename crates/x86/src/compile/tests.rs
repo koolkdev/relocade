@@ -25,60 +25,6 @@ fn snapshot_helpers_use_unobserved_configuration() {
 }
 
 #[test]
-fn interpreter_code_keeps_the_profile_without_specializing_features_budgets_or_observations() {
-    let mut observed = CpuState::default();
-    observed.x87.control.precision_control = 2;
-    observed.x87.control.rounding_control = 3;
-    observed.x87.control.precision_mask = 1;
-    observed.x87.status.precision = 1;
-    observed.simd.mxcsr = 0x9fc5;
-    let profile = SegmentProfile::Segmented16;
-    use crate::{CpuFeature::*, CpuModel};
-    let model = [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush]
-        .into_iter()
-        .fold(CpuModel::default(), |model, feature| {
-            model.with_feature(feature, false)
-        });
-    let compiler = Compiler::new(profile)
-        .with_cpu_model(model)
-        .with_instruction_budgets(false)
-        .specialize_on_cpu(&observed);
-    let (pool, executor) = relocade_workers::Pool::new(vec![
-        relocade_workers::Thread::new(),
-        relocade_workers::Thread::new(),
-    ])
-    .unwrap();
-    let target = compiler.target();
-    let ((), (run, step)) =
-        pollster::block_on(futures_util::future::join(pool.run(), async move {
-            let run = compiler.compile_interpreter_with(&executor).await.unwrap();
-            let step = compiler
-                .compile_interpreter_step_with(&executor)
-                .await
-                .unwrap();
-            (run, step)
-        }));
-    let mut shared_bytes = None;
-    for (name, ordinary, configured) in [
-        ("run", compile_interpreter(profile).unwrap(), run),
-        ("step", compile_interpreter_step(profile).unwrap(), step),
-    ] {
-        assert_eq!(configured.entry, name);
-        assert_eq!(configured.execution_target, Some(target));
-        assert!(ordinary.bytes == configured.bytes, "{name}");
-        assert!(
-            ordinary.bytes == crate::support::step::asset_bytes(profile.into()),
-            "build artifact matches fresh generation"
-        );
-        if let Some(bytes) = &shared_bytes {
-            assert!(*bytes == ordinary.bytes, "step and run share one module");
-        } else {
-            shared_bytes = Some(ordinary.bytes);
-        }
-    }
-}
-
-#[test]
 fn mxcsr_independent_instructions_do_not_guard_observations() {
     let mut observed = CpuState::default();
     observed.simd.mxcsr = 0xffff;

@@ -1,6 +1,6 @@
 use futures_util::future::join;
 use relocade_workers::{Pool, Thread};
-use relocade_x86::{Compiler, ExecutionProfile, SegmentProfile};
+use relocade_x86::{build_interpreter, ExecutionProfile, SegmentProfile};
 use std::{env, error::Error, fs, path::PathBuf, thread};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -31,10 +31,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             ("segmented16", SegmentProfile::Segmented16.into()),
             ("real16", ExecutionProfile::Real16),
         ] {
-            let module = Compiler::new(profile)
-                .compile_interpreter_with(&executor)
-                .await?;
-            fs::write(out.join(format!("{name}.wasm")), module.bytes)?;
+            let program = build_interpreter(profile)?;
+            let bytes = program.compile_with(&executor).await?;
+            fs::write(out.join(format!("{name}.wasm")), bytes)?;
         }
         Ok::<(), Box<dyn Error>>(())
     }));

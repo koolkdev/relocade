@@ -25,7 +25,7 @@ fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
         },
     ] {
         cpu.segments.cs = cs;
-        assert!(profile.is_compatible_with(&cpu.segments));
+        assert!(cpu.segments.is_compatible_with(profile));
         assert!(catch_unwind(AssertUnwindSafe(|| {
             blocks.get(&cpu, &[0xb0, 7], 1, profile);
         }))

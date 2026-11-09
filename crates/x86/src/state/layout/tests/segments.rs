@@ -1,3 +1,5 @@
+mod profiles;
+
 use std::mem::{offset_of, size_of};
 
 use crate::{CpuState, Segment, SegmentRegister, Segments};

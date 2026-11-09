@@ -53,6 +53,8 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     }
     image.cpu.segments.ds.base = 0x6000;
     assert!(!target.is_compatible_with(target, &image.cpu.segments));
-    assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
-        .is_compatible_with(&image.cpu.segments));
+    assert!(image
+        .cpu
+        .segments
+        .is_compatible_with(SegmentProfile::Segmented32));
 }

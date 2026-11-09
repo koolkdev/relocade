@@ -29,7 +29,7 @@ pub(crate) fn validate_cpu(
     target: ExecutionTarget,
     cpu: &CpuState,
 ) -> Result<(), ConfigurationError> {
-    if !target.profile.is_compatible_with(&cpu.segments) {
+    if !cpu.segments.is_compatible_with(target.profile) {
         return Err(ConfigurationError::IncompatibleCpu);
     }
     validate_idtr(target.profile, cpu.idtr)?;

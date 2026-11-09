@@ -2334,6 +2334,7 @@ dependencies = [
  "pollster",
  "relocade-workers",
  "relocade-x86",
+ "relocade-x86-profile",
 ]
 
 [[package]]
@@ -2533,9 +2534,14 @@ dependencies = [
  "relocade-test-support",
  "relocade-wasm-bindings",
  "relocade-workers",
+ "relocade-x86-profile",
  "wasmparser 0.224.1",
  "wasmtime",
 ]
+
+[[package]]
+name = "relocade-x86-profile"
+version = "0.0.0"
 
 [[package]]
 name = "renderdoc-sys"

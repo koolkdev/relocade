@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-relocade-x86 = { path = "../x86" }
+relocade-x86-profile = { path = "../x86-profile" }
 
 [build-dependencies]
 relocade-x86 = { path = "../x86" }

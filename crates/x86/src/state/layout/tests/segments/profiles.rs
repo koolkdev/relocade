@@ -1,7 +1,7 @@
-use crate::{CpuState, Segment, SegmentProfile, SegmentRegister, Segments};
+use crate::{CpuState, ExecutionProfile, Segment, SegmentProfile, SegmentRegister, Segments};
 
 fn compatible(segments: &Segments) -> bool {
-    SegmentProfile::Flat32.is_compatible_with(segments)
+    segments.is_compatible_with(SegmentProfile::Flat32)
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     let mut segments = Segments::flat32();
     segments.cs.readable = 0;
     assert!(!compatible(&segments));
-    assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
+    assert!(segments.is_compatible_with(SegmentProfile::Segmented32));
     for cache in [
         SegmentRegister::flat_data32(0),
         SegmentRegister {
@@ -67,7 +67,7 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     ] {
         segments.cs = cache;
         assert!(!compatible(&segments));
-        assert!(SegmentProfile::Segmented32.is_compatible_with(&segments));
+        assert!(segments.is_compatible_with(SegmentProfile::Segmented32));
     }
 }
 
@@ -126,9 +126,9 @@ fn segmented_profiles_assume_only_their_code_default_size() {
                 ..SegmentRegister::default()
             };
             segments.cs.big = code_big;
-            assert!(profile.is_compatible_with(&segments));
+            assert!(segments.is_compatible_with(profile));
             segments.cs.big = 1 - code_big;
-            assert!(!profile.is_compatible_with(&segments));
+            assert!(!segments.is_compatible_with(profile));
         }
     }
 }
@@ -142,5 +142,40 @@ fn profile_constants_require_canonical_boolean_bytes() {
     }
     let mut segments = Segments::flat32();
     segments.cs.big = 2;
-    assert!(!SegmentProfile::Segmented32.is_compatible_with(&segments));
+    assert!(!segments.is_compatible_with(SegmentProfile::Segmented32));
+}
+
+#[test]
+fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
+    let mut segments = Segments::real_mode();
+    assert!(segments.is_compatible_with(ExecutionProfile::Real16));
+    for segment in Segment::ALL {
+        for selector in [0, 3, 4, 0xffff] {
+            let cache = SegmentRegister::real_mode(segment, selector);
+            assert_eq!(cache.base, u32::from(selector) * 16);
+            assert_eq!(cache.limit, 65535);
+            assert_eq!(cache.big, 0);
+            assert_eq!(cache.executable, u8::from(segment == Segment::Cs));
+            assert_eq!(cache.writable, u8::from(segment != Segment::Cs));
+            segments[segment] = cache;
+            assert!(segments.is_compatible_with(ExecutionProfile::Real16));
+            for bad in [
+                SegmentRegister {
+                    base: cache.base + 1,
+                    ..cache
+                },
+                SegmentRegister {
+                    limit: u32::MAX,
+                    ..cache
+                },
+                SegmentRegister { big: 1, ..cache },
+                SegmentRegister::unusable(selector),
+            ] {
+                segments[segment] = bad;
+                assert!(!segments.is_compatible_with(ExecutionProfile::Real16));
+            }
+            segments[segment] = cache;
+        }
+    }
+    assert!(!Segments::flat32().is_compatible_with(ExecutionProfile::Real16));
 }

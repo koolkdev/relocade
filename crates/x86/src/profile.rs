@@ -1,6 +1,8 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-use crate::{CpuModel, Segment, SegmentDefaultSize, SegmentProfile, SegmentRegister, Segments};
+pub use relocade_x86_profile::ExecutionProfile;
+
+use crate::{CpuModel, Segments};
 
 /// The processor model and execution assumptions required by a compiled entry.
 ///
@@ -22,58 +24,7 @@ impl ExecutionTarget {
     /// establish that mode. Code bytes, fetch permissions and mappings require
     /// separate validation as described by the entry-validity contract.
     pub fn is_compatible_with(self, active: Self, segments: &Segments) -> bool {
-        self == active && self.profile.is_compatible_with(segments)
-    }
-}
-
-/// Execution assumptions under which a compiled entry may execute.
-/// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
-/// does not perform cache invalidation. The execution owner must invalidate
-/// dependent entries and dispatch links when these assumptions cease to hold.
-/// The runtime owns compatibility across segment changes, including any profile
-/// transition. Dispatch and interpreter entry rely on the runtime maintaining it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ExecutionProfile {
-    /// Protected mode at CPL3 under the selected segment assumptions, with
-    /// timestamp reads enabled (CR4.TSD=0).
-    Protected(SegmentProfile),
-    /// Ordinary real mode: 16-bit defaults, selector-shifted bases, 64 KiB limits
-    /// and host-controlled A20. The host establishes canonical caches with
-    /// [`Segments::real_mode`]; retained protected-mode caches are not admitted.
-    Real16,
-}
-
-impl ExecutionProfile {
-    pub(crate) fn code_default_size(self) -> SegmentDefaultSize {
-        match self {
-            Self::Protected(profile) => profile.code_default_size(),
-            Self::Real16 => SegmentDefaultSize::Bits16,
-        }
-    }
-
-    /// Tests cache assumptions within the mode selected by the host. Matching
-    /// caches alone do not establish the execution mode; entry and link keys must
-    /// retain the profile. Protected profiles ignore irrelevant selector/cache bits.
-    pub fn is_compatible_with(self, segments: &Segments) -> bool {
-        Segment::ALL
-            .into_iter()
-            .all(|segment| self.is_segment_compatible(segment, &segments[segment]))
-    }
-
-    /// Tests a proposed segment cache against this profile's fixed assumptions.
-    /// Runtimes use this at segment changes to preserve compatibility throughout
-    /// execution; unconstrained fields remain free to change.
-    pub fn is_segment_compatible(self, segment: Segment, cache: &SegmentRegister) -> bool {
-        match self {
-            Self::Protected(profile) => profile.assumptions(segment).matches(cache),
-            Self::Real16 => *cache == SegmentRegister::real_mode(segment, cache.selector),
-        }
-    }
-}
-
-impl From<SegmentProfile> for ExecutionProfile {
-    fn from(profile: SegmentProfile) -> Self {
-        Self::Protected(profile)
+        self == active && segments.is_compatible_with(self.profile)
     }
 }
 

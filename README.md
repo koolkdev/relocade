@@ -67,14 +67,18 @@ Cargo jobserver slots and host parallelism; construction remains serial. Each
 module exports `step` and `run`. `relocade-interpreter::module(profile)`
 returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
 web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it.
+still compiles the portable Wasm to native code when loading it. The asset crate's
+only runtime dependency is `relocade-x86-profile`, which owns the shared profile
+types; code generation and compiler workers are build dependencies.
 
-Applications can also pass their own executor to `Program::compile_with`,
-`Compiler::compile_interpreter_with` or `Compiler::compile_interpreter_step_with`.
+`relocade_x86::build_interpreter(profile)` constructs a `Program` containing both
+entry exports. The caller compiles that program once and selects an export when
+invoking it. Applications can pass their own executor to `Program::compile_with`.
 With the `relocade-workers/compiler` feature, an existing set of workers can be used
 as follows:
 
 ```rust
+let program = relocade_x86::build_interpreter(profile)?;
 let (pool, executor) = relocade_workers::Pool::new(threads)?;
 let ((), bytes) = futures_util::future::join(pool.run(), async move {
     program.compile_with(&executor).await
