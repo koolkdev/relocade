@@ -37,6 +37,9 @@ impl GuestTimeConfig {
     /// Paces active execution and idle advancement at the slice boundary.
     /// Defaults to 4 ms slices unless a duration was explicitly configured.
     /// Device deadlines subdivide each slice without requiring a host wait.
+    /// Lag over 20 ms resets the host correspondence at a stopped boundary,
+    /// independently of the slice duration. Guest time and device deadlines
+    /// stay fixed.
     /// The embedding must retain and drive this clock's timer service.
     pub fn with_host_clock(mut self, clock: Clock) -> Self {
         self.slice_duration.get_or_insert(Duration::from_millis(4));

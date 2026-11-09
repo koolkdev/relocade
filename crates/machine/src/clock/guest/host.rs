@@ -1,11 +1,15 @@
-//! Host/guest correspondence, excluding time spent between CPU bindings.
+//! Host/guest correspondence, excluding pauses and excessive execution lag.
 
 use crate::{Clock, Instant, Sleep};
+use std::time::Duration;
+
+const MAX_LAG: Duration = Duration::from_millis(20);
 
 pub(super) struct HostTime {
     clock: Clock,
     mapping: Option<Mapping>,
     paused_at: Option<Instant>,
+    pub(super) discarded_lag: Duration,
 }
 
 struct Mapping {
@@ -19,6 +23,7 @@ impl HostTime {
             clock,
             mapping: None,
             paused_at: None,
+            discarded_lag: Duration::ZERO,
         }
     }
 
@@ -35,6 +40,19 @@ impl HostTime {
 
     pub(super) fn pause(&mut self) {
         self.paused_at = Some(self.clock.now());
+    }
+
+    /// Called only at stopped execution boundaries. Discard the entire lag once
+    /// it exceeds the tolerance, without advancing guest time or device timers.
+    pub(super) fn discard_lag(&mut self, guest: Instant) -> Option<Duration> {
+        let mapped = self.host_time(guest)?;
+        let lag = self.clock.now().saturating_duration_since(mapped);
+        if lag <= MAX_LAG {
+            return None;
+        }
+        self.mapping.as_mut().unwrap().host += lag;
+        self.discarded_lag += lag;
+        Some(lag)
     }
 
     pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<Instant> {

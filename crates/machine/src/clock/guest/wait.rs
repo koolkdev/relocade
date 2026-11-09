@@ -3,7 +3,7 @@
 use super::State;
 use crate::{ClockSource, Instant, Sleep};
 use futures_channel::oneshot;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[derive(Clone)]
 pub(super) struct Source(pub(super) Rc<RefCell<State>>);
@@ -11,6 +11,7 @@ pub(super) struct Source(pub(super) Rc<RefCell<State>>);
 pub(super) struct Wait {
     pub(super) token: Rc<()>,
     pub(super) deadline: Instant,
+    pub(super) host_sync: bool,
     pub(super) complete: oneshot::Sender<()>,
 }
 
@@ -58,22 +59,32 @@ impl ClockSource for Source {
     }
 
     fn sync(&self, host_time: Option<Instant>) -> Sleep {
-        let deadline = self
-            .0
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|host| host.sync_deadline(host_time));
-        match deadline {
-            Some(deadline) => self.sleep_until(deadline),
+        let state = self.0.borrow();
+        let Some(host) = &state.host else {
+            return Sleep::new(async {});
+        };
+        match host.sync_deadline(host_time) {
+            Some(deadline) => self.wait(deadline, Some(host.discarded_lag)),
             None => Sleep::new(async {}),
         }
     }
 
     fn sleep_until(&self, deadline: Instant) -> Sleep {
+        self.wait(deadline, None)
+    }
+}
+
+impl Source {
+    fn wait(&self, mut deadline: Instant, captured_lag: Option<Duration>) -> Sleep {
         let source = self.clone();
         Sleep::new(async move {
-            if deadline <= source.now() {
+            let now = source.now();
+            if let Some(captured) = captured_lag {
+                // Recovery can happen between constructing and polling this wait.
+                let discarded = source.0.borrow().host.as_ref().unwrap().discarded_lag - captured;
+                deadline = deadline.checked_sub(discarded).unwrap_or(now);
+            }
+            if deadline <= now {
                 return;
             }
             let (complete, completed) = oneshot::channel();
@@ -87,6 +98,7 @@ impl ClockSource for Source {
                 state.waits.push(Wait {
                     token,
                     deadline,
+                    host_sync: captured_lag.is_some(),
                     complete,
                 });
                 state.refresh_target();
