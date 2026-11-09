@@ -5,10 +5,8 @@ use crate::{
     protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
-use futures_util::{pin_mut, select_biased, FutureExt};
-use relocade_frontend::keyboard::{
-    ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
-};
+use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
+use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
 use relocade_machine::{Clock, Instant};
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -26,7 +24,11 @@ const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
 const RESET: u8 = 0xff;
 
-pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Controller) {
+pub(super) async fn run(
+    clock: Clock,
+    events: LocalBoxStream<'static, KeyboardEvent>,
+    controller: &Controller,
+) {
     Keyboard {
         clock,
         events: Some(events),
@@ -48,7 +50,7 @@ pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Contr
 
 struct Keyboard<'a> {
     clock: Clock,
-    events: Option<KeyboardEvents>,
+    events: Option<LocalBoxStream<'static, KeyboardEvent>>,
     controller: &'a Controller,
     last_sent: u8,
     held: BTreeSet<KeyCode>,
@@ -183,7 +185,7 @@ impl Keyboard<'_> {
                 .fuse();
                 let event = async {
                     match self.events.as_mut() {
-                        Some(events) => events.recv().await.ok(),
+                        Some(events) => events.next().await,
                         None => pending().await,
                     }
                 }

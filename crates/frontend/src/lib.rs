@@ -6,6 +6,9 @@
 #[cfg(feature = "display")]
 pub mod display;
 
+#[cfg(any(feature = "keyboard", feature = "mouse"))]
+pub mod input;
+
 #[cfg(feature = "keyboard")]
 pub mod keyboard;
 

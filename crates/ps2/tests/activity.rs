@@ -1,4 +1,5 @@
 use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
@@ -75,7 +76,9 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.
             assert_eq!(next_byte(&io).await, 0xfa);
-            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
+            input
+                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, false)))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
             clock.advance_to(clock_origin() + Duration::from_millis(249));
             no_output(&io).await;
@@ -84,21 +87,33 @@ async fn connected_activity() {
             clock.advance_to(clock_origin() + Duration::from_millis(4000));
             assert_eq!(next_byte(&io).await, 0x1e);
             no_output(&io).await; // Late scheduling produces one repeat, not a burst.
-            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
+            input
+                .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x9e);
             clock.advance_to(clock_origin() + Duration::from_millis(5000));
             no_output(&io).await;
 
             input
-                .unbounded_send(KeyboardEvent::Modifiers(ModifiersState::SHIFT))
+                .unbounded_send(InputEvent::new(KeyboardEvent::Modifiers(
+                    ModifiersState::SHIFT,
+                )))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x2a);
-            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
+            input
+                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, false)))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
-            input.unbounded_send(key(KeyCode::KeyA, true)).unwrap();
-            input.unbounded_send(key(KeyCode::KeyB, false)).unwrap();
+            input
+                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, true)))
+                .unwrap();
+            input
+                .unbounded_send(InputEvent::new(key(KeyCode::KeyB, false)))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x30, "host repeat was suppressed");
-            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
+            input
+                .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
+                .unwrap();
             let mut releases = [
                 next_byte(&io).await,
                 next_byte(&io).await,

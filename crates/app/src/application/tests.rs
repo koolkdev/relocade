@@ -296,7 +296,7 @@ fn fixture(
             // Cancelling a closing wait does not prevent a later wait from observing it.
             drop(closing);
             assert_eq!(
-                keys.recv().await.unwrap(),
+                keys.recv().await.unwrap().event,
                 KeyboardEvent::Modifiers(ModifiersState::CONTROL)
             );
             if matches!(startup, Startup::DisplayError) {
@@ -312,17 +312,17 @@ fn fixture(
             }
             action(Action::Modifiers).await;
             assert_eq!(
-                keys.recv().await.unwrap(),
+                keys.recv().await.unwrap().event,
                 KeyboardEvent::Modifiers(ModifiersState::CONTROL)
             );
             action(Action::Focus(false)).await;
-            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
             action(Action::Motion(9.0, 9.0)).await;
             action(Action::Button(ElementState::Pressed)).await;
             assert!(futures_lite::future::poll_once(pointer.recv())
                 .await
                 .is_none());
-            assert_eq!(keys.recv().await.unwrap(), KeyboardEvent::FocusLost);
+            assert_eq!(keys.recv().await.unwrap().event, KeyboardEvent::FocusLost);
             wait_for(|| counts.draws.load(SeqCst) > 0).await;
             // Input reaches execution even while the graphics worker is held.
             action(Action::Focus(true)).await;
@@ -347,7 +347,7 @@ fn fixture(
                 .is_none());
             action(Action::Motion(1.25, -0.5)).await;
             assert_eq!(
-                pointer.recv().await.unwrap(),
+                pointer.recv().await.unwrap().event,
                 MouseEvent::Motion {
                     delta_x: 1.25,
                     delta_y: -0.5
@@ -355,7 +355,7 @@ fn fixture(
             );
             action(Action::Button(ElementState::Pressed)).await;
             assert_eq!(
-                pointer.recv().await.unwrap(),
+                pointer.recv().await.unwrap().event,
                 MouseEvent::Button {
                     button: MouseButton::Left,
                     state: ElementState::Pressed
@@ -363,7 +363,7 @@ fn fixture(
             );
             // Main handles events and timers while the graphics worker is held.
             action(Action::Hide(true)).await;
-            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
             action(Action::Motion(9.0, 9.0)).await;
             action(Action::Button(ElementState::Pressed)).await;
             assert!(futures_lite::future::poll_once(pointer.recv())
@@ -408,7 +408,7 @@ fn fixture(
             );
             action(Action::Motion(1.25, -0.5)).await;
             assert_eq!(
-                pointer.recv().await.unwrap(),
+                pointer.recv().await.unwrap().event,
                 MouseEvent::Motion {
                     delta_x: 1.25,
                     delta_y: -0.5
@@ -424,13 +424,13 @@ fn fixture(
                     .unwrap()
                     .pointer_lock_element()
                     .is_none());
-                assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+                assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
                 assert!(futures_lite::future::poll_once(pointer.recv())
                     .await
                     .is_none());
                 while let Ok(key) = keys.try_recv() {
                     assert!(!matches!(
-                        key,
+                        key.event,
                         KeyboardEvent::Key {
                             physical_key: keyboard::PhysicalKey::Code(keyboard::KeyCode::Escape),
                             ..
@@ -439,7 +439,7 @@ fn fixture(
                 }
             }
             action(Action::Suspend(true)).await;
-            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
             action(Action::Motion(9.0, 9.0)).await;
             action(Action::Button(ElementState::Pressed)).await;
             assert!(futures_lite::future::poll_once(pointer.recv())
@@ -454,7 +454,7 @@ fn fixture(
             drop(updates);
             action(Action::Close).await;
             host.closing().await?;
-            assert_eq!(pointer.recv().await.unwrap(), MouseEvent::FocusLost);
+            assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
             assert!(pointer.recv().await.is_err());
             #[cfg(all(feature = "audio", target_arch = "wasm32"))]
             assert!(samples.is_closed(), "audio closes before lifecycle cleanup");

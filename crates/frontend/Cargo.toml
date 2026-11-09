@@ -7,11 +7,12 @@ publish.workspace = true
 
 [features]
 display = ["dep:relocade-renderer", "dep:wgpu"]
-keyboard = ["dep:futures-channel", "dep:winit"]
-mouse = ["dep:futures-channel", "dep:winit"]
+keyboard = ["dep:futures-channel", "dep:winit", "dep:web-time"]
+mouse = ["dep:futures-channel", "dep:winit", "dep:web-time"]
 
 [dependencies]
 relocade-renderer = { path = "../renderer", optional = true }
 wgpu = { workspace = true, optional = true }
 futures-channel = { version = "=0.3.34", optional = true }
 winit = { version = "=0.30.13", optional = true }
+web-time = { version = "=1.1.0", optional = true }

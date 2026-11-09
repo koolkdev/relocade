@@ -5,13 +5,17 @@ mod protocol;
 mod transmission;
 
 use crate::controller::{Controller, Port};
-use futures_util::{pin_mut, select_biased, FutureExt};
+use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
 use protocol::Protocol;
-use relocade_frontend::mouse::{MouseEvent, MouseEvents};
+use relocade_frontend::mouse::MouseEvent;
 use relocade_machine::Clock;
 use std::future::pending;
 
-pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
+pub(super) async fn run(
+    clock: Clock,
+    events: LocalBoxStream<'static, MouseEvent>,
+    controller: &Controller,
+) {
     let mut protocol = Protocol::new(clock.now());
     let mut events = Some(events);
     let mut turns = 0;
@@ -34,7 +38,7 @@ pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controll
             .fuse();
             let event = async {
                 match events.as_mut() {
-                    Some(events) => events.recv().await.ok(),
+                    Some(events) => events.next().await,
                     None => pending().await,
                 }
             }

@@ -2323,6 +2323,7 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "relocade-renderer",
+ "web-time",
  "wgpu",
  "winit",
 ]

@@ -1,10 +1,11 @@
 //! Owned relative mouse input for execution-side adapters.
 
+use crate::input::InputEvent;
 use futures_channel::mpsc;
 pub use winit::event::{ElementState, MouseButton};
 
-pub type MouseInput = mpsc::UnboundedSender<MouseEvent>;
-pub type MouseEvents = mpsc::UnboundedReceiver<MouseEvent>;
+pub type MouseInput = mpsc::UnboundedSender<InputEvent<MouseEvent>>;
+pub type MouseEvents = mpsc::UnboundedReceiver<InputEvent<MouseEvent>>;
 
 pub fn channel() -> (MouseInput, MouseEvents) {
     mpsc::unbounded()

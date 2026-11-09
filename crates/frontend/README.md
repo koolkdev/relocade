@@ -6,7 +6,14 @@ The application owns its windows, workers and presentation. Each adapter owns
 translation into the guest's behavior. The crate creates no workers or windows.
 
 The `keyboard` feature provides owned `KeyboardEvent` messages and ordinary Rust
-channel endpoints. Events preserve physical and logical keys, location, text,
+channel endpoints. Keyboard and mouse channels carry `InputEvent<T>`, containing
+`host_time: web_time::Instant` and the original `event: T`. Producers construct
+`InputEvent::new(event)` immediately before enqueueing, so time spent waiting in
+the channel does not change the event's timestamp. Controlled producers can
+supply a timestamp explicitly. In threaded browser builds, `web_time` includes
+each worker's performance time origin, making these host instants comparable.
+
+Keyboard events preserve physical and logical keys, location, text,
 press/release state, repeat and modifiers using winit's types. Focus loss releases
 transient input state. A BIOS adapter consumes these events on execution and
 chooses its supported scan codes and text encoding; other environments can use

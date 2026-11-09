@@ -1,6 +1,7 @@
 //! Shared PS/2 controller, keyboard and mouse on the PC interrupt controllers.
 
 mod controller;
+mod input;
 mod keyboard;
 mod mouse;
 pub mod protocol;
@@ -83,8 +84,16 @@ impl Device for Ps2Controller {
         };
         futures_util::future::join3(
             controller.run(),
-            keyboard::run(clock.clone(), events, &controller),
-            mouse::run(clock, mouse_events, &controller),
+            keyboard::run(
+                clock.clone(),
+                input::synchronized(clock.clone(), events),
+                &controller,
+            ),
+            mouse::run(
+                clock.clone(),
+                input::synchronized(clock, mouse_events),
+                &controller,
+            ),
         )
         .await;
     }
