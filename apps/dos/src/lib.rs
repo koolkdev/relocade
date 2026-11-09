@@ -19,10 +19,11 @@ pub fn run() -> Result<(), String> {
         let execution = relocade_machine::ExecutionWorker::run_until(
             async {
                 app_result = or(closing, async {
-                    let (keyboard, frames) = ready
+                    let (keyboard, mouse, frames) = ready
                         .await
                         .map_err(|_| "Execution ended during startup".to_string())??;
                     app.attach_keyboard(keyboard)?;
+                    app.attach_mouse(mouse)?;
                     app.attach_display(move |device, _| {
                         relocade_vga::VgaDisplay::new(device, frames)
                             .map_err(|error| error.to_string())
@@ -46,7 +47,7 @@ pub fn run() -> Result<(), String> {
                 let _ = endpoints.send(
                     startup
                         .as_ref()
-                        .map(|dos| (keyboard, dos.frame_source()))
+                        .map(|dos| (keyboard, dos.mouse_input(), dos.frame_source()))
                         .map_err(Clone::clone),
                 );
                 let mut dos = startup?;

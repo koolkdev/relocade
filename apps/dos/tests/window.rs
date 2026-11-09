@@ -11,7 +11,8 @@ use x11rb::{
     protocol::{
         xproto::{
             AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask,
-            ImageFormat, InputFocus, KEY_PRESS_EVENT, KEY_RELEASE_EVENT,
+            ImageFormat, InputFocus, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT,
+            KEY_RELEASE_EVENT,
         },
         xtest::ConnectionExt as _,
     },
@@ -28,9 +29,14 @@ impl Drop for App {
 
 #[test]
 #[ignore = "requires an X11 display and a graphics adapter"]
-fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
+fn mouse_capture_keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     let (x, screen) = x11rb::connect(None)?;
-    let root = x.setup().roots[screen].root;
+    let display = &x.setup().roots[screen];
+    let root = display.root;
+    let outside = (
+        display.width_in_pixels as i16 - 1,
+        display.height_in_pixels as i16 - 1,
+    );
     let atom = |name: &[u8]| -> Result<u32, Box<dyn Error>> {
         Ok(x.intern_atom(false, name)?.reply()?.atom)
     };
@@ -141,6 +147,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         for &byte in bytes {
             let symbol = match byte {
                 8 => 0xff08,
+                27 => 0xff1b,
                 b'\r' => 0xff0d,
                 _ => u32::from(byte),
             };
@@ -156,6 +163,48 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         x.flush()?;
         Ok(())
     };
+    let captured = |expected: bool| -> Result<(), Box<dyn Error>> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            // X11 confinement clips a warp outside the captured window.
+            x.warp_pointer(0u32, root, 0, 0, 0, 0, outside.0, outside.1)?;
+            let pointer = x.query_pointer(root)?.reply()?;
+            if ((pointer.root_x, pointer.root_y) != outside) == expected {
+                return Ok(());
+            }
+            assert!(
+                Instant::now() < deadline,
+                "mouse capture did not become {expected}"
+            );
+            sleep(Duration::from_millis(20));
+        }
+    };
+    let capture = || -> Result<(), Box<dyn Error>> {
+        let origin = x.translate_coordinates(window, root, 0, 0)?.reply()?;
+        let size = x.get_geometry(window)?.reply()?;
+        assert!(
+            i32::from(outside.0) < i32::from(origin.dst_x)
+                || i32::from(outside.1) < i32::from(origin.dst_y)
+                || i32::from(outside.0) >= i32::from(origin.dst_x) + i32::from(size.width)
+                || i32::from(outside.1) >= i32::from(origin.dst_y) + i32::from(size.height),
+            "capture fixture needs a display corner outside the application window"
+        );
+        x.warp_pointer(0u32, window, 0, 0, 0, 0, 100, 100)?;
+        for event in [BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT] {
+            x.xtest_fake_input(event, 1, CURRENT_TIME, root, 0, 0, 0)?;
+        }
+        x.flush()?;
+        captured(true)
+    };
+    capture()?;
+    type_keys(&[27])?;
+    captured(false)?;
+    capture()?;
+    x.set_input_focus(InputFocus::PARENT, root, CURRENT_TIME)?
+        .check()?;
+    captured(false)?;
+    x.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?
+        .check()?;
     type_keys(b"echo xy\x08\r")?;
     displayed_glyph(prompt_row + 1, x_glyph)?;
     displayed_glyph(prompt_row + 2, prompt)?;
@@ -164,6 +213,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
     type_keys(b"echo x\r")?;
     displayed_glyph(prompt_row + 3, x_glyph)?;
     displayed_glyph(prompt_row + 4, prompt)?;
+    capture()?;
     x.send_event(
         false,
         window,
@@ -176,6 +226,7 @@ fn keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error>> {
         assert!(Instant::now() < deadline, "app did not finish cleanup");
         sleep(Duration::from_millis(20));
     }
+    captured(false)?;
     let errors = std::io::read_to_string(app.0.stderr.take().unwrap())?;
     assert!(app.0.wait()?.success(), "{errors}");
     Ok(())
