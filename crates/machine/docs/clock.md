@@ -161,21 +161,31 @@ receive execution opportunities between deadlines; IRQ acceptance still depends
 on guest interrupt state. A slice can contain several PIT deadlines without
 requiring a host wait for every transition.
 
+At stopped boundaries, the clock driver compares host time with the mapped guest
+time. Lag of at most 20 ms can catch up without pacing sleeps. Beyond 20 ms, the
+driver shifts the host correspondence forward by the entire lag, so current guest
+time maps to current host time. This treats a long host stall as a pause without
+skipping guest execution or device deadlines. The tolerance is fixed independently
+of the configured slice duration. Guest time, fractional retirement, instruction
+rate and the slice grid do not change. Future CPU and output waits use the new
+correspondence; already-created host waits retain their deadlines.
+
 An execution notification makes ready activities pollable while preserving the
 current allowance. Ready host services and exit requests can progress during a
 pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
 credit. Replacing a device timer does not replace the pacing wait or grant time.
 
 Completing or cancelling `run_cpu` cancels its host wait. The next run retains
-the same slice boundary and the existing lead or lag. Time spent between runs is
-excluded by shifting the host origin; repeated cancellation cannot grant another
-slice. The clock driver owns this host/guest correspondence, while
+the same slice boundary and the existing lead or lag, subject to the lag limit.
+Time spent between runs is excluded by shifting the host origin; repeated
+cancellation cannot grant another slice. The clock driver owns this host/guest
+correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
 ### Synchronizing external work
 
 `clock.sync().await` captures the current host time once, maps it to guest time
-and awaits an ordinary guest timer. Earlier device deadlines and IRQ opportunities
+and awaits that guest deadline. Earlier device deadlines and IRQ opportunities
 remain part of normal execution. If guest time has already reached that point,
 the wait completes immediately; it never rewinds time or waits for the host.
 Burst pacing separately limits execution ahead of host time.
@@ -184,8 +194,12 @@ For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
 The timestamp must use the configured host clock's timebase. Both forms capture
 the current mapping when the wait is constructed, register on first poll and
 cancel on drop. A retained wait keeps its guest deadline across cancelled CPU
-runs. Host clocks, unpaced guest clocks and calls outside an active CPU run
-complete immediately. The current run's correspondence maps timestamps; this
+runs and ordinary pauses. When excessive lag is discarded, these mapped deadlines
+shorten by the discarded duration, including waits that have not been polled yet.
+Older input becomes ready without changing its stream order. Ordinary
+`sleep_until` device deadlines remain fixed. Host clocks, unpaced guest clocks and
+calls outside an active CPU run complete immediately. The current run's
+correspondence maps timestamps; this
 API does not reconstruct historical mappings across paused sessions.
 
 Consumers that race input against device commands or timers must retain the
@@ -220,8 +234,8 @@ the dedicated timer service's native and browser waits. Registration happens on
 first poll, cancellation releases the timer, and elapsed deadlines complete
 without registering one. Clocks and waits remain on their execution owner.
 
-The mapping is captured when `sync_to_host` is called, so a later CPU pause or
-resume cannot remap that wait. Passing a timestamp to a task uses the mapping
+The mapping is captured when `sync_to_host` is called, so later pauses or lag
+recovery cannot remap that wait. Passing a timestamp to a task uses the mapping
 when the task processes it. Host-clock output uses the same timestamp; unpaced guest
 clocks and inactive runs produce an immediately ready wait. Keep the host timer
 service alive while execution-owner tasks use it.

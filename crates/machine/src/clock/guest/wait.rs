@@ -1,6 +1,6 @@
 //! Owned sleep registration and synchronous cancellation.
 
-use super::State;
+use super::{host::SyncDeadline, State};
 use crate::{ClockSource, Instant, Sleep};
 use futures_channel::oneshot;
 use std::{cell::RefCell, rc::Rc};
@@ -10,8 +10,28 @@ pub(super) struct Source(pub(super) Rc<RefCell<State>>);
 
 pub(super) struct Wait {
     pub(super) token: Rc<()>,
-    pub(super) deadline: Instant,
+    deadline: Deadline,
     pub(super) complete: oneshot::Sender<()>,
+}
+
+enum Deadline {
+    Fixed(Instant),
+    Mapped(SyncDeadline),
+}
+
+impl Deadline {
+    fn at(&self) -> Instant {
+        match self {
+            Self::Fixed(at) => *at,
+            Self::Mapped(deadline) => deadline.at(),
+        }
+    }
+}
+
+impl Wait {
+    pub(super) fn deadline(&self) -> Instant {
+        self.deadline.at()
+    }
 }
 
 // An owned registration removes its wait and refreshes the CPU target at drop,
@@ -65,15 +85,21 @@ impl ClockSource for Source {
             .as_ref()
             .and_then(|host| host.sync_deadline(host_time));
         match deadline {
-            Some(deadline) => self.sleep_until(deadline),
+            Some(deadline) => self.wait(Deadline::Mapped(deadline)),
             None => Sleep::new(async {}),
         }
     }
 
     fn sleep_until(&self, deadline: Instant) -> Sleep {
+        self.wait(Deadline::Fixed(deadline))
+    }
+}
+
+impl Source {
+    fn wait(&self, deadline: Deadline) -> Sleep {
         let source = self.clone();
         Sleep::new(async move {
-            if deadline <= source.now() {
+            if deadline.at() <= source.now() {
                 return;
             }
             let (complete, completed) = oneshot::channel();

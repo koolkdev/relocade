@@ -366,6 +366,8 @@ async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
 
 #[path = "guest_time_scheduling/host.rs"]
 mod host;
+#[path = "guest_time_scheduling/lag.rs"]
+mod lag;
 #[path = "guest_time_scheduling/pacing.rs"]
 mod pacing;
 

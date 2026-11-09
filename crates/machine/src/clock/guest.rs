@@ -93,8 +93,9 @@ impl GuestTimeDriver {
     /// Updates guest time from retirement, completes due sleeps and arms the CPU
     /// target. `yield_deadline` is an optional absolute guest time at which the
     /// embedding wants execution to yield. Wait changes preserve it until the next
-    /// synchronization. Call after execution stops and after ready activities have
-    /// had a turn.
+    /// synchronization. With host pacing, lag over 20 ms resets the correspondence
+    /// and shortens pending external sync waits without moving guest time. Call
+    /// after execution stops and after ready activities have had a turn.
     pub fn synchronize(&self, yield_deadline: Option<Instant>) {
         if let Some(cpu) = &mut self.0.borrow_mut().cpu {
             cpu.yield_deadline = yield_deadline;
@@ -117,16 +118,19 @@ impl GuestTimeDriver {
     /// Earliest registered sleep in guest time. Query at a stopped boundary
     /// after ready activities have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
+        self.0.borrow().waits.iter().map(Wait::deadline).min()
     }
 
     fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.observe();
+            if let Some(host) = &mut state.host {
+                host.discard_lag(now);
+            }
             let due = state
                 .waits
-                .extract_if(.., |wait| wait.deadline <= now)
+                .extract_if(.., |wait| wait.deadline() <= now)
                 .collect::<Vec<_>>();
             state.refresh_target();
             due
@@ -182,7 +186,7 @@ impl State {
         let deadline = self
             .waits
             .iter()
-            .map(|wait| wait.deadline)
+            .map(Wait::deadline)
             .chain(cpu.yield_deadline)
             .min();
         let target = deadline.map(|deadline| {
