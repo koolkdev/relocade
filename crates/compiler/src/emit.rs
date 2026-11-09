@@ -211,8 +211,20 @@ impl Writer<'_> {
                         src_mem: self.memories[source_memory.0]
                             .expect("a copied memory is retained"),
                     },
-                    OperationKind::Call { target } => {
+                    OperationKind::Call {
+                        target: crate::body::CallTarget::Function(target),
+                    } => {
                         Wasm::Call(self.functions[target.0].expect("a called function is retained"))
+                    }
+                    OperationKind::Call {
+                        target: crate::body::CallTarget::Table(table),
+                    } => {
+                        let (table_index, type_index) =
+                            self.tables[table.0].expect("a called table is retained");
+                        Wasm::CallIndirect {
+                            type_index,
+                            table_index,
+                        }
                     }
                     OperationKind::Atomic { access, operator } => memory::atomic(
                         memory::argument(self.memories, access),

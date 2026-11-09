@@ -143,7 +143,9 @@ fn complete_result_groups_and_stored_bounds_survive_compaction() {
     assert_eq!(graph.effects[0].operation.inputs().collect::<Vec<_>>(), [4]);
     assert!(matches!(
         graph.effects[0].operation.kind(),
-        OperationKind::Call { target: Func(7) }
+        OperationKind::Call {
+            target: crate::body::CallTarget::Function(Func(7))
+        }
     ));
     assert!(matches!(
         graph.effects[1].operation.kind(),

@@ -2,13 +2,19 @@
 
 use crate::{
     memory::{AtomicKind, AtomicUpdate, Location, MemoryAccess},
-    Func, Mem,
+    Func, Mem, Table,
 };
 
 #[derive(Clone)]
 pub(crate) struct Operation {
     kind: OperationKind,
     inputs: Inputs,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CallTarget {
+    Function(Func),
+    Table(Table),
 }
 
 #[derive(Clone, Copy)]
@@ -27,7 +33,7 @@ pub(crate) enum OperationKind {
         source_memory: Mem,
     },
     Call {
-        target: Func,
+        target: CallTarget,
     },
     Atomic {
         access: MemoryAccess,
@@ -69,7 +75,23 @@ impl Operation {
     }
 
     pub(crate) fn call(target: Func, arguments: Vec<usize>) -> Self {
-        Self::new(OperationKind::Call { target }, arguments)
+        Self::new(
+            OperationKind::Call {
+                target: CallTarget::Function(target),
+            },
+            arguments,
+        )
+    }
+
+    pub(crate) fn call_indirect(table: Table, slot: usize, mut arguments: Vec<usize>) -> Self {
+        // Wasm consumes the table slot after the function arguments.
+        arguments.push(slot);
+        Self::new(
+            OperationKind::Call {
+                target: CallTarget::Table(table),
+            },
+            arguments,
+        )
     }
 
     pub(crate) fn atomic_load(access: MemoryAccess, address: usize) -> Self {
