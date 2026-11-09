@@ -4,12 +4,15 @@ mod support;
 #[path = "guest_time/driver.rs"]
 mod driver;
 
-use relocade_machine::{ExecutionWorker, GuestTimeDriver, IoBus, Memory};
+use relocade_machine::{
+    Clock, Cpu, Device, DeviceConnection, DispatchEntry, ExecutionWorker, GuestTimeDriver, Instant,
+    IoBus, Memory,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
 };
-use std::{num::NonZeroU64, rc::Rc, time::Duration};
+use std::{cell::RefCell, num::NonZeroU64, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -110,4 +113,72 @@ fn guest_time_preserves_progress_across_wrap_idle_and_rebinding() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn guest_time_preserves_progress_across_wrap_idle_and_rebinding() {
     progress().await;
+}
+
+struct ClockPort {
+    clock: Clock,
+    observed: Option<Instant>,
+}
+
+impl Device for ClockPort {
+    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+        assert!(self.observed.replace(self.clock.now()).is_none());
+    }
+}
+
+async fn callback_observation() {
+    for compiled in [false, true] {
+        let driver = GuestTimeDriver::new(clock_origin(), NonZeroU64::new(1000).unwrap());
+        let device = Rc::new(RefCell::new(ClockPort {
+            clock: driver.clock(),
+            observed: None,
+        }));
+        let io = IoBus::new([DeviceConnection {
+            device: device.clone(),
+            ports: std::iter::once(0x80..=0x80).collect(),
+            mmio: vec![],
+        }]);
+        let config = configuration(99);
+        let memory = Memory::new(config.machine).unwrap();
+        // NOP; NOP; OUT 80h, AL; JMP to itself.
+        let code = [0x90, 0x90, 0xe6, 0x80, 0xeb, 0xfe];
+        memory.view().write(0x100, &code).unwrap();
+        let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
+        let _binding = driver.bind(&cpu, std::task::Waker::noop());
+        if compiled {
+            let block = Compiler::new(ExecutionProfile::Real16)
+                .compile_block(0x101, &code[1..], 3)
+                .unwrap();
+            cpu.install_module(
+                &block.bytes,
+                &[DispatchEntry {
+                    address: 0x101,
+                    export: &block.entry,
+                }],
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(cpu.step(), ExecutionExit::StepComplete);
+        driver.synchronize(Some(clock_origin() + Duration::from_millis(4)));
+        assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
+        let observed = device.borrow().observed.unwrap();
+        assert!(observed >= clock_origin() + Duration::from_millis(1));
+        assert!(observed <= clock_origin() + Duration::from_millis(4));
+        assert_eq!(
+            driver.clock().now(),
+            clock_origin() + Duration::from_millis(4)
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn synchronous_device_callbacks_can_read_published_guest_time() {
+    pollster::block_on(callback_observation());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn synchronous_device_callbacks_can_read_published_guest_time() {
+    callback_observation().await;
 }

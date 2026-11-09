@@ -14,8 +14,8 @@ pub(super) struct Wait {
     pub(super) complete: oneshot::Sender<()>,
 }
 
-// Removing an owned wait notifies the embedding to synchronize the target
-// before it resumes execution.
+// An owned registration removes its wait and refreshes the CPU target at drop,
+// including cancellation from inside an executing IO/MMIO callback.
 struct Registration {
     source: Source,
     token: Rc<()>,
@@ -33,6 +33,7 @@ impl Drop for Registration {
                 return;
             };
             let removed = state.waits.swap_remove(index);
+            state.refresh_target();
             (removed, state.cpu.as_ref().map(|cpu| cpu.changed.clone()))
         };
         drop(removed);
@@ -66,6 +67,7 @@ impl ClockSource for Source {
                     deadline,
                     complete,
                 });
+                state.refresh_target();
                 state.cpu.as_ref().map(|cpu| cpu.changed.clone())
             };
             if let Some(changed) = changed {
