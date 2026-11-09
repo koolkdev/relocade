@@ -83,16 +83,20 @@ impl ExecutionSchedule {
             Poll::Ready(exit)
         } else {
             if let Some(guest) = &self.guest {
-                let now = self.clock.now();
-                if let Some(pacing) = &guest.pacing {
-                    ready!(pacing.poll(&guest.driver, now, cx));
-                }
-                let deadline = guest
-                    .yield_interval
-                    .map(|interval| next_boundary(now, guest.yield_origin, interval))
-                    .into_iter()
-                    .chain(guest.pacing.as_ref().map(Pacing::deadline))
-                    .min();
+                let deadline = if guest.pacing.is_some() || guest.yield_interval.is_some() {
+                    let now = self.clock.now();
+                    if let Some(pacing) = &guest.pacing {
+                        ready!(pacing.poll(&guest.driver, now, cx));
+                    }
+                    guest
+                        .yield_interval
+                        .map(|interval| next_boundary(now, guest.yield_origin, interval))
+                        .into_iter()
+                        .chain(guest.pacing.as_ref().map(Pacing::deadline))
+                        .min()
+                } else {
+                    None
+                };
                 guest.execution_deadline.set(deadline);
                 guest.driver.synchronize(deadline);
             }
