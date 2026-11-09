@@ -1,13 +1,13 @@
 use super::DispatchEntry;
 use crate::Result;
 use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::{ExportFunction, Import};
+use relocade_wasm_runtime::{ExportFunction, Import, Table};
 use relocade_x86::{abi, EntryTable};
 
 /// Owns the guest-address map and Wasm function table for one CPU.
 pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     memory: B::Memory,
-    functions: B::Table,
+    functions: Table<B, abi::ExecutionSignature>,
     addresses: EntryTable,
     next_slot: u32,
     capacity: u32,
@@ -20,7 +20,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         backend.memory(&memory).write(0, &addresses.to_bytes());
         Ok(Self {
             memory,
-            functions: backend.create_table(abi::EXECUTION_FUNCTIONS.minimum)?,
+            functions: backend.create_table(abi::EXECUTION_FUNCTIONS, None)?,
             addresses,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
@@ -43,7 +43,9 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         instance: &B::Instance,
     ) -> Result<()> {
         let function = backend.function(instance, abi::RUN)?;
-        backend.set_table_function(&self.functions, EntryTable::INTERPRETER_SLOT, &function)?;
+        let function = backend.import_function(&function);
+        self.functions
+            .set(backend, EntryTable::INTERPRETER_SLOT, &function)?;
         Ok(())
     }
 
@@ -70,18 +72,18 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 slot
             });
             addresses.insert(entry.address, slot);
-            functions.push((slot, function));
+            functions.push((slot, backend.import_function(&function)));
         }
         let bytes = addresses.to_bytes();
         // Reserve both resources before replacing any live function slots.
         if next_slot > self.capacity {
             let capacity = next_slot.max(self.capacity.saturating_mul(2));
-            backend.ensure_table_size(&self.functions, capacity)?;
+            self.functions.ensure_size(backend, capacity, None)?;
             self.capacity = capacity;
         }
         backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
         for (slot, function) in functions {
-            backend.set_table_function(&self.functions, slot, &function)?;
+            self.functions.set(backend, slot, &function)?;
         }
         // All functions exist before their addresses become visible to dispatch.
         backend.memory(&self.memory).write(0, &bytes);

@@ -42,5 +42,6 @@ signature!(A a, B b, C c, D d, E e, F f, G g, H h);
 /// Backend support for wrapping one logical signature as a typed host function.
 /// Implementations adapt argument arities, rather than enumerate signature shapes.
 pub trait HostFunction<S: HostSignature<Self>>: WasmBackend {
-    fn host_function(&mut self, callback: S::Callback) -> Self::ImportFunction;
+    #[doc(hidden)]
+    fn wrap_host_function(&mut self, callback: S::Callback) -> Self::ImportFunction;
 }

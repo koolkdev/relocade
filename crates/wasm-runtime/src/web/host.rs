@@ -10,7 +10,7 @@ where
     Flat<S::Parameters>: WasmTuple,
     Flat<S::Return>: WasmTuple,
 {
-    fn host_function(&mut self, callback: S::Callback) -> JsFunction {
+    fn wrap_host_function(&mut self, callback: S::Callback) -> JsFunction {
         // Engine functions can outlive the backend without retaining its state.
         let store = Rc::downgrade(&self.store);
         relocade_wasm_bindings::callback::<S::Parameters, S::Return>(move |arguments| {

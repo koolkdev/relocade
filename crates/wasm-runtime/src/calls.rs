@@ -55,6 +55,30 @@ impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
     }
 }
 
+/// A reusable engine function with its logical signature intact.
+/// Produced from a host callback or a resolved export. Clones share the same
+/// function; tables retain it after these handles are dropped. Use it only with
+/// tables belonging to the backend that created it.
+pub struct FunctionRef<B: WasmBackend, S: FunctionSignature> {
+    pub(crate) handle: B::ImportFunction,
+    signature: PhantomData<fn() -> S>,
+}
+
+impl<B: WasmBackend, S: FunctionSignature> Clone for FunctionRef<B, S> {
+    fn clone(&self) -> Self {
+        Self::new(self.handle.clone())
+    }
+}
+
+impl<B: WasmBackend, S: FunctionSignature> FunctionRef<B, S> {
+    pub(crate) fn new(handle: B::ImportFunction) -> Self {
+        Self {
+            handle,
+            signature: PhantomData,
+        }
+    }
+}
+
 /// Backend support for resolving and calling one Rust function signature.
 /// Native calls retain a Wasmtime typed function; browser calls use a generated
 /// Wasm adapter in Rust's function table. Both use the shared logical codecs.

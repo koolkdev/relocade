@@ -9,7 +9,7 @@ where
     Flat<S::Parameters>: Parameters,
     Flat<S::Return>: WasmRet,
 {
-    fn host_function(&mut self, callback: S::Callback) -> Func {
+    fn wrap_host_function(&mut self, callback: S::Callback) -> Func {
         <Flat<S::Parameters> as Parameters>::wrap(&mut self.store, move |mut caller, arguments| {
             let arguments: Value<S::Parameters> =
                 lift_flat::<S::Parameters>(arguments).expect("invalid Wasm ABI value");
