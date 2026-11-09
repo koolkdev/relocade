@@ -95,16 +95,18 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 `ExecutionWorker::spawn_with_guest_time(make_time, session)` constructs a
 `GuestTimeConfig` on the execution owner. `GuestTimeConfig::new(rate)` selects
-unpaced guest time and device deadlines only. `with_yield_interval(duration)`
-adds periodic yields in guest time. `with_host_clock(clock)` paces active execution
-and idle advancement in 4 ms guest-time bursts. `with_burst_interval(duration)` changes that positive
-allowance. The host clock is constructed in the factory.
+unpaced guest time and device deadlines only. `with_slice_duration(duration)`
+adds execution slices measured in guest time. At a slice boundary, ready activities
+get a turn before execution continues. `with_host_clock(clock)` also waits for the
+corresponding host time and defaults to 4 ms slices unless a duration was supplied.
+The slice duration must be positive; either builder-call order uses the supplied
+duration. The host clock is constructed in the factory.
 The lower-level `Runner::with_guest_time` takes the same configuration directly.
 
 ```rust
 let worker = ExecutionWorker::spawn_with_guest_time(
     move || GuestTimeConfig::new(instructions_per_second)
-        .with_yield_interval(Duration::from_millis(10))
+        .with_slice_duration(Duration::from_millis(4))
         .with_host_clock(host_timers.clock()),
     async |runner| {
         // Devices receive runner.clock(); the host timer service runs alongside
@@ -130,29 +132,32 @@ CPU ownership. `Cpu::run` uses the same operations without pacing; Runner delega
 their ordering to its scheduler. Ready device work runs before idle time advances,
 and guest execution gets an opportunity to resume before choosing an idle deadline.
 
-The execution schedule computes periodic yield deadlines from the optional
-interval.
-Boundaries remain anchored to the session origin, including after checkpoint
-overshoot and device reprogramming. The driver receives the next absolute guest
-time at which execution should yield. Devices use the same `Clock`
-API in either mode, and the guest time driver has no CPU execution or yield callback.
+The private `ExecutionSlice` owns one retained boundary for cooperative yields
+and host pacing. The next CPU stop is the earlier of that boundary and the next
+device deadline. Device timers and execution notifications leave the boundary
+unchanged. Crossing it carries checkpoint overshoot forward on the same slice
+grid. With no configured slice, the scheduler does not sample the clock to choose
+a periodic execution deadline. Devices use the same `Clock` API in either mode;
+the guest time driver has no CPU execution or yield callback.
+
+Unpaced idle execution advances directly to the next device deadline, even if
+it skips slice boundaries. Paced idle advancement stops at the earlier of that
+deadline and the current slice boundary. A slice alone never causes idle time
+to advance when there are no registered sleeps.
+
+### Slices paced by a host clock
 
 Host waits use a separate host `Clock` constructed from `TimerHandle` on the
 execution owner. `HostTimerDriver::spawn_with_peer` binds direct notifications so
 host deadlines can wake services while guest execution stays runnable.
 
-### Bursts paced by a host clock
-
-The next CPU stop is the earliest device deadline, periodic yield or burst end.
-Idle advancement stops at each device deadline within the same burst. Devices
-and the CPU receive execution opportunities between deadlines; this does not
-promise IRQ acceptance when guest interrupt state prevents it.
-
-At the burst boundary, Runner waits for the corresponding absolute host time.
-Checkpoint overshoot is included in that wait and shortens the next burst.
-Late host wakes preserve the burst grid and each intervening device deadline;
-guest time never jumps directly to the current host time. A burst can contain
-several PIT deadlines without requiring a host wait for every transition.
+At the slice boundary, Runner waits for the corresponding absolute host time.
+Checkpoint overshoot is included in that wait and shortens the next slice.
+Late host wakes preserve the slice grid and each intervening device deadline;
+guest time never jumps directly to the current host time. Devices and the CPU
+receive execution opportunities between deadlines; IRQ acceptance still depends
+on guest interrupt state. A slice can contain several PIT deadlines without
+requiring a host wait for every transition.
 
 An execution notification makes ready activities pollable while preserving the
 current allowance. Ready host services and exit requests can progress during a
@@ -160,10 +165,10 @@ pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
 credit. Replacing a device timer does not replace the pacing wait or grant time.
 
 Completing or cancelling `run_cpu` cancels its host wait. The next run retains
-unused burst credit and the existing lead or lag. Time spent between runs is
+the same slice boundary and the existing lead or lag. Time spent between runs is
 excluded by shifting the host origin; repeated cancellation cannot grant another
-burst. The clock driver owns this host/guest correspondence, while
-`runner/schedule/pacing.rs` owns the allowance and cancellable host wait.
+slice. The clock driver owns this host/guest correspondence, while
+`runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
 ## Host timers
 

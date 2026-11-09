@@ -1,16 +1,12 @@
 //! Drives CPU turns, guest deadlines and host pacing.
 
-mod pacing;
-use pacing::{next_boundary, Pacing};
+mod slice;
+use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
 use crate::{Clock, Cpu, GuestTimeDriver, Instant};
 use relocade_x86::ExecutionExit;
-use std::{
-    cell::Cell,
-    task::{ready, Context, Poll, Waker},
-    time::Duration,
-};
+use std::task::{ready, Context, Poll, Waker};
 
 pub(super) struct ExecutionSchedule {
     clock: Clock,
@@ -19,10 +15,7 @@ pub(super) struct ExecutionSchedule {
 
 struct GuestSchedule {
     driver: GuestTimeDriver,
-    yield_origin: Instant,
-    yield_interval: Option<Duration>,
-    execution_deadline: Cell<Option<Instant>>,
-    pacing: Option<Pacing>,
+    slice: Option<ExecutionSlice>,
 }
 
 impl ExecutionSchedule {
@@ -32,22 +25,16 @@ impl ExecutionSchedule {
 
     pub(super) fn with_guest_time(config: GuestTimeConfig) -> Self {
         let start = Instant::now();
+        let slice = config
+            .slice_duration
+            .map(|duration| ExecutionSlice::new(start, duration, config.host_clock.is_some()));
         let mut driver = GuestTimeDriver::new(start, config.instructions_per_second);
-        let pacing = if let Some(host) = config.host_clock {
+        if let Some(host) = config.host_clock {
             driver = driver.with_host_clock(host);
-            Some(Pacing::new(config.burst_interval))
-        } else {
-            None
-        };
+        }
         Self {
             clock: driver.clock(),
-            guest: Some(GuestSchedule {
-                driver,
-                yield_origin: start,
-                yield_interval: config.yield_interval,
-                execution_deadline: Cell::new(None),
-                pacing,
-            }),
+            guest: Some(GuestSchedule { driver, slice }),
         }
     }
 
@@ -55,18 +42,12 @@ impl ExecutionSchedule {
         &self.clock
     }
 
-    /// Retains pacing credit across runs while cancelling each run's host wait.
+    /// Retains the slice boundary across runs while cancelling each run's host wait.
     #[must_use]
     pub(super) fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> Option<impl Drop + use<'a>> {
-        self.guest.as_ref().map(|guest| {
-            let cpu = guest.driver.bind(cpu, changed);
-            if let Some(pacing) = &guest.pacing {
-                pacing.begin(self.clock.now());
-            }
-            Binding {
-                _cpu: cpu,
-                pacing: guest.pacing.as_ref(),
-            }
+        self.guest.as_ref().map(|guest| Binding {
+            _cpu: guest.driver.bind(cpu, changed),
+            slice: guest.slice.as_ref(),
         })
     }
 
@@ -83,27 +64,19 @@ impl ExecutionSchedule {
             Poll::Ready(exit)
         } else {
             if let Some(guest) = &self.guest {
-                let deadline = if guest.pacing.is_some() || guest.yield_interval.is_some() {
-                    let now = self.clock.now();
-                    if let Some(pacing) = &guest.pacing {
-                        ready!(pacing.poll(&guest.driver, now, cx));
-                    }
-                    guest
-                        .yield_interval
-                        .map(|interval| next_boundary(now, guest.yield_origin, interval))
-                        .into_iter()
-                        .chain(guest.pacing.as_ref().map(Pacing::deadline))
-                        .min()
-                } else {
-                    None
-                };
-                guest.execution_deadline.set(deadline);
-                guest.driver.synchronize(deadline);
+                if let Some(slice) = &guest.slice {
+                    ready!(slice.poll(&guest.driver, self.clock.now(), cx));
+                }
+                guest
+                    .driver
+                    .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
             }
             cpu.poll_execution(cx)
         };
         if let Some(guest) = &self.guest {
-            guest.driver.synchronize(guest.execution_deadline.get());
+            guest
+                .driver
+                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
         }
         match result {
             Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
@@ -113,7 +86,7 @@ impl ExecutionSchedule {
             Poll::Ready(exit) => Poll::Ready(Some(exit)),
             Poll::Pending => {
                 // Let ready activities replace their waits before advancing idle
-                // time. Neither a wake nor a replaced deadline grants a new burst.
+                // time. Neither a wake nor a replaced deadline resets the slice.
                 if cpu.interrupt_handle().is_requested() {
                     return Poll::Ready(None);
                 }
@@ -123,8 +96,8 @@ impl ExecutionSchedule {
                 let Some(mut deadline) = guest.driver.next_deadline() else {
                     return Poll::Pending;
                 };
-                if let Some(pacing) = &guest.pacing {
-                    deadline = deadline.min(pacing.deadline());
+                if let Some(slice) = &guest.slice {
+                    deadline = slice.idle_deadline(deadline);
                 }
                 guest.driver.advance_to(deadline);
                 Poll::Ready(None)
@@ -135,13 +108,13 @@ impl ExecutionSchedule {
 
 struct Binding<'a, T> {
     _cpu: T,
-    pacing: Option<&'a Pacing>,
+    slice: Option<&'a ExecutionSlice>,
 }
 
 impl<T> Drop for Binding<'_, T> {
     fn drop(&mut self) {
-        if let Some(pacing) = self.pacing {
-            pacing.cancel_wait();
+        if let Some(slice) = self.slice {
+            slice.cancel_wait();
         }
     }
 }

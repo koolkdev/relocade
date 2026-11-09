@@ -182,8 +182,8 @@ impl Runner {
     }
 
     /// Runs on emulated guest time with optional host pacing for active and idle
-    /// execution. Device deadlines subdivide each pacing burst. Instruction targets
-    /// remain soft checkpoint limits, so a burst can overshoot.
+    /// execution. Device deadlines subdivide each execution slice. Instruction targets
+    /// remain soft checkpoint limits, so a slice can overshoot.
     /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
     /// the host/guest offset survive those pauses.
     pub fn with_guest_time(

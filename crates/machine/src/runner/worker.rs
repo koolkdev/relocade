@@ -75,7 +75,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     }
 
     /// Constructs guest-time configuration on the execution owner, then runs
-    /// the session. The factory can create a local host clock for burst pacing.
+    /// the session. The factory can create a local host clock for pacing execution slices.
     /// Devices keep the existing [`Clock`] interface.
     pub fn spawn_with_guest_time(
         make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,

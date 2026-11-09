@@ -39,11 +39,11 @@ async fn cpu(runner: &Runner, code: &[u8], io: IoBus) -> Cpu {
     runner.create_cpu(memory, config.cpu, io).await.unwrap()
 }
 
-async fn yield_deadline_overshoot() {
+async fn unpaced_slice_overshoot() {
     let worker = ExecutionWorker::spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(3).unwrap())
-                .with_yield_interval(Duration::from_secs(1))
+                .with_slice_duration(Duration::from_secs(1))
         },
         async |runner| {
             let start = runner.clock().now();
@@ -121,7 +121,7 @@ async fn deadlines_and_final_exit() {
         let worker = ExecutionWorker::spawn_with_guest_time(
             || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                    .with_yield_interval(Duration::from_millis(10))
+                    .with_slice_duration(Duration::from_millis(10))
             },
             async move |runner| {
                 let start = runner.clock().now();
@@ -187,7 +187,7 @@ async fn retained_service() {
     let worker = ExecutionWorker::spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_yield_interval(Duration::from_millis(10))
+                .with_slice_duration(Duration::from_millis(10))
         },
         async move |runner| {
             let start = runner.clock().now();
@@ -229,25 +229,76 @@ async fn retained_service() {
     assert_eq!(result, Some(()));
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn yield_deadlines_carry_checkpoint_overshoot_forward() {
-    pollster::block_on(yield_deadline_overshoot());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn yield_deadlines_carry_checkpoint_overshoot_forward() {
-    yield_deadline_overshoot().await;
+async fn unpaced_idle_service() {
+    let worker = ExecutionWorker::spawn_with_guest_time(
+        || {
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_slice_duration(Duration::from_millis(1))
+        },
+        async |runner| {
+            let clock = runner.clock().clone();
+            let start = clock.now();
+            let deadline = start + Duration::from_millis(10);
+            let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
+            let exit = cpu.exit_handle();
+            cpu.install([Hook::host(0x100, async move || {
+                let mut observed = Vec::new();
+                let mut sleep = pin!(clock.sleep_until(deadline));
+                poll_fn(|cx| {
+                    let now = clock.now();
+                    if observed.last() != Some(&now) {
+                        observed.push(now);
+                    }
+                    sleep.as_mut().poll(cx)
+                })
+                .await;
+                // A pending service resumes at its guest deadline without
+                // artificial idle-time steps at the intervening slice boundaries.
+                assert_eq!(observed, [start, deadline]);
+                exit.request();
+            })])
+            .await
+            .unwrap();
+            assert_eq!(
+                runner.run_cpu(&mut cpu).await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            assert_eq!(cpu.cpu_state().instruction_count(), 0);
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn device_deadlines_precede_yield_deadlines_and_flush_on_final_exit() {
+fn unpaced_idle_time_skips_slice_boundaries() {
+    pollster::block_on(unpaced_idle_service());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn unpaced_idle_time_skips_slice_boundaries() {
+    unpaced_idle_service().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn unpaced_slices_carry_checkpoint_overshoot_forward() {
+    pollster::block_on(unpaced_slice_overshoot());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn unpaced_slices_carry_checkpoint_overshoot_forward() {
+    unpaced_slice_overshoot().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
     pollster::block_on(deadlines_and_final_exit());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn device_deadlines_precede_yield_deadlines_and_flush_on_final_exit() {
+async fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
     deadlines_and_final_exit().await;
 }
 

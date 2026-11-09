@@ -157,18 +157,19 @@ The same runner loop handles guest time. Runner delegates each CPU turn to
 scheduler polls host work before waiting for pacing, then prepares instruction
 targets and drives guest execution. Pending services, suspended calls, guest entry
 and terminal-exit cleanup remain owned by the CPU. The schedule also owns clock
-selection, yield cadence and idle decisions; the `GuestTimeDriver` owns registered
-sleeps and instruction-target updates. Time is
-published before polling activities, including after a terminal CPU exit.
+selection, execution slices and idle decisions; the `GuestTimeDriver` owns
+registered sleeps and instruction-target updates. Time is published before
+polling activities, including after a terminal CPU exit.
 A terminal result returns immediately when no execution notification is pending;
 otherwise ready activities receive a turn before the result returns.
 
 Guest-time workers receive a configuration factory, following the same owner-local
 construction rule as `spawn_with_clock`. `GuestTimeConfig` selects the instruction
-rate, optional yield interval and optional host pacing. `with_host_clock(clock)`
-uses 4 ms bursts for active execution and idle advancement; `with_burst_interval`
-changes that allowance. Device deadlines subdivide each burst. The embedding
-retains and drives the host timer service. Scheduling notifications preserve the
+rate, optional slice duration and optional host pacing. `with_slice_duration`
+sets the guest-time boundary shared by cooperative yields and pacing.
+`with_host_clock(clock)` defaults to 4 ms slices if no duration was supplied.
+Device deadlines subdivide each slice. The embedding retains and drives the host
+timer service. Scheduling notifications preserve the
 allowance, and ready host services remain pollable during a pacing wait. Run
 cancellation drops that wait while preserving guest progress and remaining credit;
 time between runs is excluded from the host/guest correspondence.

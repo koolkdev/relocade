@@ -19,12 +19,16 @@ async fn late_host_wake() {
     let (host, mut armed, source) = host();
     let host_start = host.clock().now();
     let worker = ExecutionWorker::spawn_with_guest_time(
-        move || config(source),
+        move || {
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_slice_duration(Duration::from_millis(5))
+                .with_host_clock(Clock::new(source))
+        },
         async |runner| {
             let start = runner.clock().now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
-                deadlines: [2, 4, 6, 8, 10]
+                deadlines: [2, 4, 6, 8, 10, 12]
                     .map(|millis| start + Duration::from_millis(millis))
                     .to_vec(),
                 observed: Vec::new(),
@@ -50,13 +54,13 @@ async fn late_host_wake() {
     );
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(4))
+        Some(host_start + Duration::from_millis(5))
     );
-    host.advance_by(Duration::from_millis(9));
+    host.advance_by(Duration::from_millis(11));
     // Deadlines remain anchored even though the first host wake is late.
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(8))
+        Some(host_start + Duration::from_millis(10))
     );
     assert_eq!(
         worker.join().await.unwrap(),
@@ -65,7 +69,8 @@ async fn late_host_wake() {
             Duration::from_millis(4),
             Duration::from_millis(6),
             Duration::from_millis(8),
-            Duration::from_millis(10)
+            Duration::from_millis(10),
+            Duration::from_millis(12)
         ])
     );
     assert_eq!(host.next_deadline(), None);
