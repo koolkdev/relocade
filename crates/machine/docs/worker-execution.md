@@ -152,11 +152,13 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 `run_cpu` cooperates with the main/device task set when a wake requests an
 execution interrupt. Host-timed runners leave the instruction target unarmed.
-The same runner loop handles guest time. Runner polls the CPU through its internal
-`poll_run` boundary and gives ready activities a turn. Pending services and
-suspended calls remain owned by the CPU. The private `ExecutionSchedule` owns
-clock selection, yield cadence, time synchronization and idle decisions; the
-`GuestTimeDriver` owns registered sleeps and instruction-target updates. Time is
+The same runner loop handles guest time. Runner delegates each CPU turn to
+`ExecutionSchedule::poll_cpu` and gives ready activities a turn afterward. The
+scheduler polls host work before waiting for pacing, then prepares instruction
+targets and drives guest execution. Pending services, suspended calls, guest entry
+and terminal-exit cleanup remain owned by the CPU. The schedule also owns clock
+selection, yield cadence and idle decisions; the `GuestTimeDriver` owns registered
+sleeps and instruction-target updates. Time is
 published before polling activities, including after a terminal CPU exit.
 A terminal result returns immediately when no execution notification is pending;
 otherwise ready activities receive a turn before the result returns.

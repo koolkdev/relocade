@@ -113,19 +113,22 @@ let worker = ExecutionWorker::spawn_with_guest_time(
 );
 ```
 
-`Runner::run_cpu` uses one execution loop for both host and guest clocks. It
-prepares the schedule, polls the CPU once and publishes guest time. Continuing
-execution gives ready activities a turn. Terminal exits yield only when an
-execution notification remains pending, including notifications from timers made
-due by the final instructions. The private `ExecutionSchedule` owns clock
-selection, periodic yield deadlines and burst pacing. Its binding scopes the
+`Runner::run_cpu` uses one execution loop for both host and guest clocks. Its
+private `ExecutionSchedule::poll_cpu` owns each turn: poll host work, wait for
+pacing, prepare instruction targets, drive guest execution and publish time.
+Continuing execution gives ready activities a turn. Terminal exits yield only
+when an execution notification remains pending, including notifications from
+timers made due by the final instructions. The schedule's binding scopes the
 guest driver's target and notifications to one run; completion and cancellation
 release it.
 
-Pending services and suspended calls belong to `Cpu`. Both `Cpu::run` and Runner
-use the same internal `poll_run` boundary, including terminal-exit cleanup. Runner
-does not retain a separate CPU-run future. Ready device work runs before idle
-time advances, and the CPU is polled again before choosing an idle deadline.
+Pending services and suspended calls belong to `Cpu`. Its internal
+`poll_host_work` polls active Rust services and observes exit requests without
+entering the guest. `poll_execution` handles guest calls, IRQ entry, dispatch,
+and new or resumed host calls. Both operations keep terminal-exit cleanup inside
+CPU ownership. `Cpu::run` uses the same operations without pacing; Runner delegates
+their ordering to its scheduler. Ready device work runs before idle time advances,
+and guest execution gets an opportunity to resume before choosing an idle deadline.
 
 The execution schedule computes periodic yield deadlines from the optional
 interval.

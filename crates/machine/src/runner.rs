@@ -171,15 +171,7 @@ impl Runner {
         let interrupt = cpu.interrupt_handle();
         self.executor.yield_now().await;
         loop {
-            let exit = poll_fn(|cx| {
-                let allow_guest = self.schedule.before_cpu_poll(cx).is_ready();
-                let result = cpu.poll_run(cx, allow_guest);
-                if !allow_guest && result.is_pending() {
-                    return Poll::Pending;
-                }
-                self.schedule.after_cpu_poll(result, &interrupt)
-            })
-            .await;
+            let exit = poll_fn(|cx| self.schedule.poll_cpu(cpu, cx)).await;
             if exit.is_none() || interrupt.is_requested() {
                 self.executor.yield_now().await;
             }

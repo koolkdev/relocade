@@ -1,10 +1,10 @@
-//! Execution deadlines and host pacing, independent of CPU polling.
+//! Drives CPU turns, guest deadlines and host pacing.
 
 mod pacing;
 use pacing::{next_boundary, Pacing};
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, ExecutionInterrupt, GuestTimeDriver, Instant};
+use crate::{Clock, Cpu, GuestTimeDriver, Instant};
 use relocade_x86::ExecutionExit;
 use std::{
     cell::Cell,
@@ -70,33 +70,34 @@ impl ExecutionSchedule {
         })
     }
 
-    pub(super) fn before_cpu_poll(&self, cx: &mut Context<'_>) -> Poll<()> {
-        let Some(guest) = &self.guest else {
-            return Poll::Ready(());
-        };
-        let now = self.clock.now();
-        if let Some(pacing) = &guest.pacing {
-            ready!(pacing.poll(&guest.driver, now, cx));
-        }
-        let deadline = guest
-            .yield_interval
-            .map(|interval| next_boundary(now, guest.yield_origin, interval))
-            .into_iter()
-            .chain(guest.pacing.as_ref().map(Pacing::deadline))
-            .min();
-        guest.execution_deadline.set(deadline);
-        guest.driver.synchronize(deadline);
-        Poll::Ready(())
-    }
-
-    /// Publishes retirement before devices run, including on terminal exits.
-    /// Ready(None) requests an activity turn; Ready(Some(exit)) returns the CPU
-    /// result. Runner yields before returning only when work was notified.
-    pub(super) fn after_cpu_poll(
+    /// Polls host work before pacing guest entry, then publishes progress and
+    /// chooses whether to yield, wait or return. Pending pacing waits do not
+    /// advance idle time. Ready(None) gives activities a turn; Ready(Some(exit))
+    /// returns the CPU result, with terminal-exit cleanup already complete.
+    pub(super) fn poll_cpu(
         &self,
-        result: Poll<ExecutionExit>,
-        interrupt: &ExecutionInterrupt,
+        cpu: &mut Cpu,
+        cx: &mut Context<'_>,
     ) -> Poll<Option<ExecutionExit>> {
+        let result = if let Some(exit) = cpu.poll_host_work(cx) {
+            Poll::Ready(exit)
+        } else {
+            if let Some(guest) = &self.guest {
+                let now = self.clock.now();
+                if let Some(pacing) = &guest.pacing {
+                    ready!(pacing.poll(&guest.driver, now, cx));
+                }
+                let deadline = guest
+                    .yield_interval
+                    .map(|interval| next_boundary(now, guest.yield_origin, interval))
+                    .into_iter()
+                    .chain(guest.pacing.as_ref().map(Pacing::deadline))
+                    .min();
+                guest.execution_deadline.set(deadline);
+                guest.driver.synchronize(deadline);
+            }
+            cpu.poll_execution(cx)
+        };
         if let Some(guest) = &self.guest {
             guest.driver.synchronize(guest.execution_deadline.get());
         }
@@ -109,7 +110,7 @@ impl ExecutionSchedule {
             Poll::Pending => {
                 // Let ready activities replace their waits before advancing idle
                 // time. Neither a wake nor a replaced deadline grants a new burst.
-                if interrupt.is_requested() {
+                if cpu.interrupt_handle().is_requested() {
                     return Poll::Ready(None);
                 }
                 let Some(guest) = &self.guest else {
