@@ -49,7 +49,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     io.write_mmio(0xa0000, 1, 1);
     write_register(&io, 5, 7);
     io.write_mmio(0xa8020, 1, 2); // Pixel (32, 480) with pitch 1024.
-    let frames = vga.borrow().frame_source();
+    let frames = vga.borrow().frames();
     let mut video = pin!(Vga::run(vga.clone()));
     let mut video_cx = Context::from_waker(Waker::noop());
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
@@ -64,23 +64,21 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
-    let completed = frames.current_capture().unwrap();
-    assert_eq!(completed.sequence, 1);
-    let Scanout::Svga(old) = completed.display.scanout() else {
+    let completed = frames.try_recv().unwrap();
+    let Scanout::Svga(old) = completed.scanout() else {
         panic!("packed capture")
     };
     assert_eq!(old.origin(), [0, 0]);
-    assert_eq!(completed.display.vram_byte(0), Some(1));
+    assert_eq!(completed.vram_byte(0), Some(1));
     clock.advance_to(clock_origin() + boundary(2));
     io.read_port(0x3ba, 1);
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
-    let next = frames.current_capture().unwrap();
-    assert_eq!(next.sequence, 2);
-    let Scanout::Svga(layout) = next.display.scanout() else {
+    let next = frames.try_recv().unwrap();
+    let Scanout::Svga(layout) = next.scanout() else {
         panic!("packed capture")
     };
     assert_eq!(layout.origin(), [32, 480]);
-    assert_eq!(next.display.vram_byte(layout.display_start()), Some(2));
+    assert_eq!(next.vram_byte(layout.display_start()), Some(2));
     assert_eq!(old.origin(), [0, 0]);
     assert_eq!(read_register(&io, 5), 7);
 }

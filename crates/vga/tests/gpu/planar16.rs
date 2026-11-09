@@ -23,8 +23,8 @@ async fn check_pixels() {
     clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let source = vga.borrow().frame_source();
-    let first = source.current_capture().unwrap();
+    let source = vga.borrow().frames();
+    let first = source.try_recv().unwrap();
     let original = pixels(indices.iter().copied());
     gpu.expect(&first, [640, 480], &original).await;
 
@@ -39,7 +39,7 @@ async fn check_pixels() {
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     gpu.expect(
-        &source.current_capture().unwrap(),
+        &source.try_recv().unwrap(),
         [640, 480],
         &pixels(indices.iter().copied()),
     )
@@ -59,7 +59,7 @@ async fn check_pixels() {
             .iter()
             .map(|c| [0x51, 0x54, 0x5d, 0x50][usize::from((c & 1) | ((c & 4) >> 1))]),
     );
-    gpu.expect(&common::capture(&vga), [640, 480], &expected)
+    gpu.expect(&common::snapshot(&vga), [640, 480], &expected)
         .await;
     drop(video);
     drop(vga);
@@ -88,31 +88,23 @@ async fn check_addressing() {
                 .flat_map(|r| indices[r.clone()].iter().copied()),
         )
     };
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [16, 2],
-        &expected(&[8..24, 40..56]),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [16, 2], &expected(&[8..24, 40..56]))
+        .await;
     attribute(&mut vga, 0x13, 7); // Cross an eight-pixel byte boundary.
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [16, 2],
-        &expected(&[15..31, 47..63]),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [16, 2], &expected(&[15..31, 47..63]))
+        .await;
     indexed(&mut vga, 0x3d4, 8, 0x20); // One additional byte of horizontal panning.
     attribute(&mut vga, 0x10, 0x21);
     indexed(&mut vga, 0x3d4, 0x18, 0); // Split the repeated pair and reset panning.
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 4],
         &expected(&[23..39, 0..16, 0..16, 32..48]),
     )
     .await;
     attribute(&mut vga, 0x10, 1); // Preserve both panning shifts after the split.
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 4],
         &expected(&[23..39, 15..31, 15..31, 47..63]),
     )
@@ -124,7 +116,7 @@ async fn check_addressing() {
     // while the row-scan counter still advances once per physical scanline.
     indexed(&mut vga, 0x3d4, 0x17, 0xe7);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 4],
         &expected(&[15..31, 0..16, 32..48, 64..80]),
     )
@@ -135,7 +127,7 @@ async fn check_addressing() {
     indexed(&mut vga, 0x3d4, 0x18, 255);
     indexed(&mut vga, 0x3d4, 0x17, 0xeb);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 2],
         &expected(&[8..16, 8..16, 40..48, 40..48]),
     )
@@ -145,12 +137,8 @@ async fn check_addressing() {
     for (shift, mode) in [(0x20, 0x41), (0x40, 1), (0, 0x41)] {
         indexed(&mut vga, 0x3ce, 5, shift);
         attribute(&mut vga, 0x10, mode);
-        gpu.expect(
-            &common::fixture::capture(&vga),
-            [16, 4],
-            &[0, 0, 0, 255].repeat(64),
-        )
-        .await;
+        gpu.expect(&vga.snapshot(), [16, 4], &[0, 0, 0, 255].repeat(64))
+            .await;
     }
 }
 

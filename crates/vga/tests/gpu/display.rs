@@ -7,7 +7,6 @@ use relocade_vga::{
     registers::{attribute, crtc, COLOR_INPUT_STATUS_1_PORT},
     VgaDisplay,
 };
-use std::sync::Arc;
 
 async fn check_display() {
     let instance = wgpu::Instance::default();
@@ -17,7 +16,7 @@ async fn check_display() {
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
 
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -39,7 +38,6 @@ async fn check_display() {
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
-    let first = source.current_capture().unwrap();
 
     // Mark one output pixel to distinguish reusing the image from decoding again.
     queue.write_texture(
@@ -58,7 +56,7 @@ async fn check_display() {
         common::service_video(video.as_mut());
         assert!(display.service(&queue).now_or_never().is_none());
     }
-    assert!(Arc::ptr_eq(&first, &source.current_capture().unwrap()));
+    assert!(source.is_empty());
     let mut encoder = device.create_command_encoder(&Default::default());
     assert_eq!(
         display
@@ -100,14 +98,14 @@ async fn check_display() {
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(&device, &queue, uploaded.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 170, 255]);
+
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
     let latest = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(&device, &queue, latest.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
-    let last = source.current_capture().unwrap();
-    assert_eq!(last.sequence, 10);
+
     assert!(display.service(&queue).now_or_never().is_none());
 
     drop(video);
@@ -125,7 +123,7 @@ async fn check_display() {
     let pixels = read_pixels(&device, &queue, latest.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 170, 0, 255]);
     // The same connection must restore its closed source on a replacement GPU,
-    // without another guest write or a new capture sequence.
+    // without another guest write or snapshot.
     display.device_lost();
     assert!(display.current_image().is_none());
     drop((image, uploaded, latest));
@@ -169,7 +167,7 @@ async fn check_display_state_changes() {
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_ADDRESS_LOW, 1);
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 6);
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_END, 7);
-    let mut display = VgaDisplay::new(&device, vga.borrow().frame_source()).unwrap();
+    let mut display = VgaDisplay::new(&device, vga.borrow().frames()).unwrap();
 
     // Only blink phases change; no guest writes occur between captures.
     for (frame, changed, glyph, cursor) in [

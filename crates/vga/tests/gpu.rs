@@ -32,15 +32,14 @@ mod svga;
 mod unchained256;
 use common::support::software;
 
-use relocade_vga::{CapturedFrame, VgaRenderer};
-use std::sync::Arc;
+use relocade_vga::{DisplaySnapshot, VgaRenderer};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use common::fixture::{set_cell, text_device};
-fn capture() -> CapturedFrame {
-    common::fixture::capture(&text_device())
+fn capture() -> DisplaySnapshot {
+    text_device().snapshot()
 }
 
 fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
@@ -56,14 +55,14 @@ async fn check_image() {
     let mut vga = text_device();
     set_cell(&mut vga, 0, b'F', 0x6f);
     set_cell(&mut vga, 1999, 0xdb, 0x09);
-    let input = common::fixture::capture(&vga);
-    let input = Arc::new(input);
+    let input = vga.snapshot();
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(&queue, &input.display);
+    renderer.upload(&queue, &input);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     assert_eq!(frame.size(), [640, 200]);
     assert_eq!(frame.pixel_aspect_ratio(), (5, 12));
+
     let pixels = read_pixels(&device, &queue, frame.texture()).await;
     // Literal font rows and palette values check packing, glyph direction and
     // colors independently of the software conversion implementation.
@@ -87,11 +86,12 @@ async fn check_image() {
     // Another snapshot updates reusable storage, including retained Image handles.
     let mut vga = text_device();
     set_cell(&mut vga, 0, 0xdb, 4);
-    let other = Arc::new(common::fixture::capture(&vga));
+    let other = vga.snapshot();
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(&queue, &other.display);
+    renderer.upload(&queue, &other);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
+
     assert_eq!(frame.texture(), image.texture());
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);

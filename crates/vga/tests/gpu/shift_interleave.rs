@@ -28,21 +28,17 @@ async fn check_colors() {
             vga.write_mmio(0xa0000 + offset as u32, 1, byte);
         }
     }
-    let original = common::fixture::capture(&vga);
+    let original = vga.snapshot();
     let colors = [0, 1, 6, 7, 11, 10, 13, 12, 1, 1, 13, 13, 14, 14, 2, 2];
     gpu.expect(&original, [16, 1], &pixels(colors)).await;
     // Mask assembled color bits, not the source memory planes.
     attribute(&mut vga, 0x12, 5);
-    gpu.expect(
-        &common::fixture::capture(&vga),
-        [16, 1],
-        &pixels(colors.map(|c| c & 5)),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [16, 1], &pixels(colors.map(|c| c & 5)))
+        .await;
     attribute(&mut vga, 0x12, 15);
     attribute(&mut vga, 0x10, 9);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [16, 1],
         &pixels([8, 9, 14, 15, 3, 2, 5, 4, 9, 9, 5, 5, 6, 6, 10, 10]),
     )
@@ -54,15 +50,14 @@ async fn check_colors() {
     }
     let mut blanked = pixels(colors);
     blanked[8 * 4..].copy_from_slice(&[0, 0, 0, 255].repeat(8));
-    gpu.expect(&common::fixture::capture(&vga), [16, 1], &blanked)
-        .await;
+    gpu.expect(&vga.snapshot(), [16, 1], &blanked).await;
     // Disable blanking for the remaining pixel cases.
     indexed(&mut vga, 0x3d4, 2, 255);
     // A pan crosses both the map0/2-to-map1/3 boundary and the next fetch.
     indexed(&mut vga, 0x3d4, 1, 0);
     attribute(&mut vga, 0x13, 3);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [8, 1],
         &pixels([7, 11, 10, 13, 12, 1, 1, 13]),
     )
@@ -72,7 +67,7 @@ async fn check_colors() {
     indexed(&mut vga, 0x3ce, 5, 0x60);
     attribute(&mut vga, 0x10, 0x41);
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &vga.snapshot(),
         [8, 1],
         &pixels([0x1b, 0xe4, 0x05, 0xaf, 0x55, 0xaa, 0x0f, 0xf0]),
     )
@@ -123,8 +118,8 @@ async fn check_banked_rows() {
         [3, 3, 3, 3, 0, 0, 0, 0, 1, 2, 3, 0, 2, 1, 0, 3],
         [2, 1, 0, 3, 1, 2, 3, 0, 0, 0, 0, 0, 3, 3, 3, 3],
     ];
-    let capture = common::fixture::capture(&vga);
-    assert_eq!(capture.display.vga().unwrap().geometry().scanline_step, 2);
+    let capture = vga.snapshot();
+    assert_eq!(capture.vga().unwrap().geometry().scanline_step, 2);
     gpu.expect(&capture, [16, 4], &pixels(rows.into_iter().flatten()))
         .await;
     // Count-by-two repeats a whole eight-pixel fetch, while RS0 still banks rows.
@@ -132,7 +127,7 @@ async fn check_banked_rows() {
     let repeated = rows
         .iter()
         .flat_map(|row| row[..8].iter().copied().cycle().take(16));
-    gpu.expect(&common::fixture::capture(&vga), [16, 4], &pixels(repeated))
+    gpu.expect(&vga.snapshot(), [16, 4], &pixels(repeated))
         .await;
     indexed(&mut vga, 0x3d4, 0x17, 0xa2);
     // A split inside a doubled pair keeps every physical scanline and restarts RS0.
@@ -142,8 +137,7 @@ async fn check_banked_rows() {
     let split = [0, 0, 0, 1, 1, 2, 2, 3]
         .into_iter()
         .flat_map(|row| rows[row]);
-    gpu.expect(&common::fixture::capture(&vga), [16, 8], &pixels(split))
-        .await;
+    gpu.expect(&vga.snapshot(), [16, 8], &pixels(split)).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

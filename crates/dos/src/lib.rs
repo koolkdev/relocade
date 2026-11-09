@@ -122,7 +122,7 @@
 //! [`Dos::speaker`] exposes its speaker for attaching audio output after startup.
 //! DOS opens no platform output; the device submits PCM on the execution worker.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
-//! the main session awaits input or another program. [`Dos::frame_source`] exposes
+//! the main session awaits input or another program. [`Dos::frames`] exposes
 //! captured display state across launches. The caller chooses the rendering implementation
 //! and its worker, scheduling and presentation lifetime.
 //! Direct CPU control remains available through [`Dos::cpu`].
@@ -427,14 +427,14 @@ impl Dos {
         self.state.devices().find(name)
     }
 
-    /// Immutable captured inputs, reusable across program launches. Rendering is
-    /// caller-owned; capture continues independently of application redraws.
-    pub fn frame_source(&self) -> relocade_vga::FrameSource {
-        self.pc.frame_source()
+    /// Snapshot queue for one graphics consumer, reusable across program launches.
+    /// Capture continues independently of application redraws.
+    pub fn frames(&self) -> async_channel::Receiver<relocade_vga::DisplaySnapshot> {
+        self.pc.frames()
     }
 
     /// Retains the execution-local device, including while the CPU awaits input.
-    /// Give other workers the immutable captures from [`Dos::frame_source`].
+    /// Give other workers the immutable captures from [`Dos::frames`].
     /// End device borrows before polling execution or dropping the session.
     pub fn vga(&self) -> Rc<RefCell<Vga>> {
         self.pc.vga()

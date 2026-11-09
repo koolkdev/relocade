@@ -138,8 +138,9 @@ registers VGA with the runner and shares its timer. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run(runner).await` returns the current
 process exit code; keeping the main session alive afterwards leaves VGA active
-for final captures and later launches. `dos.frame_source()` exposes the same
-immutable capture source across those launches. Rendering and surface lifetimes
+for final captures and later launches. `dos.frames()` exposes the same
+capacity-one snapshot queue across those launches. One graphics consumer receives
+the snapshots; cloned receivers compete for them. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
 It returns `None` before the first launch; an exited process remains observable.

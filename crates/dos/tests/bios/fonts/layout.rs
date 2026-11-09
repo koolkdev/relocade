@@ -54,7 +54,7 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
             video(&mut dos, 0x0951, 0x031e, 1, 0);
             video(&mut dos, 0x0503, 0, 0, 0);
             let capture = common::next_capture(&dos).await;
-            assert_eq!(capture.display.vga().unwrap().display_start, 0x3000);
+            assert_eq!(capture.vga().unwrap().display_start, 0x3000);
             assert_eq!(
                 video(&mut dos, 0x0800, 0x0300, 0, 0).registers.eax as u16,
                 0x1e51
@@ -97,7 +97,7 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(before_registers, after_registers);
-        assert_eq!(before.display.plane(2), after.plane(2));
+        assert_eq!(before.plane(2), after.plane(2));
         video(&mut dos, 0x0500, 0, 0, 0);
         // A one-high font would need 400 BIOS rows, beyond the byte-sized row field.
         assert_eq!(

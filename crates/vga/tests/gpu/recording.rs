@@ -27,8 +27,9 @@ async fn check_recording(packed: bool) {
         } else {
             set_cell(&mut device_state, 0, 0xdb, attribute);
         }
-        let input = common::fixture::capture(&device_state);
-        vga.upload(&queue, &input.display);
+        let input = device_state.snapshot();
+
+        vga.upload(&queue, &input);
         queue.submit([]); // Keep GPU input current without decoding or presenting.
         if let Some(image) = &previous_image {
             let pixels = read_pixels(&device, &queue, image.texture()).await;
@@ -38,6 +39,7 @@ async fn check_recording(packed: bool) {
             let mut encoder = device.create_command_encoder(&Default::default());
             let recorded = vga.encode(&mut encoder).unwrap();
             drop(encoder);
+
             // The input upload was submitted, but the discarded decode must not
             // have changed the image.
             let pixels = read_pixels(&device, &queue, recorded.texture()).await;
@@ -65,6 +67,7 @@ async fn check_recording(packed: bool) {
         }
         queue.submit([encoder.finish()]);
         previous_image = Some(frame.clone());
+
         let pixels = read_pixels(&device, &queue, output.texture()).await;
         assert_eq!(pixel(&pixels, 0, 0), expected);
         assert_eq!(pixel(&pixels, 8, 0), [0, 0, 0, 255]);

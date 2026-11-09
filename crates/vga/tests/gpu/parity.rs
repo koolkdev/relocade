@@ -5,19 +5,18 @@ use relocade_machine::Device;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
     registers::{crtc, sequencer, COLOR_INPUT_STATUS_1_PORT, SEQUENCER_INDEX_PORT},
-    CapturedFrame, VgaRenderer, TEXT_MEMORY_START,
+    DisplaySnapshot, VgaRenderer, TEXT_MEMORY_START,
 };
-use std::sync::Arc;
 
 async fn compare(
     renderer: &mut VgaRenderer,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    capture: Arc<CapturedFrame>,
+    capture: DisplaySnapshot,
 ) -> Vec<u8> {
     let software = software::rasterize(&capture);
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(queue, &capture.display);
+    renderer.upload(queue, &capture);
     let frame = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     let pixels = read_pixels(device, queue, frame.texture()).await;
@@ -47,9 +46,9 @@ async fn check_parity() {
         }
         set_cell(&mut vga, 600, 0xdb, 0x94);
         set_cell(&mut vga, 601, 0xdb, 0x14);
-        let mut input = common::fixture::capture(&vga);
-        input.display.vga_mut().unwrap().attribute_blink_on = blink_on;
-        let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
+        let mut input = vga.snapshot();
+        input.vga_mut().unwrap().attribute_blink_on = blink_on;
+        let pixels = compare(&mut renderer, &device, &queue, input).await;
         assert_eq!(
             pixel(&pixels, 320, 56),
             if blink_on {
@@ -72,13 +71,13 @@ async fn check_parity() {
         (0, 2000, 6, 7, None),               // Below the screen.
     ] {
         let mut input = capture();
-        input.display.vga_mut().unwrap().display_start = display_start;
+        input.vga_mut().unwrap().display_start = display_start;
         let [high, low] = (address as u16).to_be_bytes();
-        input.display.vga_mut().unwrap().crtc.values[14] = high;
-        input.display.vga_mut().unwrap().crtc.values[15] = low;
-        input.display.vga_mut().unwrap().crtc.values[10] = start_row;
-        input.display.vga_mut().unwrap().crtc.values[11] = end_row;
-        let pixels = compare(&mut renderer, &device, &queue, Arc::new(input)).await;
+        input.vga_mut().unwrap().crtc.values[14] = high;
+        input.vga_mut().unwrap().crtc.values[15] = low;
+        input.vga_mut().unwrap().crtc.values[10] = start_row;
+        input.vga_mut().unwrap().crtc.values[11] = end_row;
+        let pixels = compare(&mut renderer, &device, &queue, input).await;
         if let Some((x, y)) = lit_pixel {
             assert_eq!(pixel(&pixels, x, y), [170, 170, 170, 255]);
             assert_eq!(pixel(&pixels, x, y - 1), [0, 0, 0, 255]);
@@ -91,9 +90,9 @@ async fn check_parity() {
         }
     }
     let mut cursor_off = capture();
-    cursor_off.display.vga_mut().unwrap().cursor_blink_on = false;
-    cursor_off.display.vga_mut().unwrap().crtc.values[10] = 6;
-    let pixels = compare(&mut renderer, &device, &queue, Arc::new(cursor_off)).await;
+    cursor_off.vga_mut().unwrap().cursor_blink_on = false;
+    cursor_off.vga_mut().unwrap().crtc.values[10] = 6;
+    let pixels = compare(&mut renderer, &device, &queue, cursor_off).await;
     assert!(pixels
         .as_chunks::<4>()
         .0
@@ -104,7 +103,7 @@ async fn check_parity() {
     // captures after the source closes. Neither renderer may consult live VGA.
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x04db); // Hidden page: red block.
     vga.borrow_mut()
         .write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
@@ -113,7 +112,7 @@ async fn check_parity() {
     clock.advance_to(clock_origin() + common::boundary(1));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    let page = source.current_capture().unwrap();
+    let page = source.try_recv().unwrap();
     vga.borrow_mut().write_port(
         SEQUENCER_INDEX_PORT,
         2,
@@ -125,10 +124,10 @@ async fn check_parity() {
     clock.advance_to(clock_origin() + common::boundary(2));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    let blanked = source.current_capture().unwrap();
+    let blanked = source.try_recv().unwrap();
     drop(video);
     drop(vga);
-    assert!(source.next_capture(Some(blanked.sequence)).await.is_none());
+    assert!(source.recv().await.is_err());
     let pixels = compare(&mut renderer, &device, &queue, blanked).await;
     assert!(pixels
         .as_chunks::<4>()
@@ -141,7 +140,7 @@ async fn check_parity() {
     // The decoder can be destroyed: different attachment sizes still use its
     // retained GPU image. Resizing cannot request a second VGA decode.
     let mut encoder = device.create_command_encoder(&Default::default());
-    renderer.upload(&queue, &page.display);
+    renderer.upload(&queue, &page);
     let image = renderer.encode(&mut encoder).unwrap();
     queue.submit([encoder.finish()]);
     drop(renderer);
@@ -194,22 +193,14 @@ async fn check_programmed_text() {
     let cases = programmed::cases();
     // Revisit retained snapshots after other sizes/fonts/palettes have been rendered.
     for case in cases.iter().chain(cases.iter().rev()) {
-        let capture = CapturedFrame {
-            display: case.display.clone(),
-            sequence: 1,
-        };
+        let capture = case.display.clone();
         let mut encoder = device.create_command_encoder(&Default::default());
-        renderer.upload(&queue, &capture.display);
+        renderer.upload(&queue, &capture);
         let frame = renderer.encode(&mut encoder).unwrap();
         queue.submit([encoder.finish()]);
         assert_eq!(frame.size(), case.size, "{}", case.name);
         let pixels = read_pixels(&device, &queue, frame.texture()).await;
-        assert_eq!(
-            pixels,
-            software::render(&capture.display).as_ref(),
-            "{}",
-            case.name
-        );
+        assert_eq!(pixels, software::render(&capture).as_ref(), "{}", case.name);
         for &(x, y, expected) in &case.pixels {
             let offset = ((y * case.size[0] + x) * 4) as usize;
             assert_eq!(
@@ -241,13 +232,13 @@ async fn check_published_updates() {
     let mut renderer = VgaRenderer::new(&device).unwrap();
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
     clock.advance_to(clock_origin() + common::boundary(1));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    let first = source.current_capture().unwrap();
+    let first = source.try_recv().unwrap();
     let pixels = compare(&mut renderer, &device, &queue, first.clone()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
 
@@ -255,13 +246,7 @@ async fn check_published_updates() {
     clock.advance_to(clock_origin() + common::boundary(2));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    let pixels = compare(
-        &mut renderer,
-        &device,
-        &queue,
-        source.current_capture().unwrap(),
-    )
-    .await;
+    let pixels = compare(&mut renderer, &device, &queue, source.try_recv().unwrap()).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 170, 255]);
 
     for (port, value) in [
@@ -288,7 +273,7 @@ async fn check_published_updates() {
     clock.advance_to(clock_origin() + common::boundary(4));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    let newest = source.current_capture().unwrap();
+    let newest = source.try_recv().unwrap();
     drop(video);
     drop(vga);
     let pixels = compare(&mut renderer, &device, &queue, newest).await;

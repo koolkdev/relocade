@@ -48,10 +48,10 @@ pub fn start_video(
     (vga, video)
 }
 
-pub fn capture(
+pub fn snapshot(
     vga: &std::rc::Rc<std::cell::RefCell<relocade_vga::Vga>>,
-) -> relocade_vga::CapturedFrame {
-    fixture::capture(&vga.borrow())
+) -> relocade_vga::DisplaySnapshot {
+    vga.borrow().snapshot()
 }
 
 #[path = "../support/mod.rs"]

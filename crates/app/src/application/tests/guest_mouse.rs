@@ -107,7 +107,7 @@ pub(super) async fn run(
             );
             interrupts.install().await.unwrap();
             connected
-                .send((dos.mouse_input(), dos.frame_source()))
+                .send((dos.mouse_input(), dos.frames()))
                 .ok()
                 .unwrap();
             assert_eq!(dos.run(runner).await, Ok(0));

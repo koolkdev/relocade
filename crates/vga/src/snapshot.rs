@@ -12,8 +12,8 @@ pub struct DacSnapshot {
     pub mask: u8,
 }
 
-/// Changes since a known immutable memory version. Published captures accumulate
-/// these until taken for upload. Retains memory references, not earlier captures,
+/// Changes since a known immutable memory version. Pending captures accumulate
+/// these until taken by the output task. Retains memory references, not earlier captures,
 /// so the latest snapshot cannot keep a capture history.
 #[derive(Clone)]
 #[cfg(feature = "renderer")]
@@ -33,7 +33,7 @@ pub struct DisplaySnapshot {
     pub(crate) scanout: Scanout,
     pub(crate) memory: MemorySnapshot,
     /// Optional transfer hints; complete captured memory remains authoritative.
-    /// Keep these with their memory even when a caller replaces CapturedFrame::display.
+    /// A renderer with another baseline uploads complete changed blocks.
     #[cfg(feature = "renderer")]
     pub(crate) changes: Option<MemoryChanges>,
 }

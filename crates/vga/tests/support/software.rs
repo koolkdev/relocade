@@ -2,7 +2,7 @@
 // come from raw captures; literal pixel cases check both this and the GPU shader.
 #![allow(dead_code)]
 use super::text;
-use relocade_vga::{CapturedFrame, DisplaySnapshot};
+use relocade_vga::DisplaySnapshot;
 
 pub(crate) fn render(snapshot: &DisplaySnapshot) -> Box<[u8]> {
     let text = text::Text::new(snapshot);
@@ -67,16 +67,14 @@ pub(crate) struct SoftwareFrame {
     pub height: u32,
     pub pixels: Box<[u8]>,
     pub pixel_aspect_ratio: (u32, u32),
-    pub sequence: u64,
 }
 
-pub(crate) fn rasterize(capture: &CapturedFrame) -> SoftwareFrame {
-    let text = text::Text::new(&capture.display);
+pub(crate) fn rasterize(capture: &DisplaySnapshot) -> SoftwareFrame {
+    let text = text::Text::new(capture);
     SoftwareFrame {
         width: text.layout.size[0],
         height: text.layout.size[1],
-        pixels: render(&capture.display),
+        pixels: render(capture),
         pixel_aspect_ratio: text.layout.pixel_aspect_ratio(),
-        sequence: capture.sequence,
     }
 }

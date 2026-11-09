@@ -6,19 +6,19 @@ use futures_util::{
 };
 use relocade_machine::{timer_service, worker::Thread};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
-use relocade_vga::{CapturedFrame, VgaRenderer};
+use relocade_vga::{DisplaySnapshot, VgaRenderer};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 
 enum GraphicsEvent {
-    Capture(Option<Arc<CapturedFrame>>),
+    Capture(Option<DisplaySnapshot>),
     Redraw(Option<[u32; 2]>),
 }
 
 struct Report {
-    sequence: u64,
+    uploads: usize,
     size: [u32; 2],
     pixel: [u8; 4],
 }
@@ -30,6 +30,7 @@ pub async fn gpu_workers() -> Result<(), String> {
         let guest::Guest {
             execution,
             source,
+            retraces,
             progress,
         } = guest::spawn(clock).await;
         let (mut requests, mut incoming) = mpsc::channel::<[u32; 2]>(0);
@@ -37,6 +38,7 @@ pub async fn gpu_workers() -> Result<(), String> {
         let (release, allowed) = oneshot::channel();
         let (report, mut reports) = mpsc::unbounded();
         let (ready, initialized) = oneshot::channel();
+        let (closed, source_closed) = oneshot::channel();
         let uploads = Arc::new(AtomicUsize::new(0));
         let upload_count = uploads.clone();
         let renders = Arc::new(AtomicUsize::new(0));
@@ -51,8 +53,9 @@ pub async fn gpu_workers() -> Result<(), String> {
             let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
             let mut barrier = Some((selected, allowed));
             let mut ready = Some(ready);
-            let mut uploaded_sequence = None;
+            let mut uploaded = 0;
             let mut needs_decode = false;
+            let mut closed = Some(closed);
             let mut source_closed = false;
             let mut cached: Option<Image> = None;
             loop {
@@ -61,7 +64,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                         if source_closed {
                             std::future::pending().await
                         } else {
-                            worker_source.next_capture(uploaded_sequence).await
+                            worker_source.recv().await.ok()
                         }
                     };
                     match select(Box::pin(next), incoming.next()).await {
@@ -71,10 +74,13 @@ pub async fn gpu_workers() -> Result<(), String> {
                 };
                 let size = match event {
                     GraphicsEvent::Capture(Some(capture)) => {
-                        needs_decode |= vga_renderer.upload(&queue, &capture.display);
+                        if capture.plane(0)[0] != 0xdb {
+                            continue;
+                        }
+                        needs_decode |= vga_renderer.upload(&queue, &capture);
                         queue.submit([]); // Uploads run independently of redraw requests.
-                        uploaded_sequence = Some(capture.sequence);
                         let count = upload_count.fetch_add(1, Ordering::Release) + 1;
+                        uploaded = count;
                         if count == 2 {
                             ready.take().unwrap().send(()).unwrap();
                         }
@@ -82,13 +88,14 @@ pub async fn gpu_workers() -> Result<(), String> {
                     }
                     GraphicsEvent::Capture(None) => {
                         source_closed = true;
+                        closed.take().unwrap().send(()).unwrap();
                         continue;
                     }
                     GraphicsEvent::Redraw(Some(size)) => size,
                     GraphicsEvent::Redraw(None) => break,
                 };
                 if let Some((selected, allowed)) = barrier.take() {
-                    selected.send(uploaded_sequence.unwrap()).unwrap();
+                    selected.send(uploaded).unwrap();
                     allowed.await.unwrap(); // Hold graphics work, not guest execution.
                 }
                 let mut encoder = device.create_command_encoder(&Default::default());
@@ -120,7 +127,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                 let pixel = read_first_pixel(&device, &queue, output.texture()).await;
                 report
                     .unbounded_send(Report {
-                        sequence: uploaded_sequence.unwrap(),
+                        uploads: uploaded,
                         size,
                         pixel,
                     })
@@ -130,10 +137,9 @@ pub async fn gpu_workers() -> Result<(), String> {
 
         // Input uploads continue while decoding and presentation are idle.
         initialized.await.unwrap();
-        let mut capture = source.current_capture().unwrap();
         let before = progress.load(Ordering::Acquire);
         for _ in 0..5 {
-            capture = source.next_capture(Some(capture.sequence)).await.unwrap();
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(renders.load(Ordering::Acquire), 0);
@@ -148,24 +154,23 @@ pub async fn gpu_workers() -> Result<(), String> {
             for _ in 0..100 {
                 request(&mut requests, [96, 72]);
             }
-            capture = source.next_capture(Some(capture.sequence)).await.unwrap();
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(renders.load(Ordering::Acquire), 0);
         release.send(()).unwrap();
         let first = reports.next().await.unwrap();
-        assert_eq!(first.sequence, selected);
+        assert_eq!(first.uploads, selected);
         assert_eq!(first.size, [64, 48]);
         assert_eq!(first.pixel, [255, 255, 85, 255]);
         let second = reports.next().await.unwrap();
-        assert!(second.sequence >= capture.sequence);
+        assert!(second.uploads > selected);
         assert_eq!(second.size, [96, 72]);
         assert_eq!(second.pixel, first.pixel);
 
-        capture = source.current_capture().unwrap();
         let before = progress.load(Ordering::Acquire);
         for _ in 0..5 {
-            capture = source.next_capture(Some(capture.sequence)).await.unwrap();
+            guest::wait_retraces(&retraces, 1).await;
         }
         assert!(progress.load(Ordering::Acquire) > before);
         assert_eq!(renders.load(Ordering::Acquire), 2);
@@ -173,13 +178,12 @@ pub async fn gpu_workers() -> Result<(), String> {
 
         // Capture closure does not terminate the separately owned GPU resources.
         assert_eq!(execution.stop().await.map_err(|e| e.to_string())?, None);
-        let last = source.current_capture().unwrap();
-        assert!(source.next_capture(Some(last.sequence)).await.is_none());
+        source_closed.await.unwrap();
+        assert!(source.is_closed());
         let mut last_decode_count = None;
         for size in [[640, 480], [320, 240]] {
             request(&mut requests, size);
             let retained = reports.next().await.unwrap();
-            assert_eq!(retained.sequence, last.sequence);
             assert_eq!(retained.size, size);
             assert_eq!(retained.pixel, first.pixel);
             let count = renders.load(Ordering::Acquire);

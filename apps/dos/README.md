@@ -21,7 +21,7 @@ The shared host owns the canvas.
 
 The application entrypoint connects existing owners. One execution worker owns
 DOS/keyboard/VGA/speaker and the Rust command loop. It sends the native console's
-input sender, `dos.mouse_input()` and `dos.frame_source()` through a startup
+input sender, `dos.mouse_input()` and `dos.frames()` through a startup
 channel. Main attaches those endpoints to its `AppHost` while driving the
 application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution

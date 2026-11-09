@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+async-channel = { version = "=2.5.0", default-features = false }
 relocade-bios = { path = "../bios" }
 relocade-pc = { path = "../pc" }
 relocade-pc-speaker = { path = "../pc-speaker" }

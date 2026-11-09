@@ -17,7 +17,7 @@ use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Memor
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
-use relocade_vga::{FrameSource, Vga};
+use relocade_vga::{DisplaySnapshot, Vga};
 use relocade_x86::CpuFeature;
 use std::{cell::RefCell, rc::Rc};
 
@@ -118,9 +118,9 @@ impl Pc {
         self.inputs.mouse.clone()
     }
 
-    /// Immutable display captures for rendering on another worker.
-    pub fn frame_source(&self) -> FrameSource {
-        self.vga.borrow().frame_source()
+    /// Snapshot queue for one graphics consumer on another worker.
+    pub fn frames(&self) -> async_channel::Receiver<DisplaySnapshot> {
+        self.vga.borrow().frames()
     }
 
     /// Retains the VGA device on its execution owner. End borrows before polling.

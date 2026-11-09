@@ -31,14 +31,8 @@ fn bios_custom_fonts_and_dual_banks_render_fifty_rows_and_preserve_old_captures(
         program.resize(0x100, 0x90);
         program.extend_from_slice(&[255; 8]);
         let solid = run(&mut dos, &program).await;
-        assert!(std::ptr::eq(
-            diagonal.display.plane(0),
-            solid.display.plane(0)
-        ));
-        assert!(std::ptr::eq(
-            diagonal.display.plane(1),
-            solid.display.plane(1)
-        ));
+        assert!(std::ptr::eq(diagonal.plane(0), solid.plane(0)));
+        assert!(std::ptr::eq(diagonal.plane(1), solid.plane(1)));
         assert_custom_font(&gpu.render(&solid, [720, 400]).await, true);
         drop(dos);
         assert_eq!(gpu.render(&diagonal, [720, 400]).await, pixels);

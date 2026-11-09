@@ -2,12 +2,12 @@ use futures_channel::oneshot;
 use relocade_machine::{
     CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory, TimerHandle,
 };
-use relocade_vga::{FrameSource, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
+use relocade_vga::{DisplaySnapshot, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -18,18 +18,20 @@ use std::{
 // Shared guest workload for the explicitly assembled software and GPU workers.
 pub(super) struct Guest {
     pub execution: ExecutionWorker<()>,
-    pub source: FrameSource,
+    pub source: async_channel::Receiver<DisplaySnapshot>,
+    pub retraces: async_channel::Receiver<()>,
     pub progress: Arc<AtomicUsize>,
 }
 
 pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let (send_source, source) = oneshot::channel();
+    let (retrace, retraces) = async_channel::bounded(1);
     let progress = Arc::new(AtomicUsize::new(0));
     let cpu_progress = progress.clone();
     let execution = ExecutionWorker::spawn(clock, async move |runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
-        send_source.send(vga.borrow().frame_source()).ok().unwrap();
+        send_source.send(vga.borrow().frames()).ok().unwrap();
         let config = MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([
@@ -66,9 +68,15 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         let mut cpu = runner.create_cpu(memory, cpu_config, io).await.unwrap();
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();
+            let in_retrace = Cell::new(false);
             async move || {
                 assert_eq!(cpu.al() & !9, 0);
                 cpu_progress.fetch_add(1, Ordering::Release);
+                let active = cpu.al() & 8 != 0;
+                let previous = in_retrace.replace(active);
+                if active && !previous {
+                    retrace.force_send(()).unwrap();
+                }
                 cpu.set_eip(0x100);
             }
         })])
@@ -78,13 +86,18 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     });
 
     let source = source.await.unwrap();
-    let mut ready = source.next_capture(None).await.unwrap();
-    while ready.display.plane(0)[0] != 0xdb || progress.load(Ordering::Acquire) == 0 {
-        ready = source.next_capture(Some(ready.sequence)).await.unwrap();
-    }
     Guest {
         execution,
         source,
+        retraces,
         progress,
+    }
+}
+
+// Observe guest status reads without consuming the graphics worker's snapshots.
+pub(super) async fn wait_retraces(retraces: &async_channel::Receiver<()>, count: usize) {
+    while retraces.try_recv().is_ok() {}
+    for _ in 0..count {
+        retraces.recv().await.unwrap();
     }
 }

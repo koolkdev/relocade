@@ -66,7 +66,7 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
     let mut vga = Vga::with_clock(ManualClock::new().clock());
-    let source = vga.frame_source();
+    let source = vga.frames();
     font_access(&mut vga);
     vga.write_mmio(0xa0010, 1, 0x5a);
     vga.write_mmio(0xa0020, 1, 0xa5);
@@ -77,7 +77,7 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
     let registers = vga.registers().clone();
     let snapshot = vga.snapshot();
     assert_eq!(vga.registers(), &registers);
-    assert!(source.current_capture().is_none());
+    assert!(source.is_empty());
     assert_eq!(snapshot.plane(2)[0x20], 0xa5);
     vga.write_port(0x3c0, 1, 0x31);
     assert_eq!(vga.read_port(0x3c1, 1), 0x31);
@@ -96,32 +96,32 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
 fn newest_capture_contains_changes_from_skipped_frames() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    let source = vga.borrow().frame_source();
+    let source = vga.borrow().frames();
     font_access(&mut *vga.borrow_mut());
     vga.borrow_mut().write_mmio(0xa0100, 1, 0x12);
     clock.advance_to(clock_origin() + boundary(1));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let first = source.current_capture().unwrap();
+    let first = source.try_recv().unwrap();
     vga.borrow_mut().write_mmio(0xa0200, 1, 0x34);
     clock.advance_to(clock_origin() + boundary(2));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let second = source.clone().current_capture().unwrap(); // An independent reader.
+    let second = vga.borrow().snapshot(); // Retain state without consuming the queue.
     vga.borrow_mut().write_mmio(0xa0300, 1, 0x56);
     clock.advance_to(clock_origin() + boundary(3));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    let newest = source.current_capture().unwrap();
+    let newest = source.try_recv().unwrap();
     drop(video);
     drop(vga);
-    assert_eq!(newest.sequence, 3);
-    assert_eq!(first.display.plane(2)[0x200], 0);
-    assert_eq!(second.display.plane(2)[0x200], 0x34);
-    assert_eq!(second.display.plane(2)[0x300], 0);
-    assert_eq!(newest.display.plane(2)[0x100], 0x12);
-    assert_eq!(newest.display.plane(2)[0x200], 0x34);
-    assert_eq!(newest.display.plane(2)[0x300], 0x56);
+
+    assert_eq!(first.plane(2)[0x200], 0);
+    assert_eq!(second.plane(2)[0x200], 0x34);
+    assert_eq!(second.plane(2)[0x300], 0);
+    assert_eq!(newest.plane(2)[0x100], 0x12);
+    assert_eq!(newest.plane(2)[0x200], 0x34);
+    assert_eq!(newest.plane(2)[0x300], 0x56);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

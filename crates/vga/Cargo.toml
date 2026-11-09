@@ -11,7 +11,7 @@ renderer = ["dep:relocade-renderer", "dep:relocade-frontend", "dep:wgpu"]
 [dependencies]
 # Avoid blocking mutex operations when a browser main thread waits for a frame.
 event-listener = { version = "=5.4.1", default-features = false }
-arc-swap = "=1.9.3"
+async-channel = { version = "=2.5.0", default-features = false }
 relocade-machine = { path = "../machine" }
 relocade-renderer = { path = "../renderer", optional = true }
 relocade-frontend = { path = "../frontend", features = ["display"], optional = true }

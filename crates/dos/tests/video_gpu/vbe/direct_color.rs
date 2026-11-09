@@ -85,8 +85,8 @@ fn guest_draws_pans_and_restores_both_direct_color_formats() {
                     common::run_until(dos.cpu(), stop).await,
                     ExecutionExit::Interrupted
                 );
-                let current = dos.frame_source().current_capture().filter(|capture| {
-                    matches!(capture.display.scanout(), Scanout::Svga(layout)
+                let current = dos.frames().try_recv().ok().filter(|capture| {
+                    matches!(capture.scanout(), Scanout::Svga(layout)
                         if layout.format() == expected_format && layout.origin() == origin)
                 });
                 captures.push(match current {

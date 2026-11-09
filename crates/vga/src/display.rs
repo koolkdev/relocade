@@ -1,17 +1,17 @@
-use crate::{CapturedFrame, FrameSource, VgaRenderer};
+use crate::{DisplaySnapshot, VgaRenderer};
+use async_channel::Receiver;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_renderer::{FrameError, Image};
-use std::sync::Arc;
 
 /// Connects captured VGA output to a graphics host. Construct this on the graphics
-/// owner using its device; the execution owner supplies only the frame source.
+/// owner using its device; the execution owner supplies only the snapshot receiver.
 /// `service` receives captures already synchronized by the VGA task and uploads
 /// their changes. Host redraws independently decode the latest uploaded state
 /// when needed and reuse the existing image while awaiting another capture.
 pub struct VgaDisplay {
-    source: FrameSource,
+    frames: Receiver<DisplaySnapshot>,
     renderer: Option<VgaRenderer>,
-    capture: Option<Arc<CapturedFrame>>,
+    snapshot: Option<DisplaySnapshot>,
     needs_decode: bool,
     image: Option<Image>,
 }
@@ -19,11 +19,14 @@ pub struct VgaDisplay {
 impl VgaDisplay {
     /// The adapter retains the source across GPU loss, including after capture
     /// production ends. Host device replacement does not change guest VGA state.
-    pub fn new(device: &wgpu::Device, source: FrameSource) -> Result<Self, FrameError> {
+    pub fn new(
+        device: &wgpu::Device,
+        frames: Receiver<DisplaySnapshot>,
+    ) -> Result<Self, FrameError> {
         Ok(Self {
-            source,
+            frames,
             renderer: Some(VgaRenderer::new(device)?),
-            capture: None,
+            snapshot: None,
             needs_decode: false,
             image: None,
         })
@@ -46,8 +49,8 @@ impl DisplayRenderer for VgaDisplay {
     fn attach_device(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), String> {
         let mut renderer = VgaRenderer::new(device).map_err(|error| error.to_string())?;
         // Restore the last uploaded capture independently of new publications.
-        if let Some(capture) = &self.capture {
-            renderer.upload(queue, &capture.display);
+        if let Some(snapshot) = &self.snapshot {
+            renderer.upload(queue, snapshot);
             queue.submit([]);
         }
         self.renderer = Some(renderer);
@@ -57,13 +60,10 @@ impl DisplayRenderer for VgaDisplay {
     }
 
     async fn service(&mut self, queue: &wgpu::Queue) -> Option<bool> {
-        self.source
-            .next_capture(self.capture.as_ref().map(|capture| capture.sequence))
-            .await?;
-        let capture = self.source.take_capture()?;
-        self.needs_decode |= self.renderer.as_mut()?.upload(queue, &capture.display);
+        let snapshot = self.frames.recv().await.ok()?;
+        self.needs_decode |= self.renderer.as_mut()?.upload(queue, &snapshot);
         queue.submit([]);
-        self.capture = Some(capture);
+        self.snapshot = Some(snapshot);
         Some(self.needs_decode || self.image.is_none())
     }
 

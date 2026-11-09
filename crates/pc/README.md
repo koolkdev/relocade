@@ -39,7 +39,8 @@ Failures during exception entry return directly to the host.
 
 `keyboard_input()` feeds physical key events through the controller. `keyboard()`
 retains the BIOS keyboard backed by guest RAM for translated/scripted input.
-`frame_source()` provides immutable display captures; `vga()` and `speaker()`
+`frames()` provides the capacity-one snapshot receiver for a single display
+consumer; `vga()` and `speaker()`
 retain devices on the execution owner. Platform windows, rendering and audio
 outputs remain with the embedding application.
 

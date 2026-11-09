@@ -4,10 +4,12 @@ use crate::{
     vga::glyph_top,
 };
 use futures_channel::{mpsc, oneshot};
-use futures_util::{future::join, FutureExt, StreamExt};
+use futures_util::{
+    future::{join, select, Either},
+    FutureExt, StreamExt,
+};
 use relocade_dos::Dos;
 use relocade_machine::{timer_service, worker::Thread, ExecutionWorker};
-use relocade_vga::FrameSource;
 use std::{
     future::pending,
     io::Write,
@@ -44,7 +46,7 @@ pub async fn dos_workers() -> Result<(), String> {
     let (clock, timers) = timer_service();
     let execution = ExecutionWorker::spawn(clock, async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
-        video.send(dos.frame_source()).ok().unwrap();
+        video.send(dos.frames()).ok().unwrap();
         dos.launch_com(FIRST_PROGRAM, Default::default()).unwrap();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
         let memory = dos.cpu().memory();
@@ -69,23 +71,43 @@ pub async fn dos_workers() -> Result<(), String> {
         let source = video_ready.await.unwrap();
         let (requests, mut incoming) = mpsc::channel::<[u32; 2]>(0);
         let (report, presentations) = mpsc::unbounded();
+        let (changed, changes) = async_channel::bounded(1);
+        let (closed, closure) = oneshot::channel();
         let dropped = Arc::new(AtomicBool::new(false));
         let target_drop = dropped.clone();
         let conversions = Arc::new(AtomicUsize::new(0));
         let conversion_count = conversions.clone();
-        let worker_source = source.clone();
         let graphics = Thread::new();
         let task = graphics.run_send(target::context()?, move |context| async move {
             let mut target = target::Target::new(context, target_drop).await?;
             let mut cached: Option<Arc<SoftwareFrame>> = None;
-            while let Some(size) = incoming.next().await {
-                let Some(capture) = worker_source.next_capture(None).await else {
-                    continue;
+            let mut pending = None;
+            let mut source_closed = false;
+            let mut closed = Some(closed);
+            loop {
+                let receiving = !source_closed;
+                let next = async {
+                    if receiving {
+                        source.recv().await.ok()
+                    } else {
+                        std::future::pending().await
+                    }
                 };
-                if cached
-                    .as_ref()
-                    .is_none_or(|image| image.sequence != capture.sequence)
-                {
+                let size = match select(Box::pin(next), incoming.next()).await {
+                    Either::Left((Some(capture), _)) => {
+                        pending = Some(capture);
+                        changed.force_send(()).unwrap();
+                        continue;
+                    }
+                    Either::Left((None, _)) => {
+                        source_closed = true;
+                        closed.take().unwrap().send(()).unwrap();
+                        continue;
+                    }
+                    Either::Right((Some(size), _)) => size,
+                    Either::Right((None, _)) => break,
+                };
+                if let Some(capture) = pending.take() {
                     conversion_count.fetch_add(1, Ordering::Release);
                     cached = Some(Arc::new(software::rasterize(&capture)));
                 }
@@ -95,8 +117,9 @@ pub async fn dos_workers() -> Result<(), String> {
             }
             Ok::<(), String>(())
         });
+        changes.recv().await.unwrap();
         let mut display = AppView {
-            source,
+            changes,
             requests,
             presentations,
         };
@@ -105,26 +128,23 @@ pub async fn dos_workers() -> Result<(), String> {
             .await;
         let busy_pixels = busy.pixels.to_vec();
         leave_busy.send(()).unwrap();
-        let waiting = display
+        display
             .matching(|frame| glyph_top(frame, 0, [255, 255, 85, 255]) == [0, 0, 252, 102, 102])
             .await;
 
         // Input is pending and the app stops drawing. VGA still captures while
         // finished output remains unchanged, then resumed demand sees fresh input.
         let converted = conversions.load(Ordering::Acquire);
-        let mut sequence = waiting.sequence;
         for _ in 0..4 {
-            sequence = display
-                .source
-                .next_capture(Some(sequence))
-                .await
-                .unwrap()
-                .sequence;
+            display.changes.recv().await.unwrap();
         }
         assert_eq!(conversions.load(Ordering::Acquire), converted);
         assert!(display.presentations.next().now_or_never().is_none());
         let resumed = display.draw().await;
-        assert!(resumed.sequence >= sequence);
+        assert_eq!(
+            glyph_top(&resumed, 0, [255, 255, 85, 255]),
+            [0, 0, 252, 102, 102]
+        );
         key.send(b'X').unwrap();
         assert_eq!(first_exit.await.unwrap(), 7);
         let exited = display
@@ -136,11 +156,7 @@ pub async fn dos_workers() -> Result<(), String> {
         );
         let final_pixels = exited.pixels.to_vec();
         let converted = conversions.load(Ordering::Acquire);
-        display
-            .source
-            .next_capture(Some(exited.sequence))
-            .await
-            .unwrap();
+        display.changes.recv().await.unwrap();
         assert_eq!(conversions.load(Ordering::Acquire), converted);
         assert!(display.presentations.next().now_or_never().is_none());
 
@@ -150,7 +166,6 @@ pub async fn dos_workers() -> Result<(), String> {
         let second = display
             .matching(|frame| glyph_top(frame, 0, [255, 255, 255, 255]) == [0, 0, 124, 198, 198])
             .await;
-        assert!(second.sequence > exited.sequence);
         assert_ne!(&*second.pixels, final_pixels);
         assert_eq!(&*busy.pixels, busy_pixels);
         assert_eq!(&*exited.pixels, final_pixels);
@@ -161,15 +176,13 @@ pub async fn dos_workers() -> Result<(), String> {
             execution.stop().await.map_err(|e| e.to_string())?,
             None::<()>
         );
-        let last = display.source.current_capture().unwrap();
-        assert!(display
-            .source
-            .next_capture(Some(last.sequence))
-            .await
-            .is_none());
+        closure.await.unwrap();
         assert!(!dropped.load(Ordering::Acquire));
         let after_shutdown = display.draw().await;
-        assert_eq!(after_shutdown.sequence, last.sequence);
+        assert_eq!(
+            glyph_top(&after_shutdown, 0, [255, 255, 255, 255]),
+            [0, 0, 124, 198, 198]
+        );
         let converted = conversions.load(Ordering::Acquire);
         let repeated = display.draw().await;
         assert!(Arc::ptr_eq(&after_shutdown, &repeated));
@@ -189,7 +202,7 @@ pub async fn dos_workers() -> Result<(), String> {
 /// The fixture app issues explicit redraws and waits for GPU presentation reports.
 /// Waiting for a matching capture here is test observation, not a rendering clock.
 struct AppView {
-    source: FrameSource,
+    changes: async_channel::Receiver<()>,
     requests: mpsc::Sender<[u32; 2]>,
     presentations: mpsc::UnboundedReceiver<(target::Presented, Arc<SoftwareFrame>)>,
 }
@@ -198,7 +211,6 @@ impl AppView {
     async fn draw(&mut self) -> Arc<SoftwareFrame> {
         request(&mut self.requests, [640, 480]);
         let (presented, frame) = self.presentations.next().await.expect("worker is live");
-        assert_eq!(frame.sequence, presented.sequence);
         for (actual, expected) in presented.pixel.into_iter().zip(&frame.pixels[..4]) {
             assert!(actual.abs_diff(*expected) <= 1);
         }
@@ -211,10 +223,7 @@ impl AppView {
             if matches(&frame) {
                 return frame;
             }
-            self.source
-                .next_capture(Some(frame.sequence))
-                .await
-                .unwrap();
+            self.changes.recv().await.unwrap();
         }
     }
 }

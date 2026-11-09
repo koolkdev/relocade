@@ -70,10 +70,7 @@ fn guest_cga_modes_decode_banked_writes_and_recolor_retained_captures() {
                 )
                 .await;
                 for plane in 0..4 {
-                    assert!(std::ptr::eq(
-                        capture.display.plane(plane),
-                        recolored.display.plane(plane)
-                    ));
+                    assert!(std::ptr::eq(capture.plane(plane), recolored.plane(plane)));
                 }
                 let image = gpu.render(&recolored, size).await;
                 assert_packed_image(&image, &memory, 320, &PALETTE_ZERO);
