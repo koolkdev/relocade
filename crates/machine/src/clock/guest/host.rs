@@ -37,6 +37,15 @@ impl HostTime {
         self.paused_at = Some(self.clock.now());
     }
 
+    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<Instant> {
+        if self.paused_at.is_some() {
+            return None;
+        }
+        let mapping = self.mapping.as_ref()?;
+        let host_time = host_time.unwrap_or_else(|| self.clock.now());
+        Some(mapping.guest + host_time.saturating_duration_since(mapping.host))
+    }
+
     pub(super) fn sleep_until(&self, guest: Instant) -> Sleep {
         let mapping = self
             .mapping
