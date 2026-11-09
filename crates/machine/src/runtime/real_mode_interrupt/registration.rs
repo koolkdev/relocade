@@ -42,6 +42,28 @@ impl<'cpu> Interrupts<'cpu> {
     where
         F: AsyncFn(&mut CpuContext<'_>) + 'static,
     {
+        self.register_vector(vector, entry);
+        self.register_entry(entry, &HOOK_STUB, handler);
+    }
+
+    /// Binds an interrupt to a Rust handler that completes through a far return.
+    ///
+    /// The saved FLAGS word stays on the caller's stack. The handler returns
+    /// status through live flags; saved-FLAGS mappings such as `cf` must not be used.
+    /// Entry requirements and suspension are the same as [`Self::register_interrupt`].
+    pub fn register_interrupt_with_far_return<F>(
+        &mut self,
+        vector: u8,
+        entry: FarPointer,
+        handler: F,
+    ) where
+        F: AsyncFn(&mut CpuContext<'_>) + 'static,
+    {
+        self.register_vector(vector, entry);
+        self.register_far_procedure(entry, handler);
+    }
+
+    fn register_vector(&mut self, vector: u8, entry: FarPointer) {
         let memory = self.cpu.memory();
         let vector_address = vector_address(vector).address();
         assert!(
@@ -51,7 +73,6 @@ impl<'cpu> Interrupts<'cpu> {
             ),
             "interrupt vector table must be writable RAM"
         );
-        self.register_entry(entry, &HOOK_STUB, handler);
         write_vector(&mut memory.view(), vector, entry);
     }
 
