@@ -66,9 +66,9 @@ impl Gpu {
     }
 
     async fn render(&mut self, capture: &CapturedFrame, size: [u32; 2]) -> Vec<u8> {
-        self.renderer.upload(&self.queue, capture);
+        self.renderer.upload(&self.queue, &capture.display);
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        let image = self.renderer.encode(&mut encoder).unwrap().image;
+        let image = self.renderer.encode(&mut encoder).unwrap();
         self.queue.submit([encoder.finish()]);
         assert_eq!(image.size(), size);
         readback::read_pixels(&self.device, &self.queue, image.texture()).await

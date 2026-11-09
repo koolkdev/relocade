@@ -729,12 +729,12 @@ let mut vga_renderer = relocade_vga::VgaRenderer::new(&device)?;
 let mut renderer = relocade_renderer::Renderer::new(device.clone(), output_format)?;
 if let Some(capture) = source.take_capture() {
     let mut encoder = device.create_command_encoder(&Default::default());
-    vga_renderer.upload(&queue, &capture);
+    vga_renderer.upload(&queue, &capture.display);
     let frame = vga_renderer.encode(&mut encoder).unwrap();
-    let destination = relocade_renderer::fit_image(&frame.image, output_bounds);
+    let destination = relocade_renderer::fit_image(&frame, output_bounds);
     {
         let mut pass = encoder.begin_render_pass(&output_pass);
-        renderer.draw_image(&mut pass, &frame.image, destination);
+        renderer.draw_image(&mut pass, &frame, destination);
     }
     queue.submit([encoder.finish()]);
 }
@@ -788,9 +788,9 @@ uses shared CPU blocks with copy-on-write, so a changed retained block can copy
 not change CPU copy-on-write granularity. Device-only builds omit transfer hints
 and dirty tracking along with the optional renderer.
 
-`upload(queue, capture)` synchronizes persistent input resources without decoding
+`upload(queue, &snapshot)` synchronizes persistent input resources without decoding
 or presenting, and returns whether rendering inputs or output geometry changed.
-Capture time and sequence alone do not count as changes. Uploads can share the
+The renderer accepts `DisplaySnapshot` directly. Uploads can share the
 submission that decodes and draws the image. `encode(encoder)` decodes the
 latest uploaded inputs and returns `None` before the first upload. It always records
 a decode, including retries after an encoder was discarded. Uploading inputs does
@@ -807,9 +807,9 @@ run before submitted commands, and the persistent input resources hold one versi
 Neither operation reads live VRAM or converts CPU pixels; the caller creates
 encoders and submits work.
 
-`VgaImage` carries the recorded capture's time and sequence alongside the image's
-dimensions and pixel aspect ratio. Metadata describes recorded work, not GPU
-completion. Submit the update before consuming its contents in later batches.
+`encode` returns `Option<Image>` with dimensions and pixel aspect ratio; it
+retains no capture sequence or timestamp. Submit the recorded commands before
+consuming image contents in later batches.
 Image storage is reused while geometry stays the same; retaining it does not
 retain historical pixels. Geometry changes allocate new output storage. Retain
 the image and call `Renderer::draw_image` at a different destination for a
@@ -830,8 +830,7 @@ pages at redraw time, uploads changed resources, and records decoding only when
 rendering inputs changed. A resize with unchanged inputs reuses the image.
 No redraw means no VGA uploads or decoding;
 VGA timing and capture publication continue independently. Closing the source
-preserves the image and its last decoded capture metadata, available from
-`current_frame()`.
+preserves the image, available from `current_image()`.
 
 Construct the adapter inside the graphics host's factory so it shares the host's
 GPU environment and remains on the graphics owner:

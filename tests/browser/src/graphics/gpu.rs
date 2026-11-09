@@ -6,7 +6,7 @@ use futures_util::{
 };
 use relocade_machine::{timer_service, worker::Thread};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
-use relocade_vga::{CapturedFrame, VgaImage, VgaRenderer};
+use relocade_vga::{CapturedFrame, VgaRenderer};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -56,8 +56,10 @@ pub async fn gpu_workers() -> Result<(), String> {
             let mut barrier = Some((selected, allowed));
             let mut ready = Some(ready);
             let mut uploaded_sequence = None;
+            let mut uploaded_time = Duration::ZERO;
+            let mut needs_decode = false;
             let mut source_closed = false;
-            let mut cached: Option<VgaImage> = None;
+            let mut cached: Option<Image> = None;
             loop {
                 let event = {
                     let next = async {
@@ -74,9 +76,10 @@ pub async fn gpu_workers() -> Result<(), String> {
                 };
                 let size = match event {
                     GraphicsEvent::Capture(Some(capture)) => {
-                        vga_renderer.upload(&queue, &capture);
+                        needs_decode |= vga_renderer.upload(&queue, &capture.display);
                         queue.submit([]); // Uploads run independently of redraw requests.
                         uploaded_sequence = Some(capture.sequence);
+                        uploaded_time = capture.time;
                         let count = upload_count.fetch_add(1, Ordering::Release) + 1;
                         if count == 2 {
                             ready.take().unwrap().send(()).unwrap();
@@ -95,11 +98,9 @@ pub async fn gpu_workers() -> Result<(), String> {
                     allowed.await.unwrap(); // Hold graphics work, not guest execution.
                 }
                 let mut encoder = device.create_command_encoder(&Default::default());
-                if cached
-                    .as_ref()
-                    .is_none_or(|image| Some(image.sequence) != uploaded_sequence)
-                {
+                if needs_decode || cached.is_none() {
                     cached = vga_renderer.encode(&mut encoder);
+                    needs_decode = false;
                     render_count.fetch_add(1, Ordering::Release);
                 }
                 let frame = cached.as_ref().unwrap();
@@ -117,11 +118,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                         })],
                         ..Default::default()
                     });
-                    renderer.draw_image(
-                        &mut pass,
-                        &frame.image,
-                        fit_image(&frame.image, Rect::from_size(size)),
-                    );
+                    renderer.draw_image(&mut pass, frame, fit_image(frame, Rect::from_size(size)));
                 }
                 queue.submit([encoder.finish()]);
                 // Only this assertion reads pixels back. Decoding and drawing
@@ -129,8 +126,8 @@ pub async fn gpu_workers() -> Result<(), String> {
                 let pixel = read_first_pixel(&device, &queue, output.texture()).await;
                 report
                     .unbounded_send(Report {
-                        sequence: frame.sequence,
-                        time: frame.time,
+                        sequence: uploaded_sequence.unwrap(),
+                        time: uploaded_time,
                         size,
                         pixel,
                     })

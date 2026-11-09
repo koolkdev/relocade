@@ -37,7 +37,7 @@ use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, DeviceConnection, Instant, Runner};
 #[cfg(feature = "renderer")]
-pub use renderer::{VgaImage, VgaRenderer};
+pub use renderer::VgaRenderer;
 pub use retrace::RetraceEvent;
 pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 #[cfg(feature = "renderer")]

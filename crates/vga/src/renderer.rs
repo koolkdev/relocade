@@ -3,22 +3,11 @@ mod pipelines;
 mod shaders;
 mod state;
 
-use crate::{CapturedFrame, Scanout};
+use crate::{DisplaySnapshot, Scanout};
 use memory::GpuMemory;
 use pipelines::DecodePipelines;
 use relocade_renderer::{FrameError, Image};
 use state::GpuState;
-use std::time::Duration;
-
-/// Reusable GPU output with metadata for the capture recorded by `encode`.
-/// The caller must submit the recorded work before consuming the updated pixels.
-/// Encodes with the same geometry reuse storage; retaining that image does not
-/// retain pixel history. A geometry change allocates a new image.
-pub struct VgaImage {
-    pub image: Image,
-    pub time: Duration,
-    pub sequence: u64,
-}
 
 /// GPU VGA and packed SVGA decoding recorded into a caller-owned command encoder.
 /// Owns captured-input resources and one reusable output image. Accesses no live
@@ -29,13 +18,7 @@ pub struct VgaRenderer {
     memory: GpuMemory,
     state: GpuState,
     image: Image,
-    frame: Option<UploadedFrame>,
-}
-
-struct UploadedFrame {
-    scanout: Scanout,
-    time: Duration,
-    sequence: u64,
+    scanout: Option<Scanout>,
 }
 
 impl VgaRenderer {
@@ -64,7 +47,7 @@ impl VgaRenderer {
             memory,
             state,
             image,
-            frame: None,
+            scanout: None,
         })
     }
 
@@ -73,17 +56,11 @@ impl VgaRenderer {
     /// matches, otherwise complete blocks. Call `queue.submit([])` when no drawing
     /// follows. Captures can be uploaded independently of redraws.
     /// Complete retained captures can also restore older input state.
-    /// Use `FrameSource::take_capture` to accumulate dirty pages across skipped
-    /// publications for one uploading renderer.
-    /// Returns whether rendering inputs or output geometry changed. Capture time
-    /// and sequence alone do not require decoding another image.
-    pub fn upload(&mut self, queue: &wgpu::Queue, capture: &CapturedFrame) -> bool {
-        let scanout = *capture.display.scanout();
-        let scanout_changed = self
-            .frame
-            .as_ref()
-            .is_none_or(|frame| frame.scanout != scanout);
-        let geometry = capture.display.geometry();
+    /// Returns whether rendering inputs or output geometry changed.
+    pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {
+        let scanout = *snapshot.scanout();
+        let scanout_changed = self.scanout != Some(scanout);
+        let geometry = snapshot.geometry();
         let aspect = geometry.pixel_aspect_ratio();
         let geometry_changed =
             self.image.size() != geometry.size || self.image.pixel_aspect_ratio() != aspect;
@@ -91,13 +68,9 @@ impl VgaRenderer {
             self.image = Image::new(&self.device, geometry.size, aspect)
                 .expect("Captured dimensions fit the validated device limits");
         }
-        let memory_changed = self.memory.upload(queue, &capture.display);
-        let state_changed = self.state.upload(queue, &capture.display);
-        self.frame = Some(UploadedFrame {
-            scanout,
-            time: capture.time,
-            sequence: capture.sequence,
-        });
+        let memory_changed = self.memory.upload(queue, snapshot);
+        let state_changed = self.state.upload(queue, snapshot);
+        self.scanout = Some(scanout);
         scanout_changed || geometry_changed || memory_changed || state_changed
     }
 
@@ -107,8 +80,10 @@ impl VgaRenderer {
     /// Submit or discard this encoder before uploading another capture: queued
     /// writes run before submitted commands and the input buffers hold one version.
     /// Retain the returned image for resize-only draws without another decode.
-    pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<VgaImage> {
-        let frame = self.frame.as_ref()?;
+    /// Encodes with the same geometry reuse image storage; retaining that image
+    /// does not retain pixel history. A geometry change allocates a new image.
+    pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<Image> {
+        let scanout = self.scanout?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("display decoding"),
@@ -123,14 +98,10 @@ impl VgaRenderer {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(self.pipelines.for_scanout(frame.scanout));
+            pass.set_pipeline(self.pipelines.for_scanout(scanout));
             pass.set_bind_group(0, &self.state.binding, &[]);
             pass.draw(0..3, 0..1);
         }
-        Some(VgaImage {
-            image: self.image.clone(),
-            time: frame.time,
-            sequence: frame.sequence,
-        })
+        Some(self.image.clone())
     }
 }

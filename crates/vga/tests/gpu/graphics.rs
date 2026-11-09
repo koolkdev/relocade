@@ -56,12 +56,12 @@ impl Gpu {
         size: [u32; 2],
         expected: &[u8],
     ) {
-        self.renderer.upload(&self.queue, capture);
+        self.renderer.upload(&self.queue, &capture.display);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let frame = self.renderer.encode(&mut encoder).unwrap();
         self.queue.submit([encoder.finish()]);
-        assert_eq!(frame.image.size(), size);
-        let actual = read_pixels(&self.device, &self.queue, frame.image.texture()).await;
+        assert_eq!(frame.size(), size);
+        let actual = read_pixels(&self.device, &self.queue, frame.texture()).await;
         assert_eq!(actual.len(), expected.len());
         for (index, (actual, expected)) in actual
             .as_chunks::<4>()
