@@ -158,6 +158,8 @@ suspended calls remain owned by the CPU. The private `ExecutionSchedule` owns
 clock selection, yield cadence, time synchronization and idle decisions; the
 `GuestTimeDriver` owns registered sleeps and instruction-target updates. Time is
 published before polling activities, including after a terminal CPU exit.
+A terminal result returns immediately when no execution notification is pending;
+otherwise ready activities receive a turn before the result returns.
 
 Lower-level embeddings capture `cpu.instruction_target()` before execution and use
 `target.set(Some(absolute_count))` or `target.set(None)`. Updates take effect at

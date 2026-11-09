@@ -11,8 +11,9 @@ use relocade_x86::{
 };
 use std::{
     cell::{Cell, RefCell},
-    future::poll_fn,
+    future::{poll_fn, Future},
     num::NonZeroU64,
+    pin::pin,
     rc::Rc,
     task::Poll,
     time::Duration,
@@ -253,4 +254,56 @@ fn idle_time_preserves_services_waiting_on_host_timers() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn idle_time_preserves_services_waiting_on_host_timers() {
     retained_service().await;
+}
+
+async fn immediate_exit(runner: &Runner) {
+    let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
+    let completed = Rc::new(Cell::new(false));
+    let exit = cpu.exit_handle();
+    cpu.install([Hook::host(0x100, {
+        let completed = completed.clone();
+        async move || {
+            completed.set(true);
+            exit.request();
+        }
+    })])
+    .await
+    .unwrap();
+    let mut run = pin!(runner.run_cpu(&mut cpu));
+    let result = poll_fn(|cx| {
+        let result = run.as_mut().poll(cx);
+        assert!(
+            !completed.get() || result.is_ready(),
+            "a terminal exit with no activity notification must return in the same poll"
+        );
+        result
+    })
+    .await;
+    assert_eq!(result, ExecutionExit::Host(HostExit::Return));
+}
+
+async fn terminal_exit_without_notifications() {
+    let worker = ExecutionWorker::spawn_with_guest_time(
+        NonZeroU64::new(1000).unwrap(),
+        None,
+        async |runner| immediate_exit(runner).await,
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    let worker = ExecutionWorker::spawn_with_clock(
+        || relocade_clock_test_support::ManualClock::new().clock(),
+        async |runner| immediate_exit(runner).await,
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn terminal_exit_without_ready_work_adds_no_activity_turn() {
+    pollster::block_on(terminal_exit_without_notifications());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
+    terminal_exit_without_notifications().await;
 }

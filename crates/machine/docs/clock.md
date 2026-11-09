@@ -101,9 +101,10 @@ The lower-level `Runner::with_guest_time` accepts prepared CPU storage and its
 wake endpoint.
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. It
-prepares the schedule, polls the CPU once, publishes guest time and gives ready
-activities a turn before continuing or returning an exit. The private
-`ExecutionSchedule` owns clock selection, periodic yield deadlines and idle
+prepares the schedule, polls the CPU once and publishes guest time. Continuing
+execution gives ready activities a turn. Terminal exits yield only when an
+execution notification remains pending, including notifications from timers made
+due by the final instructions. The private `ExecutionSchedule` owns clock selection, periodic yield deadlines and idle
 scheduling. Its binding scopes the guest driver's target and notifications to
 one run; completion and cancellation release it.
 
