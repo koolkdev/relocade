@@ -32,8 +32,9 @@ impl Wake for Wakes {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     let clock = ManualClock::default();
-    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    crtc(&mut *vga.borrow_mut(), 0x17, 0x23);
+    let mut vga = Vga::with_clock(clock.clock());
+    crtc(&mut vga, 0x17, 0x23);
+    let (vga, mut video) = common::start_video(vga);
     let frames = vga.borrow().frame_source();
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());

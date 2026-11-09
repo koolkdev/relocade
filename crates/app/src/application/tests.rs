@@ -417,14 +417,17 @@ fn fixture(
             #[cfg(target_arch = "wasm32")]
             for escape in [Action::Escape, Action::CancelCapture] {
                 action(escape).await;
-                futures_timer::Delay::new(Duration::from_millis(20)).await;
-                assert!(web_sys::window()
-                    .unwrap()
-                    .document()
-                    .unwrap()
-                    .pointer_lock_element()
-                    .is_none());
                 assert_eq!(pointer.recv().await.unwrap().event, MouseEvent::FocusLost);
+                futures_timer::Delay::new(Duration::from_millis(20)).await;
+                wait_for(|| {
+                    web_sys::window()
+                        .unwrap()
+                        .document()
+                        .unwrap()
+                        .pointer_lock_element()
+                        .is_none()
+                })
+                .await;
                 assert!(futures_lite::future::poll_once(pointer.recv())
                     .await
                     .is_none());
