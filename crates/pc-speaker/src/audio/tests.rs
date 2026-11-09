@@ -226,7 +226,7 @@ fn timed_controls_and_pit_writes_are_retained_within_samples() {
     assert!(playback.output.is_empty());
     let buffer = playback.next_buffer();
     let expected = [0.0, 0.0, 0.15, 0.2, 0.15, 0.0, 0.0, 0.0, 0.2, 0.2];
-    for (frame, expected) in buffer.chunks_exact(2).zip(expected) {
+    for (frame, expected) in buffer.as_chunks::<2>().0.iter().zip(expected) {
         assert!((frame[0] - expected).abs() < 1e-6, "{frame:?}: {expected}");
         assert_eq!(frame[0], frame[1]);
     }
