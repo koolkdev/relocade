@@ -39,6 +39,9 @@ async fn captured_deadline() {
                 cpu.install([Hook::host(0x100, async move || {
                     let arrival = arrival.borrow_mut().take().unwrap();
                     arrival.await.unwrap();
+                    // Advance on the execution owner so it cannot idle past the
+                    // sync deadline before this hook captures the wait.
+                    advancing_host.advance_by(Duration::from_millis(7));
                     let output = clock.sync_to_host(start + Duration::from_millis(6));
                     assert_eq!(
                         output.deadline(),
@@ -83,7 +86,6 @@ async fn captured_deadline() {
             armed.next().await,
             Some(host_start + Duration::from_millis(4))
         );
-        host.advance_by(Duration::from_millis(7));
         arrive.send(()).unwrap();
         assert_eq!(worker.join().await.unwrap(), Some(()));
         assert_eq!(host.clock().now(), host_start + Duration::from_millis(9));
@@ -94,6 +96,7 @@ async fn captured_deadline() {
 async fn retained_sync_across_runs() {
     let (host, mut armed, source) = host();
     let host_start = host.clock().now();
+    let advancing_host = host.clone();
     let (arrive, arrival) = oneshot::channel();
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
@@ -118,6 +121,9 @@ async fn retained_sync_across_runs() {
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
+                // Capture and poll the sync before host progress can let the
+                // scheduler advance the pending service into another slice.
+                advancing_host.advance_by(Duration::from_millis(7));
                 let output = clock.sync_to_host(start + Duration::from_millis(7));
                 assert_eq!(
                     output.deadline(),
@@ -163,7 +169,6 @@ async fn retained_sync_across_runs() {
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
     );
-    host.advance_by(Duration::from_millis(7));
     arrive.send(()).unwrap();
     stop.await.unwrap();
     assert_eq!(host.next_deadline(), None);
