@@ -7,7 +7,6 @@ type Read = fn(u8) -> (u8, u64);
 #[derive(Default)]
 struct State {
     table: Option<Table<Backend<Self>, Read>>,
-    replacement: Option<FunctionRef<Backend<Self>, Read>>,
     events: Rc<RefCell<Vec<u32>>>,
 }
 
@@ -20,19 +19,22 @@ async fn check_callback_replacement() {
     let lifetime = Rc::downgrade(&state.events);
     let mut backend = Backend::with_state(state).unwrap();
     let (run, _table) = {
-        let replacement = backend.host_function::<Read>(Box::new(|context, value| {
-            context
-                .state()
-                .events
-                .borrow_mut()
-                .push(200 + u32::from(value));
-            (value + 2, 0x20_0000_0000_0003)
-        }));
         let captured = Box::new(0x20_0000_0000_0001_u64);
         let initial = backend.host_function::<Read>(Box::new(move |mut context, value| {
             let state = context.state();
             let table = state.table.as_ref().unwrap().clone();
-            let replacement = state.replacement.as_ref().unwrap().clone();
+            let increment = value - 5;
+            let replacement = FunctionRef::<Backend<State>, Read>::host(
+                &mut context,
+                Box::new(move |context, value| {
+                    context
+                        .state()
+                        .events
+                        .borrow_mut()
+                        .push(200 + u32::from(value));
+                    (value + increment, 0x20_0000_0000_0003)
+                }),
+            );
             table.set(&mut context, 0, &replacement).unwrap();
             table
                 .ensure_size(&mut context, 2, Some(&replacement))
@@ -52,7 +54,6 @@ async fn check_callback_replacement() {
         table.set(&mut backend.context(), 0, &initial).unwrap();
         let records = backend.create_table(RECORD, Some(&record)).unwrap();
         backend.state_mut().table = Some(table.clone());
-        backend.state_mut().replacement = Some(replacement);
         let mut program = Program::new();
         let read = program.import_table(READ);
         let record = program.import_table(RECORD);

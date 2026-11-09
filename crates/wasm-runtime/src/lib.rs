@@ -244,7 +244,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     where
         Self: HostFunction<S>,
     {
-        FunctionRef::new(self.wrap_host_function(callback))
+        FunctionRef::host(&mut self.context(), callback)
     }
 
     /// Obtains a typed table reference without discarding the callable export.

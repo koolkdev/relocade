@@ -1,7 +1,7 @@
 use super::{Backend, Context};
 use crate::{HostFunction, HostSignature};
 use relocade_wasm_bindings::{lift_flat, lower_flat, Flat, Value};
-use wasmtime::{AsContextMut, Caller, Func, Store, WasmRet, WasmTy};
+use wasmtime::{AsContextMut, Caller, Func, StoreContextMut, WasmRet, WasmTy};
 
 impl<T: 'static, S: HostSignature<Self> + 'static> HostFunction<S> for Backend<T>
 where
@@ -9,22 +9,25 @@ where
     Flat<S::Parameters>: Parameters,
     Flat<S::Return>: WasmRet,
 {
-    fn wrap_host_function(&mut self, callback: S::Callback) -> Func {
-        <Flat<S::Parameters> as Parameters>::wrap(&mut self.store, move |mut caller, arguments| {
-            let arguments: Value<S::Parameters> =
-                lift_flat::<S::Parameters>(arguments).expect("invalid Wasm ABI value");
-            lower_flat::<S::Return>(S::invoke(
-                &callback,
-                Context(caller.as_context_mut()),
-                arguments,
-            ))
-        })
+    fn wrap_host_function(context: &mut Context<'_, T>, callback: S::Callback) -> Func {
+        <Flat<S::Parameters> as Parameters>::wrap(
+            context.0.as_context_mut(),
+            move |mut caller, arguments| {
+                let arguments: Value<S::Parameters> =
+                    lift_flat::<S::Parameters>(arguments).expect("invalid Wasm ABI value");
+                lower_flat::<S::Return>(S::invoke(
+                    &callback,
+                    Context(caller.as_context_mut()),
+                    arguments,
+                ))
+            },
+        )
     }
 }
 
 trait Parameters: Sized + 'static {
     fn wrap<T: 'static, R: WasmRet>(
-        store: &mut Store<T>,
+        store: StoreContextMut<'_, T>,
         invoke: impl Fn(Caller<'_, T>, Self) -> R + Send + Sync + 'static,
     ) -> Func;
 }
@@ -37,7 +40,7 @@ macro_rules! parameters {
     ($($parameter:ident $argument:ident),*) => {
         impl<$($parameter: WasmTy + 'static),*> Parameters for ($($parameter,)*) {
             fn wrap<T: 'static, R: WasmRet>(
-                store: &mut Store<T>,
+                store: StoreContextMut<'_, T>,
                 invoke: impl Fn(Caller<'_, T>, Self) -> R + Send + Sync + 'static,
             ) -> Func {
                 Func::wrap(store, move |caller: Caller<'_, T>, $($argument: $parameter),*| invoke(caller, ($($argument,)*)))

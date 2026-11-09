@@ -43,5 +43,8 @@ signature!(A a, B b, C c, D d, E e, F f, G g, H h);
 /// Implementations adapt argument arities, rather than enumerate signature shapes.
 pub trait HostFunction<S: HostSignature<Self>>: WasmBackend {
     #[doc(hidden)]
-    fn wrap_host_function(&mut self, callback: S::Callback) -> Self::ImportFunction;
+    fn wrap_host_function(
+        context: &mut Self::Context<'_>,
+        callback: S::Callback,
+    ) -> Self::ImportFunction;
 }

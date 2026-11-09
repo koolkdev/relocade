@@ -1,4 +1,4 @@
-use crate::{Result, WasmBackend};
+use crate::{HostFunction, HostSignature, Result, WasmBackend};
 use relocade_compiler::abi::Function as Declaration;
 use relocade_wasm_bindings::{slots::Tuple, AbiValue, FunctionSignature, Value, WasmRepr};
 use std::marker::PhantomData;
@@ -76,6 +76,16 @@ impl<B: WasmBackend, S: FunctionSignature> FunctionRef<B, S> {
             handle,
             signature: PhantomData,
         }
+    }
+}
+
+impl<B: HostFunction<S>, S: HostSignature<B>> FunctionRef<B, S> {
+    /// Creates a callback using a stopped or currently executing host context.
+    /// The callback is only wrapped here; creating it does not enter guest code.
+    /// Use this to install a newly configured operation during another callback.
+    /// Captures follow [`WasmBackend::bind_host`]'s lifetime and thread contracts.
+    pub fn host(context: &mut B::Context<'_>, callback: S::Callback) -> Self {
+        Self::new(B::wrap_host_function(context, callback))
     }
 }
 
