@@ -21,6 +21,7 @@ async fn captured_deadline() {
                     poll_once(clock.sync()).await.is_some(),
                     "no active CPU mapping yet"
                 );
+                assert_eq!(clock.host_time(start), None);
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: clock.clone(),
                     deadlines: [2, 4, 6]
@@ -37,6 +38,12 @@ async fn captured_deadline() {
                 cpu.install([Hook::host(0x100, async move || {
                     let arrival = arrival.borrow_mut().take().unwrap();
                     arrival.await.unwrap();
+                    let output_time = clock.host_time(start + Duration::from_millis(6));
+                    assert_eq!(output_time, Some(host_start + Duration::from_millis(6)));
+                    assert_eq!(
+                        clock.host_time(start - Duration::from_millis(1)),
+                        Some(host_start - Duration::from_millis(1))
+                    );
                     let sync = if timestamped {
                         clock.sync_to(host_start + Duration::from_millis(6))
                     } else {
@@ -105,11 +112,17 @@ async fn retained_sync_across_runs() {
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
+                let output_time = clock.host_time(start + Duration::from_millis(7));
+                assert_eq!(output_time, Some(host_start + Duration::from_millis(7)));
                 let mut sync = clock.sync_to(host_start + Duration::from_millis(7));
                 assert!(poll_once(&mut sync).await.is_none());
                 pause.borrow_mut().take().unwrap().send(()).unwrap();
                 sync.await;
                 assert_eq!(clock.now(), start + Duration::from_millis(7));
+                assert_eq!(
+                    clock.host_time(clock.now()),
+                    Some(host_start + Duration::from_millis(1007))
+                );
                 exit.request();
             })])
             .await
@@ -121,6 +134,7 @@ async fn retained_sync_across_runs() {
                 }
             }
             assert_eq!(runner.clock().now(), start + Duration::from_millis(4));
+            assert_eq!(runner.clock().host_time(runner.clock().now()), None);
             assert!(
                 poll_once(runner.clock().sync()).await.is_some(),
                 "a paused clock does not sync"
@@ -152,6 +166,7 @@ async fn clocks_without_host_mapping() {
     let unpaced =
         relocade_machine::GuestTimeDriver::new(host.now(), NonZeroU64::new(1000).unwrap()).clock();
     for clock in [host, unpaced] {
+        assert_eq!(clock.host_time(clock.now()), None);
         assert!(poll_once(clock.sync()).await.is_some());
         assert!(poll_once(clock.sync_to(Instant::now())).await.is_some());
     }

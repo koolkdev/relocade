@@ -34,6 +34,10 @@ impl ClockSource for TimerHandle {
         Instant::now()
     }
 
+    fn host_time(&self, time: Instant) -> Option<Instant> {
+        Some(time)
+    }
+
     fn sleep_until(&self, deadline: Instant) -> Sleep {
         let handle = self.clone();
         Sleep::new(async move {

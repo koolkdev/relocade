@@ -29,6 +29,12 @@ pub trait ClockSource {
     fn now(&self) -> Instant;
     fn sleep_until(&self, deadline: Instant) -> Sleep;
 
+    /// Converts a source timestamp to the configured host timebase. Sources
+    /// without an active correspondence return `None`.
+    fn host_time(&self, _time: Instant) -> Option<Instant> {
+        None
+    }
+
     /// Captures a host-to-source deadline and returns an ordinary source wait.
     /// `None` samples the configured host clock now; `Some` uses a timestamp
     /// from that host timebase. Sources without a host mapping complete immediately.
@@ -45,6 +51,19 @@ impl Clock {
 
     pub fn now(&self) -> Instant {
         self.0.now()
+    }
+
+    /// Captures the host time corresponding to a timestamp from this clock.
+    /// Output producers can send the result to another worker and schedule
+    /// presentation there without sharing this execution-local clock.
+    ///
+    /// Host clocks return the timestamp unchanged. Paced guest clocks use the
+    /// current correspondence, excluding pauses between CPU runs. Unpaced guest
+    /// clocks and clocks outside an active run return `None`. Convert when the
+    /// output is captured: a later run may have a different correspondence.
+    /// The returned timestamp stays fixed, including across pauses.
+    pub fn host_time(&self, time: Instant) -> Option<Instant> {
+        self.0.host_time(time)
     }
 
     /// Captures the deadline now, even if the returned future is polled later.

@@ -48,6 +48,14 @@ impl ClockSource for Source {
         self.0.borrow_mut().observe()
     }
 
+    fn host_time(&self, time: Instant) -> Option<Instant> {
+        self.0
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|host| host.host_time(time))
+    }
+
     fn sync(&self, host_time: Option<Instant>) -> Sleep {
         let deadline = self
             .0

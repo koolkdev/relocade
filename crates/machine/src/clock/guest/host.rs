@@ -46,12 +46,26 @@ impl HostTime {
         Some(mapping.guest + host_time.saturating_duration_since(mapping.host))
     }
 
+    pub(super) fn host_time(&self, guest: Instant) -> Option<Instant> {
+        if self.paused_at.is_some() {
+            return None;
+        }
+        let mapping = self.mapping.as_ref()?;
+        if guest >= mapping.guest {
+            mapping
+                .host
+                .checked_add(guest.duration_since(mapping.guest))
+        } else {
+            mapping
+                .host
+                .checked_sub(mapping.guest.duration_since(guest))
+        }
+    }
+
     pub(super) fn sleep_until(&self, guest: Instant) -> Sleep {
-        let mapping = self
-            .mapping
-            .as_ref()
-            .expect("host pacing belongs to an active run");
-        let host = mapping.host + guest.saturating_duration_since(mapping.guest);
-        self.clock.sleep_until(host)
+        self.clock.sleep_until(
+            self.host_time(guest)
+                .expect("host pacing belongs to an active run"),
+        )
     }
 }
