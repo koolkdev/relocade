@@ -6,10 +6,10 @@ pub use typed::TypedFunc;
 
 use crate::{
     arena::FunctionArena,
-    body::{BlockId, Exit, Layout, Operation},
+    body::{BlockId, Exit, FunctionGraph, Layout, Operation},
     control::JoinTarget,
-    Argument, Arguments, BuildError, Func, FunctionKind, IntType, Program, Signature, Type, Val,
-    ValueType,
+    Argument, Arguments, BuildError, Func, FunctionKind, IntType, ModuleDeclarations, Program,
+    Signature, Type, Val, ValueType,
 };
 
 /// Builds a function body or child block. Its parent owns the block and attaches
@@ -29,7 +29,7 @@ use crate::{
 /// });
 /// ```
 pub struct BlockBuilder<'program> {
-    pub(super) program: &'program mut Program,
+    pub(super) declarations: &'program ModuleDeclarations,
     pub(super) function: Func,
     pub(super) arena: FunctionArena,
     pub(super) pending: &'program mut PendingBlock,
@@ -91,7 +91,7 @@ impl Program {
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
     ) -> Func {
         let function = self.declare(signature);
-        self.functions[function.0].kind = FunctionKind::Pending(Box::new(build));
+        self.builders[function.0] = Some(Box::new(build));
         function
     }
 
@@ -104,80 +104,68 @@ impl Program {
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
     ) -> Result<(), BuildError> {
         let declaration = self
+            .declarations
             .functions
-            .get_mut(function.0)
+            .get(function.0)
             .ok_or(BuildError::UnknownFunction)?;
         match declaration.kind {
             FunctionKind::Imported { .. } => return Err(BuildError::ImportedFunction),
-            FunctionKind::Declared => {}
-            _ => return Err(BuildError::AlreadyDefined),
+            FunctionKind::Local => {}
         }
-        declaration.kind = FunctionKind::Pending(Box::new(build));
+        if self.builders[function.0].is_some() {
+            return Err(BuildError::AlreadyDefined);
+        }
+        self.builders[function.0] = Some(Box::new(build));
         Ok(())
-    }
-
-    fn build_function(&mut self, function: Func, build: BuildBody) -> Result<(), BuildError> {
-        let mut definition = Definition {
-            program: self,
-            function,
-            arena: FunctionArena::new(),
-        };
-        for (component, ty) in definition.program.functions[function.0]
-            .signature
-            .parameters
-            .iter()
-            .copied()
-            .enumerate()
-        {
-            definition.arena.parameter(ty, component)?;
-        }
-        let mut pending = PendingBlock::new(0, BlockId(0));
-        build(BlockBuilder {
-            program: definition.program,
-            function,
-            arena: definition.arena.clone(),
-            pending: &mut pending,
-            yield_target: None,
-        })?;
-        definition.publish(pending.finish()?)
     }
 }
 
-// This owner closes the arena on every exit, including callback errors and unwinding.
-// Drop performs cleanup only; the caller publishes after the callback succeeds.
-struct Definition<'program> {
-    program: &'program mut Program,
+fn build_function(
+    declarations: &ModuleDeclarations,
     function: Func,
+    build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+) -> Result<FunctionGraph, BuildError> {
+    let definition = Definition {
+        arena: FunctionArena::new(),
+    };
+    for (component, ty) in declarations.functions[function.0]
+        .signature
+        .parameters
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        definition.arena.parameter(ty, component)?;
+    }
+    let mut pending = PendingBlock::new(0, BlockId(0));
+    build(BlockBuilder {
+        declarations,
+        function,
+        arena: definition.arena.clone(),
+        pending: &mut pending,
+        yield_target: None,
+    })?;
+    let block = pending.finish()?;
+    if block.falls_through() {
+        return Err(BuildError::MissingBody);
+    }
+    definition.arena.finish(block.layout)
+}
+
+// Close the function-local arena on every exit, including callback errors and unwinding.
+struct Definition {
     arena: FunctionArena,
 }
 
-impl Definition<'_> {
-    fn publish(&mut self, block: PendingBlock) -> Result<(), BuildError> {
-        if block.falls_through() {
-            return Err(BuildError::MissingBody);
-        }
-        let body = self.arena.finish(block.layout)?;
-        self.program.functions[self.function.0].kind = FunctionKind::Built(body);
-        Ok(())
-    }
-}
-
-impl Drop for Definition<'_> {
+impl Drop for Definition {
     fn drop(&mut self) {
         self.arena.close();
     }
 }
 
 impl BlockBuilder<'_> {
-    /// Accesses this body's module to register helper definitions or exports.
-    /// Registration does not run another body builder. Compilation follows calls
-    /// only after the current body has finished construction.
-    pub fn program(&mut self) -> &mut Program {
-        self.program
-    }
-
     pub(super) fn signature(&self) -> &Signature {
-        &self.program.functions[self.function.0].signature
+        &self.declarations.functions[self.function.0].signature
     }
 
     /// Selects a parameter by its zero-based position in the signature.

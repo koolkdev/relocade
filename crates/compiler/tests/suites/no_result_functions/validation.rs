@@ -142,12 +142,10 @@ fn an_ignored_invalid_void_return_cannot_become_a_fallthrough_branch() {
 }
 
 #[test]
-fn invalid_arguments_to_a_new_helper_fail_compilation() {
+fn invalid_arguments_to_a_helper_fail_compilation() {
     let mut program = Program::new();
+    let helper = program.function::<fn()>(move |body, ()| body.return_(()));
     let failure = program.function::<fn()>(move |mut body, ()| {
-        let helper = body
-            .program()
-            .function::<fn()>(move |body, ()| body.return_(()));
         body.call::<()>(helper, &[7.into()])?;
         body.return_(())
     });

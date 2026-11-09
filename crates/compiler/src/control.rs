@@ -58,7 +58,7 @@ impl BlockBuilder<'_> {
     ) -> Result<PendingBlock, BuildError> {
         let mut pending = PendingBlock::new(scope, block);
         build(BlockBuilder {
-            program: self.program,
+            declarations: self.declarations,
             function: self.function,
             arena: self.arena.clone(),
             pending: &mut pending,

@@ -1,6 +1,6 @@
 //! Place calculations directly in their function graph.
 //! Dominance owns availability; effects retain their authored snapshot ordering.
-use crate::{body::*, Expression, Program};
+use crate::{body::*, BuiltProgram, Expression};
 use std::collections::HashMap;
 mod availability;
 mod demand;
@@ -28,7 +28,7 @@ pub(super) struct Placement {
 }
 
 impl Placement {
-    pub(super) fn new(program: &Program) -> Self {
+    pub(super) fn new(program: &BuiltProgram) -> Self {
         Self {
             summaries: effects::infer(program),
         }

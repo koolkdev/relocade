@@ -1,5 +1,5 @@
 use super::*;
-use crate::{FunctionImport, FunctionKind, Program, Signature, Type, I32, I64};
+use crate::{FunctionImport, Program, Signature, Type, I32, I64};
 
 #[test]
 fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
@@ -18,8 +18,8 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
         body.return_(results)
     });
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
-    let FunctionKind::Built(graph) = &program.functions[crate::Func::from(function).0].kind else {
+    let program = program.build_reachable_functions().unwrap();
+    let Some(graph) = &program.bodies[crate::Func::from(function).0] else {
         panic!("the function has a completed graph");
     };
     let &[call, fence] = graph.blocks[graph.entry.0].items.as_slice() else {
@@ -65,8 +65,8 @@ fn wide_components_expose_one_producer_with_ordered_results() {
         body.return_((high, low))
     });
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
-    let FunctionKind::Built(graph) = &program.functions[crate::Func::from(function).0].kind else {
+    let program = program.build_reachable_functions().unwrap();
+    let Some(graph) = &program.bodies[crate::Func::from(function).0] else {
         panic!("the function has a completed graph")
     };
     let super::super::Exit::Return(results) = &graph.blocks[0].exit else {

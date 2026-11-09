@@ -106,17 +106,17 @@ fn bodies_are_built_once_on_reachable_calls_before_placement() {
 }
 
 #[test]
-fn roots_can_define_nested_call_and_tail_helpers() {
+fn roots_reach_predeclared_call_and_tail_helpers() {
     let mut fixture = Fixture::new();
+    let leaf = fixture
+        .program
+        .function::<fn() -> u32>(move |body, ()| body.return_(23));
+    let helper = fixture
+        .program
+        .function::<fn() -> u32>(move |body, ()| body.tail_call(leaf, &[]));
     let run = fixture
         .program
         .function::<fn() -> u32>(move |mut body, ()| {
-            let helper = body.program().function::<fn() -> u32>(move |mut body, ()| {
-                let leaf = body
-                    .program()
-                    .function::<fn() -> u32>(move |body, ()| body.return_(23));
-                body.tail_call(leaf, &[])
-            });
             let value = body.call::<I32>(helper, &[])?;
             body.return_(value.add(1))
         });

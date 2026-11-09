@@ -47,6 +47,9 @@ const PURE_CASES: [Pure; 5] = [
 fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0]);
+    let trap = fixture
+        .program
+        .function::<fn()>(move |body, ()| body.trap());
     let helper = fixture.program.raw_function(
         signature(&[Type::I32], result.as_slice()),
         move |mut body| {
@@ -57,7 +60,6 @@ fn pure_call(result: Option<Type>, behavior: Pure) -> TestModule {
                     body.if_(invalid.eq(0), |arm| arm.trap())?;
                 }
                 Pure::VoidDescendant => {
-                    let trap = body.program().function::<fn()>(move |body, ()| body.trap());
                     body.call::<()>(trap, &[])?;
                 }
                 Pure::Empty | Pure::TrappingArgument => {}

@@ -40,7 +40,7 @@ mod results;
 mod types;
 mod value;
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use body::FunctionGraph;
 pub use call::{FunctionImport, Table, TableImport};
@@ -153,8 +153,17 @@ pub struct WasmFeatures {
 }
 
 /// The function definitions, imports and exports of a module.
+/// Register all declarations and body builders before compilation. Body builders
+/// read immutable module metadata and construct only their own function.
 #[derive(Default)]
 pub struct Program {
+    declarations: ModuleDeclarations,
+    builders: Vec<Option<function::BuildBody>>,
+}
+
+/// Module metadata is frozen before any body builder runs.
+#[derive(Default)]
+struct ModuleDeclarations {
     functions: Vec<Declaration>,
     exports: Vec<(String, Func)>,
     memories: Vec<MemoryImport>,
@@ -168,11 +177,14 @@ struct Declaration {
 }
 
 enum FunctionKind {
-    Declared,
-    Pending(function::BuildBody),
-    Building,
-    Built(FunctionGraph),
+    Local,
     Imported { module: String, name: String },
+}
+
+/// Completed reachable graphs alongside their shared module metadata.
+struct BuiltProgram {
+    declarations: Arc<ModuleDeclarations>,
+    bodies: Vec<Option<FunctionGraph>>,
 }
 
 impl Program {
@@ -184,7 +196,10 @@ impl Program {
     /// `new()` uses portable lowering for optional extensions.
     pub fn with_features(features: WasmFeatures) -> Self {
         Self {
-            features,
+            declarations: ModuleDeclarations {
+                features,
+                ..ModuleDeclarations::default()
+            },
             ..Self::default()
         }
     }
@@ -192,23 +207,30 @@ impl Program {
     /// Declares a function for forward references. A reachable declaration must
     /// have a builder registered with [`Self::define`] before it is constructed.
     pub fn declare(&mut self, signature: Signature) -> Func {
-        let function = Func(self.functions.len());
-        self.functions.push(Declaration {
+        let function = Func(self.declarations.functions.len());
+        self.declarations.functions.push(Declaration {
             signature,
-            kind: FunctionKind::Declared,
+            kind: FunctionKind::Local,
         });
+        self.builders.push(None);
         function
     }
 
     pub fn export(&mut self, name: &str, function: impl Into<Func>) -> Result<(), BuildError> {
         let function = function.into();
-        self.functions
+        self.declarations
+            .functions
             .get(function.0)
             .ok_or(BuildError::UnknownFunction)?;
-        if self.exports.iter().any(|(existing, _)| existing == name) {
+        if self
+            .declarations
+            .exports
+            .iter()
+            .any(|(existing, _)| existing == name)
+        {
             return Err(BuildError::DuplicateExport);
         }
-        self.exports.push((name.to_owned(), function));
+        self.declarations.exports.push((name.to_owned(), function));
         Ok(())
     }
 
@@ -216,9 +238,8 @@ impl Program {
     /// emits WebAssembly. Each reachable body builder runs once. Unused definitions
     /// and declarations are ignored. Calls removed by optimization may still require
     /// constructing their callee to determine its effects.
-    pub fn compile(mut self) -> Result<Vec<u8>, BuildError> {
-        self.build_reachable_functions()?;
-        Ok(module::encode(self))
+    pub fn compile(self) -> Result<Vec<u8>, BuildError> {
+        Ok(module::encode(self.build_reachable_functions()?))
     }
 
     /// Compiles using caller-provided execution resources for function placement
@@ -231,11 +252,11 @@ impl Program {
     /// Dropping this future stops waiting, but accepted jobs can finish with their
     /// owned inputs. The executor owns their lifetime and shutdown policy.
     pub async fn compile_with<E: CompileExecutor>(
-        mut self,
+        self,
         executor: &E,
     ) -> Result<Vec<u8>, CompileError<E::Error>> {
-        self.build_reachable_functions()?;
-        module::encode_with(self, executor)
+        let program = self.build_reachable_functions()?;
+        module::encode_with(program, executor)
             .await
             .map_err(CompileError::Execution)
     }

@@ -4,11 +4,11 @@ mod declarations;
 mod emission;
 mod functions;
 
-use crate::{CompileExecutor, Program};
+use crate::{BuiltProgram, CompileExecutor};
 use functions::Definitions;
 use futures_util::{stream::FuturesUnordered, TryStreamExt};
 
-pub(super) fn encode(program: Program) -> Vec<u8> {
+pub(super) fn encode(program: BuiltProgram) -> Vec<u8> {
     let mut definitions = Definitions::new(program);
     while let Some(function) = definitions.next() {
         definitions.include(function.place());
@@ -23,7 +23,7 @@ pub(super) fn encode(program: Program) -> Vec<u8> {
 }
 
 pub(super) async fn encode_with<E: CompileExecutor>(
-    program: Program,
+    program: BuiltProgram,
     executor: &E,
 ) -> Result<Vec<u8>, E::Error> {
     let mut definitions = Definitions::new(program);

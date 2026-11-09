@@ -71,22 +71,17 @@ fn a_discarded_block_label_cannot_alias_a_later_block_at_the_same_site() {
 
 #[test]
 fn a_label_cannot_target_another_function_body() {
-    let mut program = Program::new();
-    let function = program.declare(signature());
-    program
-        .define(function, move |mut body| {
-            let result = body
-                .block::<I32>(|mut block, label| {
-                    let other = block
-                        .program()
-                        .raw_function(signature(), move |other| other.branch(&label, 7));
-                    block.program().export("other", other)?;
-                    block.yield_(11)
-                })
-                .unwrap();
-            body.return_(result)
+    let label = crate::function::tests::capture_from_body(|body| {
+        let mut label = None;
+        body.block::<()>(|_, target| {
+            label = Some(target);
+            Ok(())
         })
         .unwrap();
+        label.unwrap()
+    });
+    let mut program = Program::new();
+    let function = program.function::<fn()>(move |body, ()| body.branch(&label, ()));
     program.export("run", function).unwrap();
     assert_eq!(program.compile(), Err(BuildError::ForeignBody));
 }

@@ -202,6 +202,11 @@ fn empty_default() -> TestModule {
 fn failed_switch_discards_effects() -> TestModule {
     let mut fixture = Fixture::new();
     let state = fixture.memory("state", &[7, 0, 0, 0, 5, 0, 0, 0]);
+    let receive = fixture.program.import_function(FunctionImport {
+        module: "test".into(),
+        name: "receive".into(),
+        signature: signature(&[Type::I32], &[Type::I32]),
+    });
     let run = fixture
         .program
         .declare(signature(&[Type::I32], &[Type::I32]));
@@ -212,11 +217,6 @@ fn failed_switch_discards_effects() -> TestModule {
             let mut visited_default = false;
             let failed = body.switch(selector, &[0, 1], |mut arm, key| match key {
                 Some(0) => {
-                    let receive = arm.program().import_function(FunctionImport {
-                        module: "test".into(),
-                        name: "receive".into(),
-                        signature: signature(&[Type::I32], &[Type::I32]),
-                    });
                     let _answer = arm.call::<I32>(receive, &[9.into()])?;
                     arm.store::<I32>(state, 0, 9)
                 }
