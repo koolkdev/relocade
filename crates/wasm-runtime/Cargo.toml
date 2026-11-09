@@ -6,12 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-relocade-derive = { path = "../derive" }
+relocade-workers = { path = "../workers", features = ["compiler"] }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
-futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
-web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wasmtime = { workspace = true, features = ["cache"] }
@@ -23,6 +21,9 @@ wasm-bindgen-futures = "=0.4.79"
 js-sys = "=0.3.106"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-wasm-bindgen = "=0.6.5"
+
+[dev-dependencies]
+futures-channel = "=0.3.34"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

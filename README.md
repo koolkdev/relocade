@@ -26,6 +26,7 @@ the crates are not published.
 | [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
+| [relocade-workers](crates/workers/src/lib.rs) | Native and browser workers, resource transfer and pools using caller-supplied threads. |
 | [relocade-machine](crates/machine/src/lib.rs) | CPU views, execution, dispatch, hooks and worker tasks. |
 | [relocade-pc](crates/pc/README.md) | PC hardware wiring, memory map and BIOS-initialized CPU. |
 | [relocade-vga](crates/vga/README.md) | VGA text registers, fixed timing, immutable captures and programmable GPU text decoding. |

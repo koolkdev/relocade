@@ -1,7 +1,7 @@
 use crate::input::construct;
 use proc_macro2::{Span, TokenStream as Tokens};
 use quote::{format_ident, quote};
-use syn::{parse_quote, Data, DeriveInput, Ident};
+use syn::{parse_quote, Data, DeriveInput, Ident, Path};
 
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     let Data::Struct(data) = &input.data else {
@@ -10,14 +10,22 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
             "WorkerResource requires a struct",
         ));
     };
+    let mut worker: Option<Path> = None;
     for attribute in &input.attrs {
         if attribute.path().is_ident("worker") {
-            return Err(syn::Error::new_spanned(
-                attribute,
-                "put #[worker(post)] on a field",
-            ));
+            attribute.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("crate") {
+                    return Err(meta.error("expected #[worker(crate = path)] on a struct"));
+                }
+                if worker.is_some() {
+                    return Err(meta.error("worker crate path is specified more than once"));
+                }
+                worker = Some(meta.value()?.parse()?);
+                Ok(())
+            })?;
         }
     }
+    let worker = worker.unwrap_or_else(|| parse_quote!(::relocade_wasm_runtime::worker));
 
     let mut posted = None;
     for (index, field) in data.fields.iter().enumerate() {
@@ -58,7 +66,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     for (index, field) in data.fields.iter().enumerate() {
         let ty = &field.ty;
         let bound = if index == posted {
-            parse_quote!(#ty: ::relocade_wasm_runtime::worker::Post + 'static)
+            parse_quote!(#ty: #worker::Post + 'static)
         } else {
             parse_quote!(#ty: ::core::marker::Send + 'static)
         };
@@ -69,16 +77,16 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     let posted_type = &posted_field.ty;
     let posted_binding = &bindings[posted];
     Ok(quote! {
-        impl #impl_generics ::relocade_wasm_runtime::worker::WorkerResource
+        impl #impl_generics #worker::WorkerResource
             for #name #type_generics #where_clause
         {
             type Posted = #posted_type;
 
-            fn prepare(self) -> ::relocade_wasm_runtime::worker::ResourceTransfer<
+            fn prepare(self) -> #worker::ResourceTransfer<
                 Self::Posted, impl ::core::ops::FnOnce(Self::Posted) -> Self + ::core::marker::Send + 'static,
             > {
                 let #fields = self;
-                ::relocade_wasm_runtime::worker::ResourceTransfer::new(
+                #worker::ResourceTransfer::new(
                     #posted_binding, move |#posted_binding| #fields,
                 )
             }
@@ -110,6 +118,10 @@ mod tests {
             ),
             parse_quote!(
                 struct Unknown(#[worker(send)] Memory);
+            ),
+            parse_quote!(
+                #[worker(crate = relocade_workers, crate = another)]
+                struct DuplicatePath(#[worker(post)] Memory);
             ),
             parse_quote!(
                 enum Choice {

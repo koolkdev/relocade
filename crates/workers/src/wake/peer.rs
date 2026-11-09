@@ -1,7 +1,7 @@
 //! Direct signal access for additional threads on an existing connection.
 
 use super::{platform, WakeConnection, WakeHost, WakeTarget};
-use crate::worker::{ResourceTransfer, WorkerResource};
+use crate::{ResourceTransfer, WorkerResource};
 use std::sync::{atomic::AtomicBool, Arc};
 
 /// A clonable signal resource to post when setting up another worker.

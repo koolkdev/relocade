@@ -43,7 +43,7 @@ pub struct SharedMemory {
     pub(super) allocation: Rc<Allocation>,
 }
 
-impl web_thread::Post for SharedMemory {}
+impl crate::worker::Post for SharedMemory {}
 
 impl serde::Serialize for SharedMemory {
     fn serialize<S: serde::Serializer>(
