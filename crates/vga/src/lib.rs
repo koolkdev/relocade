@@ -13,6 +13,7 @@ mod display;
 mod framebuffer;
 mod geometry;
 mod memory;
+mod output;
 mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -32,16 +33,15 @@ pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel
 pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
+use output::Output;
 use raster::Raster;
 use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, DeviceConnection, Instant, Runner};
+use relocade_machine::{Clock, DeviceConnection, Runner};
 #[cfg(feature = "renderer")]
 pub use renderer::VgaRenderer;
 pub use retrace::RetraceEvent;
 pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
-#[cfg(feature = "renderer")]
-use snapshot::MemoryChanges;
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 pub use state::{DacState, DispiState, VgaCoreState};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
@@ -68,10 +68,9 @@ pub struct Vga {
     setup: Setup,
     dispi: dispi::Dispi,
     clock: Clock,
-    origin: Instant,
     raster: Raster,
     programming_changed: Event,
-    frames: FrameSource,
+    output: Output,
 }
 
 impl Vga {
@@ -88,24 +87,22 @@ impl Vga {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
         let registers = Registers::default();
-        let origin = clock.now();
-        let raster = Raster::new(origin, Timing::vga(&registers));
+        let raster = Raster::new(clock.now(), Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
             registers,
             setup: Setup::default(),
             dispi: dispi::Dispi::default(),
             clock,
-            origin,
             raster,
             programming_changed: Event::new(),
-            frames: FrameSource::new(),
+            output: Output::new(),
         }
     }
 
     /// Read-only captured inputs for a caller-selected renderer.
     pub fn frame_source(&self) -> FrameSource {
-        self.frames.clone()
+        self.output.source.clone()
     }
 
     /// Inspect live VGA register banks on the execution owner, including CPU
@@ -113,77 +110,11 @@ impl Vga {
     pub fn registers(&self) -> &Registers {
         &self.registers
     }
-
-    /// Captures current display inputs immediately on the execution owner, without
-    /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable memory and copies the active display settings and DAC.
-    /// Packed SVGA captures own their layout independently of the CPU bank.
-    /// The display-start latch stays at the last serviced VGA retrace; this does not
-    /// force pending CRTC start-address writes to become effective.
-    /// Unlike [`FrameSource`], this does not wait for a refresh boundary.
-    pub fn snapshot(&self) -> DisplaySnapshot {
-        let scanout = match self.dispi.display_layout() {
-            Some(layout) => Scanout::Svga(layout),
-            None => Scanout::Vga(VgaDisplayState::capture(
-                &self.registers,
-                self.raster.retrace_count,
-            )),
-        };
-        DisplaySnapshot {
-            memory: self.memory.snapshot(scanout.memory_bytes()),
-            dac: DacSnapshot {
-                colors: self.registers.dac.colors,
-                mask: self.registers.dac.mask,
-            },
-            scanout,
-            #[cfg(feature = "renderer")]
-            changes: self.frames.current_capture().map(|previous| MemoryChanges {
-                baseline: previous.display.memory.clone(),
-                pages: self.memory.changed_pages(),
-            }),
-        }
-    }
-
-    /// Display writes only need to sample if the cached retrace deadline elapsed.
-    /// Preserve the preceding registers and VRAM before applying the mutation.
-    fn capture_if_due(&mut self) {
-        if let Some(deadline) = self.raster.next_retrace_at() {
-            let now = self.clock.now();
-            if now >= deadline {
-                self.advance_raster(now);
-            }
-        }
-    }
-
-    fn advance_raster(&mut self, now: Instant) {
-        if let Some(time) = self.raster.update_to(now) {
-            if self.dispi.display_layout().is_none() {
-                self.registers.crtc.latch_display_start();
-            }
-            let display = self.snapshot();
-            if self
-                .frames
-                .current_capture()
-                .is_some_and(|previous| display.same_inputs(&previous.display))
-            {
-                return;
-            }
-            // Only publication starts a new dirty interval. Immediate snapshots
-            // must leave writes visible to the next published capture.
-            #[cfg(feature = "renderer")]
-            self.memory.clear_changes();
-            self.frames.publish(CapturedFrame {
-                display,
-                time: time.duration_since(self.origin),
-                sequence: self.raster.retrace_count,
-            });
-        }
-    }
 }
 
 impl Drop for Vga {
     fn drop(&mut self) {
         self.programming_changed.notify(usize::MAX);
-        self.frames.close();
+        self.output.source.close();
     }
 }

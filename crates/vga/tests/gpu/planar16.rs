@@ -13,29 +13,31 @@ use relocade_vga::Vga;
 async fn check_pixels() {
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    program(&mut vga);
-    load_palette(&mut vga);
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    program(&mut *vga.borrow_mut());
+    load_palette(&mut *vga.borrow_mut());
     let mut indices: Vec<u8> = (0..480)
         .flat_map(|y| (0..640).map(move |x| ((x ^ (x / 16) ^ (y * 3)) & 15) as u8))
         .collect();
-    write_pixels(&mut vga, &indices);
+    write_pixels(&mut *vga.borrow_mut(), &indices);
     clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
-    vga.read_port(0x3da, 1);
-    let source = vga.frame_source();
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    let source = vga.borrow().frame_source();
     let first = source.current_capture().unwrap();
     let original = pixels(indices.iter().copied());
     gpu.expect(&first, [640, 480], &original).await;
 
     // Write mode two updates one pixel through CPU latches and a bit mask.
     // This uses the same published dirty-page path as text and eight-bit pixels.
-    indexed(&mut vga, 0x3ce, 5, 2);
-    indexed(&mut vga, 0x3ce, 8, 0x20);
-    vga.read_mmio(0xa0000 + 12345, 1);
-    vga.write_mmio(0xa0000 + 12345, 1, 3);
+    indexed(&mut *vga.borrow_mut(), 0x3ce, 5, 2);
+    indexed(&mut *vga.borrow_mut(), 0x3ce, 8, 0x20);
+    vga.borrow_mut().read_mmio(0xa0000 + 12345, 1);
+    vga.borrow_mut().write_mmio(0xa0000 + 12345, 1, 3);
     indices[12345 * 8 + 2] = 3;
     clock.advance_to(clock_origin() + common::dots((490 + 525) * 800, 25_175_000));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     gpu.expect(
         &source.current_capture().unwrap(),
         [640, 480],
@@ -46,19 +48,20 @@ async fn check_pixels() {
     // All four-bit colors share attribute mapping, plane enable, Color Select
     // replacement and the final DAC mask with text. No VRAM writes are needed.
     for color in 0..16 {
-        attribute(&mut vga, color, (color * 3 + 17) & 63);
+        attribute(&mut *vga.borrow_mut(), color, (color * 3 + 17) & 63);
     }
-    attribute(&mut vga, 0x12, 5);
-    attribute(&mut vga, 0x10, 0x81);
-    attribute(&mut vga, 0x14, 0x0d);
-    vga.write_port(0x3c6, 1, 0x7f);
+    attribute(&mut *vga.borrow_mut(), 0x12, 5);
+    attribute(&mut *vga.borrow_mut(), 0x10, 0x81);
+    attribute(&mut *vga.borrow_mut(), 0x14, 0x0d);
+    vga.borrow_mut().write_port(0x3c6, 1, 0x7f);
     let expected = pixels(
         indices
             .iter()
             .map(|c| [0x51, 0x54, 0x5d, 0x50][usize::from((c & 1) | ((c & 4) >> 1))]),
     );
-    gpu.expect(&common::fixture::capture(&vga), [640, 480], &expected)
+    gpu.expect(&common::capture(&vga), [640, 480], &expected)
         .await;
+    drop(video);
     drop(vga);
     gpu.expect(&first, [640, 480], &original).await;
 }

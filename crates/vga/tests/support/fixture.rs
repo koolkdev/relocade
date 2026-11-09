@@ -53,7 +53,6 @@ pub fn set_cell(vga: &mut impl Device, cell: usize, character: u8, attribute: u8
 pub fn capture(vga: &relocade_vga::Vga) -> relocade_vga::CapturedFrame {
     relocade_vga::CapturedFrame {
         display: vga.snapshot(),
-        time: std::time::Duration::from_millis(123),
         sequence: 42,
     }
 }

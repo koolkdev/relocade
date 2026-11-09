@@ -3,7 +3,6 @@
 #![allow(dead_code)]
 use super::text;
 use relocade_vga::{CapturedFrame, DisplaySnapshot};
-use std::time::Duration;
 
 pub(crate) fn render(snapshot: &DisplaySnapshot) -> Box<[u8]> {
     let text = text::Text::new(snapshot);
@@ -68,7 +67,6 @@ pub(crate) struct SoftwareFrame {
     pub height: u32,
     pub pixels: Box<[u8]>,
     pub pixel_aspect_ratio: (u32, u32),
-    pub time: Duration,
     pub sequence: u64,
 }
 
@@ -79,7 +77,6 @@ pub(crate) fn rasterize(capture: &CapturedFrame) -> SoftwareFrame {
         height: text.layout.size[1],
         pixels: render(&capture.display),
         pixel_aspect_ratio: text.layout.pixel_aspect_ratio(),
-        time: capture.time,
         sequence: capture.sequence,
     }
 }

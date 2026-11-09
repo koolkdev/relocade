@@ -9,6 +9,8 @@ mod display;
 mod graphics;
 #[path = "gpu/graphics_blink.rs"]
 mod graphics_blink;
+#[path = "gpu/output_timing.rs"]
+mod output_timing;
 #[path = "gpu/readback.rs"]
 mod readback;
 use readback::read_pixels;
@@ -85,8 +87,7 @@ async fn check_image() {
     // Another snapshot updates reusable storage, including retained Image handles.
     let mut vga = text_device();
     set_cell(&mut vga, 0, 0xdb, 4);
-    let other = common::fixture::capture(&vga);
-    let other = Arc::new(other);
+    let other = Arc::new(common::fixture::capture(&vga));
     let mut encoder = device.create_command_encoder(&Default::default());
     renderer.upload(&queue, &other.display);
     let frame = renderer.encode(&mut encoder).unwrap();

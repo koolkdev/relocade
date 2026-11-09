@@ -71,7 +71,6 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         );
         let written = common::next_capture(&dos).await;
         assert!(written.sequence > blank.sequence);
-        assert!(written.time > blank.time);
         assert_eq!(written.display.plane(0)[0], b'A');
         assert_eq!(written.display.plane(1)[0], 0x4f);
         assert!(software::render(&written.display)

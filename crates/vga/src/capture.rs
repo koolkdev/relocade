@@ -3,12 +3,9 @@ use crate::snapshot::MemoryChanges;
 use crate::DisplaySnapshot;
 use arc_swap::ArcSwapOption;
 use event_listener::Event;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 /// Immutable rasterizer input sampled at the start of vertical retrace. VGA
@@ -20,8 +17,6 @@ use std::{
 pub struct CapturedFrame {
     /// Complete display memory, palette and programmable display settings.
     pub display: DisplaySnapshot,
-    /// Elapsed time from device creation to its sampling/latch boundary.
-    pub time: Duration,
     /// Hardware retrace count at capture. Unchanged refreshes are not published,
     /// so successive captures can have gaps in their sequence numbers.
     pub sequence: u64,
@@ -36,7 +31,7 @@ struct Captures {
 
 /// Captured VGA or SVGA state. Only the latest capture is retained; slow
 /// consumers skip obsolete inputs without blocking guest execution.
-/// A capture is published when inputs used by the active display change.
+/// The VGA task publishes changed inputs after synchronizing with host time.
 /// VGA includes registers and blink phases; SVGA uses its layout, DAC and memory.
 /// The comparison is conservative: hidden memory can also count as a change.
 /// CPU port indices and transfer positions are not display inputs. Hardware
@@ -53,9 +48,9 @@ impl FrameSource {
         }
     }
 
-    /// Latest published capture. Unchanged refreshes keep it and its timestamp
-    /// intact, including after VGA is destroyed. Consumers may retain it and
-    /// render it again independently of the source lifetime.
+    /// Latest published capture, retained across unchanged refreshes and after
+    /// VGA is destroyed. Consumers may retain it and render it again independently
+    /// of the source lifetime.
     pub fn current_capture(&self) -> Option<Arc<CapturedFrame>> {
         self.captures.frame.load_full()
     }
@@ -108,17 +103,8 @@ impl FrameSource {
         #[cfg(feature = "renderer")]
         self.captures.frame.rcu(|previous| {
             let mut frame = frame.clone();
-            if let Some(pending) = previous
-                .as_ref()
-                .and_then(|frame| frame.display.changes.as_ref())
-            {
-                let changes = frame
-                    .display
-                    .changes
-                    .as_mut()
-                    .expect("later captures have a memory baseline");
-                changes.baseline.clone_from(&pending.baseline);
-                changes.pages.merge(pending.pages);
+            if let Some(previous) = previous {
+                frame.display.merge_changes(&previous.display);
             }
             Some(Arc::new(frame))
         });

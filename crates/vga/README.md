@@ -595,11 +595,11 @@ for the following active display: shared physical memory blocks, the active
 scanout settings, and DAC colors and mask. VGA first latches its display start
 and also captures sequencer/CRTC/graphics/attribute settings, font memory,
 the effective start address, and both blink phases.
-When these inputs change, a `CapturedFrame` is published with that boundary's
-time and hardware retrace count. Unchanged refreshes retain the previous capture,
-including its timestamp; sequence numbers can have gaps. Late service
-coalesces missed boundaries; guest mutations first service elapsed time using
-the preceding state. A write exactly at a retrace edge applies after that latch.
+When these inputs change, the device stages a `CapturedFrame` with the hardware
+retrace count. Its async task synchronizes with host time before publishing it.
+Unchanged refreshes retain the previous capture; sequence numbers can have gaps.
+Late service coalesces missed boundaries; display mutations first service elapsed
+time using the preceding state. A write exactly at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
 Other registers are sampled at that same edge. In particular, a preset-row
 update made after retrace starts appears in the next capture. The snapshot
@@ -649,10 +649,20 @@ timing and status-port behavior continue through unchanged refreshes, while the
 CPU waits for input and while the app is not drawing. Destroying VGA closes this
 source and wakes waiters without creating an extra frame.
 
+Pending captures retain their guest timestamp. When the CPU owner's VGA task
+takes one, `Clock::sync_to_host(boundary)` uses the current mapping and configured
+host timer. Host-clock captures are already due; paced guest
+captures may be ahead of the host. Without an active mapping, the wait completes
+immediately. The task keeps one capture through its wait while newer captures
+replace one pending slot, merging their dirty pages. Newer captures cannot
+postpone the in-flight deadline. A newly occupied slot wakes the task even when
+the guest timer has not delivered its notification. No device borrow spans a wait.
+Keep the host timer service running while execution tasks have pending waits.
+
 Captured memory and display settings are renderer inputs. An embedding can
 read them directly or use the optional GPU renderer below. Device-only users do
-not need GPU dependencies. `Vga::run` services hardware time and captures; the
-embedding owns redraw scheduling, request coalescing, dimensions and presentation.
+not need GPU dependencies. `Vga::run` services retraces and publishes synchronized
+captures; the embedding owns redraw scheduling, request coalescing, dimensions and presentation.
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
@@ -822,15 +832,17 @@ task. Production rendering records commands without waiting for GPU completion.
 
 `VgaDisplay` connects a `FrameSource` to a host through
 `relocade_frontend::display::DisplayRenderer`. Its `service(queue)` waits on
-`FrameSource::next_capture(after)`. Unchanged refreshes leave this wait asleep;
-the adapter needs no separate change subscription or refresh counter.
+`FrameSource::next_capture(after)`, takes the newest capture and its accumulated
+dirty pages, uploads the changes, submits those writes and requests a redraw.
+The VGA task has already synchronized each publication with host time.
+Unchanged refreshes leave the receive wait asleep.
 
-`encode_image(queue, encoder)` takes the newest capture and its accumulated dirty
-pages at redraw time, uploads changed resources, and records decoding only when
-rendering inputs changed. A resize with unchanged inputs reuses the image.
-No redraw means no VGA uploads or decoding;
-VGA timing and capture publication continue independently. Closing the source
-preserves the image, available from `current_image()`.
+`encode_image(queue, encoder)` uses only the last uploaded state, recording a
+decode when rendering inputs changed. It does not receive captures or wait for
+their timing. Redraws during synchronization keep the previous image; a resize
+with unchanged inputs reuses it. Uploads and capture publication continue
+independently of host redraws, while decoding remains demand-driven. Closing the
+source preserves the image, available from `current_image()`.
 
 Construct the adapter inside the graphics host's factory so it shares the host's
 GPU environment and remains on the graphics owner:
@@ -845,12 +857,13 @@ let mut graphics = relocade_app::graphics::Graphics::spawn(
 );
 ```
 
-The adapter retains the `FrameSource`. `device_lost()` drops its GPU resources
-and cached output without changing guest VGA state. `attach_device(device, queue)`
-creates fresh resources. The same adapter and source survive; the next
-`encode_image` fully uploads and decodes the latest capture, including after the
-source closes. Automatic restoration is VGA's policy, not a requirement of other
-display backends.
+The adapter retains the source and the last uploaded capture.
+`device_lost()` drops its GPU resources and cached output without changing guest
+VGA state. `attach_device(device, queue)` creates fresh resources and uploads the
+last uploaded capture. The next
+`encode_image` decodes that state, including after the source closes. Captures
+still awaiting host time remain with the execution task. Automatic restoration
+is VGA's policy, not a requirement of other display backends.
 
 The host submits each recorded presentation batch before servicing the adapter
 again. `VgaDisplay` relies on that submission contract for its cache. Callers that

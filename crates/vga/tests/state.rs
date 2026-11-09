@@ -148,23 +148,25 @@ fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn restored_programming_services_old_capture_and_replaces_only_changed_timing() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    svga::enable(&mut vga);
-    let original = vga.dispi_state();
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    svga::enable(&mut *vga.borrow_mut());
+    let original = vga.borrow().dispi_state();
     for (register, value) in [(4, 0), (1, 800), (2, 600), (4, 0x81)] {
-        svga::set(&mut vga, register, value);
+        svga::set(&mut *vga.borrow_mut(), register, value);
     }
-    let larger = vga.dispi_state();
-    vga.restore_state(None, None, Some(original));
-    let frames = vga.frame_source();
-    let mut wait = pin!(vga.wait_for_retrace().unwrap());
+    let larger = vga.borrow().dispi_state();
+    vga.borrow_mut().restore_state(None, None, Some(original));
+    let frames = vga.borrow().frame_source();
+    let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     let mut cx = Context::from_waker(Waker::noop());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     clock.advance_to(clock_origin() + Duration::from_millis(1));
-    vga.restore_state(None, Some(vga.dac_state()), None);
+    let dac = vga.borrow().dac_state();
+    vga.borrow_mut().restore_state(None, Some(dac), None);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     clock.advance_to(clock_origin() + svga_boundary(1));
-    vga.restore_state(None, None, Some(larger));
+    vga.borrow_mut().restore_state(None, None, Some(larger));
+    common::service_video(video.as_mut());
     assert_eq!(
         wait.as_mut().poll(&mut cx),
         Poll::Ready(RetraceEvent::Reprogrammed)
@@ -172,7 +174,7 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     let old = frames.current_capture().unwrap();
     assert!(matches!(old.display.scanout(), Scanout::Svga(layout)
         if layout.size() == [640, 480] && layout.format() == PixelFormat::Indexed8));
-    let mut next = pin!(vga.wait_for_retrace().unwrap());
+    let mut next = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     assert!(next.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         clock

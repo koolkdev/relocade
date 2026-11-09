@@ -103,16 +103,18 @@ async fn check_parity() {
     // Use real device writes for page selection and blanking, then retain both
     // captures after the source closes. Neither renderer may consult live VGA.
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    let source = vga.frame_source();
-    vga.write_mmio(TEXT_MEMORY_START, 2, 0x04db); // Hidden page: red block.
-    vga.write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
-    common::crtc(&mut vga, crtc::START_ADDRESS_HIGH, 1);
-    common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    let source = vga.borrow().frame_source();
+    vga.borrow_mut().write_mmio(TEXT_MEMORY_START, 2, 0x04db); // Hidden page: red block.
+    vga.borrow_mut()
+        .write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
+    common::crtc(&mut *vga.borrow_mut(), crtc::START_ADDRESS_HIGH, 1);
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
     clock.advance_to(clock_origin() + common::boundary(1));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let page = source.current_capture().unwrap();
-    vga.write_port(
+    vga.borrow_mut().write_port(
         SEQUENCER_INDEX_PORT,
         2,
         u32::from(u16::from_le_bytes([
@@ -121,8 +123,10 @@ async fn check_parity() {
         ])),
     );
     clock.advance_to(clock_origin() + common::boundary(2));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let blanked = source.current_capture().unwrap();
+    drop(video);
     drop(vga);
     assert!(source.next_capture(Some(blanked.sequence)).await.is_none());
     let pixels = compare(&mut renderer, &device, &queue, blanked).await;
@@ -192,7 +196,6 @@ async fn check_programmed_text() {
     for case in cases.iter().chain(cases.iter().rev()) {
         let capture = CapturedFrame {
             display: case.display.clone(),
-            time: std::time::Duration::ZERO,
             sequence: 1,
         };
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -237,19 +240,21 @@ async fn check_published_updates() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    let source = vga.frame_source();
-    common::crtc(&mut vga, crtc::CURSOR_START, 0x20);
-    set_cell(&mut vga, 0, 0xdb, 4);
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    let source = vga.borrow().frame_source();
+    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
     clock.advance_to(clock_origin() + common::boundary(1));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let first = source.current_capture().unwrap();
     let pixels = compare(&mut renderer, &device, &queue, first.clone()).await;
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
 
-    set_cell(&mut vga, 0, 0xdb, 1);
+    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 1);
     clock.advance_to(clock_origin() + common::boundary(2));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let pixels = compare(
         &mut renderer,
         &device,
@@ -265,23 +270,26 @@ async fn check_published_updates() {
         (0x3ce, 0x0005),
         (0x3ce, 0x0506),
     ] {
-        vga.write_port(port, 2, value);
+        vga.borrow_mut().write_port(port, 2, value);
     }
-    vga.write_mmio(0xa0000 + 0xdb * 32, 1, 0); // Clear the block glyph's first row.
+    vga.borrow_mut().write_mmio(0xa0000 + 0xdb * 32, 1, 0); // Clear the block glyph's first row.
     for (port, value) in [
         (0x3c4, 0x0302),
         (0x3c4, 0x0204),
         (0x3ce, 0x1005),
         (0x3ce, 0x0e06),
     ] {
-        vga.write_port(port, 2, value);
+        vga.borrow_mut().write_port(port, 2, value);
     }
     clock.advance_to(clock_origin() + common::boundary(3));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1); // The renderer skips this font change.
-    set_cell(&mut vga, 1, 0xdb, 2);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1); // The renderer skips this font change.
+    common::service_video(video.as_mut());
+    set_cell(&mut *vga.borrow_mut(), 1, 0xdb, 2);
     clock.advance_to(clock_origin() + common::boundary(4));
-    vga.read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    common::service_video(video.as_mut());
     let newest = source.current_capture().unwrap();
+    drop(video);
     drop(vga);
     let pixels = compare(&mut renderer, &device, &queue, newest).await;
     assert_eq!(pixel(&pixels, 0, 0), [0, 0, 0, 255]);

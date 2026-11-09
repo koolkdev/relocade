@@ -29,6 +29,31 @@ pub fn poll_video(
     assert!(video.poll(cx).is_pending());
 }
 
+pub fn service_video(video: std::pin::Pin<&mut impl std::future::Future<Output = ()>>) {
+    poll_video(
+        video,
+        &mut std::task::Context::from_waker(std::task::Waker::noop()),
+    );
+}
+
+pub fn start_video(
+    vga: relocade_vga::Vga,
+) -> (
+    std::rc::Rc<std::cell::RefCell<relocade_vga::Vga>>,
+    std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
+) {
+    let vga = std::rc::Rc::new(std::cell::RefCell::new(vga));
+    let mut video = Box::pin(relocade_vga::Vga::run(vga.clone()));
+    service_video(video.as_mut());
+    (vga, video)
+}
+
+pub fn capture(
+    vga: &std::rc::Rc<std::cell::RefCell<relocade_vga::Vga>>,
+) -> relocade_vga::CapturedFrame {
+    fixture::capture(&vga.borrow())
+}
+
 #[path = "../support/mod.rs"]
 pub mod support;
 pub use support::fixture;

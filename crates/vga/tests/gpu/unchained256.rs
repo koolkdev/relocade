@@ -19,18 +19,19 @@ fn start(vga: &mut impl Device, address: u16) {
 async fn check_pages() {
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    program(&mut vga);
-    unchain(&mut vga);
-    load_palette(&mut vga);
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    program(&mut *vga.borrow_mut());
+    unchain(&mut *vga.borrow_mut());
+    load_palette(&mut *vga.borrow_mut());
     // A wider virtual row leaves room to scroll the 320-pixel display. Four
     // pages cover the entire plane, with the last page wrapping through zero.
-    indexed(&mut vga, 0x3d4, 0x13, 44); // 88 plane bytes = 352 pixels per row.
+    indexed(&mut *vga.borrow_mut(), 0x3d4, 0x13, 44); // 88 plane bytes = 352 pixels per row.
     for plane in 0..4u8 {
-        indexed(&mut vga, 0x3c4, 2, 1 << plane);
+        indexed(&mut *vga.borrow_mut(), 0x3c4, 2, 1 << plane);
         for offset in 0..65536u32 {
             let color = (offset * 7 + (offset >> 8) * 29 + u32::from(plane) * 53) as u8;
-            vga.write_mmio(0xa0000 + offset, 1, u64::from(color));
+            vga.borrow_mut()
+                .write_mmio(0xa0000 + offset, 1, u64::from(color));
         }
     }
     let expected = |base: u16, pan: u32, height: u32| {
@@ -42,28 +43,29 @@ async fn check_pages() {
             })
         }))
     };
-    let source = vga.frame_source();
+    let source = vga.borrow().frame_source();
     let mut retained = Vec::new();
     for (frame, base) in [0, 0x4000, 0x8000, 0xc000].into_iter().enumerate() {
-        start(&mut vga, base);
+        start(&mut *vga.borrow_mut(), base);
         // Programmed bytes already changed, but immediate snapshots still use
         // the previous latch. The shader must not decode the raw start bytes.
         let previous_base = frame.saturating_sub(1) as u16 * 0x4000;
         gpu.expect(
-            &common::fixture::capture(&vga),
+            &common::capture(&vga),
             [320, 200],
             &expected(previous_base, 0, 200),
         )
         .await;
         clock.advance_to(clock_origin() + common::boundary(frame as u64 + 1));
-        vga.read_port(0x3da, 1);
+        vga.borrow_mut().read_port(0x3da, 1);
+        common::service_video(video.as_mut());
         let capture = source.current_capture().unwrap();
         gpu.expect(&capture, [320, 200], &expected(base, 0, 200))
             .await;
         retained.push(capture);
     }
     // Program a 525-line raster with 480 visible, repeated scanlines.
-    vga.write_port(0x3c2, 1, 0xe3);
+    vga.borrow_mut().write_port(0x3c2, 1, 0xe3);
     for (index, value) in [
         (6, 0x0b),
         (7, 0x3e),
@@ -73,41 +75,44 @@ async fn check_pages() {
         (0x16, 4),
         (0x11, 0x8c),
     ] {
-        indexed(&mut vga, 0x3d4, index, value);
+        indexed(&mut *vga.borrow_mut(), 0x3d4, index, value);
     }
     gpu.expect(
-        &common::fixture::capture(&vga),
+        &common::capture(&vga),
         [320, 240],
         &expected(0xc000, 0, 240),
     )
     .await;
     let reset_at = common::boundary(4);
-    program(&mut vga);
-    unchain(&mut vga);
-    indexed(&mut vga, 0x3d4, 0x13, 44);
+    program(&mut *vga.borrow_mut());
+    unchain(&mut *vga.borrow_mut());
+    indexed(&mut *vga.borrow_mut(), 0x3d4, 0x13, 44);
     // A one-byte display-start shift scrolls four pixels. Pel panning then
     // crosses the plane group without changing which byte each plane stores.
-    start(&mut vga, 0x8001);
-    attribute(&mut vga, 0x13, 6);
+    start(&mut *vga.borrow_mut(), 0x8001);
+    attribute(&mut *vga.borrow_mut(), 0x13, 6);
     clock.advance_to(clock_origin() + reset_at + common::boundary(1));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let panned = source.current_capture().unwrap();
     let mut changed = expected(0x8001, 3, 200);
     gpu.expect(&panned, [320, 200], &changed).await;
 
     // Change one plane at two nonadjacent physical pages and publish a diff.
-    indexed(&mut vga, 0x3c4, 2, 4);
+    indexed(&mut *vga.borrow_mut(), 0x3c4, 2, 4);
     for (x, y) in [(3, 1), (107, 101)] {
         let panned_x = x + 3;
         let offset = 0x8001 + y * 88 + panned_x / 4;
-        vga.write_mmio(0xa0000 + offset, 1, 0xf1);
+        vga.borrow_mut().write_mmio(0xa0000 + offset, 1, 0xf1);
         changed[((y * 320 + x) * 4) as usize..((y * 320 + x) * 4 + 4) as usize]
             .copy_from_slice(&super::graphics::color(0xf1).1);
     }
     clock.advance_to(clock_origin() + reset_at + common::boundary(2));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     gpu.expect(&source.current_capture().unwrap(), [320, 200], &changed)
         .await;
+    drop(video);
     drop(vga);
     // Page flips changed only captured addresses; replay still restores the
     // old bytes after later sparse writes and device destruction.

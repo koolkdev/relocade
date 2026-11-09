@@ -7,12 +7,9 @@ use futures_util::{
 use relocade_machine::{timer_service, worker::Thread};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{CapturedFrame, VgaRenderer};
-use std::{
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
 
 enum GraphicsEvent {
@@ -22,7 +19,6 @@ enum GraphicsEvent {
 
 struct Report {
     sequence: u64,
-    time: Duration,
     size: [u32; 2],
     pixel: [u8; 4],
 }
@@ -56,7 +52,6 @@ pub async fn gpu_workers() -> Result<(), String> {
             let mut barrier = Some((selected, allowed));
             let mut ready = Some(ready);
             let mut uploaded_sequence = None;
-            let mut uploaded_time = Duration::ZERO;
             let mut needs_decode = false;
             let mut source_closed = false;
             let mut cached: Option<Image> = None;
@@ -79,7 +74,6 @@ pub async fn gpu_workers() -> Result<(), String> {
                         needs_decode |= vga_renderer.upload(&queue, &capture.display);
                         queue.submit([]); // Uploads run independently of redraw requests.
                         uploaded_sequence = Some(capture.sequence);
-                        uploaded_time = capture.time;
                         let count = upload_count.fetch_add(1, Ordering::Release) + 1;
                         if count == 2 {
                             ready.take().unwrap().send(()).unwrap();
@@ -127,7 +121,6 @@ pub async fn gpu_workers() -> Result<(), String> {
                 report
                     .unbounded_send(Report {
                         sequence: uploaded_sequence.unwrap(),
-                        time: uploaded_time,
                         size,
                         pixel,
                     })
@@ -166,7 +159,6 @@ pub async fn gpu_workers() -> Result<(), String> {
         assert_eq!(first.pixel, [255, 255, 85, 255]);
         let second = reports.next().await.unwrap();
         assert!(second.sequence >= capture.sequence);
-        assert!(second.time > first.time);
         assert_eq!(second.size, [96, 72]);
         assert_eq!(second.pixel, first.pixel);
 
@@ -188,7 +180,6 @@ pub async fn gpu_workers() -> Result<(), String> {
             request(&mut requests, size);
             let retained = reports.next().await.unwrap();
             assert_eq!(retained.sequence, last.sequence);
-            assert_eq!(retained.time, last.time);
             assert_eq!(retained.size, size);
             assert_eq!(retained.pixel, first.pixel);
             let count = renders.load(Ordering::Acquire);

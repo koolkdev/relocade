@@ -24,8 +24,9 @@ implementation of a display connection. `service(queue)` handles backend activit
 independently of redraws, requesting a redraw with `Some(true)`, reporting other
 work with `Some(false)`, or ending service with `None`. A backend submits any GPU
 work that must progress without presentation itself; the host does not submit on
-each service result. VGA can just wait for changed captures here, while a command
-backend can execute guest GPU commands and handle completions.
+each service result. VGA uploads changed captures here after its execution task
+has synchronized them with host time. A command backend can execute guest GPU
+commands and handle completions.
 
 `encode_image(queue, encoder)` queues uploads and records work for the current
 image, or reuses an existing image. This operation never submits. The host records

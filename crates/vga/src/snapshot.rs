@@ -39,6 +39,19 @@ pub struct DisplaySnapshot {
 }
 
 impl DisplaySnapshot {
+    /// Preserve upload hints when an intermediate capture was not consumed.
+    #[cfg(feature = "renderer")]
+    pub(crate) fn merge_changes(&mut self, previous: &Self) {
+        if let Some(pending) = &previous.changes {
+            let changes = self
+                .changes
+                .as_mut()
+                .expect("later captures have a memory baseline");
+            changes.baseline.clone_from(&pending.baseline);
+            changes.pages.merge(pending.pages);
+        }
+    }
+
     // Conservative input comparison, not pixel equivalence. Block identities
     // avoid scanning VRAM; CPU port access state is not captured.
     pub(crate) fn same_inputs(&self, other: &Self) -> bool {

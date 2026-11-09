@@ -13,26 +13,28 @@ use relocade_vga::Vga;
 async fn check_full_frame() {
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    common::fixture::set_cell(&mut vga, 0, 0xdb, 4);
-    common::crtc(&mut vga, 10, 0x20);
-    let text = common::fixture::capture(&vga);
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    common::fixture::set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
+    common::crtc(&mut *vga.borrow_mut(), 10, 0x20);
+    let text = common::capture(&vga);
     let text_pixels = super::software::render(&text.display);
     gpu.expect(&text, [640, 200], &text_pixels).await;
 
-    program(&mut vga);
-    load_palette(&mut vga);
+    program(&mut *vga.borrow_mut());
+    load_palette(&mut *vga.borrow_mut());
     let mut indices = Vec::with_capacity(64000);
     for y in 0..200 {
         for x in 0..320 {
             let value = (x * 3 + y * 17) as u8;
-            vga.write_mmio(0xa0000 + y * 320 + x, 1, u64::from(value));
+            vga.borrow_mut()
+                .write_mmio(0xa0000 + y * 320 + x, 1, u64::from(value));
             indices.push(value);
         }
     }
-    let source = vga.frame_source();
+    let source = vga.borrow().frame_source();
     clock.advance_to(clock_origin() + common::boundary(1));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let first = source.current_capture().unwrap();
     let original = pixels(indices.iter().copied());
     assert_eq!(first.display.geometry().pixel_aspect_ratio(), (5, 6));
@@ -41,21 +43,25 @@ async fn check_full_frame() {
     // Sparse writes cross planes, pages and both high chain-4 address bits.
     for offset in [0, 1, 16383, 16384, 32767, 32768, 49152, 63999] {
         indices[offset] ^= 0xff;
-        vga.write_mmio(0xa0000 + offset as u32, 1, u64::from(indices[offset]));
+        vga.borrow_mut()
+            .write_mmio(0xa0000 + offset as u32, 1, u64::from(indices[offset]));
     }
     clock.advance_to(clock_origin() + common::boundary(2));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let changed = source.current_capture().unwrap();
     gpu.expect(&changed, [320, 200], &pixels(indices.iter().copied()))
         .await;
 
-    vga.write_mmio(0xa0000 + 40000, 1, 0xe7);
+    vga.borrow_mut().write_mmio(0xa0000 + 40000, 1, 0xe7);
     indices[40000] = 0xe7;
     clock.advance_to(clock_origin() + common::boundary(3));
-    vga.read_port(0x3da, 1); // Skip this capture's pixel change.
-    palette(&mut vga, 0xe7, [63, 63, 63]);
+    vga.borrow_mut().read_port(0x3da, 1); // Skip this capture's pixel change.
+    common::service_video(video.as_mut());
+    palette(&mut *vga.borrow_mut(), 0xe7, [63, 63, 63]);
     clock.advance_to(clock_origin() + common::boundary(4));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let newest = source.current_capture().unwrap();
     let expected: Vec<u8> = indices
         .iter()
@@ -71,18 +77,19 @@ async fn check_full_frame() {
 
     // CPU routing does not select the display layout; Color Select is unused
     // in eight-bit graphics. The DAC mask still applies to the complete index.
-    indexed(&mut vga, 0x3c4, 4, 6);
-    attribute(&mut vga, 0x14, 15);
-    vga.write_port(0x3c6, 1, 0x7f);
-    let masked = common::fixture::capture(&vga);
+    indexed(&mut *vga.borrow_mut(), 0x3c4, 4, 6);
+    attribute(&mut *vga.borrow_mut(), 0x14, 15);
+    vga.borrow_mut().write_port(0x3c6, 1, 0x7f);
+    let masked = common::capture(&vga);
     let expected = pixels(indices.iter().map(|index| index & 0x7f));
     gpu.expect(&masked, [320, 200], &expected).await;
     // Eight-bit pixels bypass the attribute palette, including graphics blink.
     for mode in [0x49, 0x4b] {
-        attribute(&mut vga, 0x10, mode);
-        gpu.expect(&common::fixture::capture(&vga), [320, 200], &expected)
+        attribute(&mut *vga.borrow_mut(), 0x10, mode);
+        gpu.expect(&common::capture(&vga), [320, 200], &expected)
             .await;
     }
+    drop(video);
     drop(vga);
     gpu.expect(&first, [320, 200], &original).await;
     gpu.expect(&text, [640, 200], &text_pixels).await;

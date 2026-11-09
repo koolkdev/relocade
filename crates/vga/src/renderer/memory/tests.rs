@@ -3,7 +3,7 @@ use crate::{CapturedFrame, Vga};
 use futures_util::FutureExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
-use std::time::Duration;
+use std::{cell::RefCell, future::Future, pin::Pin, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -71,21 +71,26 @@ fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    uploads.update(&take(&mut vga, &clock).display);
+    uploads.update(&take(&vga, video.as_mut(), &clock).display);
     for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 1)] {
-        vga.write_port(0x1ce, 2, index);
-        vga.write_port(0x1cf, 2, value);
+        vga.borrow_mut().write_port(0x1ce, 2, index);
+        vga.borrow_mut().write_port(0x1cf, 2, value);
     }
-    assert_eq!(uploads.update(&take(&mut vga, &clock).display).len(), 8);
-    vga.write_port(0x1ce, 2, 5);
-    vga.write_port(0x1cf, 2, 4);
-    vga.write_mmio(0xa0000, 1, 1);
-    let skipped = publish(&mut vga, &clock);
-    vga.write_mmio(0xa1000, 1, 2);
-    vga.write_mmio(0xa2003, 1, 3);
-    let latest = take(&mut vga, &clock);
+    assert_eq!(
+        uploads
+            .update(&take(&vga, video.as_mut(), &clock).display)
+            .len(),
+        8
+    );
+    vga.borrow_mut().write_port(0x1ce, 2, 5);
+    vga.borrow_mut().write_port(0x1cf, 2, 4);
+    vga.borrow_mut().write_mmio(0xa0000, 1, 1);
+    let skipped = publish(&vga, video.as_mut(), &clock);
+    vga.borrow_mut().write_mmio(0xa1000, 1, 2);
+    vga.borrow_mut().write_mmio(0xa2003, 1, 3);
+    let latest = take(&vga, video.as_mut(), &clock);
     assert_eq!(
         uploads.update(&latest.display),
         [(262144, 2048), (460800, 1024)]
@@ -93,12 +98,15 @@ fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() 
     assert_eq!(skipped.display.vram_byte(0x40000), Some(1));
     assert_eq!(skipped.display.vram_byte(0x41000), Some(0));
 
-    vga.write_port(0x1ce, 2, 4);
-    vga.write_port(0x1cf, 2, 0);
-    vga.write_mmio(0xb8000, 1, u64::from(b'A'));
-    assert_eq!(uploads.update(&take(&mut vga, &clock).display), [(0, 1024)]);
-    vga.write_port(0x1cf, 2, 1);
-    let cleared = take(&mut vga, &clock);
+    vga.borrow_mut().write_port(0x1ce, 2, 4);
+    vga.borrow_mut().write_port(0x1cf, 2, 0);
+    vga.borrow_mut().write_mmio(0xb8000, 1, u64::from(b'A'));
+    assert_eq!(
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
+        [(0, 1024)]
+    );
+    vga.borrow_mut().write_port(0x1cf, 2, 1);
+    let cleared = take(&vga, video.as_mut(), &clock);
     let writes = uploads.update(&cleared.display);
     assert_eq!(writes.len(), 8);
     assert!(writes.iter().all(|(_, bytes)| *bytes == 65536));
@@ -106,15 +114,31 @@ fn packed_publications_accumulate_extended_pages_and_clear_them_on_mode_entry() 
     assert_eq!(latest.display.vram_byte(0x42003), Some(3));
 }
 
-fn publish(vga: &mut Vga, clock: &ManualClock) -> Arc<CapturedFrame> {
-    clock.advance_by(Duration::from_millis(20));
-    vga.read_port(0x3da, 1);
-    vga.frame_source().current_capture().unwrap()
+fn start_video(clock: &ManualClock) -> (Rc<RefCell<Vga>>, Pin<Box<impl Future<Output = ()>>>) {
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
+    let mut video = Box::pin(Vga::run(vga.clone()));
+    assert!(video.as_mut().now_or_never().is_none());
+    (vga, video)
 }
 
-fn take(vga: &mut Vga, clock: &ManualClock) -> Arc<CapturedFrame> {
-    publish(vga, clock);
-    vga.frame_source().take_capture().unwrap()
+fn publish(
+    vga: &Rc<RefCell<Vga>>,
+    video: Pin<&mut impl Future<Output = ()>>,
+    clock: &ManualClock,
+) -> Arc<CapturedFrame> {
+    clock.advance_by(Duration::from_millis(20));
+    vga.borrow_mut().read_port(0x3da, 1);
+    assert!(video.now_or_never().is_none());
+    vga.borrow().frame_source().current_capture().unwrap()
+}
+
+fn take(
+    vga: &Rc<RefCell<Vga>>,
+    video: Pin<&mut impl Future<Output = ()>>,
+    clock: &ManualClock,
+) -> Arc<CapturedFrame> {
+    publish(vga, video, clock);
+    vga.borrow().frame_source().take_capture().unwrap()
 }
 
 fn planar(vga: &mut impl Device, mask: u32) {
@@ -143,56 +167,58 @@ fn text(vga: &mut impl Device) {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    let first = take(&mut vga, &clock);
+    let first = take(&vga, video.as_mut(), &clock);
     assert_eq!(
         uploads.update(&first.display),
         [(0, 65536), (65536, 65536), (131072, 65536), (196608, 65536)]
     );
     assert!(uploads.update(&first.display).is_empty());
 
-    vga.write_mmio(0xb8000, 1, u64::from(b'A'));
-    let changed = publish(&mut vga, &clock);
-    let latest = publish(&mut vga, &clock);
+    vga.borrow_mut().write_mmio(0xb8000, 1, u64::from(b'A'));
+    let changed = publish(&vga, video.as_mut(), &clock);
+    let latest = publish(&vga, video.as_mut(), &clock);
     assert!(
         Arc::ptr_eq(&changed, &latest),
         "unchanged refresh keeps dirty hints"
     );
     assert_eq!(
-        uploads.update(&vga.frame_source().take_capture().unwrap().display),
+        uploads.update(&vga.borrow().frame_source().take_capture().unwrap().display),
         [(0, 1024)]
     );
-    vga.write_mmio(0xb8001, 1, 7);
+    vga.borrow_mut().write_mmio(0xb8001, 1, 7);
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(65536, 1024)]
     );
-    planar(&mut vga, 4);
-    vga.write_mmio(0xa0820, 1, 0x80);
-    text(&mut vga);
+    planar(&mut *vga.borrow_mut(), 4);
+    vga.borrow_mut().write_mmio(0xa0820, 1, 0x80);
+    text(&mut *vga.borrow_mut());
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(133120, 1024)]
     );
-    vga.write_port(0x3c4, 2, 0x0503); // Bank selection changes settings, not font bytes.
-    vga.write_port(0x3d4, 2, 0x080c); // Select previously hidden text memory.
-    assert!(uploads.update(&take(&mut vga, &clock).display).is_empty());
+    vga.borrow_mut().write_port(0x3c4, 2, 0x0503); // Bank selection changes settings, not font bytes.
+    vga.borrow_mut().write_port(0x3d4, 2, 0x080c); // Select previously hidden text memory.
+    assert!(uploads
+        .update(&take(&vga, video.as_mut(), &clock).display)
+        .is_empty());
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    uploads.update(&take(&mut vga, &clock).display);
-    planar(&mut vga, 15);
-    vga.write_mmio(0xa03ff, 2, 0x0201); // One write crossing a page boundary.
-    vga.write_mmio(0xa1800, 1, 3);
-    vga.write_mmio(0xaffff, 1, 4); // Last page, all four physical planes.
+    uploads.update(&take(&vga, video.as_mut(), &clock).display);
+    planar(&mut *vga.borrow_mut(), 15);
+    vga.borrow_mut().write_mmio(0xa03ff, 2, 0x0201); // One write crossing a page boundary.
+    vga.borrow_mut().write_mmio(0xa1800, 1, 3);
+    vga.borrow_mut().write_mmio(0xaffff, 1, 4); // Last page, all four physical planes.
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [
             (0, 2048),
             (6144, 1024),
@@ -209,10 +235,10 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges
         ]
     );
     for page in 0..64 {
-        vga.write_mmio(0xa0000 + page * 1024, 1, 0x55);
+        vga.borrow_mut().write_mmio(0xa0000 + page * 1024, 1, 0x55);
     }
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(0, 65536), (65536, 65536), (131072, 65536), (196608, 65536)]
     );
 }
@@ -221,32 +247,32 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn routing_and_masks_mark_only_final_physical_changes() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    planar(&mut vga, 15);
-    vga.write_port(0x3c4, 2, 0x0e04); // Chain four.
+    let (vga, mut video) = start_video(&clock);
+    planar(&mut *vga.borrow_mut(), 15);
+    vga.borrow_mut().write_port(0x3c4, 2, 0x0e04); // Chain four.
     let mut uploads = Uploads::default();
-    uploads.update(&take(&mut vga, &clock).display);
-    vga.write_mmio(0xa0401, 1, 0x5a); // Physical plane one, offset 0x400.
+    uploads.update(&take(&vga, video.as_mut(), &clock).display);
+    vga.borrow_mut().write_mmio(0xa0401, 1, 0x5a); // Physical plane one, offset 0x400.
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(66560, 1024)]
     );
-    vga.write_mmio(0xa0401, 1, 0x5a); // Equal value.
-    vga.read_mmio(0xa0401, 1); // Capture the existing bytes in the latches.
-    vga.write_port(0x3ce, 2, 0x0008); // Pixel mask preserves the latches.
-    vga.write_mmio(0xa0401, 1, 0xff);
-    vga.write_port(0x3c4, 2, 0x0002); // No selected write planes.
-    vga.write_mmio(0xa0401, 1, 0);
-    vga.write_port(0x3c2, 1, 0x41); // RAM disabled.
-    vga.write_mmio(0xa0401, 1, 0);
-    vga.write_port(0x3c2, 1, 0x43);
-    vga.write_port(0x3c4, 2, 0x0f02);
-    vga.write_port(0x3ce, 2, 0xff08);
+    vga.borrow_mut().write_mmio(0xa0401, 1, 0x5a); // Equal value.
+    vga.borrow_mut().read_mmio(0xa0401, 1); // Capture the existing bytes in the latches.
+    vga.borrow_mut().write_port(0x3ce, 2, 0x0008); // Pixel mask preserves the latches.
+    vga.borrow_mut().write_mmio(0xa0401, 1, 0xff);
+    vga.borrow_mut().write_port(0x3c4, 2, 0x0002); // No selected write planes.
+    vga.borrow_mut().write_mmio(0xa0401, 1, 0);
+    vga.borrow_mut().write_port(0x3c2, 1, 0x41); // RAM disabled.
+    vga.borrow_mut().write_mmio(0xa0401, 1, 0);
+    vga.borrow_mut().write_port(0x3c2, 1, 0x43);
+    vga.borrow_mut().write_port(0x3c4, 2, 0x0f02);
+    vga.borrow_mut().write_port(0x3ce, 2, 0xff08);
     // A real edit in another page makes false dirty bits from the no-op writes
     // observable, even though unchanged planes would otherwise skip uploading.
-    vga.write_mmio(0xa0c01, 1, 0x33);
+    vga.borrow_mut().write_mmio(0xa0c01, 1, 0x33);
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(68608, 1024)]
     );
 }
@@ -255,15 +281,15 @@ fn routing_and_masks_mark_only_final_physical_changes() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    let first = take(&mut vga, &clock);
+    let first = take(&vga, video.as_mut(), &clock);
     uploads.update(&first.display);
-    planar(&mut vga, 4);
-    vga.write_mmio(0xa0820, 1, 0x80);
-    text(&mut vga);
-    let skipped = publish(&mut vga, &clock);
-    let source = vga.frame_source();
+    planar(&mut *vga.borrow_mut(), 4);
+    vga.borrow_mut().write_mmio(0xa0820, 1, 0x80);
+    text(&mut *vga.borrow_mut());
+    let skipped = publish(&vga, video.as_mut(), &clock);
+    let source = vga.borrow().frame_source();
     let other_reader = source.current_capture().unwrap();
     let notified = source
         .next_capture(Some(first.sequence))
@@ -271,10 +297,10 @@ fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
         .unwrap()
         .unwrap();
     assert!(Arc::ptr_eq(&skipped, &notified));
-    vga.write_mmio(0xb8000, 1, u64::from(b'A'));
-    publish(&mut vga, &clock);
-    vga.write_mmio(0xb8800, 1, u64::from(b'B'));
-    let newest = take(&mut vga, &clock);
+    vga.borrow_mut().write_mmio(0xb8000, 1, u64::from(b'A'));
+    publish(&vga, video.as_mut(), &clock);
+    vga.borrow_mut().write_mmio(0xb8800, 1, u64::from(b'B'));
+    let newest = take(&vga, video.as_mut(), &clock);
     // Include both text edits and the earlier font edit, with no full-plane upload.
     assert_eq!(
         uploads.update(&newest.display),
@@ -286,11 +312,12 @@ fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
     assert_eq!(source.current_capture().unwrap().sequence, newest.sequence);
 
     // Later writes start a fresh interval, without resending the earlier pages.
-    vga.write_mmio(0xb9000, 1, u64::from(b'C'));
+    vga.borrow_mut().write_mmio(0xb9000, 1, u64::from(b'C'));
     assert_eq!(
-        uploads.update(&take(&mut vga, &clock).display),
+        uploads.update(&take(&vga, video.as_mut(), &clock).display),
         [(4096, 1024)]
     );
+    drop(video);
     drop(vga);
     assert_eq!(uploads.update(&skipped.display), [(0, 65536)]);
     assert_eq!(uploads.update(&first.display), [(131072, 65536)]);
@@ -307,10 +334,10 @@ fn skipped_captures_accumulate_dirty_pages_without_readers_consuming_them() {
 #[test]
 fn concurrent_capture_publication_and_upload_preserve_pending_pages() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    uploads.update(&take(&mut vga, &clock).display);
-    let source = vga.frame_source();
+    uploads.update(&take(&vga, video.as_mut(), &clock).display);
+    let source = vga.borrow().frame_source();
     let start = std::sync::Barrier::new(2);
 
     let mut uploads = std::thread::scope(|scope| {
@@ -326,8 +353,8 @@ fn concurrent_capture_publication_and_upload_preserve_pending_pages() {
         });
         start.wait();
         for value in 1..=128 {
-            vga.write_mmio(0xb8000, 1, value);
-            publish(&mut vga, &clock);
+            vga.borrow_mut().write_mmio(0xb8000, 1, value);
+            publish(&vga, video.as_mut(), &clock);
             std::thread::yield_now();
         }
         consumer.join().unwrap()
@@ -342,21 +369,25 @@ fn concurrent_capture_publication_and_upload_preserve_pending_pages() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn immediate_snapshots_preserve_pending_changes_and_can_be_uploaded_independently() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
+    let (vga, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
-    uploads.update(&take(&mut vga, &clock).display);
-    vga.write_mmio(0xb8000, 1, u64::from(b'A'));
-    let immediate = vga.snapshot();
-    vga.write_mmio(0xb8400, 1, u64::from(b'B'));
-    let published = take(&mut vga, &clock);
+    uploads.update(&take(&vga, video.as_mut(), &clock).display);
+    vga.borrow_mut().write_mmio(0xb8000, 1, u64::from(b'A'));
+    let immediate = vga.borrow().snapshot();
+    vga.borrow_mut().write_mmio(0xb8400, 1, u64::from(b'B'));
+    let published = take(&vga, video.as_mut(), &clock);
     assert_eq!(uploads.update(&published.display), [(0, 2048)]);
     assert_eq!(immediate.plane(0)[0x400], 0);
-    assert!(uploads.update(&take(&mut vga, &clock).display).is_empty());
+    assert!(uploads
+        .update(&take(&vga, video.as_mut(), &clock).display)
+        .is_empty());
 
-    vga.write_mmio(0xb8800, 1, u64::from(b'C'));
-    assert_eq!(uploads.update(&vga.snapshot()), [(2048, 1024)]);
-    vga.write_mmio(0xb8c00, 1, u64::from(b'D'));
+    vga.borrow_mut().write_mmio(0xb8800, 1, u64::from(b'C'));
+    assert_eq!(uploads.update(&vga.borrow().snapshot()), [(2048, 1024)]);
+    vga.borrow_mut().write_mmio(0xb8c00, 1, u64::from(b'D'));
     // The previous immediate snapshot differs from the published baseline.
-    assert_eq!(uploads.update(&vga.snapshot()), [(0, 65536)]);
-    assert!(uploads.update(&take(&mut vga, &clock).display).is_empty());
+    assert_eq!(uploads.update(&vga.borrow().snapshot()), [(0, 65536)]);
+    assert!(uploads
+        .update(&take(&vga, video.as_mut(), &clock).display)
+        .is_empty());
 }

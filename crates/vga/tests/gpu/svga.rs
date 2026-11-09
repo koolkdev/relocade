@@ -203,10 +203,7 @@ async fn check_packed_pixels() {
     let legacy = common::fixture::capture(&vga);
     drop(vga);
     assert_eq!(legacy.display.geometry(), original.display.geometry());
-    assert_eq!(
-        (legacy.time, legacy.sequence),
-        (original.time, original.sequence)
-    );
+    assert_eq!(legacy.sequence, original.sequence);
     for (capture, second, extended, last) in [
         (&legacy, [0, 255, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]),
         (
@@ -247,32 +244,37 @@ async fn check_published_display() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = ManualClock::default();
-    let mut vga = common::text_vga(clock.clock());
-    common::crtc(&mut vga, 0x0a, 0x20);
-    common::fixture::set_cell(&mut vga, 0, 0xdb, 4);
-    let source = vga.frame_source();
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    common::crtc(&mut *vga.borrow_mut(), 0x0a, 0x20);
+    common::fixture::set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
+    let source = vga.borrow().frame_source();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
     clock.advance_to(clock_origin() + entered);
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
     let legacy = display.encode_image(&queue, &mut encoder).unwrap().clone();
     queue.submit([encoder.finish()]);
     assert_eq!(legacy.size(), [640, 200]);
 
-    svga::enable(&mut vga);
-    palette(&mut vga, 6, [42, 21, 0]);
-    svga::write_byte(&mut vga, 0, 4);
-    svga::write_byte(&mut vga, 0x40000, 1);
+    svga::enable(&mut *vga.borrow_mut());
+    palette(&mut *vga.borrow_mut(), 6, [42, 21, 0]);
+    svga::write_byte(&mut *vga.borrow_mut(), 0, 4);
+    svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 1);
     clock.advance_to(clock_origin() + entered + common::svga_boundary(1));
-    vga.read_port(0x3da, 1);
-    // Let two more publications pass without any service or GPU work.
-    svga::write_byte(&mut vga, 0x40000, 5);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    // Let two more publications pass without display service or GPU work.
+    svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 5);
     clock.advance_to(clock_origin() + entered + common::svga_boundary(2));
-    vga.read_port(0x3da, 1);
-    svga::write_byte(&mut vga, 307199, 6);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    svga::write_byte(&mut *vga.borrow_mut(), 307199, 6);
     clock.advance_to(clock_origin() + entered + common::svga_boundary(3));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     assert_eq!(source.current_capture().unwrap().sequence, 4);
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -286,6 +288,7 @@ async fn check_published_display() {
 
     // New GPU resources reconstruct the latest complete packed state after the
     // producer is gone, even though the first renderer consumed its dirty hints.
+    drop(video);
     drop(vga);
     assert_eq!(display.service(&queue).await, None);
     display.device_lost();

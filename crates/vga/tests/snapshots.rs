@@ -95,21 +95,25 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newest_capture_contains_changes_from_skipped_frames() {
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    let source = vga.frame_source();
-    font_access(&mut vga);
-    vga.write_mmio(0xa0100, 1, 0x12);
+    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
+    let source = vga.borrow().frame_source();
+    font_access(&mut *vga.borrow_mut());
+    vga.borrow_mut().write_mmio(0xa0100, 1, 0x12);
     clock.advance_to(clock_origin() + boundary(1));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let first = source.current_capture().unwrap();
-    vga.write_mmio(0xa0200, 1, 0x34);
+    vga.borrow_mut().write_mmio(0xa0200, 1, 0x34);
     clock.advance_to(clock_origin() + boundary(2));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let second = source.clone().current_capture().unwrap(); // An independent reader.
-    vga.write_mmio(0xa0300, 1, 0x56);
+    vga.borrow_mut().write_mmio(0xa0300, 1, 0x56);
     clock.advance_to(clock_origin() + boundary(3));
-    vga.read_port(0x3da, 1);
+    vga.borrow_mut().read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     let newest = source.current_capture().unwrap();
+    drop(video);
     drop(vga);
     assert_eq!(newest.sequence, 3);
     assert_eq!(first.display.plane(2)[0x200], 0);

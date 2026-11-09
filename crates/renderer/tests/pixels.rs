@@ -310,7 +310,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     }
     clock.advance_to(clock_origin() + Duration::from_millis(20));
     vga.read_port(0x3da, 1);
-    let frame = software::rasterize(&vga.frame_source().current_capture().unwrap());
+    let frame = software::rasterize(&vga_fixture::capture(&vga));
     let size = [frame.width, frame.height];
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let output_size = [640, 480];
