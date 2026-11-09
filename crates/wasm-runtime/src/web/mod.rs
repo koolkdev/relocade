@@ -16,6 +16,7 @@ mod calls;
 mod context;
 mod host;
 pub(crate) mod memory;
+mod tables;
 pub use context::Context;
 pub(crate) use memory::MemoryRegion;
 pub use memory::{Memory, SharedMemory};
@@ -144,21 +145,13 @@ impl<T: 'static> WasmBackend for Backend<T> {
             .insert_memory(Rc::clone(&memory.allocation))
     }
 
-    fn create_table(&mut self, minimum: u32) -> Result<Self::Table> {
-        let descriptor = Object::new();
-        set(&descriptor, "initial", &minimum.into())?;
-        set(&descriptor, "element", &"anyfunc".into())?;
-        WebAssembly::Table::new(&descriptor).map_err(|error| js_error("create Wasm table", error))
-    }
-
-    fn ensure_table_size(&mut self, table: &Self::Table, minimum: u32) -> Result<()> {
-        let current = table.length();
-        if minimum > current {
-            table
-                .grow(minimum - current)
-                .map_err(|error| js_error("grow Wasm table", error))?;
-        }
-        Ok(())
+    fn allocate_table(
+        &mut self,
+        minimum: u32,
+        maximum: Option<u32>,
+        initial: Option<&JsFunction>,
+    ) -> Result<Self::Table> {
+        tables::create(minimum, maximum, initial)
     }
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
@@ -209,17 +202,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
         // Linking and module startup finish while this call borrows the backend.
         WebAssembly::Instance::new(&module.0, &bindings)
             .map_err(|error| js_error("instantiate Wasm", error))
-    }
-
-    fn set_table_import(
-        &mut self,
-        table: &Self::Table,
-        index: u32,
-        function: JsFunction,
-    ) -> Result<()> {
-        table
-            .set(index, &function)
-            .map_err(|error| js_error("set Wasm table function", error))
     }
 }
 

@@ -130,7 +130,7 @@ async fn check_typed_linking() {
     const RELAY: Function<Query> = Function::new("typed", "relay");
     const TABLE: Table<Query> = Table::new("typed", "table", 1);
     let mut backend = Backend::new().unwrap();
-    let table = backend.create_table(1).unwrap();
+    let table = backend.create_table(TABLE, None).unwrap();
     let query = {
         let mut producer = Program::new();
         QUERY
@@ -154,7 +154,8 @@ async fn check_typed_linking() {
         let instance = backend.instantiate(&module, &[]).await.unwrap();
         backend.function(&instance, QUERY).unwrap()
     };
-    backend.set_table_function(&table, 0, &query).unwrap();
+    let function = backend.import_function(&query);
+    table.set(&mut backend, 0, &function).unwrap();
     let mut consumer = Program::new();
     let direct = QUERY.import(&mut consumer);
     let indirect = consumer.import_table(TABLE);

@@ -3,7 +3,7 @@ use crate::{
 };
 use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
-use wasmtime::{AsContextMut, Func, Instance, Linker, Ref, RefType, Store, Table, TableType};
+use wasmtime::{AsContextMut, Func, Instance, Linker, Store, Table};
 
 pub use wasmtime::Module;
 
@@ -12,6 +12,7 @@ mod compilation;
 mod context;
 mod host;
 mod memory;
+mod tables;
 pub use compilation::Compiler;
 pub use context::Context;
 pub(crate) use memory::MemoryRegion;
@@ -84,24 +85,13 @@ impl<T: 'static> WasmBackend for Backend<T> {
         Memory::Shared(memory.clone())
     }
 
-    fn create_table(&mut self, minimum: u32) -> Result<Table> {
-        Table::new(
-            &mut self.store,
-            TableType::new(RefType::FUNCREF, minimum, None),
-            Ref::Func(None),
-        )
-        .map_err(|error| Error::new("create Wasm table", error))
-    }
-
-    fn ensure_table_size(&mut self, table: &Table, minimum: u32) -> Result<()> {
-        let minimum = u64::from(minimum);
-        let current = table.size(&self.store);
-        if minimum > current {
-            table
-                .grow(&mut self.store, minimum - current, Ref::Func(None))
-                .map_err(|error| Error::new("grow Wasm table", error))?;
-        }
-        Ok(())
+    fn allocate_table(
+        &mut self,
+        minimum: u32,
+        maximum: Option<u32>,
+        initial: Option<&Func>,
+    ) -> Result<Table> {
+        tables::create(&mut self.store, minimum, maximum, initial)
     }
 
     fn ensure_memory_size(&mut self, memory: &Memory, byte_len: u64) -> Result<()> {
@@ -130,12 +120,6 @@ impl<T: 'static> WasmBackend for Backend<T> {
         linker
             .instantiate(&mut self.store, module)
             .map_err(|error| Error::new("instantiate Wasm", error))
-    }
-
-    fn set_table_import(&mut self, table: &Table, index: u32, function: Func) -> Result<()> {
-        table
-            .set(&mut self.store, u64::from(index), Ref::Func(Some(function)))
-            .map_err(|error| Error::new("set Wasm table function", error))
     }
 }
 

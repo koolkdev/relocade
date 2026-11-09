@@ -44,7 +44,8 @@ mod host;
 mod imports;
 mod memory;
 mod module_cache;
-pub use calls::{CallSignature, ExportFunction, Function};
+mod tables;
+pub use calls::{CallSignature, ExportFunction, Function, FunctionRef};
 pub use host::{HostFunction, HostSignature};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use memory::{
@@ -52,6 +53,7 @@ pub use memory::{
     WasmSharedMemory,
 };
 pub use module_cache::ModuleCache;
+pub use tables::{Table, WasmTableAccess};
 
 #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
 compile_error!("the Wasm runtime requires a threaded browser build; see tests/browser/README.md");
@@ -89,7 +91,7 @@ pub trait WasmContext: WasmMemoryAccess {
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
 /// Execution requires the owning backend, which retains its state and memories.
-pub trait WasmBackend: WasmMemoryAccess + Sized {
+pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Sized {
     type State: 'static;
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
     where
@@ -98,7 +100,7 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     type Module: Clone + 'static;
     type Compiler: WasmCompiler<Module = Self::Module>;
     type Instance;
-    type Table: 'static;
+    type Table: Clone + 'static;
     /// An engine function handle produced by a typed binding.
     type ImportFunction: Clone;
     /// Retains a shared allocation independently of this backend.
@@ -138,12 +140,29 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     /// Grows memory when needed to contain `byte_len` bytes, preserving its contents.
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()>;
 
-    /// Allocates a function table whose entries initially contain null.
-    fn create_table(&mut self, minimum: u32) -> Result<Self::Table>;
+    /// Allocates a typed function table with the declaration's limits.
+    /// Every slot shares `initial`, or contains null when it is absent. Filling
+    /// a table reuses one engine function; it does not wrap a callback per slot.
+    fn create_table<S: relocade_compiler::abi::FunctionSignature>(
+        &mut self,
+        declaration: relocade_compiler::abi::Table<S>,
+        initial: Option<&FunctionRef<Self, S>>,
+    ) -> Result<Table<Self, S>> {
+        self.allocate_table(
+            declaration.minimum,
+            declaration.maximum,
+            initial.map(|function| &function.handle),
+        )
+        .map(Table::new)
+    }
 
-    /// Grows the table to at least `minimum` slots, preserving existing functions.
-    /// New slots contain null. A smaller minimum leaves the table unchanged.
-    fn ensure_table_size(&mut self, table: &Self::Table, minimum: u32) -> Result<()>;
+    #[doc(hidden)]
+    fn allocate_table(
+        &mut self,
+        minimum: u32,
+        maximum: Option<u32>,
+        initial: Option<&Self::ImportFunction>,
+    ) -> Result<Self::Table>;
 
     /// Binds a memory, table or previously resolved function with the same signature.
     ///
@@ -213,18 +232,30 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
     where
         Self: HostFunction<S>,
     {
-        Import::function(declaration, self.host_function(callback))
+        Import::function(declaration, self.host_function::<S>(callback).handle)
     }
 
-    /// Obtains the import handle without discarding the cached callable export.
+    /// Wraps one callback for reuse in tables. It has the same codec and lifetime
+    /// contract as [`Self::bind_host`], without requiring a named import.
+    fn host_function<S: HostSignature<Self>>(
+        &mut self,
+        callback: S::Callback,
+    ) -> FunctionRef<Self, S>
+    where
+        Self: HostFunction<S>,
+    {
+        FunctionRef::new(self.wrap_host_function(callback))
+    }
+
+    /// Obtains a typed table reference without discarding the callable export.
     fn import_function<S: CallSignature>(
         &self,
         function: &Function<Self, S>,
-    ) -> Self::ImportFunction
+    ) -> FunctionRef<Self, S>
     where
         Self: ExportFunction<S>,
     {
-        self.function_import(&function.handle)
+        FunctionRef::new(self.function_import(&function.handle))
     }
 
     /// Links a compiled module and runs its startup while borrowing this backend.
@@ -249,29 +280,6 @@ pub trait WasmBackend: WasmMemoryAccess + Sized {
         self.resolve_function(instance, declaration)
             .map(Function::new)
     }
-
-    /// Installs a function in an existing table slot.
-    fn set_table_function<S: CallSignature>(
-        &mut self,
-        table: &Self::Table,
-        index: u32,
-        function: &Function<Self, S>,
-    ) -> Result<()>
-    where
-        Self: ExportFunction<S>,
-    {
-        let function = self.import_function(function);
-        self.set_table_import(table, index, function)
-    }
-
-    /// Installs an engine handle supplied by a typed function binding.
-    #[doc(hidden)]
-    fn set_table_import(
-        &mut self,
-        table: &Self::Table,
-        index: u32,
-        function: Self::ImportFunction,
-    ) -> Result<()>;
 
     /// Calls a cached export with ordinary Rust arguments and results.
     /// Arguments form a tuple, including `()` for no arguments and `(value,)`

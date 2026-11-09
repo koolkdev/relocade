@@ -1,4 +1,4 @@
-use super::{CallSignature, ExportFunction, Function, WasmBackend};
+use super::{CallSignature, ExportFunction, Function, Table, WasmBackend};
 use relocade_compiler::abi::{self, FunctionSignature};
 
 /// A binding whose name and type come from a shared ABI declaration.
@@ -67,13 +67,13 @@ impl<'a, B: WasmBackend + 'a> ImportBinding<'a, B> for abi::Memory {
     }
 }
 
-impl<'a, B: WasmBackend + 'a, S: FunctionSignature> ImportBinding<'a, B> for abi::Table<S> {
-    type Value = &'a B::Table;
+impl<'a, B: WasmBackend + 'a, S: FunctionSignature + 'a> ImportBinding<'a, B> for abi::Table<S> {
+    type Value = &'a Table<B, S>;
     fn bind(self, _: &B, value: Self::Value) -> Import<'a, B> {
         Import {
             module: self.module,
             name: self.name,
-            value: ImportValue::Table(value),
+            value: ImportValue::Table(&value.handle),
         }
     }
 }
@@ -85,7 +85,7 @@ where
 {
     type Value = &'a Function<B, S>;
     fn bind(self, backend: &B, value: Self::Value) -> Import<'a, B> {
-        Import::function(self, backend.import_function(value))
+        Import::function(self, backend.function_import(&value.handle))
     }
 }
 

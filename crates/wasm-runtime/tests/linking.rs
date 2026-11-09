@@ -26,7 +26,7 @@ async fn check_stateful_callbacks() {
     let state = HostState { calls: 0 };
     let mut backend = Backend::with_state(state).unwrap();
     let memory = backend.create_memory(MEMORY).unwrap();
-    let table = backend.create_table(1).unwrap();
+    let table = backend.create_table(FUNCTIONS, None).unwrap();
     let entry = {
         // Snapshot blocks also use names constructed at runtime.
         let export_name = format!("advance_{}", 7);
@@ -81,7 +81,8 @@ async fn check_stateful_callbacks() {
         ];
         let instance = backend.instantiate(&module, &imports).await.unwrap();
         let advance = backend.function(&instance, advance_export).unwrap();
-        backend.set_table_function(&table, 0, &advance).unwrap();
+        let function = backend.import_function(&advance);
+        table.set(&mut backend, 0, &function).unwrap();
 
         // The consumer shares memory and imports the producer's export under a new name.
         let mut consumer = Program::new();
