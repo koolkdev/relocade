@@ -37,6 +37,7 @@
 #![deny(unsafe_code)]
 
 mod clock;
+mod compiler;
 mod config;
 mod cpu;
 mod io;
@@ -47,6 +48,9 @@ pub mod runtime;
 pub use clock::{
     timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Sleep,
     TimerHandle,
+};
+pub use compiler::{
+    BlockRequest, CompiledCode, CompilerClient, CompilerConnection, CompilerWorker,
 };
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};

@@ -154,6 +154,57 @@ A failed dispatch also resolves the receive. Busy execution can first await
 `receiver.receive()`. Receipt includes the posting task's completion so that task
 can finish even when the session stays busy afterward.
 
+## Persistent compilation
+
+Create one `CompilerWorker` for shared guest memory and an execution target.
+Each client supplies one connection: a Rust request receiver and a resource
+response sender. The compiler attaches that connection to its existing thread
+with the shared `Memory` handle. Requests carry ranges, with no copied code bytes.
+
+```rust,ignore
+let mut worker = CompilerWorker::start(&memory, target)?;
+let (mut compiler, connection) = CompilerClient::channel()?;
+worker.connect(connection);
+let code = compiler.compile(vec![BlockRequest {
+    address: 0x1100,   // Guest physical address before mapping and A20.
+    start_eip: 0x100, // CS-relative export entry.
+    byte_len: 32,
+    instruction_limit: 8,
+}]).await;
+drop(compiler);
+worker.shutdown().await?;
+let code = code?;
+cpu.install_compiled_module(&code.module, &[DispatchEntry {
+    address: 0x1100, // Linear dispatch address, CS.base + EIP.
+    export: &code.entries[0].export,
+}]).await?;
+```
+
+`connect` starts a persistent request loop on the compiler thread. Compilation
+runs without polling a host forwarding task or the shutdown future. Connections
+have independent lifetimes, so one compiler can outlive successive execution
+owners. Close clients and await `shutdown` to join every connection, including
+when another task fails.
+
+The worker reads mapped RAM/ROM locally; MMIO, unmapped ranges and overflowing
+bounds are rejected before allocation. Writes made before a request are visible
+through shared backing. Requested bytes and mappings must remain stable until
+the work finishes. This is not an atomic snapshot of changing code. Code validity
+after installation, invalidation and automatic discovery remain separate work.
+
+`CompiledCode` carries the prepared module, entries and execution target as one
+object. Success and compilation errors share one response stream. A client owns
+its in-flight request and partial receipt across cancellation. Its next call
+drains an abandoned response before submitting a new request; dropping the
+client closes submission while the compiler finishes already accepted work.
+There are no request IDs, separate readiness replies or client-driving tasks.
+
+Installation reuses the CPU's existing imports, dispatch table and hook rules.
+It requires the same stopped state as `install_module`. Receiving a module does
+not install it or change that contract. See
+[event-loop scheduling](worker-execution.md#event-loop-scheduling) for delivery
+alongside busy guest execution.
+
 ## Browser build and lifetime
 
 Browser runtime builds use one threaded Rust configuration throughout: atomics,

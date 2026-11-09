@@ -4,6 +4,24 @@ use relocade_wasm_runtime::MemoryValue;
 use relocade_x86::{PhysicalMapping, Segment, SegmentRegister};
 
 impl<'a> MemoryView<'a> {
+    /// Reads RAM and ROM through the physical map without accessing devices.
+    /// Checks the whole range before allocating or copying. MMIO and unmapped
+    /// ranges are rejected.
+    /// Shared readers still need their own stable-data contract for a snapshot.
+    pub fn read_ram_rom(&self, address: u32, len: usize) -> Result<Vec<u8>, MemoryError> {
+        if self.resolve(address, len)?.any(|span| {
+            !matches!(
+                span.mapping,
+                PhysicalMapping::Ram { .. } | PhysicalMapping::Rom { .. }
+            )
+        }) {
+            return Err(MemoryError::UnbackedRange);
+        }
+        let mut bytes = vec![0; len];
+        self.read(address, &mut bytes)?;
+        Ok(bytes)
+    }
+
     /// Reads guest addresses using the configured map and checks the full range.
     ///
     /// # Panics
