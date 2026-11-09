@@ -1,5 +1,5 @@
-use super::Backend;
-use crate::{Error, Result, WasmTableAccess};
+use super::{Backend, Context};
+use crate::{Error, Result, WasmBackend, WasmTableAccess};
 use wasmtime::{Func, Ref, RefType, Store, Table, TableType};
 
 pub(super) fn create<T: 'static>(
@@ -25,15 +25,28 @@ impl<T: 'static> WasmTableAccess for Backend<T> {
         minimum: u32,
         initial: Option<&Func>,
     ) -> Result<()> {
+        self.context().ensure_table_size(table, minimum, initial)
+    }
+
+    fn set_table_import(&mut self, table: &Table, index: u32, function: &Func) -> Result<()> {
+        self.context().set_table_import(table, index, function)
+    }
+}
+
+impl<T: 'static> WasmTableAccess for Context<'_, T> {
+    type Backend = Backend<T>;
+
+    fn ensure_table_size(
+        &mut self,
+        table: &Table,
+        minimum: u32,
+        initial: Option<&Func>,
+    ) -> Result<()> {
         let minimum = u64::from(minimum);
-        let current = table.size(&self.store);
+        let current = table.size(&self.0);
         if minimum > current {
             table
-                .grow(
-                    &mut self.store,
-                    minimum - current,
-                    Ref::Func(initial.copied()),
-                )
+                .grow(&mut self.0, minimum - current, Ref::Func(initial.copied()))
                 .map_err(|error| Error::new("grow Wasm table", error))?;
         }
         Ok(())
@@ -41,11 +54,7 @@ impl<T: 'static> WasmTableAccess for Backend<T> {
 
     fn set_table_import(&mut self, table: &Table, index: u32, function: &Func) -> Result<()> {
         table
-            .set(
-                &mut self.store,
-                u64::from(index),
-                Ref::Func(Some(*function)),
-            )
+            .set(&mut self.0, u64::from(index), Ref::Func(Some(*function)))
             .map_err(|error| Error::new("set Wasm table function", error))
     }
 }

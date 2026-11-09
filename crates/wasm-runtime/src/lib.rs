@@ -72,10 +72,10 @@ pub trait WasmCompiler: Clone + Send + 'static {
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 }
 
-/// Scoped access to host state and live Wasm memory, during a callback or while
+/// Scoped access to host state, live Wasm memory and tables, during a callback or while
 /// execution is stopped. A stopped view may be held across an await; drop it
 /// before entering Wasm again. Callback views cannot outlive their callback.
-pub trait WasmContext: WasmMemoryAccess {
+pub trait WasmContext: WasmMemoryAccess + WasmTableAccess {
     type State;
 
     fn state(&self) -> &Self::State;
@@ -93,7 +93,7 @@ pub trait WasmContext: WasmMemoryAccess {
 /// Execution requires the owning backend, which retains its state and memories.
 pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Sized {
     type State: 'static;
-    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory>
+    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory, Backend = Self>
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
@@ -111,7 +111,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     fn state(&self) -> impl Deref<Target = Self::State>;
     fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
 
-    /// Borrows the stopped backend's state and memory. The view may be held
+    /// Borrows the stopped backend's state, memory and tables. The view may be held
     /// across an await, but must be dropped before calling into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
 
