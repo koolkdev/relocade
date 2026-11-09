@@ -117,7 +117,7 @@ impl CpuStateAccess {
     pub fn set_segment(&self, segment: Segment, value: SegmentRegister) {
         let profile = self.target.profile;
         assert!(
-            profile.is_segment_compatible(segment, &value),
+            value.is_compatible_with(profile, segment),
             "segment {segment:?} violates execution profile {profile:?}"
         );
         self.write(segment_offset(segment) as u32, &value.to_bytes());

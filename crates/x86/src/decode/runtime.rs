@@ -80,7 +80,7 @@ impl RuntimeDecoder {
             ) -> Result<(), BuildError>
             + 'static,
     ) -> Result<Rc<Self>, BuildError> {
-        let default_size = profile.code_default_size();
+        let default_size = crate::SegmentDefaultSize::for_profile(profile);
         let before_next_instruction = Rc::new(before_next_instruction);
         let complete_instruction = Rc::new(complete_instruction);
         let signature = Signature {

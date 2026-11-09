@@ -2329,7 +2329,12 @@ dependencies = [
 name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
+ "jobserver",
+ "pollster",
+ "relocade-workers",
  "relocade-x86",
+ "relocade-x86-profile",
 ]
 
 [[package]]
@@ -2522,13 +2527,21 @@ dependencies = [
 name = "relocade-x86"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
+ "pollster",
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-test-support",
  "relocade-wasm-bindings",
+ "relocade-workers",
+ "relocade-x86-profile",
  "wasmparser 0.224.1",
  "wasmtime",
 ]
+
+[[package]]
+name = "relocade-x86-profile"
+version = "0.0.0"
 
 [[package]]
 name = "renderdoc-sys"

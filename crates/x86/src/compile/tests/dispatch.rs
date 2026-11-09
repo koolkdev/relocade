@@ -42,7 +42,7 @@ fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExi
     let mut cases = Vec::new();
     let mut expected = Vec::new();
     let mut push = |cpu: CpuState, table: &EntryTable, export, result| {
-        assert!(profile.is_compatible_with(&cpu.segments));
+        assert!(cpu.segments.is_compatible_with(profile));
         cases.push(Invocation {
             cpu: cpu.to_bytes().to_vec(),
             entries: table.to_bytes(),

@@ -40,8 +40,11 @@ impl DecodedBlock {
         let mut remaining = snapshot.bytes;
         let mut eip = snapshot.start_eip;
         for _ in 0..snapshot.instruction_limit {
-            let (decoded, rest) =
-                crate::decode::snapshot(remaining, eip, target.profile.code_default_size())?;
+            let (decoded, rest) = crate::decode::snapshot(
+                remaining,
+                eip,
+                crate::SegmentDefaultSize::for_profile(target.profile),
+            )?;
             eip = decoded.fallthrough_eip;
             remaining = rest;
             let ends_block =

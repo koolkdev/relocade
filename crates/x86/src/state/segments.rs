@@ -5,7 +5,7 @@ use std::mem::size_of;
 use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
 
 use crate::{
-    segment::{Segment, SegmentSelection},
+    segment::{Segment, SegmentAssumptions, SegmentSelection},
     ExecutionProfile,
 };
 
@@ -42,7 +42,7 @@ impl SegmentReadCache {
                 cache.big = Some(false.into());
             }
             ExecutionProfile::Protected(profile) => {
-                let facts = profile.assumptions(segment);
+                let facts = SegmentAssumptions::for_profile(profile, segment);
                 cache.base = facts.base.map(Into::into);
                 cache.limit = facts.limit.map(Into::into);
                 cache.usable = facts.usable.map(|value| (value != 0).into());

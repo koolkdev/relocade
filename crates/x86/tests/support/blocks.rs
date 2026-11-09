@@ -70,9 +70,12 @@ impl BlockKey {
         let mut eip = self.start;
         let mut remaining = self.bytes.as_slice();
         for _ in 0..self.limit {
-            let (decoded, rest) =
-                crate::decode::snapshot(remaining, eip, self.target.profile.code_default_size())
-                    .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
+            let (decoded, rest) = crate::decode::snapshot(
+                remaining,
+                eip,
+                crate::SegmentDefaultSize::for_profile(self.target.profile),
+            )
+            .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
             let last = decoded.fallthrough_eip.wrapping_sub(1);
             assert!(
                 cs.limit == u32::MAX || (last >= eip && last <= cs.limit),
@@ -95,8 +98,9 @@ pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionPro
     let mut bytes = code;
     let mut eip = 0;
     for index in 0..limit {
-        let (decoded, rest) = crate::decode::snapshot(bytes, eip, profile.code_default_size())
-            .expect("fixture instructions decode");
+        let (decoded, rest) =
+            crate::decode::snapshot(bytes, eip, crate::SegmentDefaultSize::for_profile(profile))
+                .expect("fixture instructions decode");
         if decoded.instruction.ends_block()
             || decoded
                 .instruction

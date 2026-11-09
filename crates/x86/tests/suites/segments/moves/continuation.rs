@@ -67,7 +67,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
     cpu.segments.ds = SegmentRegister::unusable(3);
     cpu.eip += 2;
     cpu.instruction_count = 0;
-    assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
+    assert!(!cpu.segments.is_compatible_with(SegmentProfile::Flat32));
     let mut wanted = expected(
         &image,
         &[Step {

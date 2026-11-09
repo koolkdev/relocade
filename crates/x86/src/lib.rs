@@ -2,12 +2,11 @@
 //!
 //! [`compile_block_from_bytes`] decodes a supplied snapshot under flat 32-bit
 //! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit execution
-//! assumptions; [`compile_interpreter`] generates runtime instruction decoding
-//! through a block boundary, and [`compile_interpreter_step`] generates a
-//! single-instruction entry.
-//! Both frontends share instruction semantics and return a [`CompiledModule`].
-//! [`Compiler`] configures both frontends with one [`ExecutionTarget`], combining
-//! an execution profile and a [`CpuModel`].
+//! assumptions. [`build_interpreter`] constructs one program with runtime instruction
+//! decoding for both block execution (`run`) and single-instruction execution (`step`).
+//! Both frontends share instruction semantics. [`Compiler`] configures snapshot
+//! compilation with an [`ExecutionTarget`], combining a profile and a [`CpuModel`].
+//! Interpreter modules depend only on the profile and read CPU features at runtime.
 //!
 //! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, x87 floating point, MMX, SSE and SSE2. [`CpuFeature`] lists
@@ -34,6 +33,7 @@ mod execution;
 mod flags;
 mod floating;
 mod instruction;
+mod interpreter;
 mod memory;
 mod processor;
 mod profile;
@@ -63,10 +63,11 @@ mod instruction_tests;
 use std::fmt;
 
 pub use compile::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, compile_interpreter,
-    compile_interpreter_step, BlockEntry, BlockSnapshot, CompiledBlocks, Compiler, EntryTable,
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockEntry, BlockSnapshot,
+    CompiledBlocks, Compiler, EntryTable,
 };
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
+pub use interpreter::build_interpreter;
 pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};

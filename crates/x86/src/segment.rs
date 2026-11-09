@@ -14,6 +14,7 @@ use relocade_compiler::{Val, I1, I16, I32};
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use packed::Descriptor;
+pub(crate) use profile::SegmentAssumptions;
 pub use profile::SegmentProfile;
 pub use query::{SegmentDescriptorInfo, SegmentDescriptorInfoValues};
 pub(crate) use selection::SegmentSelection;
@@ -56,4 +57,16 @@ impl Segment {
 pub enum SegmentDefaultSize {
     Bits16,
     Bits32,
+}
+
+impl SegmentDefaultSize {
+    pub(crate) fn for_profile(profile: crate::ExecutionProfile) -> Self {
+        match profile {
+            crate::ExecutionProfile::Protected(
+                SegmentProfile::Flat32 | SegmentProfile::Segmented32,
+            ) => Self::Bits32,
+            crate::ExecutionProfile::Protected(SegmentProfile::Segmented16)
+            | crate::ExecutionProfile::Real16 => Self::Bits16,
+        }
+    }
 }

@@ -161,7 +161,7 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     cpu.segments.es = SegmentRegister::unusable(3);
     cpu.eip = 0x1002;
     cpu.instruction_count = 1;
-    assert!(!ExecutionProfile::Protected(SegmentProfile::Flat32).is_compatible_with(&cpu.segments));
+    assert!(!cpu.segments.is_compatible_with(SegmentProfile::Flat32));
     let last = || Step {
         cpu,
         ram,

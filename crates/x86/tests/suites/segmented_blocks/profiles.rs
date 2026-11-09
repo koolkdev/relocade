@@ -123,8 +123,10 @@ fn a_segmented_block_reads_stack_attributes_at_each_entry() {
             ..SegmentRegister::flat_data32(0x23)
         };
         image.map(page, 0x8000, true);
-        assert!(ExecutionProfile::Protected(SegmentProfile::Segmented32)
-            .is_compatible_with(&image.cpu.segments));
+        assert!(image
+            .cpu
+            .segments
+            .is_compatible_with(SegmentProfile::Segmented32));
         let mut cpu = image.cpu;
         cpu.registers.ebx = 0x1234_5678;
         cpu.eip = 0x1002;
