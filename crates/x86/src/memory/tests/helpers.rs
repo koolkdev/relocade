@@ -110,7 +110,7 @@ where
     I64: AtLeast<T>,
 {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));
@@ -174,7 +174,7 @@ fn scattered_helpers_are_shared_across_functions_at_each_requested_width() {
 #[test]
 fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));
@@ -189,7 +189,7 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
 #[test]
 fn byte_accesses_do_not_build_transfer_helpers() {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));
@@ -203,7 +203,7 @@ fn byte_accesses_do_not_build_transfer_helpers() {
 #[test]
 fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmtime() {
     let mut program = Program::new();
-    let memory = std::rc::Rc::new(Memory::declare(
+    let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
         crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
     ));

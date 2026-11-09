@@ -7,7 +7,7 @@ use wasmparser::{Operator, Parser, Payload, Validator};
 #[test]
 fn stored_condition_resolver_is_shared_by_repeated_inverse_queries_and_bodies() {
     let mut program = Program::new();
-    let cpu = std::rc::Rc::new(Cpu::declare(&mut program));
+    let cpu = std::sync::Arc::new(Cpu::declare(&mut program));
     for name in ["first", "second"] {
         let cpu = cpu.clone();
         let function = program.function::<fn() -> u32>(move |mut body, ()| {

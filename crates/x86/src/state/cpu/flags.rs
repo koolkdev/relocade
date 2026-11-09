@@ -164,8 +164,7 @@ impl Cpu {
         if mask.bits() == 0 {
             return Ok(flags);
         }
-        let resolver = *self.flag_resolvers[usize::from(mask.bits())]
-            .get_or_init(|| FlagQuery::Flags(mask).declare(body.program(), self.memory));
+        let resolver = self.flag_resolvers[usize::from(mask.bits()) - 1];
         let values = call_flags(body, resolver, mask.status_flags().count())?;
         for (flag, value) in mask.status_flags().zip(values) {
             flags[flag as usize] = Some(value);
@@ -178,10 +177,7 @@ impl Cpu {
         body: &mut BlockBuilder<'_>,
         condition: Condition,
     ) -> Result<Val<I1>, BuildError> {
-        let resolver = *self.condition_resolvers[condition_index(condition.canonical())]
-            .get_or_init(|| {
-                FlagQuery::Condition(condition.canonical()).declare(body.program(), self.memory)
-            });
+        let resolver = self.condition_resolvers[condition_index(condition.canonical())];
         let value = body.call::<I1>(resolver, &[])?;
         Ok(if condition.is_inverted() {
             value.eq(0)

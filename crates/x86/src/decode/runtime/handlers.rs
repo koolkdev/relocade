@@ -1,5 +1,5 @@
 //! Decoder entry signatures and transport of cursor progress and semantic state.
-use std::rc::Rc;
+use std::sync::Arc;
 
 use relocade_compiler::{
     Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I1, I32,
@@ -7,7 +7,7 @@ use relocade_compiler::{
 
 use crate::{
     decode::DecodeState,
-    instruction::{OpcodeMap, PrefixState, SegmentOverride},
+    instruction::{FormSelection, OpcodeMap, PrefixState, SegmentOverride},
     segment::SegmentDefaultSize,
 };
 
@@ -57,7 +57,7 @@ impl DecodePoint {
 /// Semantic specialization is independent of the direct fetch-window proof.
 pub(super) struct DecodeHandlers {
     point: DecodePoint,
-    default_prefixes: PrefixState,
+    default_selection: FormSelection,
     direct: Option<Func>,
     checked: Func,
     resumed: Vec<ResumedEntry>,
@@ -65,7 +65,7 @@ pub(super) struct DecodeHandlers {
 
 #[derive(Clone)]
 struct ResumedEntry {
-    prefixes: PrefixState,
+    selection: FormSelection,
     has_segment_override: bool,
     function: Func,
 }
@@ -77,7 +77,7 @@ impl DecodeHandlers {
         default_size: SegmentDefaultSize,
         direct_entry: bool,
     ) -> Self {
-        let default_prefixes = PrefixState::new(default_size);
+        let default_selection = FormSelection::new(default_size);
         let mut parameters = vec![Type::I1, Type::I32];
         parameters.extend_from_slice(point.field_types());
         let checked = program.declare(Signature {
@@ -99,16 +99,16 @@ impl DecodeHandlers {
             if has_segment_override {
                 parameters.push(Type::I32);
             }
-            for prefixes in PrefixState::combinations(default_size).filter(|prefixes| {
-                point.accepts(prefixes)
-                    && (has_segment_override || !prefixes.same_form_selection(&default_prefixes))
+            for selection in FormSelection::combinations(default_size).filter(|selection| {
+                point.accepts(&selection.prefixes())
+                    && (has_segment_override || !selection.same_form_selection(&default_selection))
             }) {
                 let function = program.declare(Signature {
                     parameters: parameters.clone(),
                     results: crate::abi::RUN.signature().results,
                 });
                 resumed.push(ResumedEntry {
-                    prefixes,
+                    selection,
                     has_segment_override,
                     function,
                 });
@@ -116,7 +116,7 @@ impl DecodeHandlers {
         }
         Self {
             point,
-            default_prefixes,
+            default_selection,
             direct,
             checked,
             resumed,
@@ -126,13 +126,15 @@ impl DecodeHandlers {
     pub(super) fn define(
         &self,
         program: &mut Program,
-        decoder: Rc<RuntimeDecoder>,
+        decoder: Arc<RuntimeDecoder>,
         decode: impl Fn(
                 &RuntimeDecoder,
                 BlockBuilder<'_>,
                 RuntimeCursor<'_>,
                 DecodeState,
             ) -> Result<(), BuildError>
+            + Send
+            + Sync
             + 'static,
     ) -> Result<(), BuildError> {
         enum Entry {
@@ -148,12 +150,12 @@ impl DecodeHandlers {
                     .iter()
                     .map(|entry| (entry.function, Entry::Resumed(entry.clone()))),
             );
-        let decode = Rc::new(decode);
+        let decode = Arc::new(decode);
         for (function, entry) in entries {
             let decoder = decoder.clone();
             let decode = decode.clone();
             let point = self.point;
-            let default_prefixes = self.default_prefixes.clone();
+            let default_selection = self.default_selection;
             program.define(function, move |body| {
                 let fetch = decoder.fetch();
                 let instruction_eip = body.parameter::<I32>(1)?;
@@ -165,7 +167,7 @@ impl DecodeHandlers {
                             &instruction_eip,
                             &body.parameter::<I32>(position_parameter)?,
                         );
-                        let mut prefixes = entry.prefixes.clone();
+                        let mut prefixes = entry.selection.prefixes();
                         if entry.has_segment_override {
                             prefixes = prefixes.with_segment_override(SegmentOverride::Runtime(
                                 body.parameter::<I32>(position_parameter + 1)?,
@@ -186,7 +188,7 @@ impl DecodeHandlers {
                             physical_start.as_ref(),
                             point.consumed(),
                         )?;
-                        (cursor, default_prefixes)
+                        (cursor, default_selection.prefixes())
                     }
                 };
                 decode(&decoder, body, cursor, point.state(prefixes))
@@ -227,7 +229,9 @@ impl DecodeHandlers {
                 .iter()
                 .find(|entry| {
                     entry.has_segment_override == segment_override.is_some()
-                        && entry.prefixes.same_form_selection(&state.prefixes)
+                        && entry
+                            .selection
+                            .same_form_selection(state.prefixes.selection())
                 })
                 .map(|entry| entry.function)
                 .expect("the prefix state has a viable decoder entry")

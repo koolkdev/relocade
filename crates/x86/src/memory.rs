@@ -69,8 +69,8 @@ impl Memory {
         matches!(self, Self::Virtual(_))
     }
 
-    /// Provides one module's memory handles and generates access helpers on demand.
-    /// Import and helper retention belong to the compiler.
+    /// Declares one module's memory handles and deferred access helpers.
+    /// The compiler constructs and retains only reachable helper bodies.
     pub(crate) fn declare(program: &mut Program, profile: ExecutionProfile) -> Self {
         match profile {
             ExecutionProfile::Protected(_) => Self::Virtual(VirtualMemory::declare(program)),

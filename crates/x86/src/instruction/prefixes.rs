@@ -72,30 +72,27 @@ impl Prefix {
     }
 }
 
-/// Prefix presence is separate from its meaning for a particular instruction.
-/// In particular, F2/F3 become repetition only when a form resolves them that way.
-#[derive(Clone)]
-pub(crate) struct PrefixState {
+/// Prefix facts that select instruction forms and specialize decoder entries.
+/// This configuration contains no function-local IR values.
+#[derive(Clone, Copy)]
+pub(crate) struct FormSelection {
     default_size: SegmentDefaultSize,
     operand_size_override: bool,
     address_size_override: bool,
     group1: Option<Group1Prefix>,
-    segment_override: SegmentOverride,
 }
 
-impl PrefixState {
+impl FormSelection {
     pub(crate) fn new(default_size: SegmentDefaultSize) -> Self {
         Self {
             default_size,
             operand_size_override: false,
             address_size_override: false,
             group1: None,
-            segment_override: SegmentOverride::None,
         }
     }
 
-    /// Enumerates the independent size and group-1 prefix states for decoder entries.
-    /// Override presence selects an entry; its segment identity travels as a value.
+    /// Enumerates size and group-1 states. Segment identity travels with execution.
     pub(crate) fn combinations(default_size: SegmentDefaultSize) -> impl Iterator<Item = Self> {
         [
             None,
@@ -114,16 +111,11 @@ impl PrefixState {
         })
     }
 
-    pub(crate) fn with_prefix(mut self, prefix: Prefix) -> Self {
-        // Repeated 66/67 preserve presence. For duplicate segment or group-1
-        // prefixes, this decoder uses the last one; Intel specifies one per group.
-        match prefix {
-            Prefix::OperandSize => self.operand_size_override = true,
-            Prefix::AddressSize => self.address_size_override = true,
-            Prefix::Group1(prefix) => self.group1 = Some(prefix),
-            Prefix::Segment(segment) => self.segment_override = SegmentOverride::Fixed(segment),
+    pub(crate) fn prefixes(self) -> PrefixState {
+        PrefixState {
+            selection: self,
+            segment_override: SegmentOverride::None,
         }
-        self
     }
 
     pub(crate) fn operand_size(&self) -> OperandSize {
@@ -150,6 +142,41 @@ impl PrefixState {
         self.group1
     }
 
+    pub(crate) fn same_form_selection(&self, other: &Self) -> bool {
+        self.operand_size() == other.operand_size()
+            && self.address_size() == other.address_size()
+            && self.group1 == other.group1
+    }
+}
+
+/// Collected prefixes, including a segment override that may be a runtime value.
+#[derive(Clone)]
+pub(crate) struct PrefixState {
+    selection: FormSelection,
+    segment_override: SegmentOverride,
+}
+
+impl PrefixState {
+    pub(crate) fn new(default_size: SegmentDefaultSize) -> Self {
+        FormSelection::new(default_size).prefixes()
+    }
+
+    pub(crate) fn selection(&self) -> &FormSelection {
+        &self.selection
+    }
+
+    pub(crate) fn with_prefix(mut self, prefix: Prefix) -> Self {
+        // Repeated 66/67 preserve presence. Duplicate segment and group-1 prefixes
+        // use the last value; Intel specifies one per group.
+        match prefix {
+            Prefix::OperandSize => self.selection.operand_size_override = true,
+            Prefix::AddressSize => self.selection.address_size_override = true,
+            Prefix::Group1(prefix) => self.selection.group1 = Some(prefix),
+            Prefix::Segment(segment) => self.segment_override = SegmentOverride::Fixed(segment),
+        }
+        self
+    }
+
     pub(crate) fn segment_override(&self) -> &SegmentOverride {
         &self.segment_override
     }
@@ -157,12 +184,6 @@ impl PrefixState {
     pub(crate) fn with_segment_override(mut self, segment_override: SegmentOverride) -> Self {
         self.segment_override = segment_override;
         self
-    }
-
-    pub(crate) fn same_form_selection(&self, other: &Self) -> bool {
-        self.operand_size() == other.operand_size()
-            && self.address_size() == other.address_size()
-            && self.group1 == other.group1
     }
 }
 

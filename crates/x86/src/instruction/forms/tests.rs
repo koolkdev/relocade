@@ -41,7 +41,10 @@ fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'stati
 #[test]
 fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
-        for prefixes in PrefixState::combinations(crate::SegmentDefaultSize::Bits32) {
+        for prefixes in
+            crate::instruction::FormSelection::combinations(crate::SegmentDefaultSize::Bits32)
+                .map(crate::instruction::FormSelection::prefixes)
+        {
             for (opcode, candidates) in
                 forms_by_opcode(opcode_forms(map).filter(|form| form.resolve(&prefixes).is_some()))
             {
@@ -79,8 +82,10 @@ fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
 fn catalog_bindings_select_declared_fields() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
         for form in opcode_forms(map) {
-            for resolved in PrefixState::combinations(crate::SegmentDefaultSize::Bits32)
-                .filter_map(|prefixes| form.resolve(&prefixes))
+            for resolved in
+                crate::instruction::FormSelection::combinations(crate::SegmentDefaultSize::Bits32)
+                    .map(crate::instruction::FormSelection::prefixes)
+                    .filter_map(|prefixes| form.resolve(&prefixes))
             {
                 let bindings = match resolved.call {
                     HandlerCall::Nullary { .. } => vec![],

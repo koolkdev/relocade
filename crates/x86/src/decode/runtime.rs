@@ -6,7 +6,7 @@ mod handlers;
 mod operands;
 mod selectors;
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use relocade_compiler::{
     BlockBuilder, BuildError, Func, Label, Program, Signature, Type, Val, I1, I32, I8,
@@ -48,8 +48,8 @@ impl DecodeContinuation {
 
 /// Declares runtime decoding entries and builds their instruction paths.
 pub(crate) struct RuntimeDecoder {
-    cpu: Rc<Cpu>,
-    memory: Rc<Memory>,
+    cpu: Arc<Cpu>,
+    memory: Arc<Memory>,
     profile: ExecutionProfile,
     entry: Func,
     default_size: SegmentDefaultSize,
@@ -69,20 +69,25 @@ struct InstructionDecoder<'decoder, C> {
 impl RuntimeDecoder {
     pub(crate) fn new(
         program: &mut Program,
-        cpu: Rc<Cpu>,
-        memory: Rc<Memory>,
+        cpu: Arc<Cpu>,
+        memory: Arc<Memory>,
         profile: ExecutionProfile,
-        before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
+        before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>
+            + Send
+            + Sync
+            + 'static,
         complete_instruction: impl Fn(
                 BlockBuilder<'_>,
                 DecodedInstruction<Val<I32>, Val<I32>>,
                 &DecodeContinuation,
             ) -> Result<(), BuildError>
+            + Send
+            + Sync
             + 'static,
-    ) -> Result<Rc<Self>, BuildError> {
+    ) -> Result<Arc<Self>, BuildError> {
         let default_size = crate::SegmentDefaultSize::for_profile(profile);
-        let before_next_instruction = Rc::new(before_next_instruction);
-        let complete_instruction = Rc::new(complete_instruction);
+        let before_next_instruction = Arc::new(before_next_instruction);
+        let complete_instruction = Arc::new(complete_instruction);
         let signature = Signature {
             parameters: vec![Type::I1],
             results: crate::abi::RUN.signature().results,
@@ -90,7 +95,7 @@ impl RuntimeDecoder {
         let entry = program.declare(signature.clone());
         let exact = program.declare(signature.clone());
         let completed = program.declare(signature);
-        let decoder = Rc::new(Self {
+        let decoder = Arc::new(Self {
             cpu,
             memory,
             profile,

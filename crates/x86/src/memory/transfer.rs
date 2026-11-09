@@ -26,8 +26,7 @@ impl VirtualMemory {
         body.if_value::<T>(
             access.scattered(),
             |mut arm| {
-                let reader = *self.scattered_readers[width_index::<T>()]
-                    .get_or_init(|| declare_reader::<T>(arm.program(), self.guest, self.table));
+                let reader = self.scattered_readers[width_index::<T>()];
                 let value = arm.call::<T>(reader, &[access.linear.add(offset).into()])?;
                 arm.yield_(value)
             },
@@ -56,8 +55,7 @@ impl VirtualMemory {
         body.if_else(
             access.scattered(),
             |mut arm| {
-                let writer = *self.scattered_writers[width_index::<T>()]
-                    .get_or_init(|| declare_writer::<T>(arm.program(), self.guest, self.table));
+                let writer = self.scattered_writers[width_index::<T>()];
                 arm.call::<()>(writer, &[access.linear.add(offset).into(), value.into()])
             },
             |mut arm| arm.store_at::<T>(self.guest, &access.physical, offset, value),

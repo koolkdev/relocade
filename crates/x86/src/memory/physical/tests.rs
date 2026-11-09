@@ -17,7 +17,7 @@ use crate::{
 
 fn define_transfers<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,
-    memory: &std::rc::Rc<Memory>,
+    memory: &std::sync::Arc<Memory>,
 ) {
     for write in [false, true] {
         let memory = memory.clone();
@@ -63,7 +63,7 @@ fn transfers() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| {
         let mut program = Program::new();
-        let memory = std::rc::Rc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
+        let memory = std::sync::Arc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
         define_transfers::<I8>(&mut program, &memory);
         define_transfers::<I16>(&mut program, &memory);
         define_transfers::<I32>(&mut program, &memory);
@@ -174,7 +174,7 @@ fn widths(mmio: bool) {
 fn updates() {
     for matches in [false, true] {
         let mut program = Program::new();
-        let memory = std::rc::Rc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
+        let memory = std::sync::Arc::new(Memory::Physical(PhysicalMemory::declare(&mut program)));
         let function = program.function::<fn() -> u64>(move |mut body, ()| {
             let unused = memory.resolve_access(
                 &mut body,

@@ -220,7 +220,7 @@ fn every_mask_reads_every_record_kind_without_changing_cpu_bytes() {
 #[test]
 fn subset_readers_share_matching_masks_and_return_separate_flags() {
     let mut program = Program::new();
-    let cpu = std::rc::Rc::new(Cpu::declare(&mut program));
+    let cpu = std::sync::Arc::new(Cpu::declare(&mut program));
     for (index, bits) in [0b011110_u8, 0b011110, 0b000001].into_iter().enumerate() {
         let cpu = cpu.clone();
         let function = program.raw_function(
