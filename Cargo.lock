@@ -2329,6 +2329,10 @@ dependencies = [
 name = "relocade-interpreter"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
+ "jobserver",
+ "pollster",
+ "relocade-workers",
  "relocade-x86",
 ]
 
@@ -2522,10 +2526,13 @@ dependencies = [
 name = "relocade-x86"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
+ "pollster",
  "relocade-compiler",
  "relocade-interpreter",
  "relocade-test-support",
  "relocade-wasm-bindings",
+ "relocade-workers",
  "wasmparser 0.224.1",
  "wasmtime",
 ]

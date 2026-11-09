@@ -62,10 +62,30 @@ CPU/device runner, execution ownership and input delivery for an interactive emb
 ## Build and test
 
 Cargo generates four interpreter modules on the build host, one for each execution
-profile. Each exports `step` and `run`. `relocade-interpreter::module(profile)`
+profile. Function placement and emission share a worker pool bounded by available
+Cargo jobserver slots and host parallelism; construction remains serial. Each
+module exports `step` and `run`. `relocade-interpreter::module(profile)`
 returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
 web builds. Starting a guest does not regenerate the interpreter. The backend
 still compiles the portable Wasm to native code when loading it.
+
+Applications can also pass their own executor to `Program::compile_with`,
+`Compiler::compile_interpreter_with` or `Compiler::compile_interpreter_step_with`.
+With the `relocade-workers/compiler` feature, an existing set of workers can be used
+as follows:
+
+```rust
+let (pool, executor) = relocade_workers::Pool::new(threads)?;
+let ((), bytes) = futures_util::future::join(pool.run(), async move {
+    program.compile_with(&executor).await
+}).await;
+let bytes = bytes?;
+```
+
+The caller supplies the threads and polls the pool driver. Cloned handles share
+its concurrency limit. Drop all handles and await the driver to drain accepted
+work, including after cancelling a compilation. Synchronous `compile()` remains
+available without an executor.
 
 `backend.compiler()` returns an independent `WasmCompiler` handle. Its
 `compile(bytes)` method compiles any module without borrowing the backend's live

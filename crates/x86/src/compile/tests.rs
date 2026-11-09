@@ -43,21 +43,28 @@ fn interpreter_code_keeps_the_profile_without_specializing_features_budgets_or_o
         .with_cpu_model(model)
         .with_instruction_budgets(false)
         .specialize_on_cpu(&observed);
+    let (pool, executor) = relocade_workers::Pool::new(vec![
+        relocade_workers::Thread::new(),
+        relocade_workers::Thread::new(),
+    ])
+    .unwrap();
+    let target = compiler.target();
+    let ((), (run, step)) =
+        pollster::block_on(futures_util::future::join(pool.run(), async move {
+            let run = compiler.compile_interpreter_with(&executor).await.unwrap();
+            let step = compiler
+                .compile_interpreter_step_with(&executor)
+                .await
+                .unwrap();
+            (run, step)
+        }));
     let mut shared_bytes = None;
     for (name, ordinary, configured) in [
-        (
-            "run",
-            compile_interpreter(profile).unwrap(),
-            compiler.compile_interpreter().unwrap(),
-        ),
-        (
-            "step",
-            compile_interpreter_step(profile).unwrap(),
-            compiler.compile_interpreter_step().unwrap(),
-        ),
+        ("run", compile_interpreter(profile).unwrap(), run),
+        ("step", compile_interpreter_step(profile).unwrap(), step),
     ] {
         assert_eq!(configured.entry, name);
-        assert_eq!(configured.execution_target, Some(compiler.target()));
+        assert_eq!(configured.execution_target, Some(target));
         assert!(ordinary.bytes == configured.bytes, "{name}");
         assert!(
             ordinary.bytes == crate::support::step::asset_bytes(profile.into()),

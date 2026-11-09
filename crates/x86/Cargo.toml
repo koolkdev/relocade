@@ -11,7 +11,10 @@ relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 
 [dev-dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+pollster = "=1.0.1"
 relocade-interpreter = { path = "../interpreter" }
+relocade-workers = { path = "../workers", features = ["compiler"] }
 relocade-test-support.workspace = true
 wasmparser = { version = "=0.224.1", default-features = false, features = ["simd", "std", "validate"] }
 wasmtime.workspace = true

@@ -1,8 +1,8 @@
-use relocade_compiler::{abi::Function, BuildError, Program};
+use relocade_compiler::{abi::Function, BuildError, CompileError, CompileExecutor, Program};
 
 use crate::{
     decode::RuntimeDecoder, execution::ExecutionModule, state::State, CompiledModule,
-    ExecutionProfile,
+    ExecutionProfile, ExecutionTarget,
 };
 
 use super::Compiler;
@@ -83,6 +83,14 @@ impl InterpreterEntry {
             Self::Step => crate::abi::STEP,
         }
     }
+
+    fn module(self, bytes: Vec<u8>, target: ExecutionTarget) -> CompiledModule {
+        CompiledModule {
+            bytes,
+            entry: self.symbol().name.into(),
+            execution_target: Some(target),
+        }
+    }
 }
 
 impl Compiler {
@@ -102,7 +110,42 @@ impl Compiler {
         self.compile_runtime(InterpreterEntry::Step)
     }
 
+    /// Generates the same module as [`Self::compile_interpreter`] using the
+    /// caller's executor for independent function placement and Wasm emission.
+    /// Construction remains on this thread; see [`Program::compile_with`].
+    pub async fn compile_interpreter_with<E: CompileExecutor>(
+        &self,
+        executor: &E,
+    ) -> Result<CompiledModule, CompileError<E::Error>> {
+        self.compile_runtime_with(InterpreterEntry::Run, executor)
+            .await
+    }
+
+    /// Uses the caller's executor to generate the module described by
+    /// [`Self::compile_interpreter_step`], selecting its `step` entry.
+    pub async fn compile_interpreter_step_with<E: CompileExecutor>(
+        &self,
+        executor: &E,
+    ) -> Result<CompiledModule, CompileError<E::Error>> {
+        self.compile_runtime_with(InterpreterEntry::Step, executor)
+            .await
+    }
+
     fn compile_runtime(&self, entry: InterpreterEntry) -> Result<CompiledModule, BuildError> {
+        let bytes = self.runtime_program()?.compile()?;
+        Ok(entry.module(bytes, self.target))
+    }
+
+    async fn compile_runtime_with<E: CompileExecutor>(
+        &self,
+        entry: InterpreterEntry,
+        executor: &E,
+    ) -> Result<CompiledModule, CompileError<E::Error>> {
+        let bytes = self.runtime_program()?.compile_with(executor).await?;
+        Ok(entry.module(bytes, self.target))
+    }
+
+    fn runtime_program(&self) -> Result<Program, BuildError> {
         let profile = self.target.profile;
         let mut program = Program::new();
         // Both budget policies share the interpreter. Disabled targets keep the
@@ -149,10 +192,6 @@ impl Compiler {
             })?;
             export.symbol().export(&mut program, wrapper)?;
         }
-        Ok(CompiledModule {
-            bytes: program.compile()?,
-            entry: entry.symbol().name.into(),
-            execution_target: Some(self.target),
-        })
+        Ok(program)
     }
 }

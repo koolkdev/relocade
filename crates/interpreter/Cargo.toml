@@ -10,3 +10,7 @@ relocade-x86 = { path = "../x86" }
 
 [build-dependencies]
 relocade-x86 = { path = "../x86" }
+relocade-workers = { path = "../workers", features = ["compiler"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+jobserver = "=0.1.35"
+pollster = "=1.0.1"
