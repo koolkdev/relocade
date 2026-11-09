@@ -9,7 +9,7 @@ pub struct Compiler(Engine);
 impl WasmCompiler for Compiler {
     type Module = Module;
 
-    /// Native compilation completes synchronously on the calling thread.
+    /// Polling this future blocks while Wasmtime compiles functions in parallel.
     async fn compile(&self, bytes: &[u8]) -> Result<Module> {
         Module::new(&self.0, bytes).map_err(|error| Error::new("compile Wasm", error))
     }

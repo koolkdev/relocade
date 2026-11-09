@@ -12,7 +12,7 @@ relocade-compiler = { path = "../compiler" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wasmtime = { workspace = true, features = ["cache"] }
+wasmtime = { workspace = true, features = ["cache", "parallel-compilation"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-encoder.workspace = true
