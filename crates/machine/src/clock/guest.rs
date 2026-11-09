@@ -77,9 +77,9 @@ impl GuestTimeDriver {
 
     /// Updates guest time from retirement, completes due sleeps and arms the CPU
     /// target. `yield_deadline` is an optional absolute guest time at which the
-    /// embedding wants execution to yield. Wait changes notify the embedding;
-    /// synchronize before resuming execution to account for them and after
-    /// execution stops.
+    /// embedding wants execution to yield. Wait changes preserve it until the next
+    /// synchronization. Call after execution stops and after ready activities have
+    /// had a turn.
     pub fn synchronize(&self, yield_deadline: Option<Instant>) {
         if let Some(cpu) = &mut self.0.borrow_mut().cpu {
             cpu.yield_deadline = yield_deadline;

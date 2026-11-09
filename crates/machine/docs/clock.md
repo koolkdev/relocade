@@ -72,10 +72,11 @@ Each binding starts from the CPU's current count without charging earlier work.
 `synchronize(yield_deadline)` observes retirement, completes due sleeps and arms
 the next CPU target. `yield_deadline` is an optional absolute guest time at
 which the embedding wants execution to yield. The driver does not choose yield
-intervals. Registration and cancellation notify the embedding, which calls
-`synchronize` before resuming execution to arm the updated deadline. With
-neither device waits nor a yield deadline, synchronization leaves the target
-unarmed. Changed waits also wake the embedding while a CPU service is pending.
+intervals. Registration and cancellation update the target synchronously,
+including during IO/MMIO callbacks, without extending the supplied yield
+deadline. With neither device waits nor a yield deadline, the target is unarmed.
+Changed waits wake the embedding so it can reconsider idle scheduling while a
+CPU service is pending.
 
 `advance_to_next_deadline()` advances guest time to the earliest registered sleep
 and completes all due sleeps. The embedding calls it only after polling ready
