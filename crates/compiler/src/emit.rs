@@ -22,53 +22,57 @@ pub(super) fn wasm_type(ty: Type) -> ValType {
     }
 }
 
-pub(super) fn encode(
-    graph: FunctionGraph,
-    parameter_count: u32,
-    memories: &[Option<u32>],
-    functions: &[Option<u32>],
-    tables: &[Option<(u32, u32)>],
-    features: WasmFeatures,
-) -> Function {
-    let reachable = graph.reachable();
-    let selection = Selection::new(&graph, &reachable);
-    let view = view::OperandView::new(&graph, &selection, &reachable);
-    let mut locals = vec![None; graph.values.len()];
-    for &value in &graph.blocks[graph.entry.0].parameters {
-        let ValueDefinition::Parameter { component, .. } = graph.values[value].definition else {
-            panic!("entry parameters name parameter definitions")
-        };
-        locals[value] = Some(component as u32);
-    }
-    let mut slot_types = Vec::new();
-    for (index, value) in graph.values.iter().enumerate() {
-        if locals[index].is_none() && !matches!(value.definition, ValueDefinition::Literal(_)) {
-            locals[index] = Some(parameter_count + slot_types.len() as u32);
-            slot_types.push(wasm_type(value.ty));
+/// Immutable module indices shared by independent function encoders.
+pub(super) struct ModuleEncoder {
+    pub(super) memories: Vec<Option<u32>>,
+    pub(super) functions: Vec<Option<u32>>,
+    pub(super) tables: Vec<Option<(u32, u32)>>,
+    pub(super) features: WasmFeatures,
+}
+
+impl ModuleEncoder {
+    pub(super) fn function(&self, graph: FunctionGraph, parameter_count: u32) -> Function {
+        let reachable = graph.reachable();
+        let selection = Selection::new(&graph, &reachable);
+        let view = view::OperandView::new(&graph, &selection, &reachable);
+        let mut locals = vec![None; graph.values.len()];
+        for &value in &graph.blocks[graph.entry.0].parameters {
+            let ValueDefinition::Parameter { component, .. } = graph.values[value].definition
+            else {
+                panic!("entry parameters name parameter definitions")
+            };
+            locals[value] = Some(component as u32);
         }
+        let mut slot_types = Vec::new();
+        for (index, value) in graph.values.iter().enumerate() {
+            if locals[index].is_none() && !matches!(value.definition, ValueDefinition::Literal(_)) {
+                locals[index] = Some(parameter_count + slot_types.len() as u32);
+                slot_types.push(wasm_type(value.ty));
+            }
+        }
+        let switch_local = parameter_count + slot_types.len() as u32;
+        slot_types.push(ValType::I32);
+        let mut writer = Writer {
+            graph: &graph,
+            memories: &self.memories,
+            functions: &self.functions,
+            tables: &self.tables,
+            features: self.features,
+            selection,
+            view,
+            locals,
+            switch_local,
+            encoder: function::FunctionEncoder::new(parameter_count, slot_types),
+            labels: Vec::new(),
+            reachable,
+            terminal: false,
+        };
+        writer.layouts(&graph.layout, None);
+        if !writer.terminal {
+            writer.emit(Wasm::Unreachable);
+        }
+        writer.encoder.finish()
     }
-    let switch_local = parameter_count + slot_types.len() as u32;
-    slot_types.push(ValType::I32);
-    let mut writer = Writer {
-        graph: &graph,
-        memories,
-        functions,
-        tables,
-        features,
-        selection,
-        view,
-        locals,
-        switch_local,
-        encoder: function::FunctionEncoder::new(parameter_count, slot_types),
-        labels: Vec::new(),
-        reachable,
-        terminal: false,
-    };
-    writer.layouts(&graph.layout, None);
-    if !writer.terminal {
-        writer.emit(Wasm::Unreachable);
-    }
-    writer.encoder.finish()
 }
 
 enum Pending {

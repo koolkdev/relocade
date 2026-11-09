@@ -50,6 +50,8 @@ mod multiplication;
 mod no_result_functions;
 #[path = "suites/ordinary_calls.rs"]
 mod ordinary_calls;
+#[path = "suites/parallel_compilation.rs"]
+mod parallel_compilation;
 #[path = "suites/path_facts.rs"]
 mod path_facts;
 #[path = "suites/refined_control.rs"]

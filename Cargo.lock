@@ -2252,6 +2252,8 @@ dependencies = [
 name = "relocade-compiler"
 version = "0.0.0"
 dependencies = [
+ "futures-channel",
+ "futures-util",
  "hashbrown 0.15.5",
  "relocade-derive",
  "relocade-test-support",
