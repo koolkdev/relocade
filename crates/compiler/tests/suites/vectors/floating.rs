@@ -22,7 +22,7 @@ fn case(
     left: u128,
     right: u128,
     expected: &[u128],
-    calculate: impl Fn(&Val<V128>, &Val<V128>) -> Vec<Val<V128>> + 'static,
+    calculate: impl Fn(&Val<V128>, &Val<V128>) -> Vec<Val<V128>> + Send + 'static,
 ) {
     let mut bytes = vec![0xa5; 32 + 3 * expected.len() * 16];
     bytes[..16].copy_from_slice(&left.to_le_bytes());

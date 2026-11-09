@@ -7,7 +7,13 @@ use relocade_compiler::{
     BuildError, CompileError, CompileExecutor, FunctionImport, MemoryImport, Program, TableImport,
     Type, I32, I64,
 };
-use std::{cell::RefCell, collections::VecDeque, pin::pin, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    pin::pin,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 use wasmparser::{Parser, Payload};
 
 type Job = Box<dyn FnOnce() + Send>;
@@ -83,7 +89,7 @@ impl ControlledExecutor {
     }
 }
 
-fn linked_functions(built: Rc<RefCell<Vec<&'static str>>>) -> Program {
+fn linked_functions(built: Arc<Mutex<Vec<&'static str>>>) -> Program {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
         module: "unused".into(),
@@ -106,27 +112,38 @@ fn linked_functions(built: Rc<RefCell<Vec<&'static str>>>) -> Program {
     });
     let dead_built = built.clone();
     let dead = program.function::<fn() -> u32>(move |mut body, ()| {
-        dead_built.borrow_mut().push("dead");
+        dead_built.lock().unwrap().push("dead");
         body.store::<I32>(memory, 0, 99)?;
         body.call::<()>(imported, &[])?;
         body.tail_call_indirect(table, 0, &[])
     });
     let shared_built = built.clone();
     let shared = program.function::<fn() -> u32>(move |body, ()| {
-        shared_built.borrow_mut().push("shared");
+        shared_built.lock().unwrap().push("shared");
         body.return_(7)
     });
     let recursive = program.declare(signature(&[Type::I32], &[Type::I32]));
+    let partner_built = built.clone();
+    let partner = program.raw_function(signature(&[Type::I32], &[Type::I32]), move |body| {
+        partner_built.lock().unwrap().push("partner");
+        let remaining = body.parameter::<I32>(0)?;
+        body.tail_call(recursive, &[remaining.into()])
+    });
+    let recursive_built = built.clone();
     program
         .define(recursive, move |mut body| {
+            recursive_built.lock().unwrap().push("recursive");
             let remaining = body.parameter::<I32>(0)?;
             body.if_(remaining.eq(0), |arm| arm.return_(9))?;
-            body.tail_call(recursive, &[remaining.sub(1).into()])
+            body.tail_call(partner, &[remaining.sub(1).into()])
         })
         .unwrap();
+    let unused =
+        program.function::<fn() -> u32>(|_, ()| panic!("constant-dead calls stay unbuilt"));
     let nested = program.function::<fn() -> u32>(move |body, ()| body.return_(5));
     let run = program.function::<fn(bool) -> u32>(move |mut body, (condition,)| {
-        built.borrow_mut().push("run");
+        built.lock().unwrap().push("run");
+        body.if_(false, |arm| arm.tail_call(unused, &[]))?;
         body.if_(condition.eq(false), |arm| arm.return_(0))?;
         let result = body.if_value::<I32>(
             condition,
@@ -154,17 +171,17 @@ fn linked_functions(built: Rc<RefCell<Vec<&'static str>>>) -> Program {
 
 #[test]
 fn reordered_jobs_preserve_retention_signatures_and_execution() {
-    let serial = linked_functions(Rc::default()).compile().unwrap();
+    let serial = linked_functions(Arc::default()).compile().unwrap();
     for reverse in [false, true] {
-        let built = Rc::new(RefCell::new(Vec::new()));
+        let built = Arc::new(Mutex::new(Vec::new()));
         let executor = ControlledExecutor::default();
         let bytes = executor
             .compile(linked_functions(built.clone()), reverse)
             .unwrap();
         assert_eq!(bytes, serial);
-        let mut observed = built.borrow().clone();
+        let mut observed = built.lock().unwrap().clone();
         observed.sort_unstable();
-        assert_eq!(observed, ["dead", "run", "shared"]);
+        assert_eq!(observed, ["dead", "partner", "recursive", "run", "shared"]);
         assert!(Parser::new(0)
             .parse_all(&bytes)
             .all(|payload| !matches!(payload.unwrap(), Payload::ImportSection(_))));
@@ -194,9 +211,9 @@ fn one_function() -> Program {
 }
 
 #[test]
-fn execution_errors_distinguish_placement_and_emission_from_build_errors() {
-    // One exported body schedules placement first and emission second.
-    for fail in [0, 1] {
+fn execution_errors_at_each_stage_are_distinct_from_build_errors() {
+    // One body schedules construction, placement, then emission.
+    for fail in [0, 1, 2] {
         let executor = ControlledExecutor::default();
         executor.0.borrow_mut().fail = Some(fail);
         assert!(matches!(
@@ -224,4 +241,68 @@ fn an_empty_module_needs_no_executor_jobs() {
         Program::new().compile().unwrap()
     );
     assert_eq!(executor.0.borrow().submitted, 0);
+}
+
+#[test]
+fn body_construction_is_queued_and_accepted_jobs_survive_cancellation() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let built = Arc::new(AtomicUsize::new(0));
+    let inputs = Arc::new(());
+    let mut program = Program::new();
+    for name in ["first", "second"] {
+        let built = built.clone();
+        let input = inputs.clone();
+        let function = program.function::<fn() -> u32>(move |body, ()| {
+            built.fetch_add(1, Ordering::SeqCst);
+            drop(input);
+            body.return_(7)
+        });
+        program.export(name, function).unwrap();
+    }
+    let executor = ControlledExecutor::default();
+    let mut compilation = Box::pin(program.compile_with(&executor));
+    assert!(compilation.as_mut().now_or_never().is_none());
+    assert_eq!(built.load(Ordering::SeqCst), 0);
+    assert_eq!(executor.0.borrow().jobs.len(), 2);
+    drop(compilation);
+    assert_eq!(Arc::strong_count(&inputs), 3);
+    while let Some((_, job)) = executor.0.borrow_mut().jobs.pop_front() {
+        job();
+    }
+    assert_eq!(built.load(Ordering::SeqCst), 2);
+    assert_eq!(Arc::strong_count(&inputs), 1);
+}
+
+#[test]
+fn construction_errors_prevent_placement_and_unreachable_declarations_are_ignored() {
+    for called in [false, true] {
+        let mut program = Program::new();
+        let missing = program.declare(signature(&[], &[]));
+        let root = program.function::<fn()>(move |mut body, ()| {
+            body.if_(called, |arm| arm.tail_call(missing, &[]))?;
+            body.return_(())
+        });
+        program.export("run", root).unwrap();
+        let executor = ControlledExecutor::default();
+        let result = executor.compile(program, true);
+        if called {
+            assert!(matches!(
+                result,
+                Err(CompileError::Build(BuildError::MissingBody))
+            ));
+            assert_eq!(executor.0.borrow().submitted, 1);
+        } else {
+            result.unwrap();
+            assert_eq!(executor.0.borrow().submitted, 3);
+        }
+    }
+    let mut program = Program::new();
+    let root = program.function::<fn()>(|_, ()| Err(BuildError::UnknownParameter));
+    program.export("run", root).unwrap();
+    let executor = ControlledExecutor::default();
+    assert!(matches!(
+        executor.compile(program, false),
+        Err(CompileError::Build(BuildError::UnknownParameter))
+    ));
+    assert_eq!(executor.0.borrow().submitted, 1);
 }

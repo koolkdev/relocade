@@ -84,14 +84,18 @@ fn zero_shifts_do_not_force_unused_count_loads() {
 
 #[test]
 fn constant_right_shifts_fold_the_logical_sign_and_carrier_count() {
-    fn check<T: IntType>(input: Val<T>, count: u32, unsigned: u64, signed: u64)
-    where
+    fn check<T: IntType>(
+        input: impl Into<Val<T>> + Copy + Send + 'static,
+        count: u32,
+        unsigned: u64,
+        signed: u64,
+    ) where
         I64: AtLeast<T>,
     {
         for admitted in [false, true] {
             for (is_signed, expected) in [(false, unsigned), (true, signed)] {
-                let input = input.clone();
                 let module = Fixture::new().expression(&[], move |body| {
+                    let input = input.into();
                     let input = if admitted {
                         body.value(&input).unwrap()
                     } else {
@@ -116,35 +120,35 @@ fn constant_right_shifts_fold_the_logical_sign_and_carrier_count() {
             }
         }
     }
-    check::<I1>(true.into(), 1, 0, 1);
-    check::<I1>(true.into(), 32, 1, 1);
-    check::<I8>(0x80.into(), 1, 0x40, 0xc0);
-    check::<I8>(0xfe.into(), 8, 0, 0xff);
-    check::<I8>(0x7f.into(), 31, 0, 0);
-    check::<I8>(0x81.into(), 32, 0x81, 0x81);
-    check::<I16>(0x8001.into(), 16, 0, 0xffff);
-    check::<I32>(0x8000_0001u32.into(), 1, 0x4000_0000, 0xc000_0000);
-    check::<I32>(0x8000_0001u32.into(), 32, 0x8000_0001, 0x8000_0001);
+    check::<I1>(true, 1, 0, 1);
+    check::<I1>(true, 32, 1, 1);
+    check::<I8>(0x80, 1, 0x40, 0xc0);
+    check::<I8>(0xfe, 8, 0, 0xff);
+    check::<I8>(0x7f, 31, 0, 0);
+    check::<I8>(0x81, 32, 0x81, 0x81);
+    check::<I16>(0x8001, 16, 0, 0xffff);
+    check::<I32>(0x8000_0001u32, 1, 0x4000_0000, 0xc000_0000);
+    check::<I32>(0x8000_0001u32, 32, 0x8000_0001, 0x8000_0001);
     check::<I64>(
-        0x8000_0000_0000_0001u64.into(),
+        0x8000_0000_0000_0001u64,
         32,
         0x8000_0000,
         0xffff_ffff_8000_0000,
     );
-    check::<I64>(0x8000_0000_0000_0001u64.into(), 63, 1, u64::MAX);
+    check::<I64>(0x8000_0000_0000_0001u64, 63, 1, u64::MAX);
     check::<I64>(
-        0x8000_0000_0000_0001u64.into(),
+        0x8000_0000_0000_0001u64,
         64,
         0x8000_0000_0000_0001,
         0x8000_0000_0000_0001,
     );
     check::<I64>(
-        0x8000_0000_0000_0001u64.into(),
+        0x8000_0000_0000_0001u64,
         65,
         0x4000_0000_0000_0000,
         0xc000_0000_0000_0000,
     );
-    check::<I64>(0x8000_0000_0000_0001u64.into(), u32::MAX, 1, u64::MAX);
+    check::<I64>(0x8000_0000_0000_0001u64, u32::MAX, 1, u64::MAX);
 }
 
 #[test]

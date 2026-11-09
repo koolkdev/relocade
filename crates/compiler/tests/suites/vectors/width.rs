@@ -192,12 +192,16 @@ fn vector_signatures_admit_native_literals_at_their_logical_width() {
     assert_eq!(actual.1.as_u128(), u128::from(bits));
 
     for (argument, expected, actual) in [
-        (Argument::from([0_u8; 8]), Type::I64, Type::V64),
-        (Argument::from(0_u128), Type::V64, Type::V128),
+        (
+            (|| Argument::from([0_u8; 8])) as fn() -> Argument,
+            Type::I64,
+            Type::V64,
+        ),
+        (|| Argument::from(0_u128), Type::V64, Type::V128),
     ] {
         let mut program = Program::new();
         let function = program.raw_function(signature(&[], &[expected]), move |body| {
-            body.return_(argument)
+            body.return_(argument())
         });
         program.export("run", function).unwrap();
         let error = program.compile().err();

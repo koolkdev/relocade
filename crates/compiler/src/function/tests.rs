@@ -45,12 +45,16 @@ fn unwinding_a_definition_closes_its_values() {
     let mut program = Program::new();
     let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
     let capture = retained.clone();
-    let function = program.function::<fn() -> u32>(move |body, ()| {
-        *capture.borrow_mut() = Some((body.value::<I32>(7)?, body.arena.clone()));
-        panic!("construction interrupted");
+    let function = program.declare(crate::Signature {
+        parameters: vec![],
+        results: vec![Type::I32],
     });
-    program.export("run", function).unwrap();
-    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| program.compile()));
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        build_body(program, function, move |body| {
+            *capture.borrow_mut() = Some((body.value::<I32>(7)?, body.arena.clone()));
+            panic!("construction interrupted");
+        })
+    }));
     assert!(panic.is_err());
     let (value, arena) = retained.borrow_mut().take().unwrap();
     assert_eq!(
@@ -116,19 +120,27 @@ fn a_callback_error_fails_compilation_even_after_completing_its_body() {
     assert_eq!(program.compile(), Err(BuildError::BodyClosed));
 }
 
+/// Runs a body locally so ownership fixtures can inspect its closed values.
+pub(crate) fn build_body(
+    program: Program,
+    function: crate::Func,
+    build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+) -> Result<(), BuildError> {
+    super::build_function(&program.declarations, function, build).map(|_| ())
+}
+
 /// Retains a value from a completed function for ownership-validation fixtures.
-pub(crate) fn capture_from_body<T: 'static>(
-    build: impl FnOnce(&mut BlockBuilder<'_>) -> T + 'static,
-) -> T {
-    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
-    let capture = retained.clone();
+pub(crate) fn capture_from_body<T>(build: impl FnOnce(&mut BlockBuilder<'_>) -> T) -> T {
     let mut program = Program::new();
-    let function = program.function::<fn(u32)>(move |mut body, (_,)| {
-        *capture.borrow_mut() = Some(build(&mut body));
-        body.return_(())
+    let function = program.declare(crate::Signature {
+        parameters: vec![Type::I32],
+        results: vec![],
     });
-    program.export("capture", function).unwrap();
-    program.compile().unwrap();
-    let result = retained.borrow_mut().take().unwrap();
-    result
+    let mut retained = None;
+    build_body(program, function, |mut body| {
+        retained = Some(build(&mut body));
+        body.return_(())
+    })
+    .unwrap();
+    retained.unwrap()
 }

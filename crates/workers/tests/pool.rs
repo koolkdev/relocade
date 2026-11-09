@@ -211,6 +211,48 @@ async fn concurrent_compilations() {
     assert_eq!(remote.unwrap().unwrap(), expected[1]);
 }
 
+#[cfg(feature = "compiler")]
+async fn concurrent_ir_construction() {
+    use relocade_compiler::{Program, I32};
+    let threads = vec![Thread::new(), Thread::new()];
+    let mut supplied = Vec::new();
+    for thread in &threads {
+        supplied.push(
+            thread
+                .run_send((), |()| async { std::thread::current().id() })
+                .await
+                .unwrap(),
+        );
+    }
+    let (pool, executor) = Pool::new(threads).unwrap();
+    let gate = Arc::new(Gate::default());
+    let release = Release(gate.clone());
+    let mut program = Program::new();
+    let mut started = Vec::new();
+    for name in ["first", "second"] {
+        let (sender, receiver) = oneshot::channel();
+        started.push(receiver);
+        let gate = gate.clone();
+        let function = program.function::<fn(u32) -> u32>(move |mut body, (input,)| {
+            let local = std::rc::Rc::new(input.add(1));
+            let _ = sender.send(std::thread::current().id());
+            gate.wait();
+            let result = body.block::<I32>(|block, label| block.branch(&label, local.as_ref()))?;
+            body.return_(result)
+        });
+        program.export(name, function).unwrap();
+    }
+    let control = async move {
+        let ids = futures_util::future::try_join_all(started).await.unwrap();
+        assert_ne!(ids[0], ids[1], "IR bodies overlap on distinct workers");
+        assert!(ids.iter().all(|id| supplied.contains(id)));
+        drop(release);
+    };
+    let compilation = async move { program.compile_with(&executor).await.unwrap() };
+    let ((), (bytes, ())) = join(pool.run(), join(compilation, control)).await;
+    assert!(!bytes.is_empty());
+}
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -260,4 +302,16 @@ fn multiple_compilations_share_a_pool_across_threads() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn multiple_compilations_share_a_pool_across_threads() {
     concurrent_compilations().await;
+}
+
+#[cfg(all(feature = "compiler", not(target_arch = "wasm32")))]
+#[test]
+fn ir_bodies_build_concurrently_on_supplied_workers() {
+    pollster::block_on(concurrent_ir_construction());
+}
+
+#[cfg(all(feature = "compiler", target_arch = "wasm32"))]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn ir_bodies_build_concurrently_on_supplied_workers() {
+    concurrent_ir_construction().await;
 }

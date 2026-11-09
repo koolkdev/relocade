@@ -205,7 +205,7 @@ impl Program {
     }
 
     /// Declares a function for forward references. A reachable declaration must
-    /// have a builder registered with [`Self::define`] before it is constructed.
+    /// have a builder registered with [`Self::define`] before compilation.
     pub fn declare(&mut self, signature: Signature) -> Func {
         let function = Func(self.declarations.functions.len());
         self.declarations.functions.push(Declaration {
@@ -235,27 +235,29 @@ impl Program {
     }
 
     /// Constructs IR starting from exports, then infers effects, optimizes and
-    /// emits WebAssembly. Each reachable body builder runs once. Unused definitions
-    /// and declarations are ignored. Calls removed by optimization may still require
-    /// constructing their callee to determine its effects.
+    /// emits WebAssembly. Each reachable body builder runs once, serially on the
+    /// calling thread. Unused definitions and declarations are ignored. Calls removed
+    /// by optimization may still require constructing their callee to determine its
+    /// effects.
     pub fn compile(self) -> Result<Vec<u8>, BuildError> {
         Ok(module::encode(self.build_reachable_functions()?))
     }
 
-    /// Compiles using caller-provided execution resources for function placement
-    /// and Wasm emission. Body construction and effect analysis run on the calling
-    /// thread; existing body builders may retain non-`Send` captures.
+    /// Compiles using caller-provided execution resources for IR construction,
+    /// function placement and Wasm emission. Each construction job creates and closes
+    /// its own arena; values and scoped block callbacks stay on that worker. Effect
+    /// analysis runs after all reachable bodies finish, before placement starts.
     ///
-    /// Independent functions may complete in any order. Retention, function indices
-    /// and module bytes follow the same rules as [`Self::compile`]. The executor
-    /// controls concurrency across this compilation and any other submitted work.
+    /// Independent body builders may run concurrently and in any order. Retention,
+    /// function indices and module bytes follow the same rules as [`Self::compile`].
+    /// The executor controls concurrency across this compilation and other submitted work.
     /// Dropping this future stops waiting, but accepted jobs can finish with their
     /// owned inputs. The executor owns their lifetime and shutdown policy.
     pub async fn compile_with<E: CompileExecutor>(
         self,
         executor: &E,
     ) -> Result<Vec<u8>, CompileError<E::Error>> {
-        let program = self.build_reachable_functions()?;
+        let program = self.build_reachable_functions_with(executor).await?;
         module::encode_with(program, executor)
             .await
             .map_err(CompileError::Execution)

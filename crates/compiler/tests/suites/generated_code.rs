@@ -15,7 +15,7 @@ struct CodeShape {
 
 fn shape<T: IntType>(
     parameters: &[Type],
-    build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + 'static,
+    build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + Send + 'static,
 ) -> CodeShape {
     let module = Fixture::new().expression(parameters, build);
     let mut shape = CodeShape::default();

@@ -15,11 +15,13 @@ fn rejected_multi_result_calls_leave_the_caller_open_and_do_not_retain_imports()
         name: "receive".into(),
         signature: signature(&[Type::I32, Type::I32], &[Type::I1, Type::I8, Type::I64]),
     });
-    let foreign =
-        crate::fixture::capture_from_body(|foreign_body| foreign_body.value::<I32>(7).unwrap());
     let run = program.declare(signature(&[], &[Type::I32]));
     program
         .define(run, move |mut body| {
+            let foreign = crate::fixture::capture_from_body(|foreign_body| {
+                foreign_body.value::<I32>(7).unwrap()
+            });
+
             let arguments = [7.into(), 11.into()];
             assert_eq!(
                 body.call::<(I1, I8)>(target, &arguments).err(),
@@ -163,45 +165,50 @@ fn discarded_blocks_do_not_retain_multi_result_calls_or_poison_parent_placement(
 #[test]
 fn invalid_multi_returns_report_counts_types_and_visibility_during_compilation() {
     use relocade_compiler::Arguments;
-    let foreign = crate::fixture::capture_from_body(|body| body.value::<I64>(7_u64).unwrap());
     for (arguments, error) in [
         (
-            Arguments::from(true),
+            (|| Arguments::from(true)) as fn() -> Arguments,
             BuildError::ResultCount {
                 expected: 3,
                 actual: 1,
             },
         ),
         (
-            Arguments::from(()),
+            || Arguments::from(()),
             BuildError::ResultCount {
                 expected: 3,
                 actual: 0,
             },
         ),
         (
-            Arguments::from((true, 255, 7_u64, 9)),
+            || Arguments::from((true, 255, 7_u64, 9)),
             BuildError::ResultCount {
                 expected: 3,
                 actual: 4,
             },
         ),
         (
-            Arguments::from((true, Val::<I16>::from(255), 7_u64)),
+            || Arguments::from((true, Val::<I16>::from(255), 7_u64)),
             BuildError::TypeMismatch {
                 expected: Type::I8,
                 actual: Type::I16,
             },
         ),
         (
-            Arguments::from((true, 255, foreign)),
+            || {
+                Arguments::from((
+                    true,
+                    255,
+                    crate::fixture::capture_from_body(|body| body.value::<I64>(7_u64).unwrap()),
+                ))
+            },
             BuildError::ForeignBody,
         ),
     ] {
         let mut program = Program::new();
         let run = program.raw_function(
             signature(&[], &[Type::I1, Type::I8, Type::I64]),
-            move |body| body.return_(arguments),
+            move |body| body.return_(arguments()),
         );
         program.export("run", run).unwrap();
         assert_eq!(program.compile(), Err(error));

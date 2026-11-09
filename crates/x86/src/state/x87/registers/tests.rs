@@ -10,7 +10,9 @@ use relocade_compiler::{Program, I64};
 use wasmparser::{Operator, Parser, Payload};
 
 fn module(
-    build: impl FnOnce(&mut BlockBuilder<'_>, &mut Registers) -> Result<Val<I64>, BuildError> + 'static,
+    build: impl FnOnce(&mut BlockBuilder<'_>, &mut Registers) -> Result<Val<I64>, BuildError>
+        + Send
+        + 'static,
 ) -> CompiledModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);

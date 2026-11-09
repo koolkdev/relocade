@@ -58,7 +58,7 @@ impl Fixture {
         mut self,
         parameters: &[Type],
         results: &[Type],
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + Send + 'static,
     ) -> TestModule {
         let run = self
             .program
@@ -69,7 +69,7 @@ impl Fixture {
     pub fn expression<T: ValueType>(
         self,
         parameters: &[Type],
-        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + 'static,
+        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + Send + 'static,
     ) -> TestModule {
         self.function(parameters, &[T::TYPE], move |body| {
             let value = build(&body);
@@ -91,12 +91,16 @@ impl Fixture {
     }
 }
 
-/// Retains a value from a completed function for ownership-validation fixtures.
+thread_local! {
+    static CAPTURED: std::cell::RefCell<Option<Box<dyn std::any::Any>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// Retains a value on the calling thread through the public serial compilation API.
 pub(crate) fn capture_from_body<T: 'static>(
-    build: impl FnOnce(&mut BlockBuilder<'_>) -> T + 'static,
+    build: impl FnOnce(&mut BlockBuilder<'_>) -> T + Send + 'static,
 ) -> T {
-    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
-    let capture = retained.clone();
     let mut program = Program::new();
     let function = program.raw_function(
         Signature {
@@ -104,12 +108,12 @@ pub(crate) fn capture_from_body<T: 'static>(
             results: vec![],
         },
         move |mut body| {
-            *capture.borrow_mut() = Some(build(&mut body));
+            let captured = build(&mut body);
+            CAPTURED.with_borrow_mut(|slot| *slot = Some(Box::new(captured)));
             body.return_(())
         },
     );
     program.export("capture", function).unwrap();
     program.compile().unwrap();
-    let result = retained.borrow_mut().take().unwrap();
-    result
+    CAPTURED.with_borrow_mut(|slot| *slot.take().unwrap().downcast::<T>().ok().unwrap())
 }

@@ -97,7 +97,7 @@ fn signed_arithmetic_wraps_and_compares_at_logical_widths() {
         program: &mut Program,
         name: &str,
         parameters: &[Type],
-        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + 'static,
+        build: impl FnOnce(&BlockBuilder<'_>) -> Val<T> + Send + 'static,
     ) {
         let function = program.raw_function(
             Signature {

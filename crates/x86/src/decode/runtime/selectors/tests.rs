@@ -1,6 +1,6 @@
 //! Runtime selector dispatch agrees with forms and lowers each handler once.
 
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 use relocade_compiler::Program;
 use relocade_test_support::{engine, Module};
@@ -34,12 +34,17 @@ fn register_only_forms_reject_memory_without_a_companion_form() {
 }
 
 fn check_dispatch(state: &DecodeState, opcode: u8, forms: Vec<&'static Form>) {
-    let calls = Rc::new(RefCell::new(vec![0; forms.len()]));
+    let calls = Arc::new(Mutex::new(vec![0; forms.len()]));
     let counted = calls.clone();
     let input_forms = forms.clone();
-    let input_state = state.clone();
+    let selection = *state.prefixes.selection();
+    let map = state.map;
     let mut program = Program::new();
     let function = program.function::<fn(u32) -> u32>(move |body, _| {
+        let input_state = DecodeState {
+            prefixes: selection.prefixes(),
+            map,
+        };
         let modrm = body.parameter::<I32>(0)?.truncate::<I8>();
         dispatch_modrm_form(body, &modrm, &input_forms, &input_state, &|arm, form| {
             let index = form.map(|form| {
@@ -47,7 +52,7 @@ fn check_dispatch(state: &DecodeState, opcode: u8, forms: Vec<&'static Form>) {
                     .iter()
                     .position(|candidate| std::ptr::eq(*candidate, form))
                     .unwrap();
-                counted.borrow_mut()[index] += 1;
+                counted.lock().unwrap()[index] += 1;
                 index as u32
             });
             arm.return_(index.unwrap_or(u32::MAX))
@@ -56,7 +61,11 @@ fn check_dispatch(state: &DecodeState, opcode: u8, forms: Vec<&'static Form>) {
     program.export("select", function).unwrap();
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
-    assert_eq!(*calls.borrow(), vec![1; forms.len()], "opcode {opcode:02x}");
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![1; forms.len()],
+        "opcode {opcode:02x}"
+    );
 
     let module = Module::new(&bytes);
     let mut store = wasmtime::Store::new(engine(), ());

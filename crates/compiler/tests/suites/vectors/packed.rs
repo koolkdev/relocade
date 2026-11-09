@@ -32,7 +32,7 @@ fn binary_results<const N: usize>(
     left: u128,
     right: u128,
     results: [u128; N],
-    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N] + 'static,
+    operations: impl Fn(Val<V128>, Val<V128>) -> [Val<V128>; N] + Send + 'static,
 ) {
     binary_width_results::<V128, N>(left, right, results, operations);
 }
@@ -41,7 +41,7 @@ fn binary_width_results<V: VectorType + MemoryType, const N: usize>(
     left: u128,
     right: u128,
     results: [u128; N],
-    operations: impl Fn(Val<V>, Val<V>) -> [Val<V>; N] + 'static,
+    operations: impl Fn(Val<V>, Val<V>) -> [Val<V>; N] + Send + 'static,
 ) {
     let width = V::BYTES as usize;
     let literal = move |bits: u128| {

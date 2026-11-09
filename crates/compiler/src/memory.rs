@@ -244,12 +244,13 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let foreign = crate::function::tests::capture_from_body(|discarded| {
-            discarded.value::<I32>(9).unwrap()
-        });
 
         program
             .define(function, move |mut body| {
+                let foreign = crate::function::tests::capture_from_body(|discarded| {
+                    discarded.value::<I32>(9).unwrap()
+                });
+
                 assert_eq!(
                     body.store(memory, 0, &foreign),
                     Err(BuildError::ForeignBody)

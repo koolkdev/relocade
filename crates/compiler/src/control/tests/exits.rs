@@ -117,83 +117,81 @@ fn conditional_exit_errors_leave_the_parent_open_and_do_not_attach_an_edge() {
                 shared: false,
             });
             let function = program.declare(signature());
-            program
-                .define(function, move |mut body| {
-                    assert_eq!(body.yield_if(false, 7), Err(BuildError::InvalidYield));
-                    let mut escaped_label = None;
-                    let result = body
-                        .block::<I32>(|mut block, exit| {
-                            escaped_label = Some(exit.clone());
-                            let mut child_value = None;
-                            block.if_(false, |mut child| {
-                                child_value = Some(child.load::<I32>(memory, 0)?);
-                                Ok(())
-                            })?;
-                            let child_value = child_value.unwrap();
-                            let before = (block.pending.current, block.pending.layout.len());
-                            assert_eq!(
-                                block.branch_if(false, &exit, ()),
-                                Err(BuildError::ResultCount {
-                                    expected: 1,
-                                    actual: 0
-                                })
-                            );
-                            assert_eq!(
-                                block.branch_if(false, &exit, true),
-                                Err(BuildError::TypeMismatch {
-                                    expected: Type::I32,
-                                    actual: Type::I1
-                                })
-                            );
-                            assert_eq!(
-                                block.yield_if(false, true),
-                                Err(BuildError::TypeMismatch {
-                                    expected: Type::I32,
-                                    actual: Type::I1
-                                })
-                            );
-                            assert_eq!(
-                                block.branch_if(&foreign_condition, &exit, 7),
-                                Err(BuildError::ForeignBody)
-                            );
-                            assert_eq!(
-                                block.yield_if(&foreign_condition, 7),
-                                Err(BuildError::ForeignBody)
-                            );
-                            assert_eq!(
-                                block.branch_if(false, foreign_label.as_ref().unwrap(), 7),
-                                Err(BuildError::ForeignBody)
-                            );
-                            assert_eq!(
-                                block.branch_if(false, &exit, &child_value),
-                                Err(BuildError::OutOfScope)
-                            );
-                            assert_eq!(
-                                block.yield_if(false, &child_value),
-                                Err(BuildError::OutOfScope)
-                            );
-                            assert_eq!(
-                                block.branch_if(child_value.eq(0), &exit, 7),
-                                Err(BuildError::OutOfScope)
-                            );
-                            assert_eq!((block.pending.current, block.pending.layout.len()), before);
-                            block.if_(true, |mut arm| {
-                                assert_eq!(arm.yield_if(false, 7), Err(BuildError::InvalidYield));
-                                Ok(())
-                            })?;
-                            block.yield_if(false, 11)?;
-                            block.yield_(7)
-                        })
-                        .unwrap();
-                    assert_eq!(
-                        body.branch_if(false, escaped_label.as_ref().unwrap(), 9),
-                        Err(BuildError::OutOfScope)
-                    );
-                    body.return_(result)
-                })
-                .unwrap();
-            program.export("run", function).unwrap();
-            program.compile().unwrap();
+            crate::function::tests::build_body(program, function, move |mut body| {
+                assert_eq!(body.yield_if(false, 7), Err(BuildError::InvalidYield));
+                let mut escaped_label = None;
+                let result = body
+                    .block::<I32>(|mut block, exit| {
+                        escaped_label = Some(exit.clone());
+                        let mut child_value = None;
+                        block.if_(false, |mut child| {
+                            child_value = Some(child.load::<I32>(memory, 0)?);
+                            Ok(())
+                        })?;
+                        let child_value = child_value.unwrap();
+                        let before = (block.pending.current, block.pending.layout.len());
+                        assert_eq!(
+                            block.branch_if(false, &exit, ()),
+                            Err(BuildError::ResultCount {
+                                expected: 1,
+                                actual: 0
+                            })
+                        );
+                        assert_eq!(
+                            block.branch_if(false, &exit, true),
+                            Err(BuildError::TypeMismatch {
+                                expected: Type::I32,
+                                actual: Type::I1
+                            })
+                        );
+                        assert_eq!(
+                            block.yield_if(false, true),
+                            Err(BuildError::TypeMismatch {
+                                expected: Type::I32,
+                                actual: Type::I1
+                            })
+                        );
+                        assert_eq!(
+                            block.branch_if(&foreign_condition, &exit, 7),
+                            Err(BuildError::ForeignBody)
+                        );
+                        assert_eq!(
+                            block.yield_if(&foreign_condition, 7),
+                            Err(BuildError::ForeignBody)
+                        );
+                        assert_eq!(
+                            block.branch_if(false, foreign_label.as_ref().unwrap(), 7),
+                            Err(BuildError::ForeignBody)
+                        );
+                        assert_eq!(
+                            block.branch_if(false, &exit, &child_value),
+                            Err(BuildError::OutOfScope)
+                        );
+                        assert_eq!(
+                            block.yield_if(false, &child_value),
+                            Err(BuildError::OutOfScope)
+                        );
+                        assert_eq!(
+                            block.branch_if(child_value.eq(0), &exit, 7),
+                            Err(BuildError::OutOfScope)
+                        );
+                        assert_eq!((block.pending.current, block.pending.layout.len()), before);
+                        block.if_(true, |mut arm| {
+                            assert_eq!(arm.yield_if(false, 7), Err(BuildError::InvalidYield));
+                            Ok(())
+                        })?;
+                        block.yield_if(false, 11)?;
+                        block.yield_(7)
+                    })
+                    .unwrap();
+                assert_eq!(
+                    body.branch_if(false, escaped_label.as_ref().unwrap(), 9),
+                    Err(BuildError::OutOfScope)
+                );
+                body.return_(result)
+            })
+            .unwrap();
+
             foreign_body.return_(foreign_result)
         })
         .unwrap();

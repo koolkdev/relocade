@@ -82,3 +82,29 @@ pub(super) fn consumer_ops(bytes: &[u8]) -> Vec<wasmparser::Operator<'_>> {
         .map(Result::unwrap)
         .collect()
 }
+
+thread_local! {
+    static FOREIGN: std::cell::RefCell<Option<Box<dyn std::any::Any>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// Creates a foreign value on this thread without putting it in a queued callback.
+pub(super) fn foreign_value<T: relocade_compiler::ValueType>() -> relocade_compiler::Val<T> {
+    use relocade_compiler::{Program, Signature, Val};
+    let mut program = Program::new();
+    let function = program.raw_function(
+        Signature {
+            parameters: vec![T::TYPE],
+            results: vec![],
+        },
+        |body| {
+            let value = body.parameter::<T>(0)?;
+            FOREIGN.with_borrow_mut(|slot| *slot = Some(Box::new(value)));
+            body.return_(())
+        },
+    );
+    program.export("foreign", function).unwrap();
+    program.compile().unwrap();
+    FOREIGN.with_borrow_mut(|slot| *slot.take().unwrap().downcast::<Val<T>>().ok().unwrap())
+}

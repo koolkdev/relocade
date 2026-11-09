@@ -84,10 +84,11 @@ fn invalid_void_calls_validate_all_arguments_without_retaining_imports() {
         name: "receive".into(),
         signature: signature(&[Type::I8], &[]),
     });
-    let foreign = crate::fixture::capture_from_body(|body| body.value::<I8>(7).unwrap());
     let run = program.declare(signature(&[], &[]));
     program
         .define(run, move |mut body| {
+            let foreign = crate::fixture::capture_from_body(|body| body.value::<I8>(7).unwrap());
+
             assert_eq!(
                 body.call::<()>(target, &[]),
                 Err(BuildError::ArgumentCount {

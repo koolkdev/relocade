@@ -19,7 +19,9 @@ impl<S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: cr
     pub fn define(
         self,
         program: &mut Program,
-        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError> + 'static,
+        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError>
+            + Send
+            + 'static,
     ) -> Result<TypedFunc<S>, BuildError> {
         let function = program.function::<S>(build);
         self.export(program, function)?;

@@ -19,7 +19,7 @@ enum Access {
 }
 
 fn accesses(
-    build: impl FnOnce(&mut BlockBuilder<'_>, &mut StateFields) -> Val<I32> + 'static,
+    build: impl FnOnce(&mut BlockBuilder<'_>, &mut StateFields) -> Val<I32> + Send + 'static,
 ) -> Vec<Access> {
     let mut program = Program::new();
     let memory = program.import_memory(MemoryImport {
