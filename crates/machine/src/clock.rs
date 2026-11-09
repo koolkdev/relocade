@@ -1,8 +1,10 @@
 //! Clonable timebases and owned deadline waits.
 
 mod driver;
+mod guest;
 mod host;
 pub use driver::HostTimerDriver;
+pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
 pub use web_time::Instant;
 
