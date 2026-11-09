@@ -7,11 +7,11 @@ use wasm_encoder::{
 };
 
 use super::functions::PlacedFunction;
-use crate::{emit, FunctionKind, Program, Signature};
+use crate::{emit, FunctionKind, ModuleDeclarations, Signature};
 
 /// Owns section declarations and their matching function, memory and table indices.
 pub(super) struct Declarations<'a> {
-    program: &'a Program,
+    program: &'a ModuleDeclarations,
     types: Types,
     imports: ImportSection,
     functions: FunctionSection,
@@ -21,7 +21,7 @@ pub(super) struct Declarations<'a> {
 impl<'a> Declarations<'a> {
     /// Definitions arrive in declaration order, independently of job completion.
     pub(super) fn new(
-        program: &'a Program,
+        program: &'a ModuleDeclarations,
         used_functions: &[bool],
         defined: &[PlacedFunction],
     ) -> Self {

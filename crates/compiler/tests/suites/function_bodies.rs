@@ -107,8 +107,8 @@ fn definitions_report_body_errors_during_compilation_and_cannot_be_replaced() {
 fn only_reachable_forward_declarations_need_definitions() {
     for called in [false, true] {
         let mut program = Program::new();
-        let root = program.function::<fn()>(move |mut body, ()| {
-            let forward = body.program().declare(signature(&[], &[]));
+        let forward = program.declare(signature(&[], &[]));
+        let root = program.function::<fn()>(move |body, ()| {
             if called {
                 body.tail_call(forward, &[])
             } else {
@@ -126,15 +126,11 @@ fn only_reachable_forward_declarations_need_definitions() {
 }
 
 #[test]
-fn body_construction_discovers_new_exports_even_without_calls() {
+fn every_export_is_a_construction_root_even_without_calls() {
     let mut program = Program::new();
-    let root = program.function::<fn()>(move |mut body, ()| {
-        let added = body
-            .program()
-            .function::<fn()>(move |_, ()| Err(BuildError::UnknownParameter));
-        body.program().export("added", added)?;
-        body.return_(())
-    });
+    let added = program.function::<fn()>(move |_, ()| Err(BuildError::UnknownParameter));
+    program.export("added", added).unwrap();
+    let root = program.function::<fn()>(move |body, ()| body.return_(()));
     program.export("root", root).unwrap();
     assert_eq!(program.compile(), Err(BuildError::UnknownParameter));
 }

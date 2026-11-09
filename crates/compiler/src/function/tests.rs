@@ -1,4 +1,4 @@
-use crate::{BlockBuilder, BuildError, Program, Signature, Type, I1, I16, I32, I64, I8};
+use crate::{BlockBuilder, BuildError, Program, Type, I1, I16, I32, I64, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
@@ -114,49 +114,6 @@ fn a_callback_error_fails_compilation_even_after_completing_its_body() {
     });
     program.export("run", function).unwrap();
     assert_eq!(program.compile(), Err(BuildError::BodyClosed));
-}
-
-#[test]
-fn a_body_registers_a_helper_without_reopening_itself() {
-    let mut program = Program::new();
-    let signature = Signature {
-        parameters: vec![Type::I32],
-        results: vec![Type::I1],
-    };
-    let outer = program.declare(signature.clone());
-    program
-        .define(outer, move |mut body| {
-            assert_eq!(
-                body.program().define(outer, move |body| body.trap()).err(),
-                Some(BuildError::AlreadyDefined)
-            );
-            let input = body.parameter::<I32>(0).unwrap();
-            let helper = body.program().raw_function(signature, move |helper| {
-                let value = helper.parameter::<I32>(0)?;
-                helper.return_(value.eq(0))
-            });
-            body.if_(input.eq(-1), |branch| branch.trap()).unwrap();
-            let result = body.call::<I1>(helper, &[input.into()]).unwrap();
-            body.return_(result)
-        })
-        .unwrap();
-    program.export("run", outer).unwrap();
-    let bytes = program.compile().unwrap();
-    Validator::new().validate_all(&bytes).unwrap();
-    let mut traps = 0;
-    let mut calls = 0;
-    for payload in Parser::new(0).parse_all(&bytes) {
-        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
-            for op in body.get_operators_reader().unwrap() {
-                match op.unwrap() {
-                    Operator::Unreachable => traps += 1,
-                    Operator::Call { .. } => calls += 1,
-                    _ => {}
-                }
-            }
-        }
-    }
-    assert_eq!((traps, calls), (1, 1));
 }
 
 /// Retains a value from a completed function for ownership-validation fixtures.

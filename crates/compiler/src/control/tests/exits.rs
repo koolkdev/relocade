@@ -1,6 +1,6 @@
 use crate::{
     body::{BlockItem, Edge, Exit, Layout, OperationKind},
-    BuildError, FunctionKind, MemoryImport, Program, Signature, Type, I1, I32,
+    BuildError, MemoryImport, Program, Signature, Type, I1, I32,
 };
 
 fn signature() -> Signature {
@@ -37,8 +37,8 @@ fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
-    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
+    let program = program.build_reachable_functions().unwrap();
+    let Some(body) = &program.bodies[function.0] else {
         panic!("the function is complete");
     };
     let [Layout::Scope {
@@ -90,7 +90,7 @@ fn conditional_exits_keep_their_edge_scope_and_snapshot_producers() {
             .count(),
         3
     );
-    assert!(program.compile().is_ok());
+    crate::module::encode(program);
 }
 
 #[test]
@@ -213,8 +213,8 @@ fn a_general_if_keeps_its_control_boundary_when_the_parent_completes() {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
-    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
+    let program = program.build_reachable_functions().unwrap();
+    let Some(body) = &program.bodies[function.0] else {
         panic!("the function is complete");
     };
     let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {
@@ -222,7 +222,7 @@ fn a_general_if_keeps_its_control_boundary_when_the_parent_completes() {
     };
     assert_eq!(join, last);
     assert!(matches!(body.blocks[join.0].exit, Exit::Return(_)));
-    assert!(program.compile().is_ok());
+    crate::module::encode(program);
 }
 
 #[test]
@@ -254,8 +254,8 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
-    let FunctionKind::Built(body) = &program.functions[function.0].kind else {
+    let program = program.build_reachable_functions().unwrap();
+    let Some(body) = &program.bodies[function.0] else {
         panic!("the function is complete");
     };
     let [Layout::If { join, .. }, Layout::Block(last)] = body.layout.as_slice() else {
@@ -263,6 +263,6 @@ fn a_nested_exit_keeps_the_conditional_label_it_targets() {
     };
     assert_eq!(join, last);
     assert!(matches!(body.blocks[join.0].exit, Exit::Return(_)));
-    let bytes = program.compile().unwrap();
+    let bytes = crate::module::encode(program);
     wasmparser::Validator::new().validate_all(&bytes).unwrap();
 }

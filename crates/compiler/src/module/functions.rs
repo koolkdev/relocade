@@ -1,11 +1,11 @@
 //! Retention follows calls that survive each function's placement.
 
 use super::emission::Emission;
-use crate::{body::FunctionGraph, place::Placement, FunctionKind, Program};
+use crate::{body::FunctionGraph, place::Placement, BuiltProgram, FunctionKind};
 use std::sync::Arc;
 
 pub(super) struct Definitions {
-    program: Program,
+    program: BuiltProgram,
     placement: Arc<Placement>,
     pending: Vec<usize>,
     used: Vec<bool>,
@@ -24,14 +24,15 @@ pub(super) struct PlacedFunction {
 }
 
 impl Definitions {
-    pub(super) fn new(program: Program) -> Self {
+    pub(super) fn new(program: BuiltProgram) -> Self {
         let placement = Arc::new(Placement::new(&program));
         let pending = program
+            .declarations
             .exports
             .iter()
             .map(|(_, function)| function.0)
             .collect();
-        let used = vec![false; program.functions.len()];
+        let used = vec![false; program.declarations.functions.len()];
         Self {
             program,
             placement,
@@ -47,17 +48,15 @@ impl Definitions {
             // recursive cycles are visited only once regardless of completion order.
             if std::mem::replace(&mut self.used[id], true)
                 || matches!(
-                    self.program.functions[id].kind,
+                    self.program.declarations.functions[id].kind,
                     FunctionKind::Imported { .. }
                 )
             {
                 continue;
             }
-            let FunctionKind::Built(body) =
-                std::mem::replace(&mut self.program.functions[id].kind, FunctionKind::Declared)
-            else {
-                unreachable!("reachable definitions completed construction")
-            };
+            let body = self.program.bodies[id]
+                .take()
+                .expect("reachable definitions completed construction");
             return Some(FunctionPlacement {
                 id,
                 body,
@@ -75,7 +74,7 @@ impl Definitions {
     }
 
     pub(super) fn finish(self) -> Emission {
-        Emission::new(self.program, self.used, self.defined)
+        Emission::new(self.program.declarations, self.used, self.defined)
     }
 }
 

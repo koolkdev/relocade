@@ -131,8 +131,8 @@ impl Program {
             !import.shared || import.maximum.is_some(),
             "shared memory requires a maximum"
         );
-        let memory = Mem(self.memories.len());
-        self.memories.push(import);
+        let memory = Mem(self.declarations.memories.len());
+        self.declarations.memories.push(import);
         memory
     }
 }
@@ -216,7 +216,7 @@ impl BlockBuilder<'_> {
     }
 
     fn require_memory(&self, memory: Mem) -> Result<(), BuildError> {
-        self.program
+        self.declarations
             .memories
             .get(memory.0)
             .ok_or(BuildError::UnknownMemory)?;

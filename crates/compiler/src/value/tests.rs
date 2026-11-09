@@ -88,9 +88,9 @@ fn completing_a_definition_closes_retained_loads() {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
+    let program = program.build_reachable_functions().unwrap();
     assert_closed(&retained.borrow_mut().take().unwrap());
-    assert!(program.compile().is_ok());
+    crate::module::encode(program);
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn a_callback_error_closes_retained_values() {
                 })
                 .unwrap();
             program.export("run", function).unwrap();
-            program.build_reachable_functions()
+            program.build_reachable_functions().map(|_| ())
         },
         Err(BuildError::UnknownParameter)
     );
@@ -137,7 +137,7 @@ fn a_failed_return_closes_retained_values() {
                 })
                 .unwrap();
             program.export("run", function).unwrap();
-            program.build_reachable_functions()
+            program.build_reachable_functions().map(|_| ())
         },
         Err(BuildError::TypeMismatch {
             expected: Type::I64,
@@ -178,7 +178,7 @@ fn a_tail_call_definition_closes_retained_values_and_arguments() {
         })
         .unwrap();
     program.export("run", function).unwrap();
-    program.build_reachable_functions().unwrap();
+    let program = program.build_reachable_functions().unwrap();
     let (value, argument) = retained.borrow_mut().take().unwrap();
     assert_closed(&value);
     let ValueSource::Expression { arena, .. } = &value.source else {
@@ -188,7 +188,7 @@ fn a_tail_call_definition_closes_retained_values_and_arguments() {
         argument.resolve(arena, Type::I32, 0),
         Err(BuildError::BodyClosed)
     );
-    assert!(program.compile().is_ok());
+    crate::module::encode(program);
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn a_failed_tail_closes_its_values_and_arguments() {
                 })
                 .unwrap();
             program.export("run", function).unwrap();
-            program.build_reachable_functions()
+            program.build_reachable_functions().map(|_| ())
         },
         Err(BuildError::ForeignBody)
     );

@@ -124,11 +124,9 @@ fn linked_functions(built: Rc<RefCell<Vec<&'static str>>>) -> Program {
             body.tail_call(recursive, &[remaining.sub(1).into()])
         })
         .unwrap();
+    let nested = program.function::<fn() -> u32>(move |body, ()| body.return_(5));
     let run = program.function::<fn(bool) -> u32>(move |mut body, (condition,)| {
         built.borrow_mut().push("run");
-        let nested = body
-            .program()
-            .function::<fn() -> u32>(move |body, ()| body.return_(5));
         body.if_(condition.eq(false), |arm| arm.return_(0))?;
         let result = body.if_value::<I32>(
             condition,

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use wasm_encoder::{CodeSection, Module};
 
 use super::{declarations::Declarations, functions::PlacedFunction};
-use crate::{body::FunctionGraph, emit, Program};
+use crate::{body::FunctionGraph, emit, ModuleDeclarations};
 
 pub(super) struct Emission {
     module: Module,
@@ -25,7 +25,7 @@ pub(super) struct EncodedFunction {
 
 impl Emission {
     pub(super) fn new(
-        program: Program,
+        program: Arc<ModuleDeclarations>,
         used_functions: Vec<bool>,
         mut defined: Vec<PlacedFunction>,
     ) -> Self {

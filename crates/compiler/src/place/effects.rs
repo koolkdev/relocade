@@ -8,7 +8,7 @@ use ranges::MemoryRange;
 
 use crate::{
     body::{BlockItem, Exit, FunctionGraph, Operation, OperationKind},
-    FunctionKind, Program,
+    BuiltProgram,
 };
 
 pub(super) enum Effects<R = Vec<MemoryRange>> {
@@ -165,21 +165,19 @@ fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effe
     })
 }
 
-pub(super) fn infer(program: &Program) -> Vec<Effects> {
+pub(super) fn infer(program: &BuiltProgram) -> Vec<Effects> {
     let mut summaries: Vec<_> = program
-        .functions
+        .bodies
         .iter()
-        .map(|function| {
-            (!matches!(function.kind, FunctionKind::Built(_))).then_some(Effects::Unknown)
-        })
+        .map(|body| body.is_none().then_some(Effects::Unknown))
         .collect();
     loop {
         let mut changed = false;
-        for (id, function) in program.functions.iter().enumerate() {
+        for (id, function) in program.bodies.iter().enumerate() {
             if summaries[id].is_some() {
                 continue;
             }
-            let FunctionKind::Built(body) = &function.kind else {
+            let Some(body) = function else {
                 unreachable!("inference requires completed definitions")
             };
             if let Some(summary) = summarize(body, &summaries) {

@@ -36,22 +36,23 @@ impl Program {
         assert!(import
             .maximum
             .is_none_or(|maximum| maximum >= import.minimum));
-        let table = Table(self.tables.len());
-        self.tables.push(import);
+        let table = Table(self.declarations.tables.len());
+        self.declarations.tables.push(import);
         table
     }
 
     /// Declares an imported function. Unused imports are omitted from the module.
     pub fn import_function(&mut self, import: impl Into<FunctionImport>) -> Func {
         let import = import.into();
-        let function = Func(self.functions.len());
-        self.functions.push(Declaration {
+        let function = Func(self.declarations.functions.len());
+        self.declarations.functions.push(Declaration {
             signature: import.signature,
             kind: FunctionKind::Imported {
                 module: import.module,
                 name: import.name,
             },
         });
+        self.builders.push(None);
         function
     }
 }
@@ -106,7 +107,7 @@ impl BlockBuilder<'_> {
     ) -> Result<(), BuildError> {
         self.terminate(|body| {
             let signature = &body
-                .program
+                .declarations
                 .tables
                 .get(table.0)
                 .ok_or(BuildError::UnknownTable)?
@@ -169,7 +170,7 @@ impl BlockBuilder<'_> {
         expected: &[Type],
     ) -> Result<Vec<usize>, BuildError> {
         let signature = &self
-            .program
+            .declarations
             .functions
             .get(target.0)
             .ok_or(BuildError::UnknownFunction)?

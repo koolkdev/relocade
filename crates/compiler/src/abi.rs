@@ -95,6 +95,7 @@ impl<
     ) -> Result<(), BuildError> {
         let function = function.into();
         let actual = &program
+            .declarations
             .functions
             .get(function.0)
             .ok_or(BuildError::UnknownFunction)?
