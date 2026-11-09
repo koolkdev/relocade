@@ -6,16 +6,11 @@ use futures_util::{
 };
 use relocade_machine::{timer_service, worker::Thread};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
-use relocade_vga::{DisplaySnapshot, VgaRenderer};
+use relocade_vga::VgaRenderer;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-
-enum GraphicsEvent {
-    Capture(Option<DisplaySnapshot>),
-    Redraw(Option<[u32; 2]>),
-}
 
 struct Report {
     uploads: usize,
@@ -59,21 +54,16 @@ pub async fn gpu_workers() -> Result<(), String> {
             let mut source_closed = false;
             let mut cached: Option<Image> = None;
             loop {
-                let event = {
-                    let next = async {
-                        if source_closed {
-                            std::future::pending().await
-                        } else {
-                            worker_source.recv().await.ok()
-                        }
-                    };
-                    match select(Box::pin(next), incoming.next()).await {
-                        Either::Left((capture, _)) => GraphicsEvent::Capture(capture),
-                        Either::Right((request, _)) => GraphicsEvent::Redraw(request),
+                let receiving = !source_closed;
+                let next = async {
+                    if receiving {
+                        worker_source.recv().await.ok()
+                    } else {
+                        std::future::pending().await
                     }
                 };
-                let size = match event {
-                    GraphicsEvent::Capture(Some(capture)) => {
+                let size = match select(Box::pin(next), incoming.next()).await {
+                    Either::Left((Some(capture), _)) => {
                         if capture.plane(0)[0] != 0xdb {
                             continue;
                         }
@@ -86,13 +76,13 @@ pub async fn gpu_workers() -> Result<(), String> {
                         }
                         continue;
                     }
-                    GraphicsEvent::Capture(None) => {
+                    Either::Left((None, _)) => {
                         source_closed = true;
                         closed.take().unwrap().send(()).unwrap();
                         continue;
                     }
-                    GraphicsEvent::Redraw(Some(size)) => size,
-                    GraphicsEvent::Redraw(None) => break,
+                    Either::Right((Some(size), _)) => size,
+                    Either::Right((None, _)) => break,
                 };
                 if let Some((selected, allowed)) = barrier.take() {
                     selected.send(uploaded).unwrap();
