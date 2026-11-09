@@ -21,6 +21,7 @@ async fn captured_deadline() {
                     poll_once(clock.sync()).await.is_some(),
                     "no active CPU mapping yet"
                 );
+                assert!(poll_once(clock.sync_to_host(start)).await.is_some());
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: clock.clone(),
                     deadlines: [2, 4, 6]
@@ -37,6 +38,9 @@ async fn captured_deadline() {
                 cpu.install([Hook::host(0x100, async move || {
                     let arrival = arrival.borrow_mut().take().unwrap();
                     arrival.await.unwrap();
+                    // Advance on the execution owner so it cannot idle past the
+                    // sync deadline before this hook captures the wait.
+                    advancing_host.advance_by(Duration::from_millis(7));
                     let sync = if timestamped {
                         clock.sync_to(host_start + Duration::from_millis(6))
                     } else {
@@ -70,7 +74,6 @@ async fn captured_deadline() {
             armed.next().await,
             Some(host_start + Duration::from_millis(4))
         );
-        host.advance_by(Duration::from_millis(7));
         arrive.send(()).unwrap();
         assert_eq!(worker.join().await.unwrap(), Some(()));
         assert_eq!(host.clock().now(), host_start + Duration::from_millis(9));
@@ -81,6 +84,7 @@ async fn captured_deadline() {
 async fn retained_sync_across_runs() {
     let (host, mut armed, source) = host();
     let host_start = host.clock().now();
+    let advancing_host = host.clone();
     let (arrive, arrival) = oneshot::channel();
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
@@ -105,6 +109,9 @@ async fn retained_sync_across_runs() {
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
+                // Capture and poll the sync before host progress can let the
+                // scheduler advance the pending service into another slice.
+                advancing_host.advance_by(Duration::from_millis(7));
                 let mut sync = clock.sync_to(host_start + Duration::from_millis(7));
                 assert!(poll_once(&mut sync).await.is_none());
                 pause.borrow_mut().take().unwrap().send(()).unwrap();
@@ -121,6 +128,9 @@ async fn retained_sync_across_runs() {
                 }
             }
             assert_eq!(runner.clock().now(), start + Duration::from_millis(4));
+            assert!(poll_once(runner.clock().sync_to_host(runner.clock().now()))
+                .await
+                .is_some());
             assert!(
                 poll_once(runner.clock().sync()).await.is_some(),
                 "a paused clock does not sync"
@@ -137,7 +147,6 @@ async fn retained_sync_across_runs() {
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
     );
-    host.advance_by(Duration::from_millis(7));
     arrive.send(()).unwrap();
     stop.await.unwrap();
     assert_eq!(host.next_deadline(), None);
@@ -152,9 +161,110 @@ async fn clocks_without_host_mapping() {
     let unpaced =
         relocade_machine::GuestTimeDriver::new(host.now(), NonZeroU64::new(1000).unwrap()).clock();
     for clock in [host, unpaced] {
+        let output = clock.sync_to_host(clock.now());
+        assert!(poll_once(output).await.is_some());
         assert!(poll_once(clock.sync()).await.is_some());
         assert!(poll_once(clock.sync_to(Instant::now())).await.is_some());
     }
+}
+
+async fn local_output_sync() {
+    let (host, mut armed, source) = host();
+    let host_start = host.clock().now();
+    let worker = ExecutionWorker::spawn_with_guest_time(
+        move || config(source),
+        async move |runner| {
+            let clock = runner.clock().clone();
+            let start = clock.now();
+            let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
+            let exit = cpu.exit_handle();
+            let retained = Rc::new(RefCell::new(None));
+            let captured = retained.clone();
+            let running_host = host.clone();
+            let running_clock = clock.clone();
+            cpu.install([Hook::host(0x100, async move || {
+                assert!(
+                    poll_once(running_clock.sync_to_host(start - Duration::from_millis(1)))
+                        .await
+                        .is_some()
+                );
+                let sync = running_clock.sync_to_host(start + Duration::from_millis(1010));
+                let elapsed = running_clock.sync_to_host(start + Duration::from_millis(5));
+                assert_eq!(
+                    running_host.next_deadline(),
+                    None,
+                    "construction does not arm a timer"
+                );
+                {
+                    let mut cancelled =
+                        running_clock.sync_to_host(start + Duration::from_millis(20));
+                    assert!(poll_once(&mut cancelled).await.is_none());
+                    assert_eq!(
+                        running_host.next_deadline(),
+                        Some(host_start + Duration::from_millis(20))
+                    );
+                }
+                assert_eq!(
+                    running_host.next_deadline(),
+                    None,
+                    "dropping the wait cancels its timer"
+                );
+                *captured.borrow_mut() = Some((sync, elapsed));
+                exit.request();
+            })])
+            .await
+            .unwrap();
+            assert_eq!(
+                runner.run_cpu(&mut cpu).await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            assert!(
+                poll_once(clock.sync_to_host(start + Duration::from_secs(2)))
+                    .await
+                    .is_some(),
+                "new waits on an inactive clock complete immediately"
+            );
+            host.advance_by(Duration::from_secs(1));
+            let (mut sync, elapsed) = retained.borrow_mut().take().unwrap();
+            assert!(poll_once(elapsed).await.is_some());
+            assert!(poll_once(&mut sync).await.is_none());
+            assert_eq!(
+                host.next_deadline(),
+                Some(host_start + Duration::from_millis(1010)),
+                "the first poll after a pause retains the captured mapping"
+            );
+            host.advance_by(Duration::from_millis(9));
+            assert!(poll_once(&mut sync).await.is_none());
+            host.advance_by(Duration::from_millis(1));
+            sync.await;
+            assert_eq!(host.next_deadline(), None);
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    assert_eq!(
+        armed.next().await,
+        Some(host_start + Duration::from_millis(20))
+    );
+    assert_eq!(
+        armed.next().await,
+        Some(host_start + Duration::from_millis(1010))
+    );
+    assert_eq!(
+        armed.next().await,
+        None,
+        "elapsed waits must not register a timer"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn output_sync_retains_its_host_deadline_on_the_execution_owner() {
+    pollster::block_on(local_output_sync());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn output_sync_retains_its_host_deadline_on_the_execution_owner() {
+    local_output_sync().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

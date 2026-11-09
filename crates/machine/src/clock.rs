@@ -24,10 +24,16 @@ pub struct Clock(Rc<dyn ClockSource>);
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
 /// Implementations register waits on first poll and release them on drop.
-/// Sources stay on their execution owner; controllers may have broader lifetimes.
+/// Clocks and their waits stay on their execution owner.
 pub trait ClockSource {
     fn now(&self) -> Instant;
     fn sleep_until(&self, deadline: Instant) -> Sleep;
+
+    /// Captures a local wait on the configured host timebase. Sources without
+    /// an active correspondence complete immediately.
+    fn sync_to_host(&self, _time: Instant) -> Sleep {
+        Sleep::new(async {})
+    }
 
     /// Captures a host-to-source deadline and returns an ordinary source wait.
     /// `None` samples the configured host clock now; `Some` uses a timestamp
@@ -45,6 +51,29 @@ impl Clock {
 
     pub fn now(&self) -> Instant {
         self.0.now()
+    }
+
+    /// Waits for the host time corresponding to a timestamp from this clock.
+    /// CPU pacing and device output use the configured host timer on this owner.
+    /// Output tasks await this before publishing to another worker.
+    ///
+    /// Host clocks use the timestamp unchanged. Paced guest clocks use the
+    /// current correspondence, excluding pauses between CPU runs. Unpaced guest
+    /// clocks and clocks outside an active run complete immediately. Construct
+    /// the wait when output is captured: a later run may have a different
+    /// correspondence. The deadline stays fixed, including across pauses.
+    /// Registration happens on first poll; elapsed deadlines need no timer.
+    pub fn sync_to_host(&self, time: Instant) -> Sleep {
+        self.0.sync_to_host(time)
+    }
+
+    fn sleep_until_if_needed(&self, deadline: Instant) -> Sleep {
+        let clock = self.clone();
+        Sleep::new(async move {
+            if clock.now() < deadline {
+                clock.sleep_until(deadline).await;
+            }
+        })
     }
 
     /// Captures the deadline now, even if the returned future is polled later.

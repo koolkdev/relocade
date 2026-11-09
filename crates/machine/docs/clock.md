@@ -206,6 +206,25 @@ A later event remains queued while the current event synchronizes. It cannot
 postpone the current deadline. Equal-time events follow the execution owner's
 existing activity polling order.
 
+Output goes in the opposite direction. Construct `clock.sync_to_host(time)`
+when output is captured, then await its ordinary local `Sleep` in the device's
+async task before publishing to another worker:
+
+```rust,ignore
+clock.sync_to_host(output_time).await;
+```
+
+CPU pacing uses this same operation. The wait retains the mapped deadline and
+the configured host clock. It uses that clock's ordinary `sleep_until`, including
+the dedicated timer service's native and browser waits. Registration happens on
+first poll, cancellation releases the timer, and elapsed deadlines complete
+without registering one. Clocks and waits remain on their execution owner.
+
+The mapping is captured at construction, so a later CPU pause or resume cannot
+remap pending output. Host-clock output uses the same timestamp; unpaced guest
+clocks and inactive runs produce an immediately ready wait. Keep the host timer
+service alive while execution-owner tasks use it.
+
 ## Host timers
 
 `timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts

@@ -13,8 +13,9 @@ async fn clock_waits() {
     let other = clock.clone();
     let waits = async move {
         let deadline = clock.now() + Duration::from_millis(10);
+        let output = clock.sync_to_host(deadline);
         let long = async {
-            clock.sleep_until(deadline).await;
+            output.await;
             assert!(clock.now() >= deadline);
         };
         let short = async {

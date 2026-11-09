@@ -1,6 +1,6 @@
 //! One guest-time boundary for cooperative yields and optional host pacing.
 
-use crate::{GuestTimeDriver, Instant, Sleep};
+use crate::{Clock, Instant, Sleep};
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -43,19 +43,14 @@ impl ExecutionSlice {
         self.wait.borrow_mut().take();
     }
 
-    pub(super) fn poll(
-        &self,
-        driver: &GuestTimeDriver,
-        now: Instant,
-        cx: &mut Context<'_>,
-    ) -> Poll<()> {
+    pub(super) fn poll(&self, clock: &Clock, now: Instant, cx: &mut Context<'_>) -> Poll<()> {
         let end = self.end.get();
         if now < end {
             return Poll::Ready(());
         }
         if self.paced {
             let mut wait = self.wait.borrow_mut();
-            let sleep = wait.get_or_insert_with(|| driver.host_sleep_until(now));
+            let sleep = wait.get_or_insert_with(|| clock.sync_to_host(now));
             ready!(Pin::new(sleep).poll(cx));
             wait.take();
         }

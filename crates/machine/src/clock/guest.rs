@@ -58,15 +58,6 @@ impl GuestTimeDriver {
         self
     }
 
-    pub(crate) fn host_sleep_until(&self, deadline: Instant) -> super::Sleep {
-        self.0
-            .borrow()
-            .host
-            .as_ref()
-            .expect("configured host clock")
-            .sleep_until(deadline)
-    }
-
     pub fn clock(&self) -> Clock {
         Clock::new(Source(self.0.clone()))
     }

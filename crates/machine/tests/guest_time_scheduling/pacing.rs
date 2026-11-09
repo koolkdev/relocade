@@ -57,11 +57,8 @@ async fn late_host_wake() {
         Some(host_start + Duration::from_millis(5))
     );
     host.advance_by(Duration::from_millis(11));
-    // Deadlines remain anchored even though the first host wake is late.
-    assert_eq!(
-        armed.next().await,
-        Some(host_start + Duration::from_millis(10))
-    );
+    // The next slice is already paid for. Its guest deadlines still run, with
+    // no timer request for the elapsed 10 ms host boundary.
     assert_eq!(
         worker.join().await.unwrap(),
         Some(vec![
@@ -74,6 +71,7 @@ async fn late_host_wake() {
         ])
     );
     assert_eq!(host.next_deadline(), None);
+    assert_eq!(armed.next().await, None);
 }
 
 struct ReplacedDeadline {
@@ -301,10 +299,6 @@ async fn busy_bursts() {
     host.advance_by(Duration::from_millis(9));
     // A late wake keeps the 4 ms grid, rather than granting another 4 ms
     // relative to the preceding overshoot or current host time.
-    assert_eq!(
-        armed.next().await,
-        Some(host_start + Duration::from_millis(8))
-    );
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_nanos(13_333_333))
