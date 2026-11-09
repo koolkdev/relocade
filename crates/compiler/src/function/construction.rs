@@ -1,13 +1,14 @@
 //! Export-rooted IR construction using frozen module declarations.
 
+use futures_util::{stream::FuturesUnordered, TryStreamExt};
 use std::sync::Arc;
 
 use crate::{
-    body::FunctionGraph, BlockBuilder, BuildError, BuiltProgram, Func, FunctionKind,
-    ModuleDeclarations, Program,
+    body::FunctionGraph, BlockBuilder, BuildError, BuiltProgram, CompileError, CompileExecutor,
+    Func, FunctionKind, ModuleDeclarations, Program,
 };
 
-pub(crate) type BuildBody = Box<dyn FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>>;
+pub(crate) type BuildBody = Box<dyn FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + Send>;
 
 struct Construction {
     program: BuiltProgram,
@@ -28,6 +29,23 @@ struct BuiltFunction {
 }
 
 impl Program {
+    pub(crate) async fn build_reachable_functions_with<E: CompileExecutor>(
+        self,
+        executor: &E,
+    ) -> Result<BuiltProgram, CompileError<E::Error>> {
+        let mut construction = Construction::new(self);
+        let mut pending = FuturesUnordered::new();
+        loop {
+            while let Some(function) = construction.next()? {
+                pending.push(executor.execute(move || function.build()));
+            }
+            match pending.try_next().await.map_err(CompileError::Execution)? {
+                Some(function) => construction.include(function?),
+                None => return Ok(construction.program),
+            }
+        }
+    }
+
     pub(crate) fn build_reachable_functions(self) -> Result<BuiltProgram, BuildError> {
         let mut construction = Construction::new(self);
         while let Some(function) = construction.next()? {

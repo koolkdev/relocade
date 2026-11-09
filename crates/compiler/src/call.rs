@@ -233,11 +233,12 @@ mod tests {
             parameters: vec![],
             results: vec![Type::I32],
         });
-        let foreign = crate::function::tests::capture_from_body(|discarded| {
-            discarded.value::<I1>(true).unwrap()
-        });
         program
             .define(function, move |mut body| {
+                let foreign = crate::function::tests::capture_from_body(|discarded| {
+                    discarded.value::<I1>(true).unwrap()
+                });
+
                 assert_eq!(
                     body.call::<I1>(target, &[true.into()]).err(),
                     Some(BuildError::TypeMismatch {

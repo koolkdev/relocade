@@ -54,7 +54,7 @@ impl Program {
     /// The body is constructed during compilation if reachable from an export.
     ///
     /// The callback must complete the body with a return, tail call or trap.
-    /// Capture owned inputs; construction errors are reported by [`Self::compile`].
+    /// Capture owned `Send` inputs; construction errors are reported by [`Self::compile`].
     ///
     /// ```
     /// use relocade_compiler::Program;
@@ -72,7 +72,9 @@ impl Program {
     /// ```
     pub fn function<S>(
         &mut self,
-        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError> + 'static,
+        build: impl FnOnce(BlockBuilder<'_>, Values<S::Parameters>) -> Result<(), BuildError>
+            + Send
+            + 'static,
     ) -> TypedFunc<S>
     where
         S: FunctionSignature<Parameters: CompilerValue, Return: AbiType<Logical: Results>>,

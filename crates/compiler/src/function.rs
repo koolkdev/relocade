@@ -82,13 +82,13 @@ impl Program {
     /// The body is constructed during compilation if reachable from an export.
     /// Use [`Self::declare`] and [`Self::define`] for forward references.
     ///
-    /// Capture owned inputs and module handles. Values belong to the body that
+    /// Capture owned `Send` inputs and module handles. Values belong to the body that
     /// creates them. The callback must complete its body with a return, tail call
     /// or trap; construction errors are reported by [`Self::compile`].
     pub fn raw_function(
         &mut self,
         signature: Signature,
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + Send + 'static,
     ) -> Func {
         let function = self.declare(signature);
         self.builders[function.0] = Some(Box::new(build));
@@ -101,7 +101,7 @@ impl Program {
     pub fn define(
         &mut self,
         function: Func,
-        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + 'static,
+        build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError> + Send + 'static,
     ) -> Result<(), BuildError> {
         let declaration = self
             .declarations

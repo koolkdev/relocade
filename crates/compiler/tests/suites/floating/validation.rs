@@ -22,15 +22,19 @@ fn operators(module: &TestModule) -> Vec<Operator<'_>> {
 #[test]
 fn signatures_distinguish_float_literals_from_integer_encodings() {
     for (argument, expected, actual) in [
-        (Argument::from(1), Type::F64, Type::I32),
-        (Argument::from(1_u32), Type::F64, Type::I32),
-        (Argument::from(1_u64), Type::F64, Type::I64),
-        (Argument::from(1.0), Type::I64, Type::F64),
-        (Argument::from(1.0), Type::I1, Type::F64),
+        (
+            (|| Argument::from(1)) as fn() -> Argument,
+            Type::F64,
+            Type::I32,
+        ),
+        (|| Argument::from(1_u32), Type::F64, Type::I32),
+        (|| Argument::from(1_u64), Type::F64, Type::I64),
+        (|| Argument::from(1.0), Type::I64, Type::F64),
+        (|| Argument::from(1.0), Type::I1, Type::F64),
     ] {
         let mut program = Program::new();
         let function = program.raw_function(signature(&[], &[expected]), move |body| {
-            body.return_(argument)
+            body.return_(argument())
         });
         assert_eq!(
             {
@@ -137,16 +141,16 @@ fn rounding_and_square_root_lower_directly_and_defer_arithmetic_nans() {
         assert_eq!(ops.iter().filter(|op| predicate(op)).count(), 1);
     }
     for value in [
-        Val::<F64>::from(2.5).nearest(),
-        Val::<F64>::from(4.0).sqrt(),
+        (|| Val::<F64>::from(2.5).nearest()) as fn() -> Val<F64>,
+        || Val::<F64>::from(4.0).sqrt(),
     ] {
-        let constant = Fixture::new().expression(&[], |_| value);
+        let constant = Fixture::new().expression(&[], move |_| value());
         assert!(
             matches!(operators(&constant).as_slice(), [Operator::F64Const { value }, Operator::Return, Operator::End] if value.bits() == 2.0_f64.to_bits())
         );
     }
-    let nan = Val::<F64>::from_bits(INFINITY | 1);
     let special = Fixture::new().function(&[], &[Type::F64; 6], move |body| {
+        let nan = Val::<F64>::from_bits(INFINITY | 1);
         body.return_([
             nan.ceil(),
             nan.floor(),
@@ -247,10 +251,10 @@ fn numeric_conversions_emit_native_operations_and_fold_exact_constants() {
         1
     );
     for value in [
-        Val::<F64>::from_binary32_bits(0x3f80_0000_u32),
-        Val::<I32>::from(1).signed().to_f64(),
+        (|| Val::<F64>::from_binary32_bits(0x3f80_0000_u32)) as fn() -> Val<F64>,
+        || Val::<I32>::from(1).signed().to_f64(),
     ] {
-        let module = Fixture::new().expression(&[], |_| value);
+        let module = Fixture::new().expression(&[], move |_| value());
         assert!(
             matches!(operators(&module).as_slice(), [Operator::F64Const { value }, Operator::Return, Operator::End] if value.bits() == 1.0_f64.to_bits())
         );

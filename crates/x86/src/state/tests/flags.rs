@@ -15,7 +15,7 @@ mod subsets;
 use super::super::{Cpu, Register, State};
 use crate::alu::StatusSource;
 use crate::flags::{Condition, StatusFlag};
-use relocade_compiler::{BuildError, Program, Signature, Type, I1, I32, I8};
+use relocade_compiler::{BuildError, Program, I1, I32, I8};
 use wasmparser::{Operator, Parser, Payload, Validator};
 
 #[test]
@@ -188,151 +188,127 @@ fn carry_sources_publish_all_concrete_flags_before_the_kind() {
 
 #[test]
 fn invalid_flag_sources_leave_the_previous_source_unchanged() {
-    let mut foreign_program = Program::new();
-    let foreign_function = foreign_program.declare(Signature {
-        parameters: vec![Type::I32],
-        results: vec![Type::I32],
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let function = program.function::<fn() -> u32>(move |mut body, ()| {
+        let foreign = crate::state::tests::flags::fixture::foreign_value::<I32>();
+        let mut state = State::new(&cpu);
+        let current = ArithmeticOp::Add
+            .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+            .flags;
+        state.write_flags(&mut body, current)?;
+        let invalid = ArithmeticOp::Add
+            .apply(body.value::<I32>(9)?, foreign.clone())
+            .flags;
+        assert_eq!(
+            state.write_flags(&mut body, invalid),
+            Err(BuildError::ForeignBody)
+        );
+        assert_eq!(
+            state.write_flags(
+                &mut body,
+                StatusSource::Logic {
+                    result: foreign.clone()
+                }
+            ),
+            Err(BuildError::ForeignBody)
+        );
+        let invalid_carry = ArithmeticOp::Add
+            .apply_with_carry(body.value::<I32>(9)?, body.value::<I32>(3)?, foreign.eq(0))
+            .flags;
+        assert_eq!(
+            state.write_flags(&mut body, invalid_carry),
+            Err(BuildError::ForeignBody)
+        );
+        let mut child_value = None;
+        body.if_(false, |mut arm| {
+            child_value = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
+            Ok(())
+        })?;
+        let child_value = child_value.unwrap();
+        assert_eq!(
+            state.write_flags(
+                &mut body,
+                StatusSource::Logic {
+                    result: child_value.clone()
+                }
+            ),
+            Err(BuildError::OutOfScope)
+        );
+        let invalid_carry = ArithmeticOp::Subtract
+            .apply_with_carry(
+                body.value::<I32>(9)?,
+                body.value::<I32>(3)?,
+                child_value.eq(0),
+            )
+            .flags;
+        assert_eq!(
+            state.write_flags(&mut body, invalid_carry),
+            Err(BuildError::OutOfScope)
+        );
+        state.publish(&mut body, 0x1002, 1)?;
+        body.return_(0)
     });
-    foreign_program
-        .define(foreign_function, move |foreign_body| {
-            let foreign = foreign_body.parameter::<I32>(0).unwrap();
-            let mut program = Program::new();
-            let cpu = Cpu::declare(&mut program);
-            let function = program.function::<fn() -> u32>(move |mut body, ()| {
-                let mut state = State::new(&cpu);
-                let current = ArithmeticOp::Add
-                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
-                    .flags;
-                state.write_flags(&mut body, current)?;
-                let invalid = ArithmeticOp::Add
-                    .apply(body.value::<I32>(9)?, foreign.clone())
-                    .flags;
-                assert_eq!(
-                    state.write_flags(&mut body, invalid),
-                    Err(BuildError::ForeignBody)
-                );
-                assert_eq!(
-                    state.write_flags(
-                        &mut body,
-                        StatusSource::Logic {
-                            result: foreign.clone()
-                        }
-                    ),
-                    Err(BuildError::ForeignBody)
-                );
-                let invalid_carry = ArithmeticOp::Add
-                    .apply_with_carry(body.value::<I32>(9)?, body.value::<I32>(3)?, foreign.eq(0))
-                    .flags;
-                assert_eq!(
-                    state.write_flags(&mut body, invalid_carry),
-                    Err(BuildError::ForeignBody)
-                );
-                let mut child_value = None;
-                body.if_(false, |mut arm| {
-                    child_value = Some(cpu_load!(&mut arm, cpu.memory(), registers.eax)?);
-                    Ok(())
-                })?;
-                let child_value = child_value.unwrap();
-                assert_eq!(
-                    state.write_flags(
-                        &mut body,
-                        StatusSource::Logic {
-                            result: child_value.clone()
-                        }
-                    ),
-                    Err(BuildError::OutOfScope)
-                );
-                let invalid_carry = ArithmeticOp::Subtract
-                    .apply_with_carry(
-                        body.value::<I32>(9)?,
-                        body.value::<I32>(3)?,
-                        child_value.eq(0),
-                    )
-                    .flags;
-                assert_eq!(
-                    state.write_flags(&mut body, invalid_carry),
-                    Err(BuildError::OutOfScope)
-                );
-                state.publish(&mut body, 0x1002, 1)?;
-                body.return_(0)
-            });
-            program.export("run", function).unwrap();
-            let bytes = program.compile().unwrap();
-            Validator::new().validate_all(&bytes).unwrap();
-            assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
-            foreign_body.return_(0)
-        })
-        .unwrap();
-    foreign_program.export("foreign", foreign_function).unwrap();
-    foreign_program.compile().unwrap();
+    program.export("run", function).unwrap();
+    let bytes = program.compile().unwrap();
+    Validator::new().validate_all(&bytes).unwrap();
+    assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
 }
 
 #[test]
 fn invalid_explicit_flags_leave_the_previous_source_unchanged() {
-    let mut foreign_program = Program::new();
-    let foreign_function = foreign_program.declare(Signature {
-        parameters: vec![Type::I1],
-        results: vec![Type::I1],
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let function = program.function::<fn() -> u32>(move |mut body, ()| {
+        let foreign_flag = crate::state::tests::flags::fixture::foreign_value::<I1>();
+        let mut state = State::new(&cpu);
+        let current = ArithmeticOp::Add
+            .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
+            .flags;
+        state.write_flags(&mut body, current)?;
+        let mut child_flag = None;
+        body.if_(false, |mut arm| {
+            child_flag = Some(cpu_load!(&mut arm, cpu.memory(), flags.bytes.cf)?.ne(0));
+            Ok(())
+        })?;
+        let valid_flag = body.value::<I1>(false)?;
+        for (origin, invalid_flag, error) in [
+            ("foreign", foreign_flag, BuildError::ForeignBody),
+            ("child", child_flag.unwrap(), BuildError::OutOfScope),
+        ] {
+            for (field, status_flag) in [
+                ("CF", StatusFlag::CF),
+                ("PF", StatusFlag::PF),
+                ("AF", StatusFlag::AF),
+                ("ZF", StatusFlag::ZF),
+                ("SF", StatusFlag::SF),
+                ("OF", StatusFlag::OF),
+            ] {
+                // Only one flag is invalid, so another flag cannot mask
+                // a missing ownership or visibility check.
+                let source = StatusSource::<I32>::Explicit {
+                    flags: StatusFlag::ALL.map(|flag| {
+                        if status_flag == flag {
+                            invalid_flag.clone()
+                        } else {
+                            valid_flag.clone()
+                        }
+                    }),
+                };
+                assert_eq!(
+                    state.write_flags(&mut body, source),
+                    Err(error.clone()),
+                    "{origin} {field}"
+                );
+            }
+        }
+        state.publish(&mut body, 0x1002, 1)?;
+        body.return_(0)
     });
-    foreign_program
-        .define(foreign_function, move |foreign_body| {
-            let foreign_flag = foreign_body.parameter::<I1>(0).unwrap();
-            let mut program = Program::new();
-            let cpu = Cpu::declare(&mut program);
-            let function = program.function::<fn() -> u32>(move |mut body, ()| {
-                let mut state = State::new(&cpu);
-                let current = ArithmeticOp::Add
-                    .apply(body.value::<I32>(7)?, body.value::<I32>(5)?)
-                    .flags;
-                state.write_flags(&mut body, current)?;
-                let mut child_flag = None;
-                body.if_(false, |mut arm| {
-                    child_flag = Some(cpu_load!(&mut arm, cpu.memory(), flags.bytes.cf)?.ne(0));
-                    Ok(())
-                })?;
-                let valid_flag = body.value::<I1>(false)?;
-                for (origin, invalid_flag, error) in [
-                    ("foreign", foreign_flag, BuildError::ForeignBody),
-                    ("child", child_flag.unwrap(), BuildError::OutOfScope),
-                ] {
-                    for (field, status_flag) in [
-                        ("CF", StatusFlag::CF),
-                        ("PF", StatusFlag::PF),
-                        ("AF", StatusFlag::AF),
-                        ("ZF", StatusFlag::ZF),
-                        ("SF", StatusFlag::SF),
-                        ("OF", StatusFlag::OF),
-                    ] {
-                        // Only one flag is invalid, so another flag cannot mask
-                        // a missing ownership or visibility check.
-                        let source = StatusSource::<I32>::Explicit {
-                            flags: StatusFlag::ALL.map(|flag| {
-                                if status_flag == flag {
-                                    invalid_flag.clone()
-                                } else {
-                                    valid_flag.clone()
-                                }
-                            }),
-                        };
-                        assert_eq!(
-                            state.write_flags(&mut body, source),
-                            Err(error.clone()),
-                            "{origin} {field}"
-                        );
-                    }
-                }
-                state.publish(&mut body, 0x1002, 1)?;
-                body.return_(0)
-            });
-            program.export("run", function).unwrap();
-            let bytes = program.compile().unwrap();
-            Validator::new().validate_all(&bytes).unwrap();
-            assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
-            foreign_body.return_(false)
-        })
-        .unwrap();
-    foreign_program.export("foreign", foreign_function).unwrap();
-    foreign_program.compile().unwrap();
+    program.export("run", function).unwrap();
+    let bytes = program.compile().unwrap();
+    Validator::new().validate_all(&bytes).unwrap();
+    assert_eq!(flag_stores(&bytes), [(0, 4, 7), (0, 8, 5), (0, 0, 10)]);
 }
 
 fn flags_after_register_synchronization() -> crate::CompiledModule {

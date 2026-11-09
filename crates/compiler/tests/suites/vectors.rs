@@ -227,14 +227,18 @@ fn vector_loads_keep_snapshots_across_overlapping_scalar_stores() {
 #[test]
 fn vector_literals_require_vector_signatures() {
     for (argument, expected, actual) in [
-        (Argument::from(LEFT), Type::I64, Type::V128),
-        (Argument::from(0_u128), Type::I64, Type::V128),
-        (Argument::from(1_u64), Type::V128, Type::I64),
-        (Argument::from(1), Type::V128, Type::I32),
+        (
+            (|| Argument::from(LEFT)) as fn() -> Argument,
+            Type::I64,
+            Type::V128,
+        ),
+        (|| Argument::from(0_u128), Type::I64, Type::V128),
+        (|| Argument::from(1_u64), Type::V128, Type::I64),
+        (|| Argument::from(1), Type::V128, Type::I32),
     ] {
         let mut program = Program::new();
         let function = program.raw_function(signature(&[], &[expected]), move |body| {
-            body.return_(argument)
+            body.return_(argument())
         });
         assert_eq!(
             {

@@ -1,5 +1,5 @@
 use super::{operators, Kind, KINDS};
-use crate::fixture::{signature, Fixture};
+use crate::fixture::Fixture;
 use relocade_compiler::{BuildError, Program, Type, Val, I1, I32, I64};
 use wasmparser::Operator;
 
@@ -7,12 +7,10 @@ use wasmparser::Operator;
 fn division_and_remainder_preserve_foreign_operand_validation() {
     for kind in KINDS {
         let mut program = Program::new();
-        let function = program.declare(signature(&[], &[Type::I32]));
-        let foreign = crate::fixture::capture_from_body(|body| body.value::<I32>(1).unwrap());
-        let result = std::rc::Rc::new(std::cell::RefCell::new(None));
-        let capture = result.clone();
-        program
-            .define(function, move |body| {
+        let function = program.function::<fn() -> u32>(move |next, ()| {
+            let result = crate::fixture::capture_from_body(move |body| {
+                let foreign =
+                    crate::fixture::capture_from_body(|body| body.value::<I32>(1).unwrap());
                 let cached = Val::<I32>::from(7).unsigned().div(0).and(0);
                 body.value(&cached).unwrap();
                 assert_eq!(
@@ -29,26 +27,16 @@ fn division_and_remainder_preserve_foreign_operand_validation() {
                         Some(BuildError::ForeignBody)
                     );
                 }
-                *capture.borrow_mut() = Some(kind.apply(body.value::<I32>(0).unwrap(), 1));
-                body.return_(0)
-            })
-            .unwrap();
-        program.export("first", function).unwrap();
+                kind.apply(body.value::<I32>(0).unwrap(), 1)
+            });
+            assert_eq!(
+                next.value(result.add(1)).err(),
+                Some(BuildError::ForeignBody)
+            );
+            next.return_(0)
+        });
+        program.export("run", function).unwrap();
         program.compile().unwrap();
-        let result = result.borrow_mut().take().unwrap();
-        let mut program = Program::new();
-        let next_function = program.declare(signature(&[], &[Type::I32]));
-        program
-            .define(next_function, move |next| {
-                assert_eq!(
-                    next.value(result.add(1)).err(),
-                    Some(BuildError::ForeignBody)
-                );
-                next.return_(0)
-            })
-            .unwrap();
-        program.export("next", next_function).unwrap();
-        assert!(program.compile().is_ok());
     }
 }
 
@@ -108,32 +96,31 @@ fn folded_division_operands_and_results_keep_the_original_child_visibility() {
 }
 
 #[test]
-fn nonfolding_standalone_constants_form_reusable_native_expressions() {
-    let expressions = [
-        Val::<I32>::from(7).unsigned().div(0),
-        Val::<I32>::from(7).signed().div(0),
-        Val::<I32>::from(7).unsigned().rem(0),
-        Val::<I32>::from(7).signed().rem(0),
-        Val::<I32>::from(i32::MIN).signed().div(-1),
+fn nonfolding_standalone_constants_share_admitted_expressions() {
+    let expressions: [fn() -> Val<I32>; 5] = [
+        || Val::<I32>::from(7).unsigned().div(0),
+        || Val::<I32>::from(7).signed().div(0),
+        || Val::<I32>::from(7).unsigned().rem(0),
+        || Val::<I32>::from(7).signed().rem(0),
+        || Val::<I32>::from(i32::MIN).signed().div(-1),
     ];
     for expression in expressions {
-        assert!(expression.same_expression(&expression.clone()));
-        for _ in 0..2 {
-            let expression = expression.clone();
-            let module = Fixture::new().function(&[], &[Type::I32], move |body| {
-                let first = body.value(&expression)?;
-                let second = body.value(&expression)?;
-                assert!(first.same_expression(&second));
-                body.return_(first)
-            });
-            assert!(operators(module.bytes()).iter().any(|op| matches!(
-                op,
-                Operator::I32DivU | Operator::I32DivS | Operator::I32RemU | Operator::I32RemS
-            )));
-        }
+        let module = Fixture::new().function(&[], &[Type::I32], move |body| {
+            let expression = expression();
+            assert!(expression.same_expression(&expression.clone()));
+            let first = body.value(&expression)?;
+            let second = body.value(&expression)?;
+            assert!(first.same_expression(&second));
+            body.return_(first)
+        });
+        assert!(operators(module.bytes()).iter().any(|op| matches!(
+            op,
+            Operator::I32DivU | Operator::I32DivS | Operator::I32RemU | Operator::I32RemS
+        )));
     }
-    let expression = Val::<I64>::from(0x8000_0000_0000_0000_u64).signed().div(-1);
-    let module = Fixture::new().expression(&[], |_| expression);
+    let module = Fixture::new().expression(&[], |_| {
+        Val::<I64>::from(0x8000_0000_0000_0000_u64).signed().div(-1)
+    });
     assert!(operators(module.bytes())
         .iter()
         .any(|op| matches!(op, Operator::I64DivS)));
@@ -141,19 +128,21 @@ fn nonfolding_standalone_constants_form_reusable_native_expressions() {
 
 #[test]
 fn unbound_calculations_compose_through_unary_binary_and_value_selection_owners() {
-    let expression = Val::<I32>::from(7).unsigned().div(0);
-    let mapped = expression
-        .signed()
-        .extend::<I64>()
-        .truncate::<I32>()
-        .popcnt();
-    let combined = mapped.add(&expression).shl(1).rotl(3);
-    let condition = combined.eq(1);
-    let result = condition.select(expression.sub(1), combined);
+    fn expression() -> Val<I32> {
+        let expression = Val::<I32>::from(7).unsigned().div(0);
+        let mapped = expression
+            .signed()
+            .extend::<I64>()
+            .truncate::<I32>()
+            .popcnt();
+        let combined = mapped.add(&expression).shl(1).rotl(3);
+        let condition = combined.eq(1);
+        condition.select(expression.sub(1), combined)
+    }
     let mut bytes = None;
     for _ in 0..2 {
-        let result = result.clone();
         let module = Fixture::new().function(&[], &[Type::I32], move |body| {
+            let result = expression();
             let first = body.value(&result)?;
             assert!(first.same_expression(&body.value(&result)?));
             body.return_(first)
@@ -171,6 +160,7 @@ fn unbound_calculations_compose_through_unary_binary_and_value_selection_owners(
     // Admitting an unbound calculation still checks every already-bound operand.
     let module = Fixture::new().function(&[Type::I32], &[Type::I32], move |body| {
         let parameter = body.parameter::<I32>(0)?;
+        let expression = Val::<I32>::from(7).unsigned().div(0);
         let result = expression.add(&parameter).mul(0);
         let chosen = Val::<I1>::from(false).select(&expression, parameter);
         body.return_(result.add(chosen))

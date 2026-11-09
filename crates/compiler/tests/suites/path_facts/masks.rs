@@ -3,9 +3,12 @@
 use super::*;
 use relocade_compiler::{IntType, Val, I16, I64};
 
-fn check_cancellation<T: IntType>(mask: impl Into<Val<T>>, cases: &[(Value, Value)]) {
-    let mask = mask.into();
+fn check_cancellation<T: IntType>(
+    mask: impl Into<Val<T>> + Send + 'static,
+    cases: &[(Value, Value)],
+) {
     let module = Fixture::new().function(&[T::TYPE, Type::I1], &[T::TYPE], move |mut body| {
+        let mask = mask.into();
         let input = body.parameter::<T>(0)?;
         let enabled = body.parameter::<I1>(1)?;
         let decremented = enabled.select(input.add(&mask).and(&mask), 0);

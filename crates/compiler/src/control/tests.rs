@@ -90,17 +90,15 @@ fn completing_a_child_keeps_parent_values_open_until_the_function_completes() {
     });
     let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
     let capture = retained.clone();
-    program
-        .define(function, move |mut body| {
-            let value = body.value::<I32>(7).unwrap();
-            body.if_(false, |branch| branch.return_(&value)).unwrap();
-            let result = value.add(1);
-            *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
-            body.return_(&result)
-        })
-        .unwrap();
-    program.export("run", function).unwrap();
-    program.compile().unwrap();
+    crate::function::tests::build_body(program, function, move |mut body| {
+        let value = body.value::<I32>(7).unwrap();
+        body.if_(false, |branch| branch.return_(&value)).unwrap();
+        let result = value.add(1);
+        *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
+        body.return_(&result)
+    })
+    .unwrap();
+
     let (result, arena) = retained.borrow_mut().take().unwrap();
     assert_eq!(
         result.checked_expression(&arena, 0),
@@ -169,35 +167,33 @@ fn yielding_a_nested_join_exposes_only_the_new_parent_result() {
     });
     let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
     let capture = retained.clone();
-    program
-        .define(function, move |mut body| {
-            let mut escaped = None;
-            let selected = body
-                .if_value::<I32>(
-                    true,
-                    |mut arm| {
-                        let nested = arm.if_value::<I32>(
-                            false,
-                            |inner| inner.yield_(1),
-                            |inner| inner.yield_(2),
-                        )?;
-                        escaped = Some(nested.clone());
-                        arm.yield_(nested)
-                    },
-                    |arm| arm.yield_(3),
-                )
-                .unwrap();
-            let escaped = escaped.unwrap();
-            for value in [escaped.add(1), escaped.and(0).add(1)] {
-                assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
-            }
-            let result = selected.add(1);
-            *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
-            body.return_(&result)
-        })
-        .unwrap();
-    program.export("run", function).unwrap();
-    program.compile().unwrap();
+    crate::function::tests::build_body(program, function, move |mut body| {
+        let mut escaped = None;
+        let selected = body
+            .if_value::<I32>(
+                true,
+                |mut arm| {
+                    let nested = arm.if_value::<I32>(
+                        false,
+                        |inner| inner.yield_(1),
+                        |inner| inner.yield_(2),
+                    )?;
+                    escaped = Some(nested.clone());
+                    arm.yield_(nested)
+                },
+                |arm| arm.yield_(3),
+            )
+            .unwrap();
+        let escaped = escaped.unwrap();
+        for value in [escaped.add(1), escaped.and(0).add(1)] {
+            assert_eq!(body.value(value).err(), Some(BuildError::OutOfScope));
+        }
+        let result = selected.add(1);
+        *capture.borrow_mut() = Some((result.clone(), body.arena.clone()));
+        body.return_(&result)
+    })
+    .unwrap();
+
     let (result, arena) = retained.borrow_mut().take().unwrap();
     assert_eq!(
         result.checked_expression(&arena, 0),

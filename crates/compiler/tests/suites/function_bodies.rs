@@ -1,6 +1,8 @@
 use crate::fixture::signature;
 use relocade_compiler::{BuildError, Program, Type, Val, I1, I32, I8};
-use std::{cell::RefCell, rc::Rc};
+thread_local! {
+    static RETAINED: std::cell::RefCell<Option<Val<I32>>> = const { std::cell::RefCell::new(None) };
+}
 
 #[test]
 fn a_reachable_function_must_complete_its_body() {
@@ -12,11 +14,9 @@ fn a_reachable_function_must_complete_its_body() {
 
 fn retained_value(fail: bool, value: u32) -> Val<I32> {
     let mut program = Program::new();
-    let retained = Rc::new(RefCell::new(None));
-    let capture = retained.clone();
     let function = program.function::<fn() -> u32>(move |body, ()| {
         let value = body.value::<I32>(value)?;
-        *capture.borrow_mut() = Some(value.clone());
+        RETAINED.with_borrow_mut(|slot| *slot = Some(value.clone()));
         if fail {
             Ok(())
         } else {
@@ -29,16 +29,15 @@ fn retained_value(fail: bool, value: u32) -> Val<I32> {
     } else {
         program.compile().unwrap();
     }
-    let value = retained.borrow_mut().take().unwrap();
-    value
+    RETAINED.with_borrow_mut(|slot| slot.take().unwrap())
 }
 
 #[test]
 fn values_from_completed_or_failed_bodies_are_rejected_by_another_builder() {
     for fail in [false, true] {
-        let retained = retained_value(fail, 7);
         let mut program = Program::new();
-        let function = program.function::<fn() -> u32>(move |body, ()| body.return_(retained));
+        let function =
+            program.function::<fn() -> u32>(move |body, ()| body.return_(retained_value(fail, 7)));
         program.export("run", function).unwrap();
         assert_eq!(program.compile(), Err(BuildError::ForeignBody));
     }
@@ -46,9 +45,9 @@ fn values_from_completed_or_failed_bodies_are_rejected_by_another_builder() {
 
 #[test]
 fn foreign_zero_is_rejected_without_poisoning_other_expressions() {
-    let foreign_zero = retained_value(false, 0);
     let mut program = Program::new();
     let function = program.function::<fn(u32) -> u32>(move |body, (own,)| {
+        let foreign_zero = retained_value(false, 0);
         let folded = Val::<I32>::from(0).and(&foreign_zero);
         assert_eq!(body.value(folded).err(), Some(BuildError::ForeignBody));
         assert_eq!(

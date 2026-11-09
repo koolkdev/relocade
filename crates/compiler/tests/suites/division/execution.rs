@@ -149,19 +149,21 @@ fn signed_minimum_remainder_over_minus_one_is_zero_at_both_native_widths() {
     }
     for (value, expected) in [
         (
-            Val::<I32>::from(i32::MIN)
-                .signed()
-                .rem(-1)
-                .unsigned()
-                .extend::<I64>(),
+            (|| {
+                Val::<I32>::from(i32::MIN)
+                    .signed()
+                    .rem(-1)
+                    .unsigned()
+                    .extend::<I64>()
+            }) as fn() -> Val<I64>,
             0_i64,
         ),
         (
-            Val::<I64>::from(0x8000_0000_0000_0000_u64).signed().rem(-1),
+            || Val::<I64>::from(0x8000_0000_0000_0000_u64).signed().rem(-1),
             0,
         ),
     ] {
-        let module = Fixture::new().expression(&[], |_| value);
+        let module = Fixture::new().expression(&[], move |_| value());
         assert_eq!(module.instantiate().call::<i64>(()).unwrap(), expected);
         assert!(!operators(module.bytes())
             .iter()
@@ -169,14 +171,14 @@ fn signed_minimum_remainder_over_minus_one_is_zero_at_both_native_widths() {
     }
 }
 
-fn checked_signed<T: IntType>(minimum: Val<T>) -> TestModule {
+fn checked_signed<T: IntType>(minimum: impl Into<Val<T>> + Send + 'static) -> TestModule {
     Fixture::new().function(
         &[T::TYPE; 2],
         &[Type::I1, T::TYPE, T::TYPE],
         move |mut body| {
             let left = body.parameter::<T>(0)?;
             let right = body.parameter::<T>(1)?;
-            let invalid = right.eq(0).or(left.eq(&minimum).and(right.eq(-1)));
+            let invalid = right.eq(0).or(left.eq(minimum.into()).and(right.eq(-1)));
             body.if_(invalid, |arm| {
                 arm.return_((true, Val::<T>::from(0), Val::<T>::from(0)))
             })?;
@@ -202,8 +204,8 @@ const CHECKED_CASES: &[(i32, i32, bool, i32, i32)] = &[
 
 #[test]
 fn caller_checks_precede_shared_quotient_consumers_and_remainder() {
-    fn check<T: IntType>(minimum: Val<T>, minimum_bits: u64) {
-        let module = checked_signed(minimum);
+    fn check<T: IntType>(minimum: impl Into<Val<T>> + Send + 'static, minimum_bits: u64) {
+        let module = checked_signed::<T>(minimum);
         let mut instance = module.instantiate();
         for &(left, right, rejected, quotient, remainder) in CHECKED_CASES {
             assert_eq!(
@@ -230,6 +232,6 @@ fn caller_checks_precede_shared_quotient_consumers_and_remainder() {
             [Value::I32(1), input::<T>(0), input::<T>(0)]
         );
     }
-    check::<I32>(i32::MIN.into(), 0x8000_0000);
-    check::<I64>(0x8000_0000_0000_0000_u64.into(), 0x8000_0000_0000_0000);
+    check::<I32>(i32::MIN, 0x8000_0000);
+    check::<I64>(0x8000_0000_0000_0000_u64, 0x8000_0000_0000_0000);
 }

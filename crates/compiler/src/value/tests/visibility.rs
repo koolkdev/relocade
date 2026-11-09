@@ -301,10 +301,12 @@ fn constant_selection_still_checks_unused_operand_ownership_and_scope() {
         parameters: vec![],
         results: vec![Type::I32],
     });
-    let foreign =
-        crate::function::tests::capture_from_body(|discarded| discarded.value::<I32>(9).unwrap());
     program
         .define(function, move |mut body| {
+            let foreign = crate::function::tests::capture_from_body(|discarded| {
+                discarded.value::<I32>(9).unwrap()
+            });
+
             assert_eq!(
                 Val::<I1>::from(true)
                     .select(body.value::<I32>(7)?, &foreign)

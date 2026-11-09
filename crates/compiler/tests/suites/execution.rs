@@ -53,14 +53,13 @@ fn constant_additions_wrap_at_the_carrier_width() {
 }
 
 #[test]
-fn standalone_expressions_can_be_reused_in_different_function_bodies() {
-    let seven = Val::<I32>::from(5).add(2);
-    let copy = seven.clone();
-    let constant = Fixture::new().expression(&[], move |_| copy);
+fn standalone_expression_factories_can_be_reused_in_different_function_bodies() {
+    let seven = || Val::<I32>::from(5).add(2);
+    let constant = Fixture::new().expression(&[], move |_| seven());
     assert_eq!(constant.instantiate().call::<i32>(()).unwrap(), 7);
 
     let difference = Fixture::new().expression(&[Type::I32], move |body| {
-        seven.sub(body.parameter::<I32>(0).unwrap())
+        seven().sub(body.parameter::<I32>(0).unwrap())
     });
     let mut instance = difference.instantiate();
     for (input, expected) in [(3, 4), (-2, 9), (i32::MIN, -2147483641)] {
