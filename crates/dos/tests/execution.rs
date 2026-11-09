@@ -16,11 +16,11 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
             assert_eq!(dos.run(runner).await, Ok(7));
             assert_eq!(dos.cpu().context().cpu.instruction_count(), count);
 
-            dos.launch_com(&[0xb4, 0xfe, 0xcd, 0x21], Default::default())
+            dos.launch_com(&[0xb4, 0x2a, 0xcd, 0x21], Default::default())
                 .unwrap();
             assert_eq!(
                 dos.run(runner).await,
-                Err(RunError::Service(ServiceError::UnsupportedFunction(0xfe)))
+                Err(RunError::Service(ServiceError::UnsupportedFunction(0x2a)))
             );
             // MOV AX,[10000] reports an undelivered segment-limit fault.
             dos.launch_com(&[0x67, 0xa1, 0, 0, 1, 0], Default::default())

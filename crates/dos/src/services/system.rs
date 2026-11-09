@@ -1,9 +1,18 @@
-//! DOS version, resident data and interrupt-vector services.
+//! DOS environment queries, interrupt vectors and unavailable raw-disk access.
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, read_vector, write_vector},
-    FarPointer, MemoryView,
+    CpuStateAccess, FarPointer, MemoryView,
 };
+
+const INVALID_DISK_UNIT: u16 = 0x0201;
+
+#[interrupt(context(cpu), returns { () => { ax = INVALID_DISK_UNIT } })]
+pub(crate) fn absolute_disk_unavailable(cpu: &CpuStateAccess) {
+    // This interface returns through RETF, leaving the saved FLAGS untouched.
+    cpu.set_carry(true);
+    cpu.set_interrupts_enabled(true);
+}
 
 #[interrupt(returns { address => { ptr(es, bx) = address } })]
 pub(super) fn indos() -> FarPointer {

@@ -17,6 +17,10 @@
 //! therefore report absence. A guest resident service can replace either vector
 //! and chain unclaimed calls to its saved target. No driver entry point or
 //! installed signature is advertised by the empty chain.
+//! INT 25h/26h report unavailable raw-volume access (AX=0201h, carry set,
+//! interrupts enabled). Their far return leaves the original FLAGS word on the
+//! guest stack; the caller must discard it. Mounted filesystems expose files,
+//! not raw sectors, so these calls do not transfer data.
 //! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. PIT channel 0 raises
 //! IRQ0 about 18.2 times per second by default; guest programming can change its
 //! rate. The BIOS handler advances the clock on each delivered interrupt.
@@ -97,6 +101,11 @@
 //! INT 21h calls, including suspended input and nested services, and returns to
 //! zero when those calls complete or are abandoned. Its address survives loads.
 //! AH=71h reports long-filename services unavailable, allowing 8.3 fallback.
+//! DOS 5 null functions AH=18h/1Dh/1Eh/20h/61h/6Bh return AL=0 without changing
+//! FLAGS. Unknown functions above AH=6Ch do the same before DOS entry, except
+//! AH=71h retains its explicit unavailable response. Known DOS services that
+//! are not implemented still report [`ServiceError::UnsupportedFunction`] to
+//! the host; their different return conventions need individual implementations.
 //! AH=42h seeks within those files relative to their start, current position or end.
 //! AH=43h queries or changes read-only, hidden, system and archive attributes.
 //! Closing a written file handle restores the archive attribute.

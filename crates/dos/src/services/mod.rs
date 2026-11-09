@@ -13,6 +13,7 @@ mod ioctl;
 mod memory;
 mod search;
 mod system;
+pub(crate) use system::absolute_disk_unavailable_entry;
 
 use crate::{process::Process, state::DosState, ServiceError};
 

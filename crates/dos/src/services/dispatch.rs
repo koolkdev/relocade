@@ -9,6 +9,19 @@ use relocade_machine::{
 
 #[interrupt(context(call))]
 pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
+    // Conventional DOS 5 ends at AH=6Ch. Unknown calls return before entering
+    // DOS or checking BREAK; AH=71h retains its explicit LFN-unavailable result.
+    interrupt_dispatch!(
+        call,
+        match call.cpu.ah() {
+            0x00..=0x6c | 0x71 => dispatch_function(services),
+            _ => null_function,
+        }
+    );
+}
+
+#[interrupt(context(call))]
+async fn dispatch_function(call: &mut CpuContext<'_>, services: &Services<'_>) {
     let mut request = control::Request::enter(call, services).await;
     interrupt_dispatch!(
         call,
@@ -23,6 +36,7 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
             0x0b => console::input_status(&mut request),
             0x0c => console::flush_input(&mut request),
             0x0e => directories::select_drive(services),
+            0x18 | 0x1d | 0x1e | 0x20 | 0x61 | 0x6b => null_function,
             0x19 => directories::get_drive(services),
             0x1a => search::set_dta(services),
             0x25 => system::set_vector,
@@ -62,6 +76,9 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
         }
     );
 }
+
+#[interrupt(returns { () => { al = 0u8 } })]
+fn null_function() {}
 
 #[interrupt(context(call), args(code = al))]
 fn terminate_process(call: &mut CpuContext<'_>, services: &Services<'_>, code: u8) {
