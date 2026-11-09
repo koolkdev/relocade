@@ -10,7 +10,7 @@ fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> wasmtime::Module {
         backend
             .module_cache()
             .unwrap()
-            .get_or_compile(bytes, |bytes| compiler.compile(bytes)),
+            .get_or_compile(bytes, || compiler.compile(bytes)),
     )
     .unwrap()
 }

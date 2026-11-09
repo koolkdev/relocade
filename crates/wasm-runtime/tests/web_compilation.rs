@@ -20,7 +20,7 @@ async fn cached<T: 'static>(
     backend
         .module_cache()
         .unwrap()
-        .get_or_compile(bytes, |bytes| compiler.compile(bytes))
+        .get_or_compile(bytes, || compiler.compile(bytes))
         .await
         .unwrap()
 }
@@ -42,12 +42,12 @@ async fn concurrent_requests_share_pending_compilation() {
     let backend = Backend::new().unwrap();
     let compiler = backend.compiler();
     let cache = relocade_wasm_runtime::ModuleCache::default();
-    let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| compiler.compile(bytes)));
+    let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, || compiler.compile(EMPTY_MODULE)));
     assert!(first
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_pending());
-    let mut second = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| compiler.compile(bytes)));
+    let mut second = pin!(cache.get_or_compile(EMPTY_MODULE, || compiler.compile(EMPTY_MODULE)));
     assert!(second
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))

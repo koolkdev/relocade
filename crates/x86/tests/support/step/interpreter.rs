@@ -43,7 +43,12 @@ impl TestModule {
         static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
             let module = CODE.get(target.profile, || {
-                Arc::new(Module::new(relocade_interpreter::module(target.profile)))
+                let bytes = pollster::block_on(relocade_interpreter::load_or_generate(
+                    target.profile,
+                    || async { crate::build_interpreter(target.profile)?.compile() },
+                ))
+                .unwrap();
+                Arc::new(Module::new(&bytes))
             });
             Self {
                 module: Arc::clone(module),

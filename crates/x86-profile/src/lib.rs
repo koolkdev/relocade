@@ -1,4 +1,4 @@
-//! Execution profiles shared by x86 code generation and embedded interpreter modules.
+//! Execution profiles shared by x86 code generation and cached interpreter modules.
 //! These values describe execution assumptions without depending on a compiler.
 
 #![forbid(unsafe_code)]

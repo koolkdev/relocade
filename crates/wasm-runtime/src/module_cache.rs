@@ -1,22 +1,16 @@
-use crate::Result;
 use futures_util::lock::Mutex;
 use std::{collections::HashMap, future::Future, sync::Arc};
 
 type ModuleSlot<M> = Arc<Mutex<Option<M>>>;
 
-/// Compiled modules retained for a fixed set of embedded assets.
+/// Compiled modules retained by their caller's artifact identity.
 ///
-/// The owner establishes engine compatibility; callers choose which assets to
-/// retain. Entries live as long as the cache. Asset identity avoids hashing the
-/// entire Wasm input on each lookup.
+/// The owner establishes engine compatibility. Keys must identify every input
+/// to generation, including the generator revision and configuration. This lets
+/// callers look up a module before generating or reading its Wasm bytes.
+/// Entries live as long as the cache.
 pub struct ModuleCache<M> {
-    modules: Mutex<HashMap<AssetId, ModuleSlot<M>>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct AssetId {
-    address: usize,
-    length: usize,
+    modules: Mutex<HashMap<Vec<u8>, ModuleSlot<M>>>,
 }
 
 impl<M> Default for ModuleCache<M> {
@@ -28,37 +22,28 @@ impl<M> Default for ModuleCache<M> {
 }
 
 impl<M: Clone> ModuleCache<M> {
-    /// Reuses this asset's module, compiling it on a miss.
-    ///
-    /// Keys use the static slice's address and length. Equal bytes in separate
-    /// allocations are distinct assets.
+    /// Reuses this artifact's module, generating and compiling it on a miss.
     ///
     /// `compile` must use an engine compatible with every user of this cache.
-    /// Concurrent requests for one asset wait for its compilation; different
-    /// assets can compile independently. Failed or cancelled requests allow retry.
-    pub async fn get_or_compile<F>(
+    /// Concurrent requests for one key wait for its compilation; different keys
+    /// can compile independently. Failed or cancelled requests allow retry.
+    pub async fn get_or_compile<E, F>(
         &self,
-        bytes: &'static [u8],
-        compile: impl FnOnce(&'static [u8]) -> F,
-    ) -> Result<M>
+        key: &[u8],
+        compile: impl FnOnce() -> F,
+    ) -> Result<M, E>
     where
-        F: Future<Output = Result<M>>,
+        F: Future<Output = Result<M, E>>,
     {
         let slot = {
             let mut modules = self.modules.lock().await;
-            modules
-                .entry(AssetId {
-                    address: bytes.as_ptr() as usize,
-                    length: bytes.len(),
-                })
-                .or_default()
-                .clone()
+            modules.entry(key.to_vec()).or_default().clone()
         };
         let mut module = slot.lock().await;
         if let Some(module) = module.as_ref() {
             return Ok(module.clone());
         }
-        let compiled = compile(bytes).await?;
+        let compiled = compile().await?;
         *module = Some(compiled.clone());
         Ok(compiled)
     }

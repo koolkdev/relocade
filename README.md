@@ -23,7 +23,8 @@ the crates are not published.
 | [relocade-frontend](crates/frontend/README.md) | Shared winit input and wgpu display contracts for application integration. |
 | [relocade-app](crates/app/README.md) | Main-thread winit application startup on native platforms and the browser. |
 | [relocade-x86](crates/x86/src/lib.rs) | x86 decoding, shared semantics, CPU state and generated execution entries. |
-| [relocade-interpreter](crates/interpreter/src/lib.rs) | Build-generated interpreter Wasm shared by native and web runtimes. |
+| [relocade-cache](crates/cache/src/lib.rs) | Persistent byte artifacts with native and browser storage. Callers define keys and formats. |
+| [relocade-interpreter](crates/interpreter/src/lib.rs) | Versioned interpreter Wasm generated on demand and cached on native and web runtimes. |
 | [relocade-compiler](crates/compiler/src/lib.rs) | Guest-independent typed expressions and structured control lowered to Wasm. |
 | [relocade-wasm-runtime](crates/wasm-runtime/src/lib.rs) | Native and browser Wasm compilation, linking, memory and host bindings. |
 | [relocade-workers](crates/workers/src/lib.rs) | Native and browser workers, resource transfer and pools using caller-supplied threads. |
@@ -61,15 +62,50 @@ CPU/device runner, execution ownership and input delivery for an interactive emb
 
 ## Build and test
 
-Cargo generates four interpreter modules on the build host, one for each execution
-profile. Function placement and emission share a worker pool bounded by available
-Cargo jobserver slots and host parallelism; construction remains serial. Each
-module exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
-web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it. The asset crate's
-only runtime dependency is `relocade-x86-profile`, which owns the shared profile
-types; code generation and compiler workers are build dependencies.
+`Cpu::new` prepares only the requested interpreter profile. The module exports
+both `step` and `run`; CPU features remain live execution-context inputs. Generated
+Wasm is cached in the user's platform cache directory under `relocade/artifacts`
+on native targets and in origin-scoped CacheStorage in browsers. The cache key
+includes the execution profile and a fingerprint of the generator, ABI sources,
+manifests and dependency lockfile, including uncommitted source changes. Cargo's
+build script computes this fingerprint without generating interpreter Wasm.
+
+A missing, unavailable or damaged native cache regenerates the artifact. Failed
+writes do not prevent startup, and generation failures remain visible to the
+caller. Native Wasmtime compilation continues to use its own disk cache. Cache
+entries are disposable; automatic eviction of old interpreter revisions is not
+currently provided.
+
+`relocade-cache::ArtifactCache` owns the reusable storage and read-through policy:
+
+```rust
+let cache = relocade_cache::ArtifactCache::open().await;
+let bytes = cache.load_or_generate(&artifact_key, generate).await?;
+```
+
+Keys are opaque strings shared across consumers: include a consumer namespace,
+format/generator version and every generation input. Artifact bytes can contain
+Wasm plus serialized metadata; the consumer owns that format. The interpreter
+layer defines its revision/profile keys and uses this common cache. Future JIT
+artifacts can use the same storage while keeping snapshot identity, entry metadata
+and runtime validity with their execution owner. JIT persistence is not enabled yet.
+Concurrent misses may generate independently; in-memory coordination of compiled
+Wasm modules remains in `relocade-wasm-runtime::ModuleCache`.
+
+Default CPU preparation generates a missing artifact on its calling thread.
+Embeddings that own compilation workers can prepare the persistent artifact first:
+
+```rust
+let bytes = relocade_interpreter::load_or_generate(profile, || async {
+    relocade_x86::build_interpreter(profile)?
+        .compile_with(&executor)
+        .await
+}).await?;
+```
+
+The callback chooses execution resources and only runs on a cache miss. Retain and
+drain the worker pool independently of cancellable CPU startup. The interpreter
+cache itself does not own compiler workers or an engine.
 
 `relocade_x86::build_interpreter(profile)` constructs a `Program` containing both
 entry exports. The caller compiles that program once and selects an export when
@@ -93,7 +129,7 @@ available without an executor.
 
 `backend.compiler()` returns an independent `WasmCompiler` handle. Its
 `compile(bytes)` method compiles any module without borrowing the backend's live
-instances or host state. Cpu startup retains only the four interpreter assets
+instances or host state. CPU startup retains interpreter modules by their versioned profile keys
 in a shared `ModuleCache`, using that same compilation method on a cache miss.
 Dispatcher and guest modules go directly to `compile`.
 Backends provide optional cache storage through `module_cache()` and share it only
