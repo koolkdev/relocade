@@ -17,6 +17,7 @@ use std::future::Future;
 mod cancellable;
 mod channel;
 mod executor;
+mod host_turn;
 pub mod oneshot;
 mod pool;
 mod resource;

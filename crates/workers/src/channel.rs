@@ -1,12 +1,9 @@
 //! Repeated delivery using the same resource definition as worker task transfers.
 
-use crate::{ResourceTransfer, WorkerResource};
+use crate::{host_turn::HostTurns, Executor, ResourceTransfer, WakeTarget, WorkerResource};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
-use std::{
-    fmt,
-    task::{ready, Context, Poll},
-};
+use std::{fmt, future::poll_fn, rc::Rc};
 
 #[cfg_attr(not(target_arch = "wasm32"), path = "channel/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "channel/web.rs")]
@@ -51,11 +48,12 @@ pub struct Receiver<R: WorkerResource> {
     posted: platform::Receiver<R::Posted>,
     rebuild: mpsc::UnboundedReceiver<Rebuild<R>>,
     pending: Option<Rebuild<R>>,
+    host: Option<Rc<HostTurns>>,
 }
 
 /// Creates a resource sender and a transferable receiver endpoint. Bind the
-/// receiver on its final owner. Browser receipt needs an event-loop turn;
-/// this transport does not choose when an execution worker yields to its host.
+/// receiver on its final owner. Use `bind_on` on a busy worker to let its executor
+/// schedule host turns when a posted resource is awaiting browser delivery.
 pub fn channel<R: WorkerResource>() -> Result<(Sender<R>, ReceiverEndpoint<R>), ResourceError> {
     let (sender, receiver) = platform::channel()?;
     let (rebuild, incoming) = mpsc::unbounded();
@@ -93,7 +91,18 @@ impl<R: WorkerResource> ReceiverEndpoint<R> {
             posted: self.posted.bind(),
             rebuild: self.rebuild,
             pending: None,
+            host: None,
         }
+    }
+
+    /// Binds receipt to a worker's executor once. Subsequent `recv` calls arrange
+    /// host turns only after posting, without a separate readiness protocol.
+    /// Poll receipt inside this executor's root future and keep its host timer
+    /// service alive until the receiver is dropped.
+    pub fn bind_on<T: WakeTarget>(self, executor: &Executor<T>) -> Receiver<R> {
+        let mut receiver = self.bind();
+        receiver.host = Some(executor.host_turns.clone());
+        receiver
     }
 }
 
@@ -102,19 +111,16 @@ impl<R: WorkerResource> Receiver<R> {
     /// objects, including payloads still awaiting browser delivery. Abrupt browser
     /// worker termination does not guarantee Rust cleanup or a close notification.
     pub async fn recv(&mut self) -> Option<Result<R, ResourceError>> {
-        std::future::poll_fn(|cx| self.poll_recv(cx)).await
-    }
-
-    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<R, ResourceError>>> {
         if self.pending.is_none() {
-            let Some(rebuild) = ready!(self.rebuild.poll_next_unpin(cx)) else {
-                return Poll::Ready(None);
-            };
-            self.pending = Some(rebuild);
+            self.pending = Some(self.rebuild.next().await?);
         }
-        let posted = ready!(self.posted.poll_recv(cx));
+        let incoming = poll_fn(|cx| self.posted.poll_recv(cx));
+        let posted = match &self.host {
+            Some(host) => host.receive(incoming).await,
+            None => incoming.await,
+        };
         let rebuild = self.pending.take().expect("pending reconstruction");
-        Poll::Ready(Some(posted.map(rebuild)))
+        Some(posted.map(rebuild))
     }
 }
 

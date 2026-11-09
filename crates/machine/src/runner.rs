@@ -1,6 +1,7 @@
 //! CPU execution and registered device activities on one owner.
 
 mod guest_time;
+mod host;
 mod schedule;
 pub use guest_time::GuestTimeConfig;
 mod worker;
@@ -52,16 +53,40 @@ impl Runner {
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Self {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), storage, endpoint)
+        Self::with_schedule(
+            ExecutionSchedule::from_clock(clock),
+            storage,
+            endpoint,
+            None,
+        )
+    }
+
+    pub(super) fn with_host_timers(
+        timers: crate::TimerHandle,
+        storage: CpuStorage,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Self {
+        let clock = timers.clock();
+        Self::with_schedule(
+            ExecutionSchedule::from_clock(clock.clone()),
+            storage,
+            endpoint,
+            Some(clock),
+        )
     }
 
     fn with_schedule(
         schedule: ExecutionSchedule,
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
+        host_clock: Option<Clock>,
     ) -> Self {
         let (activities, pending) = mpsc::unbounded();
-        let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
+        let mut executor = Executor::new(endpoint.bind(storage.interrupt_handle()));
+        if let Some(clock) = host_clock {
+            executor = executor.with_host_timer(move |delay| clock.sleep(delay));
+        }
+        let executor = Rc::new(executor);
         Self {
             schedule,
             activities,
@@ -90,6 +115,15 @@ impl Runner {
 
     pub fn clock(&self) -> &Clock {
         self.schedule.clock()
+    }
+
+    /// Creates a compiler connection with receipt bound to this execution owner.
+    /// Transfer the connection to its host and attach it to a `CompilerWorker`;
+    /// the returned client can then await compilation directly.
+    pub fn compiler_connection(
+        &self,
+    ) -> Result<(crate::CompilerClient, crate::CompilerConnection)> {
+        crate::compiler::channel(|endpoint| self.bind_resource(endpoint))
     }
 
     /// Post this resource to another worker and retain its `bind()` guard there
@@ -191,10 +225,12 @@ impl Runner {
         storage: CpuStorage,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Self {
+        let host_clock = config.host_clock.clone();
         Self::with_schedule(
             ExecutionSchedule::with_guest_time(config),
             storage,
             endpoint,
+            host_clock,
         )
     }
 }

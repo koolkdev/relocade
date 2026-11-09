@@ -122,14 +122,17 @@ including payloads still awaiting browser delivery. Abrupt browser worker
 termination cannot promise Rust cleanup or orderly closure. Await accepted tasks
 before releasing their workers.
 
+Requests use Rust channels. Resource receipt itself observes when the sender
+has posted the engine object; services need no additional readiness message.
+On a busy worker, bind the endpoint once with `endpoint.bind_on(&executor)`.
+Its ordinary `recv().await` then arranges host turns only while a posted object
+is missing. `Executor::with_host_timer` accepts an independent host timer and
+defers those turns by one millisecond. Without that timer the executor yields
+immediately. Ordinary async owners can continue to use `bind()`.
+
 `Result<R, E>` is a worker resource when `R` is one and `E` is sendable. Only the
 success payload or error variant marker is posted; error data stays in Rust.
 Success and failure therefore occupy the same ordered channel.
-
-Requests and readiness notifications can continue to use Rust channels.
-Receiving a posted resource still needs a browser event-loop turn. A Rust
-readiness notification can interrupt guest execution, but cannot itself deliver
-the engine handle. Resource transport does not choose execution scheduling.
 
 For a one-time handoff to an existing session, `worker::oneshot::channel` creates
 an ordinary Rust sender and endpoint. The endpoint can be captured in a `Send`
@@ -149,10 +152,11 @@ receive.await??;
 before releasing the thread. `CancellableWorker::send_resource` exposes the same
 operation on an owned worker. The resource stays local after reconstruction;
 only registration and completion notifications travel through Rust channels.
-A failed dispatch also resolves the receive. Busy execution can first await
-`receiver.posted()` through Rust, then apply its host-turn policy while awaiting
-`receiver.receive()`. Receipt includes the posting task's completion so that task
-can finish even when the session stays busy afterward.
+A failed dispatch also resolves the receive. A busy owner binds with
+`endpoint.bind_on(&executor)` and awaits `receive()` directly. Receipt includes
+posting readiness, host delivery and the posting task's completion so that task
+can finish even when the session stays busy afterward. `Runner::receive_resource`
+provides this binding for machine execution.
 
 ## Persistent compilation
 
@@ -185,6 +189,14 @@ runs without polling a host forwarding task or the shutdown future. Connections
 have independent lifetimes, so one compiler can outlive successive execution
 owners. Close clients and await `shutdown` to join every connection, including
 when another task fails.
+
+A busy execution owner creates its client with `runner.compiler_connection()`.
+It sends the returned `CompilerConnection` to the compiler's host once, using the
+same resource channel as other worker objects. The host attaches it with
+`worker.connect(connection)`. From then on the client awaits `compile(ranges)`
+directly; receipt is already bound to execution. `runner.bind_resource(endpoint)`
+and `runner.receive_resource(endpoint)` provide the same policy for other
+repeated and one-time resources.
 
 The worker reads mapped RAM/ROM locally; MMIO, unmapped ranges and overflowing
 bounds are rejected before allocation. Writes made before a request are visible
