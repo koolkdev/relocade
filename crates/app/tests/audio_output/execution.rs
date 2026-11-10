@@ -102,6 +102,7 @@ fn output_backpressure_interrupts_busy_guest_execution() {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
+#[ignore = "AudioWorklet bugs: https://github.com/koolkdev/relocade/issues/970 and https://github.com/koolkdev/relocade/issues/971"]
 async fn output_backpressure_interrupts_busy_guest_execution() {
     callback_wakes_execution().await;
 }
