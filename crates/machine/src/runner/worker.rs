@@ -3,6 +3,7 @@ use crate::worker::{
     self, wake_connection, CancellableWorker, Receiver, WakeEndpoint, WakeHost, WakePeer,
 };
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
+use futures_channel::oneshot;
 use futures_lite::future::or;
 use std::future::Future;
 
@@ -93,23 +94,9 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = CancellableWorker::spawn(|worker, mut stopped| {
-            let mut input = worker.listen(move |mut input: Receiver<CpuStorage>| async move {
-                let storage = or(
-                    async {
-                        let _ = (&mut stopped).await;
-                        None
-                    },
-                    input.recv(),
-                )
-                .await
-                .transpose()?;
-                drop(input);
-                let result = match storage {
-                    Some(storage) => runner(storage, endpoint).run(stopped, session).await,
-                    None => None,
-                };
-                Ok(result)
+        let worker = CancellableWorker::spawn(|worker, stopped| {
+            let mut input = worker.listen(move |input| {
+                Self::run_session(input, stopped, endpoint, runner, session)
             })?;
             input.send(storage)
         });
@@ -125,5 +112,29 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// Waits for ordinary completion. `None` denotes an explicit stop.
     pub async fn join(self) -> Result<Option<T>, worker::WorkerError> {
         self.worker.join().await
+    }
+
+    async fn run_session(
+        mut input: Receiver<CpuStorage>,
+        mut stopped: oneshot::Receiver<()>,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+        runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner,
+        session: impl AsyncFnOnce(&Runner) -> T,
+    ) -> Result<Option<T>, worker::ChannelError> {
+        let storage = or(
+            async {
+                let _ = (&mut stopped).await;
+                None
+            },
+            input.recv(),
+        )
+        .await
+        .transpose()?;
+        drop(input);
+        let result = match storage {
+            Some(storage) => runner(storage, endpoint).run(stopped, session).await,
+            None => None,
+        };
+        Ok(result)
     }
 }

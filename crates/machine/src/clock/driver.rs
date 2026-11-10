@@ -1,4 +1,4 @@
-use crate::worker::{CancellableWorker, Receiver, Transfer, WakePeer, WakeTarget};
+use crate::worker::{CancellableWorker, ChannelError, Receiver, Transfer, WakePeer, WakeTarget};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -45,26 +45,32 @@ impl HostTimerDriver {
         self,
         peer: WakePeer<R>,
     ) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|worker, mut stopped| {
-            let mut input = worker.listen(move |mut input: Receiver<WakePeer<R>>| async move {
-                let peer = futures_lite::future::or(
-                    async {
-                        let _ = (&mut stopped).await;
-                        None
-                    },
-                    input.recv(),
-                )
-                .await
-                .transpose()?;
-                drop(input);
-                if let Some(peer) = peer {
-                    let _binding = peer.bind();
-                    self.drive(stopped).await;
-                }
-                Ok(())
-            })?;
+        CancellableWorker::spawn(|worker, stopped| {
+            let mut input = worker.listen(move |input| self.drive_with_peer(input, stopped))?;
             input.send(peer)
         })
+    }
+
+    async fn drive_with_peer<R: WakeTarget + Transfer>(
+        self,
+        mut input: Receiver<WakePeer<R>>,
+        mut stopped: oneshot::Receiver<()>,
+    ) -> Result<(), ChannelError> {
+        let peer = futures_lite::future::or(
+            async {
+                let _ = (&mut stopped).await;
+                None
+            },
+            input.recv(),
+        )
+        .await
+        .transpose()?;
+        drop(input);
+        if let Some(peer) = peer {
+            let _binding = peer.bind();
+            self.drive(stopped).await;
+        }
+        Ok(())
     }
 
     async fn drive(mut self, mut stopped: oneshot::Receiver<()>) {

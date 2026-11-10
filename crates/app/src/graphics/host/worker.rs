@@ -1,5 +1,6 @@
 use super::render::{self, DrawOutcome};
 use crate::graphics::{Surface, SurfaceSetup};
+use crate::worker::{ChannelError, Receiver};
 use futures_channel::oneshot;
 use futures_lite::future::{or, race};
 use relocade_frontend::display::DisplayRenderer;
@@ -11,6 +12,33 @@ use std::{
 use winit::dpi::PhysicalSize;
 
 pub(super) async fn run<D: DisplayRenderer>(
+    mut input: Receiver<SurfaceSetup>,
+    stopping: oneshot::Receiver<()>,
+    create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String>,
+    requests: async_channel::Receiver<PhysicalSize<u32>>,
+    notify_redraw_needed: impl Fn(),
+) -> Result<Result<(), String>, ChannelError> {
+    let result = or(
+        async {
+            let _ = stopping.await;
+            Ok(())
+        },
+        async {
+            let setup = input
+                .recv()
+                .await
+                .transpose()
+                .map_err(|error| error.to_string())?
+                .ok_or("graphics input closed before surface setup")?;
+            drop(input);
+            run_display(setup, create, requests, &notify_redraw_needed).await
+        },
+    )
+    .await;
+    Ok(result)
+}
+
+async fn run_display<D: DisplayRenderer>(
     setup: SurfaceSetup,
     create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String>,
     requests: async_channel::Receiver<PhysicalSize<u32>>,

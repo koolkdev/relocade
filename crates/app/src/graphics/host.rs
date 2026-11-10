@@ -2,8 +2,7 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::{CancellableWorker, Receiver};
-use futures_lite::future::or;
+use crate::worker::CancellableWorker;
 use relocade_frontend::display::DisplayRenderer;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -50,25 +49,8 @@ impl Graphics {
             }
         };
         let worker = CancellableWorker::spawn(|worker, stopping| {
-            let mut input = worker.listen(move |mut input: Receiver<SurfaceSetup>| async move {
-                Ok(or(
-                    async {
-                        let _ = stopping.await;
-                        Ok(())
-                    },
-                    async {
-                        let setup = input
-                            .recv()
-                            .await
-                            .transpose()
-                            .map_err(|error| error.to_string())?
-                            .ok_or("graphics input closed before surface setup")?;
-                        drop(input);
-                        worker::run(setup, create, requests, &notify).await
-                    },
-                )
-                .await)
-            })?;
+            let mut input = worker
+                .listen(move |input| worker::run(input, stopping, create, requests, notify))?;
             input.send(setup)
         });
         Self {
