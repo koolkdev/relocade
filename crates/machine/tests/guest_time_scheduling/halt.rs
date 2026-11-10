@@ -7,8 +7,8 @@ mod interrupts;
 
 struct TimerIrq {
     clock: Clock,
-    deadline: Instant,
-    observed: Option<Instant>,
+    deadline: Timestamp,
+    observed: Option<Timestamp>,
     irq: interrupts::Irq,
 }
 
@@ -31,12 +31,13 @@ impl Device for TimerIrq {
 
 async fn paced_halt() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_time = host.clone();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
         async move |runner| {
-            let start = runner.clock().now();
-            let deadline = start + Duration::from_millis(10);
+            let clock = runner.clock().clone();
+            let start = clock.now();
+            let deadline = clock.add(start, Duration::from_millis(10));
             let device = Rc::new(RefCell::new(TimerIrq {
                 clock: runner.clock().clone(),
                 deadline,
@@ -61,13 +62,16 @@ async fn paced_halt() {
             assert_eq!(device.borrow().irq.acknowledged, 1);
             assert_eq!(cpu.memory().view().read_u16(0x7ffa).unwrap(), 0x102);
             assert_eq!(state.instruction_count(), 3); // STI; HLT; IRET.
-            assert_eq!(runner.clock().now(), start + Duration::from_millis(11));
+            assert_eq!(
+                runner.clock().now(),
+                clock.add(start, Duration::from_millis(11))
+            );
         },
     );
     // The halted CPU advances idle guest time through the existing paced slices.
     // No instructions retire while it waits for the timer IRQ at guest 10 ms.
     for millis in [4, 8] {
-        let boundary = host_start + Duration::from_millis(millis);
+        let boundary = host_time.at(Duration::from_millis(millis));
         assert_eq!(armed.next().await, Some(boundary));
         host.advance_to(boundary);
     }

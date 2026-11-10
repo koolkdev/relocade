@@ -4,7 +4,7 @@ mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver, Instant};
+use crate::{Clock, Cpu, GuestTimeDriver};
 use relocade_x86::ExecutionExit;
 use std::task::{ready, Context, Poll, Waker};
 
@@ -24,7 +24,7 @@ impl ExecutionSchedule {
     }
 
     pub(super) fn with_guest_time(config: GuestTimeConfig) -> Self {
-        let mut driver = GuestTimeDriver::new(Instant::now(), config.instructions_per_second);
+        let mut driver = GuestTimeDriver::new(config.instructions_per_second);
         let slice = config.slice_duration.map(|duration| {
             ExecutionSlice::new(&driver.clock(), duration, config.host_clock.is_some())
         });

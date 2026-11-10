@@ -1,6 +1,6 @@
 //! Integrates timestamped speaker changes into complete PCM sample intervals.
 
-use relocade_machine::{Clock, Instant};
+use relocade_machine::{Clock, Timestamp};
 use relocade_pit::{Channel2State, INPUT_HZ};
 use std::{collections::VecDeque, time::Duration};
 
@@ -14,7 +14,7 @@ impl Signal {
     /// phase, so interval conversion loses no native fractions between samples.
     /// High time in billionths of one PIT input clock. Advancing while muted
     /// preserves phase; only the audible contribution becomes zero.
-    fn advance_to(&mut self, clock: &Clock, end: Instant) -> u128 {
+    fn advance_to(&mut self, clock: &Clock, end: Timestamp) -> u128 {
         let span = clock.duration_since(end, self.state.at).as_nanos() * u128::from(INPUT_HZ)
             + u128::from(self.state.fraction);
         let before = u128::from(self.state.counter.output());
@@ -36,7 +36,7 @@ impl Signal {
 pub(super) struct Synthesis {
     clock: Clock,
     rate: u64,
-    started_at: Instant,
+    started_at: Timestamp,
     frames: u64,
     signal: Signal,
 }
@@ -53,7 +53,7 @@ impl Synthesis {
         }
     }
 
-    fn frame_time(&self, frame: u64) -> Instant {
+    fn frame_time(&self, frame: u64) -> Timestamp {
         self.clock.add(
             self.started_at,
             Duration::new(
@@ -63,7 +63,7 @@ impl Synthesis {
         )
     }
 
-    pub(super) fn deadline(&self, frames: usize) -> Instant {
+    pub(super) fn deadline(&self, frames: usize) -> Timestamp {
         self.frame_time(self.frames + frames as u64)
     }
 
