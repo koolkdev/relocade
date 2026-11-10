@@ -13,7 +13,7 @@ use std::sync::Arc;
 #[derive(Clone, crate::worker::WorkerResource)]
 pub struct Memory {
     config: Arc<MachineConfig>,
-    #[worker(post)]
+    #[worker(resource)]
     backing: SharedMemory,
 }
 

@@ -1,14 +1,16 @@
 //! Direct signal access for additional threads on an existing connection.
 
 use super::{platform, WakeConnection, WakeHost, WakeTarget};
-use crate::{ResourceTransfer, WorkerResource};
+use crate::WorkerResource;
 use std::sync::{atomic::AtomicBool, Arc};
 
 /// A clonable signal resource to post when setting up another worker.
 /// Bind it on that worker before handing it senders that can wake execution.
 /// This shares the original connection's lifetime; peer removal does not close it.
-#[derive(Clone)]
+#[derive(Clone, WorkerResource)]
+#[worker(crate = crate)]
 pub struct WakePeer<R: WakeTarget> {
+    #[worker(resource)]
     pub(super) target: R,
     pub(super) endpoint: platform::Endpoint,
     pub(super) active: Arc<AtomicBool>,
@@ -43,20 +45,5 @@ impl<R: WakeTarget> WakeConnection<R> {
             endpoint: self.endpoint,
             active: self._lifetime.active.clone(),
         }
-    }
-}
-
-impl<R: WakeTarget + WorkerResource> WorkerResource for WakePeer<R> {
-    type Posted = R::Posted;
-
-    fn prepare(
-        self,
-    ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static> {
-        let ResourceTransfer { posted, rebuild } = self.target.prepare();
-        ResourceTransfer::new(posted, move |posted| Self {
-            target: rebuild(posted),
-            endpoint: self.endpoint,
-            active: self.active,
-        })
     }
 }

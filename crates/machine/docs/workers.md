@@ -34,13 +34,13 @@ let view = memory.view();
 let exit = task.await??;
 ```
 
-`Memory` derives `WorkerResource` and marks its backing with `#[worker(post)]`.
-The common derive supports named and tuple structs with one posted field; other
-fields stay in Rust as `Send` captures. It retains the existing configuration and
-posts shared backing through an opaque `ResourceTransfer`. The
-worker adapter reconstructs the complete handle before invoking the task. Callers
-do not extract backing or pair it with configuration, and the transfer does not
-expose a capability's underlying storage.
+`Memory` derives `WorkerResource` and marks its backing with `#[worker(resource)]`.
+Each resource type owns its transfer, so containing structs use the same marker
+for engine handles and composite resources. The derive supports named and tuple
+structs; unmarked fields stay in Rust as `Send` captures. `ResourceTransfer`
+combines those captures with the resources and reconstructs the complete handle
+on receipt. Callers do not extract backing or pair it with configuration, and
+the transfer does not expose a capability's underlying storage.
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
 CPU construction. Retain `storage.interrupt_handle()`, post the storage with
@@ -50,8 +50,8 @@ before handles are published; configuring CPU registers and the model preserves
 requests made during construction. Neither preparation nor construction starts
 guest execution. `Cpu::new` uses the same storage path when no early handle is needed.
 
-`SharedMemory` and compiled `Module` handles still support the library's `Post`
-transport directly. Native handles move as Rust values. Browser transport
+`SharedMemory` and compiled `Module` handles implement `WorkerResource` and own
+their underlying `Post` transport. Native handles move as Rust values. Browser transport
 preserves their JavaScript objects; shared-memory bytes are shared, not copied.
 The receiving worker prepares its own local access to the allocation. Retained
 handles remain usable after the allocating worker exits.

@@ -27,29 +27,6 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     }
     let worker = worker.unwrap_or_else(|| parse_quote!(::relocade_wasm_runtime::worker));
 
-    let mut posted = None;
-    for (index, field) in data.fields.iter().enumerate() {
-        for attribute in &field.attrs {
-            if attribute.path().is_ident("worker") {
-                let kind: Ident = attribute.parse_args()?;
-                if kind != "post" {
-                    return Err(syn::Error::new_spanned(
-                        attribute,
-                        "expected #[worker(post)]",
-                    ));
-                }
-                if posted.replace((index, field)).is_some() {
-                    return Err(syn::Error::new_spanned(
-                        attribute,
-                        "WorkerResource requires exactly one posted field",
-                    ));
-                }
-            }
-        }
-    }
-    let (posted, posted_field) = posted.ok_or_else(|| {
-        syn::Error::new_spanned(&input.ident, "mark one field with #[worker(post)]")
-    })?;
     let bindings: Vec<_> = (0..data.fields.len())
         .map(|index| format_ident!("__worker_field_{index}", span = Span::mixed_site()))
         .collect();
@@ -63,19 +40,67 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
         .make_where_clause()
         .predicates
         .push(parse_quote!(Self: 'static));
-    for (index, field) in data.fields.iter().enumerate() {
+    let mut transfers = Vec::new();
+    for (field, binding) in data.fields.iter().zip(&bindings) {
+        let mut resource = false;
+        for attribute in &field.attrs {
+            if attribute.path().is_ident("worker") {
+                let value: Ident = attribute.parse_args()?;
+                if value != "resource" {
+                    return Err(syn::Error::new_spanned(
+                        attribute,
+                        "expected #[worker(resource)]",
+                    ));
+                }
+                if std::mem::replace(&mut resource, true) {
+                    return Err(syn::Error::new_spanned(
+                        attribute,
+                        "a field can have only one worker attribute",
+                    ));
+                }
+            }
+        }
         let ty = &field.ty;
-        let bound = if index == posted {
-            parse_quote!(#ty: #worker::Post + 'static)
+        if resource {
+            generics
+                .make_where_clause()
+                .predicates
+                .push(parse_quote!(#ty: #worker::WorkerResource));
+            transfers.push((
+                quote!(<#ty as #worker::WorkerResource>::Posted),
+                quote!(#worker::WorkerResource::prepare(#binding)),
+                quote!(#binding),
+            ));
         } else {
-            parse_quote!(#ty: ::core::marker::Send + 'static)
-        };
-        generics.make_where_clause().predicates.push(bound);
+            generics
+                .make_where_clause()
+                .predicates
+                .push(parse_quote!(#ty: ::core::marker::Send + 'static));
+        }
     }
+    let (posted_type, transfer, received) = transfers
+        .into_iter()
+        .reduce(
+            |(posted, prepare, received), (next_posted, next_prepare, next_received)| {
+                (
+                    quote!((#posted, #next_posted)),
+                    quote!(#prepare.zip(#next_prepare)),
+                    quote!((#received, #next_received)),
+                )
+            },
+        )
+        .ok_or_else(|| {
+            syn::Error::new_spanned(
+                &input.ident,
+                "mark at least one field with #[worker(resource)]",
+            )
+        })?;
+    generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(#posted_type: #worker::Post + 'static));
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
     let name = &input.ident;
-    let posted_type = &posted_field.ty;
-    let posted_binding = &bindings[posted];
     Ok(quote! {
         impl #impl_generics #worker::WorkerResource
             for #name #type_generics #where_clause
@@ -86,9 +111,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
                 Self::Posted, impl ::core::ops::FnOnce(Self::Posted) -> Self + ::core::marker::Send + 'static,
             > {
                 let #fields = self;
-                #worker::ResourceTransfer::new(
-                    #posted_binding, move |#posted_binding| #fields,
-                )
+                #transfer.map(move |#received| #fields)
             }
         }
     })
@@ -99,7 +122,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn posted_field_must_be_unambiguous() {
+    fn transfer_attributes_must_be_unambiguous() {
         for input in [
             parse_quote!(
                 struct Missing {
@@ -107,21 +130,28 @@ mod tests {
                 }
             ),
             parse_quote!(
-                struct Duplicate(#[worker(post, post)] Memory);
+                struct Duplicate(#[worker(resource, resource)] Memory);
             ),
             parse_quote!(
-                struct Multiple(#[worker(post)] Memory, #[worker(post)] Memory);
+                struct Conflict(
+                    #[worker(resource)]
+                    #[worker(resource)]
+                    Memory,
+                );
             ),
             parse_quote!(
-                #[worker(post)]
+                #[worker(resource)]
                 struct Misplaced(Memory);
             ),
             parse_quote!(
                 struct Unknown(#[worker(send)] Memory);
             ),
             parse_quote!(
+                struct Raw(#[worker(post)] Memory);
+            ),
+            parse_quote!(
                 #[worker(crate = relocade_workers, crate = another)]
-                struct DuplicatePath(#[worker(post)] Memory);
+                struct DuplicatePath(#[worker(resource)] Memory);
             ),
             parse_quote!(
                 enum Choice {

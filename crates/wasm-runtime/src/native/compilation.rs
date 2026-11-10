@@ -1,6 +1,7 @@
+use super::Module;
 use crate::{Error, ModuleCache, Result, WasmCompiler};
 use std::sync::OnceLock;
-use wasmtime::{Config, Engine, Module};
+use wasmtime::{Config, Engine};
 
 /// An engine handle that compiles independently of guest stores and host state.
 #[derive(Clone)]
@@ -11,7 +12,9 @@ impl WasmCompiler for Compiler {
 
     /// Polling this future blocks while Wasmtime compiles functions in parallel.
     async fn compile(&self, bytes: &[u8]) -> Result<Module> {
-        Module::new(&self.0, bytes).map_err(|error| Error::new("compile Wasm", error))
+        wasmtime::Module::new(&self.0, bytes)
+            .map(Module)
+            .map_err(|error| Error::new("compile Wasm", error))
     }
 }
 

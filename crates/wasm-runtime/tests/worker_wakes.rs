@@ -24,7 +24,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 struct Signal {
     wakes: Arc<AtomicUsize>,
     lifetime: Arc<ResourceLifetime>,
-    #[worker(post)]
+    #[worker(resource)]
     memory: SharedMemory,
 }
 

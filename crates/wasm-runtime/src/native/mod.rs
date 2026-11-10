@@ -5,7 +5,17 @@ use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
 use wasmtime::{AsContextMut, Func, Instance, Linker, Store, Table};
 
-pub use wasmtime::Module;
+/// Compiled code shared by compatible backends and resource channels.
+#[derive(Clone, Debug)]
+pub struct Module(wasmtime::Module);
+
+impl PartialEq for Module {
+    fn eq(&self, other: &Self) -> bool {
+        wasmtime::Module::same(&self.0, &other.0)
+    }
+}
+
+impl Eq for Module {}
 
 mod calls;
 mod compilation;
@@ -118,7 +128,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
             .map_err(|error| Error::new("bind Wasm import", error))?;
         }
         linker
-            .instantiate(&mut self.store, module)
+            .instantiate(&mut self.store, &module.0)
             .map_err(|error| Error::new("instantiate Wasm", error))
     }
 }

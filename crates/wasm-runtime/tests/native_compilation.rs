@@ -4,7 +4,7 @@ use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 
-fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> wasmtime::Module {
+fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> relocade_wasm_runtime::Module {
     let compiler = backend.compiler();
     pollster::block_on(
         backend
@@ -33,7 +33,7 @@ fn concurrent_backends_share_cached_modules_but_keep_host_state() {
     let backend = Backend::new().unwrap();
     let module = cached(&backend, EMPTY_MODULE);
     for other in modules {
-        assert!(wasmtime::Module::same(&module, &other));
+        assert_eq!(module, other);
     }
 }
 
@@ -43,9 +43,9 @@ fn ordinary_compilation_bypasses_the_shared_cache() {
     let first = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
     let retained = cached(&backend, EMPTY_MODULE);
     let second = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
-    assert!(!wasmtime::Module::same(&first, &second));
-    assert!(!wasmtime::Module::same(&first, &retained));
-    assert!(!wasmtime::Module::same(&second, &retained));
+    assert_ne!(first, second);
+    assert_ne!(first, retained);
+    assert_ne!(second, retained);
 }
 
 #[test]

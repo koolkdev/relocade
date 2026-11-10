@@ -61,6 +61,22 @@ compile_error!("the Wasm runtime requires a threaded browser build; see tests/br
 /// Rust async workers with native value transfer and browser resource posting.
 pub use relocade_workers as worker;
 
+impl worker::WorkerResource for Module {
+    type Posted = Self;
+
+    fn prepare(self) -> worker::ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send> {
+        worker::ResourceTransfer::new(self, std::convert::identity)
+    }
+}
+
+impl worker::WorkerResource for SharedMemory {
+    type Posted = Self;
+
+    fn prepare(self) -> worker::ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send> {
+        worker::ResourceTransfer::new(self, std::convert::identity)
+    }
+}
+
 /// Compiles Wasm bytes without borrowing a backend or retaining its host state.
 /// The handle can move to another thread; create and await its futures there.
 /// Futures and compiled modules need not be `Send` because browser engine

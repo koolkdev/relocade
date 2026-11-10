@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use futures_util::FutureExt;
-use relocade_workers::CancellableWorker;
+use relocade_workers::Worker;
 use std::{
     pin::pin,
     rc::Rc,
@@ -28,18 +28,16 @@ async fn completion_wait() {
     let (finish, finished) = oneshot::channel();
     let released = Arc::new(AtomicBool::new(false));
     let worker_released = released.clone();
-    let mut worker = CancellableWorker::spawn(|thread, mut stopped| {
-        thread.run_send((), move |()| async move {
-            // Worker-local futures can retain non-Send resources across awaits.
-            let _locals = Rc::new(Locals {
-                owner: thread::current().id(),
-                released: worker_released,
-            });
-            ready.send(()).unwrap();
-            finished.await.unwrap();
-            assert_eq!(stopped.try_recv().unwrap(), None);
-            42
-        })
+    let mut worker = Worker::new().run_cancellable(move |mut stopped| async move {
+        // Worker-local futures can retain non-Send resources across awaits.
+        let _locals = Rc::new(Locals {
+            owner: thread::current().id(),
+            released: worker_released,
+        });
+        ready.send(()).unwrap();
+        finished.await.unwrap();
+        assert_eq!(stopped.try_recv().unwrap(), None);
+        42
     });
     started.await.unwrap();
     assert!(worker.finished().now_or_never().is_none());
@@ -54,18 +52,16 @@ async fn cancellation_cleanup() {
     let (finish, finished) = oneshot::channel();
     let released = Arc::new(AtomicBool::new(false));
     let worker_released = released.clone();
-    let worker = CancellableWorker::spawn(|thread, stopped| {
-        thread.run_send((), move |()| async move {
-            let _locals = Rc::new(Locals {
-                owner: thread::current().id(),
-                released: worker_released,
-            });
-            let _ = stopped.await;
-            cancelled.send(()).unwrap();
-            // Cancellation can require asynchronous cleanup on the worker.
-            finished.await.unwrap();
-            String::from("stopped")
-        })
+    let worker = Worker::new().run_cancellable(move |stopped| async move {
+        let _locals = Rc::new(Locals {
+            owner: thread::current().id(),
+            released: worker_released,
+        });
+        let _ = stopped.await;
+        cancelled.send(()).unwrap();
+        // Cancellation can require asynchronous cleanup on the worker.
+        finished.await.unwrap();
+        String::from("stopped")
     });
     let mut stop = pin!(worker.stop());
     assert!(stop.as_mut().now_or_never().is_none());

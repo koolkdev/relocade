@@ -1,5 +1,6 @@
-use super::{Result, SendTask, Thread};
+use super::{Result, SendTask, Thread, Worker};
 use futures_channel::oneshot;
+use std::future::Future;
 
 /// Owns a worker task and its cooperative cancellation signal.
 /// The task must observe the supplied receiver and release its resources before
@@ -8,20 +9,33 @@ use futures_channel::oneshot;
 /// Await [`Self::stop`] or [`Self::join`] before releasing the worker. Dropping
 /// it early can terminate a browser thread before its Rust destructors run.
 pub struct CancellableWorker<T: Send + 'static> {
-    _thread: Thread,
+    _worker: Worker,
     task: SendTask<T>,
     stop: Option<oneshot::Sender<()>>,
 }
 
 impl<T: Send + 'static> CancellableWorker<T> {
-    /// Starts one task using the thread's existing posting or resource transport.
-    /// The task treats either completion or closure of `stopped` as cancellation.
+    /// Starts a task using the existing thread interface.
+    /// Await stop or join before releasing its worker.
     pub fn spawn(start: impl FnOnce(&Thread, oneshot::Receiver<()>) -> SendTask<T>) -> Self {
-        let thread = Thread::new();
+        let worker = Worker::new();
         let (stop, stopped) = oneshot::channel();
-        let task = start(&thread, stopped);
+        let task = start(&worker.thread, stopped);
         Self {
-            _thread: thread,
+            _worker: worker,
+            task,
+            stop: Some(stop),
+        }
+    }
+
+    pub(crate) fn new<F: Future<Output = T> + 'static>(
+        worker: Worker,
+        code: impl FnOnce(oneshot::Receiver<()>) -> F + Send + 'static,
+    ) -> Self {
+        let (stop, stopped) = oneshot::channel();
+        let task = worker.run(move || code(stopped));
+        Self {
+            _worker: worker,
             task,
             stop: Some(stop),
         }
