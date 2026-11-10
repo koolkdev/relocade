@@ -1,6 +1,6 @@
 use futures_util::task::{waker, ArcWake};
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{Clock, ClockSource, Device, Instant, Sleep};
+use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
@@ -39,11 +39,11 @@ impl ArcWake for WakeCount {
 fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     struct DelayedTimer(ManualClock);
     impl ClockSource for DelayedTimer {
-        fn now(&self) -> Instant {
+        fn now(&self) -> Timestamp {
             self.0.now()
         }
 
-        fn sleep_until(&self, _deadline: Instant) -> Sleep {
+        fn sleep_until(&self, _deadline: Timestamp) -> Sleep {
             // Guest time advances, but the timer has not delivered its wake yet.
             Sleep::new(std::future::pending())
         }

@@ -1,6 +1,6 @@
 //! One guest-time boundary for cooperative yields and optional host pacing.
 
-use crate::{Clock, Instant, Sleep};
+use crate::{Clock, Sleep, Timestamp};
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -11,7 +11,7 @@ use std::{
 
 pub(super) struct ExecutionSlice {
     duration: Duration,
-    end: Cell<Instant>,
+    end: Cell<Timestamp>,
     paced: bool,
     wait: RefCell<Option<Sleep>>,
 }
@@ -26,12 +26,12 @@ impl ExecutionSlice {
         }
     }
 
-    pub(super) fn deadline(&self) -> Instant {
+    pub(super) fn deadline(&self) -> Timestamp {
         self.end.get()
     }
 
     /// Unpaced idle time can skip slices; a slice alone never advances time.
-    pub(super) fn idle_deadline(&self, device_deadline: Instant) -> Instant {
+    pub(super) fn idle_deadline(&self, device_deadline: Timestamp) -> Timestamp {
         if self.paced {
             device_deadline.min(self.end.get())
         } else {
@@ -43,7 +43,7 @@ impl ExecutionSlice {
         self.wait.borrow_mut().take();
     }
 
-    pub(super) fn poll(&self, clock: &Clock, now: Instant, cx: &mut Context<'_>) -> Poll<()> {
+    pub(super) fn poll(&self, clock: &Clock, now: Timestamp, cx: &mut Context<'_>) -> Poll<()> {
         let end = self.end.get();
         if now < end {
             return Poll::Ready(());

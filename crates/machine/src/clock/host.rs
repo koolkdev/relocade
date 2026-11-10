@@ -1,10 +1,11 @@
-use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep};
+use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep, Timebase, Timestamp};
 use futures_channel::{mpsc, oneshot};
 
 /// Transferable access to the host timer service. Construct a local [`Clock`]
 /// after moving the handle to its execution owner. Clones share the host timebase.
 #[derive(Clone)]
 pub struct TimerHandle {
+    origin: Instant,
     requests: mpsc::UnboundedSender<driver::Request>,
 }
 
@@ -14,7 +15,13 @@ pub struct TimerHandle {
 /// driver finish after its pending sleeps complete or are cancelled.
 pub fn timer_service() -> (TimerHandle, HostTimerDriver) {
     let (requests, receiver) = mpsc::unbounded();
-    (TimerHandle { requests }, HostTimerDriver::new(receiver))
+    (
+        TimerHandle {
+            origin: Instant::now(),
+            requests,
+        },
+        HostTimerDriver::new(receiver),
+    )
 }
 
 impl TimerHandle {
@@ -30,15 +37,22 @@ impl From<TimerHandle> for Clock {
 }
 
 impl ClockSource for TimerHandle {
-    fn now(&self) -> Instant {
-        Instant::now()
+    fn now(&self) -> Timestamp {
+        self.host_timestamp(Instant::now()).unwrap()
     }
 
-    fn sync_to_host(&self, time: Instant) -> Sleep {
+    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
+        Some(Timestamp(
+            time.saturating_duration_since(self.origin).as_nanos(),
+        ))
+    }
+
+    fn sync_to_host(&self, time: Timestamp) -> Sleep {
         self.clock().sleep_until_if_needed(time)
     }
 
-    fn sleep_until(&self, deadline: Instant) -> Sleep {
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+        let deadline = self.origin + Timebase::NANOSECONDS.duration_since(deadline, Timestamp(0));
         let handle = self.clone();
         Sleep::new(async move {
             let (complete, completed) = oneshot::channel();

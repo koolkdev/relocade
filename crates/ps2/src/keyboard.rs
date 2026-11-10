@@ -7,7 +7,7 @@ use crate::{
 };
 use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
 use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
-use relocade_machine::{Clock, Instant};
+use relocade_machine::{Clock, Timestamp};
 use std::{
     collections::{BTreeSet, VecDeque},
     future::pending,
@@ -68,7 +68,7 @@ struct Keyboard<'a> {
 #[derive(Clone, Copy)]
 struct Repeat {
     key: KeyCode,
-    deadline: Instant,
+    deadline: Timestamp,
 }
 
 impl Keyboard<'_> {
@@ -264,7 +264,7 @@ impl Keyboard<'_> {
         }
     }
 
-    fn key(&mut self, key: KeyCode, pressed: bool, now: Instant) {
+    fn key(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
         if !scancodes::supported(key) {
             return;
         }
@@ -284,7 +284,7 @@ impl Keyboard<'_> {
         }
     }
 
-    fn scan(&mut self, key: KeyCode, pressed: bool, now: Instant) {
+    fn scan(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
         self.emit(key, pressed);
         if pressed && scancodes::repeatable(key) {
             self.repeat = Some(Repeat {

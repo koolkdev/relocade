@@ -3,7 +3,7 @@ mod support;
 use futures_util::future::join;
 use relocade_machine::{
     timer_service, Clock, Cpu, Device, DispatchEntry, ExecutionWorker, ExitHandle, Hook, Instant,
-    IoBus, Memory, Runner,
+    IoBus, Memory, Runner, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -83,7 +83,9 @@ async fn unpaced_slice_overshoot() {
             assert_eq!(samples, [4, 6, 10]);
             assert_eq!(
                 runner.clock().now(),
-                start + Duration::from_nanos(3_333_333_333)
+                runner
+                    .clock()
+                    .add(start, Duration::from_nanos(3_333_333_333))
             );
         },
     );
@@ -92,8 +94,8 @@ async fn unpaced_slice_overshoot() {
 
 struct Deadlines {
     clock: Clock,
-    deadlines: Vec<Instant>,
-    observed: Vec<Instant>,
+    deadlines: Vec<Timestamp>,
+    observed: Vec<Timestamp>,
     exit: Option<ExitHandle>,
     exit_after_waits: bool,
 }
@@ -124,15 +126,16 @@ async fn deadlines_and_final_exit() {
                     .with_slice_duration(Duration::from_millis(10))
             },
             async move |runner| {
-                let start = runner.clock().now();
+                let clock = runner.clock().clone();
+                let start = clock.now();
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: runner.clock().clone(),
                     deadlines: if final_exit {
-                        vec![start + Duration::from_millis(3)]
+                        vec![clock.add(start, Duration::from_millis(3))]
                     } else {
                         vec![
-                            start + Duration::from_micros(500),
-                            start + Duration::from_millis(5),
+                            clock.add(start, Duration::from_micros(500)),
+                            clock.add(start, Duration::from_millis(5)),
                         ]
                     },
                     observed: Vec::new(),
@@ -158,7 +161,7 @@ async fn deadlines_and_final_exit() {
                     device.borrow().observed,
                     expected
                         .into_iter()
-                        .map(|millis| start + Duration::from_millis(millis))
+                        .map(|millis| clock.add(start, Duration::from_millis(millis)))
                         .collect::<Vec<_>>()
                 );
             },
@@ -190,7 +193,8 @@ async fn retained_service() {
                 .with_slice_duration(Duration::from_millis(10))
         },
         async move |runner| {
-            let start = runner.clock().now();
+            let clock = runner.clock().clone();
+            let start = clock.now();
             let device = Rc::new(RefCell::new(Periodic {
                 clock: runner.clock().clone(),
                 wakes: 0,
@@ -219,7 +223,7 @@ async fn retained_service() {
             );
             assert_eq!(started.get(), 1);
             assert!(device.borrow().wakes >= 5);
-            assert!(runner.clock().now() >= start + Duration::from_millis(5));
+            assert!(runner.clock().now() >= runner.clock().add(start, Duration::from_millis(5)));
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
         },
     );
@@ -238,7 +242,7 @@ async fn unpaced_idle_service() {
         async |runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            let deadline = start + Duration::from_millis(10);
+            let deadline = clock.add(start, Duration::from_millis(10));
             let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
             let exit = cpu.exit_handle();
             cpu.install([Hook::host(0x100, async move || {

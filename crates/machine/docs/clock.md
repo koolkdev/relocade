@@ -1,43 +1,74 @@
 # Shared time and waits
 
-`Clock` is a clonable, execution-local value that reads one timebase and creates
+`Clock` is a clonable, execution-local value that owns a timeline and creates
 owned deadline waits. Devices and services use the same concrete API:
 
 ```rust,ignore
-let now: Instant = clock.now();
+let now: Timestamp = clock.now();
 let deadline = clock.add(now, Duration::from_millis(2));
+let elapsed = clock.duration_since(now, earlier);
+if clock.now() >= deadline {
+    // Update the device at its next observable boundary.
+}
 clock.sleep_until(deadline).await;
-clock.sleep(Duration::from_millis(2)).await;
+clock.sync_to_host(now).await;
 ```
 
-`Instant` is re-exported from `web_time`, which uses the standard library type
-on native targets. `Instant` is monotonic; `Duration` is
-an interval. Host time follows the host's monotonic clock. Emulated guest time
-starts at an explicitly supplied instant and advances independently. Sharing an
-origin does not make guest time follow host time. Pacing is the execution policy
-that controls their relationship.
+`Timestamp` is an opaque native coordinate. It carries no origin, rate or source
+identity. Compare readings only within the same clock and its clones, and use
+that clock for arithmetic and waits. Host and guest timelines are independent.
+The clock owns its fixed scale; the host timer source owns its host origin.
+`Instant`, re-exported from `web_time`, is used only for external host events.
 
-Duration arithmetic belongs to the clock: `add`, `sub`, and their checked forms
-construct deadlines, while `duration_since` measures elapsed time. Readings still
-use `Instant`. Repeated device updates use `consume_elapsed(&mut updated, now)`;
-the saved position advances by the duration returned, and derived deadlines refer
-to that consumed position. Raster and PIT state use this operation, and speaker
-synthesis shares the PIT's phase. Event timers use `add` and comparisons directly.
+`Clock::add` and `sub` preserve fractional progress exactly; their checked forms
+return `None` on coordinate overflow or subtraction before the origin.
+`now()` returns the source's native position without converting it to a duration.
+`duration_since` subtracts native readings, then rounds the actual elapsed time
+down to whole nanoseconds. It saturates at zero; `checked_duration_since` instead
+returns `None` for reversed readings. Ordinary comparisons retain native precision.
+
+Repeated integration uses `consume_elapsed` with a saved position:
+
+```rust,ignore
+let mut updated = clock.now();
+// At each observation:
+let elapsed = clock.consume_elapsed(&mut updated, clock.now());
+device.advance(elapsed);
+```
+
+The clock advances `updated` only by the returned duration, retaining any native
+fraction for the next observation. State and derived deadlines refer to this
+consumed position. Raster timing and PIT counters use this operation; PIT snapshots
+and audio frames share its phase. An explicit device restart establishes a new
+phase from `now()`. No clock origin or rounding parameter is needed by consumers.
+Event timers use `add` and comparisons directly; DOS mouse speed measures one
+packet interval with `checked_duration_since`.
+
+Readings remain valid across pauses, rebinding, idle advancement and CPU counter
+wrap. Guest time is published in whole nanoseconds; retirement retains its
+fractional remainder internally.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
 polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
-`ClockSource` supplies `now() -> Instant` and `sleep_until(Instant) -> Sleep`.
-Its optional `sync(Option<Instant>) -> Sleep` captures a mapped host deadline;
-`None` samples the source's configured host clock. The default completes immediately.
-`Clock::new(source)` wraps a source behind the common consumer API, and
-`Sleep::new(future)` owns its wait state. Custom sources must preserve monotonic
-readings and first-poll registration/drop cancellation. `Runner`, `Pc`, `Dos`, and
-devices accept `Clock` without an implementation type parameter. Controllers expose
-the separate capabilities to drive timers or advance time. `ExecutionWorker::spawn_with_clock`
-constructs a clock on the execution owner from a transferable factory.
+`ClockSource` supplies `now() -> Timestamp` and `sleep_until(Timestamp) -> Sleep`.
+Sources construct nanosecond coordinates with `Timestamp::from_ticks` and
+interpret them with `ticks`; device consumers do neither. `Clock::new(source)`
+wraps the source behind the common consumer API. `Sleep::new(future)` owns its
+wait state.
+
+Sources preserve monotonic readings and first-poll registration/drop cancellation.
+Host sources implement `host_timestamp(Instant)` to translate external event times,
+clamping events before their origin to its initial coordinate. The optional
+`sync(Option<Instant>)` captures a mapped host deadline; `None` samples the
+configured host clock. Sources without a correspondence complete immediately.
+
+`Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
+parameter. Controllers expose the separate capabilities to drive timers or
+advance time. `ExecutionWorker::spawn_with_clock` constructs a clock on the
+execution owner from a transferable factory.
 
 ## Controlled time in tests
 
@@ -45,23 +76,23 @@ constructs a clock on the execution owner from a transferable factory.
 the consuming test suites. It is not exported by `relocade-machine` or included
 in application builds. Its `clock()` uses the same public `ClockSource` interface.
 
-`advance_by(duration)` and `advance_to(instant)` wake due sleeps;
+`advance_by(duration)` and `advance_to(timestamp)` wake due sleeps;
 `next_deadline()` observes the earliest polled, uncancelled sleep. Advancing to
-an earlier instant leaves time unchanged. Cloned controllers share time and can
-move between workers; consumer clocks remain local. Each controller owns its starting instant.
-`at(duration)` constructs a fixture deadline, and `elapsed(timestamp)` measures
-time from that controller's start.
+an earlier timestamp leaves time unchanged. Cloned controllers share time and can
+move between workers; consumer clocks remain local. Each controller starts at zero on its own timeline. `at(duration)` constructs a
+fixture deadline, and `host_now()` supplies external input timestamps.
 
 ## Emulated guest time
 
-`GuestTimeDriver::new(start, instructions_per_second)` owns emulated guest time,
-pending sleeps and the corresponding CPU instruction target. While the CPU runs,
-retired instructions advance guest time at the configured rate. While the CPU is
+`GuestTimeDriver::new(instructions_per_second)` owns emulated guest time,
+pending sleeps and the corresponding CPU instruction target. Its timeline starts
+at zero. Published retirement advances time in whole nanoseconds at the configured
+instruction rate, retaining the remainder for later observations. While the CPU is
 idle, the embedding may advance time to the next registered sleep. The driver is
 synchronous; the embedding owns execution and executor turns.
 
 ```rust,ignore
-let driver = GuestTimeDriver::new(start, instructions_per_second);
+let driver = GuestTimeDriver::new(instructions_per_second);
 let guest_clock = driver.clock();
 // Connect devices using guest_clock, then construct the CPU.
 let binding = driver.bind(&cpu, &execution_waker);
@@ -95,7 +126,7 @@ registered sleep. The yield deadline does not cause this advance. Completing
 sleeps wakes device activities; those activities deliver IRQs through the existing
 interrupt path. Advancing guest time does not add retired CPU instructions.
 
-Reads preserve fractional nanoseconds and counter wrap. Synchronous callbacks
+Retirement preserves its fractional remainder and counter wrap. Synchronous callbacks
 can observe a count that lags execution; targets use that same published count
 and retain soft checkpoint overshoot. Reading time does not dispatch device work.
 `CpuStateAccess::restore` preserves cumulative retirement when restoring guest
@@ -171,10 +202,10 @@ requiring a host wait for every transition.
 
 At stopped boundaries, the clock driver compares host time with the mapped guest
 time. Lag of at most 20 ms can catch up without pacing sleeps. Beyond 20 ms, the
-driver shifts the host correspondence forward by the entire lag, so current guest
-time maps to current host time. This treats a long host stall as a pause without
-skipping guest execution or device deadlines. The tolerance is fixed independently
-of the configured slice duration. Guest time, fractional retirement, instruction
+driver shifts the host correspondence forward by whole nanoseconds of lag,
+retaining any fraction in the correspondence. This treats a long host stall as a
+pause without skipping guest execution or device deadlines. The tolerance is
+fixed independently of the configured slice duration. Guest time, fractional retirement, instruction
 rate and the slice grid do not change. Future CPU and output waits use the new
 correspondence; already-created host waits retain their deadlines.
 
@@ -185,9 +216,9 @@ credit. Replacing a device timer does not replace the pacing wait or grant time.
 
 Completing or cancelling `run_cpu` cancels its host wait. The next run retains
 the same slice boundary and the existing lead or lag, subject to the lag limit.
-Time spent between runs is excluded by shifting the host origin; repeated
-cancellation cannot grant another slice. The clock driver owns this host/guest
-correspondence, while
+Time spent between runs is excluded by shifting the host correspondence by the
+exact native pause duration; repeated cancellation cannot grant another slice.
+The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
 ### Synchronizing external work
@@ -198,8 +229,10 @@ remain part of normal execution. If guest time has already reached that point,
 the wait completes immediately; it never rewinds time or waits for the host.
 Burst pacing separately limits execution ahead of host time.
 
+
 For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
-The timestamp must use the configured host clock's timebase. Both forms capture
+The input is an external host `Instant`; the configured host source translates it
+with `host_timestamp` before mapping it to guest time. Both forms capture
 the current mapping when the wait is constructed, register on first poll and
 cancel on drop. A retained wait keeps its guest deadline across cancelled CPU
 runs and ordinary pauses. When excessive lag is discarded, these mapped deadlines

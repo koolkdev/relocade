@@ -3,7 +3,7 @@
 use super::{motion::Motion, transmission::Transmission};
 use crate::protocol::{mouse::*, RESEND};
 use relocade_frontend::mouse::MouseEvent;
-use relocade_machine::{Clock, Instant};
+use relocade_machine::{Clock, Timestamp};
 use std::time::Duration;
 
 #[derive(Clone, Copy)]
@@ -23,7 +23,7 @@ pub(super) struct Protocol {
     wrapped: bool,
     parameter: Option<Parameter>,
     invalid_inputs: u8,
-    sampled_at: Instant,
+    sampled_at: Timestamp,
     transmission: Transmission,
 }
 
@@ -197,7 +197,7 @@ impl Protocol {
         self.invalid_inputs = 0;
     }
 
-    pub fn deadline(&self) -> Option<Instant> {
+    pub fn deadline(&self) -> Option<Timestamp> {
         (self.streaming() && self.transmission.idle() && self.motion.pending()).then(|| {
             self.clock.add(
                 self.sampled_at,

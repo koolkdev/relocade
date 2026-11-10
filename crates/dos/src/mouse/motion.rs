@@ -1,6 +1,6 @@
 //! Physical mickeys, fractional logical movement and speed conversion.
 
-use relocade_machine::{Clock, Instant};
+use relocade_machine::{Clock, Timestamp};
 
 pub(super) const DEFAULT_THRESHOLD: u16 = 64;
 
@@ -69,7 +69,7 @@ impl Axis {
 
 pub(super) struct Acceleration {
     pub threshold: u16,
-    previous: Option<Instant>,
+    previous: Option<Timestamp>,
 }
 
 impl Default for Acceleration {

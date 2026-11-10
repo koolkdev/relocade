@@ -2,7 +2,7 @@ use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
-use relocade_machine::{Clock, ClockSource, Device, Instant, Sleep};
+use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
 use relocade_vga::{registers::crtc, VgaDisplay};
 use std::{cell::Cell, rc::Rc, time::Duration};
 
@@ -13,15 +13,15 @@ struct MappedClock {
 }
 
 impl ClockSource for MappedClock {
-    fn now(&self) -> Instant {
+    fn now(&self) -> Timestamp {
         self.device.now()
     }
 
-    fn sleep_until(&self, deadline: Instant) -> Sleep {
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         self.device.sleep_until(deadline)
     }
 
-    fn sync_to_host(&self, time: Instant) -> Sleep {
+    fn sync_to_host(&self, time: Timestamp) -> Sleep {
         self.host
             .sleep_until(self.host.at(self.device.elapsed(time) + self.offset.get()))
     }

@@ -6,7 +6,7 @@ use crate::{DacSnapshot, DisplaySnapshot, Scanout, Vga, VgaDisplayState};
 use async_channel::{Receiver, Sender};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::Instant;
+use relocade_machine::Timestamp;
 use std::{cell::RefCell, rc::Rc};
 
 pub(super) struct Output {
@@ -19,7 +19,7 @@ pub(super) struct Output {
 
 struct PendingSnapshot {
     snapshot: DisplaySnapshot,
-    time: Instant,
+    time: Timestamp,
 }
 
 impl Output {
@@ -79,7 +79,7 @@ impl Vga {
 
     /// Refresh due status and capture events. Timing changes then materialize
     /// any remaining phase at this observed time before remapping the counters.
-    pub(super) fn advance_raster(&mut self, now: Instant) {
+    pub(super) fn advance_raster(&mut self, now: Timestamp) {
         let Some(time) = self.raster.update_to(now) else {
             return;
         };
