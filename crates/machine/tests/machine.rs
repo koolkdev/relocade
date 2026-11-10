@@ -114,7 +114,7 @@ async fn session_shutdown() {
     let completed = prepared
         .run_until(std::future::pending::<()>(), async |mut runner| {
             let clock = runner.clock().clone();
-            let cpu = runner.attach_io(Default::default()).await.unwrap();
+            let cpu = runner.cpu();
             assert_eq!(cpu.cpu_state().ax(), 41);
             let exit = cpu.exit_handle();
             cpu.install([relocade_machine::Hook::host(0x103, async move || {

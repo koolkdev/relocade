@@ -103,7 +103,7 @@ async fn check_devices() {
 
             let memory = runner.memory();
             let service_clock = runner.clock().clone();
-            let cpu = runner.attach_io(io.clone()).await.unwrap();
+            let cpu = runner.attach_io(io.clone());
             // Guest work after the sleeping service, followed by a completion hook.
             memory
                 .view()

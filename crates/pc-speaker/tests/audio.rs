@@ -67,7 +67,7 @@ async fn exercise_audio_device() {
         ];
         memory.view().write(0x100, &code).unwrap();
 
-        runner.attach_io(io).await.unwrap();
+        runner.attach_io(io);
         speaker
             .borrow_mut()
             .attach_audio(

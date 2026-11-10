@@ -114,10 +114,7 @@ async fn timer_interrupts() -> Result<(), String> {
             .unwrap();
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner
-            .attach_io(IoBus::new([pic_connection, pit_connection, connection]))
-            .await
-            .unwrap();
+        let cpu = runner.attach_io(IoBus::new([pic_connection, pit_connection, connection]));
         cpu.context().cpu.set_sp(0xf00);
         let busy = compiler.compile_block(0x113, &program[19..], 32).unwrap();
         cpu.install_module(

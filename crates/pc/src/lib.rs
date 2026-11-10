@@ -54,7 +54,7 @@ impl Pc {
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
         let clock = runner.clock().clone();
-        let cpu = runner.attach_io(io).await?;
+        let cpu = runner.attach_io(io);
         {
             let mut context = cpu.context();
             let cpu_model = context.cpu.execution_target().cpu_model;

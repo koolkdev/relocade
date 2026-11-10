@@ -39,60 +39,57 @@ pub struct Runner {
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
-    cpu_handle: Option<CpuHandle>,
-    memory: Memory,
-    cpu: Option<Cpu>,
+    cpu: Cpu,
 }
 
 impl Runner {
-    /// Binds an existing CPU and its wake endpoint on the execution owner.
+    /// Constructs the local CPU backend and binds its wake endpoint.
     /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
     /// connection created for this CPU; retain its host until the session ends.
-    pub fn new(clock: Clock, cpu: CpuHandle, endpoint: WakeEndpoint<ExecutionInterrupt>) -> Self {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint)
+    pub async fn new(
+        clock: Clock,
+        cpu: CpuHandle,
+        endpoint: WakeEndpoint<ExecutionInterrupt>,
+    ) -> Result<Self> {
+        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
     }
 
-    fn with_schedule(
+    async fn with_schedule(
         schedule: ExecutionSchedule,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-    ) -> Self {
+    ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
         let executor = Rc::new(Executor::new(endpoint.bind(cpu.interrupt_handle())));
-        Self {
+        let cpu = cpu.into_cpu(IoBus::default()).await?;
+        Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
             executor,
-            memory: cpu.memory(),
-            cpu_handle: Some(cpu),
-            cpu: None,
-        }
+            cpu,
+        })
     }
 
-    /// Attaches local devices and constructs the prepared CPU's backend.
-    /// Registers were initialized by the machine and are preserved here.
+    /// Installs the device bus on the existing CPU without starting execution.
+    /// Returns the stopped CPU for further setup.
     ///
     /// # Panics
-    /// Panics if an earlier attachment attempt consumed this CPU, including
-    /// an attempt that failed or was cancelled.
-    pub async fn attach_io(&mut self, io: IoBus) -> Result<&mut Cpu> {
-        let cpu_handle = self.cpu_handle.take().expect("CPU already attached");
-        self.cpu = Some(cpu_handle.into_cpu(io).await?);
-        Ok(self.cpu())
+    /// Panics if a host call is pending or parked.
+    pub fn attach_io(&mut self, io: IoBus) -> &mut Cpu {
+        self.cpu.attach_io(io);
+        self.cpu()
     }
 
     /// The shared memory established by the machine before execution started.
     pub fn memory(&self) -> Memory {
-        self.memory.clone()
+        self.cpu.memory()
     }
 
     /// Borrows this runner's stopped CPU for setup and low-level execution.
     /// The borrow must end before calling [`Self::run_cpu`].
     pub fn cpu(&mut self) -> &mut Cpu {
-        self.cpu
-            .as_mut()
-            .expect("attach local I/O before accessing the CPU")
+        &mut self.cpu
     }
 
     pub fn clock(&self) -> &Clock {
@@ -167,14 +164,8 @@ impl Runner {
     /// Runs until the guest exits, polling ready Rust work on execution interrupts.
     /// Pending services retain their futures while awaiting input or guest resumption.
     /// Poll within [`Self::run`], which drives the session's scheduling and devices.
-    ///
-    /// # Panics
-    /// Panics if the session CPU has not been constructed.
     pub async fn run_cpu(&mut self) -> ExecutionExit {
-        let cpu = self
-            .cpu
-            .as_mut()
-            .expect("attach local I/O before accessing the CPU");
+        let cpu = &mut self.cpu;
         let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
         let _binding = self.schedule.bind(cpu, &changed);
         let interrupt = cpu.interrupt_handle();
@@ -195,11 +186,11 @@ impl Runner {
     /// remain soft checkpoint limits, so a slice can overshoot.
     /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
     /// the host/guest offset survive those pauses.
-    pub fn with_guest_time(
+    pub async fn with_guest_time(
         config: GuestTimeConfig,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-    ) -> Self {
-        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint)
+    ) -> Result<Self> {
+        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
     }
 }

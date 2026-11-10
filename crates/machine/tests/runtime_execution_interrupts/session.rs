@@ -258,7 +258,7 @@ async fn saturated_count() {
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
     let prepared = machine.create_cpu(config.cpu).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
-        runner.attach_io(IoBus::default()).await.unwrap();
+        runner.attach_io(IoBus::default());
         let exit = runner.cpu().exit_handle();
         runner
             .cpu()

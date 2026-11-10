@@ -1,4 +1,3 @@
-use crate::worker;
 use crate::{timer_service, Clock, ExecutionWorker, GuestTimeConfig, Runner, TimerHandle};
 use crate::{
     Cpu, CpuConfig, CpuStateAccess, CpuStorage, ExecutionInterrupt, IoBus, Memory, Result,
@@ -60,7 +59,7 @@ impl CpuHandle {
         self,
         stop: impl Future,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
-    ) -> std::result::Result<Option<T>, worker::WorkerError> {
+    ) -> Result<Option<T>> {
         let (handle, timers) = timer_service();
         let execution = self.spawn(handle, session);
         let timers = timers.spawn_with_peer(execution.wake_peer());
@@ -87,7 +86,7 @@ impl CpuHandle {
     ) -> ExecutionWorker<T> {
         ExecutionWorker::spawn(
             self,
-            move |cpu, endpoint| Runner::new(make_clock(), cpu, endpoint),
+            async move |cpu, endpoint| Runner::new(make_clock(), cpu, endpoint).await,
             session,
         )
     }
@@ -100,7 +99,7 @@ impl CpuHandle {
     ) -> ExecutionWorker<T> {
         ExecutionWorker::spawn(
             self,
-            move |cpu, endpoint| Runner::with_guest_time(make_time(), cpu, endpoint),
+            async move |cpu, endpoint| Runner::with_guest_time(make_time(), cpu, endpoint).await,
             session,
         )
     }

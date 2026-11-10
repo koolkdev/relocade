@@ -17,7 +17,7 @@ let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
-    runner.attach_io(io).await?;
+    runner.attach_io(io);
     runner.run_cpu().await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
@@ -37,12 +37,17 @@ main activity drops all device futures on their owner.
 
 The machine initializes CPU state before spawning. Startup consumes its
 non-cloneable `CpuHandle` and transfers that CPU's storage, configuration and
-shared memory together. `runner.attach_io(io).await` creates the local backend
-without resetting registers. `Dos::new(runner)` attaches the PC's devices through
-this same operation. A runner permits one attachment attempt, including an
-attempt that fails or is cancelled; later programs reuse that CPU. Independent
-CPU-level work uses `Cpu::new` and `Cpu::run` directly. `run_cpu()` executes the
-runner's existing CPU. Attachment and launch do not execute guest instructions.
+shared memory together. The runner constructor creates the local backend without
+resetting registers, initially with an empty device bus. Startup observes cancellation
+through construction and returns failures to the worker owner without entering the
+session. The callback receives a complete Runner with a usable CPU.
+
+`runner.attach_io(io)` synchronously installs the device bus; `Dos::new(runner)`
+uses this operation after connecting the PC's devices. `Cpu::attach_io` also serves
+CPU-level callers. Replacing a bus requires a stopped CPU with no pending or parked
+host calls. Existing bus handles retain their original routing. `run_cpu()` executes
+the runner's existing CPU. Construction, attachment and launch do not execute guest
+instructions.
 
 The callback receives its `Runner` by value. PC/DOS retain it across programs;
 `runner.cpu()` lends the stopped backend for setup. The outer session keeps
@@ -226,15 +231,18 @@ The host guard stays alive until worker completion.
 
 `WakeConnection` owns only the fixed signal binding. `worker::Executor` owns the
 stable executor waker, polling and parking. `Runner` owns that executor and composes
-the application and registered devices under it. Worker startup is:
+the application and registered devices under it. On the execution owner:
 
 ```rust,ignore
-Runner::new(clock, cpu, endpoint).run(stopped, session).await
+let runner = Runner::new(clock, cpu, endpoint).await?;
+runner.run(stopped, session).await
 ```
 
 The constructor consumes the prepared CPU and binds its wake endpoint on the
-execution owner. Local device attachment constructs its backend before guest
-execution. `run` installs the required executor around the whole session, so callers do
+execution owner and returns after backend construction. The worker observes its stop
+signal during that await, then passes it to `run` for session cancellation. Worker
+and backend failures use the machine's `Error` type. `run` installs the required
+executor around the whole session, so callers do
 not separately wrap it. Native fixtures can supply the same resources on their
 test thread; they use the same executor. Browser binding belongs on the receiving
 worker after resource transfer. Direct CPU/device tests do not need a runner.

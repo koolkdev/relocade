@@ -9,6 +9,7 @@ pub enum Error {
     Configuration(ConfigurationError),
     Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
+    Worker(crate::worker::WorkerError),
 }
 
 impl fmt::Display for Error {
@@ -18,6 +19,7 @@ impl fmt::Display for Error {
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
+            Self::Worker(error) => error.fmt(f),
         }
     }
 }
@@ -29,6 +31,7 @@ impl std::error::Error for Error {
             Self::Configuration(error) => Some(error),
             Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
+            Self::Worker(error) => Some(error),
         }
     }
 }
@@ -54,6 +57,12 @@ impl From<relocade_wasm_runtime::Error> for Error {
 impl From<MemoryError> for Error {
     fn from(error: MemoryError) -> Self {
         Self::Memory(error)
+    }
+}
+
+impl From<crate::worker::WorkerError> for Error {
+    fn from(error: crate::worker::WorkerError) -> Self {
+        Self::Worker(error)
     }
 }
 

@@ -40,7 +40,7 @@ async fn progress() {
         let clone = clock.clone();
         let memory = runner.memory();
         memory.view().write(0x100, &[0x90; 10]).unwrap();
-        let cpu = runner.attach_io(IoBus::default()).await.unwrap();
+        let cpu = runner.attach_io(IoBus::default());
         let start = clock.now();
         let fractional_deadline = clock.add(start, Duration::from_nanos(333_333_334));
         let binding = driver.bind(cpu, std::task::Waker::noop());

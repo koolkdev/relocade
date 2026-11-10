@@ -109,7 +109,9 @@ async fn keyboard_after_overdue_pit() {
         GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()).with_host_clock(host.clock()),
         prepared,
         endpoint,
-    );
+    )
+    .await
+    .unwrap();
     let input = Rc::new(RefCell::new(None));
     let session_input = input.clone();
     let mut session = pin!(

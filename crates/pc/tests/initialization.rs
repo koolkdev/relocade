@@ -20,7 +20,9 @@ async fn bios_without_dos() {
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
-    let runner = Runner::new(clock.clock(), prepared, endpoint);
+    let runner = Runner::new(clock.clock(), prepared, endpoint)
+        .await
+        .unwrap();
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
@@ -81,7 +83,9 @@ async fn default_exceptions() {
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
-    let runner = Runner::new(clock.clock(), prepared, endpoint);
+    let runner = Runner::new(clock.clock(), prepared, endpoint)
+        .await
+        .unwrap();
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
@@ -128,7 +132,9 @@ async fn absent_services() {
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
-    let runner = Runner::new(clock.clock(), prepared, endpoint);
+    let runner = Runner::new(clock.clock(), prepared, endpoint)
+        .await
+        .unwrap();
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),

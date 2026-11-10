@@ -1,9 +1,9 @@
 //! Machine configuration, live state access and asynchronous guest execution.
 //!
 //! [`Machine`] creates shared memory and CPU state before execution starts.
-//! Each [`CpuHandle`] starts one execution session. Its [`Runner`] attaches local
-//! devices and constructs the [`Cpu`] backend over existing state. The machine
-//! retains state for inspection after that worker joins.
+//! Each [`CpuHandle`] starts one execution session. Worker startup constructs the
+//! [`Cpu`] backend over existing state before handing its [`Runner`] to the session.
+//! The session attaches local devices; the machine retains state after the worker joins.
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. [`CpuStateAccess`] and [`Memory`] retain live

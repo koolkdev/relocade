@@ -66,7 +66,7 @@ async fn callback_wakes_execution() {
             .await]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner.attach_io(io).await.unwrap();
+        let cpu = runner.attach_io(io);
         started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
         cpu.install_module(

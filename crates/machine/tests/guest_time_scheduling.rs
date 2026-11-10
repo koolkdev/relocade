@@ -39,7 +39,7 @@ fn configuration() -> support::Configuration {
 async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
     let memory = runner.memory();
     memory.view().write(0x100, code).unwrap();
-    runner.attach_io(io).await.unwrap();
+    runner.attach_io(io);
 }
 
 async fn unpaced_slice_overshoot() {

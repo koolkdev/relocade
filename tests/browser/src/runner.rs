@@ -34,7 +34,7 @@ struct ProgressDevice {
 impl Device for ProgressDevice {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
-        // Registration precedes backend construction and guest compilation.
+        // Registration precedes guest compilation and execution.
         while device.borrow().memory.view().read_u16(0x300).unwrap() == 0 {
             clock.sleep(Duration::from_millis(5)).await;
         }
@@ -115,7 +115,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 local: Rc::new(()),
                 dropped: Some(dropped),
             });
-            let cpu = runner.attach_io(io).await.unwrap();
+            let cpu = runner.attach_io(io);
             if pending_service {
                 let probe = probe.clone();
                 cpu.install([Hook::host(0x100, {

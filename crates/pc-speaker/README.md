@@ -34,7 +34,7 @@ let (pit, pit_device) = Pit::initialize(runner, &pic).await;
 let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
 let io = IoBus::new([pic_device, pit_device, speaker_device]);
 speaker.borrow_mut().attach_audio(config, samples)?;
-runner.attach_io(io).await?;
+runner.attach_io(io);
 // Run the guest with runner.run_cpu().await.
 ```
 

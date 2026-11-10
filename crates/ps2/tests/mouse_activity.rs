@@ -63,7 +63,7 @@ async fn next(io: &IoBus) -> (bool, u8) {
 
 async fn connected_mouse_and_keyboard() {
     let clock = ManualClock::default();
-    let (runner, _host) = common::runner(clock.clock());
+    let (runner, _host) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(&runner).await;
@@ -181,7 +181,8 @@ async fn queued_mouse_timestamps() {
     let (runner, _host) = common::runner(relocade_machine::Clock::new(InputTime {
         clock: clock.clone(),
         disconnected_at: clock.at(Duration::from_millis(25)),
-    }));
+    }))
+    .await;
     assert_eq!(
         runner
             .run(pending::<()>(), async |runner| {

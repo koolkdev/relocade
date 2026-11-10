@@ -67,7 +67,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
             .unwrap();
 
         let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES).await]);
-        let cpu = runner.attach_io(io).await.unwrap();
+        let cpu = runner.attach_io(io);
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();
             let in_retrace = Cell::new(false);
