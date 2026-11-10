@@ -3,6 +3,7 @@ use crate::{
 };
 use relocade_compiler::abi;
 use std::ops::{Deref, DerefMut};
+use std::{marker::PhantomData, rc::Rc};
 use wasmtime::{AsContextMut, Func, Instance, Linker, Store, Table};
 
 /// Compiled code shared by compatible backends and transferable to another worker.
@@ -30,8 +31,15 @@ pub use memory::{Memory, SharedMemory};
 
 /// One store for guest instances and their imports. Runtime owns execution policy.
 pub struct Backend<T: 'static = ()> {
-    store: Store<T>,
+    store: Store<StoreData<T>>,
     compilation: &'static compilation::Compilation,
+}
+
+// Host functions can own thread-local captures even when the user's state is Send.
+// Keep every store view on its creation thread, including callback contexts.
+struct StoreData<T> {
+    state: T,
+    local: PhantomData<Rc<()>>,
 }
 
 impl Backend {
@@ -44,7 +52,13 @@ impl<T: 'static> Backend<T> {
     pub fn with_state(state: T) -> Result<Self> {
         let compilation = compilation::shared()?;
         Ok(Self {
-            store: Store::new(compilation.engine(), state),
+            store: Store::new(
+                compilation.engine(),
+                StoreData {
+                    state,
+                    local: PhantomData,
+                },
+            ),
             compilation,
         })
     }
@@ -61,11 +75,11 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type SharedMemory = SharedMemory;
 
     fn state(&self) -> impl Deref<Target = T> {
-        self.store.data()
+        &self.store.data().state
     }
 
     fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        self.store.data_mut()
+        &mut self.store.data_mut().state
     }
 
     fn context(&mut self) -> Context<'_, T> {

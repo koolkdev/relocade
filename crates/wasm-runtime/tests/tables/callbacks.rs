@@ -7,8 +7,8 @@ type Read = fn(u8) -> (u8, u64);
 #[derive(Default)]
 struct State {
     table: Option<Table<Backend<Self>, Read>>,
-    replacement: Option<FunctionRef<Backend<Self>, Read>>,
     events: Rc<RefCell<Vec<u32>>>,
+    lifetime: Rc<()>,
 }
 
 async fn check_callback_replacement() {
@@ -17,42 +17,41 @@ async fn check_callback_replacement() {
     const RECORD: abi::Table<fn(u8)> = abi::Table::new("test", "record", 1);
     const RUN: abi::Function<Observations> = abi::Function::new("test", "run");
     let state = State::default();
-    let lifetime = Rc::downgrade(&state.events);
+    let lifetime = Rc::downgrade(&state.lifetime);
+    let events = state.events.clone();
     let mut backend = Backend::with_state(state).unwrap();
     let (run, _table) = {
-        let replacement = backend.host_function::<Read>(Box::new(|context, value| {
-            context
-                .state()
-                .events
-                .borrow_mut()
-                .push(200 + u32::from(value));
-            (value + 2, 0x20_0000_0000_0003)
-        }));
-        let captured = Box::new(0x20_0000_0000_0001_u64);
-        let initial = backend.host_function::<Read>(Box::new(move |mut context, value| {
-            let state = context.state();
-            let table = state.table.as_ref().unwrap().clone();
-            let replacement = state.replacement.as_ref().unwrap().clone();
-            table.set(&mut context, 0, &replacement).unwrap();
-            table
-                .ensure_size(&mut context, 2, Some(&replacement))
-                .unwrap();
-            // Replacing our only slot must keep this invocation and its captures alive.
-            context
-                .state()
-                .events
-                .borrow_mut()
-                .push(100 + u32::from(value));
-            (value + 1, *captured)
-        }));
-        let record = backend.host_function::<fn(u8)>(Box::new(|context, value| {
+        let captured = Rc::new(0x20_0000_0000_0001_u64);
+        let initial =
+            FunctionRef::<_, Read>::new(&mut backend.context(), move |mut context, (value,)| {
+                let state = context.state();
+                let table = state.table.as_ref().unwrap().clone();
+                let events = state.events.clone();
+                let increment = value - 5;
+                let replacement =
+                    FunctionRef::<Backend<State>, Read>::new(&mut context, move |_, (value,)| {
+                        events.borrow_mut().push(200 + u32::from(value));
+                        (value + increment, 0x20_0000_0000_0003)
+                    });
+                table.set(&mut context, 0, &replacement).unwrap();
+                table
+                    .ensure_size(&mut context, 2, Some(&replacement))
+                    .unwrap();
+                // Replacing our only slot must keep this invocation and its captures alive.
+                context
+                    .state()
+                    .events
+                    .borrow_mut()
+                    .push(100 + u32::from(value));
+                (value + 1, *captured)
+            });
+        let record = FunctionRef::<_, fn(u8)>::new(&mut backend.context(), |context, (value,)| {
             context.state().events.borrow_mut().push(u32::from(value));
-        }));
+        });
         let table = backend.create_table(READ, None).unwrap();
         table.set(&mut backend.context(), 0, &initial).unwrap();
         let records = backend.create_table(RECORD, Some(&record)).unwrap();
         backend.state_mut().table = Some(table.clone());
-        backend.state_mut().replacement = Some(replacement);
         let mut program = Program::new();
         let read = program.import_table(READ);
         let record = program.import_table(RECORD);
@@ -86,6 +85,11 @@ async fn check_callback_replacement() {
     drop(backend);
     // Retained tables, instances and callbacks must not form a cycle through local state.
     assert!(lifetime.upgrade().is_none());
+    // Native function handles do not own their store's captures. Browser engine
+    // handles retain captures until collection, independently of backend state.
+    #[cfg(not(target_arch = "wasm32"))]
+    assert_eq!(Rc::strong_count(&events), 1);
+    drop(events);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

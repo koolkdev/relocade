@@ -3,7 +3,7 @@ use relocade_compiler::{
     Program,
 };
 use relocade_wasm_bindings::WasmAbi;
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -48,9 +48,9 @@ async fn check_aggregates() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [backend.bind_host(
-        EXCHANGE,
-        Box::new(|mut context, request, counts| {
+    let imports = [FunctionRef::<_, Exchange>::new(
+        &mut backend.context(),
+        |mut context, (request, counts)| {
             assert_eq!(counts, [0, 1, 0x8000, u16::MAX]);
             assert_eq!(request.location.0, 0x8000_0000_0000_0001);
             assert!(request.enabled);
@@ -65,8 +65,9 @@ async fn check_aggregates() {
                 3 => Reply::Sample(f64::from_bits(0xfff8_1234_5678_9abc)),
                 _ => unreachable!(),
             }
-        }),
-    )];
+        },
+    )
+    .import(EXCHANGE)];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     let nan = f64::from_bits(0xfff8_1234_5678_9abc);

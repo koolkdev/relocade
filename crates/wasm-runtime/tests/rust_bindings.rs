@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{AbiType, AbiValue, Carrier, Function},
     Program, I32, I64,
 };
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_arch = "wasm32")]
@@ -46,30 +46,27 @@ async fn check_rust_callbacks() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [
-        backend.bind_host(
-            NARROW,
-            Box::new(|_, bit, byte, word, integer| {
+    let imports = {
+        let mut context = backend.context();
+        [
+            FunctionRef::new(&mut context, |_, (bit, byte, word, integer)| {
                 assert_eq!((bit, byte, word, integer), (true, -1, -1, u32::MAX));
                 (false, i8::MIN, i16::MIN, integer)
-            }),
-        ),
-        backend.bind_host(
-            WIDE,
-            Box::new(|_, wide, float| {
+            })
+            .import(NARROW),
+            FunctionRef::new(&mut context, |_, (wide, float)| {
                 assert_eq!((wide, float), (u64::MAX, 1.25));
                 (0x8000_0000_0000_0001, float + 0.5)
-            }),
-        ),
-        backend.bind_host(SINGLE, Box::new(|_| (-0x20_0000_0000_0001,))),
-        backend.bind_host(
-            OBSERVE,
-            Box::new(|mut context, bit, byte, word| {
+            })
+            .import(WIDE),
+            FunctionRef::new(&mut context, |_, ()| (-0x20_0000_0000_0001,)).import(SINGLE),
+            FunctionRef::new(&mut context, |mut context, (bit, byte, word)| {
                 assert_eq!((bit, byte, word), (0, 128, 32768));
                 *context.state_mut() += 1;
-            }),
-        ),
-    ];
+            })
+            .import(OBSERVE),
+        ]
+    };
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(
@@ -143,15 +140,18 @@ async fn check_callback_arguments() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [backend.bind_host(
-        ACCEPT,
-        Box::new(|mut context, first, second| {
-            assert_eq!(LIVE_ARGUMENTS.load(Ordering::SeqCst), 2);
-            assert_eq!((first.ordinal, second.ordinal), (0, 1));
-            *context.state_mut() += 1;
-            *context.state()
-        }),
-    )];
+    let imports = [
+        FunctionRef::<_, fn(OwnedArgument, OwnedArgument) -> u32>::new(
+            &mut backend.context(),
+            |mut context, (first, second)| {
+                assert_eq!(LIVE_ARGUMENTS.load(Ordering::SeqCst), 2);
+                assert_eq!((first.ordinal, second.ordinal), (0, 1));
+                *context.state_mut() += 1;
+                *context.state()
+            },
+        )
+        .import(ACCEPT),
+    ];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     for calls in 1..=2 {

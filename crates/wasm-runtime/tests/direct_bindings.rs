@@ -4,7 +4,7 @@ use relocade_compiler::{
     abi::{AbiType, AbiValue, Carrier, Function},
     Program, I64,
 };
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler};
 use std::cell::{Cell, RefCell};
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -75,9 +75,9 @@ async fn codecs_and_callbacks_can_reenter_the_same_binding() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [backend.bind_host(
-        HOST,
-        Box::new(|context, first, second| {
+    let imports = [FunctionRef::<_, ReentrantExchange>::new(
+        &mut backend.context(),
+        |context, (first, second)| {
             // Reentry needs a fresh scoped borrow of the same callback state.
             drop(context);
             reenter(Phase::Callback);
@@ -85,8 +85,9 @@ async fn codecs_and_callbacks_can_reenter_the_same_binding() {
                 Reentrant(first.0.wrapping_add(1)),
                 second ^ 0x80ff_0000_0000_0001,
             )
-        }),
-    )];
+        },
+    )
+    .import(HOST)];
     let instance = backend.instantiate(&module, &imports).await.unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     let mut nested = Backend::new().unwrap();

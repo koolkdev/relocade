@@ -3,7 +3,7 @@ use relocade_machine::{
     worker::{Receiver, Thread},
     Result,
 };
-use relocade_wasm_runtime::{Backend, Module, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, Module, WasmBackend, WasmCompiler, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
 const VALUE: Function<fn() -> I64> = Function::new("test", "value");
@@ -28,7 +28,8 @@ async fn execute(mut input: Receiver<Module>) -> std::result::Result<(i64, i64),
     drop(input);
     let mut backend =
         Backend::with_state(Rc::new(Cell::new(40))).map_err(|error| error.to_string())?;
-    let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
+    let value =
+        FunctionRef::new(&mut backend.context(), |caller, ()| caller.state().get()).import(VALUE);
     let instance = backend
         .instantiate(&module, &[value])
         .await

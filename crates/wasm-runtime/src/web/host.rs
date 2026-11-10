@@ -1,21 +1,32 @@
 use super::{Backend, Context};
-use crate::{HostFunction, HostSignature};
+use crate::{CallSignature, FunctionContext};
 use js_sys::Function as JsFunction;
-use relocade_wasm_bindings::{Flat, WasmTuple};
+use relocade_wasm_bindings::{Flat, Value, WasmTuple};
 use std::rc::Rc;
 
-impl<T: 'static, S: HostSignature<Self> + 'static> HostFunction<S> for Backend<T>
+impl<T: 'static, S: CallSignature + 'static> FunctionContext<S> for Context<'_, T>
 where
-    S::Callback: 'static,
     Flat<S::Parameters>: WasmTuple,
     Flat<S::Return>: WasmTuple,
 {
-    fn wrap_host_function(&mut self, callback: S::Callback) -> JsFunction {
+    type Backend = Backend<T>;
+    type CallbackContext<'a> = Context<'a, T>;
+
+    fn wrap_function(
+        &mut self,
+        callback: impl Fn(Context<'_, T>, Value<S::Parameters>) -> Value<S::Return> + 'static,
+    ) -> JsFunction {
         // Engine functions can outlive the backend without retaining its state.
-        let store = Rc::downgrade(&self.store);
+        let owner = Rc::downgrade(self.owner);
         relocade_wasm_bindings::callback::<S::Parameters, S::Return>(move |arguments| {
-            let store = store.upgrade().expect("callback requires its live backend");
-            S::invoke(&callback, Context(store.borrow_mut()), arguments)
+            let owner = owner.upgrade().expect("callback requires its live backend");
+            callback(
+                Context {
+                    store: owner.borrow_mut(),
+                    owner: &owner,
+                },
+                arguments,
+            )
         })
         .expect("create Rust callback adapter")
     }
