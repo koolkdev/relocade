@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod common;
 #[path = "../../machine/tests/support/execution.rs"]
 mod execution;
@@ -72,7 +72,7 @@ async fn guest_port_io() {
         );
         assert_eq!(cpu.context().cpu.eax(), 0x23);
         assert_eq!(cpu.context().cpu.eip(), 0x112);
-        clock.advance_to(clock_origin() + Duration::from_micros(5)); // Five PIT clocks: mode-3 count is 2.
+        clock.advance_to(clock.at(Duration::from_micros(5))); // Five PIT clocks: mode-3 count is 2.
         assert_eq!(
             execution::run_until(&mut cpu, 0x11c).await,
             ExecutionExit::Interrupted

@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use std::{
     future::Future,
     pin::pin,
@@ -38,7 +38,7 @@ fn owned_sleep_captures_its_deadline_before_polling_and_keeps_timebases_independ
     assert!(sleep.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         guest.next_deadline(),
-        Some(clock_origin() + Duration::from_millis(10))
+        Some(guest.at(Duration::from_millis(10)))
     );
 
     host.advance_by(Duration::from_secs(1));
@@ -49,10 +49,10 @@ fn owned_sleep_captures_its_deadline_before_polling_and_keeps_timebases_independ
     assert!(sleep.as_mut().poll(&mut cx).is_ready());
     assert_eq!(guest.next_deadline(), None);
     assert_eq!(
-        guest.clock().now() - clock_origin(),
+        guest.elapsed(guest.clock().now()),
         Duration::from_millis(10)
     );
-    assert_eq!(host.clock().now() - clock_origin(), Duration::from_secs(1));
+    assert_eq!(host.elapsed(host.clock().now()), Duration::from_secs(1));
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -61,8 +61,8 @@ fn cancellation_and_repolling_preserve_the_remaining_deadlines_and_waiters() {
     let manual = ManualClock::new();
     let clock = manual.clock();
     let clone = clock.clone();
-    let first = clock_origin() + Duration::from_millis(5);
-    let later = clock_origin() + Duration::from_millis(10);
+    let first = manual.at(Duration::from_millis(5));
+    let later = manual.at(Duration::from_millis(10));
     let mut cancelled = Box::pin(clock.sleep_until(first));
     let mut sleep = pin!(clock.sleep_until(later));
     let mut other = pin!(clone.sleep_until(later));

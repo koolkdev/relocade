@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
@@ -111,10 +111,9 @@ async fn check_devices() {
                 Hook::host(0x100, {
                     let cpu = cpu.cpu_state();
                     async move || {
+                        let sleep = service_clock.sleep(Duration::from_millis(5));
                         entered.borrow_mut().take().unwrap().send(()).unwrap();
-                        service_clock
-                            .sleep_until(clock_origin() + Duration::from_millis(5))
-                            .await;
+                        sleep.await;
                         cpu.set_eip(0x200);
                     }
                 }),
@@ -135,9 +134,9 @@ async fn check_devices() {
     );
     waiting.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
-    clock.advance_to(clock_origin() + Duration::from_millis(2));
+    clock.advance_to(clock.at(Duration::from_millis(2)));
     assert_eq!(ticks.next().await, Some(1));
-    clock.advance_to(clock_origin() + Duration::from_millis(5));
+    clock.advance_to(clock.at(Duration::from_millis(5)));
     assert_eq!(worker.join().await.unwrap(), Some((1, 2)));
     assert!(
         !active.load(Ordering::SeqCst),

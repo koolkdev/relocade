@@ -41,8 +41,9 @@ in application builds. Its `clock()` uses the same public `ClockSource` interfac
 `advance_by(duration)` and `advance_to(instant)` wake due sleeps;
 `next_deadline()` observes the earliest polled, uncancelled sleep. Advancing to
 an earlier instant leaves time unchanged. Cloned controllers share time and can
-move between workers; consumer clocks remain local. Fixtures share a monotonic
-anchor through the test helper's `origin()`; clock progress remains independent.
+move between workers; consumer clocks remain local. Each controller owns its starting instant.
+`at(duration)` constructs a fixture deadline, and `elapsed(timestamp)` measures
+time from that controller's start.
 
 ## Emulated guest time
 

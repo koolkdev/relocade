@@ -6,7 +6,7 @@ use common::support::{
     indexed256::{program, unchain},
     registers::{attribute, indexed},
 };
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::Vga;
 
@@ -56,7 +56,7 @@ async fn check_pages() {
             &expected(previous_base, 0, 200),
         )
         .await;
-        clock.advance_to(clock_origin() + common::boundary(frame as u64 + 1));
+        clock.advance_to(clock.at(common::boundary(frame as u64 + 1)));
         vga.borrow_mut().read_port(0x3da, 1);
         common::service_video(video.as_mut());
         let capture = source.try_recv().unwrap();
@@ -91,7 +91,7 @@ async fn check_pages() {
     // crosses the plane group without changing which byte each plane stores.
     start(&mut *vga.borrow_mut(), 0x8001);
     attribute(&mut *vga.borrow_mut(), 0x13, 6);
-    clock.advance_to(clock_origin() + reset_at + common::boundary(1));
+    clock.advance_to(clock.at(reset_at + common::boundary(1)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let panned = source.try_recv().unwrap();
@@ -107,7 +107,7 @@ async fn check_pages() {
         changed[((y * 320 + x) * 4) as usize..((y * 320 + x) * 4 + 4) as usize]
             .copy_from_slice(&super::graphics::color(0xf1).1);
     }
-    clock.advance_to(clock_origin() + reset_at + common::boundary(2));
+    clock.advance_to(clock.at(reset_at + common::boundary(2)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     gpu.expect(&source.try_recv().unwrap(), [320, 200], &changed)
@@ -140,7 +140,7 @@ async fn check_split() {
         }
     }
     start(&mut vga, 1);
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.read_port(0x3da, 1);
     // Eight pixels from a 24-pixel virtual row, beginning halfway through a
     // repeated row. Split after three physical scanlines; byte and pel pan both

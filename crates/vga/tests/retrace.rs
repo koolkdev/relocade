@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, crtc, dots, support::svga, svga_boundary};
 use relocade_machine::{Device, DeviceConnection, IoBus};
@@ -42,12 +42,10 @@ fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
-        clock
-            .next_deadline()
-            .map(|at| at.duration_since(clock_origin())),
+        clock.next_deadline().map(|at| clock.elapsed(at)),
         Some(boundary(1)) // The output task still samples internal retraces.
     );
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
     common::service_video(video.as_mut());
     assert!(frames.try_recv().is_ok());
@@ -82,9 +80,7 @@ fn retrace_sleeps_without_device_activity_and_accepts_a_late_timer() {
     let mut cx = Context::from_waker(&waker);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
-        clock
-            .next_deadline()
-            .map(|at| at.duration_since(clock_origin())),
+        clock.next_deadline().map(|at| clock.elapsed(at)),
         Some(svga_boundary(1))
     );
     // Ordinary reads and bank writes must not wake the wait. BIOS queries save
@@ -93,7 +89,7 @@ fn retrace_sleeps_without_device_activity_and_accepts_a_late_timer() {
     svga::set(&mut *vga.borrow_mut(), 5, 1);
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    clock.advance_to(clock_origin() + svga_boundary(1) + Duration::from_millis(1));
+    clock.advance_to(clock.at(svga_boundary(1) + Duration::from_millis(1)));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(io.read_port(0x3da, 1) & 8, 0); // The narrow pulse has already ended.
     assert_eq!(
@@ -114,11 +110,11 @@ fn mode_changes_invalidate_waits_before_or_after_the_first_poll() {
         if poll_before_change {
             assert!(wait.as_mut().poll(&mut cx).is_pending());
         }
-        clock.advance_to(clock_origin() + Duration::from_millis(1));
+        clock.advance_to(clock.at(Duration::from_millis(1)));
         for (register, value) in [(4, 0), (1, 800), (2, 600), (4, 1)] {
             svga::set(&mut vga, register, value);
         }
-        clock.advance_to(clock_origin() + svga_boundary(1));
+        clock.advance_to(clock.at(svga_boundary(1)));
         assert_eq!(
             wait.as_mut().poll(&mut cx),
             Poll::Ready(RetraceEvent::Reprogrammed)
@@ -129,12 +125,10 @@ fn mode_changes_invalidate_waits_before_or_after_the_first_poll() {
         let next = Duration::from_millis(1) + dots(601 * 1056, 40_000_000);
         assert!(next_wait.as_mut().poll(&mut cx).is_pending());
         assert_eq!(
-            clock
-                .next_deadline()
-                .map(|at| at.duration_since(clock_origin())),
+            clock.next_deadline().map(|at| clock.elapsed(at)),
             Some(next)
         );
-        clock.advance_to(clock_origin() + next + Duration::from_millis(1));
+        clock.advance_to(clock.at(next + Duration::from_millis(1)));
         assert_eq!(
             next_wait.as_mut().poll(&mut cx),
             Poll::Ready(RetraceEvent::Started)
@@ -157,7 +151,7 @@ fn concurrent_waiters_receive_timer_wakes_and_cancel_independently() {
             .poll(&mut Context::from_waker(waker))
             .is_pending());
     }
-    clock.advance_to(clock_origin() + svga_boundary(1));
+    clock.advance_to(clock.at(svga_boundary(1)));
     for wake in &wakes {
         assert_eq!(wake.0.load(Ordering::SeqCst), 1);
     }
@@ -167,7 +161,7 @@ fn concurrent_waiters_receive_timer_wakes_and_cancel_independently() {
             Poll::Ready(RetraceEvent::Started)
         );
     }
-    clock.advance_to(clock_origin() + svga_boundary(1) + Duration::from_millis(1));
+    clock.advance_to(clock.at(svga_boundary(1) + Duration::from_millis(1)));
     for wake in &wakes {
         wake.0.store(0, Ordering::SeqCst);
     }

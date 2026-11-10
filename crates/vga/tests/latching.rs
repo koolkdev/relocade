@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, crtc};
 use relocade_machine::Device;
@@ -28,14 +28,14 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
             0 => boundary(1),
             _ => boundary(1) + Duration::from_nanos(1),
         };
-        clock.advance_to(clock_origin() + change_time);
+        clock.advance_to(clock.at(change_time));
         start(&mut *vga.borrow_mut(), 0x100);
         assert_eq!(vga.borrow().snapshot().vga().unwrap().display_start, 0);
         vga.borrow_mut().write_port(0x3d4, 1, 12);
         assert_eq!(vga.borrow_mut().read_port(0x3d5, 1), 1); // Programmed readback is immediate.
 
         if offset < 0 {
-            clock.advance_to(clock_origin() + boundary(1));
+            clock.advance_to(clock.at(boundary(1)));
             vga.borrow_mut().read_port(0x3da, 1);
         }
         assert!(source.is_empty());
@@ -49,7 +49,7 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
             if offset < 0 { b'B' } else { b'A' }
         );
 
-        clock.advance_to(clock_origin() + boundary(2));
+        clock.advance_to(clock.at(boundary(2)));
         vga.borrow_mut().read_port(0x3da, 1);
         common::service_video(video.as_mut());
         if offset < 0 {
@@ -68,9 +68,9 @@ fn separate_start_bytes_can_straddle_the_latch_edge() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
     let source = vga.borrow().frames();
-    clock.advance_to(clock_origin() + boundary(1) - Duration::from_nanos(1));
+    clock.advance_to(clock.at(boundary(1) - Duration::from_nanos(1)));
     crtc(&mut *vga.borrow_mut(), 12, 0x12);
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     crtc(&mut *vga.borrow_mut(), 13, 0x34);
     assert!(source.is_empty());
     common::service_video(video.as_mut());
@@ -79,7 +79,7 @@ fn separate_start_bytes_can_straddle_the_latch_edge() {
     assert_eq!(&first.vga().unwrap().crtc.values[12..14], &[0x12, 0]);
     assert_eq!(vga.borrow_mut().read_port(0x3d5, 1), 0x34);
     assert_eq!(vga.borrow().snapshot().vga().unwrap().display_start, 0x1200);
-    clock.advance_to(clock_origin() + boundary(2));
+    clock.advance_to(clock.at(boundary(2)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let next = source.try_recv().unwrap();
@@ -93,7 +93,7 @@ fn late_service_latches_preceding_programming_before_a_new_write() {
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
     let source = vga.borrow().frames();
     start(&mut *vga.borrow_mut(), 0x100);
-    clock.advance_to(clock_origin() + boundary(100));
+    clock.advance_to(clock.at(boundary(100)));
     start(&mut *vga.borrow_mut(), 0x200);
     assert!(source.is_empty());
     common::service_video(video.as_mut());
@@ -101,7 +101,7 @@ fn late_service_latches_preceding_programming_before_a_new_write() {
 
     assert_eq!(latest.vga().unwrap().display_start, 0x100);
     assert_eq!(vga.borrow().snapshot().vga().unwrap().display_start, 0x100);
-    clock.advance_to(clock_origin() + boundary(101));
+    clock.advance_to(clock.at(boundary(101)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let next = source.try_recv().unwrap();
@@ -116,7 +116,7 @@ fn immediate_snapshots_copy_the_effective_latch_without_servicing_time() {
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
     let source = vga.borrow().frames();
     start(&mut *vga.borrow_mut(), 0x1234);
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     let snapshot = vga.borrow().snapshot();
     assert_eq!(&snapshot.vga().unwrap().crtc.values[12..14], &[0x12, 0x34]);
     assert_eq!(snapshot.vga().unwrap().display_start, 0);

@@ -1,5 +1,5 @@
 use super::*;
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Clock, Device, DeviceConnection};
 use relocade_vga::{Scanout, Vga};
 use std::{
@@ -60,7 +60,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     assert!(request.as_mut().poll(&mut cx).is_pending());
     assert_eq!(active(&io).unwrap().origin(), [0, 0]);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
@@ -70,7 +70,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     };
     assert_eq!(old.origin(), [0, 0]);
     assert_eq!(completed.vram_byte(0), Some(1));
-    clock.advance_to(clock_origin() + boundary(2));
+    clock.advance_to(clock.at(boundary(2)));
     io.read_port(0x3ba, 1);
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
     let next = frames.try_recv().unwrap();
@@ -87,7 +87,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
 fn requests_already_in_retrace_finish_without_yielding() {
     let clock = ManualClock::default();
     let (vga, io) = device(clock.clock());
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     assert_eq!(
         pin!(display_start(&io, &vga, 0x80, 384, 3616))
             .poll(&mut Context::from_waker(Waker::noop())),
@@ -135,7 +135,7 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     assert_eq!(wakes.0.swap(0, Ordering::SeqCst), 1);
     assert!(request.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    clock.advance_to(clock_origin() + boundary(1) + Duration::from_millis(1));
+    clock.advance_to(clock.at(boundary(1) + Duration::from_millis(1)));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(io.read_port(0x3ba, 1) & 8, 0);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
