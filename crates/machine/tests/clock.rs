@@ -1,5 +1,5 @@
 use futures_util::future::join;
-use relocade_machine::{timer_service, Clock, ExecutionWorker};
+use relocade_machine::{timer_service, Clock};
 use std::{
     future::Future,
     pin::pin,
@@ -96,33 +96,6 @@ async fn idle_worker() {
     drop(clock);
 }
 
-async fn session_shutdown() {
-    let completed = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
-        let clock = runner.clock().clone();
-        drop(runner);
-        // The callback and device task set remain alive after releasing Runner.
-        clock.sleep(Duration::from_millis(1)).await;
-        42
-    })
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(completed, 42);
-
-    let (armed, stop) = futures_channel::oneshot::channel();
-    let result = ExecutionWorker::run_until(stop, async move |runner| {
-        let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
-        assert!(futures_lite::future::poll_once(wait.as_mut())
-            .await
-            .is_none());
-        armed.send(()).unwrap();
-        wait.await;
-    })
-    .await
-    .unwrap();
-    assert_eq!(result, None);
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn shared_deadlines_and_relative_sleeps() {
@@ -177,17 +150,6 @@ fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
     idle_worker().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn session_completion_and_cancellation_stop_their_timer_workers() {
-    pollster::block_on(session_shutdown());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn session_completion_and_cancellation_stop_their_timer_workers() {
-    session_shutdown().await;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

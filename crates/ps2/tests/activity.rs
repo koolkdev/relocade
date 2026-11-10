@@ -1,9 +1,11 @@
+mod common;
+
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
-use relocade_machine::{worker::wake_connection, CpuStorage, IoBus, Runner};
+use relocade_machine::IoBus;
 use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
 use relocade_ps2::{
     connect, read_keyboard_latch, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
@@ -59,9 +61,7 @@ async fn no_output(io: &IoBus) {
 
 async fn connected_activity() {
     let clock = ManualClock::default();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clock(), storage, endpoint);
+    let (runner, _host) = common::runner(clock.clock());
     let result = runner
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();

@@ -3,7 +3,7 @@ mod output;
 
 use futures_lite::future::{or, zip};
 use relocade_dos::Dos;
-use relocade_machine::{timer_service, ExecutionWorker};
+use relocade_machine::timer_service;
 use std::{
     future::{pending, poll_fn, Future},
     io::Write,
@@ -30,7 +30,12 @@ async fn exercise() {
         let (output, config, samples) = output::Output::open();
         let (stage_changed, stages) = async_channel::bounded(2);
         let (keys, input) = async_channel::bounded(1);
-        let worker = ExecutionWorker::spawn(clock, async move |runner| {
+        let mut machine =
+            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+        let prepared = machine
+            .create_cpu(relocade_dos::configuration::cpu())
+            .unwrap();
+        let worker = prepared.spawn(clock, async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.speaker()
                 .borrow_mut()

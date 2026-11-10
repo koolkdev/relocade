@@ -3,7 +3,6 @@
 use relocade_clock_test_support::ManualClock;
 mod common;
 use relocade_dos::Dos;
-use relocade_machine::ExecutionWorker;
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::time::Duration;
 
@@ -12,7 +11,12 @@ const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let worker = prepared.spawn_with_clock(
         move || worker_clock.clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -72,7 +76,12 @@ async fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
 #[test]
 fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
     for mz in [false, true] {
-        let worker = ExecutionWorker::spawn_with_clock(
+        let mut machine =
+            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+        let prepared = machine
+            .create_cpu(relocade_dos::configuration::cpu())
+            .unwrap();
+        let worker = prepared.spawn_with_clock(
             || ManualClock::new().clock(),
             async move |runner| {
                 let mut dos = Dos::new(runner).await.unwrap();

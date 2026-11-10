@@ -2469,6 +2469,7 @@ dependencies = [
  "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
+ "relocade-x86",
  "wasm-bindgen-test",
 ]
 

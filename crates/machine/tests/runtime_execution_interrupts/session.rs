@@ -4,7 +4,7 @@ use futures_util::{
     future::{join, LocalBoxFuture},
     StreamExt,
 };
-use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle};
+use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -75,7 +75,10 @@ async fn connected_input() {
             let worker_sent = sent.clone();
             let (send, mut input) = mpsc::unbounded();
             let (start, started) = oneshot::channel();
-            let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
+            let setup = configuration();
+            let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+            let prepared = machine.create_cpu(setup.cpu).unwrap();
+            let worker = prepared.spawn(clock, async move |mut runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
                     Box::pin(async move {
@@ -188,7 +191,10 @@ async fn connected_stop() {
     let sent = Arc::new(AtomicBool::new(false));
     let worker_sent = sent.clone();
     let (report, stopped) = oneshot::channel();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |mut runner| {
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let device = Rc::new(RefCell::new(InputDevice {
             entered: Some(entered),
             sent: worker_sent,
@@ -237,28 +243,22 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 
 async fn saturated_count() {
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async |mut runner| {
-        let config = support::configuration(
-            Compiler::new(ExecutionProfile::Real16).target(),
-            CpuState {
-                eip: 0x100,
-                instruction_count: u64::MAX,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-            0x10000,
-            PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])
-                .unwrap(),
-        )
-        .unwrap();
-        runner
-            .create_cpu(
-                Memory::new(config.machine).unwrap(),
-                config.cpu,
-                IoBus::default(),
-            )
-            .await
-            .unwrap();
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            instruction_count: u64::MAX,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x10000,
+        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
+    )
+    .unwrap();
+    let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
+    let prepared = machine.create_cpu(config.cpu).unwrap();
+    let worker = prepared.spawn(clock, async |mut runner| {
+        runner.attach_io(IoBus::default()).await.unwrap();
         let exit = runner.cpu().exit_handle();
         runner
             .cpu()
@@ -300,7 +300,10 @@ impl Device for PublishInput {
 async fn notified_reentry() {
     for nested in [false, true] {
         let (clock, _timers) = timer_service();
-        let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
+        let setup = configuration();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
             let io = IoBus::new([runner
                 .connect(

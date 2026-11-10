@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, IoBus,
-    MachineConfig, Memory, Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, IoBus, MachineConfig,
+    Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -60,7 +60,26 @@ async fn timer_interrupts() -> Result<(), String> {
     let worker_count = count.clone();
     let host_busy = Arc::new(AtomicBool::new(false));
     let worker_host_busy = host_busy.clone();
-    let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
+    let mut machine = relocade_machine::Machine::new(
+        MachineConfig::new(
+            0x1000,
+            PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let cpu_config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let worker = prepared.spawn(clock, async move |mut runner| {
         let (pic, pic_connection) = Pic::initialize(&runner).await;
         let (_pit, pit_connection) = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
@@ -74,15 +93,7 @@ async fn timer_interrupts() -> Result<(), String> {
         let connection = runner
             .connect(reports.clone(), [], std::iter::once(0x80..=0x81))
             .await;
-        let memory = Memory::new(
-            MachineConfig::new(
-                0x1000,
-                PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
-                    .unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let memory = runner.memory();
         // Program mode 3, divisor 2386 (approximately 500 Hz); unmask IRQ0.
         // Announce readiness, enable interrupts, then stay in a compiled busy loop.
         let program = [
@@ -102,21 +113,9 @@ async fn timer_interrupts() -> Result<(), String> {
             )
             .unwrap();
         let compiler = Compiler::new(ExecutionProfile::Real16);
-        let config = CpuConfig::new(
-            compiler.target(),
-            CpuState {
-                eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-        )
-        .unwrap();
+
         let cpu = runner
-            .create_cpu(
-                memory.clone(),
-                config,
-                IoBus::new([pic_connection, pit_connection, connection]),
-            )
+            .attach_io(IoBus::new([pic_connection, pit_connection, connection]))
             .await
             .unwrap();
         cpu.context().cpu.set_sp(0xf00);

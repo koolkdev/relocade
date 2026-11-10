@@ -11,11 +11,13 @@ the execution worker. `ExecutionWorker` uses the existing
 [worker transport](workers.md) and owns runner completion and cancellation:
 
 ```rust,ignore
+let mut machine = Machine::new(memory_config)?;
+let cpu = machine.create_cpu(cpu_config)?;
 let (handle, timers) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(handle, async move |mut runner| {
+let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
-    runner.create_cpu(memory, cpu_config, io).await?;
+    runner.attach_io(io).await?;
     runner.run_cpu().await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
@@ -33,15 +35,14 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The worker prepares one `CpuStorage` before spawning and passes it to
-`Worker::spawn_with`. Startup transfers the storage through a typed channel and
-observes cancellation while waiting for it. `runner.create_cpu(memory, config, io).await` consumes
-that storage on the execution thread. `Dos::new(runner)` uses the same factory.
-A runner permits one construction attempt, including an attempt that
-fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
-uses `Cpu::new` and `Cpu::run` directly. The runner retains its CPU and
-`run_cpu()` executes that CPU without another ownership argument. Construction
-and launch do not execute guest instructions.
+The machine initializes CPU state before spawning. Startup consumes its
+non-cloneable `CpuHandle` and transfers that CPU's storage, configuration and
+shared memory together. `runner.attach_io(io).await` creates the local backend
+without resetting registers. `Dos::new(runner)` attaches the PC's devices through
+this same operation. A runner permits one attachment attempt, including an
+attempt that fails or is cancelled; later programs reuse that CPU. Independent
+CPU-level work uses `Cpu::new` and `Cpu::run` directly. `run_cpu()` executes the
+runner's existing CPU. Attachment and launch do not execute guest instructions.
 
 The callback receives its `Runner` by value. PC/DOS retain it across programs;
 `runner.cpu()` lends the stopped backend for setup. The outer session keeps
@@ -99,9 +100,9 @@ process and returns an already completed process's result without running the CP
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
-For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
-creates the timer service and drives it on the caller while the session runs on
-execution. It returns the session result on completion, or `None` after the stop
+For a session tied to a host lifetime, `cpu.run_until(stop, session)` consumes the CPU
+handle, creates the timer service and drives it on a timer worker while the
+session runs on execution. It returns the session result on completion, or `None` after the stop
 signal and worker cleanup. The stop signal's value is ignored. Await the whole
 operation; dropping it early is not orderly shutdown. The timer service ends with
 the session. Use `spawn` with an externally driven clock when clock handles must
@@ -212,10 +213,10 @@ driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending
 devices, and sleeping devices do not suspend the CPU.
 
-`ExecutionWorker` connects the prepared storage's `ExecutionInterrupt` handle to
+`ExecutionWorker` connects the prepared CPU's `ExecutionInterrupt` handle to
 the whole session's Rust wakers, including cancellation. Host access exists before
-spawning. The worker captures a Send connection token alongside that same storage
-post, then binds its locally reconstructed interrupt handle. Binding needs no
+spawning. The worker captures a Send connection token alongside that same CPU
+transfer, then binds its locally reconstructed interrupt handle. Binding needs no
 registration channel, return acknowledgment or target replacement.
 `runner.connect(...).await` starts the device activity with its own waker before
 returning its bus connection. Initialize device state before connecting, including
@@ -228,12 +229,12 @@ stable executor waker, polling and parking. `Runner` owns that executor and comp
 the application and registered devices under it. Worker startup is:
 
 ```rust,ignore
-Runner::new(clock, storage, endpoint).run(stopped, session).await
+Runner::new(clock, cpu, endpoint).run(stopped, session).await
 ```
 
-The constructor consumes prepared storage and binds its wake endpoint on the
-execution owner. There is no partially initialized runner or standalone scheduling
-mode. `run` installs the required executor around the whole session, so callers do
+The constructor consumes the prepared CPU and binds its wake endpoint on the
+execution owner. Local device attachment constructs its backend before guest
+execution. `run` installs the required executor around the whole session, so callers do
 not separately wrap it. Native fixtures can supply the same resources on their
 test thread; they use the same executor. Browser binding belongs on the receiving
 worker after resource transfer. Direct CPU/device tests do not need a runner.

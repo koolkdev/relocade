@@ -3,7 +3,7 @@
 The machine exposes `worker::Worker`, `worker::Thread` and `ExecutionWorker` without
 feature flags. `Worker<T>` owns one task, its result and cooperative shutdown.
 `Thread` is a reusable execution thread whose caller retains individual task handles.
-`ExecutionWorker::spawn` creates a worker and supplies its fully initialized
+`CpuHandle::spawn` transfers an existing CPU to a worker and supplies its
 `Runner`; CPU-level work can use `Cpu` directly.
 
 `Worker::spawn` invokes a task with its cancellation receiver. `Worker::spawn_with`
@@ -156,8 +156,8 @@ returns a host guard plus Send endpoint metadata. Capture the endpoint alongside
 an already posted resource, then call `endpoint.bind(local_target)` on execution.
 Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
-`ExecutionWorker` does this automatically with `CpuStorage`; callers construct
-its CPU through `runner.create_cpu` or `Dos::new`. `WakeConnection` retains the
+`CpuHandle` startup does this automatically with its prepared CPU; callers attach
+local devices through `runner.attach_io` or `Dos::new`. `WakeConnection` retains the
 binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
 
 ## Browser build and lifetime

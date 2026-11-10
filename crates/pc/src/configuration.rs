@@ -4,7 +4,7 @@ use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
 
-pub(crate) fn memory() -> MachineConfig {
+pub fn memory() -> MachineConfig {
     const MEMORY_SIZE: u32 = 1024 * 1024;
     const BIOS_ROM_START: u32 = 0xf0000;
     let map = PhysicalMemoryMap::new([
@@ -24,7 +24,7 @@ pub(crate) fn memory() -> MachineConfig {
     MachineConfig::new(u64::from(MEMORY_SIZE), map).expect("fixed PC memory map")
 }
 
-pub(crate) fn cpu() -> CpuConfig {
+pub fn cpu() -> CpuConfig {
     CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {

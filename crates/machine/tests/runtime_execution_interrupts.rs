@@ -47,9 +47,7 @@ async fn cpu(code: &[u8], compiled: bool, io: IoBus) -> Cpu {
 }
 
 async fn prepare_cpu(runner: &mut Runner, code: &[u8], compiled: bool, io: IoBus) {
-    let config = configuration();
-    let memory = Memory::new(config.machine).unwrap();
-    let cpu = runner.create_cpu(memory, config.cpu, io).await.unwrap();
+    let cpu = runner.attach_io(io).await.unwrap();
     install(cpu, code, compiled).await;
 }
 

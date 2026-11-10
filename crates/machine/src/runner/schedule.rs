@@ -8,7 +8,7 @@ use crate::{Clock, Cpu, GuestTimeDriver};
 use relocade_x86::ExecutionExit;
 use std::task::{ready, Context, Poll, Waker};
 
-pub(super) struct ExecutionSchedule {
+pub(crate) struct ExecutionSchedule {
     clock: Clock,
     guest: Option<GuestSchedule>,
 }
@@ -19,11 +19,11 @@ struct GuestSchedule {
 }
 
 impl ExecutionSchedule {
-    pub(super) fn from_clock(clock: Clock) -> Self {
+    pub(crate) fn from_clock(clock: Clock) -> Self {
         Self { clock, guest: None }
     }
 
-    pub(super) fn with_guest_time(config: GuestTimeConfig) -> Self {
+    pub(crate) fn with_guest_time(config: GuestTimeConfig) -> Self {
         let mut driver = GuestTimeDriver::new(config.instructions_per_second);
         let slice = config.slice_duration.map(|duration| {
             ExecutionSlice::new(&driver.clock(), duration, config.host_clock.is_some())

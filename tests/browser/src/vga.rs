@@ -1,9 +1,7 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
-use relocade_machine::{
-    timer_service, worker::Thread, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
-};
+use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, IoBus, MachineConfig};
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -19,23 +17,35 @@ pub async fn vga_workers() -> Result<(), String> {
     let (rendered, presented) = oneshot::channel();
     let (clock, timers) = timer_service();
     let display = Thread::new();
-    let cpu_task = ExecutionWorker::spawn(clock, async move |mut runner| {
+    let config = MachineConfig::new(
+        0x1000,
+        PhysicalMemoryMap::new([
+            (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
+            (MEMORY_RANGE, PhysicalMapping::Mmio),
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    let mut machine = relocade_machine::Machine::new(config).unwrap();
+    let cpu_config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let cpu_task = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frames()).is_ok());
-        let config = MachineConfig::new(
-            0x1000,
-            PhysicalMemoryMap::new([
-                (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-                (MEMORY_RANGE, PhysicalMapping::Mmio),
-            ])
-            .unwrap(),
-        )
-        .unwrap();
+
         let io = IoBus::new([runner
             .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
             .await]);
-        let memory = Memory::new(config).unwrap();
+        let memory = runner.memory();
         memory
             .view()
             .write(
@@ -65,20 +75,9 @@ pub async fn vga_workers() -> Result<(), String> {
                 ],
             )
             .unwrap();
-        let cpu_config = CpuConfig::new(
-            Compiler::new(ExecutionProfile::Real16).target(),
-            CpuState {
-                eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-        )
-        .unwrap();
+
         let input = RefCell::new(Some((incoming, waiting)));
-        let cpu = runner
-            .create_cpu(memory, cpu_config, io.clone())
-            .await
-            .unwrap();
+        let cpu = runner.attach_io(io.clone()).await.unwrap();
         cpu.install([
             Hook::host(0x200, {
                 let resources = cpu.memory().with_io(io.clone());

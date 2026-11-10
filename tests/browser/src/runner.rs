@@ -1,7 +1,5 @@
 use futures_channel::oneshot;
-use relocade_machine::{
-    Clock, CpuConfig, Device, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
-};
+use relocade_machine::{Clock, CpuConfig, Device, Hook, IoBus, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
@@ -36,7 +34,7 @@ struct ProgressDevice {
 impl Device for ProgressDevice {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
-        // Registration precedes CPU initialization and guest compilation.
+        // Registration precedes backend construction and guest compilation.
         while device.borrow().memory.view().read_u16(0x300).unwrap() == 0 {
             clock.sleep(Duration::from_millis(5)).await;
         }
@@ -59,6 +57,28 @@ impl Drop for ProgressDevice {
     }
 }
 
+fn machine() -> (relocade_machine::Machine, CpuConfig) {
+    let machine = relocade_machine::Machine::new(
+        MachineConfig::new(
+            0x1000,
+            PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    (machine, config)
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn runner_workers() -> Result<(), String> {
     for pending_service in [false, true] {
@@ -68,34 +88,17 @@ pub async fn runner_workers() -> Result<(), String> {
         let stop = async {
             assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
         };
-        let worker = ExecutionWorker::run_until(stop, async move |mut runner| {
+        let (mut machine, cpu_config) = machine();
+        let prepared = machine.create_cpu(cpu_config).unwrap();
+        let worker = prepared.run_until(stop, async move |mut runner| {
             EXECUTION_OWNER.set(true);
-            let memory = Memory::new(
-                MachineConfig::new(
-                    0x1000,
-                    PhysicalMemoryMap::new([(
-                        0..=0xfff,
-                        PhysicalMapping::Ram { backing_offset: 0 },
-                    )])
-                    .unwrap(),
-                )
-                .unwrap(),
-            )
-            .unwrap();
+            let memory = runner.memory();
             // Write a marker, then consume CPU quanta indefinitely.
             memory
                 .view()
                 .write(0x100, &[0xc7, 0x06, 0, 3, 1, 0, 0xeb, 0xfe])
                 .unwrap();
-            let config = CpuConfig::new(
-                Compiler::new(ExecutionProfile::Real16).target(),
-                CpuState {
-                    eip: 0x100,
-                    segments: Segments::real_mode(),
-                    ..CpuState::default()
-                },
-            )
-            .unwrap();
+
             let io = IoBus::new([runner
                 .connect(
                     Rc::new(RefCell::new(ProgressDevice {
@@ -112,7 +115,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 local: Rc::new(()),
                 dropped: Some(dropped),
             });
-            let cpu = runner.create_cpu(memory.clone(), config, io).await.unwrap();
+            let cpu = runner.attach_io(io).await.unwrap();
             if pending_service {
                 let probe = probe.clone();
                 cpu.install([Hook::host(0x100, {
@@ -137,11 +140,14 @@ pub async fn runner_workers() -> Result<(), String> {
         assert_eq!(destroyed.try_recv().unwrap(), Some(()));
         assert_eq!(device_destroyed.try_recv().unwrap(), Some(()));
     }
-    let result = ExecutionWorker::run_until(pending::<()>(), async |runner| {
-        runner.clock().sleep(Duration::from_millis(1)).await;
-        42
-    })
-    .await;
+    let (mut machine, cpu_config) = machine();
+    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let result = prepared
+        .run_until(pending::<()>(), async |runner| {
+            runner.clock().sleep(Duration::from_millis(1)).await;
+            42
+        })
+        .await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(42));
     Ok(())
 }

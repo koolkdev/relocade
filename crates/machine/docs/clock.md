@@ -69,7 +69,7 @@ configured host clock. Sources without a correspondence complete immediately.
 
 `Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
 parameter. Controllers expose the separate capabilities to drive timers or
-advance time. `ExecutionWorker::spawn_with_clock` constructs a clock on the
+advance time. `CpuHandle::spawn_with_clock` constructs a clock on the
 execution owner from a transferable factory.
 
 ## Controlled time in tests
@@ -140,7 +140,7 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 ## Execution with guest time
 
-`ExecutionWorker::spawn_with_guest_time(make_time, session)` constructs a
+`cpu.spawn_with_guest_time(make_time, session)` constructs a
 `GuestTimeConfig` on the execution owner. `GuestTimeConfig::new(rate)` selects
 unpaced guest time and device deadlines only. `with_slice_duration(duration)`
 adds execution slices measured in guest time. At a slice boundary, ready activities
@@ -151,7 +151,8 @@ duration. The host clock is constructed in the factory.
 The lower-level `Runner::with_guest_time` takes the same configuration directly.
 
 ```rust
-let worker = ExecutionWorker::spawn_with_guest_time(
+let cpu = machine.create_cpu(cpu_config)?;
+let worker = cpu.spawn_with_guest_time(
     move || GuestTimeConfig::new(instructions_per_second)
         .with_slice_duration(Duration::from_millis(4))
         .with_host_clock(host_timers.clock()),
@@ -307,7 +308,7 @@ Timer scheduling stays in `clock/driver.rs`.
 
 `TimerHandle` is the transferable host-timer transport. Its `clock()` creates a
 local consumer; `Clock::from(handle)` consumes the transport when it is no longer
-needed for setup. `ExecutionWorker::spawn(handle, session)` performs this conversion
+needed for setup. `cpu.spawn(handle, session)` performs this conversion
 on the execution owner. Clones access the same host monotonic timebase across workers.
 
 The host clock reads `Instant::now()` locally. Sleeps send absolute deadlines to the
@@ -356,7 +357,8 @@ For a busy execution worker, bind its notification resource on the timer worker:
 
 ```rust,ignore
 let (handle, driver) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(handle, session);
+let cpu = machine.create_cpu(cpu_config)?;
+let execution = cpu.spawn(handle, session);
 let timers = driver.spawn_with_peer(execution.wake_peer());
 let result = execution.join().await;
 timers.stop().await?;
@@ -364,7 +366,7 @@ timers.stop().await?;
 
 `spawn_with_peer` uses the existing worker resource transport to bind direct
 notifications before processing timers. This avoids relaying browser timer wakes
-through the spawning host's event loop. `ExecutionWorker::run_until` owns this
+through the spawning host's event loop. `CpuHandle::run_until` owns this
 setup and stops execution before stopping its timer worker. Clocks used by other
 independent sessions need their own service lifetime and notification bindings.
 

@@ -4,7 +4,7 @@ use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, Keybo
 use relocade_machine::{
     real_mode_interrupt::{read_frame, read_vector},
     worker::wake_connection,
-    CpuStorage, FarPointer, Hook, Runner,
+    FarPointer, Hook, Runner,
 };
 use relocade_pc::Pc;
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
@@ -15,9 +15,12 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn bios_without_dos() {
     let clock = ManualClock::default();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clock(), storage, endpoint);
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu())
+        .unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::new(clock.clock(), prepared, endpoint);
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
@@ -73,9 +76,12 @@ async fn bios_without_dos() {
 
 async fn default_exceptions() {
     let clock = ManualClock::default();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clock(), storage, endpoint);
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu())
+        .unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::new(clock.clock(), prepared, endpoint);
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
@@ -117,9 +123,12 @@ async fn default_exceptions() {
 
 async fn absent_services() {
     let clock = ManualClock::default();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clock(), storage, endpoint);
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu())
+        .unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::new(clock.clock(), prepared, endpoint);
     runner
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),

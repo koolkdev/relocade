@@ -1,9 +1,13 @@
 use relocade_dos::Dos;
-use relocade_machine::ExecutionWorker;
 
 #[test]
 fn speaker_ports_work_without_output_and_survive_process_launches() {
-    let result = pollster::block_on(ExecutionWorker::run_until(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),
         async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();

@@ -175,6 +175,7 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
+pub use relocade_pc::configuration;
 use relocade_pc::Pc;
 use relocade_pc_speaker::Speaker;
 use relocade_vga::Vga;
