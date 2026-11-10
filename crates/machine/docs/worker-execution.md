@@ -251,8 +251,9 @@ worker after resource transfer. Direct CPU/device tests do not need a runner.
 
 Each executor turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
-directly in Rust; only an idle session registers an outer-executor waiter and
-parks. Resumption or cancellation releases that waiter. Cancellation needs no
+directly in Rust. Idle sessions park, while pending posted-object receipt can
+request one host turn for the whole activity set. Resumption or cancellation
+releases the outer-executor waiter. Cancellation needs no
 startup yield or wrapper around the application.
 
 Participating work belongs inside the application/device future. The runner
@@ -327,10 +328,12 @@ to inspect a completed guest boundary while retaining suspended work. See the
 Continuously ready device loops must also cooperate with the other root futures.
 When the whole session is waiting, including for Wasm compilation, the executor
 parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn. Compile and install modules before guest execution
-or while the CPU is exclusively stopped. Concurrent compiler work on the same
-busy worker needs a separate scheduling design; ordinary JavaScript callbacks
-receive no periodic fairness turn. Execution checkpoints remain at completed
+a browser event-loop turn. Machine-owned [compiler clients](compilation.md) bind
+posted replies to the executor: a missing payload gets a 1 ms host-clock grace
+interval, followed by one event-loop turn that gates CPU and device activities.
+Guest execution resumes between attempts. Installation remains explicit while
+the CPU is exclusively stopped. Other JavaScript callbacks receive no periodic
+fairness turn. Execution checkpoints remain at completed
 blocks, with [no fixed notification-latency guarantee](../../x86/docs/host-integration.md#execution-interrupts)
 for long straight-line code or REP.
 

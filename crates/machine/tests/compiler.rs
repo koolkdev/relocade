@@ -5,6 +5,9 @@ use relocade_x86::{
 };
 use std::{future::pending, pin::pin};
 
+#[path = "compiler/delivery.rs"]
+mod delivery;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

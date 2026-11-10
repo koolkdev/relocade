@@ -1,24 +1,29 @@
 //! Polling and parking for a worker's root future.
 
 use super::{WakeConnection, WakePeer, WakeTarget};
+use crate::host_turn::HostTurns;
+use futures_timer::Delay;
 use futures_util::task::AtomicWaker;
 use std::{
     cell::Cell,
     future::{poll_fn, Future},
     pin::pin,
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
     task::{Context, Poll, Wake, Waker},
+    time::Duration,
 };
 
 /// Owns polling, cancellation and parking for a worker's root future.
-/// Application and device futures are composed into one root future. Only an
-/// idle worker uses the caller's executor; runnable work is repolled here.
+/// Application and device futures are composed into one root future. Runnable
+/// work is repolled here; idle waits and requested host turns use the caller's executor.
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
     wake: Arc<ExecutorWake>,
+    pub(crate) host_turns: Rc<HostTurns>,
 }
 
 impl<R: WakeTarget> Executor<R> {
@@ -34,7 +39,26 @@ impl<R: WakeTarget> Executor<R> {
             runnable: AtomicBool::new(false),
             notified: AtomicBool::new(false),
         });
-        Self { connection, wake }
+        let host_turns = Rc::new(HostTurns::new(Waker::from(wake.clone())));
+        Self {
+            connection,
+            wake,
+            host_turns,
+        }
+    }
+
+    /// Lets runnable work continue for `interval` before each pending delivery turn.
+    /// The timer must progress independently of this executor and guest time.
+    /// Without a timer, pending posted messages request a host turn immediately.
+    /// Configure before binding receivers with [`crate::Receiver::with_executor`].
+    pub fn with_host_timer<F: Future<Output = ()> + 'static>(
+        mut self,
+        interval: Duration,
+        timer: impl Fn(Duration) -> F + 'static,
+    ) -> Self {
+        self.host_turns =
+            Rc::new(HostTurns::new(Waker::from(self.wake.clone())).with_timer(interval, timer));
+        self
     }
 
     /// Runs the worker's root future until it completes or stop resolves.
@@ -65,6 +89,28 @@ impl<R: WakeTarget> Executor<R> {
             if let Poll::Ready(value) = result {
                 return Some(value);
             }
+            if self.host_turns.has_waiters() {
+                // Gate the whole root, including busy device futures, for one
+                // host turn. Guest execution resumes even if delivery is late.
+                let mut turn = pin!(Delay::new(Duration::ZERO));
+                let _registration = ParkRegistration(&self.wake.parked);
+                let stopped = poll_fn(|cx| {
+                    self.wake.parked.register(cx.waker());
+                    if stop
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&waker))
+                        .is_ready()
+                    {
+                        return Poll::Ready(true);
+                    }
+                    turn.as_mut().poll(cx).map(|()| false)
+                })
+                .await;
+                if stopped {
+                    return None;
+                }
+            }
+            self.host_turns.resume();
             if self.wake.runnable.load(Ordering::SeqCst) {
                 continue;
             }
