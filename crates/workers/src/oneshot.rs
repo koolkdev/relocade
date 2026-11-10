@@ -1,6 +1,8 @@
 //! One resource sent to a session that is already running on a worker.
 
-use crate::{ResourceError, Thread, ThreadExt, WorkerResource};
+use crate::{
+    host_turn::HostTurns, Executor, ResourceError, Thread, ThreadExt, WakeTarget, WorkerResource,
+};
 use futures_channel::oneshot;
 use std::{
     any::Any,
@@ -35,6 +37,7 @@ pub struct Receiver<R> {
     posted: oneshot::Receiver<()>,
     incoming: oneshot::Receiver<R>,
     completed: oneshot::Receiver<Result<(), ResourceError>>,
+    host: Option<Rc<HostTurns>>,
 }
 
 struct Registration {
@@ -108,17 +111,24 @@ impl<R: WorkerResource> ReceiverEndpoint<R> {
             posted: posting,
             incoming,
             completed: completion,
+            host: None,
         })
+    }
+
+    /// Binds the handoff to a busy worker's receipt policy. Posting and task
+    /// completion are handled by `receive`, including their required host turns.
+    /// Poll receipt inside this executor's root future.
+    pub fn bind_on<T: WakeTarget>(
+        self,
+        executor: &Executor<T>,
+    ) -> Result<Receiver<R>, ResourceError> {
+        let mut receiver = self.bind()?;
+        receiver.host = Some(executor.host_turns.clone());
+        Ok(receiver)
     }
 }
 
 impl<R> Receiver<R> {
-    /// Waits once for posting through ordinary Rust communication. Busy owners
-    /// can then apply their host-turn policy while awaiting `receive()`.
-    pub async fn posted(&mut self) -> Result<(), ResourceError> {
-        (&mut self.posted).await.map_err(|_| ResourceError::Closed)
-    }
-
     /// Receives after the sending task has completed. Keeping this wait pending
     /// lets a busy owner give the posting task its final host turn too. Dispatch
     /// failures complete the wait even if the posted callback never ran.
@@ -127,10 +137,18 @@ impl<R> Receiver<R> {
             _slot,
             incoming,
             completed,
-            ..
+            posted,
+            host,
         } = self;
-        completed.await.map_err(|_| ResourceError::Closed)??;
-        incoming.await.map_err(|_| ResourceError::Closed)
+        posted.await.map_err(|_| ResourceError::Closed)?;
+        let receive = async {
+            completed.await.map_err(|_| ResourceError::Closed)??;
+            incoming.await.map_err(|_| ResourceError::Closed)
+        };
+        match host {
+            Some(host) => host.receive(receive).await,
+            None => receive.await,
+        }
     }
 }
 

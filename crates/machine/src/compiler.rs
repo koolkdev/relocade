@@ -1,6 +1,7 @@
 //! A host-owned compiler thread with direct connections to execution workers.
 
 mod client;
+pub(crate) use client::channel;
 pub use client::{CompilerClient, CompilerConnection};
 
 use crate::{Error, Memory, Result};

@@ -25,6 +25,17 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         self.wake_host.peer()
     }
 
+    /// Transfers a resource to an endpoint captured by this execution session.
+    /// Receive it with `Runner::receive_resource`; await this send before joining
+    /// or stopping the worker.
+    pub async fn send_resource<R: worker::WorkerResource>(
+        &self,
+        sender: worker::oneshot::Sender<R>,
+        resource: R,
+    ) -> worker::Result<(), worker::ResourceError> {
+        self.worker.send_resource(sender, resource).await
+    }
+
     /// Runs a session with a dedicated timer worker until it completes or `stop` resolves.
     /// Poll this outside the execution worker. A stop signal
     /// returns `None` after dropping execution state on its owner; its value is
@@ -58,7 +69,10 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         host_timers: TimerHandle,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
     ) -> Self {
-        Self::spawn_with_clock(move || host_timers.into(), session)
+        Self::spawn_runner(
+            move |storage, endpoint| Runner::with_host_timers(host_timers, storage, endpoint),
+            session,
+        )
     }
 
     /// Constructs a clock on the execution owner before starting the session.

@@ -22,7 +22,8 @@ pub struct CompilerConnection {
 }
 
 impl CompilerClient {
-    /// Creates a connection on an ordinary async owner.
+    /// Creates a connection on an ordinary async owner. Busy execution uses
+    /// `Runner::compiler_connection` to bind receipt to its executor instead.
     pub fn channel() -> Result<(Self, CompilerConnection)> {
         channel(ReceiverEndpoint::bind)
     }

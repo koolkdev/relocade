@@ -33,9 +33,12 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The worker prepares one `CpuStorage` before spawning and posts it through
-`ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
-that storage on the execution thread. `Dos::new(runner)` uses the same factory.
+The worker prepares one `CpuStorage` before spawning and transfers it through
+`ThreadExt::run_resource`. Additional resources can arrive after startup through
+`ExecutionWorker::send_resource` and `Runner::receive_resource`; see the
+[resource handoff](workers.md#resource-messages).
+`runner.create_cpu(memory, config, io).await` consumes that storage on the execution
+thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
 uses `Cpu::new` and `Cpu::run` directly. `run_cpu` checks ownership once at entry, without
@@ -96,10 +99,10 @@ DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
 For a session tied to a host lifetime, `ExecutionWorker::run_until(stop, session)`
-creates the timer service and drives it on the caller while the session runs on
-execution. It returns the session result on completion, or `None` after the stop
-signal and worker cleanup. The stop signal's value is ignored. Await the whole
-operation; dropping it early is not orderly shutdown. The timer service ends with
+creates a dedicated timer worker while the session runs on execution. It returns
+the session result on completion, or `None` after the stop signal and worker
+cleanup. The stop signal's value is ignored. Await the whole operation; dropping
+it early is not orderly shutdown. The timer service ends with
 the session. Use `spawn` with an externally driven clock when clock handles must
 remain usable afterward or the embedding needs separate control.
 
@@ -236,9 +239,9 @@ worker after resource transfer. Direct CPU/device tests do not need a runner.
 
 Each executor turn polls `stopped` first, then the application/device future. A
 ready stop drops that future without polling it again. Runnable work is repolled
-directly in Rust; only an idle session registers an outer-executor waiter and
-parks. Resumption or cancellation releases that waiter. Cancellation needs no
-startup yield or wrapper around the application.
+directly in Rust. An idle session or an explicit host turn registers an
+outer-executor waiter. Resumption or cancellation releases that waiter. Cancellation
+needs no startup yield or wrapper around the application.
 
 Participating work belongs inside the application/device future. The runner
 polls registered devices before the main activity. Device setup explicitly awaits
@@ -302,14 +305,40 @@ to inspect a completed guest boundary while retaining suspended work. See the
 [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the executor
-parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn. Compile and install modules before guest execution
-or while the CPU is exclusively stopped. Concurrent compiler work on the same
-busy worker needs a separate scheduling design; ordinary JavaScript callbacks
-receive no periodic fairness turn. Execution checkpoints remain at completed
-blocks, with [no fixed notification-latency guarantee](../../x86/docs/host-integration.md#execution-interrupts)
-for long straight-line code or REP.
+A Rust cooperative yield does not promise a browser event-loop turn. Bind a
+resource receiver to the execution owner once, then await ordinary receipt:
+
+```rust,ignore
+let mut incoming = runner.bind_resource(endpoint);
+let code = incoming.recv().await;
+```
+
+The receiver observes the channel's Rust reconstruction metadata, which is
+published only after the engine payload is posted. It arranges host turns only
+while that payload is missing; a service sends no separate readiness message.
+`runner.compiler_connection()` uses this same binding for compiler responses.
+The returned client awaits `compile(ranges)` directly, with no companion task.
+
+`ExecutionWorker::spawn` configures receipt with its host timer service. While
+posted delivery remains pending, the receiver waits one millisecond before
+requesting a turn. Keep that timer service driven and bind its wake peer to
+execution. Guest-time sessions reuse their optional host pacing clock, never the
+guest clock. Without an independent host timer, resource receipt requests a turn
+immediately instead of waiting on a clock that may be paused.
+
+The executor suspends its complete runnable set for one zero-delay host timer,
+then resumes it even if delivery is still pending. Another host-time interval
+precedes the next attempt when a host timer is configured. Cancelling receipt
+drops its timer and pending turn request; the receiver retains partial payload
+state. Ready results request no turns. A compiler client additionally retains
+its in-flight response and drains it before submitting another request.
+Requests in the same executor poll share a turn. Guest execution resumes between
+attempts, and inactive delivery adds no timer.
+
+Ordinary input waits need no wrapper. Installation remains explicit while the
+CPU is stopped and has no retained host calls. One millisecond is a requested
+cadence, not a latency bound. Execution checkpoints retain their
+[notification-latency limits](../../x86/docs/host-integration.md#execution-interrupts).
 
 ## Video and application rendering
 
