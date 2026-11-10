@@ -48,10 +48,10 @@ impl Device for Ticker {
         };
         active.store(true, Ordering::SeqCst);
         let _active = Active(active);
-        let mut deadline = clock.now() + Duration::from_millis(2);
+        let mut deadline = clock.add(clock.now(), Duration::from_millis(2));
         loop {
             clock.sleep_until(deadline).await;
-            deadline += Duration::from_millis(2);
+            deadline = clock.add(deadline, Duration::from_millis(2));
             ticks.set(ticks.get() + 1);
             report.unbounded_send(ticks.get()).unwrap();
         }

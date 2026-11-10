@@ -13,7 +13,7 @@ pub async fn timer_workers() -> Result<(), String> {
     let worker = Thread::new();
     let execution = worker.run_send((), move |()| async move {
         let clock = Clock::from(clock);
-        let deadline = clock.now() + Duration::from_millis(10);
+        let deadline = clock.add(clock.now(), Duration::from_millis(10));
         let mut sleep = pin!(clock.sleep_until(deadline));
         let mut pending = 0;
         // Continuously ready Rust work never returns to this worker's browser

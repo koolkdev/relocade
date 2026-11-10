@@ -289,7 +289,7 @@ impl Keyboard<'_> {
         if pressed && scancodes::repeatable(key) {
             self.repeat = Some(Repeat {
                 key,
-                deadline: now + self.delay(),
+                deadline: self.clock.add(now, self.delay()),
             });
         }
     }
@@ -342,7 +342,7 @@ impl Keyboard<'_> {
             let clocks = u64::from(8 + (self.typematic & 7)) << ((self.typematic >> 3) & 3);
             let period = Duration::from_nanos((clocks * 1_000_000_000).div_ceil(240));
             self.repeat = Some(Repeat {
-                deadline: now + period,
+                deadline: self.clock.add(now, period),
                 ..repeat
             });
         }

@@ -17,10 +17,10 @@ pub(super) struct ExecutionSlice {
 }
 
 impl ExecutionSlice {
-    pub(super) fn new(start: Instant, duration: Duration, paced: bool) -> Self {
+    pub(super) fn new(clock: &Clock, duration: Duration, paced: bool) -> Self {
         Self {
             duration,
-            end: Cell::new(start + duration),
+            end: Cell::new(clock.add(clock.now(), duration)),
             paced,
             wait: RefCell::new(None),
         }
@@ -54,15 +54,18 @@ impl ExecutionSlice {
             ready!(Pin::new(sleep).poll(cx));
             wait.take();
         }
-        // Carry checkpoint overshoot forward instead of shifting the slice grid.
-        let remaining = self.duration.as_nanos()
-            - now.duration_since(end).as_nanos() % self.duration.as_nanos();
-        self.end.set(
-            now + Duration::new(
-                (remaining / 1_000_000_000) as u64,
-                (remaining % 1_000_000_000) as u32,
+        // Advance from the retained boundary to preserve the slice grid even
+        // when a CPU checkpoint overshoots by a fractional nanosecond.
+        let elapsed = clock.duration_since(now, end).as_nanos();
+        let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
+        let boundary = clock.add(
+            end,
+            Duration::new(
+                (whole / 1_000_000_000) as u64,
+                (whole % 1_000_000_000) as u32,
             ),
         );
+        self.end.set(clock.add(boundary, self.duration));
         Poll::Ready(())
     }
 }

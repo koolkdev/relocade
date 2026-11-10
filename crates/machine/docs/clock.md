@@ -5,7 +5,7 @@ owned deadline waits. Devices and services use the same concrete API:
 
 ```rust,ignore
 let now: Instant = clock.now();
-let deadline = now + Duration::from_millis(2);
+let deadline = clock.add(now, Duration::from_millis(2));
 clock.sleep_until(deadline).await;
 clock.sleep(Duration::from_millis(2)).await;
 ```
@@ -16,6 +16,13 @@ an interval. Host time follows the host's monotonic clock. Emulated guest time
 starts at an explicitly supplied instant and advances independently. Sharing an
 origin does not make guest time follow host time. Pacing is the execution policy
 that controls their relationship.
+
+Duration arithmetic belongs to the clock: `add`, `sub`, and their checked forms
+construct deadlines, while `duration_since` measures elapsed time. Readings still
+use `Instant`. Repeated device updates use `consume_elapsed(&mut updated, now)`;
+the saved position advances by the duration returned, and derived deadlines refer
+to that consumed position. Raster and PIT state use this operation, and speaker
+synthesis shares the PIT's phase. Event timers use `add` and comparisons directly.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a

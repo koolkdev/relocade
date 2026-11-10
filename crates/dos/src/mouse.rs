@@ -78,6 +78,6 @@ pub(crate) fn register(interrupts: &mut Interrupts<'_>, session: Rc<DosState>, c
         interrupt_handler!(driver.mouse.dispatch),
     );
     interrupts.register_far_procedure(PACKET_ENTRY, async move |call| {
-        session.mouse.receive(call, clock.now()).await;
+        session.mouse.receive(call, &clock).await;
     });
 }

@@ -53,6 +53,51 @@ impl Clock {
         self.0.now()
     }
 
+    /// Adds an exact duration without discarding fractional clock progress.
+    /// Panics if the result exceeds the clock's coordinate range.
+    pub fn add(&self, time: Instant, duration: Duration) -> Instant {
+        self.checked_add(time, duration)
+            .expect("clock timestamp overflow")
+    }
+
+    pub fn checked_add(&self, time: Instant, duration: Duration) -> Option<Instant> {
+        time.checked_add(duration)
+    }
+
+    /// Subtracts an exact duration. Panics if the result is outside the clock's representable range.
+    pub fn sub(&self, time: Instant, duration: Duration) -> Instant {
+        self.checked_sub(time, duration)
+            .expect("clock timestamp underflow")
+    }
+
+    pub fn checked_sub(&self, time: Instant, duration: Duration) -> Option<Instant> {
+        time.checked_sub(duration)
+    }
+
+    /// Actual elapsed time, rounded down to whole nanoseconds. Returns zero
+    /// when `earlier` is later than `time`. Both readings must belong to this clock.
+    /// Repeated integration uses [`Self::consume_elapsed`] to retain fractions.
+    pub fn duration_since(&self, time: Instant, earlier: Instant) -> Duration {
+        time.saturating_duration_since(earlier)
+    }
+
+    pub fn checked_duration_since(&self, time: Instant, earlier: Instant) -> Option<Duration> {
+        (time >= earlier).then(|| self.duration_since(time, earlier))
+    }
+
+    /// Consumes whole nanoseconds through `time`, advancing `cursor` only by
+    /// the returned duration. A fractional remainder stays behind for the next
+    /// update. Earlier observations leave the cursor unchanged.
+    ///
+    /// Initialize the cursor from `now()` when the activity starts. Device state
+    /// and its next deadline describe this consumed position, not the later raw
+    /// observation. This keeps repeated updates independent of observation frequency.
+    pub fn consume_elapsed(&self, cursor: &mut Instant, time: Instant) -> Duration {
+        let elapsed = self.duration_since(time, *cursor);
+        *cursor = self.add(*cursor, elapsed);
+        elapsed
+    }
+
     /// Waits for the host time corresponding to a timestamp from this clock.
     /// CPU pacing and device output use the configured host timer on this owner.
     /// Output tasks await this before publishing to another worker.
@@ -78,7 +123,7 @@ impl Clock {
 
     /// Captures the deadline now, even if the returned future is polled later.
     pub fn sleep(&self, duration: Duration) -> Sleep {
-        self.sleep_until(self.now() + duration)
+        self.sleep_until(self.add(self.now(), duration))
     }
 
     /// Waits on a timestamp from this clock's timebase. Registration happens on
