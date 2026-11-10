@@ -42,7 +42,7 @@ async fn exercise() {
             let mut stdin = dos.stdin();
             or(
                 async {
-                    let mut run = pin!(dos.run(runner));
+                    let mut run = pin!(dos.run());
                     let mut previous = 0;
                     poll_fn(|cx| {
                         let result = run.as_mut().poll(cx);

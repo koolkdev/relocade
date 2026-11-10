@@ -40,7 +40,8 @@ pub struct Runner {
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
-    storage: RefCell<Option<CpuStorage>>,
+    storage: Option<CpuStorage>,
+    cpu: Option<Cpu>,
 }
 
 impl Runner {
@@ -67,25 +68,35 @@ impl Runner {
             activities,
             pending: Some(pending),
             executor,
-            storage: RefCell::new(Some(storage)),
+            storage: Some(storage),
+            cpu: None,
         }
     }
 
-    /// Constructs the session CPU from its prepared storage once. Subsequent
-    /// programs reuse that CPU. Use [`Cpu::new`] for independent CPU-level work.
+    /// Constructs and retains the session CPU from its prepared storage once.
+    /// Subsequent programs reuse that CPU. Use [`Cpu::new`] for independent CPU-level work.
     ///
     /// # Panics
     /// Panics if the storage was consumed by an earlier
     /// construction attempt, including one that failed or was cancelled.
-    pub async fn create_cpu(&self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
+    pub async fn create_cpu(
+        &mut self,
+        memory: Memory,
+        config: CpuConfig,
+        io: IoBus,
+    ) -> Result<&mut Cpu> {
         let storage = self
             .storage
-            .borrow_mut()
             .take()
             .expect("session CPU storage already consumed");
-        let mut cpu = storage.into_cpu(memory, config, io).await?;
-        cpu.executor = Rc::downgrade(&self.executor);
-        Ok(cpu)
+        self.cpu = Some(storage.into_cpu(memory, config, io).await?);
+        Ok(self.cpu())
+    }
+
+    /// Borrows this runner's stopped CPU for setup and low-level execution.
+    /// The borrow must end before calling [`Self::run_cpu`].
+    pub fn cpu(&mut self) -> &mut Cpu {
+        self.cpu.as_mut().expect("construct the session CPU first")
     }
 
     pub fn clock(&self) -> &Clock {
@@ -140,16 +151,18 @@ impl Runner {
     pub async fn run<R>(
         mut self,
         stop: impl Future,
-        main: impl AsyncFnOnce(&Self) -> R,
+        main: impl AsyncFnOnce(Self) -> R,
     ) -> Option<R> {
         let pending = self.pending.take().expect("new runner activity queue");
         let devices = pending.for_each_concurrent(None, |activity| activity);
-        self.executor
+        let executor = self.executor.clone();
+        let _activities = self.activities.clone();
+        executor
             .run_until(stop, async {
                 // Poll ready devices before returning to guest execution.
-                match select(pin!(devices), pin!(main(&self))).await {
+                match select(pin!(devices), pin!(main(self))).await {
                     Either::Right((result, _)) => result,
-                    Either::Left(_) => unreachable!("runner retains the activity sender"),
+                    Either::Left(_) => unreachable!("session retains the activity sender"),
                 }
             })
             .await
@@ -160,12 +173,9 @@ impl Runner {
     /// Poll within [`Self::run`], which drives the session's scheduling and devices.
     ///
     /// # Panics
-    /// Panics if the CPU was not created by this runner.
-    pub async fn run_cpu(&self, cpu: &mut Cpu) -> ExecutionExit {
-        assert!(
-            std::ptr::eq(cpu.executor.as_ptr(), Rc::as_ptr(&self.executor)),
-            "construct the session CPU with runner.create_cpu"
-        );
+    /// Panics if the session CPU has not been constructed.
+    pub async fn run_cpu(&mut self) -> ExecutionExit {
+        let cpu = self.cpu.as_mut().expect("construct the session CPU first");
         let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
         let _binding = self.schedule.bind(cpu, &changed);
         let interrupt = cpu.interrupt_handle();

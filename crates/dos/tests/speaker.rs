@@ -18,7 +18,7 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
                 Default::default(),
             )
             .unwrap();
-            assert_eq!(dos.run(runner).await.unwrap(), 7);
+            assert_eq!(dos.run().await.unwrap(), 7);
 
             // Read the previous process's programming through actual guest IN/OUT.
             dos.launch_com(
@@ -32,7 +32,7 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
                 Default::default(),
             )
             .unwrap();
-            assert_eq!(dos.run(runner).await.unwrap(), 9);
+            assert_eq!(dos.run().await.unwrap(), 9);
             let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
             let mut readback = [0; 3];
             dos.cpu()

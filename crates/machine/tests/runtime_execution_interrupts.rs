@@ -24,14 +24,9 @@ impl Drop for Stopped {
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn cpu(code: &[u8], compiled: bool, io: IoBus) -> Cpu {
-    cpu_with_runner(code, compiled, io, None).await
-}
-
-async fn cpu_with_runner(code: &[u8], compiled: bool, io: IoBus, runner: Option<&Runner>) -> Cpu {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
-    let config = support::configuration(
-        compiler.target(),
+fn configuration() -> support::Configuration {
+    support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
             segments: Segments::real_mode(),
@@ -40,16 +35,30 @@ async fn cpu_with_runner(code: &[u8], compiled: bool, io: IoBus, runner: Option<
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+async fn cpu(code: &[u8], compiled: bool, io: IoBus) -> Cpu {
+    let config = configuration();
     let memory = Memory::new(config.machine).unwrap();
-    memory.view().write(0x100, code).unwrap();
-    let mut cpu = match runner {
-        Some(runner) => runner.create_cpu(memory, config.cpu, io).await,
-        None => Cpu::new(memory, config.cpu, io).await,
-    }
-    .unwrap();
+    let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
+    install(&mut cpu, code, compiled).await;
+    cpu
+}
+
+async fn prepare_cpu(runner: &mut Runner, code: &[u8], compiled: bool, io: IoBus) {
+    let config = configuration();
+    let memory = Memory::new(config.machine).unwrap();
+    let cpu = runner.create_cpu(memory, config.cpu, io).await.unwrap();
+    install(cpu, code, compiled).await;
+}
+
+async fn install(cpu: &mut Cpu, code: &[u8], compiled: bool) {
+    cpu.memory().view().write(0x100, code).unwrap();
     if compiled {
-        let module = compiler.compile_block(0x100, code, 32).unwrap();
+        let module = Compiler::new(ExecutionProfile::Real16)
+            .compile_block(0x100, code, 32)
+            .unwrap();
         cpu.install_module(
             &module.bytes,
             &[DispatchEntry {
@@ -60,7 +69,6 @@ async fn cpu_with_runner(code: &[u8], compiled: bool, io: IoBus, runner: Option<
         .await
         .unwrap();
     }
-    cpu
 }
 
 async fn checkpoints() {

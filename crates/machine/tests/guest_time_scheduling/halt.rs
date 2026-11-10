@@ -34,7 +34,7 @@ async fn paced_halt() {
     let host_time = host.clone();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let deadline = clock.add(start, Duration::from_millis(10));
@@ -45,22 +45,31 @@ async fn paced_halt() {
                 irq: interrupts::Irq::default(),
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = cpu(runner, &[0xfb, 0xf4], io).await; // STI; HLT.
-            let state = cpu.cpu_state();
+            prepare_cpu(&mut runner, &[0xfb, 0xf4], io).await; // STI; HLT.
+            let state = runner.cpu().cpu_state();
             state.set_sp(0x8000);
-            cpu.memory().view().write(0x180, &[0, 3, 0, 0]).unwrap();
-            cpu.memory().view().write(0x300, &[0xcf]).unwrap(); // IRET.
-            let exit = cpu.exit_handle();
+            runner
+                .cpu()
+                .memory()
+                .view()
+                .write(0x180, &[0, 3, 0, 0])
+                .unwrap();
+            runner.cpu().memory().view().write(0x300, &[0xcf]).unwrap(); // IRET.
+            let exit = runner.cpu().exit_handle();
+            let cpu = runner.cpu();
             cpu.install([Hook::host(0x102, async move || exit.request())])
                 .await
                 .unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(device.borrow().observed, Some(deadline));
             assert_eq!(device.borrow().irq.acknowledged, 1);
-            assert_eq!(cpu.memory().view().read_u16(0x7ffa).unwrap(), 0x102);
+            assert_eq!(
+                runner.cpu().memory().view().read_u16(0x7ffa).unwrap(),
+                0x102
+            );
             assert_eq!(state.instruction_count(), 3); // STI; HLT; IRET.
             assert_eq!(
                 runner.clock().now(),

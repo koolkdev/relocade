@@ -19,7 +19,7 @@ DOS can replace these vectors; unrelated vectors and IVT data pointers are not
 filled with a universal fallback.
 
 The caller supplies guest code and CPU entry state through `pc.cpu()`, then runs
-it with `runner.run_cpu(pc.cpu()).await`. This starts from initialized firmware
+it with `pc.run().await`. This starts from initialized firmware
 state; reset-ROM execution, POST and disk booting are not implemented.
 
 The x86 execution entries deliver real-mode divide errors (#DE), BOUND violations

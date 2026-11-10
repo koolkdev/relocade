@@ -105,7 +105,7 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
                 })])
                 .await
                 .unwrap();
-            assert_eq!(dos.run(runner).await, Ok(0));
+            assert_eq!(dos.run().await, Ok(0));
             assert_eq!(memory.view().read_u8(base + 0x510).unwrap(), 0xfa);
             assert_eq!(memory.view().read_u16(base + 0x500).unwrap(), 4);
             let mut packet = [0; 4];

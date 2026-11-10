@@ -26,8 +26,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
 pub struct Pc {
-    clock: Clock,
-    cpu: Cpu,
+    runner: Runner,
     vga: Rc<RefCell<Vga>>,
     speaker: Rc<RefCell<Speaker>>,
     keyboard: Keyboard,
@@ -38,12 +37,12 @@ impl Pc {
     /// Initializes the fixed PC hardware and BIOS on the runner's clock.
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and speaker emulation require no platform output.
-    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
-        let (vga, vga_device) = Vga::initialize(runner).await;
-        let (pic, pic_device) = Pic::initialize(runner).await;
-        let (pit, pit_device) = Pit::initialize(runner, &pic).await;
-        let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-        let (inputs, controller, ps2_device) = relocade_ps2::connect(runner, &pic).await;
+    pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
+        let (vga, vga_device) = Vga::initialize(&runner).await;
+        let (pic, pic_device) = Pic::initialize(&runner).await;
+        let (pit, pit_device) = Pit::initialize(&runner, &pic).await;
+        let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
+        let (inputs, controller, ps2_device) = relocade_ps2::connect(&runner, &pic).await;
         let io = IoBus::new([
             pic_device,
             pit_device,
@@ -53,7 +52,8 @@ impl Pc {
         ]);
         let memory = Memory::new(configuration::memory())?;
         let keyboard = Keyboard::new(memory.clone());
-        let mut cpu = runner.create_cpu(memory, configuration::cpu(), io).await?;
+        let clock = runner.clock().clone();
+        let cpu = runner.create_cpu(memory, configuration::cpu(), io).await?;
         {
             let mut context = cpu.context();
             let cpu_model = context.cpu.execution_target().cpu_model;
@@ -67,22 +67,18 @@ impl Pc {
                 },
             );
         }
-        let mut interrupts = Interrupts::new(&mut cpu);
+        let mut interrupts = Interrupts::new(cpu);
         relocade_bios::register_interrupts(
             &mut interrupts,
             keyboard.clone(),
             vga.clone(),
-            Some(relocade_bios::Mouse::new(
-                runner.clock().clone(),
-                controller,
-            )),
+            Some(relocade_bios::Mouse::new(clock, controller)),
         );
         interrupts.install().await?;
         pic.unmask_irq(TIMER_IRQ);
         pic.unmask_irq(KEYBOARD_IRQ);
         Ok(Self {
-            clock: runner.clock().clone(),
-            cpu,
+            runner,
             vga,
             speaker,
             keyboard,
@@ -92,12 +88,19 @@ impl Pc {
 
     /// The emulation clock shared by the PC's devices and firmware consumers.
     pub fn clock(&self) -> &Clock {
-        &self.clock
+        self.runner.clock()
     }
 
     /// Accesses the CPU for guest setup, execution and additional service hooks.
     pub fn cpu(&mut self) -> &mut Cpu {
-        &mut self.cpu
+        self.runner.cpu()
+    }
+
+    /// Executes this PC's CPU with its scheduling and device activities.
+    /// Await inside the execution session that supplied the runner; its outer
+    /// [`Runner::run`] drives device activities and cancellation.
+    pub async fn run(&mut self) -> relocade_x86::ExecutionExit {
+        self.runner.run_cpu().await
     }
 
     /// The BIOS keyboard shared with INT 16h and console services.

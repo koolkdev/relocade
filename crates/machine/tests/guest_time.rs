@@ -32,20 +32,20 @@ fn configuration(count: u64) -> support::Configuration {
 }
 
 async fn progress() {
-    let execution = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
+    let execution = ExecutionWorker::run_until(std::future::pending::<()>(), async |mut runner| {
         let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
         let clock = driver.clock();
         let clone = clock.clone();
         let config = configuration(u64::MAX - 1);
         let memory = Memory::new(config.machine).unwrap();
         memory.view().write(0x100, &[0x90; 10]).unwrap();
-        let mut cpu = runner
+        let cpu = runner
             .create_cpu(memory, config.cpu, IoBus::default())
             .await
             .unwrap();
         let start = clock.now();
         let fractional_deadline = clock.add(start, Duration::from_nanos(333_333_334));
-        let binding = driver.bind(&cpu, std::task::Waker::noop());
+        let binding = driver.bind(cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
         // across counter wrap. Repeated consumption accounts for every ns.
         let mut consumed = start;
@@ -73,7 +73,7 @@ async fn progress() {
         drop(binding);
         cpu.step();
         assert_eq!(clock.now(), clock.add(start, Duration::from_secs(2)));
-        let _binding = driver.bind(&cpu, std::task::Waker::noop());
+        let _binding = driver.bind(cpu, std::task::Waker::noop());
         cpu.step();
         assert_eq!(
             clock.duration_since(clock.now(), start),

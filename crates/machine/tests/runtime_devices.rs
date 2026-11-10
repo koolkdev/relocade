@@ -69,7 +69,7 @@ async fn check_devices() {
             let controller = clock.clone();
             move || controller.clock()
         },
-        async move |runner| {
+        async move |mut runner| {
             let device = Rc::new(RefCell::new(Ticker {
                 clock: runner.clock().clone(),
                 ticks: Rc::new(Cell::new(0)),
@@ -96,7 +96,8 @@ async fn check_devices() {
             )
             .unwrap();
             let memory = Memory::new(config.machine).unwrap();
-            let mut cpu = runner
+            let service_clock = runner.clock().clone();
+            let cpu = runner
                 .create_cpu(memory.clone(), config.cpu, io.clone())
                 .await
                 .unwrap();
@@ -105,7 +106,6 @@ async fn check_devices() {
                 .view()
                 .write(0x200, &[0xff, 0x06, 0, 3, 0xeb, 0])
                 .unwrap();
-            let service_clock = runner.clock().clone();
             let entered = RefCell::new(Some(entered));
             cpu.install([
                 Hook::host(0x100, {
@@ -125,7 +125,7 @@ async fn check_devices() {
             .await
             .unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(relocade_x86::HostExit::Return)
             );
             let result = memory.view().read_u16(0x300).unwrap();

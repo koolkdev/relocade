@@ -23,11 +23,12 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
         let worker = ExecutionWorker::spawn_with_guest_time(
             || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
             async |runner| {
+                let clock = runner.clock().clone();
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
                 let program = [0xb8, 7, 0x4c, 0xcd, 0x21];
                 for mz in [false, true, false] {
                     let count = dos.cpu().cpu_state().instruction_count();
-                    let time = runner.clock().now();
+                    let time = clock.now();
                     if mz {
                         dos.launch_mz(&common::mz_image(&program), Default::default())
                             .unwrap();
@@ -35,10 +36,10 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
                         dos.launch_com(&program, Default::default()).unwrap();
                     }
                     assert_eq!(dos.cpu().cpu_state().instruction_count(), count);
-                    assert_eq!(runner.clock().now(), time);
-                    assert_eq!(dos.run(runner).await, Ok(7));
+                    assert_eq!(clock.now(), time);
+                    assert_eq!(dos.run().await, Ok(7));
                     assert!(dos.cpu().cpu_state().instruction_count() > count);
-                    assert!(runner.clock().now() > time);
+                    assert!(clock.now() > time);
                 }
             },
         );
@@ -104,7 +105,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
                         Default::default(),
                     )
                     .unwrap();
-                    assert_eq!(dos.run(runner).await, Ok(5));
+                    assert_eq!(dos.run().await, Ok(5));
                     assert_eq!(memory.view().read_u16(0x10300).unwrap(), u16::from(b'a'));
                     assert_eq!(memory.view().read_u8(0x10302).unwrap(), b'b');
                     assert_eq!(dos.cpu().context().memory.read_u8(0xb8000).unwrap(), b'Y');

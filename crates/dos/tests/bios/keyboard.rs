@@ -296,7 +296,7 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
             let memory = dos.cpu().memory();
             let input = dos.keyboard_input();
             ready.send(input).unwrap();
-            assert_eq!(dos.run(runner).await, Ok(b'b'));
+            assert_eq!(dos.run().await, Ok(b'b'));
             assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), 0x1e61);
         });
         let mut running = pin!(running);

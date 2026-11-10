@@ -13,14 +13,15 @@ async fn busy_lag_limit() {
         let (stop, stopped) = oneshot::channel();
         let worker = ExecutionWorker::spawn_with_guest_time(
             move || config(source),
-            async move |runner| {
+            async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
                 let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
-                let mut cpu = cpu(runner, &code, IoBus::default()).await;
+                prepare_cpu(&mut runner, &code, IoBus::default()).await;
                 let block = Compiler::new(ExecutionProfile::Real16)
                     .compile_block(0x100, &code, 2)
                     .unwrap();
+                let cpu = runner.cpu();
                 cpu.install_module(
                     &block.bytes,
                     &[DispatchEntry {
@@ -30,17 +31,17 @@ async fn busy_lag_limit() {
                 )
                 .await
                 .unwrap();
-                let exit = cpu.exit_handle();
+                let exit = runner.cpu().exit_handle();
                 let ((), result) = join(
                     async move {
                         stopped.await.unwrap();
                         exit.request();
                     },
-                    runner.run_cpu(&mut cpu),
+                    runner.run_cpu(),
                 )
                 .await;
                 assert_eq!(result, ExecutionExit::Host(HostExit::Return));
-                assert_eq!(cpu.cpu_state().instruction_count(), instructions);
+                assert_eq!(runner.cpu().cpu_state().instruction_count(), instructions);
                 assert_eq!(
                     runner.clock().now(),
                     clock.add(start, Duration::from_millis(instructions))
@@ -72,7 +73,7 @@ async fn pending_input_recovery() {
     let (arrive, arrival) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
@@ -85,9 +86,10 @@ async fn pending_input_recovery() {
                 exit_after_waits: false,
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = cpu(runner, &[0x90], io).await;
-            let exit = cpu.exit_handle();
+            prepare_cpu(&mut runner, &[0x90], io).await;
+            let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
+            let cpu = runner.cpu();
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
@@ -116,10 +118,10 @@ async fn pending_input_recovery() {
             .await
             .unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
-            assert_eq!(cpu.cpu_state().instruction_count(), 0);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert_eq!(
                 runner.clock().now(),
                 runner.clock().add(start, Duration::from_millis(6))

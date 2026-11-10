@@ -8,25 +8,25 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
         std::future::pending::<()>(),
         async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
-            assert_eq!(dos.run(runner).await, Err(RunError::NoProcess));
+            assert_eq!(dos.run().await, Err(RunError::NoProcess));
             dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())
                 .unwrap();
-            assert_eq!(dos.run(runner).await, Ok(7));
+            assert_eq!(dos.run().await, Ok(7));
             let count = dos.cpu().context().cpu.instruction_count();
-            assert_eq!(dos.run(runner).await, Ok(7));
+            assert_eq!(dos.run().await, Ok(7));
             assert_eq!(dos.cpu().context().cpu.instruction_count(), count);
 
             dos.launch_com(&[0xb4, 0x2a, 0xcd, 0x21], Default::default())
                 .unwrap();
             assert_eq!(
-                dos.run(runner).await,
+                dos.run().await,
                 Err(RunError::Service(ServiceError::UnsupportedFunction(0x2a)))
             );
             // MOV AX,[10000] reports an undelivered segment-limit fault.
             dos.launch_com(&[0x67, 0xa1, 0, 0, 1, 0], Default::default())
                 .unwrap();
             assert_eq!(
-                dos.run(runner).await,
+                dos.run().await,
                 Err(RunError::Execution(ExecutionExit::Exception(
                     Exception::GeneralProtection { error_code: 0 }
                 )))
@@ -48,7 +48,7 @@ fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
             let state = dos.cpu().cpu_state();
             let program_segment = state.segment(relocade_x86::Segment::Cs).selector;
             assert_eq!(
-                dos.run(runner).await,
+                dos.run().await,
                 Err(RunError::Execution(ExecutionExit::UnhandledException(
                     Exception::DivideError
                 )))

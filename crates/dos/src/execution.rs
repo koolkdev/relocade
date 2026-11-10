@@ -1,5 +1,4 @@
 use crate::{Dos, ProcessStatus, ServiceError};
-use relocade_machine::Runner;
 use relocade_x86::ExecutionExit;
 use std::fmt;
 
@@ -40,12 +39,14 @@ impl Dos {
     /// Process completion leaves the environment alive. Keep the main session
     /// alive to capture the program's final writes and advance idle video.
     /// Session shutdown uses the execution worker's separate `stop().await`.
-    pub async fn run(&mut self, runner: &Runner) -> Result<u8, RunError> {
+    /// Await inside the execution session that created this DOS environment;
+    /// that session drives device activities and cancellation.
+    pub async fn run(&mut self) -> Result<u8, RunError> {
         let process = self.process().ok_or(RunError::NoProcess)?;
         if let ProcessStatus::Exited(result) = process.status() {
             return result.map_err(RunError::Service);
         }
-        let exit = runner.run_cpu(self.pc.cpu()).await;
+        let exit = self.pc.run().await;
         match process.status() {
             ProcessStatus::Exited(result) => result.map_err(RunError::Service),
             ProcessStatus::Active => Err(RunError::Execution(exit)),

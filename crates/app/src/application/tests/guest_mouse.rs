@@ -110,7 +110,7 @@ pub(super) async fn run(
                 .send((dos.mouse_input(), dos.frames()))
                 .ok()
                 .unwrap();
-            assert_eq!(dos.run(runner).await, Ok(0));
+            assert_eq!(dos.run().await, Ok(0));
             let view = memory.view();
             assert_eq!(view.read_u16(base + 0x500).unwrap() & 7, 7);
             assert_eq!(view.read_u8(base + 0x502).unwrap(), b'K');

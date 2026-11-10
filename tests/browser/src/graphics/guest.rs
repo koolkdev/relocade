@@ -28,7 +28,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let (retrace, retraces) = async_channel::bounded(1);
     let progress = Arc::new(AtomicUsize::new(0));
     let cpu_progress = progress.clone();
-    let execution = ExecutionWorker::spawn(clock, async move |runner| {
+    let execution = ExecutionWorker::spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         send_source.send(vga.borrow().frames()).ok().unwrap();
@@ -65,7 +65,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         )
         .unwrap();
         let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES).await]);
-        let mut cpu = runner.create_cpu(memory, cpu_config, io).await.unwrap();
+        let cpu = runner.create_cpu(memory, cpu_config, io).await.unwrap();
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();
             let in_retrace = Cell::new(false);
@@ -82,7 +82,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         })])
         .await
         .unwrap();
-        runner.run_cpu(&mut cpu).await;
+        runner.run_cpu().await;
     });
 
     let source = source.await.unwrap();

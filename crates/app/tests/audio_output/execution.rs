@@ -32,7 +32,7 @@ async fn callback_wakes_execution() {
     }
     let (ready, registered) = oneshot::channel();
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
         let memory = Memory::new(
             MachineConfig::new(
                 4096,
@@ -64,7 +64,7 @@ async fn callback_wakes_execution() {
             },
         )
         .unwrap();
-        let mut cpu = runner.create_cpu(memory, config, io).await.unwrap();
+        let cpu = runner.create_cpu(memory, config, io).await.unwrap();
         started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
         cpu.install_module(

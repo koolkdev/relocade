@@ -60,9 +60,9 @@ async fn timer_interrupts() -> Result<(), String> {
     let worker_count = count.clone();
     let host_busy = Arc::new(AtomicBool::new(false));
     let worker_host_busy = host_busy.clone();
-    let worker = ExecutionWorker::spawn(clock, async move |runner| {
-        let (pic, pic_connection) = Pic::initialize(runner).await;
-        let (_pit, pit_connection) = Pit::initialize(runner, &pic).await;
+    let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
+        let (pic, pic_connection) = Pic::initialize(&runner).await;
+        let (_pit, pit_connection) = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
             clock: runner.clock().clone(),
             ready: Some(ready),
@@ -111,7 +111,7 @@ async fn timer_interrupts() -> Result<(), String> {
             },
         )
         .unwrap();
-        let mut cpu = runner
+        let cpu = runner
             .create_cpu(
                 memory.clone(),
                 config,
@@ -132,7 +132,7 @@ async fn timer_interrupts() -> Result<(), String> {
         .unwrap();
         reports.borrow_mut().exit = Some(cpu.exit_handle());
         started.await.unwrap();
-        runner.run_cpu(&mut cpu).await;
+        runner.run_cpu().await;
         assert_eq!(memory.view().read_u16(0x300).unwrap(), INTERRUPTS as u16);
         let samples = reports.borrow().samples.clone();
         samples

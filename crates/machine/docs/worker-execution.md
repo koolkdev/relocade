@@ -12,11 +12,11 @@ the execution worker. `ExecutionWorker` uses the existing
 
 ```rust,ignore
 let (handle, timers) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(handle, async move |runner| {
+let execution = ExecutionWorker::spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
-    let mut cpu = runner.create_cpu(memory, cpu_config, io).await?;
-    runner.run_cpu(&mut cpu).await;
+    runner.create_cpu(memory, cpu_config, io).await?;
+    runner.run_cpu().await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
 });
@@ -39,11 +39,14 @@ observes cancellation while waiting for it. `runner.create_cpu(memory, config, i
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
-uses `Cpu::new` and `Cpu::run` directly. `run_cpu` checks ownership once at entry, without
-adding checks during hooks or state access. Construction and launch do not
-execute guest instructions.
+uses `Cpu::new` and `Cpu::run` directly. The runner retains its CPU and
+`run_cpu()` executes that CPU without another ownership argument. Construction
+and launch do not execute guest instructions.
 
-The task owns this `Cpu` across programs. BIOS/DOS services capture their own
+The callback receives its `Runner` by value. PC/DOS retain it across programs;
+`runner.cpu()` lends the stopped backend for setup. The outer session keeps
+driving device activities until the callback completes, even if it releases its
+runner earlier. BIOS/DOS services capture their own
 application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. They capture a `CpuStateAccess` handle,
@@ -158,7 +161,7 @@ the backend; independently retained resources can outlive it.
 Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
 registers VGA with the runner and shares its timer. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
-launches reuse the CPU and guest memory. `dos.run(runner).await` returns the current
+launches reuse the CPU and guest memory. `dos.run().await` returns the current
 process exit code; keeping the main session alive afterwards leaves VGA active
 for final captures and later launches. `dos.frames()` exposes the same
 capacity-one snapshot queue across those launches. One graphics consumer receives
