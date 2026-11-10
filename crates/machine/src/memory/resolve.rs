@@ -1,4 +1,4 @@
-use super::{range_fits, MemoryError, MemoryView};
+use super::{range_fits, MemoryError};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 pub(super) struct Span {
@@ -14,14 +14,18 @@ pub(super) struct Spans<'a> {
     remaining: usize,
 }
 
-impl<'a> MemoryView<'a> {
+impl<'a> Spans<'a> {
     /// Checks the guest address range before walking its mappings.
-    pub(super) fn resolve(&self, address: u32, len: usize) -> Result<Spans<'a>, MemoryError> {
+    pub(super) fn new(
+        map: &'a PhysicalMemoryMap,
+        address: u32,
+        len: usize,
+    ) -> Result<Self, MemoryError> {
         if !range_fits(address, len, 1 << 32) {
             return Err(MemoryError::AddressRange);
         }
-        Ok(Spans {
-            map: self.config.memory_map(),
+        Ok(Self {
+            map,
             address,
             remaining: len,
         })
