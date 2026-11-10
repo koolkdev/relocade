@@ -5,7 +5,10 @@ pub(crate) mod target;
 use crate::software::{self, SoftwareFrame};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::join, FutureExt, StreamExt};
-use relocade_machine::{timer_service, worker::Thread};
+use relocade_machine::{
+    timer_service,
+    worker::{Receiver, Thread},
+};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -35,8 +38,13 @@ pub async fn graphics_workers() -> Result<(), String> {
         let dropped = Arc::new(AtomicBool::new(false));
         let target_drop = dropped.clone();
         let worker_source = source.clone();
-        let graphics = Thread::new();
-        let task = graphics.run_send(target::context()?, move |context| async move {
+        let render = move |mut input: Receiver<target::Context>| async move {
+            let context = input
+                .recv()
+                .await
+                .unwrap()
+                .map_err(|error| error.to_string())?;
+            drop(input);
             let mut target = Target::new(context, target_drop).await?;
             let mut cached: Option<Arc<SoftwareFrame>> = None;
             let mut before_conversion = Some((selected, conversion_allowed));
@@ -68,7 +76,11 @@ pub async fn graphics_workers() -> Result<(), String> {
                 }
             }
             Ok::<(), String>(())
-        });
+        };
+        let context = target::context()?;
+        let graphics = Thread::new();
+        let (mut input, task) = graphics.listen(render).map_err(|error| error.to_string())?;
+        input.send(context).map_err(|error| error.to_string())?;
 
         request(&mut requests, [64, 48]);
         selected_capture.await.unwrap();

@@ -5,15 +5,22 @@ use futures_util::StreamExt;
 use std::task::{Context, Poll};
 
 pub struct Sender<P: Post>(mpsc::UnboundedSender<P>);
+pub struct ReceiverEndpoint<P: Post>(mpsc::UnboundedReceiver<P>);
 pub struct Receiver<P: Post>(mpsc::UnboundedReceiver<P>);
 
-pub fn channel<P: Post>() -> Result<(Sender<P>, Receiver<P>), ChannelError> {
+pub fn channel<P: Post>() -> Result<(Sender<P>, ReceiverEndpoint<P>), ChannelError> {
     let (sender, receiver) = mpsc::unbounded();
-    Ok((Sender(sender), Receiver(receiver)))
+    Ok((Sender(sender), ReceiverEndpoint(receiver)))
+}
+
+impl<P: Post> ReceiverEndpoint<P> {
+    pub(super) fn bind(self) -> Receiver<P> {
+        Receiver(self.0)
+    }
 }
 
 impl<P: Post> Sender<P> {
-    pub fn send(&self, payload: P) -> Result<(), ChannelError> {
+    pub(super) fn send(&self, payload: P) -> Result<(), ChannelError> {
         self.0
             .unbounded_send(payload)
             .map_err(|_| ChannelError::Closed)
@@ -21,7 +28,7 @@ impl<P: Post> Sender<P> {
 }
 
 impl<P: Post> Receiver<P> {
-    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<P, ChannelError>> {
+    pub(super) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<P, ChannelError>> {
         self.0
             .poll_next_unpin(cx)
             .map(|payload| payload.ok_or(ChannelError::Closed))

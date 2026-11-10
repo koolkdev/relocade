@@ -161,14 +161,20 @@ to satisfy platform requirements, including Metal. Web setup transfers the
 offscreen canvas; GPU objects are initialized on the receiving worker.
 
 ```rust,ignore
-let setup = window.surface_setup(event_loop)?;
-let graphics = relocade_app::worker::Thread::new();
-let task = graphics.run_send(setup, |setup| async move {
-    let mut surface = relocade_app::graphics::Surface::new(setup).await?;
+use relocade_app::{graphics::{Surface, SurfaceSetup}, worker::{Receiver, Thread}};
+
+async fn draw(mut input: Receiver<SurfaceSetup>) -> Result<(), String> {
+    let setup = input.recv().await.unwrap().map_err(|error| error.to_string())?;
+    let mut surface = Surface::new(setup).await?;
     // Acquire an attachment, record draws, submit, then surface.present(frame).
     // Use surface.device, surface.queue and surface.format() with Renderer.
-    Ok::<(), String>(())
-});
+    Ok(())
+}
+
+let setup = window.surface_setup(event_loop)?;
+let graphics = Thread::new();
+let (mut input, task) = graphics.listen(draw)?;
+input.send(setup)?;
 ```
 
 `Surface` remains on the thread that initializes it. It owns configuration,

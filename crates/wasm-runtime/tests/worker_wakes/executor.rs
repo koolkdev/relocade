@@ -37,26 +37,30 @@ async fn busy_session() {
         let (started, running) = oneshot::channel();
         let dropped = Arc::new(AtomicBool::new(false));
         let worker_drop = dropped.clone();
-        let thread = Thread::new();
-        let task = thread.run_resource(signal, move |signal| async move {
-            let executor = Executor::new(endpoint.bind(signal.clone()));
-            let session = async {
-                let _dropped = Dropped(worker_drop);
-                let busy = async {
-                    started.send(()).unwrap();
-                    for _ in 0..50_000_000 {
-                        if signal.memory.atomic_load::<u8>(0) != 0 {
-                            return;
+        let worker = Thread::new();
+        let (mut incoming, task) = worker
+            .listen(move |mut incoming: Receiver<Signal>| async move {
+                let signal = incoming.recv().await.unwrap().unwrap();
+                let executor = Executor::new(endpoint.bind(signal.clone()));
+                let session = async {
+                    let _dropped = Dropped(worker_drop);
+                    let busy = async {
+                        started.send(()).unwrap();
+                        for _ in 0..50_000_000 {
+                            if signal.memory.atomic_load::<u8>(0) != 0 {
+                                return;
+                            }
+                            std::hint::spin_loop();
                         }
-                        std::hint::spin_loop();
-                    }
-                    panic!("sender did not signal busy execution");
+                        panic!("sender did not signal busy execution");
+                    };
+                    // Register the ordinary input receiver before entering busy work.
+                    join(input, busy).await.0.unwrap()
                 };
-                // Register the ordinary input receiver before entering busy work.
-                join(input, busy).await.0.unwrap()
-            };
-            executor.run_until(cancelled, session).await
-        });
+                executor.run_until(cancelled, session).await
+            })
+            .unwrap();
+        incoming.send(signal).unwrap();
         running.await.unwrap();
         if cancel {
             stop.send(()).unwrap();
@@ -84,8 +88,10 @@ async fn composition() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let worker = Thread::new();
+    let (mut incoming, task) = worker
+        .listen(move |mut incoming: Receiver<Signal>| async move {
+            let signal = incoming.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal.clone()));
             for (unordered, during_poll) in [(false, false), (true, false), (false, true)] {
                 let (send, input) = oneshot::channel();
@@ -155,8 +161,9 @@ async fn composition() {
                 );
             }
         })
-        .await
         .unwrap();
+    incoming.send(signal).unwrap();
+    task.await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -188,8 +195,10 @@ async fn reentrant_input() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let worker = Thread::new();
+    let (mut incoming, task) = worker
+        .listen(move |mut incoming: Receiver<Signal>| async move {
+            let signal = incoming.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal.clone()));
             let (trigger, triggered) = oneshot::channel();
             let (send, receive) = oneshot::channel();
@@ -213,8 +222,9 @@ async fn reentrant_input() {
                 Poll::Ready(Some((Ok(()), Ok(()))))
             );
         })
-        .await
         .unwrap();
+    incoming.send(signal).unwrap();
+    task.await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -233,8 +243,10 @@ async fn parking_lifetime() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let worker = Thread::new();
+    let (mut incoming, task) = worker
+        .listen(move |mut incoming: Receiver<Signal>| async move {
+            let signal = incoming.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal));
             for complete in [false, true] {
                 let (send, input) = oneshot::channel();
@@ -303,8 +315,9 @@ async fn parking_lifetime() {
                 );
             }
         })
-        .await
         .unwrap();
+    incoming.send(signal).unwrap();
+    task.await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -325,24 +338,28 @@ async fn idle_session() {
     let (_host, endpoint) = wake_connection(signal.clone());
     let (send, input) = oneshot::channel();
     let (parked, idle) = oneshot::channel();
-    let thread = Thread::new();
-    let task = thread.run_resource(signal, move |signal| async move {
-        let executor = Executor::new(endpoint.bind(signal));
-        assert_eq!(
-            executor
-                .run_until(std::future::ready(()), async {
-                    panic!("a stopped session must not enter application code");
-                })
-                .await,
-            None::<()>
-        );
-        let mut session = pin!(executor.run_until(pending::<()>(), input));
-        assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
-            .await
-            .is_pending());
-        parked.send(()).unwrap();
-        session.await.unwrap().unwrap()
-    });
+    let worker = Thread::new();
+    let (mut incoming, task) = worker
+        .listen(move |mut incoming: Receiver<Signal>| async move {
+            let signal = incoming.recv().await.unwrap().unwrap();
+            let executor = Executor::new(endpoint.bind(signal));
+            assert_eq!(
+                executor
+                    .run_until(std::future::ready(()), async {
+                        panic!("a stopped session must not enter application code");
+                    })
+                    .await,
+                None::<()>
+            );
+            let mut session = pin!(executor.run_until(pending::<()>(), input));
+            assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
+                .await
+                .is_pending());
+            parked.send(()).unwrap();
+            session.await.unwrap().unwrap()
+        })
+        .unwrap();
+    incoming.send(signal).unwrap();
     idle.await.unwrap();
     send.send(42).unwrap();
     assert_eq!(task.await.unwrap(), 42);

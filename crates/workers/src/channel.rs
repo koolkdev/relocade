@@ -1,10 +1,11 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::Transfer;
+use crate::{SendTask, Transfer};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 use std::{
     fmt,
+    future::Future,
     task::{ready, Context, Poll},
 };
 
@@ -37,7 +38,8 @@ pub struct Sender<T: Transfer> {
     states: mpsc::UnboundedSender<T::State>,
 }
 
-/// Receives messages on the thread that creates the channel.
+/// Receives messages on its owning thread: the caller for [`channel`], or the
+/// execution thread for [`crate::Thread::listen`].
 /// Browser receivers retain local objects and cannot move to another worker.
 pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
@@ -52,15 +54,11 @@ pub struct Receiver<T: Transfer> {
 /// creation and channel creation are independent.
 ///
 /// ```no_run
-/// use relocade_workers::{channel, Thread, ThreadExt};
+/// use relocade_workers::channel;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let (sender, mut receiver) = channel::<String>()?;
-/// let worker = Thread::new();
-/// let task = worker.run_resource(sender, |mut sender| async move {
-///     sender.send("ready".to_owned())
-/// });
+/// let (mut sender, mut receiver) = channel::<String>()?;
+/// sender.send("ready".to_owned())?;
 /// assert_eq!(receiver.recv().await.transpose()?, Some("ready".to_owned()));
-/// task.await??;
 /// # Ok(())
 /// # }
 /// ```
@@ -68,16 +66,49 @@ pub struct Receiver<T: Transfer> {
 /// Browser delivery needs an event-loop turn on the receiving thread; this
 /// channel does not choose when guest execution yields to its host.
 pub fn channel<T: Transfer>() -> Result<(Sender<T>, Receiver<T>), ChannelError> {
+    let (sender, incoming) = endpoints()?;
+    Ok((sender, incoming.bind()))
+}
+
+struct Incoming<T: Transfer> {
+    payloads: platform::ReceiverEndpoint<T::Payload>,
+    states: mpsc::UnboundedReceiver<T::State>,
+}
+
+impl<T: Transfer> Incoming<T> {
+    fn bind(self) -> Receiver<T> {
+        Receiver {
+            payloads: self.payloads.bind(),
+            states: self.states,
+            pending: None,
+        }
+    }
+}
+
+fn endpoints<T: Transfer>() -> Result<(Sender<T>, Incoming<T>), ChannelError> {
     let (payloads, incoming_payloads) = platform::channel()?;
     let (states, incoming_states) = mpsc::unbounded();
     Ok((
         Sender { payloads, states },
-        Receiver {
+        Incoming {
             payloads: incoming_payloads,
             states: incoming_states,
-            pending: None,
         },
     ))
+}
+
+pub(crate) fn on_thread<T: Transfer, F: Future + 'static>(
+    thread: &web_thread::Thread,
+    code: impl FnOnce(Receiver<T>) -> F + Send + 'static,
+) -> Result<(Sender<T>, SendTask<F::Output>), ChannelError>
+where
+    F::Output: Send,
+{
+    let (sender, Incoming { payloads, states }) = endpoints::<T>()?;
+    let task = thread.run_send(payloads, move |payloads| {
+        code(Incoming { payloads, states }.bind())
+    });
+    Ok((sender, task))
 }
 
 impl<T: Transfer> Transfer for Sender<T> {

@@ -6,37 +6,51 @@ use std::sync::{
     Arc,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-pub type Context = ();
-
-#[cfg(target_arch = "wasm32")]
-pub struct Context(web_sys::OffscreenCanvas);
+pub struct Context {
+    #[cfg(target_arch = "wasm32")]
+    canvas: web_sys::OffscreenCanvas,
+}
 
 #[cfg(target_arch = "wasm32")]
 impl relocade_machine::worker::AsJs for Context {
     fn to_js(&self) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
-        Ok(self.0.clone().into())
+        Ok(self.canvas.clone().into())
     }
     fn from_js(value: wasm_bindgen::JsValue) -> Result<Self, wasm_bindgen::JsValue> {
         use wasm_bindgen::JsCast;
-        Ok(Self(value.dyn_into()?))
+        Ok(Self {
+            canvas: value.dyn_into()?,
+        })
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl relocade_machine::worker::Post for Context {
     fn transferables(&self) -> js_sys::Array {
-        js_sys::Array::of1(&self.0)
+        js_sys::Array::of1(&self.canvas)
+    }
+}
+
+impl relocade_machine::worker::Transfer for Context {
+    type State = ();
+    type Payload = Self;
+
+    fn encode(self) -> ((), Self) {
+        ((), self)
+    }
+
+    fn decode((): (), payload: Self) -> Self {
+        payload
     }
 }
 
 pub fn context() -> Result<Context, String> {
     #[cfg(target_arch = "wasm32")]
     return web_sys::OffscreenCanvas::new(1, 1)
-        .map(Context)
+        .map(|canvas| Context { canvas })
         .map_err(|error| format!("{error:?}"));
     #[cfg(not(target_arch = "wasm32"))]
-    Ok(())
+    Ok(Context {})
 }
 
 pub struct Presented {
@@ -64,7 +78,7 @@ impl Target {
         let instance = wgpu::Instance::default();
         #[cfg(target_arch = "wasm32")]
         let surface = instance
-            .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(_context.0))
+            .create_surface(wgpu::SurfaceTarget::OffscreenCanvas(_context.canvas))
             .map_err(|error| error.to_string())?;
         let options = wgpu::RequestAdapterOptions {
             #[cfg(target_arch = "wasm32")]

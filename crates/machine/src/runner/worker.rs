@@ -1,7 +1,5 @@
 use super::{GuestTimeConfig, Runner};
-use crate::worker::{
-    self, wake_connection, CancellableWorker, ThreadExt, WakeEndpoint, WakeHost, WakePeer,
-};
+use crate::worker::{self, wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_lite::future::or;
 use std::future::Future;
@@ -14,7 +12,7 @@ use std::future::Future;
 /// Dropping the handle or its completion future early can terminate the underlying
 /// browser worker before Rust destructors run.
 pub struct ExecutionWorker<T: Send + 'static> {
-    worker: CancellableWorker<Option<T>>,
+    worker: Worker<Option<T>>,
     wake_host: WakeHost<ExecutionInterrupt>,
 }
 
@@ -34,7 +32,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     pub async fn run_until(
         stop: impl Future,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> worker::Result<Option<T>> {
+    ) -> Result<Option<T>, worker::WorkerError> {
         let (handle, timers) = timer_service();
         let mut execution = Self::spawn(handle, session);
         let timers = timers.spawn_with_peer(execution.wake_peer());
@@ -43,7 +41,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
                 stop.await;
                 None
             },
-            async { Some(execution.worker.finished().await) },
+            async { Some(execution.worker.finished().await.map(Option::flatten)) },
         )
         .await;
         let result = match completed {
@@ -93,22 +91,21 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(storage, move |storage| async move {
-                runner(storage, endpoint).run(stopped, session).await
-            })
+        let worker = Worker::spawn_with(storage, move |storage, stopped| async move {
+            let runner = runner(storage, endpoint);
+            runner.run(stopped, session).await
         });
         Self { worker, wake_host }
     }
 
     /// Stops even while a service is pending, drops the session on its owner,
     /// then waits for task completion before releasing the thread.
-    pub async fn stop(self) -> worker::Result<Option<T>> {
-        self.worker.stop().await
+    pub async fn stop(self) -> Result<Option<T>, worker::WorkerError> {
+        self.worker.stop().await.map(Option::flatten)
     }
 
     /// Waits for ordinary completion. `None` denotes an explicit stop.
-    pub async fn join(self) -> worker::Result<Option<T>> {
-        self.worker.join().await
+    pub async fn join(self) -> Result<Option<T>, worker::WorkerError> {
+        self.worker.join().await.map(Option::flatten)
     }
 }

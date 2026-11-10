@@ -114,7 +114,7 @@ pub async fn vga_workers() -> Result<(), String> {
         drop(cpu);
         drop(vga);
     });
-    let display_task = display.run_send((), move |()| async move {
+    let display_task = display.run(move || async move {
         let display = display_source.await.unwrap();
         input_waiting.await.unwrap();
         // Convert immutable captures on this worker; live VGA state remains on execution.

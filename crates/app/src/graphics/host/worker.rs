@@ -12,6 +12,23 @@ use winit::dpi::PhysicalSize;
 
 pub(super) async fn run<D: DisplayRenderer>(
     setup: SurfaceSetup,
+    stopping: oneshot::Receiver<()>,
+    create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String>,
+    requests: async_channel::Receiver<PhysicalSize<u32>>,
+    notify_redraw_needed: impl Fn(),
+) -> Result<(), String> {
+    or(
+        async {
+            let _ = stopping.await;
+            Ok(())
+        },
+        run_display(setup, create, requests, &notify_redraw_needed),
+    )
+    .await
+}
+
+async fn run_display<D: DisplayRenderer>(
+    setup: SurfaceSetup,
     create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String>,
     requests: async_channel::Receiver<PhysicalSize<u32>>,
     notify_redraw_needed: &impl Fn(),

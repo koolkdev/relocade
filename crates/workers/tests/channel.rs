@@ -1,5 +1,5 @@
 use futures_util::FutureExt;
-use relocade_workers::{channel, ChannelError, Sender, Thread, ThreadExt, Transfer};
+use relocade_workers::{channel, ChannelError, Receiver, Sender, Thread, Transfer};
 use std::{rc::Rc, sync::Arc};
 
 #[cfg(target_arch = "wasm32")]
@@ -42,12 +42,16 @@ async fn ordered_delivery() {
     let (sender, mut receiver) = channel::<Message>().unwrap();
     assert!(receiver.recv().now_or_never().is_none());
     let worker = Thread::new();
-    let task = worker.run_resource(sender, move |mut sender| async move {
-        sender.send(message(3, 41, metadata.clone())).unwrap();
-        sender.send(message(7, 83, metadata)).unwrap();
-        // Queued browser messages must survive the sending endpoint's closure.
-        drop(sender);
-    });
+    let (mut input, task) = worker
+        .listen(move |mut input: Receiver<Sender<Message>>| async move {
+            let mut sender = input.recv().await.unwrap().unwrap();
+            sender.send(message(3, 41, metadata.clone())).unwrap();
+            sender.send(message(7, 83, metadata)).unwrap();
+            // Queued browser messages must survive the sending endpoint's closure.
+            drop(sender);
+        })
+        .unwrap();
+    input.send(sender).unwrap();
     for (sequence, value) in [(3, 41), (7, 83)] {
         let received = receiver.recv().await.unwrap().unwrap();
         assert_eq!((received.sequence, *received.local.0), (sequence, value));
@@ -62,17 +66,23 @@ async fn reverse_channel() {
     let metadata = Arc::new(vec![5, 9]);
     let expected = metadata.clone();
     let worker = Thread::new();
-    let task = worker.run_resource(ready, move |mut ready| async move {
-        // The receiving worker creates its local inbox, then sends the producer
-        // endpoint back. No task-result transport or receiver registration is needed.
-        let (sender, mut receiver) = channel::<Message>().unwrap();
-        ready.send(sender).unwrap();
-        drop(ready);
-        let received = receiver.recv().await.unwrap().unwrap();
-        assert!(Arc::ptr_eq(&received.metadata, &expected));
-        assert!(receiver.recv().await.is_none());
-        (received.sequence, *received.local.0)
-    });
+    let (mut input, task) = worker
+        .listen(
+            move |mut input: Receiver<Sender<Sender<Message>>>| async move {
+                let mut ready = input.recv().await.unwrap().unwrap();
+                // The receiving worker creates its local inbox, then sends the producer
+                // endpoint back. No task-result transport or receiver registration is needed.
+                let (sender, mut receiver) = channel::<Message>().unwrap();
+                ready.send(sender).unwrap();
+                drop(ready);
+                let received = receiver.recv().await.unwrap().unwrap();
+                assert!(Arc::ptr_eq(&received.metadata, &expected));
+                assert!(receiver.recv().await.is_none());
+                (received.sequence, *received.local.0)
+            },
+        )
+        .unwrap();
+    input.send(ready).unwrap();
     let mut sender = incoming.recv().await.unwrap().unwrap();
     assert!(incoming.recv().await.is_none());
     sender.send(message(11, 97, metadata)).unwrap();

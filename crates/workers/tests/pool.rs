@@ -67,7 +67,7 @@ async fn supplied_workers() {
     for thread in &threads {
         supplied.push(
             thread
-                .run_send((), |()| async { std::thread::current().id() })
+                .run(|| async { std::thread::current().id() })
                 .await
                 .unwrap(),
         );
@@ -202,9 +202,7 @@ async fn concurrent_compilations() {
     // The driver stays on this thread; a separate coordinator submits through
     // the same Send handle, including when browser Thread handles are local.
     let coordinator = Thread::new();
-    let remote = coordinator.run_send((), move |()| async move {
-        program(41).compile_with(&remote).await
-    });
+    let remote = coordinator.run(move || async move { program(41).compile_with(&remote).await });
     let local = async move { program(7).compile_with(&local).await };
     let ((), (local, remote)) = join(pool.run(), join(local, remote)).await;
     assert_eq!(local.unwrap(), expected[0]);
@@ -219,7 +217,7 @@ async fn concurrent_ir_construction() {
     for thread in &threads {
         supplied.push(
             thread
-                .run_send((), |()| async { std::thread::current().id() })
+                .run(|| async { std::thread::current().id() })
                 .await
                 .unwrap(),
         );

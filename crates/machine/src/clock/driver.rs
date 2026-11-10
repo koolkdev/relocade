@@ -1,4 +1,4 @@
-use crate::worker::{CancellableWorker, ThreadExt, Transfer, WakePeer, WakeTarget};
+use crate::worker::{Transfer, WakePeer, WakeTarget, Worker};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -32,23 +32,16 @@ impl HostTimerDriver {
     }
 
     /// Starts a timer worker with explicit stop and join operations.
-    pub fn spawn(self) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_send((), move |()| self.drive(stopped))
-        })
+    pub fn spawn(self) -> Worker<()> {
+        Worker::spawn(move |stopped| self.drive(stopped))
     }
 
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
-    pub fn spawn_with_peer<R: WakeTarget + Transfer>(
-        self,
-        peer: WakePeer<R>,
-    ) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(peer, move |peer| async move {
-                let _binding = peer.bind();
-                self.drive(stopped).await;
-            })
+    pub fn spawn_with_peer<R: WakeTarget + Transfer>(self, peer: WakePeer<R>) -> Worker<()> {
+        Worker::spawn_with(peer, move |peer, stopped| async move {
+            let _binding = peer.bind();
+            self.drive(stopped).await;
         })
     }
 

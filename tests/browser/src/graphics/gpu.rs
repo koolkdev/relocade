@@ -40,7 +40,7 @@ pub async fn gpu_workers() -> Result<(), String> {
         let render_count = renders.clone();
         let worker_source = source.clone();
         let graphics = Thread::new();
-        let task = graphics.run_send((), move |()| async move {
+        let task = graphics.run(move || async move {
             let instance = wgpu::Instance::default();
             let adapter = instance.request_adapter(&Default::default()).await.unwrap();
             let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();

@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_wasm_runtime::{
-    worker::{wake_connection, Thread, ThreadExt, Transfer, WakeTarget},
+    worker::{wake_connection, Receiver, Thread, Transfer, WakePeer, WakeTarget},
     SharedMemory,
 };
 use std::{
@@ -74,22 +74,26 @@ async fn fixed_binding() {
         let (host, endpoint) = wake_connection(signal.clone());
         let (send_waker, receive_waker) = oneshot::channel();
         let (continue_worker, continued) = oneshot::channel();
-        let thread = Thread::new();
-        let task = thread.run_resource(signal, move |signal| async move {
-            let connection = endpoint.bind(signal.clone());
-            connection.waker().wake_by_ref();
-            assert_eq!(signal.memory.atomic_load::<u8>(0), 1);
-            connection.acknowledge();
-            *signal.lifetime.wake.lock().unwrap() = Some(connection.waker().clone());
-            send_waker.send(connection.waker().clone()).unwrap();
-            continued.await.unwrap();
-            let before = signal.wakes.load(Ordering::SeqCst);
-            connection.waker().wake_by_ref();
-            assert_eq!(
-                signal.wakes.load(Ordering::SeqCst),
-                before + usize::from(!drop_host_first)
-            );
-        });
+        let worker = Thread::new();
+        let (mut input, task) = worker
+            .listen(move |mut input: Receiver<Signal>| async move {
+                let signal = input.recv().await.unwrap().unwrap();
+                let connection = endpoint.bind(signal.clone());
+                connection.waker().wake_by_ref();
+                assert_eq!(signal.memory.atomic_load::<u8>(0), 1);
+                connection.acknowledge();
+                *signal.lifetime.wake.lock().unwrap() = Some(connection.waker().clone());
+                send_waker.send(connection.waker().clone()).unwrap();
+                continued.await.unwrap();
+                let before = signal.wakes.load(Ordering::SeqCst);
+                connection.waker().wake_by_ref();
+                assert_eq!(
+                    signal.wakes.load(Ordering::SeqCst),
+                    before + usize::from(!drop_host_first)
+                );
+            })
+            .unwrap();
+        input.send(signal).unwrap();
         // The endpoint binds without polling the join handle or a host receiver.
         let waker = receive_waker.await.unwrap();
         let before = wakes.load(Ordering::SeqCst);

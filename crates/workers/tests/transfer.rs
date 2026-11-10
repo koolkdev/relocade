@@ -1,4 +1,4 @@
-use relocade_workers::{Thread, ThreadExt, Transfer};
+use relocade_workers::{Receiver, Thread, Transfer};
 use std::{rc::Rc, sync::Arc};
 
 struct Local(Rc<u32>);
@@ -29,30 +29,33 @@ async fn rust_state() {
     let data = Arc::new(vec![17, 29]);
     let expected = data.clone();
     let worker = Thread::new();
-    let value = worker
-        .run_resource(data.clone(), move |data| async move {
+    let (mut input, task) = worker
+        .listen(move |mut input: Receiver<Arc<Vec<u8>>>| async move {
+            let data = input.recv().await.unwrap().unwrap();
             assert!(Arc::ptr_eq(&data, &expected));
             data[1]
         })
-        .await
         .unwrap();
+    input.send(data.clone()).unwrap();
+    let value = task.await.unwrap();
     assert_eq!(value, 29);
     let expected = data.clone();
-    let value = worker
-        .run_resource(
-            Message {
-                value: Local(Rc::new(42)),
-                metadata: data,
-                sequence: 7,
-            },
-            move |message| async move {
-                assert!(Arc::ptr_eq(&message.metadata, &expected));
-                futures_util::future::ready(()).await;
-                (*message.value.0, message.sequence)
-            },
-        )
-        .await
+    let (mut input, task) = worker
+        .listen(move |mut input: Receiver<Message<Local>>| async move {
+            let message = input.recv().await.unwrap().unwrap();
+            assert!(Arc::ptr_eq(&message.metadata, &expected));
+            futures_util::future::ready(()).await;
+            (*message.value.0, message.sequence)
+        })
         .unwrap();
+    input
+        .send(Message {
+            value: Local(Rc::new(42)),
+            metadata: data,
+            sequence: 7,
+        })
+        .unwrap();
+    let value = task.await.unwrap();
     assert_eq!(value, (42, 7));
 }
 

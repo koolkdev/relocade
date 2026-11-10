@@ -78,9 +78,9 @@ available at stopped guest boundaries, including when outer calls are parked
 during an ISR, but not while a host call is actively pending. Independent state
 and memory handles also work while a call waits and after runner destruction.
 
-Pass `memory.clone()` to `worker.run_resource(...)` using `worker::ThreadExt`.
-The memory handle retains its configuration in Rust and prepares its shared
-allocation for the existing worker transport. Native handles move directly;
+Start a task with `worker::Worker::spawn_with(memory.clone(), run_task)`.
+The memory handle retains its configuration in Rust and transfers its shared
+allocation through the typed channel. Native handles move directly;
 browser shared-memory objects use structured cloning. The worker receives a
 complete `Memory` and borrows a view with `memory.view()`, without extracting
 backing or reconstructing the handle in application code. Configuration does not
