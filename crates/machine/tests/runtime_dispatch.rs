@@ -2,6 +2,7 @@ mod support;
 use relocade_compiler::{Program, I32};
 
 use relocade_machine::DispatchEntry;
+use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -47,7 +48,17 @@ async fn check_dispatch_table() {
         address: 0x200,
         export: "entry",
     }];
-    runtime.install_module(&module, &entries).await.unwrap();
+    // Compilation needs no CPU backend. Reuse this module for both batches.
+    let module = Backend::new()
+        .unwrap()
+        .compiler()
+        .compile(&module)
+        .await
+        .unwrap();
+    runtime
+        .install_compiled_module(&module, &entries)
+        .await
+        .unwrap();
     assert_eq!(runtime.context().cpu.eip(), 0x100);
     // A later batch grows both tables while preserving the first callable.
     let mut entries: Vec<_> = (0..4094)
@@ -60,7 +71,10 @@ async fn check_dispatch_table() {
         address: 0x250,
         export: "entry",
     });
-    runtime.install_module(&module, &entries).await.unwrap();
+    runtime
+        .install_compiled_module(&module, &entries)
+        .await
+        .unwrap();
     assert_eq!(
         support::run_until(&mut runtime, 0x100).await,
         ExecutionExit::Interrupted
@@ -72,9 +86,15 @@ async fn check_dispatch_table() {
     assert_eq!(u32::from_le_bytes(marker), 10);
 
     let module = callable(20);
+    let compiled = Backend::new()
+        .unwrap()
+        .compiler()
+        .compile(&module)
+        .await
+        .unwrap();
     assert!(runtime
-        .install_module(
-            &module,
+        .install_compiled_module(
+            &compiled,
             &[
                 DispatchEntry {
                     address: 0x200,
