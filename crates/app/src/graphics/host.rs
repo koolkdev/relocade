@@ -2,7 +2,7 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::{SendTask, Thread};
+use crate::worker::{SendTask, Thread, ThreadExt};
 use futures_channel::oneshot;
 use futures_lite::future::or;
 use relocade_frontend::display::DisplayRenderer;
@@ -54,7 +54,7 @@ impl Graphics {
         };
         let (stop, stopping) = oneshot::channel();
         let thread = Thread::new();
-        let task = thread.run_send(setup, move |setup| async move {
+        let task = thread.run_resource(setup, move |setup| async move {
             or(
                 async {
                     let _ = stopping.await;
