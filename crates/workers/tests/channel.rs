@@ -1,5 +1,7 @@
 use futures_util::FutureExt;
-use relocade_workers::{channel, ChannelError, Receiver, Sender, Thread, Transfer};
+use relocade_workers::{
+    channel, channel_endpoints, ChannelError, Receiver, Sender, Thread, Transfer, Worker,
+};
 use std::{rc::Rc, sync::Arc};
 
 #[cfg(target_arch = "wasm32")]
@@ -101,6 +103,37 @@ fn closed_receiver() {
         Err(ChannelError::Closed),
     ));
     assert_eq!(Arc::strong_count(&metadata), 1);
+}
+
+async fn transferred_receiver() {
+    let metadata = Arc::new(vec![11, 23]);
+    let expected = metadata.clone();
+    let (mut sender, incoming) = channel_endpoints::<Message>().unwrap();
+    sender.send(message(1, 31, metadata.clone())).unwrap();
+    let worker = Worker::spawn_with(incoming, move |incoming, _stopped| async move {
+        let mut receiver = incoming.bind();
+        for (sequence, value) in [(1, 31), (2, 47)] {
+            let received = receiver.recv().await.unwrap().unwrap();
+            assert_eq!((received.sequence, *received.local.0), (sequence, value));
+            assert!(Arc::ptr_eq(&received.metadata, &expected));
+        }
+        assert!(receiver.recv().await.is_none());
+    });
+    sender.send(message(2, 47, metadata)).unwrap();
+    drop(sender);
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn queued_messages_follow_a_transferred_receiver() {
+    pollster::block_on(transferred_receiver());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn queued_messages_follow_a_transferred_receiver() {
+    transferred_receiver().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

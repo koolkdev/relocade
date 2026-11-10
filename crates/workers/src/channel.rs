@@ -38,8 +38,7 @@ pub struct Sender<T: Transfer> {
     states: mpsc::UnboundedSender<T::State>,
 }
 
-/// Receives messages on its owning thread: the caller for [`channel`], or the
-/// execution thread for [`crate::Thread::listen`].
+/// Receives messages on the worker that bound this endpoint.
 /// Browser receivers retain local objects and cannot move to another worker.
 pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
@@ -66,17 +65,20 @@ pub struct Receiver<T: Transfer> {
 /// Browser delivery needs an event-loop turn on the receiving thread; this
 /// channel does not choose when guest execution yields to its host.
 pub fn channel<T: Transfer>() -> Result<(Sender<T>, Receiver<T>), ChannelError> {
-    let (sender, incoming) = endpoints()?;
+    let (sender, incoming) = channel_endpoints()?;
     Ok((sender, incoming.bind()))
 }
 
-struct Incoming<T: Transfer> {
+/// A receiving endpoint that can move between workers before it is bound.
+/// Transfer it to the receiving worker, then call [`Self::bind`] there.
+pub struct ReceiverEndpoint<T: Transfer> {
     payloads: platform::ReceiverEndpoint<T::Payload>,
     states: mpsc::UnboundedReceiver<T::State>,
 }
 
-impl<T: Transfer> Incoming<T> {
-    fn bind(self) -> Receiver<T> {
+impl<T: Transfer> ReceiverEndpoint<T> {
+    /// Starts receiving on this worker. The resulting receiver stays local.
+    pub fn bind(self) -> Receiver<T> {
         Receiver {
             payloads: self.payloads.bind(),
             states: self.states,
@@ -85,12 +87,28 @@ impl<T: Transfer> Incoming<T> {
     }
 }
 
-fn endpoints<T: Transfer>() -> Result<(Sender<T>, Incoming<T>), ChannelError> {
+impl<T: Transfer> Transfer for ReceiverEndpoint<T> {
+    type State = mpsc::UnboundedReceiver<T::State>;
+    type Payload = platform::ReceiverEndpoint<T::Payload>;
+
+    fn encode(self) -> (Self::State, Self::Payload) {
+        (self.states, self.payloads)
+    }
+
+    fn decode(states: Self::State, payloads: Self::Payload) -> Self {
+        Self { payloads, states }
+    }
+}
+
+/// Creates a channel before choosing its receiving worker.
+/// Both endpoints can be transferred; bind the receiver on its final owner.
+/// Use [`channel`] when the receiver belongs on the current worker.
+pub fn channel_endpoints<T: Transfer>() -> Result<(Sender<T>, ReceiverEndpoint<T>), ChannelError> {
     let (payloads, incoming_payloads) = platform::channel()?;
     let (states, incoming_states) = mpsc::unbounded();
     Ok((
         Sender { payloads, states },
-        Incoming {
+        ReceiverEndpoint {
             payloads: incoming_payloads,
             states: incoming_states,
         },
@@ -104,9 +122,9 @@ pub(crate) fn on_thread<T: Transfer, F: Future + 'static>(
 where
     F::Output: Send,
 {
-    let (sender, Incoming { payloads, states }) = endpoints::<T>()?;
+    let (sender, ReceiverEndpoint { payloads, states }) = channel_endpoints::<T>()?;
     let task = thread.run_send(payloads, move |payloads| {
-        code(Incoming { payloads, states }.bind())
+        code(ReceiverEndpoint { payloads, states }.bind())
     });
     Ok((sender, task))
 }
