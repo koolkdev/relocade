@@ -9,7 +9,9 @@ pub(crate) fn imports(backend: &mut Backend) -> Vec<Import<'static, Backend>> {
         backend.bind_host(
             abi::READ_PORT,
             Box::new(|context, port, bytes| {
-                context.state().read_port(port as u16, bytes as u8) as i32
+                context
+                    .state()
+                    .read_port_unchecked(port as u16, bytes as u8) as i32
             }),
         ),
         backend.bind_host(
@@ -17,7 +19,7 @@ pub(crate) fn imports(backend: &mut Backend) -> Vec<Import<'static, Backend>> {
             Box::new(|context, port, bytes, value| {
                 context
                     .state()
-                    .write_port(port as u16, bytes as u8, value as u32);
+                    .write_port_unchecked(port as u16, bytes as u8, value as u32);
             }),
         ),
         backend.bind_host(

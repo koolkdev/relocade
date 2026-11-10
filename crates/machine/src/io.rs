@@ -36,10 +36,13 @@ pub trait Device {
 
     fn write_mmio(&mut self, _address: u32, _bytes: u8, _value: u64) {}
 
+    /// Reads 1, 2 or 4 bytes from a port. Only the low `bytes` bytes of the
+    /// result are consumed; unused upper bits need not be cleared.
     fn read_port(&mut self, _port: u16, _bytes: u8) -> u32 {
         u32::MAX
     }
 
+    /// Writes 1, 2 or 4 bytes to a port, with unused upper value bits cleared.
     fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
 
     /// Supplies and acknowledges one pending maskable interrupt vector.
@@ -142,22 +145,43 @@ impl IoBus {
         }
     }
 
-    /// Routes one architectural transfer by its starting port. The device owns
-    /// the meaning of a wide transfer, including paired index/data registers.
+    /// Reads from the device mapped at `port` in a single call. The device owns
+    /// the meaning of word and dword reads, including paired index/data registers.
+    /// Unused result bits are zero. Panics unless `bytes` is 1, 2 or 4.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        let value = self.port_device(port).map_or(u32::MAX, |device| {
-            device.borrow_mut().read_port(port, bytes)
-        });
-        value & (u32::MAX >> ((4 - bytes) * 8))
+        self.read_port_unchecked(port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
     }
 
+    /// Writes the low `bytes` bytes to the device mapped at `port` in a single
+    /// call. Panics unless `bytes` is 1, 2 or 4.
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
+        self.write_port_unchecked(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+    }
+
+    /// Reads a port without validating the width or clearing unused result bits.
+    /// The caller must supply 1, 2 or 4 bytes and consume only the low `bytes`
+    /// bytes of the result. Generated x86 callers already guarantee this;
+    /// host callers use [`Self::read_port`] to validate and mask instead.
+    #[inline]
+    pub(crate) fn read_port_unchecked(&self, port: u16, bytes: u8) -> u32 {
+        debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
+        self.port_device(port).map_or(u32::MAX, |device| {
+            device.borrow_mut().read_port(port, bytes)
+        })
+    }
+
+    /// Writes a port without validating the width or clearing unused value bits.
+    /// The caller must supply 1, 2 or 4 bytes and clear bits above the low `bytes`
+    /// bytes of `value`. Generated x86 callers already guarantee this;
+    /// host callers use [`Self::write_port`] to validate and mask instead.
+    #[inline]
+    pub(crate) fn write_port_unchecked(&self, port: u16, bytes: u8, value: u32) {
+        debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
+        debug_assert_eq!(value & (u32::MAX >> ((4 - bytes) * 8)), value);
         if let Some(device) = self.port_device(port) {
-            device
-                .borrow_mut()
-                .write_port(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+            device.borrow_mut().write_port(port, bytes, value);
         }
     }
 
