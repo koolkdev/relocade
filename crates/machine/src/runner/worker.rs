@@ -1,5 +1,5 @@
-use super::{ExecutionSchedule, Runner};
-use crate::worker::{self, wake_connection, WakeHost, WakePeer, Worker};
+use super::Runner;
+use crate::worker::{self, wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
 use crate::{CpuHandle, ExecutionInterrupt};
 use futures_lite::future::or;
 use std::future::Future;
@@ -43,14 +43,12 @@ impl<T: Send + 'static> ExecutionWorker<T> {
 
     pub(crate) fn spawn(
         cpu: CpuHandle,
-        schedule: impl FnOnce() -> ExecutionSchedule + Send + 'static,
+        make_runner: impl FnOnce(CpuHandle, WakeEndpoint<ExecutionInterrupt>) -> Runner + Send + 'static,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
         let (wake_host, endpoint) = wake_connection(cpu.interrupt_handle());
         let worker = Worker::spawn_with(cpu, move |cpu, stopped| async move {
-            Runner::with_schedule(schedule(), cpu, endpoint)
-                .run(stopped, session)
-                .await
+            make_runner(cpu, endpoint).run(stopped, session).await
         });
         Self { worker, wake_host }
     }

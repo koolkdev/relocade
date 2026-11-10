@@ -1,4 +1,3 @@
-use crate::runner::ExecutionSchedule;
 use crate::worker;
 use crate::{timer_service, Clock, ExecutionWorker, GuestTimeConfig, Runner, TimerHandle};
 use crate::{
@@ -88,7 +87,7 @@ impl CpuHandle {
     ) -> ExecutionWorker<T> {
         ExecutionWorker::spawn(
             self,
-            move || ExecutionSchedule::from_clock(make_clock()),
+            move |cpu, endpoint| Runner::new(make_clock(), cpu, endpoint),
             session,
         )
     }
@@ -101,7 +100,7 @@ impl CpuHandle {
     ) -> ExecutionWorker<T> {
         ExecutionWorker::spawn(
             self,
-            move || ExecutionSchedule::with_guest_time(make_time()),
+            move |cpu, endpoint| Runner::with_guest_time(make_time(), cpu, endpoint),
             session,
         )
     }

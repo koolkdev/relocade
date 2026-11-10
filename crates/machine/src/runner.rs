@@ -5,7 +5,7 @@ mod schedule;
 pub use guest_time::GuestTimeConfig;
 mod worker;
 
-pub(crate) use schedule::ExecutionSchedule;
+use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, WakeEndpoint, WakePeer};
@@ -39,7 +39,7 @@ pub struct Runner {
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
-    prepared: Option<CpuHandle>,
+    cpu_handle: Option<CpuHandle>,
     memory: Memory,
     cpu: Option<Cpu>,
 }
@@ -65,7 +65,7 @@ impl Runner {
             pending: Some(pending),
             executor,
             memory: cpu.memory(),
-            prepared: Some(cpu),
+            cpu_handle: Some(cpu),
             cpu: None,
         }
     }
@@ -77,8 +77,8 @@ impl Runner {
     /// Panics if an earlier attachment attempt consumed this CPU, including
     /// an attempt that failed or was cancelled.
     pub async fn attach_io(&mut self, io: IoBus) -> Result<&mut Cpu> {
-        let prepared = self.prepared.take().expect("CPU already attached");
-        self.cpu = Some(prepared.into_cpu(io).await?);
+        let cpu_handle = self.cpu_handle.take().expect("CPU already attached");
+        self.cpu = Some(cpu_handle.into_cpu(io).await?);
         Ok(self.cpu())
     }
 
