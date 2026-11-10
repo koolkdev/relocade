@@ -33,19 +33,14 @@ impl HostTimerDriver {
 
     /// Starts a timer worker with explicit stop and join operations.
     pub fn spawn(self) -> Worker<()> {
-        Worker::spawn(|worker| {
-            worker.run(move |stopped| self.drive(stopped));
-            Ok(())
-        })
+        Worker::spawn(move |stopped| self.drive(stopped))
     }
 
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
     pub fn spawn_with_peer<R: WakeTarget + Transfer>(self, peer: WakePeer<R>) -> Worker<()> {
-        Worker::spawn(|worker| {
-            let mut input =
-                worker.listen(move |peer, stopped| self.drive_with_peer(peer, stopped))?;
-            input.send(peer)
+        Worker::spawn_with(peer, move |peer, stopped| {
+            self.drive_with_peer(peer, stopped)
         })
     }
 

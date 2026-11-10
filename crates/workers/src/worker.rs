@@ -1,4 +1,4 @@
-use super::{ChannelError, Error, Receiver, Sender, Thread, Transfer};
+use super::{ChannelError, Error, Receiver, Thread, Transfer};
 use futures_channel::oneshot;
 use futures_util::future::{select, Either, LocalBoxFuture};
 use std::{fmt, future::Future, pin::pin};
@@ -47,61 +47,61 @@ impl From<Error> for WorkerError {
 /// Await [`Self::stop`] or [`Self::join`] before releasing the worker. Dropping
 /// it early can terminate a browser thread before its Rust destructors run.
 pub struct Worker<T: Send + 'static> {
-    thread: Thread,
-    task: Option<LocalBoxFuture<'static, Result<Option<T>, WorkerError>>>,
-    setup_error: Option<ChannelError>,
+    _thread: Thread,
+    task: LocalBoxFuture<'static, Result<Option<T>, WorkerError>>,
     stop: Option<oneshot::Sender<()>>,
-    stopped: Option<oneshot::Receiver<()>>,
 }
 
 impl<T: Send + 'static> Worker<T> {
     /// Starts work immediately and retains its task through cleanup.
     /// The task treats either completion or closure of `stopped` as cancellation.
-    /// The callback starts one task with [`Self::run`] or [`Self::listen`], then
-    /// sends any initial messages. Setup failure requests cancellation; completion
-    /// still waits for the task's cleanup before reporting that failure.
-    pub fn spawn(start: impl FnOnce(&mut Self) -> Result<(), ChannelError>) -> Self {
-        let (stop, stopped) = oneshot::channel();
-        let mut worker = Self {
-            thread: Thread::new(),
-            task: None,
-            setup_error: None,
-            stop: Some(stop),
-            stopped: Some(stopped),
-        };
-        if let Err(error) = start(&mut worker) {
-            worker.setup_error = Some(error);
-            worker.request_stop();
-        } else {
-            assert!(worker.task.is_some(), "start callback must submit a task");
-        }
-        worker
-    }
-
-    /// Starts this owner's single task and retains its completion.
-    pub fn run<F: Future<Output = T> + 'static>(
-        &mut self,
+    pub fn spawn<F: Future<Output = T> + 'static>(
         code: impl FnOnce(oneshot::Receiver<()>) -> F + Send + 'static,
-    ) {
-        let stopped = self.stopped.take().expect("worker task already started");
-        let task = self.thread.run(move || code(stopped));
-        self.task = Some(Box::pin(async move { Ok(Some(task.await?)) }));
+    ) -> Self {
+        let thread = Thread::new();
+        let (stop, stopped) = oneshot::channel();
+        let task = thread.run(move || code(stopped));
+        Self {
+            _thread: thread,
+            task: Box::pin(async move { Ok(Some(task.await?)) }),
+            stop: Some(stop),
+        }
     }
 
-    /// Waits for an initial message, then runs this owner's single task.
-    /// Startup observes stop before invoking the task and releases its inbox
-    /// before handing over the complete value and cancellation receiver.
-    /// Completion is retained before the sender is returned.
-    pub fn listen<M: Transfer, F: Future<Output = T> + 'static>(
-        &mut self,
+    /// Transfers one initial value before invoking the task with its cancellation
+    /// receiver. This uses [`Thread::listen`] and the ordinary typed channel;
+    /// the startup inbox is released before the task runs.
+    ///
+    /// Startup observes cancellation while waiting for the value. Transfer failure
+    /// requests cancellation and waits for worker cleanup before reporting the error.
+    pub fn spawn_with<M: Transfer, F: Future<Output = T> + 'static>(
+        initial: M,
         code: impl FnOnce(M, oneshot::Receiver<()>) -> F + Send + 'static,
-    ) -> Result<Sender<M>, ChannelError> {
-        let stopped = self.stopped.take().expect("worker task already started");
-        let (sender, task) = self
-            .thread
-            .listen(move |input| start(input, stopped, code))?;
-        self.task = Some(Box::pin(async move { Ok(task.await??) }));
-        Ok(sender)
+    ) -> Self {
+        let thread = Thread::new();
+        let (stop, stopped) = oneshot::channel();
+        let mut stop = Some(stop);
+        let task: LocalBoxFuture<'static, Result<Option<T>, WorkerError>> =
+            match thread.listen(move |input| start(input, stopped, code)) {
+                Ok((mut input, task)) => {
+                    let sent = input.send(initial);
+                    if sent.is_err() {
+                        let _ = stop.take().unwrap().send(());
+                    }
+                    Box::pin(async move {
+                        let result = task.await;
+                        // Even a failed send must retain the thread until cleanup.
+                        sent?;
+                        Ok(result??)
+                    })
+                }
+                Err(error) => Box::pin(async move { Err(error.into()) }),
+            };
+        Self {
+            _thread: thread,
+            task,
+            stop,
+        }
     }
 
     /// Requests cooperative cancellation while retaining the worker.
@@ -127,14 +127,7 @@ impl<T: Send + 'static> Worker<T> {
     /// consume its completed result only once.
     /// `None` means startup was stopped before the task received its initial value.
     pub async fn finished(&mut self) -> Result<Option<T>, WorkerError> {
-        let result = match &mut self.task {
-            Some(task) => Some(task.await),
-            None => None,
-        };
-        if let Some(error) = self.setup_error.take() {
-            return Err(error.into());
-        }
-        result.expect("worker completion already consumed")
+        self.task.as_mut().await
     }
 }
 

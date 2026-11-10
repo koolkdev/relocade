@@ -78,7 +78,7 @@ available at stopped guest boundaries, including when outer calls are parked
 during an ISR, but not while a host call is actively pending. Independent state
 and memory handles also work while a call waits and after runner destruction.
 
-Start a task with `worker::Worker::listen`, then call `sender.send(memory.clone())`.
+Start a task with `worker::Worker::spawn_with(memory.clone(), run_task)`.
 The memory handle retains its configuration in Rust and transfers its shared
 allocation through the typed channel. Native handles move directly;
 browser shared-memory objects use structured cloning. The worker receives a

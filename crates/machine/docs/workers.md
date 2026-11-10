@@ -6,18 +6,14 @@ feature flags. `Worker<T>` owns one task, its result and cooperative shutdown.
 `ExecutionWorker::spawn` creates a worker and supplies its fully initialized
 `Runner`; CPU-level work can use `Cpu` directly.
 
-`Worker::spawn` invokes a setup callback that submits one task through `run` or
-`listen`, then sends any initial data. `run` passes the task its cancellation
-receiver. `listen` first waits for one complete value, observing cancellation
-during startup, and releases the inbox before calling the task with that value
-and its cancellation receiver. A setup or send failure requests cancellation and
-waits for task cleanup before being reported.
+`Worker::spawn` invokes a task with its cancellation receiver. `Worker::spawn_with`
+also transfers one initial value through the existing typed channel. It observes
+cancellation while waiting for the value and releases the startup inbox before
+calling the task with that value and its cancellation receiver. A send failure
+requests cancellation and waits for worker cleanup before being reported.
 
 ```rust,ignore
-let worker = Worker::spawn(|worker| {
-    let mut input = worker.listen(run_task)?;
-    input.send(initial_data)
-});
+let worker = Worker::spawn_with(initial_data, run_task);
 let result = worker.join().await?;
 ```
 

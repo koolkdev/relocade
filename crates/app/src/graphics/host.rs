@@ -48,11 +48,8 @@ impl Graphics {
                 notify_redraw_needed();
             }
         };
-        let worker = Worker::spawn(|worker| {
-            let mut input = worker.listen(move |setup, stopping| {
-                worker::run(setup, stopping, create, requests, notify)
-            })?;
-            input.send(setup)
+        let worker = Worker::spawn_with(setup, move |setup, stopping| {
+            worker::run(setup, stopping, create, requests, notify)
         });
         Self {
             redraws,

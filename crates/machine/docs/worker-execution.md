@@ -33,9 +33,9 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The worker prepares one `CpuStorage` before spawning, starts its task with
-`Worker::listen`, and sends the storage through the inbox. The task observes
-cancellation while waiting for storage. `runner.create_cpu(memory, config, io).await` consumes
+The worker prepares one `CpuStorage` before spawning and passes it to
+`Worker::spawn_with`. Startup transfers the storage through a typed channel and
+observes cancellation while waiting for it. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work

@@ -92,11 +92,8 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = Worker::spawn(|worker| {
-            let mut input = worker.listen(move |storage, stopped| {
-                Self::run_session(storage, stopped, endpoint, runner, session)
-            })?;
-            input.send(storage)
+        let worker = Worker::spawn_with(storage, move |storage, stopped| {
+            Self::run_session(storage, stopped, endpoint, runner, session)
         });
         Self { worker, wake_host }
     }
