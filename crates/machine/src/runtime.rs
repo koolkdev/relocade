@@ -66,7 +66,7 @@ pub use hooks::Hook;
 use instance::CpuInstance;
 pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
-use relocade_wasm_runtime::WasmBackend;
+use relocade_wasm_runtime::{Module, WasmBackend};
 pub use storage::CpuStorage;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
@@ -160,6 +160,32 @@ impl Cpu {
         instance
             .dispatch
             .install_module(&mut instance.backend, &instance.bindings, bytes, entries)
+            .await
+    }
+
+    /// Instantiates an already compiled module against this CPU's imports and
+    /// publishes its entries through the same dispatch path as [`Self::install_module`].
+    /// The module can be compiled on another worker and reused across CPUs;
+    /// each installation binds to the receiving CPU's state and memory.
+    ///
+    /// The caller maintains code and mapping validity. Replacement semantics and
+    /// restrictions on module start functions match [`Self::install_module`].
+    ///
+    /// # Panics
+    /// Panics if a service is pending or parked. Complete or abandon it first.
+    pub async fn install_compiled_module(
+        &mut self,
+        module: &Module,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        let instance = self.instance_mut();
+        instance
+            .dispatch
+            .install_compiled_module(&mut instance.backend, &instance.bindings, module, entries)
             .await
     }
 
