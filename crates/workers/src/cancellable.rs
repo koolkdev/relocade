@@ -1,4 +1,4 @@
-use super::{Result, SendTask, Thread};
+use super::{ResourceError, Result, SendTask, Thread, WorkerResource};
 use futures_channel::oneshot;
 
 /// Owns a worker task and its cooperative cancellation signal.
@@ -8,7 +8,7 @@ use futures_channel::oneshot;
 /// Await [`Self::stop`] or [`Self::join`] before releasing the worker. Dropping
 /// it early can terminate a browser thread before its Rust destructors run.
 pub struct CancellableWorker<T: Send + 'static> {
-    _thread: Thread,
+    thread: Thread,
     task: SendTask<T>,
     stop: Option<oneshot::Sender<()>>,
 }
@@ -21,10 +21,20 @@ impl<T: Send + 'static> CancellableWorker<T> {
         let (stop, stopped) = oneshot::channel();
         let task = start(&thread, stopped);
         Self {
-            _thread: thread,
+            thread,
             task,
             stop: Some(stop),
         }
+    }
+
+    /// Transfers a resource to an endpoint captured by the running task.
+    /// Await the send before stopping or joining the worker.
+    pub async fn send_resource<R: WorkerResource>(
+        &self,
+        sender: crate::oneshot::Sender<R>,
+        resource: R,
+    ) -> Result<(), ResourceError> {
+        sender.send(&self.thread, resource).await
     }
 
     /// Requests cancellation and waits for the task to finish its cleanup.

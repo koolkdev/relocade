@@ -32,23 +32,26 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
         for attribute in &field.attrs {
             if attribute.path().is_ident("worker") {
                 let kind: Ident = attribute.parse_args()?;
-                if kind != "post" {
+                if kind != "post" && kind != "resource" {
                     return Err(syn::Error::new_spanned(
                         attribute,
-                        "expected #[worker(post)]",
+                        "expected #[worker(post)] or #[worker(resource)]",
                     ));
                 }
-                if posted.replace((index, field)).is_some() {
+                if posted.replace((index, field, kind)).is_some() {
                     return Err(syn::Error::new_spanned(
                         attribute,
-                        "WorkerResource requires exactly one posted field",
+                        "WorkerResource requires exactly one transferred field",
                     ));
                 }
             }
         }
     }
-    let (posted, posted_field) = posted.ok_or_else(|| {
-        syn::Error::new_spanned(&input.ident, "mark one field with #[worker(post)]")
+    let (posted, posted_field, kind) = posted.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &input.ident,
+            "mark one field with #[worker(post)] or #[worker(resource)]",
+        )
     })?;
     let bindings: Vec<_> = (0..data.fields.len())
         .map(|index| format_ident!("__worker_field_{index}", span = Span::mixed_site()))
@@ -66,7 +69,11 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     for (index, field) in data.fields.iter().enumerate() {
         let ty = &field.ty;
         let bound = if index == posted {
-            parse_quote!(#ty: #worker::Post + 'static)
+            if kind == "resource" {
+                parse_quote!(#ty: #worker::WorkerResource)
+            } else {
+                parse_quote!(#ty: #worker::Post + 'static)
+            }
         } else {
             parse_quote!(#ty: ::core::marker::Send + 'static)
         };
@@ -76,6 +83,17 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
     let name = &input.ident;
     let posted_type = &posted_field.ty;
     let posted_binding = &bindings[posted];
+    let (posted_type, transfer) = if kind == "resource" {
+        (
+            quote!(<#posted_type as #worker::WorkerResource>::Posted),
+            quote!(#worker::WorkerResource::prepare(#posted_binding).map(move |#posted_binding| #fields)),
+        )
+    } else {
+        (
+            quote!(#posted_type),
+            quote!(#worker::ResourceTransfer::new(#posted_binding, move |#posted_binding| #fields)),
+        )
+    };
     Ok(quote! {
         impl #impl_generics #worker::WorkerResource
             for #name #type_generics #where_clause
@@ -86,9 +104,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<Tokens> {
                 Self::Posted, impl ::core::ops::FnOnce(Self::Posted) -> Self + ::core::marker::Send + 'static,
             > {
                 let #fields = self;
-                #worker::ResourceTransfer::new(
-                    #posted_binding, move |#posted_binding| #fields,
-                )
+                #transfer
             }
         }
     })
