@@ -115,4 +115,5 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         );
     });
     assert_eq!(pollster::block_on(console).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }

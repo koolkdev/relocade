@@ -130,7 +130,12 @@ pub(super) async fn run(
             assert_eq!(view.read_u16(base + 0x50c).unwrap(), 6);
         },
     );
-    let result = result.await.map_err(|error| error.to_string())?;
+    let result = result.await;
+    machine
+        .shutdown()
+        .await
+        .map_err(|error| error.to_string())?;
+    let result = result.map_err(|error| error.to_string())?;
     assert!(
         result.is_some(),
         "guest finishes through its callback and DOS read"

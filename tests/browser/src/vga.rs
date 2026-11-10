@@ -154,6 +154,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let ((), result) = join(timers.run(), cpu_task.join()).await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(()));
     display_task.await.map_err(|error| error.to_string())?;
+    machine.shutdown().await.unwrap();
     Ok(())
 }
 

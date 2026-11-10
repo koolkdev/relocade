@@ -21,6 +21,7 @@ pub async fn graphics_workers() -> Result<(), String> {
 
     let app = async move {
         let guest::Guest {
+            machine,
             execution,
             source,
             retraces,
@@ -133,6 +134,10 @@ pub async fn graphics_workers() -> Result<(), String> {
         // Source closure does not close the host's surface or its worker. The
         // application may render the last capture and present it repeatedly.
         assert_eq!(execution.stop().await.map_err(|e| e.to_string())?, None);
+        machine
+            .shutdown()
+            .await
+            .map_err(|error| error.to_string())?;
         assert!(source.is_closed());
         assert!(!dropped.load(Ordering::Acquire));
         request(&mut requests, [64, 48]);

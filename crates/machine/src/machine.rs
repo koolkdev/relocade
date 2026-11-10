@@ -5,19 +5,26 @@ pub use cpu::CpuHandle;
 
 use crate::{CpuConfig, CpuStateAccess, MachineConfig, Memory, Result};
 
-/// Owns guest memory and the state of every CPU created for it.
+/// Owns guest memory, its compiler worker and the state of every CPU created for it.
 /// CPU handles grant execution access once; the machine retains state after the
 /// worker finishes. Backends and devices are constructed on execution workers.
 pub struct Machine {
     memory: Memory,
     cpus: Vec<CpuStateAccess>,
+    compiler: crate::compiler::Service,
 }
 
 impl Machine {
+    /// Allocates shared memory and starts its compiler worker.
+    /// CPU connections and compilation requests can queue while the worker starts.
+    /// Await [`Self::shutdown`] after execution owners have finished.
     pub fn new(config: MachineConfig) -> Result<Self> {
+        let memory = Memory::new(config)?;
+        let compiler = crate::compiler::Service::new(memory.clone())?;
         Ok(Self {
-            memory: Memory::new(config)?,
+            memory,
             cpus: Vec::new(),
+            compiler,
         })
     }
 
@@ -29,7 +36,8 @@ impl Machine {
     /// Move the returned handle to its execution worker. State is appended to
     /// [`Self::cpus`] and remains available after that worker is joined.
     pub fn create_cpu(&mut self, config: CpuConfig) -> Result<CpuHandle> {
-        let (cpu, state) = CpuHandle::new(self.memory(), config)?;
+        let compiler = self.compiler.connect()?;
+        let (cpu, state) = CpuHandle::new(self.memory(), config, compiler)?;
         self.cpus.push(state);
         Ok(cpu)
     }
@@ -40,5 +48,11 @@ impl Machine {
     /// execution owner; these handles do not stop or synchronize guest execution.
     pub fn cpus(&self) -> &[CpuStateAccess] {
         &self.cpus
+    }
+
+    /// Closes compiler admission and joins accepted work before releasing its worker.
+    /// Other execution owners must already be stopped or be joined independently.
+    pub async fn shutdown(self) -> Result<()> {
+        self.compiler.shutdown().await
     }
 }

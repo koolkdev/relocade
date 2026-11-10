@@ -86,6 +86,7 @@ async fn halted_worker() {
     assert_eq!(halted.next().await, Some((0x104, 5, 1)));
     assert_eq!(worker.stop().await.unwrap(), None);
     assert_eq!(dropped.await.unwrap(), 5);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

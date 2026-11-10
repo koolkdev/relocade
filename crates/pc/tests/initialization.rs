@@ -74,6 +74,7 @@ async fn bios_without_dos() {
         )
         .await
         .expect("PC guest timed out");
+    machine.shutdown().await.unwrap();
 }
 
 async fn default_exceptions() {
@@ -123,6 +124,7 @@ async fn default_exceptions() {
         )
         .await
         .expect("PC guest timed out");
+    machine.shutdown().await.unwrap();
 }
 
 async fn absent_services() {
@@ -186,6 +188,7 @@ async fn absent_services() {
         )
         .await
         .expect("PC guest timed out");
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

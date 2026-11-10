@@ -13,13 +13,14 @@ pub use execution::{checkpoint, run_until, steps};
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
-    let (runner, _host) = runner(clock.into()).await;
+    let (runner, _host, machine) = runner(clock.into()).await;
     let mut dos = runner
         .run(std::future::pending::<()>(), async |runner| {
             Dos::new(runner).await.unwrap()
         })
         .await
         .unwrap();
+    machine.shutdown().await.unwrap();
     // CPU-only fixtures must not accumulate timer IRQs during compilation/setup.
     // Start the clock driver after the session has dropped its device activities.
     std::thread::spawn(|| pollster::block_on(timers.run()));

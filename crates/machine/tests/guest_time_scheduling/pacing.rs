@@ -76,6 +76,7 @@ async fn late_host_wake() {
     );
     assert_eq!(host.next_deadline(), None);
     assert_eq!(armed.next().await, None);
+    machine.shutdown().await.unwrap();
 }
 
 struct ReplacedDeadline {
@@ -167,6 +168,7 @@ async fn replace_idle_deadline() {
         Some(vec![Duration::from_millis(4), Duration::from_millis(5)])
     );
     assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
 }
 
 async fn cancelled_run_rebinds() {
@@ -234,6 +236,7 @@ async fn cancelled_run_rebinds() {
     );
     host.advance_by(Duration::from_millis(10));
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -326,6 +329,7 @@ async fn busy_bursts() {
     stop.send(()).unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(10));
     assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
 }
 
 async fn ready_service_during_pacing() {
@@ -386,6 +390,7 @@ async fn ready_service_during_pacing() {
     assert_eq!(worker.join().await.unwrap(), Some(()));
     assert_eq!(host.clock().now(), host_time.at(Duration::ZERO));
     assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -139,6 +139,10 @@ pub async fn runner_workers() -> Result<(), String> {
         // Completion includes destruction of the CPU's suspended service state.
         assert_eq!(destroyed.try_recv().unwrap(), Some(()));
         assert_eq!(device_destroyed.try_recv().unwrap(), Some(()));
+        machine
+            .shutdown()
+            .await
+            .map_err(|error| error.to_string())?;
     }
     let (mut machine, cpu_config) = machine();
     let prepared = machine.create_cpu(cpu_config).unwrap();
@@ -149,5 +153,9 @@ pub async fn runner_workers() -> Result<(), String> {
         })
         .await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(42));
+    machine
+        .shutdown()
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(())
 }

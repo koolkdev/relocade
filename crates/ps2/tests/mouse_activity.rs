@@ -63,7 +63,7 @@ async fn next(io: &IoBus) -> (bool, u8) {
 
 async fn connected_mouse_and_keyboard() {
     let clock = ManualClock::default();
-    let (runner, _host) = common::runner(clock.clock()).await;
+    let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(&runner).await;
@@ -139,6 +139,7 @@ async fn connected_mouse_and_keyboard() {
         })
         .await;
     assert_eq!(result, Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -178,7 +179,7 @@ impl relocade_machine::ClockSource for InputTime {
 async fn queued_mouse_timestamps() {
     let clock = ManualClock::default();
     let start = clock.host_now();
-    let (runner, _host) = common::runner(relocade_machine::Clock::new(InputTime {
+    let (runner, _host, machine) = common::runner(relocade_machine::Clock::new(InputTime {
         clock: clock.clone(),
         disconnected_at: clock.at(Duration::from_millis(25)),
     }))
@@ -313,6 +314,7 @@ async fn queued_mouse_timestamps() {
             .await,
         Some(())
     );
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

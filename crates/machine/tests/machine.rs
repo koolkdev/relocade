@@ -88,6 +88,7 @@ async fn prepared_cpus() {
     assert_eq!(machine.cpus()[0].ax(), 0x1235);
     assert_eq!(machine.cpus()[1].ax(), 12);
     assert_eq!(machine.memory().view().read_u16(0x80).unwrap(), 12);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -152,6 +153,7 @@ async fn session_shutdown() {
         .await
         .unwrap();
     assert_eq!(result, None);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

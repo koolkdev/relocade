@@ -102,13 +102,14 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host) = crate::test_runner::runner(clock.into()).await;
+        let (runner, _host, machine) = crate::test_runner::runner(clock.into()).await;
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 crate::Dos::new(runner).await.unwrap()
             })
             .await
             .unwrap();
+        machine.shutdown().await.unwrap();
         dos.cpu().interrupt_handle().take();
         let keyboard = dos.keyboard();
         let original = dos.state.devices().console();

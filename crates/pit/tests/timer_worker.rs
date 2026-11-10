@@ -157,6 +157,7 @@ async fn timer_interrupts() -> Result<(), String> {
     let samples = result.map_err(|error| error.to_string())?.unwrap();
     assert_eq!(samples.len(), INTERRUPTS);
     assert!(samples.windows(2).all(|pair| pair[0] <= pair[1]));
+    machine.shutdown().await.unwrap();
     Ok(())
 }
 

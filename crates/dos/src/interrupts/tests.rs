@@ -19,7 +19,7 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
     pollster::block_on(async {
         for function in [0x01, 0x0a] {
             let (clock, _timers) = timer_service();
-            let (runner, _host) = crate::test_runner::runner(clock.into()).await;
+            let (runner, _host, machine) = crate::test_runner::runner(clock.into()).await;
             let mut dos = runner
                 .run(std::future::pending::<()>(), async |runner| {
                     Dos::new(runner).await.unwrap()
@@ -27,6 +27,7 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
                 .await
                 .unwrap();
             // The fixture takes over CPU execution after the session ended.
+            machine.shutdown().await.unwrap();
             dos.cpu().interrupt_handle().take();
             dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
                 .unwrap();
@@ -74,13 +75,14 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
 fn pending_handle_read_keeps_its_source_and_partial_transfer() {
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host) = crate::test_runner::runner(clock.into()).await;
+        let (runner, _host, machine) = crate::test_runner::runner(clock.into()).await;
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 Dos::new(runner).await.unwrap()
             })
             .await
             .unwrap();
+        machine.shutdown().await.unwrap();
         dos.cpu().interrupt_handle().take();
         dos.launch_com(&[0xcd, 0x21, 0xeb, 0xfe], Default::default())
             .unwrap();

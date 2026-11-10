@@ -24,7 +24,9 @@ let execution = cpu.spawn(handle, async move |mut runner| {
 });
 let timers = timers.spawn_with_peer(execution.wake_peer());
 let result = execution.join().await;
-timers.stop().await?;
+let timers = timers.stop().await;
+machine.shutdown().await?;
+timers?;
 ```
 
 `connect(...).await` registers the device's ordinary async `Device::run` future

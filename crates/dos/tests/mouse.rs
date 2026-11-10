@@ -167,4 +167,5 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
         .await;
         assert_eq!(result.unwrap(), Some(()));
     });
+    pollster::block_on(machine.shutdown()).unwrap();
 }

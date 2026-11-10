@@ -169,6 +169,7 @@ async fn connected_input() {
                 Some((1, if timed { vec![7] } else { vec![4, 9] })),
                 "input must run at the first notified checkpoint"
             );
+            machine.shutdown().await.unwrap();
         }
     }
 }
@@ -227,6 +228,7 @@ async fn connected_stop() {
         1,
         "stop must interrupt the first guest dispatch"
     );
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -274,6 +276,7 @@ async fn saturated_count() {
         );
     });
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -343,6 +346,7 @@ async fn notified_reentry() {
             );
         });
         assert_eq!(worker.join().await.unwrap(), Some(()));
+        machine.shutdown().await.unwrap();
     }
 }
 

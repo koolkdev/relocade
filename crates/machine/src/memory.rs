@@ -5,6 +5,8 @@ pub use view::MemoryView;
 
 use crate::{IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
+use relocade_x86::PhysicalMapping;
+use resolve::Spans;
 use std::{fmt, sync::Arc};
 
 /// Owned guest memory and its address policy, independent of CPU execution.
@@ -36,6 +38,39 @@ impl Memory {
     }
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
+    }
+
+    /// Copies mapped instruction bytes from RAM/ROM, including A20 aliases.
+    /// Rejects MMIO, holes and overflowing ranges before allocating the copy.
+    /// The caller keeps code stable during compilation; this is not an atomic snapshot.
+    pub(crate) fn read_code(
+        &self,
+        address: u32,
+        len: usize,
+    ) -> std::result::Result<Vec<u8>, MemoryError> {
+        let spans = Spans::new(self.config.memory_map(), address, len)?;
+        for span in spans.clone() {
+            if !matches!(
+                span.mapping,
+                PhysicalMapping::Ram { .. } | PhysicalMapping::Rom { .. }
+            ) {
+                return Err(MemoryError::NotRamOrRom);
+            }
+        }
+        let mut bytes = vec![0; len];
+        let mut output = bytes.as_mut_slice();
+        let storage = self.backing.view();
+        for span in spans {
+            let backing_offset = match span.mapping {
+                PhysicalMapping::Ram { backing_offset }
+                | PhysicalMapping::Rom { backing_offset } => backing_offset,
+                _ => unreachable!("code mappings were validated before allocation"),
+            };
+            let (part, rest) = output.split_at_mut(span.len);
+            storage.read(backing_offset, part);
+            output = rest;
+        }
+        Ok(bytes)
     }
 
     /// Retains this memory and its execution worker's device bus together.
@@ -87,6 +122,7 @@ pub enum MemoryError {
     AddressRange,
     BackingRange,
     SegmentRange,
+    NotRamOrRom,
 }
 
 impl fmt::Display for MemoryError {
@@ -95,6 +131,7 @@ impl fmt::Display for MemoryError {
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
             Self::SegmentRange => "memory access exceeds the segment limit",
+            Self::NotRamOrRom => "instruction range includes MMIO or unmapped memory",
         })
     }
 }

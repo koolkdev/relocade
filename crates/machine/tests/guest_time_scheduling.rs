@@ -108,6 +108,7 @@ async fn unpaced_slice_overshoot() {
             },
         );
         assert_eq!(worker.join().await.unwrap(), Some(()));
+        machine.shutdown().await.unwrap();
     }
 }
 
@@ -189,6 +190,7 @@ async fn deadlines_and_final_exit() {
             },
         );
         assert_eq!(worker.join().await.unwrap(), Some(()));
+        machine.shutdown().await.unwrap();
     }
 }
 
@@ -257,6 +259,7 @@ async fn retained_service() {
     let result = worker.join().await.unwrap();
     timers.stop().await.unwrap();
     assert_eq!(result, Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 async fn unpaced_idle_service() {
@@ -301,6 +304,7 @@ async fn unpaced_idle_service() {
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -383,6 +387,7 @@ async fn terminal_exit_without_notifications() {
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
@@ -391,6 +396,7 @@ async fn terminal_exit_without_notifications() {
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -8,6 +8,7 @@ pub(super) struct Span {
 }
 
 /// Walks a checked guest range without borrowing its backing storage.
+#[derive(Clone)]
 pub(super) struct Spans<'a> {
     map: &'a PhysicalMemoryMap,
     address: u32,

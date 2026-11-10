@@ -84,6 +84,7 @@ async fn exercise() {
         // Keep timers alive until execution stops, including a failed audio check.
         assert_eq!(worker.stop().await.unwrap(), None);
         result.unwrap();
+        machine.shutdown().await.unwrap();
     };
     or(
         async {

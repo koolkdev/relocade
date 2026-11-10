@@ -70,6 +70,7 @@ async fn idle_devices() {
         assert_eq!(state.ax(), 1);
     });
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

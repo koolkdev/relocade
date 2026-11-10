@@ -39,6 +39,7 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
         },
     ));
     assert_eq!(result.unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 #[test]
@@ -77,4 +78,5 @@ fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
         },
     ));
     assert_eq!(result.unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }

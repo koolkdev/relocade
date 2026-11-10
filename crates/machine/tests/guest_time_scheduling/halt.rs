@@ -90,6 +90,7 @@ async fn paced_halt() {
     assert_eq!(worker.join().await.unwrap(), Some(()));
     assert_eq!(host.next_deadline(), None);
     assert_eq!(armed.next().await, None);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

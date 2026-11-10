@@ -61,7 +61,7 @@ async fn no_output(io: &IoBus) {
 
 async fn connected_activity() {
     let clock = ManualClock::default();
-    let (runner, _host) = common::runner(clock.clock()).await;
+    let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();
@@ -125,6 +125,7 @@ async fn connected_activity() {
         })
         .await;
     assert_eq!(result, Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
