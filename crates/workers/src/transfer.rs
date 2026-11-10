@@ -125,3 +125,31 @@ impl<T: ?Sized + Send + Sync + 'static> Transfer for Arc<T> {
         state
     }
 }
+
+/// Rust channel endpoints retain their original queue across worker transfer.
+impl<T: Send + 'static> Transfer for futures_channel::mpsc::UnboundedSender<T> {
+    type State = Self;
+    type Payload = ();
+
+    fn encode(self) -> (Self, ()) {
+        (self, ())
+    }
+
+    fn decode(state: Self, (): ()) -> Self {
+        state
+    }
+}
+
+/// Moves the receive owner without moving or encoding individual queued values.
+impl<T: Send + 'static> Transfer for futures_channel::mpsc::UnboundedReceiver<T> {
+    type State = Self;
+    type Payload = ();
+
+    fn encode(self) -> (Self, ()) {
+        (self, ())
+    }
+
+    fn decode(state: Self, (): ()) -> Self {
+        state
+    }
+}
