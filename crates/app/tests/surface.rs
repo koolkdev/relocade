@@ -4,7 +4,7 @@ use futures_channel::oneshot;
 use relocade_app::{
     graphics::{Surface, SurfaceSetup},
     winit::dpi::PhysicalSize,
-    worker::{Thread, ThreadExt, Transfer},
+    worker::{channel, Sender, Thread, ThreadExt, Transfer},
 };
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 
@@ -104,21 +104,27 @@ async fn render_and_close() {
     let thread = Thread::new();
     let (presented, visible) = oneshot::channel();
     let (release, observed) = oneshot::channel();
-    let task = thread.run_resource(
-        SurfaceRequest {
+    let (ready, mut incoming) = channel::<Sender<SurfaceRequest>>().unwrap();
+    let task = thread.run_resource(ready, move |mut ready| async move {
+        let (sender, mut receiver) = channel::<SurfaceRequest>().unwrap();
+        ready.send(sender).unwrap();
+        let request = receiver.recv().await.unwrap().unwrap();
+        draw(
+            request.setup,
+            PhysicalSize::new(request.width, request.height),
+            presented,
+            observed,
+        )
+        .await
+    });
+    let mut sender = incoming.recv().await.unwrap().unwrap();
+    sender
+        .send(SurfaceRequest {
             setup,
             width: size.width,
             height: size.height,
-        },
-        move |request| {
-            draw(
-                request.setup,
-                PhysicalSize::new(request.width, request.height),
-                presented,
-                observed,
-            )
-        },
-    );
+        })
+        .unwrap();
     let presented = visible.await.is_ok();
     #[cfg(target_os = "linux")]
     let pixels_match = presented && window::native::presented_pixels_match(window_id, size);

@@ -1,6 +1,7 @@
+use futures_channel::oneshot;
 use relocade_compiler::{abi::Function, Program, I32};
 use relocade_wasm_runtime::{
-    worker::{Thread, ThreadExt, Transfer},
+    worker::{channel, Thread, ThreadExt, Transfer},
     Backend, Module, SharedMemory, WasmBackend, WasmCompiler, WasmSharedMemory,
 };
 use std::sync::Arc;
@@ -20,53 +21,58 @@ struct CompiledUnit {
 }
 
 async fn engine_handles() {
-    let mut program = Program::new();
-    VALUE
-        .define(&mut program, |body, ()| body.return_(42))
-        .unwrap();
-    let module = Backend::new()
-        .unwrap()
-        .compiler()
-        .compile(&program.compile().unwrap())
-        .await
-        .unwrap();
+    let (sender, mut receiver) = channel::<CompiledUnit>().unwrap();
+    let (installed, installation) = oneshot::channel();
     let worker = Thread::new();
-    let memory = SharedMemory::new(1, 1).unwrap();
-    memory.write(0, &[17]);
     let metadata = Arc::new(Metadata {
         offset: 4,
         expected: 42,
     });
     let expected = metadata.clone();
-    let value = worker
-        .run_resource(
-            CompiledUnit {
+    let task = worker.run_resource(sender, move |mut sender| async move {
+        let mut program = Program::new();
+        VALUE
+            .define(&mut program, |body, ()| body.return_(42))
+            .unwrap();
+        let module = Backend::new()
+            .unwrap()
+            .compiler()
+            .compile(&program.compile().unwrap())
+            .await
+            .unwrap();
+        let memory = SharedMemory::new(1, 1).unwrap();
+        memory.write(0, &[17]);
+        sender
+            .send(CompiledUnit {
                 module,
                 memory: memory.clone(),
                 metadata,
-            },
-            move |unit| async move {
-                assert!(Arc::ptr_eq(&unit.metadata, &expected));
-                let mut backend = Backend::new().unwrap();
-                let instance = backend.instantiate(&unit.module, &[]).await.unwrap();
-                let function = backend.function(&instance, VALUE).unwrap();
-                let value = function.call(&mut backend, ());
-                assert_eq!(value, unit.metadata.expected);
-                let mut initial = [0];
-                unit.memory.read(0, &mut initial);
-                assert_eq!(initial, [17]);
-                unit.memory
-                    .write(unit.metadata.offset, &value.to_le_bytes());
-                value
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(value, 42);
-
+            })
+            .unwrap();
+        // Delivery and installation happen while this compiler task stays alive.
+        installation.await.unwrap();
+        let mut bytes = [0; 8];
+        memory.read(0, &mut bytes);
+        assert_eq!(bytes, [17, 0, 0, 0, 42, 0, 0, 0]);
+    });
+    let unit = receiver.recv().await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(&unit.metadata, &expected));
+    let mut backend = Backend::new().unwrap();
+    let instance = backend.instantiate(&unit.module, &[]).await.unwrap();
+    let function = backend.function(&instance, VALUE).unwrap();
+    let value = function.call(&mut backend, ());
+    assert_eq!(value, unit.metadata.expected);
+    let mut initial = [0];
+    unit.memory.read(0, &mut initial);
+    assert_eq!(initial, [17]);
+    unit.memory
+        .write(unit.metadata.offset, &value.to_le_bytes());
+    installed.send(()).unwrap();
+    task.await.unwrap();
+    assert!(receiver.recv().await.is_none());
     drop(worker);
     let mut bytes = [0; 8];
-    memory.read(0, &mut bytes);
+    unit.memory.read(0, &mut bytes);
     assert_eq!(bytes, [17, 0, 0, 0, 42, 0, 0, 0]);
 }
 

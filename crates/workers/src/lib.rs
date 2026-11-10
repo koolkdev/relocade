@@ -15,11 +15,13 @@ pub use web_thread::*;
 use std::future::Future;
 
 mod cancellable;
+mod channel;
 mod executor;
 mod pool;
 mod transfer;
 mod wake;
 pub use cancellable::CancellableWorker;
+pub use channel::{channel, ChannelError, Receiver, Sender};
 pub use executor::Executor;
 pub use pool::{Pool, PoolError, PoolHandle};
 #[doc(hidden)]

@@ -53,6 +53,27 @@ or supply reconstruction closures. Every field needs `Transfer`; being `Send`
 alone does not select an encoding. A shared `Arc<T>` retains its allocation when
 `T: Send + Sync`, without requiring transfer behavior on its referent.
 
+For messages after startup, create `worker::channel::<T>()` on the receiving
+thread and transfer its `Sender<T>` to the producer. The receiver stays local;
+the sender can itself be sent through another channel to establish a reverse
+direction. Each channel has one sender, preserves order, and uses an unbounded
+queue. `send` posts immediately and `recv().await` receives a complete value.
+
+```rust,ignore
+let (sender, mut compiled) = worker::channel::<CompiledUnit>()?;
+let thread = worker::Thread::new();
+let task = thread.run_resource(sender, |mut sender| async move {
+    sender.send(compile_unit().await?)
+});
+let unit = compiled.recv().await.transpose()?;
+task.await??;
+```
+
+Dropping a receive wait preserves its message. Dropping the sender lets the
+receiver drain accepted messages before returning `None`; dropping the receiver
+closes further sends. Browser object delivery still requires an event-loop turn
+on the receiver. The channel does not own worker lifetime or CPU scheduling.
+
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
 CPU construction. Retain `storage.interrupt_handle()`, post the storage with
 `run_resource`, then call `storage.into_cpu(memory, cpu_config, io).await` on the
