@@ -17,10 +17,12 @@ use std::future::Future;
 mod cancellable;
 mod executor;
 mod pool;
+mod transfer;
 mod wake;
 pub use cancellable::CancellableWorker;
 pub use executor::Executor;
 pub use pool::{Pool, PoolError, PoolHandle};
+pub use transfer::Transfer;
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };
@@ -93,6 +95,17 @@ impl<P, R> ResourceTransfer<P, R> {
     /// Prepares a transfer inside the resource owner, where its fields are accessible.
     pub fn new(posted: P, rebuild: R) -> Self {
         Self { posted, rebuild }
+    }
+}
+
+impl<T: Transfer> WorkerResource for T {
+    type Posted = T::Payload;
+
+    fn prepare(
+        self,
+    ) -> ResourceTransfer<Self::Posted, impl FnOnce(Self::Posted) -> Self + Send + 'static> {
+        let (state, payload) = self.encode();
+        ResourceTransfer::new(payload, move |payload| Self::decode(state, payload))
     }
 }
 

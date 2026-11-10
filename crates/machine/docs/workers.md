@@ -50,9 +50,10 @@ before handles are published; configuring CPU registers and the model preserves
 requests made during construction. Neither preparation nor construction starts
 guest execution. `Cpu::new` uses the same storage path when no early handle is needed.
 
-`SharedMemory` and compiled `Module` handles still support the library's `Post`
-transport directly. Native handles move as Rust values. Browser transport
-preserves their JavaScript objects; shared-memory bytes are shared, not copied.
+`SharedMemory` and compiled `Module` handles implement `Transfer` and can be
+passed directly to `Thread::run_resource`. The type defines its Rust state,
+engine payload and reconstruction. Native handles move as Rust values. Browser
+transport preserves their JavaScript objects; shared-memory bytes are shared, not copied.
 The receiving worker prepares its own local access to the allocation. Retained
 handles remain usable after the allocating worker exits.
 

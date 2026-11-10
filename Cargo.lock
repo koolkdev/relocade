@@ -2221,6 +2221,7 @@ dependencies = [
  "relocade-machine",
  "relocade-renderer",
  "relocade-vga",
+ "relocade-workers",
  "relocade-x86",
  "wasm-bindgen",
  "wasm-bindgen-futures",
