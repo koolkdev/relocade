@@ -70,9 +70,12 @@ intervals and clock rates. `Raster` retains position, fractional progress and
 the lifetime retrace count; it knows no CRTC encoding or VGA blink divider.
 Status reads reuse cached bits until the next possible display-enable, retrace,
 or internal capture edge. Repeated reads before that deadline only record the
-observed time and compare it with the deadline. Timing changes materialize the
-exact old phase at that observed time before remapping counters, including partial
-dots and stopped clocks. Horizontal status edges are skipped outside vertical
+observed time and compare it with the deadline. Due edges enter a separate cold
+update routine for raster arithmetic, display-start latching and capture, keeping
+capture temporaries out of ordinary polls. Timing changes integrate whole elapsed
+nanoseconds under the old timing before remapping counters, retaining fractional
+time and partial dots. Stopped clocks consume time without advancing the beam.
+Horizontal status edges are skipped outside vertical
 display. Late observations catch up all elapsed retraces without a per-frame loop.
 
 `device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank

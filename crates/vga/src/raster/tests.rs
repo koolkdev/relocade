@@ -3,6 +3,12 @@ use crate::Registers;
 use relocade_clock_test_support::ManualClock;
 use std::time::Duration;
 
+impl Raster {
+    fn update_to(&mut self, now: Timestamp) -> Option<Timestamp> {
+        self.observe(now).then(|| self.update_observed()).flatten()
+    }
+}
+
 fn dots(count: u64) -> Duration {
     Duration::from_nanos((count * 1_000_000_000).div_ceil(25_175_000))
 }

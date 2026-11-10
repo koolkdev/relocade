@@ -79,8 +79,18 @@ impl Vga {
 
     /// Refresh due status and capture events. Timing changes then materialize
     /// any remaining phase at this observed time before remapping the counters.
+    #[inline]
     pub(super) fn advance_raster(&mut self, now: Timestamp) {
-        let Some(time) = self.raster.update_to(now) else {
+        if self.raster.observe(now) {
+            self.refresh_raster();
+        }
+    }
+
+    // Keep capture temporaries and raster arithmetic out of ordinary status reads.
+    #[cold]
+    #[inline(never)]
+    fn refresh_raster(&mut self) {
+        let Some(time) = self.raster.update_observed() else {
             return;
         };
         if self.dispi.display_layout().is_none() {

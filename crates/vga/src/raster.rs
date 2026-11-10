@@ -40,14 +40,19 @@ impl Raster {
         raster
     }
 
-    /// Update counters to `now`, returning the latest crossed retrace time.
-    /// Multiple missed retraces contribute to the count without a per-frame loop.
-    pub fn update_to(&mut self, now: Timestamp) -> Option<Timestamp> {
+    /// Record observed time even between events, so a programming change can
+    /// materialize the remaining phase under the old timing. Return whether
+    /// the caller must service a status or capture edge before continuing.
+    #[inline]
+    pub fn observe(&mut self, now: Timestamp) -> bool {
         self.observed = now;
-        if self.next_update.is_none_or(|deadline| now < deadline) {
-            return None;
-        }
-        let completed = self.advance_to(now);
+        self.next_update.is_some_and(|deadline| now >= deadline)
+    }
+
+    /// Service the observed edge and return the latest crossed retrace time.
+    /// Multiple missed retraces contribute to the count without a per-frame loop.
+    pub fn update_observed(&mut self) -> Option<Timestamp> {
+        let completed = self.advance_to(self.observed);
         self.refresh_status();
         completed
     }
@@ -98,7 +103,7 @@ impl Raster {
         if old == new {
             return false;
         }
-        // update_to already handled every due capture; only the phase between
+        // The caller already serviced every due capture; only the phase between
         // events can remain lazy here.
         self.advance_to(self.observed);
         self.timing = new;
