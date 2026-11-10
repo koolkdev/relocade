@@ -150,6 +150,28 @@ impl Cpu {
             .await
     }
 
+    /// Instantiates prepared code using this CPU's existing dispatch and hooks.
+    /// The module must use a compatible compiler and execution target. The code
+    /// validity and start-function contracts of [`Self::install_module`] also apply.
+    ///
+    /// # Panics
+    /// Panics if any host service is active or parked.
+    pub async fn install_compiled_module(
+        &mut self,
+        module: &relocade_wasm_runtime::Module,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        let machine = self.machine_mut();
+        machine
+            .dispatch
+            .install_compiled_module(&mut machine.backend, &machine.bindings, module, entries)
+            .await
+    }
+
     /// Installs host and Wasm hooks in one batch. Each address is independently
     /// replaceable; the last hook at a repeated address wins. Replacing a host hook
     /// releases its old handler captures. Environment adapters supply all their hooks
