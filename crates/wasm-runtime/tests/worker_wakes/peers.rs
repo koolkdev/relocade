@@ -12,7 +12,7 @@ async fn peers() {
         let peer = host.peer();
         let (send_waker, receive_waker) = oneshot::channel();
         let (finish, finished) = oneshot::channel();
-        let owner = Worker::new();
+        let owner = Thread::new();
         let (mut input, task) = owner
             .listen(move |mut input: Receiver<Signal>| async move {
                 let signal = input.recv().await.unwrap().unwrap();
@@ -25,7 +25,7 @@ async fn peers() {
         let waker = receive_waker.await.unwrap();
         let (ready, bound) = oneshot::channel();
         let (check_closed, closed) = oneshot::channel();
-        let worker = Worker::new();
+        let worker = Thread::new();
         let (mut input, peer_task) = worker
             .listen(move |mut input: Receiver<WakePeer<Signal>>| async move {
                 let peer = input.recv().await.unwrap().unwrap();
@@ -111,7 +111,7 @@ async fn unbound_callbacks() {
         let (ready, started) = oneshot::channel();
         let published = Arc::new(AtomicBool::new(false));
         let callback_published = published.clone();
-        let worker = Worker::new();
+        let worker = Thread::new();
         let (mut input, task) = worker
             .listen(move |mut input: Receiver<Signal>| async move {
                 let signal = input.recv().await.unwrap().unwrap();

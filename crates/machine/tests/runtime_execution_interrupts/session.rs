@@ -111,8 +111,8 @@ async fn connected_input() {
                 let values = device.borrow().values.clone();
                 (cpu.cpu_state().instruction_count(), values)
             });
-            use relocade_machine::worker::{Receiver, WakePeer, Worker};
-            let peer_thread = matches!(source, InputSource::Peer).then(Worker::new);
+            use relocade_machine::worker::{Receiver, Thread, WakePeer};
+            let peer_thread = matches!(source, InputSource::Peer).then(Thread::new);
             let peer_task = if let Some(thread) = &peer_thread {
                 let peer = worker.wake_peer();
                 let send = send.clone();
@@ -140,7 +140,7 @@ async fn connected_input() {
             } else {
                 None
             };
-            // Finish peer setup before the measured busy interval. Worker startup
+            // Finish peer setup before the measured busy interval. Thread startup
             // latency is independent of notification delivery at a checkpoint.
             start.send(()).unwrap();
             running.await.unwrap();

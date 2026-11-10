@@ -249,7 +249,7 @@ fn fixture(
             action(Action::Modifiers).await;
             let connector = crate::worker::Thread::new();
             let ((input, mut keys), (mouse, mut pointer)) = connector
-                .run_send((), move |()| async move {
+                .run(move || async move {
                     assert_ne!(main_id, std::thread::current().id());
                     (keyboard::channel(), mouse::channel())
                 })

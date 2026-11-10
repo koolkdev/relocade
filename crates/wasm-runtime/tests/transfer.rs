@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_compiler::{abi::Function, Program, I32};
 use relocade_wasm_runtime::{
-    worker::{channel, Receiver, Sender, Transfer, Worker},
+    worker::{channel, Receiver, Sender, Thread, Transfer},
     Backend, Module, SharedMemory, WasmBackend, WasmCompiler, WasmSharedMemory,
 };
 use std::sync::Arc;
@@ -23,7 +23,7 @@ struct CompiledUnit {
 async fn engine_handles() {
     let (sender, mut receiver) = channel::<CompiledUnit>().unwrap();
     let (installed, installation) = oneshot::channel();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let metadata = Arc::new(Metadata {
         offset: 4,
         expected: 42,

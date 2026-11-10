@@ -7,7 +7,7 @@ use wasm_bindgen_futures::JsFuture;
 async fn cancelling_queued_and_armed_timers_settles_their_promises() {
     let thread = Thread::new();
     thread
-        .run_send((), |()| async {
+        .run(|| async {
             let timer = DeadlineTimer::new();
             let queued = JsFuture::from(timer.start(3_600_000.0));
             timer.cancel();

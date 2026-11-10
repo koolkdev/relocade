@@ -1,4 +1,4 @@
-use crate::worker::{CancellableWorker, ChannelError, Receiver, Transfer, WakePeer, WakeTarget};
+use crate::worker::{Transfer, WakePeer, WakeTarget, Worker};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -32,45 +32,30 @@ impl HostTimerDriver {
     }
 
     /// Starts a timer worker with explicit stop and join operations.
-    pub fn spawn(self) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|worker, stopped| {
-            worker.run(move || self.drive(stopped));
+    pub fn spawn(self) -> Worker<()> {
+        Worker::spawn(|worker| {
+            worker.run(move |stopped| self.drive(stopped));
             Ok(())
         })
     }
 
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
-    pub fn spawn_with_peer<R: WakeTarget + Transfer>(
-        self,
-        peer: WakePeer<R>,
-    ) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|worker, stopped| {
-            let mut input = worker.listen(move |input| self.drive_with_peer(input, stopped))?;
+    pub fn spawn_with_peer<R: WakeTarget + Transfer>(self, peer: WakePeer<R>) -> Worker<()> {
+        Worker::spawn(|worker| {
+            let mut input =
+                worker.listen(move |peer, stopped| self.drive_with_peer(peer, stopped))?;
             input.send(peer)
         })
     }
 
-    async fn drive_with_peer<R: WakeTarget + Transfer>(
+    async fn drive_with_peer<R: WakeTarget>(
         self,
-        mut input: Receiver<WakePeer<R>>,
-        mut stopped: oneshot::Receiver<()>,
-    ) -> Result<(), ChannelError> {
-        let peer = futures_lite::future::or(
-            async {
-                let _ = (&mut stopped).await;
-                None
-            },
-            input.recv(),
-        )
-        .await
-        .transpose()?;
-        drop(input);
-        if let Some(peer) = peer {
-            let _binding = peer.bind();
-            self.drive(stopped).await;
-        }
-        Ok(())
+        peer: WakePeer<R>,
+        stopped: oneshot::Receiver<()>,
+    ) {
+        let _binding = peer.bind();
+        self.drive(stopped).await;
     }
 
     async fn drive(mut self, mut stopped: oneshot::Receiver<()>) {

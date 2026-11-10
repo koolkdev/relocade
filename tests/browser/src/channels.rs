@@ -26,7 +26,7 @@ pub async fn rust_channels() -> Result<(), String> {
     let thread = Thread::new();
     let (commands, mut incoming) = mpsc::unbounded::<Command>();
     let (waiting, started) = oneshot::channel();
-    let task = thread.run_send((), move |()| async move {
+    let task = thread.run(move || async move {
         assert!(!CALLER.get(), "workers must have independent TLS");
         let local = Rc::new(Cell::new(40));
         let mut waiting = Some(waiting);

@@ -150,7 +150,7 @@ struct Job {
 
 impl Job {
     async fn run(self, thread: Thread) -> Option<Thread> {
-        let task = thread.run_send((), move |()| async move { (self.code)() });
+        let task = thread.run(move || async move { (self.code)() });
         let result = task.await;
         let reusable = result.is_ok();
         let _ = self.finished.send(result);

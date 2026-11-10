@@ -274,15 +274,16 @@ Capture `execution.wake_peer()` on the host, or `runner.wake_peer()` on executio
 and post it when setting up another worker:
 
 ```rust,ignore
-use relocade_machine::{worker::{self, Receiver, WakePeer, Worker}, ExecutionInterrupt};
+use relocade_machine::{worker::{self, Receiver, WakePeer, Thread}, ExecutionInterrupt};
 
-let worker = Worker::new();
-let (mut peers, task) = worker.listen(move |mut peers: Receiver<WakePeer<ExecutionInterrupt>>| async move {
+let send_updates = move |mut peers: Receiver<WakePeer<ExecutionInterrupt>>| async move {
     let peer = peers.recv().await.unwrap()?;
     let _binding = peer.bind();
     send_device_updates(input).await;
     Ok::<_, worker::ChannelError>(())
-})?;
+};
+let thread = Thread::new();
+let (mut peers, task) = thread.listen(send_updates)?;
 peers.send(execution.wake_peer())?;
 task.await??;
 ```
@@ -329,7 +330,7 @@ service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
 worker receiving those captures, without borrowing the live device. The
 [graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with
-`Thread::run_send` and an application-owned request channel. VGA does not create
+`Thread::listen` and an application-owned request channel. VGA does not create
 workers or own rendering and presentation lifetimes.
 Application redraws cannot advance VGA time. See the
 [VGA contract](../../vga/README.md) and [renderer API](../../renderer/README.md).

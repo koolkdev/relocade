@@ -1,8 +1,8 @@
 //! Worker tasks with retained Rust data and posted engine resources.
 //!
-//! [`Worker`] starts tasks with optional typed inboxes. [`Transfer`] defines how
-//! each message's fields cross threads, while [`CancellableWorker`] retains a
-//! task through cooperative shutdown and cleanup.
+//! [`Thread`] submits tasks on a reusable execution thread. [`Worker`] owns one
+//! task through startup, cooperative shutdown and cleanup. [`Transfer`] defines
+//! how each message's fields cross threads.
 //!
 //! [`Pool`] schedules synchronous jobs on caller-supplied workers. Its sendable
 //! [`PoolHandle`] implements `relocade_compiler::CompileExecutor` when the
@@ -14,23 +14,25 @@
 compile_error!("workers require a threaded browser build; see tests/browser/README.md");
 
 pub use relocade_derive::Transfer;
-pub use web_thread::*;
+#[cfg(target_arch = "wasm32")]
+pub use web_thread::{AsJs, PostExt};
+pub use web_thread::{Error, Post, Result, SendTask};
 
-mod cancellable;
 mod channel;
 mod executor;
 mod pool;
+mod thread;
 mod transfer;
 mod wake;
 mod worker;
-pub use cancellable::{CancellableWorker, WorkerError};
 pub use channel::{channel, ChannelError, Receiver, Sender};
 pub use executor::Executor;
 pub use pool::{Pool, PoolError, PoolHandle};
+pub use thread::Thread;
 #[doc(hidden)]
 pub use transfer::PayloadPair;
 pub use transfer::Transfer;
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };
-pub use worker::Worker;
+pub use worker::{Worker, WorkerError};

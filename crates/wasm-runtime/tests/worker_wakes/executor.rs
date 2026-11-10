@@ -37,7 +37,7 @@ async fn busy_session() {
         let (started, running) = oneshot::channel();
         let dropped = Arc::new(AtomicBool::new(false));
         let worker_drop = dropped.clone();
-        let worker = Worker::new();
+        let worker = Thread::new();
         let (mut incoming, task) = worker
             .listen(move |mut incoming: Receiver<Signal>| async move {
                 let signal = incoming.recv().await.unwrap().unwrap();
@@ -88,7 +88,7 @@ async fn composition() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
@@ -195,7 +195,7 @@ async fn reentrant_input() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
@@ -243,7 +243,7 @@ async fn parking_lifetime() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
@@ -338,7 +338,7 @@ async fn idle_session() {
     let (_host, endpoint) = wake_connection(signal.clone());
     let (send, input) = oneshot::channel();
     let (parked, idle) = oneshot::channel();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();

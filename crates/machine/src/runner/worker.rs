@@ -1,7 +1,5 @@
 use super::{GuestTimeConfig, Runner};
-use crate::worker::{
-    self, wake_connection, CancellableWorker, Receiver, WakeEndpoint, WakeHost, WakePeer,
-};
+use crate::worker::{self, wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_channel::oneshot;
 use futures_lite::future::or;
@@ -15,7 +13,7 @@ use std::future::Future;
 /// Dropping the handle or its completion future early can terminate the underlying
 /// browser worker before Rust destructors run.
 pub struct ExecutionWorker<T: Send + 'static> {
-    worker: CancellableWorker<Option<T>>,
+    worker: Worker<Option<T>>,
     wake_host: WakeHost<ExecutionInterrupt>,
 }
 
@@ -44,7 +42,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
                 stop.await;
                 None
             },
-            async { Some(execution.worker.finished().await) },
+            async { Some(execution.worker.finished().await.map(Option::flatten)) },
         )
         .await;
         let result = match completed {
@@ -94,9 +92,9 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = CancellableWorker::spawn(|worker, stopped| {
-            let mut input = worker.listen(move |input| {
-                Self::run_session(input, stopped, endpoint, runner, session)
+        let worker = Worker::spawn(|worker| {
+            let mut input = worker.listen(move |storage, stopped| {
+                Self::run_session(storage, stopped, endpoint, runner, session)
             })?;
             input.send(storage)
         });
@@ -106,35 +104,22 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// Stops even while a service is pending, drops the session on its owner,
     /// then waits for task completion before releasing the thread.
     pub async fn stop(self) -> Result<Option<T>, worker::WorkerError> {
-        self.worker.stop().await
+        self.worker.stop().await.map(Option::flatten)
     }
 
     /// Waits for ordinary completion. `None` denotes an explicit stop.
     pub async fn join(self) -> Result<Option<T>, worker::WorkerError> {
-        self.worker.join().await
+        self.worker.join().await.map(Option::flatten)
     }
 
     async fn run_session(
-        mut input: Receiver<CpuStorage>,
-        mut stopped: oneshot::Receiver<()>,
+        storage: CpuStorage,
+        stopped: oneshot::Receiver<()>,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
         runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner,
         session: impl AsyncFnOnce(&Runner) -> T,
-    ) -> Result<Option<T>, worker::ChannelError> {
-        let storage = or(
-            async {
-                let _ = (&mut stopped).await;
-                None
-            },
-            input.recv(),
-        )
-        .await
-        .transpose()?;
-        drop(input);
-        let result = match storage {
-            Some(storage) => runner(storage, endpoint).run(stopped, session).await,
-            None => None,
-        };
-        Ok(result)
+    ) -> Option<T> {
+        let runner = runner(storage, endpoint);
+        runner.run(stopped, session).await
     }
 }

@@ -1,42 +1,56 @@
 # Worker tasks and messages
 
-The machine exposes `worker::Worker` and `ExecutionWorker` without feature flags.
-`Worker::run` starts an ordinary Rust task. `Worker::listen` starts a task with a
-local inbox and returns its sender; resources arrive through `sender.send(value)`.
-The application keeps the worker alive until its tasks finish.
+The machine exposes `worker::Worker`, `worker::Thread` and `ExecutionWorker` without
+feature flags. `Worker<T>` owns one task, its result and cooperative shutdown.
+`Thread` is a reusable execution thread whose caller retains individual task handles.
 `ExecutionWorker::spawn` creates a worker and supplies its fully initialized
 `Runner`; CPU-level work can use `Cpu` directly.
 
-`worker::CancellableWorker<T>` owns a worker, its completion future and a cooperative
-stop signal. Its `spawn` callback starts one task through the owner's `run` or
-`listen` method, then sends any initial messages. These methods retain the task
-before returning, so a setup or send failure can request cancellation and wait
-for cleanup before being reported. The task must observe the cancellation receiver,
-including while waiting for its first message, and finish its own cleanup.
+`Worker::spawn` invokes a setup callback that submits one task through `run` or
+`listen`, then sends any initial data. `run` passes the task its cancellation
+receiver. `listen` first waits for one complete value, observing cancellation
+during startup, and releases the inbox before calling the task with that value
+and its cancellation receiver. A setup or send failure requests cancellation and
+waits for task cleanup before being reported.
+
+```rust,ignore
+let worker = Worker::spawn(|worker| {
+    let mut input = worker.listen(run_task)?;
+    input.send(initial_data)
+});
+let result = worker.join().await?;
+```
+
+After startup, the task observes its cancellation receiver and finishes its own cleanup.
+Completion returns `Some(result)` if the task ran, or `None` if startup was stopped
+before its initial data arrived. `WorkerError` reports channel and task failures.
 `request_stop()` signals cancellation without releasing the owner;
 `stop().await` signals cancellation and joins;
 `join().await` waits for normal completion. `finished(&mut self)` permits racing
 completion against another event while retaining the owner. Dropping that wait
 does not cancel the task; consume its completed result only once.
 Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
-`WorkerError` reports channel setup or send errors and worker-task failures.
 
-Pass the memory handle directly. Capture CPU configuration and Rust channel
-endpoints in the closure, then construct the CPU inside the worker:
+For lower-level task submission, `Thread::run` invokes a factory on the thread,
+while `Thread::listen` gives it a local `Receiver<T>`. Pass the memory handle
+directly and construct the CPU inside a named task:
 
 ```rust,ignore
-use relocade_machine::{worker::{Receiver, Worker}, Cpu, Memory};
+use relocade_machine::{worker::{Receiver, Thread}, Cpu, CpuConfig, Memory};
+use relocade_x86::ExecutionExit;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
+async fn run_cpu(mut input: Receiver<Memory>, config: CpuConfig) -> Result<ExecutionExit, Error> {
+    let memory = input.recv().await.ok_or("memory sender closed")??;
+    let mut cpu = Cpu::new(memory, config, Default::default()).await?;
+    Ok(cpu.run().await)
+}
+
 let memory = Memory::new(machine_config)?;
 memory.view().write(0x100, &program)?;
-let worker = Worker::new();
-let (mut input, task) = worker.listen(move |mut input: Receiver<Memory>| async move {
-    let memory = input.recv().await.ok_or("memory sender closed")??;
-    let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
-    Ok::<_, Error>(cpu.run().await)
-})?;
+let thread = Thread::new();
+let (mut input, task) = thread.listen(move |input| run_cpu(input, cpu_config))?;
 input.send(memory.clone())?;
 
 // The caller can retain mapped RAM access while the worker executes.
@@ -63,7 +77,7 @@ or supply reconstruction closures. Every field needs `Transfer`; being `Send`
 alone does not select an encoding. A shared `Arc<T>` retains its allocation when
 `T: Send + Sync`, without requiring transfer behavior on its referent.
 
-`Worker::listen` accepts messages before startup finishes and throughout the task's
+`Thread::listen` accepts messages before startup finishes and throughout the task's
 life. For another direction, create `worker::channel::<T>()` on the receiving
 thread and transfer its `Sender<T>` to the producer. The receiver stays local;
 the sender can itself be sent through another channel to establish a reverse
@@ -71,14 +85,16 @@ direction. Each channel has one sender, preserves order, and uses an unbounded
 queue. `send` posts immediately and `recv().await` receives a complete value.
 
 ```rust,ignore
-use relocade_machine::worker::{self, Receiver, Sender, Worker};
+use relocade_machine::worker::{self, Receiver, Sender, Thread};
 
-let (sender, mut compiled) = worker::channel::<CompiledUnit>()?;
-let worker = Worker::new();
-let (mut input, task) = worker.listen(|mut input: Receiver<Sender<CompiledUnit>>| async move {
+async fn compile_and_send(mut input: Receiver<Sender<CompiledUnit>>) -> Result<(), worker::ChannelError> {
     let mut sender = input.recv().await.unwrap()?;
     sender.send(compile_unit().await?)
-})?;
+}
+
+let (sender, mut compiled) = worker::channel::<CompiledUnit>()?;
+let thread = Thread::new();
+let (mut input, task) = thread.listen(compile_and_send)?;
 input.send(sender)?;
 let unit = compiled.recv().await.transpose()?;
 task.await??;
@@ -108,9 +124,9 @@ Machine configuration, command payloads and channel endpoints remain ordinary
 Rust data. They use `Send` closure captures and Rust channels without
 serialization. Once running on its worker, a future can retain non-Send values
 such as `Rc`, the CPU and browser engine objects. Construct those values inside
-the task. `Worker::run` and `Worker::listen` return Send results through Rust memory;
+the task. `Thread::run` and `Thread::listen` return Send results through Rust memory;
 send resources back through a channel when the result contains an engine object.
-The low-level `Thread` API remains available for backend and pool integration.
+`Pool` accepts these same `Thread` owners for reusable synchronous jobs.
 
 Host services are ordinary async functions capturing CPU state, memory, I/O and
 service resources. They await Rust channel input without retaining a backend

@@ -2,7 +2,7 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::CancellableWorker;
+use crate::worker::Worker;
 use relocade_frontend::display::DisplayRenderer;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -18,7 +18,7 @@ use winit::dpi::PhysicalSize;
 pub struct Graphics {
     redraws: async_channel::Sender<PhysicalSize<u32>>,
     notified: Arc<AtomicBool>,
-    worker: CancellableWorker<Result<(), String>>,
+    worker: Worker<Result<(), String>>,
 }
 
 impl Graphics {
@@ -48,9 +48,10 @@ impl Graphics {
                 notify_redraw_needed();
             }
         };
-        let worker = CancellableWorker::spawn(|worker, stopping| {
-            let mut input = worker
-                .listen(move |input| worker::run(input, stopping, create, requests, notify))?;
+        let worker = Worker::spawn(|worker| {
+            let mut input = worker.listen(move |setup, stopping| {
+                worker::run(setup, stopping, create, requests, notify)
+            })?;
             input.send(setup)
         });
         Self {
@@ -83,5 +84,6 @@ impl Graphics {
             .finished()
             .await
             .map_err(|error| error.to_string())?
+            .unwrap_or(Ok(()))
     }
 }

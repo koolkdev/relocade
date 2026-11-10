@@ -9,7 +9,11 @@ use futures_util::{
     FutureExt, StreamExt,
 };
 use relocade_dos::Dos;
-use relocade_machine::{timer_service, worker::Thread, ExecutionWorker};
+use relocade_machine::{
+    timer_service,
+    worker::{Receiver, Thread},
+    ExecutionWorker,
+};
 use std::{
     future::pending,
     io::Write,
@@ -77,8 +81,13 @@ pub async fn dos_workers() -> Result<(), String> {
         let target_drop = dropped.clone();
         let conversions = Arc::new(AtomicUsize::new(0));
         let conversion_count = conversions.clone();
-        let graphics = Thread::new();
-        let task = graphics.run_send(target::context()?, move |context| async move {
+        let render = move |mut input: Receiver<target::Context>| async move {
+            let context = input
+                .recv()
+                .await
+                .unwrap()
+                .map_err(|error| error.to_string())?;
+            drop(input);
             let mut target = target::Target::new(context, target_drop).await?;
             let mut cached: Option<Arc<SoftwareFrame>> = None;
             let mut pending = None;
@@ -116,7 +125,11 @@ pub async fn dos_workers() -> Result<(), String> {
                 report.unbounded_send((presented, image)).unwrap();
             }
             Ok::<(), String>(())
-        });
+        };
+        let context = target::context()?;
+        let graphics = Thread::new();
+        let (mut input, task) = graphics.listen(render).map_err(|error| error.to_string())?;
+        input.send(context).map_err(|error| error.to_string())?;
         changes.recv().await.unwrap();
         let mut display = AppView {
             changes,

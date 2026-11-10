@@ -1,7 +1,7 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
 use relocade_machine::{
-    worker::{Receiver, Worker},
+    worker::{Receiver, Thread},
     Cpu, CpuConfig, Hook, MachineConfig, Memory,
 };
 use relocade_x86::{
@@ -45,7 +45,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     let mut view = memory.view();
     // MOV [0204],AX; JMP 0303. Execution resumes here after the input hook.
     view.write(0x300, &[0xa3, 4, 2, 0xeb, 0xfe]).unwrap();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (commands, incoming) = mpsc::unbounded();
     let (waiting, started) = oneshot::channel();
     let (mut resources, task) = worker
@@ -116,7 +116,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     assert_eq!(view.read_u16(0x204).unwrap(), 0x42);
 
     // A later worker imports the same allocation and starts with independent CPU state.
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut resources, task) = worker
         .listen(move |mut resources: Receiver<Memory>| async move {
             let memory = resources.recv().await.unwrap().unwrap();

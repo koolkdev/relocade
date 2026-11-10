@@ -244,14 +244,15 @@ service alive while execution-owner tasks use it.
 
 `timer_service()` returns a `TimerHandle` and a `HostTimerDriver`. The driver starts
 one dedicated timer worker. `run().await` keeps it alive until all timer handles
-and waits are released. `spawn()` returns a `worker::CancellableWorker<()>` for
+and waits are released. `spawn()` returns a `worker::Worker<()>` for
 explicit lifetime control: `join().await` waits for normal completion, and `stop().await` cancels
 remaining timers and waits for their worker to exit. Await either operation
 before dropping the worker; terminating a browser worker early can skip Rust
 destructors.
 
-The shared `CancellableWorker<T>` owns cancellation and completion for both timer
-and execution tasks. Each task handles its cancellation receiver: the timer loop
+The shared `Worker<T>` owns startup, cancellation and completion for both timer
+and execution tasks. It receives initial resources and releases the startup inbox.
+Once running, each task handles its cancellation receiver: the timer loop
 wakes, while the execution runner uses its existing checkpoint notifications.
 Timer scheduling stays in `clock/driver.rs`.
 

@@ -1,4 +1,4 @@
-use relocade_workers::{Receiver, Transfer, Worker};
+use relocade_workers::{Receiver, Thread, Transfer};
 use std::{rc::Rc, sync::Arc};
 
 struct Local(Rc<u32>);
@@ -28,7 +28,7 @@ async fn rust_state() {
     // or reconstruct its referent.
     let data = Arc::new(vec![17, 29]);
     let expected = data.clone();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut input, task) = worker
         .listen(move |mut input: Receiver<Arc<Vec<u8>>>| async move {
             let data = input.recv().await.unwrap().unwrap();

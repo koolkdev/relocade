@@ -4,7 +4,7 @@ use futures_channel::oneshot;
 use relocade_app::{
     graphics::{Surface, SurfaceSetup},
     winit::dpi::PhysicalSize,
-    worker::{Receiver, Transfer, Worker},
+    worker::{Receiver, Thread, Transfer},
 };
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 
@@ -101,7 +101,7 @@ async fn render_and_close() {
         window_id,
         ..
     } = ready;
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (presented, visible) = oneshot::channel();
     let (release, observed) = oneshot::channel();
     let (mut sender, task) = worker

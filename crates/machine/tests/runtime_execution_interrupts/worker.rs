@@ -1,7 +1,7 @@
 use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
-    worker::{Receiver, Worker},
+    worker::{Receiver, Thread},
     CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -12,7 +12,7 @@ async fn prepared_storage() {
     let storage = CpuStorage::new().unwrap();
     let interrupt = storage.interrupt_handle();
     interrupt.request();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut input, task) = worker
         .listen(|mut input: Receiver<CpuStorage>| async move {
             let storage = input.recv().await.unwrap().unwrap();
@@ -89,7 +89,7 @@ async fn request_during_execution() {
             .unwrap();
         }
         let interrupt = cpu.interrupt_handle();
-        let notifier = Worker::new();
+        let notifier = Thread::new();
         let (ready, listening) = oneshot::channel();
         let (mut input, notified) = notifier
             .listen(move |mut input: Receiver<ExecutionInterrupt>| async move {

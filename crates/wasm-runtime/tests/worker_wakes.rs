@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_wasm_runtime::{
-    worker::{wake_connection, Receiver, Transfer, WakePeer, WakeTarget, Worker},
+    worker::{wake_connection, Receiver, Thread, Transfer, WakePeer, WakeTarget},
     SharedMemory,
 };
 use std::{
@@ -74,7 +74,7 @@ async fn fixed_binding() {
         let (host, endpoint) = wake_connection(signal.clone());
         let (send_waker, receive_waker) = oneshot::channel();
         let (continue_worker, continued) = oneshot::channel();
-        let worker = Worker::new();
+        let worker = Thread::new();
         let (mut input, task) = worker
             .listen(move |mut input: Receiver<Signal>| async move {
                 let signal = input.recv().await.unwrap().unwrap();

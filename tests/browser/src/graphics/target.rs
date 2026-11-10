@@ -30,6 +30,20 @@ impl relocade_machine::worker::Post for Context {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl relocade_machine::worker::Transfer for Context {
+    type State = ();
+    type Payload = Self;
+
+    fn encode(self) -> ((), Self) {
+        ((), self)
+    }
+
+    fn decode((): (), payload: Self) -> Self {
+        payload
+    }
+}
+
 pub fn context() -> Result<Context, String> {
     #[cfg(target_arch = "wasm32")]
     return web_sys::OffscreenCanvas::new(1, 1)

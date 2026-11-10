@@ -1,5 +1,5 @@
 use futures_util::FutureExt;
-use relocade_workers::{channel, ChannelError, Receiver, Sender, Transfer, Worker};
+use relocade_workers::{channel, ChannelError, Receiver, Sender, Thread, Transfer};
 use std::{rc::Rc, sync::Arc};
 
 #[cfg(target_arch = "wasm32")]
@@ -41,7 +41,7 @@ async fn ordered_delivery() {
     let expected = metadata.clone();
     let (sender, mut receiver) = channel::<Message>().unwrap();
     assert!(receiver.recv().now_or_never().is_none());
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut input, task) = worker
         .listen(move |mut input: Receiver<Sender<Message>>| async move {
             let mut sender = input.recv().await.unwrap().unwrap();
@@ -65,7 +65,7 @@ async fn reverse_channel() {
     let (ready, mut incoming) = channel::<Sender<Message>>().unwrap();
     let metadata = Arc::new(vec![5, 9]);
     let expected = metadata.clone();
-    let worker = Worker::new();
+    let worker = Thread::new();
     let (mut input, task) = worker
         .listen(
             move |mut input: Receiver<Sender<Sender<Message>>>| async move {

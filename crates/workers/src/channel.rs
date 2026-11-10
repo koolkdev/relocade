@@ -1,6 +1,6 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::{SendTask, Thread, Transfer};
+use crate::{SendTask, Transfer};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 use std::{
@@ -39,7 +39,7 @@ pub struct Sender<T: Transfer> {
 }
 
 /// Receives messages on its owning thread: the caller for [`channel`], or the
-/// worker for [`crate::Worker::listen`].
+/// execution thread for [`crate::Thread::listen`].
 /// Browser receivers retain local objects and cannot move to another worker.
 pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
@@ -97,8 +97,8 @@ fn endpoints<T: Transfer>() -> Result<(Sender<T>, Incoming<T>), ChannelError> {
     ))
 }
 
-pub(crate) fn on_worker<T: Transfer, F: Future + 'static>(
-    thread: &Thread,
+pub(crate) fn on_thread<T: Transfer, F: Future + 'static>(
+    thread: &web_thread::Thread,
     code: impl FnOnce(Receiver<T>) -> F + Send + 'static,
 ) -> Result<(Sender<T>, SendTask<F::Output>), ChannelError>
 where

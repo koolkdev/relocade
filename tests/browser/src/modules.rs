@@ -1,5 +1,8 @@
 use relocade_compiler::{abi::Function, Program, I64};
-use relocade_machine::{worker::Thread, Result};
+use relocade_machine::{
+    worker::{Receiver, Thread},
+    Result,
+};
 use relocade_wasm_runtime::{Backend, Module, WasmBackend, WasmCompiler, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
@@ -16,7 +19,13 @@ fn lower() -> Result<Vec<u8>> {
     Ok(program.compile()?)
 }
 
-async fn execute(module: Module) -> std::result::Result<(i64, i64), String> {
+async fn execute(mut input: Receiver<Module>) -> std::result::Result<(i64, i64), String> {
+    let module = input
+        .recv()
+        .await
+        .unwrap()
+        .map_err(|error| error.to_string())?;
+    drop(input);
     let mut backend =
         Backend::with_state(Rc::new(Cell::new(40))).map_err(|error| error.to_string())?;
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
@@ -42,10 +51,11 @@ pub async fn compiled_modules() -> std::result::Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
     let execution = Thread::new();
-    let values = execution
-        .run_send(module, execute)
-        .await
-        .map_err(|error| error.to_string())??;
+    let (mut input, task) = execution
+        .listen(execute)
+        .map_err(|error| error.to_string())?;
+    input.send(module).map_err(|error| error.to_string())?;
+    let values = task.await.map_err(|error| error.to_string())??;
     assert_eq!(values, (42, 52));
     Ok(())
 }
