@@ -1,8 +1,8 @@
 use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
-    worker::{Thread, ThreadExt},
-    CpuConfig, CpuStorage, Device, DeviceConnection, MachineConfig,
+    worker::{Receiver, Worker},
+    CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -12,30 +12,34 @@ async fn prepared_storage() {
     let storage = CpuStorage::new().unwrap();
     let interrupt = storage.interrupt_handle();
     interrupt.request();
-    let worker = Thread::new();
-    let task = worker.run_resource(storage, |storage| async move {
-        let map =
-            PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])
+    let worker = Worker::new();
+    let (mut input, task) = worker
+        .listen(|mut input: Receiver<CpuStorage>| async move {
+            let storage = input.recv().await.unwrap().unwrap();
+            let map =
+                PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])
+                    .unwrap();
+            let memory = Memory::new(MachineConfig::new(0x10000, map).unwrap()).unwrap();
+            memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap();
+            let initial = CpuState {
+                eip: 0x100,
+                segments: Segments::real_mode(),
+                ..CpuState::default()
+            };
+            let config =
+                CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), initial).unwrap();
+            let mut cpu = storage
+                .into_cpu(memory, config, IoBus::default())
+                .await
                 .unwrap();
-        let memory = Memory::new(MachineConfig::new(0x10000, map).unwrap()).unwrap();
-        memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap();
-        let initial = CpuState {
-            eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
-        };
-        let config =
-            CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), initial).unwrap();
-        let mut cpu = storage
-            .into_cpu(memory, config, IoBus::default())
-            .await
-            .unwrap();
-        assert_eq!(cpu.cpu_state().snapshot(), initial);
-        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
-        assert_eq!(cpu.cpu_state().ax(), 1);
-        // The host's original handle still addresses this CPU's live signal.
-        cpu.cpu_state().instruction_count()
-    });
+            assert_eq!(cpu.cpu_state().snapshot(), initial);
+            assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
+            assert_eq!(cpu.cpu_state().ax(), 1);
+            // The host's original handle still addresses this CPU's live signal.
+            cpu.cpu_state().instruction_count()
+        })
+        .unwrap();
+    input.send(storage).unwrap();
     assert_eq!(task.await.unwrap(), 2);
     assert!(interrupt.take());
     assert!(!interrupt.take());
@@ -85,13 +89,17 @@ async fn request_during_execution() {
             .unwrap();
         }
         let interrupt = cpu.interrupt_handle();
-        let notifier = Thread::new();
+        let notifier = Worker::new();
         let (ready, listening) = oneshot::channel();
-        let notified = notifier.run_resource(interrupt.clone(), move |interrupt| async move {
-            ready.send(()).unwrap();
-            running.await.unwrap();
-            interrupt.request();
-        });
+        let (mut input, notified) = notifier
+            .listen(move |mut input: Receiver<ExecutionInterrupt>| async move {
+                let interrupt = input.recv().await.unwrap().unwrap();
+                ready.send(()).unwrap();
+                running.await.unwrap();
+                interrupt.request();
+            })
+            .unwrap();
+        input.send(interrupt.clone()).unwrap();
         listening.await.unwrap();
         // Only the other worker's request can leave this guest loop; no host
         // yield, instruction budget or service poll delivers the notification.

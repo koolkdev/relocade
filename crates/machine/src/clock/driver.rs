@@ -1,4 +1,4 @@
-use crate::worker::{CancellableWorker, ThreadExt, Transfer, WakePeer, WakeTarget};
+use crate::worker::{CancellableWorker, Receiver, Transfer, WakePeer, WakeTarget};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -33,8 +33,9 @@ impl HostTimerDriver {
 
     /// Starts a timer worker with explicit stop and join operations.
     pub fn spawn(self) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_send((), move |()| self.drive(stopped))
+        CancellableWorker::spawn(|worker, stopped| {
+            worker.run(move || self.drive(stopped));
+            Ok(())
         })
     }
 
@@ -44,11 +45,25 @@ impl HostTimerDriver {
         self,
         peer: WakePeer<R>,
     ) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(peer, move |peer| async move {
-                let _binding = peer.bind();
-                self.drive(stopped).await;
-            })
+        CancellableWorker::spawn(|worker, mut stopped| {
+            let mut input = worker.listen(move |mut input: Receiver<WakePeer<R>>| async move {
+                let peer = futures_lite::future::or(
+                    async {
+                        let _ = (&mut stopped).await;
+                        None
+                    },
+                    input.recv(),
+                )
+                .await
+                .transpose()?;
+                drop(input);
+                if let Some(peer) = peer {
+                    let _binding = peer.bind();
+                    self.drive(stopped).await;
+                }
+                Ok(())
+            })?;
+            input.send(peer)
         })
     }
 

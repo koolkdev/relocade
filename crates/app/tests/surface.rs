@@ -4,7 +4,7 @@ use futures_channel::oneshot;
 use relocade_app::{
     graphics::{Surface, SurfaceSetup},
     winit::dpi::PhysicalSize,
-    worker::{channel, Sender, Thread, ThreadExt, Transfer},
+    worker::{Receiver, Transfer, Worker},
 };
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 
@@ -101,23 +101,21 @@ async fn render_and_close() {
         window_id,
         ..
     } = ready;
-    let thread = Thread::new();
+    let worker = Worker::new();
     let (presented, visible) = oneshot::channel();
     let (release, observed) = oneshot::channel();
-    let (ready, mut incoming) = channel::<Sender<SurfaceRequest>>().unwrap();
-    let task = thread.run_resource(ready, move |mut ready| async move {
-        let (sender, mut receiver) = channel::<SurfaceRequest>().unwrap();
-        ready.send(sender).unwrap();
-        let request = receiver.recv().await.unwrap().unwrap();
-        draw(
-            request.setup,
-            PhysicalSize::new(request.width, request.height),
-            presented,
-            observed,
-        )
-        .await
-    });
-    let mut sender = incoming.recv().await.unwrap().unwrap();
+    let (mut sender, task) = worker
+        .listen(move |mut receiver: Receiver<SurfaceRequest>| async move {
+            let request = receiver.recv().await.unwrap().unwrap();
+            draw(
+                request.setup,
+                PhysicalSize::new(request.width, request.height),
+                presented,
+                observed,
+            )
+            .await
+        })
+        .unwrap();
     sender
         .send(SurfaceRequest {
             setup,
@@ -130,7 +128,7 @@ async fn render_and_close() {
     let pixels_match = presented && window::native::presented_pixels_match(window_id, size);
     let _ = release.send(());
     let result = task.await;
-    drop(thread);
+    drop(worker);
     close.await;
     result.unwrap().unwrap();
     assert!(presented);

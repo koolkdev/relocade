@@ -111,22 +111,30 @@ async fn connected_input() {
                 let values = device.borrow().values.clone();
                 (cpu.cpu_state().instruction_count(), values)
             });
-            use relocade_machine::worker::{Thread, ThreadExt};
-            let peer_thread = matches!(source, InputSource::Peer).then(Thread::new);
+            use relocade_machine::worker::{Receiver, WakePeer, Worker};
+            let peer_thread = matches!(source, InputSource::Peer).then(Worker::new);
             let peer_task = if let Some(thread) = &peer_thread {
                 let peer = worker.wake_peer();
                 let send = send.clone();
                 let sent = sent.clone();
                 let (ready, bound) = oneshot::channel();
                 let (publish, published) = oneshot::channel();
-                let task = thread.run_resource(peer, move |peer| async move {
-                    let _binding = peer.bind();
-                    ready.send(()).unwrap();
-                    published.await.unwrap();
-                    send.unbounded_send(4).unwrap();
-                    send.unbounded_send(9).unwrap();
-                    sent.store(true, Ordering::SeqCst);
-                });
+                let (mut input, task) = thread
+                    .listen(
+                        move |mut input: Receiver<
+                            WakePeer<relocade_machine::ExecutionInterrupt>,
+                        >| async move {
+                            let peer = input.recv().await.unwrap().unwrap();
+                            let _binding = peer.bind();
+                            ready.send(()).unwrap();
+                            published.await.unwrap();
+                            send.unbounded_send(4).unwrap();
+                            send.unbounded_send(9).unwrap();
+                            sent.store(true, Ordering::SeqCst);
+                        },
+                    )
+                    .unwrap();
+                input.send(peer).unwrap();
                 bound.await.unwrap();
                 Some((publish, task))
             } else {

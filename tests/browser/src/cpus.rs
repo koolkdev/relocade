@@ -1,7 +1,7 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
 use relocade_machine::{
-    worker::{Thread, ThreadExt},
+    worker::{Receiver, Worker},
     Cpu, CpuConfig, Hook, MachineConfig, Memory,
 };
 use relocade_x86::{
@@ -45,60 +45,66 @@ pub async fn cpu_worker() -> Result<(), String> {
     let mut view = memory.view();
     // MOV [0204],AX; JMP 0303. Execution resumes here after the input hook.
     view.write(0x300, &[0xa3, 4, 2, 0xeb, 0xfe]).unwrap();
-    let worker = Thread::new();
+    let worker = Worker::new();
     let (commands, incoming) = mpsc::unbounded();
     let (waiting, started) = oneshot::channel();
-    let task = worker.run_resource(memory.clone(), move |memory| async move {
-        let input = RefCell::new(Input {
-            incoming: Some(incoming),
-            waiting: Some(waiting),
-            completed: Rc::new(Cell::new(0)),
-        });
-        let completed = input.borrow().completed.clone();
-        let mut cpu = Cpu::new(memory, cpu_config, Default::default())
-            .await
-            .unwrap();
-        cpu.install([Hook::host(0x100, {
-            let resources = cpu.memory();
-            let cpu = cpu.cpu_state();
-            async move || {
-                let mut memory = resources.view();
-
-                let (mut incoming, mut waiting, completed) = {
-                    let mut input = input.borrow_mut();
-                    (
-                        input.incoming.take().unwrap(),
-                        input.waiting.take(),
-                        input.completed.clone(),
-                    )
-                };
-                memory.write_u8(0x200, 0x11).unwrap();
-                let value = poll_fn(|context| {
-                    let poll = incoming.poll_next_unpin(context);
-                    if poll.is_pending() {
-                        // The caller sends only after this task registers its waker.
-                        if let Some(waiting) = waiting.take() {
-                            waiting.send(()).unwrap();
-                        }
-                    }
-                    poll
-                })
+    let (mut resources, task) = worker
+        .listen(move |mut resources: Receiver<Memory>| async move {
+            let memory = resources.recv().await.unwrap().unwrap();
+            let input = RefCell::new(Input {
+                incoming: Some(incoming),
+                waiting: Some(waiting),
+                completed: Rc::new(Cell::new(0)),
+            });
+            let completed = input.borrow().completed.clone();
+            let mut cpu = Cpu::new(memory, cpu_config, Default::default())
                 .await
                 .unwrap();
-                cpu.set_ax(value + memory.read_u16(0x202).unwrap());
-                cpu.set_eip(0x300);
-                completed.set(completed.get() + 1);
-            }
-        })])
-        .await
-        .unwrap();
-        let interrupt = cpu.interrupt_handle();
-        interrupt.request();
-        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
-        assert!(interrupt.take());
-        let ax = cpu.context().cpu.ax();
-        (ax, completed.get())
-    });
+            cpu.install([Hook::host(0x100, {
+                let resources = cpu.memory();
+                let cpu = cpu.cpu_state();
+                async move || {
+                    let mut memory = resources.view();
+
+                    let (mut incoming, mut waiting, completed) = {
+                        let mut input = input.borrow_mut();
+                        (
+                            input.incoming.take().unwrap(),
+                            input.waiting.take(),
+                            input.completed.clone(),
+                        )
+                    };
+                    memory.write_u8(0x200, 0x11).unwrap();
+                    let value = poll_fn(|context| {
+                        let poll = incoming.poll_next_unpin(context);
+                        if poll.is_pending() {
+                            // The caller sends only after this task registers its waker.
+                            if let Some(waiting) = waiting.take() {
+                                waiting.send(()).unwrap();
+                            }
+                        }
+                        poll
+                    })
+                    .await
+                    .unwrap();
+                    cpu.set_ax(value + memory.read_u16(0x202).unwrap());
+                    cpu.set_eip(0x300);
+                    completed.set(completed.get() + 1);
+                }
+            })])
+            .await
+            .unwrap();
+            let interrupt = cpu.interrupt_handle();
+            interrupt.request();
+            assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
+            assert!(interrupt.take());
+            let ax = cpu.context().cpu.ax();
+            (ax, completed.get())
+        })
+        .map_err(|error| error.to_string())?;
+    resources
+        .send(memory.clone())
+        .map_err(|error| error.to_string())?;
 
     started.await.map_err(|error| error.to_string())?;
     assert_eq!(view.read_u8(0x200).unwrap(), 0x11);
@@ -110,14 +116,20 @@ pub async fn cpu_worker() -> Result<(), String> {
     assert_eq!(view.read_u16(0x204).unwrap(), 0x42);
 
     // A later worker imports the same allocation and starts with independent CPU state.
-    let worker = Thread::new();
-    let task = worker.run_resource(memory.clone(), move |memory| async move {
-        let mut cpu = Cpu::new(memory, cpu_config, Default::default())
-            .await
-            .unwrap();
-        let context = cpu.context();
-        (context.cpu.ax(), context.memory.read_u16(0x204).unwrap())
-    });
+    let worker = Worker::new();
+    let (mut resources, task) = worker
+        .listen(move |mut resources: Receiver<Memory>| async move {
+            let memory = resources.recv().await.unwrap().unwrap();
+            let mut cpu = Cpu::new(memory, cpu_config, Default::default())
+                .await
+                .unwrap();
+            let context = cpu.context();
+            (context.cpu.ax(), context.memory.read_u16(0x204).unwrap())
+        })
+        .map_err(|error| error.to_string())?;
+    resources
+        .send(memory.clone())
+        .map_err(|error| error.to_string())?;
     assert_eq!(task.await.map_err(|error| error.to_string())?, (0, 0x42));
     drop(worker);
     assert_eq!(view.read_u16(0x204).unwrap(), 0x42);

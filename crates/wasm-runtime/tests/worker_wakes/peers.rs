@@ -12,45 +12,53 @@ async fn peers() {
         let peer = host.peer();
         let (send_waker, receive_waker) = oneshot::channel();
         let (finish, finished) = oneshot::channel();
-        let owner = Thread::new();
-        let task = owner.run_resource(signal, move |signal| async move {
-            let connection = endpoint.bind(signal);
-            send_waker.send(connection.waker().clone()).unwrap();
-            finished.await.unwrap();
-        });
+        let owner = Worker::new();
+        let (mut input, task) = owner
+            .listen(move |mut input: Receiver<Signal>| async move {
+                let signal = input.recv().await.unwrap().unwrap();
+                let connection = endpoint.bind(signal);
+                send_waker.send(connection.waker().clone()).unwrap();
+                finished.await.unwrap();
+            })
+            .unwrap();
+        input.send(signal).unwrap();
         let waker = receive_waker.await.unwrap();
         let (ready, bound) = oneshot::channel();
         let (check_closed, closed) = oneshot::channel();
-        let thread = Thread::new();
-        let peer_task = thread.run_resource(peer, move |peer| async move {
-            let first = peer.clone().bind();
-            let second = peer.clone().bind();
-            waker.wake_by_ref();
-            assert_eq!(wakes.load(Ordering::SeqCst), 1, "peer wakes synchronously");
-            drop(first);
-            waker.wake_by_ref();
-            assert_eq!(
-                wakes.load(Ordering::SeqCst),
-                2,
-                "duplicate guard remains bound"
-            );
-            drop(second);
-            let _replacement = peer.bind();
-            waker.wake_by_ref();
-            assert_eq!(
-                wakes.load(Ordering::SeqCst),
-                3,
-                "peer removal does not close the connection"
-            );
-            ready.send(()).unwrap();
-            closed.await.unwrap();
-            waker.wake_by_ref();
-            assert_eq!(
-                wakes.load(Ordering::SeqCst),
-                3,
-                "closed owners disable escaped peers"
-            );
-        });
+        let worker = Worker::new();
+        let (mut input, peer_task) = worker
+            .listen(move |mut input: Receiver<WakePeer<Signal>>| async move {
+                let peer = input.recv().await.unwrap().unwrap();
+                let first = peer.clone().bind();
+                let second = peer.clone().bind();
+                waker.wake_by_ref();
+                assert_eq!(wakes.load(Ordering::SeqCst), 1, "peer wakes synchronously");
+                drop(first);
+                waker.wake_by_ref();
+                assert_eq!(
+                    wakes.load(Ordering::SeqCst),
+                    2,
+                    "duplicate guard remains bound"
+                );
+                drop(second);
+                let _replacement = peer.bind();
+                waker.wake_by_ref();
+                assert_eq!(
+                    wakes.load(Ordering::SeqCst),
+                    3,
+                    "peer removal does not close the connection"
+                );
+                ready.send(()).unwrap();
+                closed.await.unwrap();
+                waker.wake_by_ref();
+                assert_eq!(
+                    wakes.load(Ordering::SeqCst),
+                    3,
+                    "closed owners disable escaped peers"
+                );
+            })
+            .unwrap();
+        input.send(peer).unwrap();
         bound.await.unwrap();
         if close_host {
             drop(host);
@@ -103,22 +111,26 @@ async fn unbound_callbacks() {
         let (ready, started) = oneshot::channel();
         let published = Arc::new(AtomicBool::new(false));
         let callback_published = published.clone();
-        let thread = Thread::new();
-        let task = thread.run_resource(signal, move |signal| async move {
-            // No WakePeer binding: a foreign callback only has the Rust waker.
-            // The signal resource is retained solely to observe relay delivery.
-            ready.send(()).unwrap();
-            while let Some((observe, done)) = requests.next().await {
-                for _ in 0..100 {
-                    waker.wake_by_ref();
+        let worker = Worker::new();
+        let (mut input, task) = worker
+            .listen(move |mut input: Receiver<Signal>| async move {
+                let signal = input.recv().await.unwrap().unwrap();
+                // No WakePeer binding: a foreign callback only has the Rust waker.
+                // The signal resource is retained solely to observe relay delivery.
+                ready.send(()).unwrap();
+                while let Some((observe, done)) = requests.next().await {
+                    for _ in 0..100 {
+                        waker.wake_by_ref();
+                    }
+                    callback_published.store(true, Ordering::SeqCst);
+                    if observe {
+                        spin_until(|| signal.memory.atomic_load::<u8>(0) != 0);
+                    }
+                    done.send(()).unwrap();
                 }
-                callback_published.store(true, Ordering::SeqCst);
-                if observe {
-                    spin_until(|| signal.memory.atomic_load::<u8>(0) != 0);
-                }
-                done.send(()).unwrap();
-            }
-        });
+            })
+            .unwrap();
+        input.send(signal).unwrap();
         started.await.unwrap();
         let (done, observed) = oneshot::channel();
         commands.unbounded_send((true, done)).unwrap();

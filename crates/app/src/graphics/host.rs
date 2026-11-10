@@ -2,8 +2,7 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::{SendTask, Thread, ThreadExt};
-use futures_channel::oneshot;
+use crate::worker::{CancellableWorker, Receiver};
 use futures_lite::future::or;
 use relocade_frontend::display::DisplayRenderer;
 use std::sync::{
@@ -20,9 +19,7 @@ use winit::dpi::PhysicalSize;
 pub struct Graphics {
     redraws: async_channel::Sender<PhysicalSize<u32>>,
     notified: Arc<AtomicBool>,
-    stop: Option<oneshot::Sender<()>>,
-    task: SendTask<Result<(), String>>,
-    _thread: Thread,
+    worker: CancellableWorker<Result<(), String>>,
 }
 
 impl Graphics {
@@ -52,24 +49,32 @@ impl Graphics {
                 notify_redraw_needed();
             }
         };
-        let (stop, stopping) = oneshot::channel();
-        let thread = Thread::new();
-        let task = thread.run_resource(setup, move |setup| async move {
-            or(
-                async {
-                    let _ = stopping.await;
-                    Ok(())
-                },
-                worker::run(setup, create, requests, &notify),
-            )
-            .await
+        let worker = CancellableWorker::spawn(|worker, stopping| {
+            let mut input = worker.listen(move |mut input: Receiver<SurfaceSetup>| async move {
+                Ok(or(
+                    async {
+                        let _ = stopping.await;
+                        Ok(())
+                    },
+                    async {
+                        let setup = input
+                            .recv()
+                            .await
+                            .transpose()
+                            .map_err(|error| error.to_string())?
+                            .ok_or("graphics input closed before surface setup")?;
+                        drop(input);
+                        worker::run(setup, create, requests, &notify).await
+                    },
+                )
+                .await)
+            })?;
+            input.send(setup)
         });
         Self {
             redraws,
             notified,
-            stop: Some(stop),
-            task,
-            _thread: thread,
+            worker,
         }
     }
 
@@ -85,21 +90,16 @@ impl Graphics {
 
     /// Requests shutdown without releasing the worker. Repeated requests are harmless.
     pub fn request_close(&mut self) {
-        if let Some(stop) = self.stop.take() {
-            let _ = stop.send(());
-        }
+        self.worker.request_stop();
     }
 
     /// Waits for startup failure, runtime failure or requested shutdown, including
     /// resource cleanup on the graphics worker. This wait may be cancelled and
     /// resumed until it completes; await its result only once.
     pub async fn finished(&mut self) -> Result<(), String> {
-        (&mut self.task).await.map_err(|error| error.to_string())?
-    }
-}
-
-impl Drop for Graphics {
-    fn drop(&mut self) {
-        self.request_close();
+        self.worker
+            .finished()
+            .await
+            .map_err(|error| error.to_string())?
     }
 }

@@ -33,8 +33,9 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
-The worker prepares one `CpuStorage` before spawning and posts it through
-`ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
+The worker prepares one `CpuStorage` before spawning, starts its task with
+`Worker::listen`, and sends the storage through the inbox. The task observes
+cancellation while waiting for storage. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
@@ -273,10 +274,17 @@ Capture `execution.wake_peer()` on the host, or `runner.wake_peer()` on executio
 and post it when setting up another worker:
 
 ```rust,ignore
-thread.run_resource(execution.wake_peer(), move |peer| async move {
+use relocade_machine::{worker::{self, Receiver, WakePeer, Worker}, ExecutionInterrupt};
+
+let worker = Worker::new();
+let (mut peers, task) = worker.listen(move |mut peers: Receiver<WakePeer<ExecutionInterrupt>>| async move {
+    let peer = peers.recv().await.unwrap()?;
     let _binding = peer.bind();
     send_device_updates(input).await;
-}).await?;
+    Ok::<_, worker::ChannelError>(())
+})?;
+peers.send(execution.wake_peer())?;
+task.await??;
 ```
 
 Ordinary Rust senders on that thread now signal busy execution through its local

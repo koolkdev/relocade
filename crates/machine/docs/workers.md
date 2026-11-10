@@ -1,33 +1,43 @@
 # Worker tasks and messages
 
-The machine exposes `worker::Thread` and `ExecutionWorker` without feature flags.
-The Wasm runtime reexports `web-thread-select` and adds `ThreadExt::run_resource`
-for typed resource handles. The application creates workers and keeps them alive
-until their tasks finish. `ExecutionWorker::spawn` creates a worker and supplies
-its fully initialized `Runner`; CPU-level work can use `Cpu` directly.
+The machine exposes `worker::Worker` and `ExecutionWorker` without feature flags.
+`Worker::run` starts an ordinary Rust task. `Worker::listen` starts a task with a
+local inbox and returns its sender; resources arrive through `sender.send(value)`.
+The application keeps the worker alive until its tasks finish.
+`ExecutionWorker::spawn` creates a worker and supplies its fully initialized
+`Runner`; CPU-level work can use `Cpu` directly.
 
-`worker::CancellableWorker<T>` owns a thread, its result and a cooperative stop
-signal. Its `spawn` callback receives the thread and cancellation receiver, then
-starts a task with `run_send` or `run_resource`. The task must observe the receiver
-and finish its own cleanup. `stop().await` signals cancellation and joins;
+`worker::CancellableWorker<T>` owns a worker, its completion future and a cooperative
+stop signal. Its `spawn` callback starts one task through the owner's `run` or
+`listen` method, then sends any initial messages. These methods retain the task
+before returning, so a setup or send failure can request cancellation and wait
+for cleanup before being reported. The task must observe the cancellation receiver,
+including while waiting for its first message, and finish its own cleanup.
+`request_stop()` signals cancellation without releasing the owner;
+`stop().await` signals cancellation and joins;
 `join().await` waits for normal completion. `finished(&mut self)` permits racing
 completion against another event while retaining the owner. Dropping that wait
 does not cancel the task; consume its completed result only once.
-Timer drivers and `ExecutionWorker` use this shared lifecycle.
+Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
+`WorkerError` reports channel setup or send errors and worker-task failures.
 
 Pass the memory handle directly. Capture CPU configuration and Rust channel
 endpoints in the closure, then construct the CPU inside the worker:
 
 ```rust,ignore
-use relocade_machine::{worker::{Thread, ThreadExt}, Cpu, Memory};
+use relocade_machine::{worker::{Receiver, Worker}, Cpu, Memory};
+
+type Error = Box<dyn std::error::Error + Send + Sync>;
 
 let memory = Memory::new(machine_config)?;
 memory.view().write(0x100, &program)?;
-let worker = Thread::new();
-let task = worker.run_resource(memory.clone(), move |memory| async move {
+let worker = Worker::new();
+let (mut input, task) = worker.listen(move |mut input: Receiver<Memory>| async move {
+    let memory = input.recv().await.ok_or("memory sender closed")??;
     let mut cpu = Cpu::new(memory, cpu_config, Default::default()).await?;
-    Ok::<_, relocade_machine::Error>(cpu.run().await)
-});
+    Ok::<_, Error>(cpu.run().await)
+})?;
+input.send(memory.clone())?;
 
 // The caller can retain mapped RAM access while the worker executes.
 let view = memory.view();
@@ -37,7 +47,7 @@ let exit = task.await??;
 `Memory` derives `Transfer`. Each field's type defines its transfer behavior:
 `SharedMemory` posts its engine handle, and `Arc<MachineConfig>` retains its Rust
 allocation. Named, tuple and unit structs compose those definitions without field
-annotations. The worker reconstructs the complete value before invoking the task.
+annotations. Receiving a message reconstructs the complete value on that worker.
 
 ```rust,ignore
 #[derive(worker::Transfer)]
@@ -53,18 +63,23 @@ or supply reconstruction closures. Every field needs `Transfer`; being `Send`
 alone does not select an encoding. A shared `Arc<T>` retains its allocation when
 `T: Send + Sync`, without requiring transfer behavior on its referent.
 
-For messages after startup, create `worker::channel::<T>()` on the receiving
+`Worker::listen` accepts messages before startup finishes and throughout the task's
+life. For another direction, create `worker::channel::<T>()` on the receiving
 thread and transfer its `Sender<T>` to the producer. The receiver stays local;
 the sender can itself be sent through another channel to establish a reverse
 direction. Each channel has one sender, preserves order, and uses an unbounded
 queue. `send` posts immediately and `recv().await` receives a complete value.
 
 ```rust,ignore
+use relocade_machine::worker::{self, Receiver, Sender, Worker};
+
 let (sender, mut compiled) = worker::channel::<CompiledUnit>()?;
-let thread = worker::Thread::new();
-let task = thread.run_resource(sender, |mut sender| async move {
+let worker = Worker::new();
+let (mut input, task) = worker.listen(|mut input: Receiver<Sender<CompiledUnit>>| async move {
+    let mut sender = input.recv().await.unwrap()?;
     sender.send(compile_unit().await?)
-});
+})?;
+input.send(sender)?;
 let unit = compiled.recv().await.transpose()?;
 task.await??;
 ```
@@ -75,15 +90,15 @@ closes further sends. Browser object delivery still requires an event-loop turn
 on the receiver. The channel does not own worker lifetime or CPU scheduling.
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
-CPU construction. Retain `storage.interrupt_handle()`, post the storage with
-`run_resource`, then call `storage.into_cpu(memory, cpu_config, io).await` on the
+CPU construction. Retain `storage.interrupt_handle()`, send the storage through
+the worker's inbox, then call `storage.into_cpu(memory, cpu_config, io).await` on the
 execution worker. The storage is consumed by one CPU. Its signal is initialized
 before handles are published; configuring CPU registers and the model preserves
 requests made during construction. Neither preparation nor construction starts
 guest execution. `Cpu::new` uses the same storage path when no early handle is needed.
 
 `SharedMemory` and compiled `Module` handles implement `Transfer` and can be
-passed directly to `Thread::run_resource`. The type defines its Rust state,
+sent directly through typed channels. The type defines its Rust state,
 engine payload and reconstruction. Native handles move as Rust values. Browser
 transport preserves their JavaScript objects; shared-memory bytes are shared, not copied.
 The receiving worker prepares its own local access to the allocation. Retained
@@ -93,8 +108,9 @@ Machine configuration, command payloads and channel endpoints remain ordinary
 Rust data. They use `Send` closure captures and Rust channels without
 serialization. Once running on its worker, a future can retain non-Send values
 such as `Rc`, the CPU and browser engine objects. Construct those values inside
-the task. `Thread::run_send` returns Send results through Rust memory;
-`Thread::run` posts its result and can return a shared allocation or module.
+the task. `Worker::run` and `Worker::listen` return Send results through Rust memory;
+send resources back through a channel when the result contains an engine object.
+The low-level `Thread` API remains available for backend and pool integration.
 
 Host services are ordinary async functions capturing CPU state, memory, I/O and
 service resources. They await Rust channel input without retaining a backend
