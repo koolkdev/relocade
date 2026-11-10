@@ -1,4 +1,4 @@
-//! Host normalization and generated guest transfer contracts share one router.
+//! Host input normalization and generated guest port I/O share one router.
 use super::*;
 
 fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {

@@ -417,11 +417,13 @@ The unsigned port address is 0..65535; `bytes` is 1, 2 or 4. An immediate port
 is zero-extended from its encoded byte; DX contributes only its low 16 bits.
 One callback represents one operand-width transfer, including a word/dword at
 port FFFF. The host applies its bus/device rules. Reads ignore upper result bits;
-writes zero upper value bits. These are internal caller guarantees: callbacks
-need not repeat release-path width validation or mask read results. The public
-machine `IoBus` still validates host-supplied widths and masks both read results
-and write values. Devices retain their own wide-transfer behavior. Reads remain
-observable even if their result is unused.
+writes zero upper value bits. These guarantees let runtime callbacks use the
+machine's crate-private `IoBus::read_port_unchecked` and `write_port_unchecked`
+methods without repeating width validation or masking. Public `IoBus::read_port`
+and `write_port` validate host-supplied widths and mask read results and write
+values before returning or calling those same internal methods. Both paths use
+the same device routing, and each device owns the meaning of word and dword
+accesses. Reads remain observable even if their result is unused.
 
 Callbacks may change guest backing or physical routing, but must not inspect or
 modify CPU backing or reenter execution. They complete synchronously, with no
