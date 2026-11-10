@@ -1,4 +1,4 @@
-use relocade_machine::{DispatchEntry, ExecutionWorker, Hook};
+use relocade_machine::{DispatchEntry, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
 use std::{num::NonZeroU64, time::Duration};
@@ -7,7 +7,11 @@ use std::{num::NonZeroU64, time::Duration};
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn pit_interrupts() {
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu())
+        .unwrap();
+    let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
         async |runner| {
             let start = runner.clock().now();
@@ -86,7 +90,7 @@ async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
 async fn keyboard_after_overdue_pit() {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
-    use relocade_machine::{worker::wake_connection, CpuStorage, GuestTimeConfig, Runner};
+    use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
     use std::{
         cell::RefCell,
         future::{poll_fn, Future},
@@ -96,13 +100,18 @@ async fn keyboard_after_overdue_pit() {
     };
 
     let host = ManualClock::new();
-    let storage = CpuStorage::new().unwrap();
-    let (_wake_host, endpoint) = wake_connection(storage.interrupt_handle());
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu())
+        .unwrap();
+    let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
         GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()).with_host_clock(host.clock()),
-        storage,
+        prepared,
         endpoint,
-    );
+    )
+    .await
+    .unwrap();
     let input = Rc::new(RefCell::new(None));
     let session_input = input.clone();
     let mut session = pin!(

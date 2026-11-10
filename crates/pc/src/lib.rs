@@ -9,11 +9,11 @@
 //! wiring and exposes display, audio and input handles to the embedding.
 #![forbid(unsafe_code)]
 
-mod configuration;
+pub mod configuration;
 
 use relocade_bios::Keyboard;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
-use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Memory, Runner};
+use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Runner};
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
@@ -34,7 +34,8 @@ pub struct Pc {
 }
 
 impl Pc {
-    /// Initializes the fixed PC hardware and BIOS on the runner's clock.
+    /// Initializes PC hardware and BIOS on the prepared runner. Create its
+    /// machine and CPU using [`configuration::memory`] and [`configuration::cpu`].
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and speaker emulation require no platform output.
     pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
@@ -50,10 +51,10 @@ impl Pc {
             vga_device,
             ps2_device,
         ]);
-        let memory = Memory::new(configuration::memory())?;
+        let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
         let clock = runner.clock().clone();
-        let cpu = runner.create_cpu(memory, configuration::cpu(), io).await?;
+        let cpu = runner.attach_io(io);
         {
             let mut context = cpu.context();
             let cpu_model = context.cpu.execution_target().cpu_model;

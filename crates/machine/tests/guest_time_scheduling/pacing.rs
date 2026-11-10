@@ -18,7 +18,10 @@ async fn blocked_cpu(runner: &mut Runner, io: IoBus) {
 async fn late_host_wake() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
                 .with_slice_duration(Duration::from_millis(5))
@@ -122,7 +125,10 @@ async fn replace_idle_deadline() {
     let host_time = host.clone();
     let (replace, replacement) = oneshot::channel();
     let (replaced, replacement_done) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
             let device = Rc::new(RefCell::new(ReplacedDeadline {
@@ -169,7 +175,10 @@ async fn cancelled_run_rebinds() {
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
             let clock = runner.clock().clone();
@@ -264,7 +273,10 @@ async fn busy_bursts() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let (stop, stopped) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(750).unwrap())
                 .with_host_clock(Clock::new(source))
@@ -321,7 +333,10 @@ async fn ready_service_during_pacing() {
     let host_event_start = host.host_now();
     let host_time = host.clone();
     let (complete, completion) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
             let clock = runner.clock().clone();

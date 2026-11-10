@@ -1,10 +1,14 @@
 use relocade_dos::{Dos, ProcessStatus, RunError, ServiceError};
-use relocade_machine::ExecutionWorker;
 use relocade_x86::{Exception, ExecutionExit};
 
 #[test]
 fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
-    let result = pollster::block_on(ExecutionWorker::run_until(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),
         async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -39,7 +43,12 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
 
 #[test]
 fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
-    let result = pollster::block_on(ExecutionWorker::run_until(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),
         async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();

@@ -10,8 +10,7 @@ pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, WakeEndpoint, WakePeer};
 use crate::{
-    Clock, Cpu, CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory,
-    Result,
+    Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_lite::future::poll_once;
@@ -32,71 +31,65 @@ use std::{
     task::Poll,
 };
 
-/// Owns a worker's execution session, including its CPU storage and device activities.
-/// [`ExecutionWorker`] prepares the resources before starting the owner thread.
+/// Owns a worker's execution session, including its CPU backend and device activities.
+/// [`crate::Machine`] prepares CPU state before [`ExecutionWorker`] transfers it here.
 /// Notifications interrupt guest execution so ready Rust activities can run.
 pub struct Runner {
     schedule: ExecutionSchedule,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
-    storage: Option<CpuStorage>,
-    cpu: Option<Cpu>,
+    cpu: Cpu,
 }
 
 impl Runner {
-    /// Binds prepared CPU storage and its wake endpoint on the execution owner.
+    /// Constructs the local CPU backend and binds its wake endpoint.
     /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
-    /// connection created for this storage; retain its host until the session ends.
-    pub fn new(
+    /// connection created for this CPU; retain its host until the session ends.
+    pub async fn new(
         clock: Clock,
-        storage: CpuStorage,
+        cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-    ) -> Self {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), storage, endpoint)
+    ) -> Result<Self> {
+        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
     }
 
-    fn with_schedule(
+    async fn with_schedule(
         schedule: ExecutionSchedule,
-        storage: CpuStorage,
+        cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-    ) -> Self {
+    ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
-        let executor = Rc::new(Executor::new(endpoint.bind(storage.interrupt_handle())));
-        Self {
+        let executor = Rc::new(Executor::new(endpoint.bind(cpu.interrupt_handle())));
+        let cpu = cpu.into_cpu(IoBus::default()).await?;
+        Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
             executor,
-            storage: Some(storage),
-            cpu: None,
-        }
+            cpu,
+        })
     }
 
-    /// Constructs and retains the session CPU from its prepared storage once.
-    /// Subsequent programs reuse that CPU. Use [`Cpu::new`] for independent CPU-level work.
+    /// Installs the device bus on the existing CPU without starting execution.
+    /// Returns the stopped CPU for further setup.
     ///
     /// # Panics
-    /// Panics if the storage was consumed by an earlier
-    /// construction attempt, including one that failed or was cancelled.
-    pub async fn create_cpu(
-        &mut self,
-        memory: Memory,
-        config: CpuConfig,
-        io: IoBus,
-    ) -> Result<&mut Cpu> {
-        let storage = self
-            .storage
-            .take()
-            .expect("session CPU storage already consumed");
-        self.cpu = Some(storage.into_cpu(memory, config, io).await?);
-        Ok(self.cpu())
+    /// Panics if a host call is pending or parked.
+    pub fn attach_io(&mut self, io: IoBus) -> &mut Cpu {
+        self.cpu.attach_io(io);
+        self.cpu()
+    }
+
+    /// The shared memory established by the machine before execution started.
+    pub fn memory(&self) -> Memory {
+        self.cpu.memory()
     }
 
     /// Borrows this runner's stopped CPU for setup and low-level execution.
     /// The borrow must end before calling [`Self::run_cpu`].
     pub fn cpu(&mut self) -> &mut Cpu {
-        self.cpu.as_mut().expect("construct the session CPU first")
+        &mut self.cpu
     }
 
     pub fn clock(&self) -> &Clock {
@@ -171,11 +164,8 @@ impl Runner {
     /// Runs until the guest exits, polling ready Rust work on execution interrupts.
     /// Pending services retain their futures while awaiting input or guest resumption.
     /// Poll within [`Self::run`], which drives the session's scheduling and devices.
-    ///
-    /// # Panics
-    /// Panics if the session CPU has not been constructed.
     pub async fn run_cpu(&mut self) -> ExecutionExit {
-        let cpu = self.cpu.as_mut().expect("construct the session CPU first");
+        let cpu = &mut self.cpu;
         let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
         let _binding = self.schedule.bind(cpu, &changed);
         let interrupt = cpu.interrupt_handle();
@@ -196,15 +186,11 @@ impl Runner {
     /// remain soft checkpoint limits, so a slice can overshoot.
     /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
     /// the host/guest offset survive those pauses.
-    pub fn with_guest_time(
+    pub async fn with_guest_time(
         config: GuestTimeConfig,
-        storage: CpuStorage,
+        cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-    ) -> Self {
-        Self::with_schedule(
-            ExecutionSchedule::with_guest_time(config),
-            storage,
-            endpoint,
-        )
+    ) -> Result<Self> {
+        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
     }
 }

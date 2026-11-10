@@ -7,7 +7,7 @@ use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
 };
-use relocade_machine::{ExecutionWorker, Hook};
+use relocade_machine::Hook;
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
@@ -28,7 +28,12 @@ fn controller_write(code: &mut Vec<u8>, port: u8, value: u8) {
 fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     let (ready, host_inputs) = mpsc::channel();
     let (resume, resumed) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();

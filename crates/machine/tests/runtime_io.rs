@@ -139,9 +139,11 @@ async fn check_device_access() {
                 0xeb, 0, // JMP to the next entry boundary.
             ];
             view.write(0x100, &code).unwrap();
-            let mut cpu = Cpu::new(memory.clone(), config.cpu, io.clone())
+            let mut cpu = Cpu::new(memory.clone(), config.cpu, IoBus::default())
                 .await
                 .unwrap();
+            // Backend callbacks and host contexts must both see the attached bus.
+            cpu.attach_io(io.clone());
             if compiled {
                 // OUT and IN each end a block; install all three captured entries.
                 let snapshots = [0, 19, 21].map(|offset| BlockSnapshot {

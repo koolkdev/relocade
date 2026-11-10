@@ -13,7 +13,12 @@ mod control_break;
 type KeyboardDos = Dos;
 
 fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
-    let worker = relocade_machine::ExecutionWorker::spawn_with_clock(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let dos = Dos::new(runner).await.unwrap();

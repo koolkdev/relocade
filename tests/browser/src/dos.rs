@@ -12,7 +12,6 @@ use relocade_dos::Dos;
 use relocade_machine::{
     timer_service,
     worker::{Receiver, Thread},
-    ExecutionWorker,
 };
 use std::{
     future::pending,
@@ -48,7 +47,12 @@ pub async fn dos_workers() -> Result<(), String> {
     let (launch_next, next_launch) = oneshot::channel();
     let (second_done, second_exit) = oneshot::channel();
     let (clock, timers) = timer_service();
-    let execution = ExecutionWorker::spawn(clock, async move |runner| {
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let execution = prepared.spawn(clock, async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();
         video.send(dos.frames()).ok().unwrap();
         dos.launch_com(FIRST_PROGRAM, Default::default()).unwrap();

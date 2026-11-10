@@ -7,7 +7,7 @@ mod common;
 #[path = "mouse_bios/integration.rs"]
 mod integration;
 use relocade_dos::Dos;
-use relocade_machine::{ExecutionWorker, IoBus};
+use relocade_machine::IoBus;
 use relocade_x86::{CpuState, ExecutionExit};
 
 use common::mouse::{wait_status, write};
@@ -15,7 +15,12 @@ use common::mouse::{wait_status, write};
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let worker = prepared.spawn_with_clock(
         move || worker_clock.clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();

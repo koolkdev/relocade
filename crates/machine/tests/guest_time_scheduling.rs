@@ -2,8 +2,8 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExecutionWorker, ExitHandle, Hook, Instant, IoBus,
-    Memory, Runner, Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, IoBus, Runner,
+    Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -22,8 +22,8 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
-    let config = support::configuration(
+fn configuration() -> support::Configuration {
+    support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
@@ -33,10 +33,13 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
-    .unwrap();
-    let memory = Memory::new(config.machine).unwrap();
+    .unwrap()
+}
+
+async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
+    let memory = runner.memory();
     memory.view().write(0x100, code).unwrap();
-    runner.create_cpu(memory, config.cpu, io).await.unwrap();
+    runner.attach_io(io);
 }
 
 async fn unpaced_slice_overshoot() {
@@ -52,7 +55,10 @@ async fn unpaced_slice_overshoot() {
             Duration::from_nanos(3),
         ),
     ] {
-        let worker = ExecutionWorker::spawn_with_guest_time(
+        let setup = configuration();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let worker = prepared.spawn_with_guest_time(
             move || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
                     .with_slice_duration(slice)
@@ -133,7 +139,10 @@ impl Device for Deadlines {
 
 async fn deadlines_and_final_exit() {
     for final_exit in [false, true] {
-        let worker = ExecutionWorker::spawn_with_guest_time(
+        let setup = configuration();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let worker = prepared.spawn_with_guest_time(
             || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
                     .with_slice_duration(Duration::from_millis(10))
@@ -200,7 +209,10 @@ impl Device for Periodic {
 
 async fn retained_service() {
     let (host_time, timers) = timer_service();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
                 .with_slice_duration(Duration::from_millis(10))
@@ -248,7 +260,10 @@ async fn retained_service() {
 }
 
 async fn unpaced_idle_service() {
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
                 .with_slice_duration(Duration::from_millis(1))
@@ -360,12 +375,18 @@ async fn immediate_exit(mut runner: Runner) {
 }
 
 async fn terminal_exit_without_notifications() {
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
-    let worker = ExecutionWorker::spawn_with_clock(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async |runner| immediate_exit(runner).await,
     );

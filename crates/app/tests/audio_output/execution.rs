@@ -2,8 +2,7 @@ use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
 use relocade_machine::{
-    timer_service, CpuConfig, Device, ExecutionInterrupt, ExecutionWorker, IoBus, MachineConfig,
-    Memory,
+    timer_service, CpuConfig, Device, ExecutionInterrupt, IoBus, MachineConfig,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -32,16 +31,27 @@ async fn callback_wakes_execution() {
     }
     let (ready, registered) = oneshot::channel();
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async move |mut runner| {
-        let memory = Memory::new(
-            MachineConfig::new(
-                4096,
-                PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
-                    .unwrap(),
-            )
-            .unwrap(),
+    let mut machine = relocade_machine::Machine::new(
+        MachineConfig::new(
+            4096,
+            PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
         )
-        .unwrap();
+        .unwrap(),
+    )
+    .unwrap();
+    let cpu_config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let worker = prepared.spawn(clock, async move |mut runner| {
+        let memory = runner.memory();
         // OUT confirms actual guest entry before the host starts playback.
         memory
             .view()
@@ -55,16 +65,8 @@ async fn callback_wakes_execution() {
             .connect(started.clone(), [], std::iter::once(0x80..=0x80))
             .await]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
-        let config = CpuConfig::new(
-            compiler.target(),
-            CpuState {
-                eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-        )
-        .unwrap();
-        let cpu = runner.create_cpu(memory, config, io).await.unwrap();
+
+        let cpu = runner.attach_io(io);
         started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
         cpu.install_module(

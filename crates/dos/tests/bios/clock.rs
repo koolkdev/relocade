@@ -4,7 +4,6 @@ use relocade_dos::ProcessStatus;
 use relocade_machine::Instant;
 use relocade_x86::ExecutionExit;
 
-use relocade_machine::ExecutionWorker;
 use std::{
     future::{poll_fn, Future},
     pin::{pin, Pin},
@@ -106,7 +105,12 @@ fn timer_advances_the_clock_during_guest_execution() {
             let clock = ManualClock::default();
             let (ready, shared_memory) = futures_channel::oneshot::channel();
             let worker_clock = clock.clone();
-            let worker = ExecutionWorker::spawn_with_clock(
+            let mut machine =
+                relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+            let prepared = machine
+                .create_cpu(relocade_dos::configuration::cpu())
+                .unwrap();
+            let worker = prepared.spawn_with_clock(
                 move || worker_clock.clock(),
                 async move |runner| {
                     let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
@@ -193,7 +197,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             (0x21, 0x3f00, 2, &b"A\r"[..], &b"A\r\n"[..]),
         ] {
             let clock = ManualClock::default();
-            let (runner, _host) = common::runner(clock.clock());
+            let (runner, _host) = common::runner(clock.clock()).await;
             let (ready, mut prepared) = futures_channel::oneshot::channel();
             let execution = runner.run(std::future::pending::<()>(), async |runner| {
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();

@@ -22,3 +22,4 @@ wasm-bindgen-test = "=0.3.79"
 
 [dev-dependencies]
 relocade-clock-test-support = { path = "../../tests/clock-support" }
+relocade-x86 = { path = "../x86" }

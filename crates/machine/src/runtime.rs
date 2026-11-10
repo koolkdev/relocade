@@ -66,6 +66,7 @@ pub use hooks::Hook;
 use instance::CpuInstance;
 pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
+use relocade_wasm_runtime::WasmBackend;
 pub use storage::CpuStorage;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
@@ -115,6 +116,21 @@ impl Cpu {
             instruction_target,
             halted: false,
         })
+    }
+
+    /// Replaces the device bus while execution is stopped. Existing bus handles
+    /// retain their original routing; CPU callbacks and contexts use this bus.
+    ///
+    /// # Panics
+    /// Panics if a host call is pending or parked.
+    pub fn attach_io(&mut self, io: IoBus) {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before replacing I/O"
+        );
+        let instance = self.instance_mut();
+        *instance.backend.state_mut() = io.clone();
+        instance.io = io;
     }
 
     /// Links a module to this runtime and publishes its callable exports.

@@ -13,7 +13,7 @@ pub use execution::{checkpoint, run_until, steps};
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
-    let (runner, _host) = runner(clock.into());
+    let (runner, _host) = runner(clock.into()).await;
     let mut dos = runner
         .run(std::future::pending::<()>(), async |runner| {
             Dos::new(runner).await.unwrap()

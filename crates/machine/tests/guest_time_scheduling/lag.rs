@@ -11,7 +11,10 @@ async fn busy_lag_limit() {
         let (host, mut armed, source) = host();
         let host_time = host.clone();
         let (stop, stopped) = oneshot::channel();
-        let worker = ExecutionWorker::spawn_with_guest_time(
+        let setup = configuration();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let worker = prepared.spawn_with_guest_time(
             move || config(source),
             async move |mut runner| {
                 let clock = runner.clock().clone();
@@ -71,7 +74,10 @@ async fn pending_input_recovery() {
     let host_time = host.clone();
     let advancing_host = host.clone();
     let (arrive, arrival) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_guest_time(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
             let clock = runner.clock().clone();

@@ -1,8 +1,11 @@
 # PC platform
 
 `Pc::new(runner).await` creates a BIOS-initialized real-mode PC independently of
-DOS. It owns the CPU, memory map and device wiring, while the individual crates
-implement BIOS services and PIC, PIT, PS/2 keyboard/mouse, VGA and speaker behavior.
+DOS. Create its machine with `configuration::memory()` and its CPU with
+`configuration::cpu()` before starting execution. PC retains the CPU's runner
+and assembles local device wiring; Machine owns guest memory and CPU state.
+Individual crates implement BIOS services and PIC, PIT, PS/2 keyboard/mouse,
+VGA and speaker behavior.
 
 The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
 identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboard

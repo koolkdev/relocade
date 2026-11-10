@@ -2,7 +2,7 @@ use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, ExecutionWorker, Hook, IoBus, Memory};
+use relocade_machine::{Clock, Device, Hook, IoBus};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -58,13 +58,30 @@ impl Device for Ticker {
     }
 }
 
+fn configuration() -> support::Configuration {
+    support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+        0x1000,
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
+    )
+    .unwrap()
+}
+
 async fn check_devices() {
     let clock = ManualClock::default();
     let active = Arc::new(AtomicBool::new(false));
     let worker_active = active.clone();
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_clock(
         {
             let controller = clock.clone();
             move || controller.clock()
@@ -83,24 +100,10 @@ async fn check_devices() {
                 worker_active.load(Ordering::SeqCst),
                 "connect starts activity before returning"
             );
-            let config = support::configuration(
-                Compiler::new(ExecutionProfile::Real16).target(),
-                CpuState {
-                    eip: 0x100,
-                    segments: Segments::real_mode(),
-                    ..CpuState::default()
-                },
-                0x1000,
-                PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
-                    .unwrap(),
-            )
-            .unwrap();
-            let memory = Memory::new(config.machine).unwrap();
+
+            let memory = runner.memory();
             let service_clock = runner.clock().clone();
-            let cpu = runner
-                .create_cpu(memory.clone(), config.cpu, io.clone())
-                .await
-                .unwrap();
+            let cpu = runner.attach_io(io.clone());
             // Guest work after the sleeping service, followed by a completion hook.
             memory
                 .view()
@@ -146,7 +149,10 @@ async fn check_devices() {
     let worker_active = active.clone();
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
-    let worker = ExecutionWorker::<()>::spawn_with_clock(
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn_with_clock::<()>(
         move || clock.clock(),
         async move |runner| {
             let device = Rc::new(RefCell::new(Ticker {

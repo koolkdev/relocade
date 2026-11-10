@@ -1,10 +1,12 @@
+mod common;
+
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
 };
-use relocade_machine::{worker::wake_connection, CpuStorage, IoBus, Runner};
+use relocade_machine::IoBus;
 use relocade_pic::{Pic, CASCADE_IRQ, KEYBOARD_IRQ, MOUSE_IRQ};
 use relocade_ps2::{
     read_keyboard_latch, AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
@@ -61,9 +63,7 @@ async fn next(io: &IoBus) -> (bool, u8) {
 
 async fn connected_mouse_and_keyboard() {
     let clock = ManualClock::default();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(clock.clock(), storage, endpoint);
+    let (runner, _host) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(&runner).await;
@@ -178,16 +178,11 @@ impl relocade_machine::ClockSource for InputTime {
 async fn queued_mouse_timestamps() {
     let clock = ManualClock::default();
     let start = clock.host_now();
-    let storage = CpuStorage::new().unwrap();
-    let (_host, endpoint) = wake_connection(storage.interrupt_handle());
-    let runner = Runner::new(
-        relocade_machine::Clock::new(InputTime {
-            clock: clock.clone(),
-            disconnected_at: clock.at(Duration::from_millis(25)),
-        }),
-        storage,
-        endpoint,
-    );
+    let (runner, _host) = common::runner(relocade_machine::Clock::new(InputTime {
+        clock: clock.clone(),
+        disconnected_at: clock.at(Duration::from_millis(25)),
+    }))
+    .await;
     assert_eq!(
         runner
             .run(pending::<()>(), async |runner| {

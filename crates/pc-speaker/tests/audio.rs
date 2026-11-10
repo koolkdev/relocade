@@ -1,6 +1,4 @@
-use relocade_machine::{
-    timer_service, CpuConfig, Device, ExecutionWorker, IoBus, MachineConfig, Memory,
-};
+use relocade_machine::{timer_service, CpuConfig, Device, IoBus, MachineConfig};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -27,7 +25,26 @@ async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |mut runner| {
+    let mut machine = relocade_machine::Machine::new(
+        MachineConfig::new(
+            4096,
+            PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let cpu_config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState {
+            eip: 0x100,
+            segments: Segments::real_mode(),
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let worker = prepared.spawn(clock, async move |mut runner| {
         let (pit, pit_device) =
             relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
         let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
@@ -42,31 +59,15 @@ async fn exercise_audio_device() {
                 )
                 .await,
         ]);
-        let memory = Memory::new(
-            MachineConfig::new(
-                4096,
-                PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
-                    .unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let memory = runner.memory();
         // Program ~1 kHz, notify the test through port 80, then stay in guest code.
         let code = [
             0xb0, 0xb6, 0xe6, 0x43, 0xb0, 0xa9, 0xe6, 0x42, 0xb0, 0x04, 0xe6, 0x42, 0xb0, 3, 0xe6,
             0x61, 0xe6, 0x80, 0xeb, 0xfe,
         ];
         memory.view().write(0x100, &code).unwrap();
-        let config = CpuConfig::new(
-            Compiler::new(ExecutionProfile::Real16).target(),
-            CpuState {
-                eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
-            },
-        )
-        .unwrap();
-        runner.create_cpu(memory, config, io).await.unwrap();
+
+        runner.attach_io(io);
         speaker
             .borrow_mut()
             .attach_audio(

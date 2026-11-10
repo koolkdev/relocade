@@ -1,7 +1,7 @@
-use super::prepare_cpu;
+use super::{configuration, prepare_cpu};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{timer_service, Device, ExecutionWorker, IoBus};
+use relocade_machine::{timer_service, Device, IoBus};
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
@@ -35,7 +35,10 @@ async fn halted_worker() {
     let (send, input) = oneshot::channel();
     let (report, mut halted) = mpsc::unbounded();
     let (stopped, dropped) = oneshot::channel();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |mut runner| {
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let io = IoBus::new([runner
             .connect(
                 Rc::new(RefCell::new(InputIrq {

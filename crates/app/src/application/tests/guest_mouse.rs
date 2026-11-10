@@ -1,7 +1,7 @@
 //! AppHost input crosses the execution worker, PS/2 and BIOS into a DOS program.
 use super::*;
 use relocade_dos::Dos;
-use relocade_machine::{real_mode_interrupt::Interrupts, ExecutionWorker, FarPointer, Hook};
+use relocade_machine::{real_mode_interrupt::Interrupts, FarPointer, Hook};
 
 pub(super) async fn run(
     mut host: AppHost,
@@ -17,7 +17,12 @@ pub(super) async fn run(
     let (connected, endpoints) = oneshot::channel();
     let (ready, busy) = oneshot::channel();
     let (idle, waiting) = oneshot::channel();
-    let result = ExecutionWorker::run_until(
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_dos::configuration::cpu())
+        .unwrap();
+    let result = prepared.run_until(
         async {
             let (mouse, frames) = endpoints.await.unwrap();
             host.attach_mouse(mouse).unwrap();
@@ -124,9 +129,8 @@ pub(super) async fn run(
             assert_eq!(view.read_u16(base + 0x50a).unwrap(), 12);
             assert_eq!(view.read_u16(base + 0x50c).unwrap(), 6);
         },
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    );
+    let result = result.await.map_err(|error| error.to_string())?;
     assert!(
         result.is_some(),
         "guest finishes through its callback and DOS read"

@@ -16,11 +16,15 @@ use std::{
 
 #[test]
 fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
-    use relocade_machine::ExecutionWorker;
     use std::num::NonZeroU64;
 
     pollster::block_on(async {
-        let worker = ExecutionWorker::spawn_with_guest_time(
+        let mut machine =
+            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+        let prepared = machine
+            .create_cpu(relocade_dos::configuration::cpu())
+            .unwrap();
+        let worker = prepared.spawn_with_guest_time(
             || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
             async |runner| {
                 let clock = runner.clock().clone();
@@ -53,7 +57,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
 
     pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host) = common::runner(clock.clock());
+        let (runner, _host) = common::runner(clock.clock()).await;
         runner
             .run(
                 futures_timer::Delay::new(std::time::Duration::from_secs(30)),

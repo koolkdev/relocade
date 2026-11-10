@@ -6,11 +6,12 @@ use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
 };
+use std::{pin::pin, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn prepared_cpus() {
+fn setup() -> (Machine, CpuConfig) {
     let map = PhysicalMemoryMap::new([(
         0..=0xfff,
         PhysicalMapping::Ram {
@@ -18,7 +19,7 @@ async fn prepared_cpus() {
         },
     )])
     .unwrap();
-    let mut machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
+    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -28,6 +29,11 @@ async fn prepared_cpus() {
         },
     )
     .unwrap();
+    (machine, config)
+}
+
+async fn prepared_cpus() {
+    let (mut machine, config) = setup();
     let first = machine.create_cpu(config).unwrap();
     let second = machine.create_cpu(config).unwrap();
     machine.cpus()[0].set_ax(0x1234);
@@ -94,4 +100,67 @@ fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
     prepared_cpus().await;
+}
+
+async fn session_shutdown() {
+    let (mut machine, config) = setup();
+    let prepared = machine.create_cpu(config).unwrap();
+    machine.cpus()[0].set_ax(41);
+    machine
+        .memory()
+        .view()
+        .write(0x100, &[0x40, 0xeb, 0])
+        .unwrap();
+    let completed = prepared
+        .run_until(std::future::pending::<()>(), async |mut runner| {
+            let clock = runner.clock().clone();
+            let cpu = runner.cpu();
+            assert_eq!(cpu.cpu_state().ax(), 41);
+            let exit = cpu.exit_handle();
+            cpu.install([relocade_machine::Hook::host(0x103, async move || {
+                exit.request()
+            })])
+            .await
+            .unwrap();
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(relocade_x86::HostExit::Return)
+            );
+            let ax = runner.cpu().cpu_state().ax();
+            drop(runner);
+            // The callback and device task set remain alive after releasing Runner.
+            clock.sleep(Duration::from_millis(1)).await;
+            ax
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(completed, 42);
+    assert_eq!(machine.cpus()[0].ax(), 42);
+
+    let (armed, stop) = futures_channel::oneshot::channel();
+    let prepared = machine.create_cpu(config).unwrap();
+    let result = prepared
+        .run_until(stop, async move |runner| {
+            let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
+            assert!(futures_lite::future::poll_once(wait.as_mut())
+                .await
+                .is_none());
+            armed.send(()).unwrap();
+            wait.await;
+        })
+        .await
+        .unwrap();
+    assert_eq!(result, None);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn session_completion_and_cancellation_stop_their_timer_workers() {
+    pollster::block_on(session_shutdown());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn session_completion_and_cancellation_stop_their_timer_workers() {
+    session_shutdown().await;
 }
