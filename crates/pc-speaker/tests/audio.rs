@@ -27,10 +27,10 @@ async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::<()>::spawn(clock, async move |mut runner| {
         let (pit, pit_device) =
-            relocade_pit::Pit::initialize(runner, &relocade_pic::Pic::default()).await;
-        let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
+            relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
+        let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
         let io = IoBus::new([
             pit_device,
             speaker_device,
@@ -66,7 +66,7 @@ async fn exercise_audio_device() {
             },
         )
         .unwrap();
-        let mut cpu = runner.create_cpu(memory, config, io).await.unwrap();
+        runner.create_cpu(memory, config, io).await.unwrap();
         speaker
             .borrow_mut()
             .attach_audio(
@@ -80,7 +80,7 @@ async fn exercise_audio_device() {
             .unwrap();
         panic!(
             "busy guest unexpectedly returned: {:?}",
-            runner.run_cpu(&mut cpu).await
+            runner.run_cpu().await
         );
     });
     let timers = timers.spawn_with_peer(worker.wake_peer());

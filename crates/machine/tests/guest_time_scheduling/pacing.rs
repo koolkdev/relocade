@@ -5,14 +5,14 @@ use futures_util::{
     StreamExt,
 };
 
-async fn blocked_cpu(runner: &Runner, io: IoBus) -> Cpu {
-    let mut cpu = cpu(runner, &[0x90], io).await;
+async fn blocked_cpu(runner: &mut Runner, io: IoBus) {
+    prepare_cpu(runner, &[0x90], io).await;
+    let cpu = runner.cpu();
     cpu.install([Hook::host(0x100, async || {
         std::future::pending::<()>().await
     })])
     .await
     .unwrap();
-    cpu
 }
 
 async fn late_host_wake() {
@@ -24,7 +24,7 @@ async fn late_host_wake() {
                 .with_slice_duration(Duration::from_millis(5))
                 .with_host_clock(Clock::new(source))
         },
-        async |runner| {
+        async |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
@@ -37,10 +37,10 @@ async fn late_host_wake() {
                 exit_after_waits: true,
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = blocked_cpu(runner, io).await;
-            device.borrow_mut().exit = Some(cpu.exit_handle());
+            blocked_cpu(&mut runner, io).await;
+            device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             let observed = device
@@ -49,7 +49,7 @@ async fn late_host_wake() {
                 .iter()
                 .map(|time| clock.duration_since(*time, start))
                 .collect::<Vec<_>>();
-            assert_eq!(cpu.cpu_state().instruction_count(), 0);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             observed
         },
     );
@@ -124,7 +124,7 @@ async fn replace_idle_deadline() {
     let (replaced, replacement_done) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let device = Rc::new(RefCell::new(ReplacedDeadline {
                 clock: runner.clock().clone(),
                 replace: Some(replacement),
@@ -133,10 +133,10 @@ async fn replace_idle_deadline() {
                 exit: None,
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = blocked_cpu(runner, io).await;
-            device.borrow_mut().exit = Some(cpu.exit_handle());
+            blocked_cpu(&mut runner, io).await;
+            device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             let result = device.borrow().observed.clone();
@@ -171,7 +171,7 @@ async fn cancelled_run_rebinds() {
     let (resume, resumed) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
@@ -182,10 +182,10 @@ async fn cancelled_run_rebinds() {
                 exit_after_waits: true,
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = blocked_cpu(runner, io).await;
-            device.borrow_mut().exit = Some(cpu.exit_handle());
+            blocked_cpu(&mut runner, io).await;
+            device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             {
-                match select(pin!(runner.run_cpu(&mut cpu)), pin!(paused)).await {
+                match select(pin!(runner.run_cpu()), pin!(paused)).await {
                     Either::Right((Ok(()), _)) => {}
                     _ => panic!("the run must still be waiting at cancellation"),
                 }
@@ -197,7 +197,7 @@ async fn cancelled_run_rebinds() {
                 runner.clock().add(start, Duration::from_millis(4))
             );
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(
@@ -269,12 +269,13 @@ async fn busy_bursts() {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(750).unwrap())
                 .with_host_clock(Clock::new(source))
         },
-        async move |runner| {
+        async move |mut runner| {
             let code = [0x40, 0xeb, 0xfd]; // Two-instruction loop, with checkpoint overshoot.
-            let mut cpu = cpu(runner, &code, IoBus::default()).await;
+            prepare_cpu(&mut runner, &code, IoBus::default()).await;
             let block = Compiler::new(ExecutionProfile::Real16)
                 .compile_block(0x100, &code, 2)
                 .unwrap();
+            let cpu = runner.cpu();
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {
@@ -284,17 +285,17 @@ async fn busy_bursts() {
             )
             .await
             .unwrap();
-            let exit = cpu.exit_handle();
+            let exit = runner.cpu().exit_handle();
             let ((), result) = join(
                 async move {
                     stopped.await.unwrap();
                     exit.request();
                 },
-                runner.run_cpu(&mut cpu),
+                runner.run_cpu(),
             )
             .await;
             assert_eq!(result, ExecutionExit::Host(HostExit::Return));
-            cpu.cpu_state().instruction_count()
+            runner.cpu().cpu_state().instruction_count()
         },
     );
     // At 750 instructions/s, four retired instructions cross the first 4 ms
@@ -322,7 +323,7 @@ async fn ready_service_during_pacing() {
     let (complete, completion) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
@@ -333,10 +334,11 @@ async fn ready_service_during_pacing() {
                 exit_after_waits: false,
             }));
             let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            let mut cpu = cpu(runner, &[0x90], io).await;
-            let exit = cpu.exit_handle();
+            prepare_cpu(&mut runner, &[0x90], io).await;
+            let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
             let clock = runner.clock().clone();
+            let cpu = runner.cpu();
             cpu.install([Hook::host(0x100, async move || {
                 let completion = completion.borrow_mut().take().unwrap();
                 completion.await.unwrap();
@@ -349,14 +351,14 @@ async fn ready_service_during_pacing() {
             .await
             .unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(
                 runner.clock().now(),
                 runner.clock().add(start, Duration::from_millis(4))
             );
-            assert_eq!(cpu.cpu_state().instruction_count(), 0);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert!(device.borrow().observed.is_empty());
         },
     );

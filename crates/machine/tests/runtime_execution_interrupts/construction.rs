@@ -22,17 +22,18 @@ impl Device for IdleDevice {
 
 async fn idle_devices() {
     let (clock, _timers) = timer_service();
-    let worker = ExecutionWorker::spawn(clock, async |runner| {
+    let worker = ExecutionWorker::spawn(clock, async |mut runner| {
         // INC AX; JMP 0200, where the host service completes this guest run.
-        let mut cpu =
-            cpu_with_runner(&[0x40, 0xe9, 0xfc, 0], true, IoBus::default(), Some(runner)).await;
-        let state = cpu.cpu_state();
-        let exit = cpu.exit_handle();
-        cpu.install([relocade_machine::Hook::host(0x200, async move || {
-            exit.request()
-        })])
-        .await
-        .unwrap();
+        prepare_cpu(&mut runner, &[0x40, 0xe9, 0xfc, 0], true, IoBus::default()).await;
+        let state = runner.cpu().cpu_state();
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([relocade_machine::Hook::host(0x200, async move || {
+                exit.request()
+            })])
+            .await
+            .unwrap();
         let (send, requests) = mpsc::unbounded();
         let _device = runner
             .connect(
@@ -55,7 +56,7 @@ async fn idle_devices() {
             "device work does not start prepared CPU execution"
         );
         assert_eq!(
-            runner.run_cpu(&mut cpu).await,
+            runner.run_cpu().await,
             ExecutionExit::Host(relocade_x86::HostExit::Return)
         );
         assert_eq!(

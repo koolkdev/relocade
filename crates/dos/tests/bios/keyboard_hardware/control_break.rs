@@ -3,7 +3,7 @@ use relocade_bios::KeyStroke;
 
 #[test]
 fn control_break_flushes_before_int1b_and_inserts_its_dummy_key_after_return() {
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         let segment = dos.process().unwrap().psp_segment();
         let base = u32::from(segment) << 4;
@@ -82,7 +82,7 @@ fn control_break_flushes_before_int1b_and_inserts_its_dummy_key_after_return() {
 
 #[test]
 fn default_break_callback_returns_and_wakes_a_bios_read() {
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(&[0xcd, 0x16, 0xeb, 0xfe], Default::default())
             .unwrap();
         let io = dos.cpu().context().io.clone();
@@ -106,7 +106,7 @@ fn default_break_callback_returns_and_wakes_a_bios_read() {
 #[test]
 fn physical_control_break_reaches_dos_while_a_checked_read_is_pending() {
     for redirected in [false, true] {
-        with_hardware(async move |_, mut dos| {
+        with_hardware(async move |mut dos| {
             let mut program = if redirected {
                 dos.mount_file("EMPTY", Vec::new(), relocade_dos::FileAccess::ReadOnly)
                     .unwrap();

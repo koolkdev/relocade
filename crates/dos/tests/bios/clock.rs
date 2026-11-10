@@ -149,7 +149,7 @@ fn timer_advances_the_clock_during_guest_execution() {
                         )
                         .unwrap();
                     assert!(ready.send(dos.cpu().memory()).is_ok());
-                    assert_eq!(dos.run(runner).await, Ok(0));
+                    assert_eq!(dos.run().await, Ok(0));
                     assert_eq!(memory.view().read_u16(0x10304).unwrap(), 1);
                     assert_eq!(memory.view().read_u16(0x10308).unwrap(), 0x40);
                     assert_eq!(memory.view().read_u16(0x1030a).unwrap(), 0x1234);
@@ -258,7 +258,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                     .send((state.clone(), memory.clone(), keyboard))
                     .ok()
                     .unwrap();
-                assert_eq!(dos.run(runner).await, Ok(0));
+                assert_eq!(dos.run().await, Ok(0));
                 let mut result = [0; 7];
                 memory.view().read(0x10300, &mut result).unwrap();
                 let [al, ah] = expected_ax.to_le_bytes();

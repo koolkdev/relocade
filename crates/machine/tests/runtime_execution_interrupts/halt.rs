@@ -1,4 +1,4 @@
-use super::cpu_with_runner;
+use super::prepare_cpu;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use relocade_machine::{timer_service, Device, ExecutionWorker, IoBus};
@@ -35,7 +35,7 @@ async fn halted_worker() {
     let (send, input) = oneshot::channel();
     let (report, mut halted) = mpsc::unbounded();
     let (stopped, dropped) = oneshot::channel();
-    let worker = ExecutionWorker::<()>::spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::<()>::spawn(clock, async move |mut runner| {
         let io = IoBus::new([runner
             .connect(
                 Rc::new(RefCell::new(InputIrq {
@@ -46,16 +46,21 @@ async fn halted_worker() {
                 [],
             )
             .await]);
-        let mut cpu = cpu_with_runner(&[0xfb, 0xf4, 0x40, 0xf4], true, io, Some(runner)).await;
-        let state = cpu.cpu_state();
+        prepare_cpu(&mut runner, &[0xfb, 0xf4, 0x40, 0xf4], true, io).await;
+        let state = runner.cpu().cpu_state();
         state.set_sp(0x8000);
-        cpu.memory().view().write(0x180, &[0, 3, 0, 0]).unwrap();
-        cpu.memory().view().write(0x300, &[0xcf]).unwrap();
+        runner
+            .cpu()
+            .memory()
+            .view()
+            .write(0x180, &[0, 3, 0, 0])
+            .unwrap();
+        runner.cpu().memory().view().write(0x300, &[0xcf]).unwrap();
         let _stopped = super::Stopped {
             state: state.clone(),
             report: Some(stopped),
         };
-        let mut execution = pin!(runner.run_cpu(&mut cpu));
+        let mut execution = pin!(runner.run_cpu());
         let mut last = 0;
         poll_fn(|cx| {
             let result = execution.as_mut().poll(cx);

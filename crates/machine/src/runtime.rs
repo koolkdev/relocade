@@ -79,8 +79,6 @@ pub struct Cpu {
     exit: ExitHandle,
     instruction_target: InstructionTarget,
     halted: bool,
-    // Identifies the owning session once at run entry, never during hooks.
-    pub(crate) executor: std::rc::Weak<crate::worker::Executor<ExecutionInterrupt>>,
 }
 
 impl Cpu {
@@ -116,7 +114,6 @@ impl Cpu {
             exit: ExitHandle::new(),
             instruction_target,
             halted: false,
-            executor: std::rc::Weak::new(),
         })
     }
 

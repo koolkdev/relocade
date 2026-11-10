@@ -98,7 +98,10 @@ async fn idle_worker() {
 
 async fn session_shutdown() {
     let completed = ExecutionWorker::run_until(std::future::pending::<()>(), async |runner| {
-        runner.clock().sleep(Duration::from_millis(1)).await;
+        let clock = runner.clock().clone();
+        drop(runner);
+        // The callback and device task set remain alive after releasing Runner.
+        clock.sleep(Duration::from_millis(1)).await;
         42
     })
     .await

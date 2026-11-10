@@ -60,10 +60,7 @@ async fn bios_without_dos() {
                     }))
                     .unwrap();
                 clock.advance_to(clock.at(Duration::from_nanos(54_925_402)));
-                assert_eq!(
-                    runner.run_cpu(pc.cpu()).await,
-                    ExecutionExit::Host(HostExit::Return)
-                );
+                assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
                 assert_eq!(memory.view().read_u16(0x700).unwrap(), 0x5003);
                 assert_eq!(memory.view().read_u16(0x702).unwrap(), 0x1e61);
                 assert_eq!(memory.view().read_u16(0x704).unwrap(), 1);
@@ -100,10 +97,7 @@ async fn default_exceptions() {
                     state.set_eflags(2);
                     let handler = read_vector(&memory.view(), exception.vector() as u8);
                     assert_eq!(handler.segment, 0xf000, "default entry is in BIOS ROM");
-                    assert_eq!(
-                        runner.run_cpu(pc.cpu()).await,
-                        ExecutionExit::UnhandledException(exception)
-                    );
+                    assert_eq!(pc.run().await, ExecutionExit::UnhandledException(exception));
                     assert_eq!(state.segment(Segment::Cs).selector, handler.segment);
                     let frame = read_frame(&state, &memory.view());
                     assert_eq!(
@@ -155,10 +149,7 @@ async fn absent_services() {
                 state.set_edx(0xfedc_ba98);
                 state.set_eflags(0xa57);
                 let before = state.snapshot();
-                assert_eq!(
-                    runner.run_cpu(pc.cpu()).await,
-                    ExecutionExit::Host(HostExit::Return)
-                );
+                assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
                 assert_eq!(state.snapshot().registers, before.registers);
                 assert_eq!(state.snapshot().segments, before.segments);
                 assert_eq!(state.eflags(), 0xa57);

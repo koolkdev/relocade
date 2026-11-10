@@ -68,7 +68,7 @@ pub async fn runner_workers() -> Result<(), String> {
         let stop = async {
             assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
         };
-        let worker = ExecutionWorker::run_until(stop, async move |runner| {
+        let worker = ExecutionWorker::run_until(stop, async move |mut runner| {
             EXECUTION_OWNER.set(true);
             let memory = Memory::new(
                 MachineConfig::new(
@@ -112,7 +112,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 local: Rc::new(()),
                 dropped: Some(dropped),
             });
-            let mut cpu = runner.create_cpu(memory.clone(), config, io).await.unwrap();
+            let cpu = runner.create_cpu(memory.clone(), config, io).await.unwrap();
             if pending_service {
                 let probe = probe.clone();
                 cpu.install([Hook::host(0x100, {
@@ -129,7 +129,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 .await
                 .unwrap();
             }
-            runner.run_cpu(&mut cpu).await;
+            runner.run_cpu().await;
             panic!("busy or suspended execution must stop only through cancellation");
         });
         assert_eq!(worker.await.map_err(|error| error.to_string())?, None::<()>);

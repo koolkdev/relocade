@@ -11,14 +11,13 @@ mod control_break;
 // Freeze time so these tests isolate IRQ1 while the production runner drives
 // controller firmware, keyboard firmware and guest execution.
 type KeyboardDos = Dos;
-type KeyboardRunner = relocade_machine::Runner;
 
-fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 'static) {
+fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
     let worker = relocade_machine::ExecutionWorker::spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let dos = Dos::new(runner).await.unwrap();
-            check(runner, dos).await;
+            check(dos).await;
         },
     );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
@@ -46,7 +45,7 @@ async fn inject_scan(io: &IoBus, byte: u8) {
 
 #[test]
 fn cli_allows_guest_port_polling_without_bios_consuming_the_scan_byte() {
-    with_hardware(async |runner, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(
             &[
                 0xfa, // CLI: firmware progress must not require guest IF.
@@ -65,7 +64,7 @@ fn cli_allows_guest_port_polling_without_bios_consuming_the_scan_byte() {
         dos.cpu().cpu_state().set_eflags(0x202);
         let memory = dos.cpu().memory();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
-        assert_eq!(dos.run(runner).await, Ok(0));
+        assert_eq!(dos.run().await, Ok(0));
         assert_ne!(memory.view().read_u8(base + 0x300).unwrap() & 1, 0);
         assert_eq!(memory.view().read_u8(base + 0x301).unwrap(), 0x1e);
         assert_eq!(memory.view().read_u8(base + 0x302).unwrap() & 1, 0);
@@ -82,7 +81,7 @@ async fn guest_returns(dos: &mut KeyboardDos) {
 
 #[test]
 fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         dos.cpu().cpu_state().set_eflags(0x202);
         let segment = dos.process().unwrap().psp_segment();
@@ -154,7 +153,7 @@ fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
 
 #[test]
 fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(
             &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe],
             Default::default(),
@@ -216,7 +215,7 @@ fn bios_translates_a_scan_already_read_by_a_guest_irq1_hook() {
         FarPointer,
     };
 
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         let segment = dos.process().unwrap().psp_segment();
         let base = u32::from(segment) << 4;
@@ -276,7 +275,7 @@ fn pending_irq1_does_not_consume_auxiliary_output() {
         AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
     };
 
-    with_hardware(async |_, mut dos| {
+    with_hardware(async |mut dos| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         dos.cpu().cpu_state().set_eflags(0x202);
         let io = dos.cpu().context().io.clone();
@@ -306,7 +305,7 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
     };
     use relocade_machine::Hook;
 
-    with_hardware(async |runner, mut dos| {
+    with_hardware(async |mut dos| {
         // Wait for the requested number of IRQs before reaching the stop hook.
         let program = [
             0xa1, 0, 3, // AX = IRQ count.
@@ -373,8 +372,10 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
                 }))
                 .unwrap();
             assert_eq!(
-                runner.run_cpu(dos.cpu()).await,
-                ExecutionExit::Host(relocade_x86::HostExit::Return)
+                dos.run().await,
+                Err(relocade_dos::RunError::Execution(ExecutionExit::Host(
+                    relocade_x86::HostExit::Return
+                )))
             );
             assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), count);
             assert_eq!(memory.view().read_u16(base + 0x49a).unwrap(), held);

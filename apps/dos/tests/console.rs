@@ -10,6 +10,7 @@ use std::{io::Read, time::Duration};
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     let prompt_row = 6;
     let console = ExecutionWorker::run_until(std::future::pending::<()>(), async move |runner| {
+        let clock = runner.clock().clone();
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
@@ -68,7 +69,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
                 if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
                     return;
                 }
-                runner.clock().sleep(Duration::from_millis(1)).await;
+                clock.sleep(Duration::from_millis(1)).await;
             }
             panic!("console did not return to its prompt");
         };

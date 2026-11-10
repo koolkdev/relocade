@@ -56,10 +56,7 @@ async fn pit_interrupts() {
             cpu.install([Hook::host(0x101d, async move || stop.request())])
                 .await
                 .unwrap();
-            assert_eq!(
-                runner.run_cpu(cpu).await,
-                ExecutionExit::Host(HostExit::Return)
-            );
+            assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(memory.view().read_u16(0x702).unwrap(), 8);
             let samples = (0..8)
                 .map(|index| memory.view().read_u16(0x600 + index * 2).unwrap())
@@ -68,8 +65,8 @@ async fn pit_interrupts() {
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
             // PIT deadlines must drive eight approximately 2 ms periods
             // without an execution slice duration.
-            assert!(runner.clock().now() >= runner.clock().add(start, Duration::from_millis(14)));
-            assert!(runner.clock().now() < runner.clock().add(start, Duration::from_millis(20)));
+            assert!(pc.clock().now() >= pc.clock().add(start, Duration::from_millis(14)));
+            assert!(pc.clock().now() < pc.clock().add(start, Duration::from_millis(20)));
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -129,15 +126,12 @@ async fn keyboard_after_overdue_pit() {
             cpu.install([Hook::host(0x1016, async move || exit.request())])
                 .await
                 .unwrap();
-            assert_eq!(
-                runner.run_cpu(cpu).await,
-                ExecutionExit::Host(HostExit::Return)
-            );
+            assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             let elapsed_ticks = memory.view().read_u32(0x46c).unwrap().wrapping_sub(ticks);
             (
                 state.ax(),
                 elapsed_ticks,
-                runner.clock().duration_since(runner.clock().now(), start),
+                pc.clock().duration_since(pc.clock().now(), start),
             )
         })
     );

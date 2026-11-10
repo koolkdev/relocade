@@ -31,7 +31,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// service when clock handles must remain usable after the session ends.
     pub async fn run_until(
         stop: impl Future,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Result<Option<T>, worker::WorkerError> {
         let (handle, timers) = timer_service();
         let mut execution = Self::spawn(handle, session);
@@ -54,7 +54,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
 
     pub fn spawn(
         host_timers: TimerHandle,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_with_clock(move || host_timers.into(), session)
     }
@@ -64,7 +64,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// Use [`Self::spawn_with_guest_time`] for emulated guest time.
     pub fn spawn_with_clock(
         make_clock: impl FnOnce() -> Clock + Send + 'static,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
             move |storage, endpoint| Runner::new(make_clock(), storage, endpoint),
@@ -77,7 +77,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// Devices keep the existing [`Clock`] interface.
     pub fn spawn_with_guest_time(
         make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
         Self::spawn_runner(
             move |storage, endpoint| Runner::with_guest_time(make_time(), storage, endpoint),
@@ -87,7 +87,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
 
     fn spawn_runner(
         runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner + Send + 'static,
-        session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());

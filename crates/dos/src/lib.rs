@@ -130,7 +130,7 @@
 //! demonstrates persistent execution and an independent renderer worker.
 //!
 //! ```no_run
-//! # async fn example(runner: &relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
+//! # async fn example(runner: relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
 //! # {
 //! use relocade_dos::ProcessStatus;
 //! use std::io::Read;
@@ -141,7 +141,7 @@
 //! dos.mount('D', disk)?;
 //! dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())?;
 //! let process = dos.process().unwrap();
-//! assert_eq!(dos.run(runner).await?, 7);
+//! assert_eq!(dos.run().await?, 7);
 //! assert_eq!(process.status(), ProcessStatus::Exited(Ok(7)));
 //! let mut output = Vec::new();
 //! dos.stdout().read_to_end(&mut output)?;
@@ -191,7 +191,7 @@ pub struct Dos {
 impl Dos {
     /// Creates a BIOS-initialized PC and installs DOS services on it.
     /// Launch a program before executing DOS services.
-    pub async fn new(runner: &Runner) -> relocade_machine::Result<Self> {
+    pub async fn new(runner: Runner) -> relocade_machine::Result<Self> {
         Self::from_pc(Pc::new(runner).await?).await
     }
 
@@ -342,7 +342,7 @@ impl Dos {
     /// across launches; existing stream handles remain connected to the console.
     ///
     /// ```no_run
-    /// # async fn example(runner: &relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
+    /// # async fn example(runner: relocade_machine::Runner) -> Result<(), Box<dyn std::error::Error>>
     /// # {
     /// use relocade_dos::ProcessStatus;
     /// use std::io::Write;

@@ -15,7 +15,7 @@ async fn captured_deadline() {
         let (arrive, arrival) = oneshot::channel();
         let worker = ExecutionWorker::spawn_with_guest_time(
             move || config(source),
-            async move |runner| {
+            async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
                 assert!(
@@ -33,9 +33,10 @@ async fn captured_deadline() {
                     exit_after_waits: false,
                 }));
                 let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-                let mut cpu = cpu(runner, &[0x90], io).await;
-                let exit = cpu.exit_handle();
+                prepare_cpu(&mut runner, &[0x90], io).await;
+                let exit = runner.cpu().exit_handle();
                 let arrival = Rc::new(RefCell::new(Some(arrival)));
+                let cpu = runner.cpu();
                 cpu.install([Hook::host(0x100, async move || {
                     let arrival = arrival.borrow_mut().take().unwrap();
                     arrival.await.unwrap();
@@ -66,14 +67,14 @@ async fn captured_deadline() {
                 .await
                 .unwrap();
                 assert_eq!(
-                    runner.run_cpu(&mut cpu).await,
+                    runner.run_cpu().await,
                     ExecutionExit::Host(HostExit::Return)
                 );
                 assert_eq!(
                     device.borrow().observed,
                     [2, 4, 6].map(|ms| runner.clock().add(start, Duration::from_millis(ms)))
                 );
-                assert_eq!(cpu.cpu_state().instruction_count(), 0);
+                assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             },
         );
         assert_eq!(
@@ -98,7 +99,7 @@ async fn retained_sync_across_runs() {
     let (resume, resumed) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
@@ -109,10 +110,11 @@ async fn retained_sync_across_runs() {
                 exit_after_waits: false,
             }));
             let io = IoBus::new([runner.connect(device, [], []).await]);
-            let mut cpu = cpu(runner, &[0x90], io).await;
-            let exit = cpu.exit_handle();
+            prepare_cpu(&mut runner, &[0x90], io).await;
+            let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
             let pause = Rc::new(RefCell::new(Some(pause)));
+            let cpu = runner.cpu();
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
@@ -129,7 +131,7 @@ async fn retained_sync_across_runs() {
             .await
             .unwrap();
             {
-                match select(pin!(runner.run_cpu(&mut cpu)), pin!(paused)).await {
+                match select(pin!(runner.run_cpu()), pin!(paused)).await {
                     Either::Right((Ok(()), _)) => {}
                     _ => panic!("the run must be cancelled with sync pending"),
                 }
@@ -148,7 +150,7 @@ async fn retained_sync_across_runs() {
             stopped.send(()).unwrap();
             resumed.await.unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
         },
@@ -182,15 +184,16 @@ async fn local_output_sync() {
     let host_time = host.clone();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
-        async move |runner| {
+        async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
-            let exit = cpu.exit_handle();
+            prepare_cpu(&mut runner, &[0x90], IoBus::default()).await;
+            let exit = runner.cpu().exit_handle();
             let retained = Rc::new(RefCell::new(None));
             let captured = retained.clone();
             let running_host = host.clone();
             let running_clock = clock.clone();
+            let cpu = runner.cpu();
             cpu.install([Hook::host(0x100, async move || {
                 assert!(poll_once(running_clock.sync_to_host(start)).await.is_some());
                 let sync = running_clock
@@ -222,7 +225,7 @@ async fn local_output_sync() {
             .await
             .unwrap();
             assert_eq!(
-                runner.run_cpu(&mut cpu).await,
+                runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert!(

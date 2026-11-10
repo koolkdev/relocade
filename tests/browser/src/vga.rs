@@ -19,7 +19,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let (rendered, presented) = oneshot::channel();
     let (clock, timers) = timer_service();
     let display = Thread::new();
-    let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
+    let cpu_task = ExecutionWorker::spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frames()).is_ok());
@@ -75,7 +75,7 @@ pub async fn vga_workers() -> Result<(), String> {
         )
         .unwrap();
         let input = RefCell::new(Some((incoming, waiting)));
-        let mut cpu = runner
+        let cpu = runner
             .create_cpu(memory, cpu_config, io.clone())
             .await
             .unwrap();
@@ -107,11 +107,11 @@ pub async fn vga_workers() -> Result<(), String> {
         .await
         .unwrap();
         assert_eq!(
-            runner.run_cpu(&mut cpu).await,
+            runner.run_cpu().await,
             ExecutionExit::Host(HostExit::Return)
         );
         presented.await.unwrap();
-        drop(cpu);
+        drop(runner);
         drop(vga);
     });
     let display_task = display.run(move || async move {
