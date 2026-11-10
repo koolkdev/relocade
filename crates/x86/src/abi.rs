@@ -42,7 +42,9 @@ pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "i
 /// The host fills the reserved bytes before dispatch; flags remain unchanged.
 pub const FAR_CALL: Function<FarCallSignature> = Function::new("relocade", "farCall");
 
+/// One architectural port read (1, 2 or 4 bytes); the caller consumes the low bits.
 pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
+/// One architectural port write (1, 2 or 4 bytes), with unused value bits zero.
 pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");

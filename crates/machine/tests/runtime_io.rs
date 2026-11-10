@@ -1,3 +1,5 @@
+#[path = "runtime_io/ports.rs"]
+mod ports;
 mod support;
 
 use relocade_machine::{Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory};
