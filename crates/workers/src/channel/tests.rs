@@ -1,7 +1,7 @@
 use super::*;
 use futures_channel::oneshot;
 use futures_util::{
-    future::{select, Either},
+    future::{join, select, Either},
     FutureExt,
 };
 use std::{
@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Poll, Waker},
+    task::Poll,
     time::Duration,
 };
 
@@ -22,7 +22,9 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn receipt_policy() {
     let timers = Rc::new(RefCell::new(Vec::new()));
     let created = timers.clone();
-    let host = Rc::new(HostTurns::new(Waker::noop().clone()).with_timer(
+    let signal = Signal(Arc::default());
+    let (_host, endpoint) = crate::wake_connection(signal.clone());
+    let executor = Executor::new(endpoint.bind(signal)).with_host_timer(
         Duration::from_millis(1),
         move |delay| {
             assert_eq!(delay, Duration::from_millis(1));
@@ -30,54 +32,79 @@ async fn receipt_policy() {
             created.borrow_mut().push(complete);
             async move { completed.await.unwrap() }
         },
-    ));
-    let (sender, mut receiver) = channel::<u32>().unwrap();
-    receiver.host = Some(host.clone());
-    assert!(receiver.recv().now_or_never().is_none());
+    );
+    let (first_sender, first) = channel::<u32>().unwrap();
+    let (second_sender, second) = channel::<u32>().unwrap();
+    let mut first = first.with_executor(&executor);
+    let mut second = second.with_executor(&executor);
+    let (cancel_first, first_cancelled) = oneshot::channel();
+    let (cancel_second, second_cancelled) = oneshot::channel();
+    let (finish, finished) = oneshot::channel();
+    let mut run = Box::pin(executor.run_until(pending::<()>(), async {
+        join(
+            async {
+                assert!(matches!(
+                    select(Box::pin(first.recv()), first_cancelled).await,
+                    Either::Right(_)
+                ));
+            },
+            async {
+                assert!(matches!(
+                    select(Box::pin(second.recv()), second_cancelled).await,
+                    Either::Right(_)
+                ));
+            },
+        )
+        .await;
+        finished.await.unwrap();
+    }));
+    assert!(run.as_mut().now_or_never().is_none());
     assert!(
         timers.borrow().is_empty(),
         "empty channels request no timer"
     );
-    assert_eq!(host.receive(async { 7 }).await, 7);
-    assert!(timers.borrow().is_empty(), "ready objects request no timer");
-
-    // Model a posted object whose Rust state arrives before the host callback.
-    sender.states.unbounded_send(42).unwrap();
-    let mut receive = Box::pin(receiver.recv());
-    assert!(receive.as_mut().now_or_never().is_none());
-    assert_eq!(timers.borrow().len(), 1);
-    assert!(
-        !host.has_waiters(),
-        "guest work continues during the grace interval"
-    );
-    timers.borrow_mut().pop().unwrap().send(()).unwrap();
-    assert!(receive.as_mut().now_or_never().is_none());
-    assert!(host.has_waiters());
-    host.resume();
-    assert!(receive.as_mut().now_or_never().is_none());
+    // Model two posted objects whose Rust state precedes the host callbacks.
+    first_sender.states.unbounded_send(42).unwrap();
+    second_sender.states.unbounded_send(73).unwrap();
+    assert!(run.as_mut().now_or_never().is_none());
     assert_eq!(
         timers.borrow().len(),
         1,
-        "late delivery gets another work interval"
+        "receivers share one grace interval"
     );
-    drop(receive);
-    assert!(timers.borrow_mut().pop().unwrap().is_canceled());
-    assert!(!host.has_waiters());
-
-    let mut receive = Box::pin(receiver.recv());
-    assert!(receive.as_mut().now_or_never().is_none());
     timers.borrow_mut().pop().unwrap().send(()).unwrap();
-    assert!(receive.as_mut().now_or_never().is_none());
-    assert!(host.has_waiters());
-    drop(receive);
-    assert!(
-        !host.has_waiters(),
-        "cancelled receipts do not demand a host turn"
-    );
+    // Delivery remains late after a real host turn; start another shared interval.
+    poll_fn(|cx| {
+        assert!(run.as_mut().poll(cx).is_pending());
+        if timers.borrow().is_empty() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    })
+    .await;
+    assert_eq!(timers.borrow().len(), 1);
 
-    receiver.host = None;
-    sender.payloads.send(()).unwrap();
-    assert_eq!(receiver.recv().await.unwrap().unwrap(), 42);
+    cancel_first.send(()).unwrap();
+    assert!(run.as_mut().now_or_never().is_none());
+    assert_eq!(timers.borrow().len(), 1);
+    assert!(
+        !timers.borrow()[0].is_canceled(),
+        "cancelling one receiver preserves the other's interval"
+    );
+    cancel_second.send(()).unwrap();
+    assert!(run.as_mut().now_or_never().is_none());
+    assert!(timers.borrow_mut().pop().unwrap().is_canceled());
+    assert!(!executor.host.pending.has_pending());
+    finish.send(()).unwrap();
+    assert_eq!(run.await, Some(()));
+
+    first.deliveries = None;
+    second.deliveries = None;
+    first_sender.payloads.send(()).unwrap();
+    second_sender.payloads.send(()).unwrap();
+    assert_eq!(first.recv().await.unwrap().unwrap(), 42);
+    assert_eq!(second.recv().await.unwrap().unwrap(), 73);
 }
 
 #[derive(Clone)]
@@ -137,7 +164,7 @@ async fn stop_during_host_turn() {
         run.await.is_none(),
         "stop must not wait for the missing payload"
     );
-    assert!(!executor.host_turns.has_waiters());
+    assert!(!executor.host.pending.has_pending());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -153,12 +180,12 @@ async fn stopping_during_a_host_turn_drops_the_receipt() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn posted_receipt_waits_between_host_turns_and_cancels_its_timers() {
+fn pending_receivers_share_host_turn_timing_until_the_last_wait_ends() {
     pollster::block_on(receipt_policy());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn posted_receipt_waits_between_host_turns_and_cancels_its_timers() {
+async fn pending_receivers_share_host_turn_timing_until_the_last_wait_ends() {
     receipt_policy().await;
 }
 

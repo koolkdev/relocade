@@ -1,14 +1,15 @@
 //! Polling and parking for a worker's root future.
 
+pub(crate) mod host;
+
 use super::{WakeConnection, WakePeer, WakeTarget};
-use crate::host_turn::HostTurns;
 use futures_timer::Delay;
 use futures_util::task::AtomicWaker;
+use host::HostSchedule;
 use std::{
     cell::Cell,
     future::{poll_fn, Future},
     pin::pin,
-    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -23,7 +24,7 @@ use std::{
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
     wake: Arc<ExecutorWake>,
-    pub(crate) host_turns: Rc<HostTurns>,
+    pub(crate) host: HostSchedule,
 }
 
 impl<R: WakeTarget> Executor<R> {
@@ -39,25 +40,24 @@ impl<R: WakeTarget> Executor<R> {
             runnable: AtomicBool::new(false),
             notified: AtomicBool::new(false),
         });
-        let host_turns = Rc::new(HostTurns::new(Waker::from(wake.clone())));
+        let host = HostSchedule::new(Waker::from(wake.clone()));
         Self {
             connection,
             wake,
-            host_turns,
+            host,
         }
     }
 
     /// Lets runnable work continue for `interval` before each pending delivery turn.
     /// The timer must progress independently of this executor and guest time.
     /// Without a timer, pending posted messages request a host turn immediately.
-    /// Configure before binding receivers with [`crate::Receiver::with_executor`].
+    /// Receivers bound with [`crate::Receiver::with_executor`] share one timer.
     pub fn with_host_timer<F: Future<Output = ()> + 'static>(
         mut self,
         interval: Duration,
         timer: impl Fn(Duration) -> F + 'static,
     ) -> Self {
-        self.host_turns =
-            Rc::new(HostTurns::new(Waker::from(self.wake.clone())).with_timer(interval, timer));
+        self.host.set_timer(interval, timer);
         self
     }
 
@@ -69,6 +69,7 @@ impl<R: WakeTarget> Executor<R> {
         let mut stop = pin!(stop);
         let mut future = pin!(future);
         let waker = Waker::from(self.wake.clone());
+        let mut host = self.host.run();
         loop {
             self.wake.runnable.store(false, Ordering::SeqCst);
             self.wake.notified.store(false, Ordering::SeqCst);
@@ -76,6 +77,7 @@ impl<R: WakeTarget> Executor<R> {
             if stop.as_mut().poll(&mut context).is_ready() {
                 return None;
             }
+            host.poll(&mut context);
             let result = future.as_mut().poll(&mut context);
             // Keep the signal through the whole poll: CPU-first composition
             // must yield before its ready siblings can consume their input.
@@ -89,7 +91,7 @@ impl<R: WakeTarget> Executor<R> {
             if let Poll::Ready(value) = result {
                 return Some(value);
             }
-            if self.host_turns.has_waiters() {
+            if host.take_turn() {
                 // Gate the whole root, including busy device futures, for one
                 // host turn. Guest execution resumes even if delivery is late.
                 let mut turn = pin!(Delay::new(Duration::ZERO));
@@ -109,8 +111,10 @@ impl<R: WakeTarget> Executor<R> {
                 if stopped {
                     return None;
                 }
+                // Arm the next interval before resuming work, even if no
+                // payload arrived during this host turn.
+                continue;
             }
-            self.host_turns.resume();
             if self.wake.runnable.load(Ordering::SeqCst) {
                 continue;
             }

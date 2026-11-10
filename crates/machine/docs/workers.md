@@ -121,8 +121,9 @@ receiver drain accepted messages before returning `None`; dropping the receiver
 closes further sends. Browser object delivery still requires an event-loop turn
 on the receiver. `Receiver::with_executor` lets the worker executor arrange those
 turns after Rust state confirms posting. `Executor::with_host_timer` supplies an
-independent timer and an execution interval before each turn. The channel retains
-message ownership; the executor gates its complete activity set. See
+independent timer and a shared execution interval before each turn. Receivers
+register pending payloads while the executor owns delivery timing and gates its
+complete activity set. The channel retains message ownership. See
 [background compilation](compilation.md) for the Runner integration.
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before

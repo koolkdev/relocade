@@ -20,7 +20,6 @@ pub use web_thread::{Error, Post, Result, SendTask};
 
 mod channel;
 mod executor;
-mod host_turn;
 mod pool;
 mod thread;
 mod transfer;

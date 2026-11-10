@@ -1,6 +1,6 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::{host_turn::HostTurns, Executor, SendTask, Transfer, WakeTarget};
+use crate::{executor::host::PendingDeliveries, Executor, SendTask, Transfer, WakeTarget};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 use std::{fmt, future::Future, rc::Rc};
@@ -40,7 +40,7 @@ pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
     states: mpsc::UnboundedReceiver<T::State>,
     pending: Option<T::State>,
-    host: Option<Rc<HostTurns>>,
+    deliveries: Option<Rc<PendingDeliveries>>,
 }
 
 /// Creates an unbounded channel with one sender and one receiver.
@@ -80,7 +80,7 @@ impl<T: Transfer> ReceiverEndpoint<T> {
             payloads: self.payloads.bind(),
             states: self.states,
             pending: None,
-            host: None,
+            deliveries: None,
         }
     }
 }
@@ -161,7 +161,7 @@ impl<T: Transfer> Receiver<T> {
     /// Poll receives inside its root future. Empty channels and already delivered
     /// payloads request no host turn; cancelling receipt preserves the message.
     pub fn with_executor<R: WakeTarget>(mut self, executor: &Executor<R>) -> Self {
-        self.host = Some(executor.host_turns.clone());
+        self.deliveries = Some(executor.host.pending.clone());
         self
     }
 
@@ -173,11 +173,17 @@ impl<T: Transfer> Receiver<T> {
         if self.pending.is_none() {
             self.pending = Some(self.states.next().await?);
         }
-        let receive = std::future::poll_fn(|cx| self.payloads.poll_recv(cx));
-        let payload = match &self.host {
-            Some(host) => host.receive(receive).await,
-            None => receive.await,
-        };
+        let deliveries = self.deliveries.as_deref();
+        let mut waiting = None;
+        let payload = std::future::poll_fn(|cx| {
+            let payload = self.payloads.poll_recv(cx);
+            if payload.is_pending() && waiting.is_none() {
+                waiting = deliveries.map(PendingDeliveries::register);
+            }
+            payload
+        })
+        .await;
+        drop(waiting);
         let state = self.pending.take().expect("pending message state");
         Some(payload.map(|payload| T::decode(state, payload)))
     }
