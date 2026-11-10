@@ -16,6 +16,13 @@ impl Transfer for Local {
     }
 }
 
+#[derive(Transfer)]
+struct Message<T> {
+    value: T,
+    metadata: Arc<Vec<u8>>,
+    sequence: u32,
+}
+
 async fn rust_state() {
     // Vec is deliberately opaque here: sharing Arc's allocation does not encode
     // or reconstruct its referent.
@@ -23,21 +30,30 @@ async fn rust_state() {
     let expected = data.clone();
     let worker = Thread::new();
     let value = worker
-        .run_resource(data, move |data| async move {
+        .run_resource(data.clone(), move |data| async move {
             assert!(Arc::ptr_eq(&data, &expected));
             data[1]
         })
         .await
         .unwrap();
     assert_eq!(value, 29);
+    let expected = data.clone();
     let value = worker
-        .run_resource(Local(Rc::new(42)), |local| async move {
-            futures_util::future::ready(()).await;
-            *local.0
-        })
+        .run_resource(
+            Message {
+                value: Local(Rc::new(42)),
+                metadata: data,
+                sequence: 7,
+            },
+            move |message| async move {
+                assert!(Arc::ptr_eq(&message.metadata, &expected));
+                futures_util::future::ready(()).await;
+                (*message.value.0, message.sequence)
+            },
+        )
         .await
         .unwrap();
-    assert_eq!(value, 42);
+    assert_eq!(value, (42, 7));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

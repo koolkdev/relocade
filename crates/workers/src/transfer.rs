@@ -1,6 +1,9 @@
 use crate::Post;
 use std::sync::Arc;
 
+mod payload;
+pub use payload::PayloadPair;
+
 /// Defines how a value crosses a worker boundary.
 ///
 /// Rust state moves without serialization. The payload uses the platform's
@@ -10,6 +13,54 @@ use std::sync::Arc;
 ///
 /// Ordinary Rust values use an empty payload. Engine handles define their own
 /// payload behavior in the module that owns them.
+///
+/// Deriving this trait composes every field's implementation. Named, tuple and
+/// unit structs are supported. `Send` alone does not imply `Transfer`; each field
+/// must implement this contract. Shared `Arc` referents need only `Send + Sync`.
+/// Set `#[transfer(crate = path)]` to use a renamed dependency or a re-export.
+///
+/// ```
+/// use relocade_workers::Transfer;
+/// use std::sync::Arc;
+///
+/// #[derive(Transfer)]
+/// struct Message<T> {
+///     value: T,
+///     metadata: Arc<Vec<u8>>,
+/// }
+///
+/// #[derive(Transfer)]
+/// struct Handle<T>(T);
+///
+/// #[derive(Transfer)]
+/// struct Finished;
+///
+/// let (state, payload) = Finished.encode();
+/// let _ = Finished::decode(state, payload);
+/// let (state, payload) = Handle(42_u32).encode();
+/// assert_eq!(Handle::<u32>::decode(state, payload).0, 42);
+/// # trait Configuration { type Data; }
+/// # #[derive(Transfer)]
+/// # struct Associated<C: Configuration> { config: C::Data }
+/// ```
+///
+/// A plain `Send` field still needs its own transfer implementation:
+///
+/// ```compile_fail
+/// use relocade_workers::Transfer;
+/// struct Plain(u32);
+/// #[derive(Transfer)]
+/// struct Message { value: Plain }
+/// ```
+///
+/// Shared Rust allocations must be safe to access from another thread:
+///
+/// ```compile_fail
+/// use relocade_workers::Transfer;
+/// use std::{rc::Rc, sync::Arc};
+/// #[derive(Transfer)]
+/// struct Message { value: Arc<Rc<u32>> }
+/// ```
 pub trait Transfer: Sized + 'static {
     /// Rust data retained without serialization.
     type State: Send + 'static;

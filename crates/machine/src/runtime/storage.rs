@@ -11,8 +11,8 @@ use std::mem::offset_of;
 /// Allocate on the host and retain [`Self::interrupt_handle`] before transferring
 /// this resource to an execution worker. [`Self::into_cpu`] consumes it and creates
 /// the backend on that worker. Neither operation starts guest execution.
-#[derive(crate::worker::WorkerResource)]
-pub struct CpuStorage(#[worker(post)] SharedMemory);
+#[derive(crate::worker::Transfer)]
+pub struct CpuStorage(SharedMemory);
 
 impl CpuStorage {
     pub fn new() -> Result<Self> {

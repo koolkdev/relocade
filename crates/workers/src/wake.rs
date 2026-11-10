@@ -58,6 +58,7 @@ impl<R: WakeTarget> WakeEndpoint<R> {
     /// transport before binding; no registration message or acknowledgement is
     /// needed. A different signal requires a new connection.
     pub fn bind(self, target: R) -> WakeConnection<R> {
+        #[allow(clippy::unit_arg, reason = "native endpoints carry no platform state")]
         let binding = platform::bind(self.binding, target.clone(), self.lifetime.active.clone());
         WakeConnection {
             _lifetime: self.lifetime,
