@@ -35,9 +35,13 @@ impl HostTime {
         match &mut self.mapping {
             Some(mapping) => {
                 let paused = self.paused_at.take().expect("host time was paused");
-                mapping.host = self
-                    .clock
-                    .add(mapping.host, self.clock.duration_since(now, paused));
+                // Both coordinates belong to the host clock. Preserve even a
+                // sub-nanosecond pause without converting it through Duration.
+                mapping.host.0 = mapping
+                    .host
+                    .0
+                    .checked_add(now.0.saturating_sub(paused.0))
+                    .expect("paused host correspondence fits its timeline");
             }
             None => self.mapping = Some(Mapping { host: now, guest }),
         }
@@ -73,7 +77,7 @@ impl HostTime {
         };
         self.guest_timebase.checked_add(
             mapping.guest,
-            self.clock.timebase.duration_since(host_time, mapping.host),
+            self.clock.timebase.duration_until(host_time, mapping.host),
         )
     }
 
@@ -85,7 +89,7 @@ impl HostTime {
         if guest >= mapping.guest {
             self.clock.checked_add(
                 mapping.host,
-                self.guest_timebase.duration_since(guest, mapping.guest),
+                self.guest_timebase.duration_until(guest, mapping.guest),
             )
         } else {
             self.clock.checked_sub(
@@ -101,3 +105,6 @@ impl HostTime {
             .unwrap_or_else(|| Sleep::new(async {}))
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -242,6 +242,41 @@ fn timed_controls_and_pit_writes_are_retained_within_samples() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
+fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
+    use relocade_machine::{GuestTimeDriver, Timestamp};
+    use std::{num::NonZeroU64, pin::pin};
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let clock = driver.clock();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
+    assert!(initial.as_mut().poll(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline());
+    let (io, speaker) = common::hardware(clock.clone());
+    let (samples, output) = async_channel::bounded(1);
+    // One-nanosecond frames expose phase errors without tolerance-based assertions.
+    speaker
+        .borrow_mut()
+        .attach_audio(config(1_000_000_000, 1, 3), samples)
+        .unwrap();
+    io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
+    let mut task = pin!(Speaker::run(speaker));
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+
+    let mut control = pin!(clock.sleep_until(Timestamp::from_ticks(6)));
+    assert!(control.as_mut().poll(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline());
+    // PIT has consumed one nanosecond since initialization: native tick 4.
+    io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(10)));
+    assert!(driver.advance_to_next_deadline());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(output.try_recv().unwrap(), vec![0.0, 0.2, 0.2]);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn full_output_retains_recent_pcm_and_drains_control_changes() {
     let mut playback = Playback::new(config(1_000, 1, 10));
     assert!(playback.poll().is_pending());

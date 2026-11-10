@@ -26,9 +26,8 @@ pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
     timebase: Timebase,
-    instructions_per_second: u64,
-    remainder: u64,
-    // Whole nanoseconds since initialization; retirement retains its remainder.
+    // One retired instruction contributes 1e9 ticks; one nanosecond contributes
+    // the instruction rate. Reading progress requires no time conversion.
     now: Timestamp,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
@@ -46,9 +45,7 @@ struct Binding {
 impl GuestTimeDriver {
     pub fn new(instructions_per_second: NonZeroU64) -> Self {
         Self(Rc::new(RefCell::new(State {
-            timebase: Timebase::NANOSECONDS,
-            instructions_per_second: instructions_per_second.get(),
-            remainder: 0,
+            timebase: Timebase(instructions_per_second),
             now: Timestamp(0),
             cpu: None,
             waits: Vec::new(),
@@ -178,9 +175,7 @@ impl State {
         if let Some(cpu) = &mut self.cpu {
             let instruction_count = cpu.state.instruction_count();
             let retired = instruction_count.wrapping_sub(cpu.last_instruction_count);
-            let scaled = u128::from(retired) * 1_000_000_000 + u128::from(self.remainder);
-            let progress = scaled / u128::from(self.instructions_per_second);
-            self.remainder = (scaled % u128::from(self.instructions_per_second)) as u64;
+            let progress = u128::from(retired) * 1_000_000_000;
             self.now.0 = self
                 .now
                 .0
@@ -201,13 +196,9 @@ impl State {
             .chain(cpu.yield_deadline)
             .min();
         let target = deadline.map(|deadline| {
+            // Round up in native units so execution never stops before a deadline.
             let remaining = deadline.0.saturating_sub(now.0);
-            // Use the same published count and fractional progress for time and
-            // target selection. Reprogramming cannot extend the yield deadline.
-            let scaled = remaining
-                .saturating_mul(u128::from(self.instructions_per_second))
-                .saturating_sub(u128::from(self.remainder));
-            let allowance = scaled.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
+            let allowance = remaining.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
             cpu.last_instruction_count.wrapping_add(allowance)
         });
         cpu.target.set(target);

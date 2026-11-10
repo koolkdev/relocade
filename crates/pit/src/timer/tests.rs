@@ -192,3 +192,36 @@ fn irq0_tracks_output_levels_for_a_level_triggered_pic() {
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(pic.poll_interrupt(&mut cx).is_pending());
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn fractional_initialization_keeps_polling_and_timer_edges_on_the_same_grid() {
+    use relocade_machine::{GuestTimeDriver, Timestamp};
+    use std::num::NonZeroU64;
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let clock = driver.clock();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
+    assert!(initial.as_mut().poll(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline()); // One third of a nanosecond.
+    let pic = Pic::new(8, 0x70);
+    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clone(), &pic)));
+    let mut activity = pin!(Pit::run(timer.clone()));
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    // The default mode-3 counter first falls after 32,768 PIT input clocks.
+    let edge = clock.add(clock.now(), Duration::from_nanos(27_462_701));
+    for (reading, consumed, fraction) in [(2, 1, 0), (3, 1, 0), (4, 4, 1_193_182)] {
+        let mut observation = pin!(clock.sleep_until(Timestamp::from_ticks(reading)));
+        assert!(observation.as_mut().poll(&mut cx).is_pending());
+        assert!(driver.advance_to_next_deadline());
+        timer.borrow_mut().sync_to_clock();
+        let snapshot = timer.borrow().channel2_snapshot();
+        assert_eq!(snapshot.at, Timestamp::from_ticks(consumed));
+        assert_eq!(snapshot.fraction, fraction);
+    }
+    assert_eq!(driver.next_deadline(), Some(edge));
+    assert!(driver.advance_to_next_deadline());
+    timer.borrow_mut().sync_to_clock();
+    assert!(!timer.borrow().channel0.output());
+}

@@ -339,3 +339,32 @@ fn changing_character_width_preserves_the_horizontal_counter_and_partial_dot() {
     clock.advance_to(clock.at(changed_at + dots(5, 25_175_000)));
     assert_eq!(vga.read_port(0x3da, 1), 1);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn native_guest_deadlines_reach_status_edges_through_the_generic_bus() {
+    use relocade_machine::{DeviceConnection, GuestTimeDriver, IoBus, Timestamp};
+    use std::{future::Future, num::NonZeroU64};
+    let driver = GuestTimeDriver::new(NonZeroU64::new(25_175_000).unwrap());
+    let clock = driver.clock();
+    let start = clock.now();
+    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
+    let bus = IoBus::new([DeviceConnection {
+        device: vga,
+        ports: std::iter::once(0x3da..=0x3da).collect(),
+        mmio: vec![],
+    }]);
+    for (count, status) in [(639, 0), (640, 1), (800, 0), (412 * 800, 9), (414 * 800, 1)] {
+        let deadline = clock.add(start, dots(count, 25_175_000));
+        // Service a cold edge one native tick late. The following cached edge
+        // must still occur on the raster's nanosecond grid.
+        let fraction = u128::from(count == 640 || count == 412 * 800);
+        let mut wait = pin!(clock.sleep_until(Timestamp::from_ticks(deadline.ticks() + fraction)));
+        assert!(wait
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending());
+        assert!(driver.advance_to_next_deadline());
+        assert_eq!(bus.read_port(0x3da, 1), status, "dot {count}");
+    }
+}
