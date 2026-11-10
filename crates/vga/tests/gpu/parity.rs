@@ -1,6 +1,6 @@
 use super::software;
 use super::{capture, common, pixel, read_pixels, set_cell, text_device};
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
@@ -109,7 +109,7 @@ async fn check_parity() {
         .write_mmio(TEXT_MEMORY_START + 0x200, 2, 0x0edb); // Visible page: yellow.
     common::crtc(&mut *vga.borrow_mut(), crtc::START_ADDRESS_HIGH, 1);
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let page = source.try_recv().unwrap();
@@ -121,7 +121,7 @@ async fn check_parity() {
             1 | (1 << 5), // Screen off, keeping the eight-dot clock.
         ])),
     );
-    clock.advance_to(clock_origin() + common::boundary(2));
+    clock.advance_to(clock.at(common::boundary(2)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let blanked = source.try_recv().unwrap();
@@ -235,7 +235,7 @@ async fn check_published_updates() {
     let source = vga.borrow().frames();
     common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let first = source.try_recv().unwrap();
@@ -243,7 +243,7 @@ async fn check_published_updates() {
     assert_eq!(pixel(&pixels, 0, 0), [170, 0, 0, 255]);
 
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 1);
-    clock.advance_to(clock_origin() + common::boundary(2));
+    clock.advance_to(clock.at(common::boundary(2)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let pixels = compare(&mut renderer, &device, &queue, source.try_recv().unwrap()).await;
@@ -266,11 +266,11 @@ async fn check_published_updates() {
     ] {
         vga.borrow_mut().write_port(port, 2, value);
     }
-    clock.advance_to(clock_origin() + common::boundary(3));
+    clock.advance_to(clock.at(common::boundary(3)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1); // The renderer skips this font change.
     common::service_video(video.as_mut());
     set_cell(&mut *vga.borrow_mut(), 1, 0xdb, 2);
-    clock.advance_to(clock_origin() + common::boundary(4));
+    clock.advance_to(clock.at(common::boundary(4)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let newest = source.try_recv().unwrap();

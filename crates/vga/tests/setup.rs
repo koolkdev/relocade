@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, poll_video};
 use relocade_machine::Device;
@@ -105,17 +105,17 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     let source = vga.borrow().frames();
     let mut video = std::pin::pin!(Vga::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     poll_video(video.as_mut(), &mut cx);
     let first = source.try_recv().unwrap();
     let registers = vga.borrow().registers().clone();
     vga.borrow_mut().write_port(0x46e8, 1, 0);
-    clock.advance_to(clock_origin() + boundary(2));
+    clock.advance_to(clock.at(boundary(2)));
     poll_video(video.as_mut(), &mut cx);
     assert!(source.is_empty());
 
     // Blink and capture timing keep running while CPU access is blocked.
-    clock.advance_to(clock_origin() + boundary(16));
+    clock.advance_to(clock.at(boundary(16)));
     poll_video(video.as_mut(), &mut cx);
     let blinking = source.try_recv().unwrap();
 

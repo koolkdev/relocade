@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
@@ -105,7 +105,7 @@ async fn connected_mouse_and_keyboard() {
             for _ in 0..4 {
                 relocade_machine::yield_now().await;
             }
-            clock.advance_to(clock_origin() + Duration::from_millis(10));
+            clock.advance_to(clock.at(Duration::from_millis(10)));
             for (packet, key) in [([9, 2, 3], 0x1e), ([8, 0, 0], 0x9e)] {
                 let mut mouse = Vec::new();
                 let mut keyboard = Vec::new();
@@ -130,7 +130,7 @@ async fn connected_mouse_and_keyboard() {
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                clock.advance_to(clock_origin() + Duration::from_millis(20));
+                clock.advance_to(clock.at(Duration::from_millis(20)));
             }
             assert_eq!(
                 io.poll_interrupt(&mut Context::from_waker(Waker::noop())),

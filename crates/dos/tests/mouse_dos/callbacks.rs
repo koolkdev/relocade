@@ -1,5 +1,4 @@
 use super::*;
-use relocade_clock_test_support::origin as clock_origin;
 use relocade_frontend::input::InputEvent;
 
 async fn install(dos: &mut Dos) -> u32 {
@@ -59,7 +58,7 @@ fn callbacks_use_registers_nest_guest_services_and_are_retired_on_process_exit()
         for _ in 0..4 {
             relocade_machine::yield_now().await;
         }
-        clock.advance_to(clock_origin() + Duration::from_millis(10));
+        clock.advance_to(clock.at(Duration::from_millis(10)));
         for _ in 0..64 {
             common::run_until(dos.cpu(), 0x102).await;
             if memory.view().read_u16(base + 0x50c).unwrap() == 1 {

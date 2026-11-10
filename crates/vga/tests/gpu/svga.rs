@@ -1,6 +1,6 @@
 use super::{common, pixel, read_pixels};
 use common::support::{planar16, registers::palette, svga};
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
 use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
@@ -250,7 +250,7 @@ async fn check_published_display() {
     let source = vga.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
-    clock.advance_to(clock_origin() + entered);
+    clock.advance_to(clock.at(entered));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
@@ -263,16 +263,16 @@ async fn check_published_display() {
     palette(&mut *vga.borrow_mut(), 6, [42, 21, 0]);
     svga::write_byte(&mut *vga.borrow_mut(), 0, 4);
     svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 1);
-    clock.advance_to(clock_origin() + entered + common::svga_boundary(1));
+    clock.advance_to(clock.at(entered + common::svga_boundary(1)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     // Let two more publications pass without display service or GPU work.
     svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 5);
-    clock.advance_to(clock_origin() + entered + common::svga_boundary(2));
+    clock.advance_to(clock.at(entered + common::svga_boundary(2)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     svga::write_byte(&mut *vga.borrow_mut(), 307199, 6);
-    clock.advance_to(clock_origin() + entered + common::svga_boundary(3));
+    clock.advance_to(clock.at(entered + common::svga_boundary(3)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
 

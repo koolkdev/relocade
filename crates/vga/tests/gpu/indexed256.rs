@@ -6,7 +6,7 @@ use common::support::{
     indexed256::program,
     registers::{attribute, indexed, palette},
 };
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::Vga;
 
@@ -32,7 +32,7 @@ async fn check_full_frame() {
         }
     }
     let source = vga.borrow().frames();
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let first = source.try_recv().unwrap();
@@ -46,7 +46,7 @@ async fn check_full_frame() {
         vga.borrow_mut()
             .write_mmio(0xa0000 + offset as u32, 1, u64::from(indices[offset]));
     }
-    clock.advance_to(clock_origin() + common::boundary(2));
+    clock.advance_to(clock.at(common::boundary(2)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let changed = source.try_recv().unwrap();
@@ -55,11 +55,11 @@ async fn check_full_frame() {
 
     vga.borrow_mut().write_mmio(0xa0000 + 40000, 1, 0xe7);
     indices[40000] = 0xe7;
-    clock.advance_to(clock_origin() + common::boundary(3));
+    clock.advance_to(clock.at(common::boundary(3)));
     vga.borrow_mut().read_port(0x3da, 1); // Skip this capture's pixel change.
     common::service_video(video.as_mut());
     palette(&mut *vga.borrow_mut(), 0xe7, [63, 63, 63]);
-    clock.advance_to(clock_origin() + common::boundary(4));
+    clock.advance_to(clock.at(common::boundary(4)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let newest = source.try_recv().unwrap();
@@ -101,7 +101,7 @@ async fn check_addressing() {
     let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     common::crtc(&mut vga, 13, 1);
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     for offset in 0..256 {
@@ -153,7 +153,7 @@ async fn check_addressing() {
     for (index, value) in [(9, 1), (0x12, 1), (12, 0x3f), (13, 0xff)] {
         common::crtc(&mut vga, index, value);
     }
-    clock.advance_to(clock_origin() + std::time::Duration::from_secs(1));
+    clock.advance_to(clock.at(std::time::Duration::from_secs(1)));
     vga.read_port(0x3da, 1);
     let wrapped = vga.snapshot();
     gpu.expect(&wrapped, [8, 1], &pixels([252, 253, 254, 255, 0, 1, 2, 3]))

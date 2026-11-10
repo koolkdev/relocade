@@ -12,6 +12,7 @@ use std::{
 pub struct ManualClock(Arc<Mutex<State>>);
 
 struct State {
+    origin: Instant,
     now: Instant,
     waits: Vec<Wait>,
 }
@@ -28,6 +29,15 @@ impl ManualClock {
 
     pub fn clock(&self) -> Clock {
         Clock::new(self.clone())
+    }
+
+    /// Position a fixed duration after this controlled clock's start.
+    pub fn at(&self, duration: Duration) -> Instant {
+        self.0.lock().unwrap().origin + duration
+    }
+
+    pub fn elapsed(&self, time: Instant) -> Duration {
+        time.saturating_duration_since(self.0.lock().unwrap().origin)
     }
 
     pub fn advance_by(&self, duration: Duration) {
@@ -96,15 +106,11 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
+        let origin = Instant::now();
         Self {
-            now: origin(),
+            origin,
+            now: origin,
             waits: Vec::new(),
         }
     }
-}
-
-/// Shared monotonic anchor for deterministic test fixtures in this process.
-pub fn origin() -> Instant {
-    static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-    *ORIGIN.get_or_init(Instant::now)
 }

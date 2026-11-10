@@ -1,6 +1,6 @@
 use super::super::*;
 use futures_util::future::LocalBoxFuture;
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::KeyboardEvent;
 use std::{
@@ -145,7 +145,7 @@ impl Fixture {
     }
 
     pub fn advance(&mut self, now: Duration) {
-        self.clock.advance_to(clock_origin() + now);
+        self.clock.advance_to(self.clock.at(now));
         self.settle();
     }
 }

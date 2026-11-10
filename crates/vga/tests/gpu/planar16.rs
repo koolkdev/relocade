@@ -6,7 +6,7 @@ use common::support::{
     planar16::{program, write_pixels},
     registers::{attribute, indexed},
 };
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
 use relocade_vga::Vga;
 
@@ -20,7 +20,7 @@ async fn check_pixels() {
         .flat_map(|y| (0..640).map(move |x| ((x ^ (x / 16) ^ (y * 3)) & 15) as u8))
         .collect();
     write_pixels(&mut *vga.borrow_mut(), &indices);
-    clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000)); // 640×480 retrace.
+    clock.advance_to(clock.at(common::dots(490 * 800, 25_175_000))); // 640×480 retrace.
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let source = vga.borrow().frames();
@@ -35,7 +35,7 @@ async fn check_pixels() {
     vga.borrow_mut().read_mmio(0xa0000 + 12345, 1);
     vga.borrow_mut().write_mmio(0xa0000 + 12345, 1, 3);
     indices[12345 * 8 + 2] = 3;
-    clock.advance_to(clock_origin() + common::dots((490 + 525) * 800, 25_175_000));
+    clock.advance_to(clock.at(common::dots((490 + 525) * 800, 25_175_000)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     gpu.expect(
@@ -72,7 +72,7 @@ async fn check_addressing() {
     let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     indexed(&mut vga, 0x3d4, 13, 1);
-    clock.advance_to(clock_origin() + common::dots(490 * 800, 25_175_000));
+    clock.advance_to(clock.at(common::dots(490 * 800, 25_175_000)));
     vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     // A 16-pixel window into rows with a 32-pixel stride; two scanlines per row.

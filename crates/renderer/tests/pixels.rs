@@ -294,7 +294,6 @@ async fn check_shared_output(device: &wgpu::Device, queue: &wgpu::Queue) {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_clock_test_support::origin as clock_origin;
     use relocade_machine::Device;
     use relocade_vga::{Vga, TEXT_MEMORY_START};
     use std::time::Duration;
@@ -308,7 +307,7 @@ async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
     for value in [0x070e, 0xcf0f, 0x060a, 0x070b] {
         vga.write_port(0x3d4, 2, value);
     }
-    clock.advance_to(clock_origin() + Duration::from_millis(20));
+    clock.advance_to(clock.at(Duration::from_millis(20)));
     vga.read_port(0x3da, 1);
     let frame = software::rasterize(&vga.snapshot());
     let size = [frame.width, frame.height];

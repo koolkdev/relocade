@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod common;
 
 use common::boundary;
@@ -99,17 +99,17 @@ fn newest_capture_contains_changes_from_skipped_frames() {
     let source = vga.borrow().frames();
     font_access(&mut *vga.borrow_mut());
     vga.borrow_mut().write_mmio(0xa0100, 1, 0x12);
-    clock.advance_to(clock_origin() + boundary(1));
+    clock.advance_to(clock.at(boundary(1)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let first = source.try_recv().unwrap();
     vga.borrow_mut().write_mmio(0xa0200, 1, 0x34);
-    clock.advance_to(clock_origin() + boundary(2));
+    clock.advance_to(clock.at(boundary(2)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let second = vga.borrow().snapshot(); // Retain state without consuming the queue.
     vga.borrow_mut().write_mmio(0xa0300, 1, 0x56);
-    clock.advance_to(clock_origin() + boundary(3));
+    clock.advance_to(clock.at(boundary(3)));
     vga.borrow_mut().read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let newest = source.try_recv().unwrap();
