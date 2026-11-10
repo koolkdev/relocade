@@ -22,7 +22,7 @@ impl<'cpu> Interrupts<'cpu> {
             cpu.suspended.is_empty(),
             "host calls are parked; complete or abandon them before registering interrupts"
         );
-        cpu.machine_mut();
+        cpu.instance_mut();
         Self {
             cpu,
             hooks: Vec::new(),
@@ -112,7 +112,7 @@ impl<'cpu> Interrupts<'cpu> {
         }
 
         let cpu = self.cpu.cpu_state();
-        let memory = memory.with_io(self.cpu.machine.io.clone());
+        let memory = memory.with_io(self.cpu.instance.io.clone());
         let guest_calls = self.cpu.guest_calls.clone();
         self.hooks
             .extend(hook(entry.address(), cpu.clone(), async move || {

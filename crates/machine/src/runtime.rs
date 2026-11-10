@@ -7,7 +7,7 @@
 //! for native and web engines. [`Cpu::run`] awaits host operations
 //! between synchronous Wasm calls.
 //!
-//! The driver owns the machine directly and alternates guest calls with polling
+//! The driver owns the CPU instance directly and alternates guest calls with polling
 //! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
 //! application resources at registration. Access copies values without acquiring
 //! the backend or binding a temporary view. Pending futures retain their locals
@@ -46,9 +46,9 @@ mod execution;
 mod execution_interrupt;
 mod guest;
 mod hooks;
+mod instance;
 mod instruction_target;
 mod io;
-mod machine;
 mod memory;
 pub mod real_mode_interrupt;
 mod storage;
@@ -63,19 +63,19 @@ pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
+use instance::CpuInstance;
 pub use instruction_target::InstructionTarget;
-use machine::Machine;
 use memory::RuntimeMemory;
 pub use storage::CpuStorage;
 
 type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
-/// Executes one guest and owns its machine, registered services and suspended calls.
+/// Executes one guest and owns its execution instance, registered services and suspended calls.
 pub struct Cpu {
     pending: Option<Call>,
     suspended: Vec<SuspendedCall>,
     guest_calls: GuestCalls,
-    machine: Machine,
+    instance: CpuInstance,
     exit: ExitHandle,
     instruction_target: InstructionTarget,
     halted: bool,
@@ -95,14 +95,14 @@ impl Cpu {
         memory: Memory,
         cpu: CpuConfig,
         io: IoBus,
-        storage: CpuStorage,
+        storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
         let host_imports = io::imports(&mut backend);
         let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
         let instruction_target = InstructionTarget::new(&bindings);
-        let machine = Machine {
+        let instance = CpuInstance {
             backend,
             bindings,
             io,
@@ -112,7 +112,7 @@ impl Cpu {
             pending: None,
             suspended: Vec::new(),
             guest_calls: GuestCalls::default(),
-            machine,
+            instance,
             exit: ExitHandle::new(),
             instruction_target,
             halted: false,
@@ -143,10 +143,10 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        let machine = self.machine_mut();
-        machine
+        let instance = self.instance_mut();
+        instance
             .dispatch
-            .install_module(&mut machine.backend, &machine.bindings, bytes, entries)
+            .install_module(&mut instance.backend, &instance.bindings, bytes, entries)
             .await
     }
 
@@ -169,47 +169,47 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        let machine = self.machine_mut();
-        machine
+        let instance = self.instance_mut();
+        instance
             .dispatch
-            .install(&mut machine.backend, &machine.bindings, hooks)
+            .install(&mut instance.backend, &instance.bindings, hooks)
             .await
     }
 
-    /// Borrows the stopped machine. The context and its views must end before
+    /// Borrows the stopped CPU and its mapped resources. The context and its views must end before
     /// running or installing modules. Available while guest ISR execution is
     /// stopped with outer calls parked, but not while a host call is pending.
     ///
     /// # Panics
     /// Panics if a host call is pending. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_> {
-        self.machine_mut().context()
+        self.instance_mut().context()
     }
 
-    fn machine_mut(&mut self) -> &mut Machine {
+    fn instance_mut(&mut self) -> &mut CpuInstance {
         assert!(
             self.pending.is_none(),
-            "host call is pending; complete it before accessing the machine"
+            "host call is pending; complete it before accessing the instance"
         );
-        &mut self.machine
+        &mut self.instance
     }
 
     /// Retains live CPU state independently of the runner and its backend.
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
-        self.machine.bindings.cpu.clone()
+        self.instance.bindings.cpu.clone()
     }
 
     /// Retains the execution interrupt signal, independently of CPU access.
     /// Requests cause `ExecutionExit::Interrupted` at a guest checkpoint; they do
     /// not wake a pending service. The embedding owns acknowledgement and work.
     pub fn interrupt_handle(&self) -> ExecutionInterrupt {
-        self.machine.bindings.interrupt.clone()
+        self.instance.bindings.interrupt.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
     /// Clones share guest bytes; dispatch storage remains private.
     pub fn memory(&self) -> Memory {
-        self.machine.bindings.guest.clone()
+        self.instance.bindings.guest.clone()
     }
 }

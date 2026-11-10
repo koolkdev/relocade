@@ -30,10 +30,20 @@ impl CpuStorage {
     /// Constructs the execution backend over this storage and existing guest RAM.
     /// CPU initialization preserves any concurrent execution-interrupt request.
     pub async fn into_cpu(self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
-        Cpu::with_storage(memory, config, io, self).await
+        self.initialize(&config);
+        self.into_initialized_cpu(memory, config, io).await
     }
 
-    pub(super) fn initialize(self, config: &CpuConfig) -> SharedMemory {
+    pub(crate) async fn into_initialized_cpu(
+        self,
+        memory: Memory,
+        config: CpuConfig,
+        io: IoBus,
+    ) -> Result<Cpu> {
+        Cpu::with_storage(memory, config, io, self.0).await
+    }
+
+    pub(crate) fn initialize(&self, config: &CpuConfig) -> SharedMemory {
         let initial = ExecutionContext {
             cpu: *config.cpu(),
             cpu_model: config.execution_target().cpu_model,
@@ -44,6 +54,6 @@ impl CpuStorage {
         // this initialization range and may already be written by another thread.
         let end = offset_of!(ExecutionContext, interrupt_requested);
         self.0.write(0, &initial[..end]);
-        self.0
+        self.0.clone()
     }
 }

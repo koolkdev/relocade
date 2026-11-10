@@ -1,6 +1,6 @@
 //! Constructs guest entry frames for interrupts and far calls.
 
-use crate::{runtime::Machine, FarPointer};
+use crate::{runtime::CpuInstance, FarPointer};
 use relocade_x86::{ExecutionExit, Segment};
 
 pub(in crate::runtime) enum GuestCall {
@@ -13,11 +13,11 @@ pub(in crate::runtime) enum GuestCall {
 
 impl GuestCall {
     /// Builds the complete entry frame before the driver dispatches guest code.
-    pub(super) fn enter(&self, machine: &mut Machine) -> Result<(), ExecutionExit> {
+    pub(super) fn enter(&self, instance: &mut CpuInstance) -> Result<(), ExecutionExit> {
         match self {
-            Self::Interrupt(vector) => match machine
+            Self::Interrupt(vector) => match instance
                 .dispatch
-                .enter_interrupt(&mut machine.backend, *vector)
+                .enter_interrupt(&mut instance.backend, *vector)
             {
                 ExecutionExit::InterruptEntered => Ok(()),
                 exit => Err(exit),
@@ -25,15 +25,15 @@ impl GuestCall {
             Self::Far { target, arguments } => {
                 let stack_bytes = size_of_val(arguments.as_ref()) as u16;
                 let exit =
-                    machine
+                    instance
                         .dispatch
-                        .enter_far_call(&mut machine.backend, *target, stack_bytes);
+                        .enter_far_call(&mut instance.backend, *target, stack_bytes);
                 if exit != ExecutionExit::FarCallEntered {
                     return Err(exit);
                 }
                 // Entry checked the entire frame. Fill its reserved words in
                 // push order through the guest map before any guest code runs.
-                let mut call = machine.context();
+                let mut call = instance.context();
                 let stack = call.cpu.segment(Segment::Ss);
                 let mut offset =
                     u32::from(call.cpu.sp()) + FarPointer::BYTE_LEN as u32 + u32::from(stack_bytes);

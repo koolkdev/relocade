@@ -27,6 +27,24 @@ completion against another event while retaining the owner. Dropping that wait
 does not cancel the task; consume its completed result only once.
 Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
 
+For CPUs owned by one machine, prepare state before choosing a worker:
+
+```rust,ignore
+let mut machine = Machine::new(machine_config)?;
+let cpu = machine.create_cpu(cpu_config)?;
+machine.cpus()[0].set_ax(42);
+let worker = Worker::spawn_with(cpu, run_cpu);
+let result = worker.join().await?;
+let registers = machine.cpus()[0].snapshot();
+```
+
+`Machine` retains shared memory and CPU state. `CpuHandle` is a single-use execution
+capability; its derived `Transfer` carries initialized storage, memory and
+configuration together. The receiving task constructs its backend with
+`cpu.into_cpu(io).await`, preserving register edits made before transfer.
+Host state access requires a stopped boundary, such as before transfer or after
+joining execution. A state handle alone cannot construct another backend.
+
 For lower-level task submission, `Thread::run` invokes a factory on the thread,
 while `Thread::listen` gives it a local `Receiver<T>`. Pass the memory handle
 directly and construct the CPU inside a named task:

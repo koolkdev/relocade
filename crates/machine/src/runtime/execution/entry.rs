@@ -13,14 +13,14 @@ impl Cpu {
         }
         let invocation = self.guest_calls.take();
         let entry = if let Some(call) = &invocation {
-            call.target.enter(&mut self.machine)
+            call.target.enter(&mut self.instance)
         } else {
             let Poll::Ready(vector) = self.poll_irq(cx)? else {
                 return Ok(false);
             };
             // Interrupt recognition ends HLT even if entering the ISR faults.
             self.halted = false;
-            GuestCall::Interrupt(vector).enter(&mut self.machine)
+            GuestCall::Interrupt(vector).enter(&mut self.instance)
         };
         // Frame writes and IVT reads may also request an exit. Observe it before
         // parking a call or executing the ISR, even when IRQ entry faults.
@@ -45,14 +45,14 @@ impl Cpu {
     }
 
     fn poll_irq(&self, cx: &mut Context<'_>) -> Result<Poll<u8>, ExecutionExit> {
-        let cpu = &self.machine.bindings.cpu;
-        if self.machine.io.is_empty()
+        let cpu = &self.instance.bindings.cpu;
+        if self.instance.io.is_empty()
             || cpu.execution_target().profile != ExecutionProfile::Real16
             || !cpu.interrupts_enabled()
         {
             return Ok(Poll::Pending);
         }
-        let vector = self.machine.io.poll_interrupt(cx);
+        let vector = self.instance.io.poll_interrupt(cx);
         // Device callbacks may request an exit even without an eligible IRQ.
         if let Some(exit) = self.exit.0.get() {
             return Err(exit);

@@ -14,7 +14,9 @@ use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMe
 /// use this resource at stopped host boundaries. [`Self::instruction_count`] also
 /// permits approximate progress observations from synchronous device callbacks.
 /// Clones share state and remain usable after the runner is dropped.
-/// The handle stays on the execution thread even when its backing supports sharing.
+/// A handle stays on its creating thread even when its backing supports sharing.
+/// Host handles require a stopped guest boundary, such as before worker startup
+/// or after joining it; they do not synchronize concurrent guest execution.
 ///
 /// ```compile_fail
 /// use relocade_machine::CpuStateAccess;

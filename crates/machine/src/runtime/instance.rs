@@ -4,14 +4,14 @@ use super::{Backend, CpuContext, Dispatch, RuntimeMemory};
 use crate::IoBus;
 use relocade_x86::ExecutionExit;
 
-pub(super) struct Machine {
+pub(super) struct CpuInstance {
     pub backend: Backend,
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
 }
 
-impl Machine {
+impl CpuInstance {
     pub fn context(&mut self) -> CpuContext<'_> {
         CpuContext {
             cpu: &self.bindings.cpu,

@@ -1,5 +1,9 @@
 //! Machine configuration, live state access and asynchronous guest execution.
 //!
+//! [`Machine`] creates shared memory and CPU state before execution starts.
+//! Each [`CpuHandle`] can be moved to one worker to construct its local [`Cpu`]
+//! backend. The machine retains state for inspection after that worker joins.
+//!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
 //! size and the fixed physical map. [`CpuStateAccess`] and [`Memory`] retain live
 //! resources independently of the runner. Host services capture them once and use
@@ -40,6 +44,7 @@ mod clock;
 mod config;
 mod cpu;
 mod io;
+mod machine;
 mod memory;
 mod runner;
 pub mod runtime;
@@ -51,6 +56,7 @@ pub use clock::{
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{Device, DeviceConnection, IoBus};
+pub use machine::{CpuHandle, Machine};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
 pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner};
