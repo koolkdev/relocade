@@ -88,6 +88,7 @@ async fn captured_deadline() {
         assert_eq!(worker.join().await.unwrap(), Some(()));
         assert_eq!(host.clock().now(), host_time.at(Duration::from_millis(9)));
         assert_eq!(host.next_deadline(), None);
+        machine.shutdown().await.unwrap();
     }
 }
 
@@ -172,6 +173,7 @@ async fn retained_sync_across_runs() {
     resume.send(()).unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
     assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
 }
 
 async fn clocks_without_host_mapping() {
@@ -273,6 +275,7 @@ async fn local_output_sync() {
         None,
         "elapsed waits must not register a timer"
     );
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

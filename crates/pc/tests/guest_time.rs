@@ -74,6 +74,7 @@ async fn pit_interrupts() {
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -182,6 +183,7 @@ async fn keyboard_after_overdue_pit() {
     assert!(elapsed >= Duration::from_millis(7));
     assert!(elapsed < Duration::from_millis(8));
     assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

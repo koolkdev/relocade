@@ -145,6 +145,7 @@ async fn check_devices() {
         !active.load(Ordering::SeqCst),
         "main completion drops device activities"
     );
+    machine.shutdown().await.unwrap();
 
     let worker_active = active.clone();
     let (ready, started) = oneshot::channel();
@@ -175,6 +176,7 @@ async fn check_devices() {
         !active.load(Ordering::SeqCst),
         "cancellation drops device activities"
     );
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

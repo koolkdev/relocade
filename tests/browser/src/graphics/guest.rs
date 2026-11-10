@@ -15,6 +15,7 @@ use std::{
 
 // Shared guest workload for the explicitly assembled software and GPU workers.
 pub(super) struct Guest {
+    pub machine: relocade_machine::Machine,
     pub execution: ExecutionWorker<()>,
     pub source: async_channel::Receiver<DisplaySnapshot>,
     pub retraces: async_channel::Receiver<()>,
@@ -89,6 +90,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
 
     let source = source.await.unwrap();
     Guest {
+        machine,
         execution,
         source,
         retraces,

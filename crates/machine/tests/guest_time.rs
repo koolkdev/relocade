@@ -100,6 +100,7 @@ async fn progress() {
     });
     let execution = execution.await;
     assert_eq!(execution.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

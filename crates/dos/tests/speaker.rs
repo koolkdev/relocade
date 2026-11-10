@@ -48,4 +48,5 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
         },
     ));
     assert_eq!(result.unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }

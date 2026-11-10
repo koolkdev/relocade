@@ -40,6 +40,7 @@ pub struct Runner {
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     cpu: Cpu,
+    compiler: Option<crate::CompilerClient>,
 }
 
 impl Runner {
@@ -61,13 +62,15 @@ impl Runner {
     ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
         let executor = Rc::new(Executor::new(endpoint.bind(cpu.interrupt_handle())));
-        let cpu = cpu.into_cpu(IoBus::default()).await?;
+        let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
+        let compiler = compiler.connect(executor.peer())?;
         Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
             executor,
             cpu,
+            compiler: Some(compiler),
         })
     }
 
@@ -90,6 +93,12 @@ impl Runner {
     /// The borrow must end before calling [`Self::run_cpu`].
     pub fn cpu(&mut self) -> &mut Cpu {
         &mut self.cpu
+    }
+
+    /// Takes this CPU's compiler connection once. Returns `None` if already taken.
+    /// The session receives ordered results through this single owner.
+    pub fn take_compiler(&mut self) -> Option<crate::CompilerClient> {
+        self.compiler.take()
     }
 
     pub fn clock(&self) -> &Clock {
@@ -163,7 +172,7 @@ impl Runner {
 
     /// Runs until the guest exits, polling ready Rust work on execution interrupts.
     /// Pending services retain their futures while awaiting input or guest resumption.
-    /// Poll within [`Self::run`], which drives the session's scheduling and devices.
+    /// Poll within [`Self::run`], which drives scheduling and background activities.
     pub async fn run_cpu(&mut self) -> ExecutionExit {
         let cpu = &mut self.cpu;
         let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;

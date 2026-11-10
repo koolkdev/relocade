@@ -93,6 +93,7 @@ async fn callback_wakes_execution() {
     audio.play().unwrap();
     assert_eq!(timeout(worker.join()).await.unwrap(), Some(()));
     drop(audio);
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

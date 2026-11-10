@@ -26,6 +26,7 @@ fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
         },
     );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 async fn wait_status(io: &IoBus, flag: u8, set: bool) {

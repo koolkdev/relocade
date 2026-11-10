@@ -18,9 +18,16 @@ pub fn run() -> Result<(), String> {
         let mut app_result = Ok(());
         let mut machine = relocade_machine::Machine::new(relocade_dos::configuration::memory())
             .map_err(|error| error.to_string())?;
-        let cpu = machine
-            .create_cpu(relocade_dos::configuration::cpu())
-            .map_err(|error| error.to_string())?;
+        let cpu = match machine.create_cpu(relocade_dos::configuration::cpu()) {
+            Ok(cpu) => cpu,
+            Err(error) => {
+                machine
+                    .shutdown()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                return Err(error.to_string());
+            }
+        };
         let execution = cpu.run_until(
             async {
                 app_result = or(closing, async {
@@ -60,7 +67,10 @@ pub fn run() -> Result<(), String> {
                 Ok(())
             },
         );
-        let execution = execution.await.map_err(|error| error.to_string())?;
+        let execution = execution.await;
+        let shutdown = machine.shutdown().await;
+        let execution = execution.map_err(|error| error.to_string())?;
+        shutdown.map_err(|error| error.to_string())?;
         execution.unwrap_or(app_result)
     })
 }

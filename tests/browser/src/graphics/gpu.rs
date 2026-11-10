@@ -23,6 +23,7 @@ pub async fn gpu_workers() -> Result<(), String> {
     let (clock, timers) = timer_service();
     let app = async move {
         let guest::Guest {
+            machine,
             execution,
             source,
             retraces,
@@ -168,6 +169,10 @@ pub async fn gpu_workers() -> Result<(), String> {
 
         // Capture closure does not terminate the separately owned GPU resources.
         assert_eq!(execution.stop().await.map_err(|e| e.to_string())?, None);
+        machine
+            .shutdown()
+            .await
+            .map_err(|error| error.to_string())?;
         source_closed.await.unwrap();
         assert!(source.is_closed());
         let mut last_decode_count = None;

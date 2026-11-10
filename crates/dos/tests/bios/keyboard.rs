@@ -280,7 +280,7 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
     pollster::block_on(async {
         let (clock, timers) = timer_service();
         let timer_thread = std::thread::spawn(|| pollster::block_on(timers.run()));
-        let (runner, _host) = common::runner(clock.into()).await;
+        let (runner, _host, machine) = common::runner(clock.into()).await;
         let (ready, mut prepared) = futures_channel::oneshot::channel();
         let running = runner.run(std::future::pending::<()>(), async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -324,5 +324,6 @@ fn host_events_reach_pending_bios_and_dos_reads_through_the_runner() {
         .unwrap();
         assert_eq!(running.await, Some(()));
         timer_thread.join().unwrap();
+        machine.shutdown().await.unwrap();
     });
 }

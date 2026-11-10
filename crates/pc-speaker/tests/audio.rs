@@ -102,6 +102,7 @@ async fn exercise_audio_device() {
         "session shutdown drops the device's sender"
     );
     timeout(timers.join()).await.unwrap();
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

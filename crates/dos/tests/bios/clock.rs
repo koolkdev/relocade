@@ -183,6 +183,7 @@ fn timer_advances_the_clock_during_guest_execution() {
             assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
             clock.advance_to(clock.at(period));
             assert_eq!(worker.join().await.unwrap(), Some(1));
+            machine.shutdown().await.unwrap();
         }
     });
 }
@@ -197,7 +198,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             (0x21, 0x3f00, 2, &b"A\r"[..], &b"A\r\n"[..]),
         ] {
             let clock = ManualClock::default();
-            let (runner, _host) = common::runner(clock.clock()).await;
+            let (runner, _host, machine) = common::runner(clock.clock()).await;
             let (ready, mut prepared) = futures_channel::oneshot::channel();
             let execution = runner.run(std::future::pending::<()>(), async |runner| {
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
@@ -316,6 +317,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
                 }));
             }
             assert_eq!(execution.await, Some(()));
+            machine.shutdown().await.unwrap();
         }
     });
 }

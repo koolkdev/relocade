@@ -3,10 +3,10 @@ use crate::{CpuConfig, Error, Machine, MachineConfig};
 use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
 
-fn cpu() -> CpuHandle {
+fn cpu() -> (Machine, CpuHandle) {
     let mut machine =
         Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
-    machine
+    let cpu = machine
         .create_cpu(
             CpuConfig::new(
                 Compiler::new(ExecutionProfile::Real16).target(),
@@ -17,12 +17,14 @@ fn cpu() -> CpuHandle {
             )
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    (machine, cpu)
 }
 
 async fn failed_startup() {
+    let (machine, cpu) = cpu();
     let worker = ExecutionWorker::<()>::spawn(
-        cpu(),
+        cpu,
         async |_, _| Err(relocade_wasm_runtime::Error::new("construct CPU", "failed").into()),
         async |_| panic!("failed construction must not start the session"),
     );
@@ -30,6 +32,7 @@ async fn failed_startup() {
         Error::Wasm(error) => assert_eq!(error.to_string(), "construct CPU: failed"),
         error => panic!("unexpected startup error: {error}"),
     }
+    machine.shutdown().await.unwrap();
 }
 
 struct Dropped(Option<oneshot::Sender<()>>);
@@ -41,10 +44,11 @@ impl Drop for Dropped {
 }
 
 async fn stopped_startup() {
+    let (machine, cpu) = cpu();
     let (entered, started) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
     let worker = ExecutionWorker::<()>::spawn(
-        cpu(),
+        cpu,
         async move |_, _| {
             let _cleanup = Dropped(Some(cleanup));
             entered.send(()).unwrap();
@@ -55,6 +59,7 @@ async fn stopped_startup() {
     started.await.unwrap();
     assert_eq!(worker.stop().await.unwrap(), None);
     assert_eq!(cleaned.try_recv().unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

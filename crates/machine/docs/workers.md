@@ -34,8 +34,10 @@ let mut machine = Machine::new(machine_config)?;
 let cpu = machine.create_cpu(cpu_config)?;
 machine.cpus()[0].set_ax(42);
 let worker = Worker::spawn_with(cpu, run_cpu);
-let result = worker.join().await?;
+let result = worker.join().await;
 let registers = machine.cpus()[0].snapshot();
+machine.shutdown().await?;
+let result = result?;
 ```
 
 `Machine` retains shared memory and CPU state. `CpuHandle` is a single-use execution

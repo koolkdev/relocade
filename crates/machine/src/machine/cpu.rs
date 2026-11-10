@@ -12,10 +12,15 @@ pub struct CpuHandle {
     storage: CpuStorage,
     memory: Memory,
     config: CpuConfig,
+    compiler: crate::compiler::Endpoint,
 }
 
 impl CpuHandle {
-    pub(super) fn new(memory: Memory, config: CpuConfig) -> Result<(Self, CpuStateAccess)> {
+    pub(super) fn new(
+        memory: Memory,
+        config: CpuConfig,
+        compiler: crate::compiler::Endpoint,
+    ) -> Result<(Self, CpuStateAccess)> {
         memory
             .configuration()
             .validate_for(config.execution_target().profile)?;
@@ -27,6 +32,7 @@ impl CpuHandle {
                 storage,
                 memory,
                 config,
+                compiler,
             },
             state,
         ))
@@ -47,9 +53,16 @@ impl CpuHandle {
     /// Constructs this CPU's backend and device bindings on its execution owner.
     /// Existing registers, including edits made after creation, are preserved.
     pub async fn into_cpu(self, io: IoBus) -> Result<Cpu> {
-        self.storage
+        let (cpu, _compiler) = self.into_session(io).await?;
+        Ok(cpu)
+    }
+
+    pub(crate) async fn into_session(self, io: IoBus) -> Result<(Cpu, crate::compiler::Endpoint)> {
+        let cpu = self
+            .storage
             .into_initialized_cpu(self.memory, self.config, io)
-            .await
+            .await?;
+        Ok((cpu, self.compiler))
     }
 
     /// Runs this CPU's session with host timers until completion or `stop`.

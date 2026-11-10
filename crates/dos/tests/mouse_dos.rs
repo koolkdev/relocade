@@ -28,6 +28,7 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
         },
     );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 async fn call(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
@@ -114,6 +115,7 @@ fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
             },
         );
         assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+        pollster::block_on(machine.shutdown()).unwrap();
     }
 }
 

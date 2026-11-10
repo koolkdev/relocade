@@ -213,6 +213,7 @@ pub async fn dos_workers() -> Result<(), String> {
         Ok(())
     };
     let ((), result) = join(timers.run(), app).await;
+    machine.shutdown().await.unwrap();
     result
 }
 

@@ -27,6 +27,7 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     let mut bytes = [0; 4];
     memory.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
+    assert_eq!(backing.read_code(0xffe, 4).unwrap(), [1, 2, 0xaa, 0xbb]);
     // Scalar accesses use little-endian order across the same RAM/ROM boundary.
     assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa02);
     memory.write_u16(0xfff, 0x7856).unwrap();
@@ -144,6 +145,10 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         let mut memory = backing.view();
         memory.write_u32(0x100000, 0x1234_565a).unwrap();
         assert_eq!(memory.read_u32(0x100000).unwrap(), 0x1234_565a);
+        assert_eq!(
+            backing.read_code(0x100000, 4).unwrap(),
+            [0x5a, 0x56, 0x34, 0x12]
+        );
         let mut byte = [0];
         memory
             .read_backing(if enabled { 0x2000 } else { 0 }, &mut byte)
