@@ -49,6 +49,10 @@ impl ClockSource for Source {
         self.0.borrow_mut().observe()
     }
 
+    fn ticks_per_nanosecond(&self) -> std::num::NonZeroU64 {
+        self.0.borrow().timebase.0
+    }
+
     fn sync_to_host(&self, time: Timestamp) -> Sleep {
         self.0
             .borrow()

@@ -44,9 +44,11 @@ phase from `now()`. No clock origin or rounding parameter is needed by consumers
 Event timers use `add` and comparisons directly; DOS mouse speed measures one
 packet interval with `checked_duration_since`.
 
-Readings remain valid across pauses, rebinding, idle advancement and CPU counter
-wrap. Guest time is published in whole nanoseconds; retirement retains its
-fractional remainder internally.
+A relative sleep captures the full duration from the native reading. For example,
+at three billion instructions per second, a one-nanosecond sleep always requires
+three further instructions, even when it starts between nanosecond boundaries.
+Idle advancement reaches its exact native deadline. Existing timestamps remain
+valid across pauses, rebinding, idle advancement and CPU counter wrap.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
@@ -54,10 +56,10 @@ polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
 `ClockSource` supplies `now() -> Timestamp` and `sleep_until(Timestamp) -> Sleep`.
-Sources construct nanosecond coordinates with `Timestamp::from_ticks` and
-interpret them with `ticks`; device consumers do neither. `Clock::new(source)`
-wraps the source behind the common consumer API. `Sleep::new(future)` owns its
-wait state.
+Its immutable, nonzero `ticks_per_nanosecond()` defaults to one. Sources construct
+coordinates with `Timestamp::from_ticks` and interpret them with `ticks`; device
+consumers do neither. `Clock::new(source)` captures the scale and wraps the source
+behind the common consumer API. `Sleep::new(future)` owns its wait state.
 
 Sources preserve monotonic readings and first-poll registration/drop cancellation.
 Host sources implement `host_timestamp(Instant)` to translate external event times,
@@ -86,8 +88,12 @@ fixture deadline, and `host_now()` supplies external input timestamps.
 
 `GuestTimeDriver::new(instructions_per_second)` owns emulated guest time,
 pending sleeps and the corresponding CPU instruction target. Its timeline starts
-at zero. Published retirement advances time in whole nanoseconds at the configured
-instruction rate, retaining the remainder for later observations. While the CPU is
+at zero. One instruction adds one billion native ticks; one nanosecond adds the
+instruction rate. Deadline comparisons and instruction targets operate directly
+on these coordinates. The finite coordinate range covers over 584 years even at
+the maximum rate; checked arithmetic reports exhaustion without rebasing old
+readings. While the CPU runs,
+retired instructions advance guest time at the configured rate. While the CPU is
 idle, the embedding may advance time to the next registered sleep. The driver is
 synchronous; the embedding owns execution and executor turns.
 
@@ -126,7 +132,7 @@ registered sleep. The yield deadline does not cause this advance. Completing
 sleeps wakes device activities; those activities deliver IRQs through the existing
 interrupt path. Advancing guest time does not add retired CPU instructions.
 
-Retirement preserves its fractional remainder and counter wrap. Synchronous callbacks
+Reads preserve fractional nanoseconds and counter wrap. Synchronous callbacks
 can observe a count that lags execution; targets use that same published count
 and retain soft checkpoint overshoot. Reading time does not dispatch device work.
 `CpuStateAccess::restore` preserves cumulative retirement when restoring guest
@@ -228,7 +234,9 @@ and awaits that guest deadline. Earlier device deadlines and IRQ opportunities
 remain part of normal execution. If guest time has already reached that point,
 the wait completes immediately; it never rewinds time or waits for the host.
 Burst pacing separately limits execution ahead of host time.
-
+Conversions between host and guest timelines round deadlines toward the future,
+so a fractional native offset cannot cause an early wake. This rounding stays
+inside the correspondence; elapsed-duration measurements still round down.
 
 For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
 The input is an external host `Instant`; the configured host source translates it

@@ -40,56 +40,68 @@ async fn cpu(runner: &Runner, code: &[u8], io: IoBus) -> Cpu {
 }
 
 async fn unpaced_slice_overshoot() {
-    let worker = ExecutionWorker::spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(3).unwrap())
-                .with_slice_duration(Duration::from_secs(1))
-        },
-        async |runner| {
-            let start = runner.clock().now();
-            let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
-            let mut cpu = cpu(runner, &code, IoBus::default()).await;
-            let block = Compiler::new(ExecutionProfile::Real16)
-                .compile_block(0x100, &code, 2)
+    for (rate, slice, elapsed) in [
+        (
+            3,
+            Duration::from_secs(1),
+            Duration::from_nanos(3_333_333_333),
+        ),
+        (
+            3_000_000_000,
+            Duration::from_nanos(1),
+            Duration::from_nanos(3),
+        ),
+    ] {
+        let worker = ExecutionWorker::spawn_with_guest_time(
+            move || {
+                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
+                    .with_slice_duration(slice)
+            },
+            async move |runner| {
+                let clock = runner.clock().clone();
+                let start = clock.now();
+                let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
+                let mut cpu = cpu(runner, &code, IoBus::default()).await;
+                let block = Compiler::new(ExecutionProfile::Real16)
+                    .compile_block(0x100, &code, 2)
+                    .unwrap();
+                cpu.install_module(
+                    &block.bytes,
+                    &[DispatchEntry {
+                        address: 0x100,
+                        export: &block.entry,
+                    }],
+                )
+                .await
                 .unwrap();
-            cpu.install_module(
-                &block.bytes,
-                &[DispatchEntry {
-                    address: 0x100,
-                    export: &block.entry,
-                }],
-            )
-            .await
-            .unwrap();
-            let state = cpu.cpu_state();
-            let stop = cpu.exit_handle();
-            let mut samples = Vec::new();
-            let observe = poll_fn(|_| {
-                let count = state.instruction_count();
-                if count != 0 && samples.last() != Some(&count) {
-                    samples.push(count);
-                }
-                if samples.len() == 3 {
-                    stop.request();
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            });
-            let ((), exit) = join(observe, runner.run_cpu(&mut cpu)).await;
-            assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
-            // Two-instruction blocks cross the targets 3, 6 and 9. Overshoot
-            // must shorten the next allowance instead of shifting the timebase.
-            assert_eq!(samples, [4, 6, 10]);
-            assert_eq!(
-                runner.clock().now(),
-                runner
-                    .clock()
-                    .add(start, Duration::from_nanos(3_333_333_333))
-            );
-        },
-    );
-    assert_eq!(worker.join().await.unwrap(), Some(()));
+                let state = cpu.cpu_state();
+                let stop = cpu.exit_handle();
+                let mut samples = Vec::new();
+                let observe = poll_fn(|_| {
+                    let count = state.instruction_count();
+                    if count != 0 && samples.last() != Some(&count) {
+                        samples.push(count);
+                    }
+                    if samples.len() == 3 {
+                        stop.request();
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                });
+                let ((), exit) = join(observe, runner.run_cpu(&mut cpu)).await;
+                assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
+                // Two-instruction blocks cross the targets 3, 6 and 9. Overshoot
+                // must shorten the next allowance instead of shifting the timebase.
+                assert_eq!(samples, [4, 6, 10]);
+                assert_eq!(
+                    runner.clock().duration_since(runner.clock().now(), start),
+                    elapsed
+                );
+            },
+        );
+        assert_eq!(worker.join().await.unwrap(), Some(()));
+    }
 }
 
 struct Deadlines {

@@ -14,6 +14,7 @@ pub use web_time::Instant;
 
 use std::{
     future::Future,
+    num::NonZeroU64,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll},
@@ -36,6 +37,12 @@ pub trait ClockSource {
     fn now(&self) -> Timestamp;
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep;
+
+    /// Fixed scale of this source's coordinates. Nanosecond sources use the
+    /// default; instruction clocks retain fractional nanoseconds with finer ticks.
+    fn ticks_per_nanosecond(&self) -> NonZeroU64 {
+        NonZeroU64::new(1).unwrap()
+    }
 
     /// Maps an external host event into this source's timeline. Host sources
     /// clamp events before their origin to the origin. Sources without a host
@@ -63,7 +70,7 @@ impl Clock {
     /// Wraps a source behind the common consumer API.
     pub fn new(source: impl ClockSource + 'static) -> Self {
         Self {
-            timebase: Timebase::NANOSECONDS,
+            timebase: Timebase(source.ticks_per_nanosecond()),
             source: Rc::new(source),
         }
     }

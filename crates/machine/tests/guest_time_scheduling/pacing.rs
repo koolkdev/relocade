@@ -301,14 +301,14 @@ async fn busy_bursts() {
     // boundary. The host wait includes that overshoot.
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_nanos(5_333_333)))
+        Some(host_time.at(Duration::from_nanos(5_333_334)))
     );
     host.advance_by(Duration::from_millis(9));
     // A late wake keeps the 4 ms grid, rather than granting another 4 ms
     // relative to the preceding overshoot or current host time.
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_nanos(13_333_333)))
+        Some(host_time.at(Duration::from_nanos(13_333_334)))
     );
     stop.send(()).unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(10));

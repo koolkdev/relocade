@@ -25,6 +25,15 @@ impl Timebase {
         duration(time.0.saturating_sub(earlier.0) / u128::from(self.0.get()))
     }
 
+    /// Cross-clock deadlines must not fire before their source time.
+    pub(super) fn duration_until(self, time: Timestamp, earlier: Timestamp) -> Duration {
+        duration(
+            time.0
+                .saturating_sub(earlier.0)
+                .div_ceil(u128::from(self.0.get())),
+        )
+    }
+
     pub(super) fn consume_elapsed(self, cursor: &mut Timestamp, time: Timestamp) -> Duration {
         let elapsed = self.duration_since(time, *cursor);
         // Advancing by the duration returned leaves any unconsumed native
