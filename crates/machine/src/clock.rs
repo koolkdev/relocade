@@ -3,9 +3,11 @@
 mod driver;
 mod guest;
 mod host;
+mod timestamp;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
+pub use timestamp::Timestamp;
 pub use web_time::Instant;
 
 use std::{
@@ -27,6 +29,12 @@ pub struct Clock(Rc<dyn ClockSource>);
 /// Clocks and their waits stay on their execution owner.
 pub trait ClockSource {
     fn now(&self) -> Instant;
+
+    /// Reads native progress. Custom host sources can use the default conversion.
+    fn timestamp(&self) -> Timestamp {
+        self.now().into()
+    }
+
     fn sleep_until(&self, deadline: Instant) -> Sleep;
 
     /// Captures a local wait on the configured host timebase. Sources without
@@ -51,6 +59,12 @@ impl Clock {
 
     pub fn now(&self) -> Instant {
         self.0.now()
+    }
+
+    /// Reads native clock progress without requiring an instruction-to-time conversion.
+    /// Use duration arithmetic or `Timestamp::to_instant` at timing boundaries.
+    pub fn timestamp(&self) -> Timestamp {
+        self.0.timestamp()
     }
 
     /// Waits for the host time corresponding to a timestamp from this clock.

@@ -1,6 +1,8 @@
 use super::*;
 use crate::Registers;
-use relocade_clock_test_support::origin;
+fn origin() -> Timestamp {
+    relocade_clock_test_support::origin().into()
+}
 use std::time::Duration;
 
 fn dots(count: u64) -> Duration {

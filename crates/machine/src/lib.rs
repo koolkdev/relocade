@@ -46,7 +46,7 @@ pub mod runtime;
 
 pub use clock::{
     timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Sleep,
-    TimerHandle,
+    TimerHandle, Timestamp,
 };
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};

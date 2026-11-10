@@ -9,9 +9,9 @@ use host::HostTime;
 mod wait;
 use wait::{Source, Wait};
 
-use super::{Clock, Instant};
+use super::{Clock, Instant, Timestamp};
 use crate::{Cpu, CpuStateAccess, InstructionTarget};
-use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker, time::Duration};
+use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
 /// Owns emulated guest time, pending sleeps and the CPU instruction target.
 /// Published retirement advances time at the configured instruction rate. The
@@ -26,8 +26,10 @@ pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
     instructions_per_second: u64,
-    now: Instant,
-    remainder: u64,
+    origin: Instant,
+    // One retired instruction contributes 1e9 ticks; one nanosecond contributes
+    // `instructions_per_second`. Reads need no quotient or remainder calculation.
+    ticks: u128,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
     host: Option<HostTime>,
@@ -45,8 +47,8 @@ impl GuestTimeDriver {
     pub fn new(start: Instant, instructions_per_second: NonZeroU64) -> Self {
         Self(Rc::new(RefCell::new(State {
             instructions_per_second: instructions_per_second.get(),
-            now: start,
-            remainder: 0,
+            origin: start,
+            ticks: 0,
             cpu: None,
             waits: Vec::new(),
             host: None,
@@ -74,7 +76,7 @@ impl GuestTimeDriver {
     pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
-        let now = state.observe();
+        let now = state.observe().to_instant();
         if let Some(host) = &mut state.host {
             host.resume(now);
         }
@@ -124,7 +126,7 @@ impl GuestTimeDriver {
     fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
-            let now = state.observe();
+            let now = state.observe().to_instant();
             let lag = state.host.as_mut().and_then(|host| host.discard_lag(now));
             let due = state
                 .waits
@@ -147,7 +149,24 @@ impl GuestTimeDriver {
     pub(crate) fn advance_to(&self, deadline: Instant) {
         {
             let mut state = self.0.borrow_mut();
-            state.now = state.observe().max(deadline);
+            let now = state.observe().to_instant();
+            if deadline > now {
+                let rate = u128::from(state.instructions_per_second);
+                // Idle advancement preserves fractional nanoseconds.
+                let fraction = state.ticks % rate;
+                match deadline
+                    .duration_since(state.origin)
+                    .as_nanos()
+                    .checked_mul(rate)
+                    .and_then(|ticks| ticks.checked_add(fraction))
+                {
+                    Some(ticks) => state.ticks = ticks,
+                    None => {
+                        state.origin = deadline;
+                        state.ticks = fraction;
+                    }
+                }
+            }
         }
         self.notify_due();
     }
@@ -167,24 +186,27 @@ impl Drop for BindingGuard<'_> {
 }
 
 impl State {
-    fn observe(&mut self) -> Instant {
+    fn observe(&mut self) -> Timestamp {
         if let Some(cpu) = &mut self.cpu {
             let instruction_count = cpu.state.instruction_count();
             let retired = instruction_count.wrapping_sub(cpu.last_instruction_count);
-            let scaled = u128::from(retired) * 1_000_000_000 + u128::from(self.remainder);
-            let nanos = scaled / u128::from(self.instructions_per_second);
-            self.remainder = (scaled % u128::from(self.instructions_per_second)) as u64;
-            self.now += Duration::new(
-                (nanos / 1_000_000_000) as u64,
-                (nanos % 1_000_000_000) as u32,
-            );
+            let progress = u128::from(retired) * 1_000_000_000;
+            self.ticks = match self.ticks.checked_add(progress) {
+                Some(ticks) => ticks,
+                None => {
+                    self.origin =
+                        Timestamp::guest(self.origin, self.ticks, self.instructions_per_second)
+                            .to_instant();
+                    self.ticks % u128::from(self.instructions_per_second) + progress
+                }
+            };
             cpu.last_instruction_count = instruction_count;
         }
-        self.now
+        Timestamp::guest(self.origin, self.ticks, self.instructions_per_second)
     }
 
     fn refresh_target(&mut self) {
-        let now = self.observe();
+        let now = self.observe().to_instant();
         let Some(cpu) = &self.cpu else { return };
         let deadline = self
             .waits
@@ -198,7 +220,7 @@ impl State {
             // target selection. Reprogramming cannot extend the yield deadline.
             let scaled = remaining
                 .saturating_mul(u128::from(self.instructions_per_second))
-                .saturating_sub(u128::from(self.remainder));
+                .saturating_sub(self.ticks % u128::from(self.instructions_per_second));
             let allowance = scaled.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
             cpu.last_instruction_count.wrapping_add(allowance)
         });

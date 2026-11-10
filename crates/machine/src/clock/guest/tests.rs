@@ -9,6 +9,7 @@ use std::{
         Arc,
     },
     task::{Context, Wake},
+    time::Duration,
 };
 
 #[derive(Default)]
@@ -169,4 +170,28 @@ fn deadlines_follow_registration_cancellation_and_idle_time() {
     assert!(later.as_mut().poll(&mut cx).is_ready());
     assert_eq!(driver.next_deadline(), None);
     assert!(!driver.advance_to_next_deadline());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn native_deadlines_preserve_fractional_progress_and_large_idle_advances() {
+    let start = Instant::now();
+    let driver = GuestTimeDriver::new(start, NonZeroU64::new(u64::MAX).unwrap());
+    let clock = driver.clock();
+    let origin = clock.timestamp();
+    // This duration is representable by Instant, but scaling it by the maximum
+    // instruction rate exceeds u128. Existing readings must survive rebasing.
+    let duration = Duration::from_secs(600 * 365 * 24 * 60 * 60);
+    let deadline = origin + duration;
+    driver.0.borrow_mut().ticks = 1;
+    driver.advance_to(deadline.to_instant());
+    let now = clock.timestamp();
+    assert_eq!(now.to_instant(), start + duration);
+    assert!(now > deadline);
+    assert!(now > origin);
+    assert!(now > Timestamp::from(now.to_instant()));
+    assert_eq!(now.duration_since(origin), duration);
+    assert_eq!(now + Duration::ZERO, deadline);
+    assert_eq!(now - duration, origin);
+    assert!(origin.checked_add(Duration::MAX).is_none());
 }

@@ -6,7 +6,7 @@ use crate::{DacSnapshot, DisplaySnapshot, Scanout, Vga, VgaDisplayState};
 use async_channel::{Receiver, Sender};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::Instant;
+use relocade_machine::Timestamp;
 use std::{cell::RefCell, rc::Rc};
 
 pub(super) struct Output {
@@ -19,7 +19,7 @@ pub(super) struct Output {
 
 struct PendingSnapshot {
     snapshot: DisplaySnapshot,
-    time: Instant,
+    time: Timestamp,
 }
 
 impl Output {
@@ -70,7 +70,7 @@ impl Vga {
     /// Capture before mutation if that boundary elapsed before the task ran.
     pub(super) fn capture_if_due(&mut self) {
         if let Some(deadline) = self.raster.next_retrace_at() {
-            let now = self.clock.now();
+            let now = self.clock.timestamp();
             if now >= deadline {
                 self.advance_raster(now);
             }
@@ -79,7 +79,7 @@ impl Vga {
 
     /// Refresh due status and capture events. Timing changes then materialize
     /// any remaining phase at this observed time before remapping the counters.
-    pub(super) fn advance_raster(&mut self, now: Instant) {
+    pub(super) fn advance_raster(&mut self, now: Timestamp) {
         let Some(time) = self.raster.update_to(now) else {
             return;
         };
@@ -134,7 +134,7 @@ pub(super) async fn run(device: Rc<RefCell<Vga>>) {
             device.output.pending.take()
         };
         if let Some(pending) = pending {
-            clock.sync_to_host(pending.time).await;
+            clock.sync_to_host(pending.time.to_instant()).await;
             if sender.force_send(pending.snapshot).is_err() {
                 return;
             }

@@ -1,7 +1,7 @@
 //! Owned sleep registration and synchronous cancellation.
 
 use super::State;
-use crate::{ClockSource, Instant, Sleep};
+use crate::{ClockSource, Instant, Sleep, Timestamp};
 use futures_channel::oneshot;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -46,6 +46,10 @@ impl Drop for Registration {
 
 impl ClockSource for Source {
     fn now(&self) -> Instant {
+        self.timestamp().to_instant()
+    }
+
+    fn timestamp(&self) -> Timestamp {
         self.0.borrow_mut().observe()
     }
 

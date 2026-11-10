@@ -17,6 +17,28 @@ starts at an explicitly supplied instant and advances independently. Sharing an
 origin does not make guest time follow host time. Pacing is the execution policy
 that controls their relationship.
 
+`clock.timestamp()` returns a `Timestamp` in the source's native units. Guest
+readings accumulate instruction progress without dividing by the instruction rate;
+VGA compares these readings with cached raster deadlines. `Timestamp` comparisons
+retain fractional nanoseconds. Duration arithmetic and `to_instant()` round down
+to nanoseconds, preserving the existing `now()` and device timing contract:
+
+```rust,ignore
+let reading = clock.timestamp();
+let deadline = reading + Duration::from_millis(2);
+if clock.timestamp() >= deadline {
+    let elapsed = clock.timestamp().duration_since(reading);
+    // Advance device state using elapsed, then create the next deadline.
+}
+clock.sleep_until(deadline.to_instant()).await;
+```
+
+Custom `ClockSource` implementations inherit `timestamp()` from `now()`. The
+`Instant` APIs remain appropriate for host timestamps, waits and correspondence.
+Native guest readings survive pauses, rebinding, idle advancement and CPU-counter
+wrap. Very large elapsed times rebase their origin to retain the `Instant` range;
+ordinary comparisons on one origin use only their native progress values.
+
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
 polled sleep cancels it. An expired sleep may complete immediately: awaiting a

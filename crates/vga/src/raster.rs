@@ -1,5 +1,5 @@
 use crate::timing::Timing;
-use relocade_machine::Instant;
+use relocade_machine::Timestamp;
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
 
@@ -8,19 +8,19 @@ const VERTICAL_RETRACE: u8 = 1 << 3;
 /// it at `observed` under the old timing before remapping the counters.
 pub(super) struct Raster {
     timing: Timing,
-    updated: Instant,
-    observed: Instant,
+    updated: Timestamp,
+    observed: Timestamp,
     dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
     dot_remainder: u64,
     pub retrace_count: u64,
-    next_retrace: Option<Instant>,
+    next_retrace: Option<Timestamp>,
     status: u8,
-    next_update: Option<Instant>,
+    next_update: Option<Timestamp>,
 }
 
 impl Raster {
-    pub fn new(now: Instant, timing: Timing) -> Self {
+    pub fn new(now: Timestamp, timing: Timing) -> Self {
         let mut raster = Self {
             timing,
             updated: now,
@@ -39,7 +39,7 @@ impl Raster {
 
     /// Update counters to `now`, returning the latest crossed retrace time.
     /// Multiple missed retraces contribute to the count without a per-frame loop.
-    pub fn update_to(&mut self, now: Instant) -> Option<Instant> {
+    pub fn update_to(&mut self, now: Timestamp) -> Option<Timestamp> {
         self.observed = now;
         if self.next_update.is_none_or(|deadline| now < deadline) {
             return None;
@@ -51,7 +51,7 @@ impl Raster {
 
     /// Materialize the exact phase, including when a programming write occurs
     /// between observable edges. Stopped clocks still move their time anchor.
-    fn advance_to(&mut self, now: Instant) -> Option<Instant> {
+    fn advance_to(&mut self, now: Timestamp) -> Option<Timestamp> {
         let timing = self.timing;
         let elapsed = now.duration_since(self.updated);
         if elapsed.is_zero() {
@@ -130,7 +130,7 @@ impl Raster {
         self.refresh_status();
     }
 
-    pub fn next_retrace_at(&self) -> Option<Instant> {
+    pub fn next_retrace_at(&self) -> Option<Timestamp> {
         self.next_retrace
     }
 
@@ -141,12 +141,12 @@ impl Raster {
             .and_then(|dot| self.next_dot_at(dot));
     }
 
-    pub fn next_retrace_pulse_at(&self) -> Option<Instant> {
+    pub fn next_retrace_pulse_at(&self) -> Option<Timestamp> {
         self.timing.retrace_pulse_dot()?;
         self.next_retrace
     }
 
-    fn next_dot_at(&self, boundary: u64) -> Option<Instant> {
+    fn next_dot_at(&self, boundary: u64) -> Option<Timestamp> {
         let total = self.timing.frame_dots();
         let mut dots = (boundary + total - self.dot) % total;
         if dots == 0 {

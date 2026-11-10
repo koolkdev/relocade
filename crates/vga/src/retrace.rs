@@ -2,7 +2,7 @@
 
 use crate::Vga;
 use futures_lite::future::or;
-use relocade_machine::Instant;
+use relocade_machine::Timestamp;
 use std::future::Future;
 
 /// What completed a wait prepared by [`Vga::wait_for_retrace`].
@@ -26,9 +26,9 @@ impl Vga {
         if !self.setup.enabled() {
             return None;
         }
-        self.advance_raster(self.clock.now());
+        self.advance_raster(self.clock.timestamp());
         let deadline = if self.raster.in_retrace() {
-            Some(self.clock.now())
+            Some(self.clock.timestamp())
         } else {
             self.raster.next_retrace_pulse_at()
         };
@@ -39,7 +39,7 @@ impl Vga {
     /// takes priority when the timer and notification are both ready.
     pub(super) fn retrace_wait(
         &self,
-        deadline: Option<Instant>,
+        deadline: Option<Timestamp>,
     ) -> impl Future<Output = RetraceEvent> + 'static {
         let clock = self.clock.clone();
         let changed = self.programming_changed.listen();
@@ -50,8 +50,8 @@ impl Vga {
             };
             if let Some(deadline) = deadline {
                 or(changed, async {
-                    if clock.now() < deadline {
-                        clock.sleep_until(deadline).await;
+                    if clock.timestamp() < deadline {
+                        clock.sleep_until(deadline.to_instant()).await;
                     }
                     RetraceEvent::Started
                 })

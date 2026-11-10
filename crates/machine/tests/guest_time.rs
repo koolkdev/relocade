@@ -44,11 +44,23 @@ async fn progress() {
             .create_cpu(memory, config.cpu, IoBus::default())
             .await
             .unwrap();
+        let native_start = clock.timestamp();
+        let fractional_deadline = native_start + Duration::from_nanos(333_333_334);
         let binding = driver.bind(&cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
         // across counter wrap. Reading after each step must not lose fractions.
         for nanos in [333_333_333, 666_666_666, 1_000_000_000] {
             cpu.step();
+            let reading = clone.timestamp();
+            assert_eq!(
+                reading.to_instant(),
+                clock_origin() + Duration::from_nanos(nanos)
+            );
+            assert_eq!(
+                reading.duration_since(native_start),
+                Duration::from_nanos(nanos)
+            );
+            assert_eq!(reading >= fractional_deadline, nanos > 333_333_333);
             assert_eq!(clone.now(), clock_origin() + Duration::from_nanos(nanos));
             assert_eq!(
                 driver.clock().now(),
@@ -71,6 +83,7 @@ async fn progress() {
         drop(binding);
         cpu.step();
         assert_eq!(clock.now(), clock_origin() + Duration::from_secs(2));
+        assert_eq!(clock.timestamp(), native_start + Duration::from_secs(2));
         let _binding = driver.bind(&cpu, std::task::Waker::noop());
         cpu.step();
         assert_eq!(
@@ -93,8 +106,13 @@ async fn progress() {
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
             .is_ready());
+        assert_eq!(
+            clock.timestamp().to_instant(),
+            clock_origin() + Duration::from_millis(2500)
+        );
         cpu.step();
         cpu.step();
+        assert_eq!(clock.timestamp().to_instant(), clock.now());
         assert_eq!(
             clock.now(),
             clock_origin() + Duration::from_nanos(3_166_666_667)
@@ -181,4 +199,34 @@ fn synchronous_device_callbacks_can_read_published_guest_time() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn synchronous_device_callbacks_can_read_published_guest_time() {
     callback_observation().await;
+}
+
+async fn subnanosecond_progress() {
+    let driver = GuestTimeDriver::new(clock_origin(), NonZeroU64::new(3_000_000_000).unwrap());
+    let clock = driver.clock();
+    let start = clock.timestamp();
+    let deadline = start + Duration::from_nanos(1);
+    let mut cpu = support::create_cpu(configuration(0)).await.unwrap();
+    cpu.memory().view().write(0x100, &[0x90; 3]).unwrap();
+    let _binding = driver.bind(&cpu, std::task::Waker::noop());
+    for count in 1..=3 {
+        cpu.step();
+        assert!(clock.timestamp() > start);
+        assert_eq!(clock.timestamp() >= deadline, count == 3);
+        assert_eq!(
+            clock.now(),
+            clock_origin() + Duration::from_nanos(u64::from(count == 3))
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_readings_keep_progress_below_one_nanosecond() {
+    pollster::block_on(subnanosecond_progress());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn native_readings_keep_progress_below_one_nanosecond() {
+    subnanosecond_progress().await;
 }
