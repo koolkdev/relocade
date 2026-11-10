@@ -98,8 +98,7 @@ impl Cpu {
     ) -> Result<Self> {
         let mut backend = Backend::with_state(io.clone())?;
         let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
-        let host_imports = io::imports(&mut backend);
-        let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let dispatch = Dispatch::new(&mut backend, &bindings).await?;
         let instruction_target = InstructionTarget::new(&bindings);
         let instance = CpuInstance {
             backend,

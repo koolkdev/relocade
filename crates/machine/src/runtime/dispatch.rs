@@ -3,10 +3,10 @@
 mod hooks;
 mod table;
 
-use super::{code, hooks::Handler, Backend, Hook, RuntimeMemory};
+use super::{code, hooks::Handler, io::IoBindings, Backend, Hook, RuntimeMemory};
 use crate::{FarPointer, Result};
 use hooks::Hooks;
-use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Function, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
 use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
@@ -28,15 +28,11 @@ pub(crate) struct Dispatch {
     far_call: Option<Function<Backend, abi::FarCallSignature>>,
     table: DispatchTable<Backend>,
     hooks: Hooks,
-    host_imports: Vec<Import<'static, Backend>>,
+    io: IoBindings,
 }
 
 impl Dispatch {
-    pub(crate) async fn new(
-        backend: &mut Backend,
-        bindings: &RuntimeMemory,
-        host_imports: Vec<Import<'static, Backend>>,
-    ) -> Result<Self> {
+    pub(crate) async fn new(backend: &mut Backend, bindings: &RuntimeMemory) -> Result<Self> {
         let target = bindings.configuration().execution_target();
         let module = code::dispatcher(backend, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
@@ -51,7 +47,8 @@ impl Dispatch {
             backend.bind(abi::DISPATCH, &dispatch),
             backend.bind(abi::INTERPRET, &interpret),
         ]);
-        imports.extend(host_imports.iter().cloned());
+        let io = IoBindings::new(backend)?;
+        imports.extend(io.imports(backend));
         let module = code::interpreter(backend, target).await?;
         let instance = backend.instantiate(&module, &imports).await?;
         table.install_interpreter(backend, &instance)?;
@@ -71,7 +68,7 @@ impl Dispatch {
             },
             table,
             hooks: Hooks::default(),
-            host_imports,
+            io,
         })
     }
 
@@ -166,7 +163,7 @@ impl Dispatch {
             backend.bind(abi::DISPATCH, &self.dispatch),
             backend.bind(abi::INTERPRET, &self.interpret),
         ]);
-        imports.extend(self.host_imports.iter().cloned());
+        imports.extend(self.io.imports(backend));
         backend.instantiate(module, &imports).await
     }
 }

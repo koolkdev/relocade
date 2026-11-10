@@ -2,19 +2,19 @@
 
 use super::Runtime;
 use relocade_compiler::{
-    AtLeast, BlockBuilder, BuildError, Func, MemoryInt, Program, Val, I16, I32,
+    AtLeast, BlockBuilder, BuildError, MemoryInt, Program, Table, Val, I16, I32,
 };
 
 #[derive(Clone, Copy)]
 pub(super) struct Ports {
-    read: Func,
-    write: Func,
+    read: Table,
+    write: Table,
 }
 
 impl Ports {
     pub(super) fn declare(program: &mut Program) -> Self {
-        let read = program.import_function(crate::abi::READ_PORT);
-        let write = program.import_function(crate::abi::WRITE_PORT);
+        let read = program.import_table(crate::abi::PORT_READS);
+        let write = program.import_table(crate::abi::PORT_WRITES);
         Self { read, write }
     }
 }
@@ -28,7 +28,11 @@ impl Runtime {
     where
         I32: AtLeast<T>,
     {
-        let value = body.call::<I32>(self.ports.read, &[port.into(), T::BYTES.into()])?;
+        let value = body.call_indirect::<I32>(
+            self.ports.read,
+            port.unsigned().extend::<I32>(),
+            &[port.into(), T::BYTES.into()],
+        )?;
         Ok(value.truncate::<T>())
     }
 
@@ -41,8 +45,9 @@ impl Runtime {
     where
         I32: AtLeast<T>,
     {
-        body.call::<()>(
+        body.call_indirect::<()>(
             self.ports.write,
+            port.unsigned().extend::<I32>(),
             &[
                 port.into(),
                 T::BYTES.into(),

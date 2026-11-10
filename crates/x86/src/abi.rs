@@ -43,9 +43,19 @@ pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "i
 pub const FAR_CALL: Function<FarCallSignature> = Function::new("relocade", "farCall");
 
 /// One architectural port read (1, 2 or 4 bytes); the caller consumes the low bits.
-pub const READ_PORT: Function<fn(I16, I32) -> I32> = Function::new("relocade", "readPort");
+pub type PortReadSignature = fn(I16, I32) -> I32;
 /// One architectural port write (1, 2 or 4 bytes), with unused value bits zero.
-pub const WRITE_PORT: Function<fn(I16, I32, I32)> = Function::new("relocade", "writePort");
+pub type PortWriteSignature = fn(I16, I32, I32);
+pub const PORT_READS: Table<PortReadSignature> = {
+    let mut table = Table::new("relocade", "portReads", 65536);
+    table.maximum = Some(65536);
+    table
+};
+pub const PORT_WRITES: Table<PortWriteSignature> = {
+    let mut table = Table::new("relocade", "portWrites", 65536);
+    table.maximum = Some(65536);
+    table
+};
 pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
 pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
 
