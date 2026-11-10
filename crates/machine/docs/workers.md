@@ -158,6 +158,48 @@ posting readiness, host delivery and the posting task's completion so that task
 can finish even when the session stays busy afterward. `Runner::receive_resource`
 provides this binding for machine execution.
 
+## Managed machine sessions
+
+`run_session(stop, session)` owns execution, host timers and the compiler
+worker. Its callback receives an ordinary `&Runner` and constructs its CPU
+through `runner.create_cpu(...)`, including through an environment such as
+`Dos::new(runner)`. CPU construction records the existing guest memory and full
+execution target. The first `runner.compile_blocks(...)` request starts a
+persistent compiler with that memory; further requests reuse it.
+
+```rust,ignore
+let result = run_session(stop, async move |runner| {
+    let memory = Memory::new(machine_config)?;
+    let mut cpu = runner.create_cpu(memory, cpu_config, Default::default()).await?;
+    let code = runner.compile_blocks(ranges).await?;
+    cpu.install_compiled_module(&code.module, &[DispatchEntry {
+        address: linear_entry,
+        export: &code.entries[0].export,
+    }]).await?;
+    Ok::<_, Error>(runner.run_cpu(&mut cpu).await)
+}).await?.transpose()?;
+```
+
+The first request publishes the existing memory, target and compiler end of the
+connection together. The host starts the compiler with that bundle. Requests and
+compiled responses then travel directly between the workers. The runtime owns
+attachment and shutdown; the bound resource receiver owns host-turn retries.
+Compilation can be awaited alongside `run_cpu`; installation
+still requires the CPU's existing stopped-state contract. Requested bytes and
+mappings must remain stable through compilation and while installed code is usable.
+Hotness, automatic discovery and invalidation remain separate work.
+
+Completion or stop closes submission, then joins execution, compilation and
+timers. The compiler finishes accepted work; responses for a closed client are
+discarded. Await the session through cleanup.
+A session that never requests compilation creates no compiler worker. Calling
+`compile_blocks` before successful CPU creation returns an error.
+
+`ExecutionWorker::spawn` remains the lower-level, independently scheduled worker
+API. It does not acquire a hidden dependency on polling a host compiler future.
+Embeddings that manage that lifetime themselves can use the compiler worker and
+connection APIs below; `Runner::compile_blocks` belongs to managed `run_session`.
+
 ## Persistent compilation
 
 Create one `CompilerWorker` for shared guest memory and an execution target.

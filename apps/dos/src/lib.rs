@@ -16,7 +16,7 @@ pub fn run() -> Result<(), String> {
         let (endpoints, ready) = oneshot::channel();
         let closing = app.closing();
         let mut app_result = Ok(());
-        let execution = relocade_machine::ExecutionWorker::run_until(
+        let execution = relocade_machine::run_session(
             async {
                 app_result = or(closing, async {
                     let (keyboard, mouse, frames) = ready
