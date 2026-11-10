@@ -1,11 +1,13 @@
 //! Shared host-delivery timing for one executor.
 
+use futures_timer::Delay;
 use futures_util::future::LocalBoxFuture;
 use std::{
     cell::Cell,
     future::Future,
+    pin::Pin,
     rc::Rc,
-    task::{Context, Waker},
+    task::{ready, Context, Poll, Waker},
     time::Duration,
 };
 
@@ -38,7 +40,7 @@ impl HostSchedule {
         HostRun {
             schedule: self,
             timer: None,
-            turn_requested: false,
+            turn: None,
         }
     }
 }
@@ -46,18 +48,42 @@ impl HostSchedule {
 pub(super) struct HostRun<'a> {
     schedule: &'a HostSchedule,
     timer: Option<LocalBoxFuture<'static, ()>>,
-    turn_requested: bool,
+    turn: Option<Delay>,
 }
 
 impl HostRun<'_> {
-    /// Arm before polling work: synchronous guest execution can run until the
-    /// timer wakes this executor and requests an execution checkpoint.
-    pub(super) fn poll(&mut self, cx: &mut Context<'_>) {
+    /// Application work stays runnable during the grace interval and waits only
+    /// for the host yield. Stop and parking remain with the executor.
+    pub(super) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         if !self.schedule.pending.has_pending() {
             self.timer = None;
-            return;
+            self.turn = None;
+            return Poll::Ready(());
         }
-        self.turn_requested = match &self.schedule.timer {
+
+        if let Some(turn) = &mut self.turn {
+            ready!(Pin::new(turn).poll(cx));
+            self.turn = None;
+            // Arm the next interval before synchronous work resumes. Without
+            // a grace interval, let work run once and request its next checkpoint.
+            if self.interval_elapsed(cx) {
+                self.turn = Some(Delay::new(Duration::ZERO));
+                cx.waker().wake_by_ref();
+            }
+            return Poll::Ready(());
+        }
+
+        if !self.interval_elapsed(cx) {
+            return Poll::Ready(());
+        }
+        self.turn = Some(Delay::new(Duration::ZERO));
+        // Poll the new wait through the executor's ordinary readiness loop.
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    }
+
+    fn interval_elapsed(&mut self, cx: &mut Context<'_>) -> bool {
+        let elapsed = match &self.schedule.timer {
             Some(timer) => self
                 .timer
                 .get_or_insert_with(timer)
@@ -66,19 +92,10 @@ impl HostRun<'_> {
                 .is_ready(),
             None => true,
         };
-        if self.turn_requested {
-            self.schedule.pending.wake.wake_by_ref();
-        }
-    }
-
-    /// Recheck after polling work: delivery or cancellation may have ended the wait.
-    pub(super) fn take_turn(&mut self) -> bool {
-        let pending = self.schedule.pending.has_pending();
-        let requested = std::mem::take(&mut self.turn_requested);
-        if !pending || requested {
+        if elapsed {
             self.timer = None;
         }
-        pending && requested
+        elapsed
     }
 }
 

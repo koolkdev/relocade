@@ -59,8 +59,8 @@ The executor suspends the whole activity set for that turn, including busy
 devices, then resumes it even when delivery is still pending. Each retry gives
 work another 1 ms interval. Empty channels, compilation that has not posted a
 reply, and already available payloads request no timer. Completion or cancellation
-clears the receive's registration; the last one cancels the shared timer and turn
-request. Actual intervals can overshoot
+clears the receive's registration; the last one cancels the shared timer and yield.
+Actual intervals can overshoot
 because guest checkpoints and host callbacks do not have fixed latency bounds.
 
 `Runner::new` uses its supplied independently progressing clock. Guest-time
@@ -68,8 +68,11 @@ execution uses the explicitly configured host clock; without one, it requests
 the host turn immediately instead of waiting on guest time. The generic worker
 API exposes this through `Receiver::with_executor` and `Executor::with_host_timer`.
 Compiler code contains no platform-specific delivery flags.
-Host-delivery timing is internal to the executor. The Runner's execution schedule
-continues to own CPU budgets, guest deadlines and guest-time pacing.
+The internal host policy reports application readiness: ready during the grace
+interval, pending during the yield, then ready again even if delivery is late.
+The executor polls stop before readiness and uses the same parking path for idle
+work and host yields. The Runner's execution schedule continues to own CPU budgets,
+guest deadlines and guest-time pacing.
 
 Receiving code does not install it or stop the guest automatically. Drop or finish
 the current run waiter at an allowed CPU boundary, install explicitly, and resume

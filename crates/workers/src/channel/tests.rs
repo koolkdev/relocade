@@ -119,34 +119,41 @@ impl crate::WakeTarget for Signal {
 }
 
 async fn interrupt_later_sibling() {
-    let signal = Signal(Arc::default());
-    let (_host, endpoint) = crate::wake_connection(signal.clone());
-    let executor = Executor::new(endpoint.bind(signal.clone()));
-    let (sender, receiver) = channel::<u32>().unwrap();
-    let mut receiver = receiver.with_executor(&executor);
-    sender.states.unbounded_send(73).unwrap();
-    let mut posted = false;
-    let guest = poll_fn(|cx| {
-        if !std::mem::replace(&mut posted, true) {
+    for immediate_timer in [false, true] {
+        let signal = Signal(Arc::default());
+        let (_host, endpoint) = crate::wake_connection(signal.clone());
+        let mut executor = Executor::new(endpoint.bind(signal.clone()));
+        if immediate_timer {
+            executor = executor.with_host_timer(Duration::ZERO, |_| async {});
+        }
+        let (sender, receiver) = channel::<u32>().unwrap();
+        let mut receiver = receiver.with_executor(&executor);
+        sender.states.unbounded_send(73).unwrap();
+        let mut polls = 0;
+        let guest = poll_fn(|cx| {
             assert!(
                 signal.0.load(Ordering::SeqCst),
-                "later guest entry must see the host-turn interrupt"
+                "pending delivery must interrupt later synchronous work"
             );
-            sender.payloads.send(()).unwrap();
-        }
-        cx.waker().wake_by_ref();
-        Poll::<()>::Pending
-    });
-    let value = executor
-        .run_until(pending::<()>(), async {
-            match select(pin!(receiver.recv()), pin!(guest)).await {
-                Either::Left((received, _)) => received.unwrap().unwrap(),
-                Either::Right(_) => unreachable!(),
+            polls += 1;
+            // Work must resume after a host yield even when delivery is late.
+            if polls == 2 {
+                sender.payloads.send(()).unwrap();
             }
-        })
-        .await
-        .unwrap();
-    assert_eq!(value, 73);
+            cx.waker().wake_by_ref();
+            Poll::<()>::Pending
+        });
+        let value = executor
+            .run_until(pending::<()>(), async {
+                match select(pin!(receiver.recv()), pin!(guest)).await {
+                    Either::Left((received, _)) => received.unwrap().unwrap(),
+                    Either::Right(_) => unreachable!(),
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(value, 73);
+    }
 }
 
 async fn stop_during_host_turn() {

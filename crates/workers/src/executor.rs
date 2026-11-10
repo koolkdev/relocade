@@ -3,7 +3,6 @@
 pub(crate) mod host;
 
 use super::{WakeConnection, WakePeer, WakeTarget};
-use futures_timer::Delay;
 use futures_util::task::AtomicWaker;
 use host::HostSchedule;
 use std::{
@@ -77,49 +76,26 @@ impl<R: WakeTarget> Executor<R> {
             if stop.as_mut().poll(&mut context).is_ready() {
                 return None;
             }
-            host.poll(&mut context);
-            let result = future.as_mut().poll(&mut context);
-            // Keep the signal through the whole poll: CPU-first composition
-            // must yield before its ready siblings can consume their input.
-            self.connection.acknowledge();
-            // A wake after a sibling was polled still needs another checkpoint.
-            // Record before requesting, and acknowledge before checking, so a
-            // wake racing with acknowledgement cannot be lost.
-            if self.wake.notified.load(Ordering::SeqCst) {
-                self.wake.interrupt.wake_by_ref();
-            }
-            if let Poll::Ready(value) = result {
-                return Some(value);
-            }
-            if host.take_turn() {
-                // Gate the whole root, including busy device futures, for one
-                // host turn. Guest execution resumes even if delivery is late.
-                let mut turn = pin!(Delay::new(Duration::ZERO));
-                let _registration = ParkRegistration(&self.wake.parked);
-                let stopped = poll_fn(|cx| {
-                    self.wake.parked.register(cx.waker());
-                    if stop
-                        .as_mut()
-                        .poll(&mut Context::from_waker(&waker))
-                        .is_ready()
-                    {
-                        return Poll::Ready(true);
-                    }
-                    turn.as_mut().poll(cx).map(|()| false)
-                })
-                .await;
-                if stopped {
-                    return None;
+            if host.poll_ready(&mut context).is_ready() {
+                let result = future.as_mut().poll(&mut context);
+                // Keep the signal through the whole poll: CPU-first composition
+                // must yield before its ready siblings can consume their input.
+                self.connection.acknowledge();
+                // A wake after a sibling was polled still needs another checkpoint.
+                // Record before requesting, and acknowledge before checking, so a
+                // wake racing with acknowledgement cannot be lost.
+                if self.wake.notified.load(Ordering::SeqCst) {
+                    self.wake.interrupt.wake_by_ref();
                 }
-                // Arm the next interval before resuming work, even if no
-                // payload arrived during this host turn.
-                continue;
+                if let Poll::Ready(value) = result {
+                    return Some(value);
+                }
             }
             if self.wake.runnable.load(Ordering::SeqCst) {
                 continue;
             }
-            // Register only while idle. Recheck after registering so a wake
-            // between the readiness check and registration cannot be lost.
+            // Idle work and pending host yields use the same parking path.
+            // Recheck after registering so a concurrent wake cannot be lost.
             let _registration = ParkRegistration(&self.wake.parked);
             poll_fn(|cx| {
                 if self.wake.runnable.load(Ordering::SeqCst) {
