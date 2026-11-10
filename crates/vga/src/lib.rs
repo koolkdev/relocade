@@ -86,7 +86,7 @@ impl Vga {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
         let registers = Registers::default();
-        let raster = Raster::new(clock.timestamp(), Timing::vga(&registers));
+        let raster = Raster::new(clock.clone(), Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
             registers,

@@ -17,7 +17,7 @@ async fn blocked_cpu(runner: &Runner, io: IoBus) -> Cpu {
 
 async fn late_host_wake() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_time = host.clone();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -25,11 +25,12 @@ async fn late_host_wake() {
                 .with_host_clock(Clock::new(source))
         },
         async |runner| {
-            let start = runner.clock().now();
+            let clock = runner.clock().clone();
+            let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
                 deadlines: [2, 4, 6, 8, 10, 12]
-                    .map(|millis| start + Duration::from_millis(millis))
+                    .map(|millis| clock.add(start, Duration::from_millis(millis)))
                     .to_vec(),
                 observed: Vec::new(),
                 exit: None,
@@ -46,7 +47,7 @@ async fn late_host_wake() {
                 .borrow()
                 .observed
                 .iter()
-                .map(|time| time.duration_since(start))
+                .map(|time| clock.duration_since(*time, start))
                 .collect::<Vec<_>>();
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
             observed
@@ -54,7 +55,7 @@ async fn late_host_wake() {
     );
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(5))
+        Some(host_time.at(Duration::from_millis(5)))
     );
     host.advance_by(Duration::from_millis(11));
     // The next slice is already paid for. Its guest deadlines still run, with
@@ -88,7 +89,7 @@ impl Device for ReplacedDeadline {
         let start = clock.now();
         let replace = device.borrow_mut().replace.take().unwrap();
         {
-            let old = pin!(clock.sleep_until(start + Duration::from_millis(15)));
+            let old = pin!(clock.sleep_until(clock.add(start, Duration::from_millis(15))));
             match select(old, pin!(replace)).await {
                 Either::Right((Ok(()), _)) => {}
                 _ => panic!("the old deadline must be replaced before it fires"),
@@ -97,7 +98,7 @@ impl Device for ReplacedDeadline {
         device
             .borrow_mut()
             .observed
-            .push(clock.now().duration_since(start));
+            .push(clock.duration_since(clock.now(), start));
         device
             .borrow_mut()
             .replaced
@@ -105,18 +106,20 @@ impl Device for ReplacedDeadline {
             .unwrap()
             .send(())
             .unwrap();
-        clock.sleep_until(start + Duration::from_millis(5)).await;
+        clock
+            .sleep_until(clock.add(start, Duration::from_millis(5)))
+            .await;
         device
             .borrow_mut()
             .observed
-            .push(clock.now().duration_since(start));
+            .push(clock.duration_since(clock.now(), start));
         device.borrow().exit.as_ref().unwrap().request();
     }
 }
 
 async fn replace_idle_deadline() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_time = host.clone();
     let (replace, replacement) = oneshot::channel();
     let (replaced, replacement_done) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
@@ -142,14 +145,14 @@ async fn replace_idle_deadline() {
     );
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(4))
+        Some(host_time.at(Duration::from_millis(4)))
     );
     host.advance_by(Duration::from_millis(2));
     replace.send(()).unwrap();
     replacement_done.await.unwrap();
     assert_eq!(
         host.next_deadline(),
-        Some(host_start + Duration::from_millis(4)),
+        Some(host_time.at(Duration::from_millis(4))),
         "an activity notification must retain the existing pacing wait"
     );
     host.advance_by(Duration::from_millis(2));
@@ -162,17 +165,18 @@ async fn replace_idle_deadline() {
 
 async fn cancelled_run_rebinds() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_time = host.clone();
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
         async move |runner| {
-            let start = runner.clock().now();
+            let clock = runner.clock().clone();
+            let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
-                deadlines: vec![start + Duration::from_millis(10)],
+                deadlines: vec![clock.add(start, Duration::from_millis(10))],
                 observed: Vec::new(),
                 exit: None,
                 exit_after_waits: true,
@@ -188,20 +192,23 @@ async fn cancelled_run_rebinds() {
             }
             stopped.send(()).unwrap();
             resumed.await.unwrap();
-            assert_eq!(runner.clock().now(), start + Duration::from_millis(4));
+            assert_eq!(
+                runner.clock().now(),
+                runner.clock().add(start, Duration::from_millis(4))
+            );
             assert_eq!(
                 runner.run_cpu(&mut cpu).await,
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(
                 device.borrow().observed,
-                [start + Duration::from_millis(10)]
+                [clock.add(start, Duration::from_millis(10))]
             );
         },
     );
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(4))
+        Some(host_time.at(Duration::from_millis(4)))
     );
     pause.send(()).unwrap();
     stop.await.unwrap();
@@ -214,7 +221,7 @@ async fn cancelled_run_rebinds() {
     resume.send(()).unwrap();
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(1004))
+        Some(host_time.at(Duration::from_millis(1004)))
     );
     host.advance_by(Duration::from_millis(10));
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -255,7 +262,7 @@ async fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_
 
 async fn busy_bursts() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_time = host.clone();
     let (stop, stopped) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || {
@@ -294,14 +301,14 @@ async fn busy_bursts() {
     // boundary. The host wait includes that overshoot.
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_nanos(5_333_333))
+        Some(host_time.at(Duration::from_nanos(5_333_333)))
     );
     host.advance_by(Duration::from_millis(9));
     // A late wake keeps the 4 ms grid, rather than granting another 4 ms
     // relative to the preceding overshoot or current host time.
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_nanos(13_333_333))
+        Some(host_time.at(Duration::from_nanos(13_333_333)))
     );
     stop.send(()).unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(10));
@@ -310,15 +317,17 @@ async fn busy_bursts() {
 
 async fn ready_service_during_pacing() {
     let (host, mut armed, source) = host();
-    let host_start = host.clock().now();
+    let host_event_start = host.host_now();
+    let host_time = host.clone();
     let (complete, completion) = oneshot::channel();
     let worker = ExecutionWorker::spawn_with_guest_time(
         move || config(source),
         async move |runner| {
-            let start = runner.clock().now();
+            let clock = runner.clock().clone();
+            let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
-                deadlines: vec![start + Duration::from_millis(10)],
+                deadlines: vec![clock.add(start, Duration::from_millis(10))],
                 observed: Vec::new(),
                 exit: None,
                 exit_after_waits: false,
@@ -334,7 +343,7 @@ async fn ready_service_during_pacing() {
                 // Guest time is ahead of the host while this pacing wait remains
                 // unresolved. Synchronization must not wait for host progress.
                 clock.sync().await;
-                clock.sync_to(host_start).await;
+                clock.sync_to(host_event_start).await;
                 exit.request();
             })])
             .await
@@ -343,19 +352,22 @@ async fn ready_service_during_pacing() {
                 runner.run_cpu(&mut cpu).await,
                 ExecutionExit::Host(HostExit::Return)
             );
-            assert_eq!(runner.clock().now(), start + Duration::from_millis(4));
+            assert_eq!(
+                runner.clock().now(),
+                runner.clock().add(start, Duration::from_millis(4))
+            );
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
             assert!(device.borrow().observed.is_empty());
         },
     );
     assert_eq!(
         armed.next().await,
-        Some(host_start + Duration::from_millis(4))
+        Some(host_time.at(Duration::from_millis(4)))
     );
     complete.send(()).unwrap();
     // Completion must be polled without waiting for host time to catch up.
     assert_eq!(worker.join().await.unwrap(), Some(()));
-    assert_eq!(host.clock().now(), host_start);
+    assert_eq!(host.clock().now(), host_time.at(Duration::ZERO));
     assert_eq!(host.next_deadline(), None);
 }
 

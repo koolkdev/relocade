@@ -64,7 +64,7 @@ pub(super) async fn run(device: Rc<RefCell<Speaker>>) {
     ready.close();
     let audio = device.borrow_mut().audio.take().unwrap();
     let initial = audio.changes.borrow_mut().pop_front().unwrap();
-    let mut synthesis = Synthesis::new(audio.config.sample_rate, initial);
+    let mut synthesis = Synthesis::new(audio.clock.clone(), audio.config.sample_rate, initial);
     let batch = match audio.config.buffer_size {
         cpal::BufferSize::Fixed(frames) => frames.clamp(1, 256) as usize,
         cpal::BufferSize::Default => 256,

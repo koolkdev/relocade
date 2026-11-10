@@ -1,6 +1,6 @@
 //! One guest-time boundary for cooperative yields and optional host pacing.
 
-use crate::{Clock, Instant, Sleep};
+use crate::{Clock, Sleep, Timestamp};
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -11,27 +11,27 @@ use std::{
 
 pub(super) struct ExecutionSlice {
     duration: Duration,
-    end: Cell<Instant>,
+    end: Cell<Timestamp>,
     paced: bool,
     wait: RefCell<Option<Sleep>>,
 }
 
 impl ExecutionSlice {
-    pub(super) fn new(start: Instant, duration: Duration, paced: bool) -> Self {
+    pub(super) fn new(clock: &Clock, duration: Duration, paced: bool) -> Self {
         Self {
             duration,
-            end: Cell::new(start + duration),
+            end: Cell::new(clock.add(clock.now(), duration)),
             paced,
             wait: RefCell::new(None),
         }
     }
 
-    pub(super) fn deadline(&self) -> Instant {
+    pub(super) fn deadline(&self) -> Timestamp {
         self.end.get()
     }
 
     /// Unpaced idle time can skip slices; a slice alone never advances time.
-    pub(super) fn idle_deadline(&self, device_deadline: Instant) -> Instant {
+    pub(super) fn idle_deadline(&self, device_deadline: Timestamp) -> Timestamp {
         if self.paced {
             device_deadline.min(self.end.get())
         } else {
@@ -43,7 +43,7 @@ impl ExecutionSlice {
         self.wait.borrow_mut().take();
     }
 
-    pub(super) fn poll(&self, clock: &Clock, now: Instant, cx: &mut Context<'_>) -> Poll<()> {
+    pub(super) fn poll(&self, clock: &Clock, now: Timestamp, cx: &mut Context<'_>) -> Poll<()> {
         let end = self.end.get();
         if now < end {
             return Poll::Ready(());
@@ -54,15 +54,22 @@ impl ExecutionSlice {
             ready!(Pin::new(sleep).poll(cx));
             wait.take();
         }
-        // Carry checkpoint overshoot forward instead of shifting the slice grid.
-        let remaining = self.duration.as_nanos()
-            - now.duration_since(end).as_nanos() % self.duration.as_nanos();
-        self.end.set(
-            now + Duration::new(
-                (remaining / 1_000_000_000) as u64,
-                (remaining % 1_000_000_000) as u32,
+        // Advance from the retained boundary to preserve the slice grid even
+        // when a CPU checkpoint overshoots by a fractional nanosecond.
+        let elapsed = clock.duration_since(now, end).as_nanos();
+        let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
+        let boundary = clock.add(
+            end,
+            Duration::new(
+                (whole / 1_000_000_000) as u64,
+                (whole % 1_000_000_000) as u32,
             ),
         );
+        self.end.set(if boundary <= now {
+            clock.add(boundary, self.duration)
+        } else {
+            boundary
+        });
         Poll::Ready(())
     }
 }

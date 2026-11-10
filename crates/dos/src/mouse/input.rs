@@ -1,7 +1,7 @@
 //! IBM's incoming packet ABI and Microsoft's outgoing register callback ABI.
 
 use super::{Mouse, PACKET_ENTRY};
-use relocade_machine::{registers as reg, CpuContext, FarPointer, Instant};
+use relocade_machine::{registers as reg, Clock, CpuContext, FarPointer};
 use relocade_x86::{Segment, SegmentRegister};
 
 const BIOS_MOUSE_INITIALIZE: u16 = 0xc205;
@@ -53,7 +53,7 @@ impl Mouse {
             .await
     }
 
-    pub(super) async fn receive(&self, call: &mut CpuContext<'_>, now: Instant) {
+    pub(super) async fn receive(&self, call: &mut CpuContext<'_>, clock: &Clock) {
         // RETF's IP:CS precede IBM's Z, Y, X and status words. These are the
         // actual BIOS arguments, not a second buffer or a private guest protocol.
         let stack = call.cpu.segment(Segment::Ss);
@@ -72,7 +72,7 @@ impl Mouse {
         let (event, callback) = {
             let mut state = self.state.borrow_mut();
             (
-                state.packet(coordinates, now, u16::from(status & 7), x, y),
+                state.packet(coordinates, clock, u16::from(status & 7), x, y),
                 state.callback,
             )
         };

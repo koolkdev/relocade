@@ -1,6 +1,6 @@
 use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
 use relocade_machine::Device;
 use relocade_vga::{
@@ -24,7 +24,7 @@ async fn check_display() {
     queue.submit([encoder.finish()]);
     // The host can cancel an input wait to service a redraw without losing input.
     assert!(display.service(&queue).now_or_never().is_none());
-    clock.advance_to(clock_origin() + common::boundary(1));
+    clock.advance_to(clock.at(common::boundary(1)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
@@ -51,7 +51,7 @@ async fn check_display() {
         },
     );
     for frame in 2..=7 {
-        clock.advance_to(clock_origin() + common::boundary(frame));
+        clock.advance_to(clock.at(common::boundary(frame)));
         vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         common::service_video(video.as_mut());
         assert!(display.service(&queue).now_or_never().is_none());
@@ -74,17 +74,17 @@ async fn check_display() {
     );
 
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 1);
-    clock.advance_to(clock_origin() + common::boundary(9));
+    clock.advance_to(clock.at(common::boundary(9)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     // Publication alone cannot change the state used by independent redraws.
     // The later capture becomes visible only after it has been serviced.
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 2);
-    clock.advance_to(clock_origin() + common::boundary(10));
+    clock.advance_to(clock.at(common::boundary(10)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
-    clock.advance_to(clock_origin() + common::boundary(11));
+    clock.advance_to(clock.at(common::boundary(11)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     let pixels = read_pixels(&device, &queue, image.texture()).await;
@@ -181,7 +181,7 @@ async fn check_display_state_changes() {
         (31, false, [0, 0, 0, 255], [0, 0, 0, 255]),
         (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
     ] {
-        clock.advance_to(clock_origin() + common::boundary(frame));
+        clock.advance_to(clock.at(common::boundary(frame)));
         vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
         common::service_video(video.as_mut());
         if changed {
@@ -199,7 +199,7 @@ async fn check_display_state_changes() {
 
     // Palette and geometry changes must also redraw with unchanged VRAM.
     common::support::registers::palette(&mut *vga.borrow_mut(), 4, [0, 0, 63]);
-    clock.advance_to(clock_origin() + common::boundary(33));
+    clock.advance_to(clock.at(common::boundary(33)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
@@ -222,7 +222,7 @@ async fn check_display_state_changes() {
         crtc::VERTICAL_RETRACE_END,
         retrace_end,
     );
-    clock.advance_to(clock_origin() + common::boundary(34));
+    clock.advance_to(clock.at(common::boundary(34)));
     vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));

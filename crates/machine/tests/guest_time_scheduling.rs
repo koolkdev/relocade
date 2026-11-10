@@ -3,7 +3,7 @@ mod support;
 use futures_util::future::join;
 use relocade_machine::{
     timer_service, Clock, Cpu, Device, DispatchEntry, ExecutionWorker, ExitHandle, Hook, Instant,
-    IoBus, Memory, Runner,
+    IoBus, Memory, Runner, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -40,60 +40,74 @@ async fn cpu(runner: &Runner, code: &[u8], io: IoBus) -> Cpu {
 }
 
 async fn unpaced_slice_overshoot() {
-    let worker = ExecutionWorker::spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(3).unwrap())
-                .with_slice_duration(Duration::from_secs(1))
-        },
-        async |runner| {
-            let start = runner.clock().now();
-            let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
-            let mut cpu = cpu(runner, &code, IoBus::default()).await;
-            let block = Compiler::new(ExecutionProfile::Real16)
-                .compile_block(0x100, &code, 2)
+    for (rate, slice, elapsed) in [
+        (
+            3,
+            Duration::from_secs(1),
+            Duration::from_nanos(3_333_333_333),
+        ),
+        (
+            3_000_000_000,
+            Duration::from_nanos(1),
+            Duration::from_nanos(3),
+        ),
+    ] {
+        let worker = ExecutionWorker::spawn_with_guest_time(
+            move || {
+                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
+                    .with_slice_duration(slice)
+            },
+            async move |runner| {
+                let clock = runner.clock().clone();
+                let start = clock.now();
+                let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
+                let mut cpu = cpu(runner, &code, IoBus::default()).await;
+                let block = Compiler::new(ExecutionProfile::Real16)
+                    .compile_block(0x100, &code, 2)
+                    .unwrap();
+                cpu.install_module(
+                    &block.bytes,
+                    &[DispatchEntry {
+                        address: 0x100,
+                        export: &block.entry,
+                    }],
+                )
+                .await
                 .unwrap();
-            cpu.install_module(
-                &block.bytes,
-                &[DispatchEntry {
-                    address: 0x100,
-                    export: &block.entry,
-                }],
-            )
-            .await
-            .unwrap();
-            let state = cpu.cpu_state();
-            let stop = cpu.exit_handle();
-            let mut samples = Vec::new();
-            let observe = poll_fn(|_| {
-                let count = state.instruction_count();
-                if count != 0 && samples.last() != Some(&count) {
-                    samples.push(count);
-                }
-                if samples.len() == 3 {
-                    stop.request();
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            });
-            let ((), exit) = join(observe, runner.run_cpu(&mut cpu)).await;
-            assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
-            // Two-instruction blocks cross the targets 3, 6 and 9. Overshoot
-            // must shorten the next allowance instead of shifting the timebase.
-            assert_eq!(samples, [4, 6, 10]);
-            assert_eq!(
-                runner.clock().now(),
-                start + Duration::from_nanos(3_333_333_333)
-            );
-        },
-    );
-    assert_eq!(worker.join().await.unwrap(), Some(()));
+                let state = cpu.cpu_state();
+                let stop = cpu.exit_handle();
+                let mut samples = Vec::new();
+                let observe = poll_fn(|_| {
+                    let count = state.instruction_count();
+                    if count != 0 && samples.last() != Some(&count) {
+                        samples.push(count);
+                    }
+                    if samples.len() == 3 {
+                        stop.request();
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                });
+                let ((), exit) = join(observe, runner.run_cpu(&mut cpu)).await;
+                assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
+                // Two-instruction blocks cross the targets 3, 6 and 9. Overshoot
+                // must shorten the next allowance instead of shifting the timebase.
+                assert_eq!(samples, [4, 6, 10]);
+                assert_eq!(
+                    runner.clock().duration_since(runner.clock().now(), start),
+                    elapsed
+                );
+            },
+        );
+        assert_eq!(worker.join().await.unwrap(), Some(()));
+    }
 }
 
 struct Deadlines {
     clock: Clock,
-    deadlines: Vec<Instant>,
-    observed: Vec<Instant>,
+    deadlines: Vec<Timestamp>,
+    observed: Vec<Timestamp>,
     exit: Option<ExitHandle>,
     exit_after_waits: bool,
 }
@@ -124,15 +138,16 @@ async fn deadlines_and_final_exit() {
                     .with_slice_duration(Duration::from_millis(10))
             },
             async move |runner| {
-                let start = runner.clock().now();
+                let clock = runner.clock().clone();
+                let start = clock.now();
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: runner.clock().clone(),
                     deadlines: if final_exit {
-                        vec![start + Duration::from_millis(3)]
+                        vec![clock.add(start, Duration::from_millis(3))]
                     } else {
                         vec![
-                            start + Duration::from_micros(500),
-                            start + Duration::from_millis(5),
+                            clock.add(start, Duration::from_micros(500)),
+                            clock.add(start, Duration::from_millis(5)),
                         ]
                     },
                     observed: Vec::new(),
@@ -158,7 +173,7 @@ async fn deadlines_and_final_exit() {
                     device.borrow().observed,
                     expected
                         .into_iter()
-                        .map(|millis| start + Duration::from_millis(millis))
+                        .map(|millis| clock.add(start, Duration::from_millis(millis)))
                         .collect::<Vec<_>>()
                 );
             },
@@ -190,7 +205,8 @@ async fn retained_service() {
                 .with_slice_duration(Duration::from_millis(10))
         },
         async move |runner| {
-            let start = runner.clock().now();
+            let clock = runner.clock().clone();
+            let start = clock.now();
             let device = Rc::new(RefCell::new(Periodic {
                 clock: runner.clock().clone(),
                 wakes: 0,
@@ -219,7 +235,7 @@ async fn retained_service() {
             );
             assert_eq!(started.get(), 1);
             assert!(device.borrow().wakes >= 5);
-            assert!(runner.clock().now() >= start + Duration::from_millis(5));
+            assert!(runner.clock().now() >= runner.clock().add(start, Duration::from_millis(5)));
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
         },
     );
@@ -238,7 +254,7 @@ async fn unpaced_idle_service() {
         async |runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            let deadline = start + Duration::from_millis(10);
+            let deadline = clock.add(start, Duration::from_millis(10));
             let mut cpu = cpu(runner, &[0x90], IoBus::default()).await;
             let exit = cpu.exit_handle();
             cpu.install([Hook::host(0x100, async move || {

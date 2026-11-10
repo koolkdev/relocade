@@ -3,15 +3,18 @@
 mod driver;
 mod guest;
 mod host;
+mod timebase;
 mod timestamp;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
+use timebase::Timebase;
 pub use timestamp::Timestamp;
 pub use web_time::Instant;
 
 use std::{
     future::Future,
+    num::NonZeroU64,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll},
@@ -22,24 +25,35 @@ use std::{
 /// A clock stays on its execution owner; its controller supplies the operations
 /// that advance time or drive timers. Host and guest clocks are chosen at setup.
 #[derive(Clone)]
-pub struct Clock(Rc<dyn ClockSource>);
+pub struct Clock {
+    source: Rc<dyn ClockSource>,
+    timebase: Timebase,
+}
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
 /// Implementations register waits on first poll and release them on drop.
 /// Clocks and their waits stay on their execution owner.
 pub trait ClockSource {
-    fn now(&self) -> Instant;
+    fn now(&self) -> Timestamp;
 
-    /// Reads native progress. Custom host sources can use the default conversion.
-    fn timestamp(&self) -> Timestamp {
-        self.now().into()
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep;
+
+    /// Fixed scale of this source's coordinates. Nanosecond sources use the
+    /// default; instruction clocks retain fractional nanoseconds with finer ticks.
+    fn ticks_per_nanosecond(&self) -> NonZeroU64 {
+        NonZeroU64::new(1).unwrap()
     }
 
-    fn sleep_until(&self, deadline: Instant) -> Sleep;
+    /// Maps an external host event into this source's timeline. Host sources
+    /// clamp events before their origin to the origin. Sources without a host
+    /// correspondence leave the default; their input synchronization is immediate.
+    fn host_timestamp(&self, _time: Instant) -> Option<Timestamp> {
+        None
+    }
 
     /// Captures a local wait on the configured host timebase. Sources without
     /// an active correspondence complete immediately.
-    fn sync_to_host(&self, _time: Instant) -> Sleep {
+    fn sync_to_host(&self, _time: Timestamp) -> Sleep {
         Sleep::new(async {})
     }
 
@@ -54,17 +68,54 @@ pub trait ClockSource {
 impl Clock {
     /// Wraps a source behind the common consumer API.
     pub fn new(source: impl ClockSource + 'static) -> Self {
-        Self(Rc::new(source))
+        Self {
+            timebase: Timebase(source.ticks_per_nanosecond()),
+            source: Rc::new(source),
+        }
     }
 
-    pub fn now(&self) -> Instant {
-        self.0.now()
+    /// Reads native progress on this clock's timeline.
+    pub fn now(&self) -> Timestamp {
+        self.source.now()
     }
 
-    /// Reads native clock progress without requiring an instruction-to-time conversion.
-    /// Use duration arithmetic or `Timestamp::to_instant` at timing boundaries.
-    pub fn timestamp(&self) -> Timestamp {
-        self.0.timestamp()
+    /// Projects a reading down to a whole nanosecond on this timeline.
+    /// Devices that integrate whole-nanosecond durations use this as their
+    /// phase anchor so cached deadlines agree with their elapsed-time model.
+    pub fn floor(&self, time: Timestamp) -> Timestamp {
+        self.timebase.floor(time)
+    }
+
+    /// Adds an exact duration without discarding fractional clock progress.
+    /// Panics if the result exceeds the clock's coordinate range.
+    pub fn add(&self, time: Timestamp, duration: Duration) -> Timestamp {
+        self.checked_add(time, duration)
+            .expect("clock timestamp overflow")
+    }
+
+    pub fn checked_add(&self, time: Timestamp, duration: Duration) -> Option<Timestamp> {
+        self.timebase.checked_add(time, duration)
+    }
+
+    /// Subtracts an exact duration. Panics if the result precedes the origin.
+    pub fn sub(&self, time: Timestamp, duration: Duration) -> Timestamp {
+        self.checked_sub(time, duration)
+            .expect("clock timestamp underflow")
+    }
+
+    pub fn checked_sub(&self, time: Timestamp, duration: Duration) -> Option<Timestamp> {
+        self.timebase.checked_sub(time, duration)
+    }
+
+    /// Elapsed time between readings projected onto the nanosecond timeline.
+    /// Flooring each endpoint keeps adjacent intervals additive. Returns zero
+    /// when `earlier` is later than `time`. Both readings must belong to this clock.
+    pub fn duration_since(&self, time: Timestamp, earlier: Timestamp) -> Duration {
+        self.timebase.duration_since(time, earlier)
+    }
+
+    pub fn checked_duration_since(&self, time: Timestamp, earlier: Timestamp) -> Option<Duration> {
+        (time >= earlier).then(|| self.duration_since(time, earlier))
     }
 
     /// Waits for the host time corresponding to a timestamp from this clock.
@@ -77,11 +128,11 @@ impl Clock {
     /// is captured when this method is called. The deadline stays fixed, including
     /// across pauses and guest lag recovery.
     /// Registration happens on first poll; elapsed deadlines need no timer.
-    pub fn sync_to_host(&self, time: Instant) -> Sleep {
-        self.0.sync_to_host(time)
+    pub fn sync_to_host(&self, time: Timestamp) -> Sleep {
+        self.source.sync_to_host(time)
     }
 
-    fn sleep_until_if_needed(&self, deadline: Instant) -> Sleep {
+    fn sleep_until_if_needed(&self, deadline: Timestamp) -> Sleep {
         let clock = self.clone();
         Sleep::new(async move {
             if clock.now() < deadline {
@@ -92,14 +143,14 @@ impl Clock {
 
     /// Captures the deadline now, even if the returned future is polled later.
     pub fn sleep(&self, duration: Duration) -> Sleep {
-        self.sleep_until(self.now() + duration)
+        self.sleep_until(self.add(self.now(), duration))
     }
 
     /// Waits on a timestamp from this clock's timebase. Registration happens on
     /// first poll; dropping the future cancels the wait. An expired deadline may
     /// complete immediately, so awaiting a sleep does not promise an executor yield.
-    pub fn sleep_until(&self, deadline: Instant) -> Sleep {
-        self.0.sleep_until(deadline)
+    pub fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+        self.source.sleep_until(deadline)
     }
 
     /// Waits until guest time reaches the host's current mapped time, captured
@@ -108,18 +159,17 @@ impl Clock {
     /// Discarding excessive guest lag shortens this wait with the shared mapping.
     /// Host clocks, unpaced guest clocks and clocks outside a CPU run do not wait.
     pub fn sync(&self) -> Sleep {
-        self.0.sync(None)
+        self.source.sync(None)
     }
 
-    /// Like [`Self::sync`], using a timestamp from the configured host clock's
-    /// timebase, such as the time an input event was enqueued. The current
-    /// host/guest correspondence is captured now. Guest lag recovery shortens
+    /// Like [`Self::sync`], using the external host instant at which an input
+    /// event was enqueued. The current host/guest correspondence is captured now. Guest lag recovery shortens
     /// pending waits, including ones that have not yet been polled.
     /// It does not reconstruct past mappings: input first consumed after a pause
     /// uses the resumed correspondence, while an ordinary pause leaves an
     /// already-created wait unchanged.
     pub fn sync_to(&self, host_time: Instant) -> Sleep {
-        self.0.sync(Some(host_time))
+        self.source.sync(Some(host_time))
     }
 }
 

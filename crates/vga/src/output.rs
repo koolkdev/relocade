@@ -70,7 +70,7 @@ impl Vga {
     /// Capture before mutation if that boundary elapsed before the task ran.
     pub(super) fn capture_if_due(&mut self) {
         if let Some(deadline) = self.raster.next_retrace_at() {
-            let now = self.clock.timestamp();
+            let now = self.clock.now();
             if now >= deadline {
                 self.advance_raster(now);
             }
@@ -134,7 +134,7 @@ pub(super) async fn run(device: Rc<RefCell<Vga>>) {
             device.output.pending.take()
         };
         if let Some(pending) = pending {
-            clock.sync_to_host(pending.time.to_instant()).await;
+            clock.sync_to_host(pending.time).await;
             if sender.force_send(pending.snapshot).is_err() {
                 return;
             }

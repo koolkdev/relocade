@@ -12,7 +12,7 @@ async fn clock_waits() {
     let clock = Clock::from(handle);
     let other = clock.clone();
     let waits = async move {
-        let deadline = clock.now() + Duration::from_millis(10);
+        let deadline = clock.add(clock.now(), Duration::from_millis(10));
         let output = clock.sync_to_host(deadline);
         let long = async {
             output.await;
@@ -21,7 +21,7 @@ async fn clock_waits() {
         let short = async {
             let start = other.now();
             other.sleep(Duration::from_millis(1)).await;
-            assert!(other.now() >= start + Duration::from_millis(1));
+            assert!(other.now() >= other.add(start, Duration::from_millis(1)));
         };
         join(long, short).await;
     };
@@ -34,7 +34,7 @@ async fn delayed_driver() {
     let mut cx = Context::from_waker(Waker::noop());
     let worker;
     {
-        let deadline = clock.now() + Duration::from_millis(1);
+        let deadline = clock.add(clock.now(), Duration::from_millis(1));
         let mut sleep = pin!(clock.sleep_until(deadline));
         assert!(sleep.as_mut().poll(&mut cx).is_pending());
         // Delivery time is part of the wait, not an extension to its deadline.
@@ -74,7 +74,7 @@ async fn earlier_deadline() {
         clock.sleep(Duration::ZERO).await;
         // Let the timer thread park on the long deadline before inserting a new one.
         futures_timer::Delay::new(Duration::from_millis(10)).await;
-        let deadline = clock.now() + Duration::from_micros(500);
+        let deadline = clock.add(clock.now(), Duration::from_micros(500));
         clock.sleep_until(deadline).await;
         assert!(clock.now() >= deadline);
         assert!(later.as_mut().poll(&mut cx).is_pending());
@@ -189,11 +189,17 @@ async fn session_completion_and_cancellation_stop_their_timer_workers() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn host_clock_uses_the_host_instant_timebase() {
-    use relocade_machine::Instant;
+fn host_clock_maps_external_events_to_its_own_timeline() {
+    use relocade_machine::{ClockSource, Instant};
     let before = Instant::now();
     let (handle, _driver) = timer_service();
-    let now = handle.clock().now();
+    let clock = handle.clock();
+    let now = clock.now();
     let after = Instant::now();
-    assert!(before <= now && now <= after);
+    assert!(handle.host_timestamp(before).unwrap() <= now);
+    assert!(now <= handle.host_timestamp(after).unwrap());
+    assert_eq!(
+        handle.host_timestamp(before),
+        Some(relocade_machine::Timestamp::from_ticks(0))
+    );
 }

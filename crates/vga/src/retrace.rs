@@ -26,9 +26,9 @@ impl Vga {
         if !self.setup.enabled() {
             return None;
         }
-        self.advance_raster(self.clock.timestamp());
+        self.advance_raster(self.clock.now());
         let deadline = if self.raster.in_retrace() {
-            Some(self.clock.timestamp())
+            Some(self.clock.now())
         } else {
             self.raster.next_retrace_pulse_at()
         };
@@ -50,8 +50,8 @@ impl Vga {
             };
             if let Some(deadline) = deadline {
                 or(changed, async {
-                    if clock.timestamp() < deadline {
-                        clock.sleep_until(deadline.to_instant()).await;
+                    if clock.now() < deadline {
+                        clock.sleep_until(deadline).await;
                     }
                     RetraceEvent::Started
                 })

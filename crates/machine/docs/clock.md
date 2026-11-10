@@ -1,58 +1,62 @@
 # Shared time and waits
 
-`Clock` is a clonable, execution-local value that reads one timebase and creates
+`Clock` is a clonable, execution-local value that owns a timeline and creates
 owned deadline waits. Devices and services use the same concrete API:
 
 ```rust,ignore
-let now: Instant = clock.now();
-let deadline = now + Duration::from_millis(2);
-clock.sleep_until(deadline).await;
-clock.sleep(Duration::from_millis(2)).await;
-```
-
-`Instant` is re-exported from `web_time`, which uses the standard library type
-on native targets. `Instant` is monotonic; `Duration` is
-an interval. Host time follows the host's monotonic clock. Emulated guest time
-starts at an explicitly supplied instant and advances independently. Sharing an
-origin does not make guest time follow host time. Pacing is the execution policy
-that controls their relationship.
-
-`clock.timestamp()` returns a `Timestamp` in the source's native units. Guest
-readings accumulate instruction progress without dividing by the instruction rate;
-VGA compares these readings with cached raster deadlines. `Timestamp` comparisons
-retain fractional nanoseconds. Duration arithmetic and `to_instant()` round down
-to nanoseconds, preserving the existing `now()` and device timing contract:
-
-```rust,ignore
-let reading = clock.timestamp();
-let deadline = reading + Duration::from_millis(2);
-if clock.timestamp() >= deadline {
-    let elapsed = clock.timestamp().duration_since(reading);
-    // Advance device state using elapsed, then create the next deadline.
+let now: Timestamp = clock.now();
+let deadline = clock.add(now, Duration::from_millis(2));
+let elapsed = clock.duration_since(now, earlier);
+if clock.now() >= deadline {
+    // Update the device at its next observable boundary.
 }
-clock.sleep_until(deadline.to_instant()).await;
+clock.sleep_until(deadline).await;
+clock.sync_to_host(now).await;
 ```
 
-Custom `ClockSource` implementations inherit `timestamp()` from `now()`. The
-`Instant` APIs remain appropriate for host timestamps, waits and correspondence.
-Native guest readings survive pauses, rebinding, idle advancement and CPU-counter
-wrap. Very large elapsed times rebase their origin to retain the `Instant` range;
-ordinary comparisons on one origin use only their native progress values.
+`Timestamp` is an opaque native coordinate. It carries no origin, rate or source
+identity. Compare readings only within the same clock and its clones, and use
+that clock for arithmetic and waits. Host and guest timelines are independent.
+The clock owns its fixed scale; the host timer source owns its host origin.
+`Instant`, re-exported from `web_time`, is used only for external host events.
+
+`Clock::add` and `sub` preserve fractional progress exactly; their checked forms
+return `None` on coordinate overflow or subtraction before the origin.
+`duration_since` projects each endpoint down to the clock's nanosecond timeline
+before subtracting. This keeps adjacent elapsed intervals additive without
+losing fractional progress on every observation. It saturates at zero;
+`checked_duration_since` instead returns `None` for reversed readings.
+`floor(timestamp)` gives the corresponding whole-nanosecond coordinate. Raster,
+PIT, and audio phase anchors use it to keep their duration calculations and cached
+deadlines on the same grid; ordinary deadline comparisons retain native precision.
+
+A relative sleep captures the full duration from the native reading. For example,
+at three billion instructions per second, a one-nanosecond sleep always requires
+three further instructions, even when it starts between nanosecond boundaries.
+Idle advancement reaches its exact native deadline. Existing timestamps remain
+valid across pauses, rebinding, idle advancement and CPU counter wrap.
 
 `Sleep` owns its source without retaining a device borrow. Relative sleeps capture
 their deadline when constructed; both forms register on first poll. Dropping a
 polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
-`ClockSource` supplies `now() -> Instant` and `sleep_until(Instant) -> Sleep`.
-Its optional `sync(Option<Instant>) -> Sleep` captures a mapped host deadline;
-`None` samples the source's configured host clock. The default completes immediately.
-`Clock::new(source)` wraps a source behind the common consumer API, and
-`Sleep::new(future)` owns its wait state. Custom sources must preserve monotonic
-readings and first-poll registration/drop cancellation. `Runner`, `Pc`, `Dos`, and
-devices accept `Clock` without an implementation type parameter. Controllers expose
-the separate capabilities to drive timers or advance time. `ExecutionWorker::spawn_with_clock`
-constructs a clock on the execution owner from a transferable factory.
+`ClockSource` supplies `now() -> Timestamp` and `sleep_until(Timestamp) -> Sleep`.
+Its immutable, nonzero `ticks_per_nanosecond()` defaults to one. Sources construct
+coordinates with `Timestamp::from_ticks` and interpret them with `ticks`; device
+consumers do neither. `Clock::new(source)` captures the scale and wraps the source
+behind the common consumer API. `Sleep::new(future)` owns its wait state.
+
+Sources preserve monotonic readings and first-poll registration/drop cancellation.
+Host sources implement `host_timestamp(Instant)` to translate external event times,
+clamping events before their origin to its initial coordinate. The optional
+`sync(Option<Instant>)` captures a mapped host deadline; `None` samples the
+configured host clock. Sources without a correspondence complete immediately.
+
+`Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
+parameter. Controllers expose the separate capabilities to drive timers or
+advance time. `ExecutionWorker::spawn_with_clock` constructs a clock on the
+execution owner from a transferable factory.
 
 ## Controlled time in tests
 
@@ -60,22 +64,27 @@ constructs a clock on the execution owner from a transferable factory.
 the consuming test suites. It is not exported by `relocade-machine` or included
 in application builds. Its `clock()` uses the same public `ClockSource` interface.
 
-`advance_by(duration)` and `advance_to(instant)` wake due sleeps;
+`advance_by(duration)` and `advance_to(timestamp)` wake due sleeps;
 `next_deadline()` observes the earliest polled, uncancelled sleep. Advancing to
-an earlier instant leaves time unchanged. Cloned controllers share time and can
-move between workers; consumer clocks remain local. Fixtures share a monotonic
-anchor through the test helper's `origin()`; clock progress remains independent.
+an earlier timestamp leaves time unchanged. Cloned controllers share time and can
+move between workers; consumer clocks remain local. Each controller starts at zero on its own timeline. `at(duration)` constructs a
+fixture deadline, and `host_now()` supplies external input timestamps.
 
 ## Emulated guest time
 
-`GuestTimeDriver::new(start, instructions_per_second)` owns emulated guest time,
-pending sleeps and the corresponding CPU instruction target. While the CPU runs,
+`GuestTimeDriver::new(instructions_per_second)` owns emulated guest time,
+pending sleeps and the corresponding CPU instruction target. Its timeline starts
+at zero. One instruction adds one billion native ticks; one nanosecond adds the
+instruction rate. Deadline comparisons and instruction targets operate directly
+on these coordinates. The finite coordinate range covers over 584 years even at
+the maximum rate; checked arithmetic reports exhaustion without rebasing old
+readings. While the CPU runs,
 retired instructions advance guest time at the configured rate. While the CPU is
 idle, the embedding may advance time to the next registered sleep. The driver is
 synchronous; the embedding owns execution and executor turns.
 
 ```rust,ignore
-let driver = GuestTimeDriver::new(start, instructions_per_second);
+let driver = GuestTimeDriver::new(instructions_per_second);
 let guest_clock = driver.clock();
 // Connect devices using guest_clock, then construct the CPU.
 let binding = driver.bind(&cpu, &execution_waker);

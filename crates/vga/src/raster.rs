@@ -1,5 +1,5 @@
 use crate::timing::Timing;
-use relocade_machine::Timestamp;
+use relocade_machine::{Clock, Timestamp};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
 
@@ -7,6 +7,7 @@ const VERTICAL_RETRACE: u8 = 1 << 3;
 /// Observations between events leave the position lazy. Timing changes materialize
 /// it at `observed` under the old timing before remapping the counters.
 pub(super) struct Raster {
+    clock: Clock,
     timing: Timing,
     updated: Timestamp,
     observed: Timestamp,
@@ -20,8 +21,10 @@ pub(super) struct Raster {
 }
 
 impl Raster {
-    pub fn new(now: Timestamp, timing: Timing) -> Self {
+    pub fn new(clock: Clock, timing: Timing) -> Self {
+        let now = clock.floor(clock.now());
         let mut raster = Self {
+            clock,
             timing,
             updated: now,
             observed: now,
@@ -52,8 +55,9 @@ impl Raster {
     /// Materialize the exact phase, including when a programming write occurs
     /// between observable edges. Stopped clocks still move their time anchor.
     fn advance_to(&mut self, now: Timestamp) -> Option<Timestamp> {
+        let now = self.clock.floor(now);
         let timing = self.timing;
-        let elapsed = now.duration_since(self.updated);
+        let elapsed = self.clock.duration_since(now, self.updated);
         if elapsed.is_zero() {
             return None;
         }
@@ -76,7 +80,10 @@ impl Raster {
                     .checked_add(u64::try_from(frames).expect("Display frame count fits in u64"))
                     .expect("Display frame sequence exhausted");
                 let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
-                now - timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder)
+                self.clock.sub(
+                    now,
+                    timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder),
+                )
             });
         self.dot = ((u128::from(self.dot) + dots) % u128::from(frame_dots)) as u64;
         if completed.is_some() {
@@ -123,7 +130,7 @@ impl Raster {
     /// the lifetime retrace count so consumers can wait across mode switches.
     pub fn restart(&mut self, timing: Timing) {
         self.timing = timing;
-        self.updated = self.observed;
+        self.updated = self.clock.floor(self.observed);
         self.dot = 0;
         self.dot_remainder = 0;
         self.refresh_deadline();
@@ -152,8 +159,10 @@ impl Raster {
         if dots == 0 {
             dots = total;
         }
-        self.updated
-            .checked_add(self.timing.remaining_for_dots(dots, self.dot_remainder))
+        self.clock.checked_add(
+            self.updated,
+            self.timing.remaining_for_dots(dots, self.dot_remainder),
+        )
     }
 
     pub fn input_status_1(&self) -> u8 {
@@ -167,8 +176,10 @@ impl Raster {
     fn refresh_status(&mut self) {
         self.status = self.timing.input_status_1(self.dot);
         let next_status = self.timing.next_status_in_dots(self.dot).and_then(|dots| {
-            self.updated
-                .checked_add(self.timing.remaining_for_dots(dots, self.dot_remainder))
+            self.clock.checked_add(
+                self.updated,
+                self.timing.remaining_for_dots(dots, self.dot_remainder),
+            )
         });
         // Internal captures still advance latches and blink when external sync
         // is suppressed, independently of the observable status bits.

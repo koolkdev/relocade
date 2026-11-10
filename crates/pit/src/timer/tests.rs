@@ -1,5 +1,5 @@
 use super::*;
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use std::{
     cell::RefCell,
     future::Future,
@@ -29,7 +29,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     let clock = ManualClock::default();
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_000_000_000));
+    clock.advance_to(clock.at(Duration::from_nanos(1_000_000_000)));
     let mut pic = relocade_pic::Pic::new(0x08, 0x70);
     let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
@@ -41,12 +41,12 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
 
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(pic.poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_054_925_401));
+    clock.advance_to(clock.at(Duration::from_nanos(1_054_925_401)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(pic.poll_interrupt(&mut cpu_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
 
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_054_925_402));
+    clock.advance_to(clock.at(Duration::from_nanos(1_054_925_402)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(pic.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
@@ -61,7 +61,7 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     assert!(pic.poll_interrupt(&mut cpu_cx).is_pending());
 
     // A delayed host poll creates one pending request and keeps the original phase.
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_549_254_012 + 1_234));
+    clock.advance_to(clock.at(Duration::from_nanos(1_549_254_012 + 1_234)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(replaced.0.load(Ordering::Relaxed), 1);
@@ -70,19 +70,19 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     assert!(pic.poll_interrupt(&mut cpu_cx).is_pending());
     // The eleventh boundary is ceil(11 * 65536 * 1e9 / 1193182),
     // not eleven separately rounded periods.
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_604_179_412));
+    clock.advance_to(clock.at(Duration::from_nanos(1_604_179_412)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(pic.poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_604_179_413));
+    clock.advance_to(clock.at(Duration::from_nanos(1_604_179_413)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
     assert_eq!(pic.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
     pic.write_port(0x20, 1, 0x20);
 
     // Edges also coalesce when the activity runs but the CPU does not acknowledge.
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_659_104_814));
+    clock.advance_to(clock.at(Duration::from_nanos(1_659_104_814)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_714_030_216));
+    clock.advance_to(clock.at(Duration::from_nanos(1_714_030_216)));
     assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert_eq!(pic.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
     pic.write_port(0x20, 1, 0x20);
@@ -113,10 +113,10 @@ fn programming_rearms_the_wait_and_preserves_pending_irq0() {
     assert!(activity.as_mut().poll(&mut cx).is_pending()); // Cancel the BIOS-rate wait.
     assert!(activity.as_mut().poll(&mut cx).is_pending()); // Arm the new load.
 
-    clock.advance_to(clock_origin() + Duration::from_nanos(3_353)); // Four clocks: load, then mode-2 OUT low.
+    clock.advance_to(clock.at(Duration::from_nanos(3_353))); // Four clocks: load, then mode-2 OUT low.
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(pic.poll_interrupt(&mut cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(4_191)); // Fifth clock: first rising edge.
+    clock.advance_to(clock.at(Duration::from_nanos(4_191))); // Fifth clock: first rising edge.
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(pic.read_port(relocade_pic::COMMAND_PORT, 1) & 1, 1);
     // Stop the timer before acknowledging; programming must not clear PIC IRR.
@@ -125,7 +125,7 @@ fn programming_rearms_the_wait_and_preserves_pending_irq0() {
     pic.write_port(0x20, 1, 0x20);
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(1_000_000_000));
+    clock.advance_to(clock.at(Duration::from_nanos(1_000_000_000)));
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(pic.poll_interrupt(&mut cx).is_pending()); // No stale deadline IRQ.
 
@@ -147,9 +147,9 @@ fn readback_latches_both_channels_without_changing_speaker_playback() {
     let recorded = changes.clone();
     pit.observe_channel2(move |state| recorded.borrow_mut().push(state));
     changes.borrow_mut().clear();
-    clock.advance_to(clock_origin() + Duration::from_nanos(2_515)); // Three clocks: load plus two decrements.
+    clock.advance_to(clock.at(Duration::from_nanos(2_515))); // Three clocks: load plus two decrements.
     pit.write_port(CONTROL_PORT, 1, 0xca); // Count and status for channels 0 and 2.
-    clock.advance_to(clock_origin() + Duration::from_nanos(5_029));
+    clock.advance_to(clock.at(Duration::from_nanos(5_029)));
     assert_eq!(pit.read_port(CHANNEL_0_PORT, 1), 0xb4);
     assert_eq!(pit.read_port(CHANNEL_0_PORT, 1), 2);
     assert_eq!(pit.read_port(CHANNEL_0_PORT, 1), 0);
@@ -180,15 +180,39 @@ fn irq0_tracks_output_levels_for_a_level_triggered_pic() {
     assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(8)); // Initial high level.
     pic.write_port(0x20, 1, 0x20);
     assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(8)); // Still high after EOI.
-    clock.advance_to(clock_origin() + Duration::from_nanos(2_515)); // Load plus the high half-period.
+    clock.advance_to(clock.at(Duration::from_nanos(2_515))); // Load plus the high half-period.
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     pic.write_port(0x20, 1, 0x20);
     assert!(pic.poll_interrupt(&mut cx).is_pending());
-    clock.advance_to(clock_origin() + Duration::from_nanos(4_191)); // Low half-period ends.
+    clock.advance_to(clock.at(Duration::from_nanos(4_191))); // Low half-period ends.
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(8));
     pic.write_port(0x20, 1, 0x20);
-    clock.advance_to(clock_origin() + Duration::from_nanos(9_220)); // Several transitions later, OUT is low again.
+    clock.advance_to(clock.at(Duration::from_nanos(9_220))); // Several transitions later, OUT is low again.
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(pic.poll_interrupt(&mut cx).is_pending());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn fractional_initialization_keeps_polling_and_timer_edges_on_the_same_grid() {
+    use relocade_machine::{GuestTimeDriver, Timestamp};
+    use std::num::NonZeroU64;
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let clock = driver.clock();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
+    assert!(initial.as_mut().poll(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline()); // One third of a nanosecond.
+    let pic = Pic::new(8, 0x70);
+    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clone(), &pic)));
+    let mut activity = pin!(Pit::run(timer.clone()));
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    // The default mode-3 counter first falls after 32,768 PIT input clocks.
+    let edge = clock.add(Timestamp::from_ticks(0), Duration::from_nanos(27_462_701));
+    assert_eq!(driver.next_deadline(), Some(edge));
+    assert!(driver.advance_to_next_deadline());
+    timer.borrow_mut().sync_to_clock();
+    assert!(!timer.borrow().channel0.output());
 }

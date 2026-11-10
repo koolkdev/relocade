@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, Instant,
-    IoBus, MachineConfig, Memory,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle, IoBus,
+    MachineConfig, Memory, Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -25,7 +25,7 @@ struct Reports {
     ready: Option<oneshot::Sender<()>>,
     host_busy: Arc<AtomicBool>,
     count: Arc<AtomicUsize>,
-    samples: Vec<Instant>,
+    samples: Vec<Timestamp>,
     exit: Option<ExitHandle>,
 }
 
@@ -35,7 +35,7 @@ impl Device for Reports {
             self.ready.take().unwrap().send(()).unwrap();
             // Do not deliver the measured interrupts before the host enters its
             // synchronous wait; a delayed host callback must not bypass this test.
-            let deadline = self.clock.now() + Duration::from_secs(2);
+            let deadline = self.clock.add(self.clock.now(), Duration::from_secs(2));
             while !self.host_busy.load(Ordering::Acquire) && self.clock.now() < deadline {
                 std::hint::spin_loop();
             }
@@ -143,7 +143,7 @@ async fn timer_interrupts() -> Result<(), String> {
     start.send(()).unwrap();
     running.await.unwrap();
     host_busy.store(true, Ordering::Release);
-    let deadline = warmup.now() + Duration::from_secs(2);
+    let deadline = warmup.add(warmup.now(), Duration::from_secs(2));
     while count.load(Ordering::Acquire) < INTERRUPTS && warmup.now() < deadline {
         std::hint::spin_loop();
     }

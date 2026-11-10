@@ -10,7 +10,7 @@ use std::{
 
 struct ReprogrammedTimer {
     clock: Clock,
-    deadline: Instant,
+    deadline: Timestamp,
     wait: Option<Pin<Box<Sleep>>>,
     cancel: bool,
     writes: usize,
@@ -46,10 +46,15 @@ async fn callback_target_changes() {
     for compiled in [false, true] {
         for mmio in [false, true] {
             for (cancel, has_yield_deadline) in [(false, true), (true, true), (true, false)] {
-                let driver = GuestTimeDriver::new(clock_origin(), NonZeroU64::new(1000).unwrap());
+                let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
                 let clock = driver.clock();
-                let mut wait =
-                    Box::pin(clock.sleep_until(clock_origin() + Duration::from_millis(4)));
+                let mut wait = Box::pin(
+                    clock.sleep_until(
+                        driver
+                            .clock()
+                            .add(Timestamp::from_ticks(0), Duration::from_millis(4)),
+                    ),
+                );
                 if cancel {
                     assert!(wait
                         .as_mut()
@@ -58,7 +63,9 @@ async fn callback_target_changes() {
                 }
                 let device = Rc::new(RefCell::new(ReprogrammedTimer {
                     clock,
-                    deadline: clock_origin() + Duration::from_millis(4),
+                    deadline: driver
+                        .clock()
+                        .add(Timestamp::from_ticks(0), Duration::from_millis(4)),
                     wait: cancel.then_some(wait),
                     cancel,
                     writes: 0,
@@ -123,8 +130,11 @@ async fn callback_target_changes() {
                 .unwrap();
                 let state = cpu.cpu_state();
                 let binding = driver.bind(&cpu, Waker::noop());
-                let yield_deadline =
-                    has_yield_deadline.then(|| clock_origin() + Duration::from_millis(10));
+                let yield_deadline = has_yield_deadline.then(|| {
+                    driver
+                        .clock()
+                        .add(Timestamp::from_ticks(0), Duration::from_millis(10))
+                });
                 driver.synchronize(yield_deadline);
                 assert_eq!(
                     cpu.run().await,
@@ -182,7 +192,7 @@ async fn io_and_mmio_wait_changes_retarget_running_guest_execution() {
 async fn cancelled_binding() {
     use relocade_machine::Hook;
     use std::{cell::Cell, future::poll_fn, task::Poll};
-    let driver = GuestTimeDriver::new(clock_origin(), NonZeroU64::new(1000).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
     let mut cpu = support::create_cpu(configuration(0)).await.unwrap();
     cpu.memory()
         .view()
@@ -219,7 +229,11 @@ async fn cancelled_binding() {
     .await
     .unwrap();
     let binding = driver.bind(&cpu, Waker::noop());
-    driver.synchronize(Some(clock_origin() + Duration::from_millis(3)));
+    driver.synchronize(Some(
+        driver
+            .clock()
+            .add(Timestamp::from_ticks(0), Duration::from_millis(3)),
+    ));
     let mut run = Box::pin(cpu.run());
     assert!(run
         .as_mut()
@@ -252,9 +266,11 @@ async fn releasing_the_binding_clears_its_target_and_preserves_the_pending_servi
 async fn expired_yield_deadline() {
     for compiled in [false, true] {
         for cancel in [false, true] {
-            let driver = GuestTimeDriver::new(clock_origin(), NonZeroU64::new(1000).unwrap());
+            let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
             let clock = driver.clock();
-            let deadline = clock_origin() + Duration::from_millis(40);
+            let deadline = driver
+                .clock()
+                .add(Timestamp::from_ticks(0), Duration::from_millis(40));
             let mut wait = Box::pin(clock.sleep_until(deadline));
             if cancel {
                 assert!(wait
@@ -303,7 +319,11 @@ async fn expired_yield_deadline() {
             }
             let state = cpu.cpu_state();
             let _binding = driver.bind(&cpu, Waker::noop());
-            driver.synchronize(Some(clock_origin() + Duration::from_millis(10)));
+            driver.synchronize(Some(
+                driver
+                    .clock()
+                    .add(Timestamp::from_ticks(0), Duration::from_millis(10)),
+            ));
             assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
             assert_eq!(state.instruction_count(), 11);
             assert_eq!(device.borrow().writes, 1);

@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
@@ -48,10 +48,10 @@ impl Device for Ticker {
         };
         active.store(true, Ordering::SeqCst);
         let _active = Active(active);
-        let mut deadline = clock.now() + Duration::from_millis(2);
+        let mut deadline = clock.add(clock.now(), Duration::from_millis(2));
         loop {
             clock.sleep_until(deadline).await;
-            deadline += Duration::from_millis(2);
+            deadline = clock.add(deadline, Duration::from_millis(2));
             ticks.set(ticks.get() + 1);
             report.unbounded_send(ticks.get()).unwrap();
         }
@@ -112,9 +112,7 @@ async fn check_devices() {
                     let cpu = cpu.cpu_state();
                     async move || {
                         entered.borrow_mut().take().unwrap().send(()).unwrap();
-                        service_clock
-                            .sleep_until(clock_origin() + Duration::from_millis(5))
-                            .await;
+                        service_clock.sleep(Duration::from_millis(5)).await;
                         cpu.set_eip(0x200);
                     }
                 }),
@@ -135,9 +133,9 @@ async fn check_devices() {
     );
     waiting.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
-    clock.advance_to(clock_origin() + Duration::from_millis(2));
+    clock.advance_to(clock.at(Duration::from_millis(2)));
     assert_eq!(ticks.next().await, Some(1));
-    clock.advance_to(clock_origin() + Duration::from_millis(5));
+    clock.advance_to(clock.at(Duration::from_millis(5)));
     assert_eq!(worker.join().await.unwrap(), Some((1, 2)));
     assert!(
         !active.load(Ordering::SeqCst),

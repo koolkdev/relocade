@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ClockSource, Sleep};
+use crate::{ClockSource, Instant, Sleep};
 use std::{
     cell::Cell,
     future::Future,
@@ -21,14 +21,23 @@ impl Wake for Notifications {
     }
 }
 
-struct HostClock(Rc<Cell<Instant>>);
+struct HostClock {
+    origin: Instant,
+    time: Rc<Cell<Instant>>,
+}
 
 impl ClockSource for HostClock {
-    fn now(&self) -> Instant {
-        self.0.get()
+    fn now(&self) -> Timestamp {
+        self.host_timestamp(self.time.get()).unwrap()
     }
 
-    fn sleep_until(&self, _: Instant) -> Sleep {
+    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
+        Some(Timestamp::from_ticks(
+            time.saturating_duration_since(self.origin).as_nanos(),
+        ))
+    }
+
+    fn sleep_until(&self, _: Timestamp) -> Sleep {
         panic!("guest wait checks do not poll host timers")
     }
 }
@@ -38,9 +47,14 @@ impl ClockSource for HostClock {
 fn mapped_waits_follow_repeated_recovery_but_exclude_pauses() {
     let host_start = Instant::now();
     let host = Rc::new(Cell::new(host_start));
-    let guest_start = host_start + Duration::from_secs(1);
-    let driver = GuestTimeDriver::new(guest_start, NonZeroU64::new(1000).unwrap())
-        .with_host_clock(Clock::new(HostClock(host.clone())));
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap()).with_host_clock(Clock::new(
+        HostClock {
+            origin: host_start,
+            time: host.clone(),
+        },
+    ));
+    let clock = driver.clock();
+    let guest_start = clock.now();
     driver
         .0
         .borrow_mut()
@@ -58,14 +72,14 @@ fn mapped_waits_follow_repeated_recovery_but_exclude_pauses() {
     driver.synchronize(None);
     assert_eq!(
         driver.next_deadline(),
-        Some(guest_start + Duration::from_millis(100))
+        Some(clock.add(guest_start, Duration::from_millis(100)))
     );
 
     host.set(host.get() + Duration::from_nanos(1));
     driver.synchronize(None);
     assert_eq!(
         driver.next_deadline(),
-        Some(guest_start + Duration::from_nanos(79_999_999))
+        Some(clock.add(guest_start, Duration::from_nanos(79_999_999)))
     );
     assert!(pin!(older).poll(&mut cx).is_ready());
 
@@ -81,32 +95,35 @@ fn mapped_waits_follow_repeated_recovery_but_exclude_pauses() {
         .resume(guest_start);
     assert_eq!(
         driver.next_deadline(),
-        Some(guest_start + Duration::from_nanos(79_999_999))
+        Some(clock.add(guest_start, Duration::from_nanos(79_999_999)))
     );
     let after_pause = clock.sync_to(host.get() + Duration::from_millis(60));
 
     // Another 31 ms of host time with 10 ms of guest progress discards 21 ms.
-    driver.advance_to(guest_start + Duration::from_millis(10));
+    driver.advance_to(clock.add(guest_start, Duration::from_millis(10)));
     host.set(host.get() + Duration::from_millis(31));
     driver.synchronize(None);
-    assert_eq!(clock.now(), guest_start + Duration::from_millis(10));
+    assert_eq!(
+        clock.now(),
+        clock.add(guest_start, Duration::from_millis(10))
+    );
     assert_eq!(
         driver.next_deadline(),
-        Some(guest_start + Duration::from_nanos(58_999_999))
+        Some(clock.add(guest_start, Duration::from_nanos(58_999_999)))
     );
     {
         let mut cancelled = pin!(after_pause);
         assert!(cancelled.as_mut().poll(&mut cx).is_pending());
         assert_eq!(
             driver.next_deadline(),
-            Some(guest_start + Duration::from_millis(39))
+            Some(clock.add(guest_start, Duration::from_millis(39)))
         );
     }
     assert_eq!(
         driver.next_deadline(),
-        Some(guest_start + Duration::from_nanos(58_999_999))
+        Some(clock.add(guest_start, Duration::from_nanos(58_999_999)))
     );
-    driver.advance_to(guest_start + Duration::from_nanos(58_999_999));
+    driver.advance_to(clock.add(guest_start, Duration::from_nanos(58_999_999)));
     assert!(input.as_mut().poll(&mut cx).is_ready());
     assert_eq!(driver.next_deadline(), None);
 }
@@ -114,57 +131,57 @@ fn mapped_waits_follow_repeated_recovery_but_exclude_pauses() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_follow_registration_cancellation_and_idle_time() {
-    let start = Instant::now();
-    let driver = GuestTimeDriver::new(start, NonZeroU64::new(1000).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
     let clock = driver.clock();
+    let start = clock.now();
     let clone = clock.clone();
     let notifications = Arc::new(Notifications::default());
     let waker = Waker::from(notifications.clone());
     let mut cx = Context::from_waker(&waker);
-    let mut later = pin!(clock.sleep_until(start + Duration::from_millis(20)));
+    let mut later = pin!(clock.sleep_until(clock.add(start, Duration::from_millis(20))));
     assert_eq!(driver.next_deadline(), None);
     assert!(later.as_mut().poll(&mut cx).is_pending());
     {
-        let mut cancelled = pin!(clone.sleep_until(start + Duration::from_millis(5)));
+        let mut cancelled = pin!(clone.sleep_until(clock.add(start, Duration::from_millis(5))));
         assert!(cancelled.as_mut().poll(&mut cx).is_pending());
         assert_eq!(
             driver.next_deadline(),
-            Some(start + Duration::from_millis(5))
+            Some(clock.add(start, Duration::from_millis(5)))
         );
     }
     assert_eq!(
         driver.next_deadline(),
-        Some(start + Duration::from_millis(20))
+        Some(clock.add(start, Duration::from_millis(20)))
     );
 
-    let mut first = pin!(clock.sleep_until(start + Duration::from_millis(10)));
-    let mut same = pin!(clone.sleep_until(start + Duration::from_millis(10)));
+    let mut first = pin!(clock.sleep_until(clock.add(start, Duration::from_millis(10))));
+    let mut same = pin!(clone.sleep_until(clock.add(start, Duration::from_millis(10))));
     assert!(first.as_mut().poll(&mut cx).is_pending());
     assert!(same.as_mut().poll(&mut cx).is_pending());
-    driver.advance_to(start + Duration::from_millis(9));
+    driver.advance_to(clock.add(start, Duration::from_millis(9)));
     assert_eq!(notifications.0.load(Ordering::Relaxed), 0);
     assert!(first.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         driver.next_deadline(),
-        Some(start + Duration::from_millis(10))
+        Some(clock.add(start, Duration::from_millis(10)))
     );
-    driver.advance_to(start + Duration::from_millis(10));
+    driver.advance_to(clock.add(start, Duration::from_millis(10)));
     assert!(notifications.0.load(Ordering::Relaxed) > 0);
     assert!(first.as_mut().poll(&mut cx).is_ready());
     assert!(same.as_mut().poll(&mut cx).is_ready());
     assert!(later.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         driver.next_deadline(),
-        Some(start + Duration::from_millis(20))
+        Some(clock.add(start, Duration::from_millis(20)))
     );
 
-    driver.advance_to(start + Duration::from_millis(5));
-    assert_eq!(clone.now(), start + Duration::from_millis(10));
-    let mut overdue = pin!(clock.sleep_until(start + Duration::from_millis(5)));
+    driver.advance_to(clock.add(start, Duration::from_millis(5)));
+    assert_eq!(clone.now(), clock.add(start, Duration::from_millis(10)));
+    let mut overdue = pin!(clock.sleep_until(clock.add(start, Duration::from_millis(5))));
     assert!(overdue.as_mut().poll(&mut cx).is_ready());
     assert_eq!(
         driver.next_deadline(),
-        Some(start + Duration::from_millis(20))
+        Some(clock.add(start, Duration::from_millis(20)))
     );
     assert!(driver.advance_to_next_deadline());
     assert!(later.as_mut().poll(&mut cx).is_ready());
@@ -174,24 +191,20 @@ fn deadlines_follow_registration_cancellation_and_idle_time() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn native_deadlines_preserve_fractional_progress_and_large_idle_advances() {
-    let start = Instant::now();
-    let driver = GuestTimeDriver::new(start, NonZeroU64::new(u64::MAX).unwrap());
+fn native_arithmetic_keeps_fractional_progress_and_checks_coordinate_limits() {
+    let driver = GuestTimeDriver::new(NonZeroU64::new(u64::MAX).unwrap());
+    driver.0.borrow_mut().now = Timestamp(1);
     let clock = driver.clock();
-    let origin = clock.timestamp();
-    // This duration is representable by Instant, but scaling it by the maximum
-    // instruction rate exceeds u128. Existing readings must survive rebasing.
-    let duration = Duration::from_secs(600 * 365 * 24 * 60 * 60);
-    let deadline = origin + duration;
-    driver.0.borrow_mut().ticks = 1;
-    driver.advance_to(deadline.to_instant());
-    let now = clock.timestamp();
-    assert_eq!(now.to_instant(), start + duration);
-    assert!(now > deadline);
-    assert!(now > origin);
-    assert!(now > Timestamp::from(now.to_instant()));
-    assert_eq!(now.duration_since(origin), duration);
-    assert_eq!(now + Duration::ZERO, deadline);
-    assert_eq!(now - duration, origin);
-    assert!(origin.checked_add(Duration::MAX).is_none());
+    let origin = clock.now();
+    let duration = Duration::from_secs(500 * 365 * 24 * 60 * 60);
+    let deadline = clock.add(origin, duration);
+    driver.advance_to(deadline);
+    assert_eq!(clock.now(), deadline);
+    assert_eq!(clock.duration_since(deadline, origin), duration);
+    assert_eq!(clock.sub(deadline, duration), origin);
+    assert_eq!(clock.add(origin, Duration::ZERO), origin);
+    assert!(clock
+        .checked_add(origin, Duration::from_secs(600 * 365 * 24 * 60 * 60))
+        .is_none());
+    assert!(clock.checked_sub(origin, Duration::from_nanos(1)).is_none());
 }

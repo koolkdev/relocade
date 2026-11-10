@@ -1,5 +1,5 @@
 use crate::common;
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_dos::ProcessStatus;
 use relocade_machine::Instant;
 use relocade_x86::ExecutionExit;
@@ -177,7 +177,7 @@ fn timer_advances_the_clock_during_guest_execution() {
                 std::thread::yield_now();
             }
             assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
-            clock.advance_to(clock_origin() + period);
+            clock.advance_to(clock.at(period));
             assert_eq!(worker.join().await.unwrap(), Some(1));
         }
     });
@@ -290,12 +290,12 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             .await
             .unwrap();
             assert!(state.interrupts_enabled());
-            clock.advance_to(clock_origin() + TICK);
+            clock.advance_to(clock.at(TICK));
             drive_until(execution.as_mut(), || {
                 memory.view().read_u32(0x46c).unwrap() == 0x18_00af
                     && memory.view().read_u16(0x10324).unwrap() == 1
             });
-            clock.advance_to(clock_origin() + TICK * 2);
+            clock.advance_to(clock.at(TICK * 2));
             drive_until(execution.as_mut(), || {
                 memory.view().read_u8(0x470).unwrap() == 1
                     && memory.view().read_u16(0x10324).unwrap() == 2

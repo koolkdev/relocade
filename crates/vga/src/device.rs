@@ -40,7 +40,7 @@ impl Device for Vga {
                 OPTION_SELECT_PORT => self.setup.read_option(),
                 port if self.setup.enabled() => {
                     let status = if port == self.registers.status_port() {
-                        self.advance_raster(self.clock.timestamp());
+                        self.advance_raster(self.clock.now());
                         self.raster.input_status_1()
                     } else {
                         0
@@ -104,7 +104,7 @@ impl Vga {
         match kind {
             WriteKind::Access => {}
             WriteKind::Display => self.capture_if_due(),
-            WriteKind::Timing => self.advance_raster(self.clock.timestamp()),
+            WriteKind::Timing => self.advance_raster(self.clock.now()),
         }
     }
 }

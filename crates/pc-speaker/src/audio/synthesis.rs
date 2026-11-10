@@ -1,6 +1,6 @@
 //! Integrates timestamped speaker changes into complete PCM sample intervals.
 
-use relocade_machine::Instant;
+use relocade_machine::{Clock, Timestamp};
 use relocade_pit::{Channel2State, INPUT_HZ};
 use std::{collections::VecDeque, time::Duration};
 
@@ -12,8 +12,8 @@ pub(super) struct Signal {
 impl Signal {
     /// High time in billionths of one PIT input clock. Advancing while muted
     /// preserves phase; only the audible contribution becomes zero.
-    fn advance_to(&mut self, end: Instant) -> u128 {
-        let span = end.duration_since(self.state.at).as_nanos() * u128::from(INPUT_HZ)
+    fn advance_to(&mut self, clock: &Clock, end: Timestamp) -> u128 {
+        let span = clock.duration_since(end, self.state.at).as_nanos() * u128::from(INPUT_HZ)
             + u128::from(self.state.fraction);
         let before = u128::from(self.state.counter.output());
         let high = self.state.counter.advance((span / 1_000_000_000) as u64);
@@ -32,31 +32,36 @@ impl Signal {
 }
 
 pub(super) struct Synthesis {
+    clock: Clock,
     rate: u64,
-    origin: Instant,
+    origin: Timestamp,
     frames: u64,
     signal: Signal,
 }
 
 impl Synthesis {
-    pub(super) fn new(rate: u32, signal: Signal) -> Self {
+    pub(super) fn new(clock: Clock, rate: u32, signal: Signal) -> Self {
+        let origin = clock.floor(signal.state.at);
         Self {
+            clock,
             rate: u64::from(rate),
-            origin: signal.state.at,
+            origin,
             frames: 0,
             signal,
         }
     }
 
-    fn frame_time(&self, frame: u64) -> Instant {
-        self.origin
-            + Duration::new(
+    fn frame_time(&self, frame: u64) -> Timestamp {
+        self.clock.add(
+            self.origin,
+            Duration::new(
                 frame / self.rate,
                 ((frame % self.rate) * 1_000_000_000).div_ceil(self.rate) as u32,
-            )
+            ),
+        )
     }
 
-    pub(super) fn deadline(&self, frames: usize) -> Instant {
+    pub(super) fn deadline(&self, frames: usize) -> Timestamp {
         self.frame_time(self.frames + frames as u64)
     }
 
@@ -75,11 +80,11 @@ impl Synthesis {
             let mut integral = 0;
             while changes.front().is_some_and(|change| change.state.at <= end) {
                 let change = changes.pop_front().unwrap();
-                integral += self.signal.advance_to(change.state.at);
+                integral += self.signal.advance_to(&self.clock, change.state.at);
                 self.signal = change;
             }
-            integral += self.signal.advance_to(end);
-            let duration = end.duration_since(start).as_nanos();
+            integral += self.signal.advance_to(&self.clock, end);
+            let duration = self.clock.duration_since(end, start).as_nanos();
             sample.fill((0.2 * integral as f64 / (duration * u128::from(INPUT_HZ)) as f64) as f32);
             self.frames += 1;
         }

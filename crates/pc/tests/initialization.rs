@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
 use relocade_machine::{
@@ -59,7 +59,7 @@ async fn bios_without_dos() {
                         repeat: false,
                     }))
                     .unwrap();
-                clock.advance_to(clock_origin() + Duration::from_nanos(54_925_402));
+                clock.advance_to(clock.at(Duration::from_nanos(54_925_402)));
                 assert_eq!(
                     runner.run_cpu(pc.cpu()).await,
                     ExecutionExit::Host(HostExit::Return)

@@ -68,8 +68,8 @@ async fn pit_interrupts() {
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
             // PIT deadlines must drive eight approximately 2 ms periods
             // without an execution slice duration.
-            assert!(runner.clock().now() >= start + Duration::from_millis(14));
-            assert!(runner.clock().now() < start + Duration::from_millis(20));
+            assert!(runner.clock().now() >= runner.clock().add(start, Duration::from_millis(14)));
+            assert!(runner.clock().now() < runner.clock().add(start, Duration::from_millis(20)));
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -137,7 +137,7 @@ async fn keyboard_after_overdue_pit() {
             (
                 state.ax(),
                 elapsed_ticks,
-                runner.clock().now().duration_since(start),
+                runner.clock().duration_since(runner.clock().now(), start),
             )
         })
     );
@@ -157,7 +157,7 @@ async fn keyboard_after_overdue_pit() {
         .as_ref()
         .unwrap()
         .unbounded_send(relocade_frontend::input::InputEvent {
-            host_time: host.clock().now(),
+            host_time: host.host_now(),
             event: KeyboardEvent::Key {
                 physical_key: KeyCode::KeyA.into(),
                 logical_key: Key::Character("a".into()),

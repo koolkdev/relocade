@@ -1,4 +1,4 @@
-use relocade_clock_test_support::{origin as clock_origin, ManualClock};
+use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
@@ -105,7 +105,7 @@ async fn connected_mouse_and_keyboard() {
             for _ in 0..4 {
                 relocade_machine::yield_now().await;
             }
-            clock.advance_to(clock_origin() + Duration::from_millis(10));
+            clock.advance_to(clock.at(Duration::from_millis(10)));
             for (packet, key) in [([9, 2, 3], 0x1e), ([8, 0, 0], 0x9e)] {
                 let mut mouse = Vec::new();
                 let mut keyboard = Vec::new();
@@ -130,7 +130,7 @@ async fn connected_mouse_and_keyboard() {
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                clock.advance_to(clock_origin() + Duration::from_millis(20));
+                clock.advance_to(clock.at(Duration::from_millis(20)));
             }
             assert_eq!(
                 io.poll_interrupt(&mut Context::from_waker(Waker::noop())),
@@ -157,30 +157,33 @@ async fn connected_mouse_and_keyboard_keep_independent_irq_sources() {
 // in the same timebase, leaving host/guest conversion to the machine clock tests.
 struct InputTime {
     clock: ManualClock,
-    disconnected_at: relocade_machine::Instant,
+    disconnected_at: relocade_machine::Timestamp,
 }
 
 impl relocade_machine::ClockSource for InputTime {
-    fn now(&self) -> relocade_machine::Instant {
+    fn now(&self) -> relocade_machine::Timestamp {
         self.clock.clock().now()
     }
-    fn sleep_until(&self, at: relocade_machine::Instant) -> relocade_machine::Sleep {
+    fn sleep_until(&self, at: relocade_machine::Timestamp) -> relocade_machine::Sleep {
         self.clock.clock().sleep_until(at)
     }
     fn sync(&self, at: Option<relocade_machine::Instant>) -> relocade_machine::Sleep {
-        self.sleep_until(at.unwrap_or(self.disconnected_at))
+        self.sleep_until(
+            at.and_then(|at| self.clock.host_timestamp(at))
+                .unwrap_or(self.disconnected_at),
+        )
     }
 }
 
 async fn queued_mouse_timestamps() {
     let clock = ManualClock::default();
-    let start = clock.clock().now();
+    let start = clock.host_now();
     let storage = CpuStorage::new().unwrap();
     let (_host, endpoint) = wake_connection(storage.interrupt_handle());
     let runner = Runner::new(
         relocade_machine::Clock::new(InputTime {
             clock: clock.clone(),
-            disconnected_at: start + Duration::from_millis(25),
+            disconnected_at: clock.at(Duration::from_millis(25)),
         }),
         storage,
         endpoint,
@@ -214,7 +217,7 @@ async fn queued_mouse_timestamps() {
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(start + Duration::from_millis(1))
+                    Some(clock.at(Duration::from_millis(1)))
                 );
                 // New events arrive while the first event's sync is still pending.
                 for (at, event) in [
@@ -253,17 +256,17 @@ async fn queued_mouse_timestamps() {
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(start + Duration::from_millis(1))
+                    Some(clock.at(Duration::from_millis(1)))
                 );
-                clock.advance_to(start + Duration::from_millis(5));
+                clock.advance_to(clock.at(Duration::from_millis(5)));
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(start + Duration::from_millis(10))
+                    Some(clock.at(Duration::from_millis(10)))
                 );
-                clock.advance_to(start + Duration::from_millis(10));
+                clock.advance_to(clock.at(Duration::from_millis(10)));
                 // The sample timer and each output selection cancel the input waiter,
                 // but must retain the event due at 12 ms inside the persistent stream.
                 for byte in [9, 2, 3] {
@@ -284,13 +287,13 @@ async fn queued_mouse_timestamps() {
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(start + Duration::from_millis(12))
+                    Some(clock.at(Duration::from_millis(12)))
                 );
-                clock.advance_to(start + Duration::from_millis(14));
+                clock.advance_to(clock.at(Duration::from_millis(14)));
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                clock.advance_to(start + Duration::from_millis(20));
+                clock.advance_to(clock.at(Duration::from_millis(20)));
                 for byte in [8, 5, 0] {
                     assert_eq!(next(&io).await, (true, byte));
                 }
@@ -300,9 +303,9 @@ async fn queued_mouse_timestamps() {
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(start + Duration::from_millis(25))
+                    Some(clock.at(Duration::from_millis(25)))
                 );
-                clock.advance_to(start + Duration::from_millis(25));
+                clock.advance_to(clock.at(Duration::from_millis(25)));
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }

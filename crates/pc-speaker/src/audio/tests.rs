@@ -208,16 +208,24 @@ fn timed_controls_and_pit_writes_are_retained_within_samples() {
     let start = playback.clock.clock().now();
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
     assert!(playback.poll().is_pending());
-    playback
-        .clock
-        .advance_to(start + Duration::from_micros(2_250));
+    playback.clock.advance_to(
+        playback
+            .clock
+            .clock()
+            .add(start, Duration::from_micros(2_250)),
+    );
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    playback
-        .clock
-        .advance_to(start + Duration::from_micros(4_750));
+    playback.clock.advance_to(
+        playback
+            .clock
+            .clock()
+            .add(start, Duration::from_micros(4_750)),
+    );
     // Unsupported mode 0 drives OUT2 low without changing the speaker bits.
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb0);
-    playback.clock.advance_to(start + Duration::from_millis(8));
+    playback
+        .clock
+        .advance_to(playback.clock.clock().add(start, Duration::from_millis(8)));
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
     // Equal-timestamp changes are applied in write order.
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 0);

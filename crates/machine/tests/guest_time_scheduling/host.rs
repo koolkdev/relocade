@@ -6,15 +6,19 @@ use relocade_machine::{ClockSource, GuestTimeConfig, Sleep};
 #[derive(Clone)]
 pub(super) struct ObservedHost {
     time: ManualClock,
-    armed: mpsc::UnboundedSender<Instant>,
+    armed: mpsc::UnboundedSender<Timestamp>,
 }
 
 impl ClockSource for ObservedHost {
-    fn now(&self) -> Instant {
+    fn now(&self) -> Timestamp {
         self.time.clock().now()
     }
 
-    fn sleep_until(&self, deadline: Instant) -> Sleep {
+    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
+        self.time.host_timestamp(time)
+    }
+
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         let time = self.time.clock();
         let mut armed = Some(self.armed.clone());
         Sleep::new(async move {
@@ -31,7 +35,11 @@ impl ClockSource for ObservedHost {
     }
 }
 
-pub(super) fn host() -> (ManualClock, mpsc::UnboundedReceiver<Instant>, ObservedHost) {
+pub(super) fn host() -> (
+    ManualClock,
+    mpsc::UnboundedReceiver<Timestamp>,
+    ObservedHost,
+) {
     let time = ManualClock::new();
     let (armed, requests) = mpsc::unbounded();
     (time.clone(), requests, ObservedHost { time, armed })
