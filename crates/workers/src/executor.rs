@@ -1,7 +1,10 @@
 //! Polling and parking for a worker's root future.
 
+pub(crate) mod host;
+
 use super::{WakeConnection, WakePeer, WakeTarget};
 use futures_util::task::AtomicWaker;
+use host::HostSchedule;
 use std::{
     cell::Cell,
     future::{poll_fn, Future},
@@ -11,14 +14,16 @@ use std::{
         Arc,
     },
     task::{Context, Poll, Wake, Waker},
+    time::Duration,
 };
 
 /// Owns polling, cancellation and parking for a worker's root future.
-/// Application and device futures are composed into one root future. Only an
-/// idle worker uses the caller's executor; runnable work is repolled here.
+/// Application and device futures are composed into one root future. Runnable
+/// work is repolled here; idle waits and requested host turns use the caller's executor.
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
     wake: Arc<ExecutorWake>,
+    pub(crate) host: HostSchedule,
 }
 
 impl<R: WakeTarget> Executor<R> {
@@ -34,7 +39,25 @@ impl<R: WakeTarget> Executor<R> {
             runnable: AtomicBool::new(false),
             notified: AtomicBool::new(false),
         });
-        Self { connection, wake }
+        let host = HostSchedule::new(Waker::from(wake.clone()));
+        Self {
+            connection,
+            wake,
+            host,
+        }
+    }
+
+    /// Lets runnable work continue for `interval` before each pending delivery turn.
+    /// The timer must progress independently of this executor and guest time.
+    /// Without a timer, pending posted messages request a host turn immediately.
+    /// Receivers bound with [`crate::Receiver::with_executor`] share one timer.
+    pub fn with_host_timer<F: Future<Output = ()> + 'static>(
+        mut self,
+        interval: Duration,
+        timer: impl Fn(Duration) -> F + 'static,
+    ) -> Self {
+        self.host.set_timer(interval, timer);
+        self
     }
 
     /// Runs the worker's root future until it completes or stop resolves.
@@ -45,6 +68,7 @@ impl<R: WakeTarget> Executor<R> {
         let mut stop = pin!(stop);
         let mut future = pin!(future);
         let waker = Waker::from(self.wake.clone());
+        let mut host = self.host.run();
         loop {
             self.wake.runnable.store(false, Ordering::SeqCst);
             self.wake.notified.store(false, Ordering::SeqCst);
@@ -52,24 +76,26 @@ impl<R: WakeTarget> Executor<R> {
             if stop.as_mut().poll(&mut context).is_ready() {
                 return None;
             }
-            let result = future.as_mut().poll(&mut context);
-            // Keep the signal through the whole poll: CPU-first composition
-            // must yield before its ready siblings can consume their input.
-            self.connection.acknowledge();
-            // A wake after a sibling was polled still needs another checkpoint.
-            // Record before requesting, and acknowledge before checking, so a
-            // wake racing with acknowledgement cannot be lost.
-            if self.wake.notified.load(Ordering::SeqCst) {
-                self.wake.interrupt.wake_by_ref();
-            }
-            if let Poll::Ready(value) = result {
-                return Some(value);
+            if host.poll_ready(&mut context).is_ready() {
+                let result = future.as_mut().poll(&mut context);
+                // Keep the signal through the whole poll: CPU-first composition
+                // must yield before its ready siblings can consume their input.
+                self.connection.acknowledge();
+                // A wake after a sibling was polled still needs another checkpoint.
+                // Record before requesting, and acknowledge before checking, so a
+                // wake racing with acknowledgement cannot be lost.
+                if self.wake.notified.load(Ordering::SeqCst) {
+                    self.wake.interrupt.wake_by_ref();
+                }
+                if let Poll::Ready(value) = result {
+                    return Some(value);
+                }
             }
             if self.wake.runnable.load(Ordering::SeqCst) {
                 continue;
             }
-            // Register only while idle. Recheck after registering so a wake
-            // between the readiness check and registration cannot be lost.
+            // Idle work and pending host yields use the same parking path.
+            // Recheck after registering so a concurrent wake cannot be lost.
             let _registration = ParkRegistration(&self.wake.parked);
             poll_fn(|cx| {
                 if self.wake.runnable.load(Ordering::SeqCst) {

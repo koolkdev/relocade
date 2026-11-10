@@ -1,6 +1,6 @@
 use super::{service::Request, BlockRequest, CompiledCode, Reply};
 use crate::{
-    worker::{ChannelError, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
+    worker::{ChannelError, Executor, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
@@ -21,11 +21,14 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub(crate) fn connect(mut self, peer: WakePeer<ExecutionInterrupt>) -> Result<CompilerClient> {
-        self.peer.send(peer)?;
+    pub(crate) fn connect(
+        mut self,
+        executor: &Executor<ExecutionInterrupt>,
+    ) -> Result<CompilerClient> {
+        self.peer.send(executor.peer())?;
         Ok(CompilerClient {
             requests: self.requests,
-            results: self.results.bind(),
+            results: self.results.bind().with_executor(executor),
         })
     }
 }
@@ -42,6 +45,7 @@ impl CompilerClient {
     /// Receives the next result in request order. Installation is explicit.
     /// Dropping this wait leaves that result available for the next receive.
     /// Returns `None` once the compiler has finished and all replies are consumed.
+    /// Poll within the Runner session that supplied this connection.
     pub async fn recv(&mut self) -> Option<Result<CompiledCode>> {
         self.results.recv().await.map(|reply| match reply {
             Ok(Reply(result)) => result,

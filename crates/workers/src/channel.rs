@@ -1,13 +1,9 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::{SendTask, Transfer};
+use crate::{executor::host::PendingDeliveries, Executor, SendTask, Transfer, WakeTarget};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
-use std::{
-    fmt,
-    future::Future,
-    task::{ready, Context, Poll},
-};
+use std::{fmt, future::Future, rc::Rc};
 
 #[cfg_attr(not(target_arch = "wasm32"), path = "channel/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "channel/web.rs")]
@@ -44,6 +40,7 @@ pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
     states: mpsc::UnboundedReceiver<T::State>,
     pending: Option<T::State>,
+    deliveries: Option<Rc<PendingDeliveries>>,
 }
 
 /// Creates an unbounded channel with one sender and one receiver.
@@ -83,6 +80,7 @@ impl<T: Transfer> ReceiverEndpoint<T> {
             payloads: self.payloads.bind(),
             states: self.states,
             pending: None,
+            deliveries: None,
         }
     }
 }
@@ -159,23 +157,37 @@ impl<T: Transfer> Sender<T> {
 }
 
 impl<T: Transfer> Receiver<T> {
+    /// Binds posted-object receipt to this executor's host-turn policy.
+    /// Poll receives inside its root future. Empty channels and already delivered
+    /// payloads request no host turn; cancelling receipt preserves the message.
+    pub fn with_executor<R: WakeTarget>(mut self, executor: &Executor<R>) -> Self {
+        self.deliveries = Some(executor.host.pending.clone());
+        self
+    }
+
     /// Receives the next value, or `None` after the sender and queued values end.
     /// Cancelling this wait preserves the next message, including Rust state
     /// already received while its browser payload is still in flight.
     /// Abrupt browser worker termination does not guarantee Rust cleanup or EOF.
     pub async fn recv(&mut self) -> Option<Result<T, ChannelError>> {
-        std::future::poll_fn(|cx| self.poll_recv(cx)).await
-    }
-
-    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<T, ChannelError>>> {
         if self.pending.is_none() {
-            let Some(state) = ready!(self.states.poll_next_unpin(cx)) else {
-                return Poll::Ready(None);
-            };
-            self.pending = Some(state);
+            self.pending = Some(self.states.next().await?);
         }
-        let payload = ready!(self.payloads.poll_recv(cx));
+        let deliveries = self.deliveries.as_deref();
+        let mut waiting = None;
+        let payload = std::future::poll_fn(|cx| {
+            let payload = self.payloads.poll_recv(cx);
+            if payload.is_pending() && waiting.is_none() {
+                waiting = deliveries.map(PendingDeliveries::register);
+            }
+            payload
+        })
+        .await;
+        drop(waiting);
         let state = self.pending.take().expect("pending message state");
-        Poll::Ready(Some(payload.map(|payload| T::decode(state, payload))))
+        Some(payload.map(|payload| T::decode(state, payload)))
     }
 }
+
+#[cfg(test)]
+mod tests;

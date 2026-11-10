@@ -29,6 +29,7 @@ use std::{
     pin::pin,
     rc::Rc,
     task::Poll,
+    time::Duration,
 };
 
 /// Owns a worker's execution session, including its CPU backend and device activities.
@@ -45,6 +46,8 @@ pub struct Runner {
 
 impl Runner {
     /// Constructs the local CPU backend and binds its wake endpoint.
+    /// The supplied clock must progress independently of this session. Use
+    /// [`Self::with_guest_time`] for a clock advanced by CPU execution.
     /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
     /// connection created for this CPU; retain its host until the session ends.
     pub async fn new(
@@ -52,18 +55,30 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
+        Self::with_schedule(
+            ExecutionSchedule::from_clock(clock.clone()),
+            cpu,
+            endpoint,
+            Some(clock),
+        )
+        .await
     }
 
     async fn with_schedule(
         schedule: ExecutionSchedule,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
+        host_clock: Option<Clock>,
     ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
-        let executor = Rc::new(Executor::new(endpoint.bind(cpu.interrupt_handle())));
+        let mut executor = Executor::new(endpoint.bind(cpu.interrupt_handle()));
+        if let Some(clock) = host_clock {
+            executor =
+                executor.with_host_timer(Duration::from_millis(1), move |delay| clock.sleep(delay));
+        }
+        let executor = Rc::new(executor);
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
-        let compiler = compiler.connect(executor.peer())?;
+        let compiler = compiler.connect(&executor)?;
         Ok(Self {
             schedule,
             activities,
@@ -200,6 +215,13 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
+        let host_clock = config.host_clock.clone();
+        Self::with_schedule(
+            ExecutionSchedule::with_guest_time(config),
+            cpu,
+            endpoint,
+            host_clock,
+        )
+        .await
     }
 }
