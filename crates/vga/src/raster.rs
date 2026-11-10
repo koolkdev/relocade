@@ -1,12 +1,13 @@
 use crate::timing::Timing;
-use relocade_machine::Instant;
+use relocade_machine::{Clock, Instant};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
 
 /// Exact position at `updated`, with status valid until `next_update`.
 /// Observations between events leave the position lazy. Timing changes materialize
-/// it at `observed` under the old timing before remapping the counters.
+/// it through whole nanoseconds at `observed` before remapping the counters.
 pub(super) struct Raster {
+    clock: Clock,
     timing: Timing,
     updated: Instant,
     observed: Instant,
@@ -20,8 +21,10 @@ pub(super) struct Raster {
 }
 
 impl Raster {
-    pub fn new(now: Instant, timing: Timing) -> Self {
+    pub fn new(clock: Clock, timing: Timing) -> Self {
+        let now = clock.now();
         let mut raster = Self {
+            clock,
             timing,
             updated: now,
             observed: now,
@@ -49,15 +52,15 @@ impl Raster {
         completed
     }
 
-    /// Materialize the exact phase, including when a programming write occurs
-    /// between observable edges. Stopped clocks still move their time anchor.
+    /// Integrate through whole elapsed nanoseconds, retaining the native
+    /// fraction for the next update. Programming takes effect at this consumed
+    /// position. Stopped clocks still consume time without advancing the beam.
     fn advance_to(&mut self, now: Instant) -> Option<Instant> {
         let timing = self.timing;
-        let elapsed = now.duration_since(self.updated);
+        let elapsed = self.clock.consume_elapsed(&mut self.updated, now);
         if elapsed.is_zero() {
             return None;
         }
-        self.updated = now;
         if !timing.clock_running() {
             return None;
         }
@@ -65,7 +68,7 @@ impl Raster {
         let frame_dots = timing.frame_dots();
         let completed = self
             .next_retrace
-            .filter(|deadline| now >= *deadline)
+            .filter(|deadline| self.updated >= *deadline)
             .map(|_| {
                 let boundary = timing.retrace_dot().expect("Running capture boundary");
                 let since_previous_boundary = (self.dot + frame_dots - boundary) % frame_dots;
@@ -76,7 +79,10 @@ impl Raster {
                     .checked_add(u64::try_from(frames).expect("Display frame count fits in u64"))
                     .expect("Display frame sequence exhausted");
                 let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
-                now - timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder)
+                self.clock.sub(
+                    self.updated,
+                    timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder),
+                )
             });
         self.dot = ((u128::from(self.dot) + dots) % u128::from(frame_dots)) as u64;
         if completed.is_some() {
@@ -97,6 +103,7 @@ impl Raster {
         self.advance_to(self.observed);
         self.timing = new;
         if old.reset_active || new.reset_active {
+            self.updated = self.observed;
             self.dot = 0;
             self.dot_remainder = 0;
         } else {
@@ -152,8 +159,10 @@ impl Raster {
         if dots == 0 {
             dots = total;
         }
-        self.updated
-            .checked_add(self.timing.remaining_for_dots(dots, self.dot_remainder))
+        self.clock.checked_add(
+            self.updated,
+            self.timing.remaining_for_dots(dots, self.dot_remainder),
+        )
     }
 
     pub fn input_status_1(&self) -> u8 {
@@ -167,8 +176,10 @@ impl Raster {
     fn refresh_status(&mut self) {
         self.status = self.timing.input_status_1(self.dot);
         let next_status = self.timing.next_status_in_dots(self.dot).and_then(|dots| {
-            self.updated
-                .checked_add(self.timing.remaining_for_dots(dots, self.dot_remainder))
+            self.clock.checked_add(
+                self.updated,
+                self.timing.remaining_for_dots(dots, self.dot_remainder),
+            )
         });
         // Internal captures still advance latches and blink when external sync
         // is suppressed, independently of the observable status bits.

@@ -16,7 +16,7 @@ pub(super) async fn run(
     events: LocalBoxStream<'static, MouseEvent>,
     controller: &Controller,
 ) {
-    let mut protocol = Protocol::new(clock.now());
+    let mut protocol = Protocol::new(clock.clone());
     let mut events = Some(events);
     loop {
         let wake = {
@@ -53,15 +53,15 @@ pub(super) async fn run(
             }
         };
         match wake {
-            Wake::Command(byte) => protocol.command(byte, clock.now()),
-            Wake::Sent => protocol.sent(clock.now()),
+            Wake::Command(byte) => protocol.command(byte),
+            Wake::Sent => protocol.sent(),
             Wake::Event(event) => {
                 if event.is_none() {
                     events = None;
                 }
                 protocol.event(event.unwrap_or(MouseEvent::FocusLost));
             }
-            Wake::Sample => protocol.sample(clock.now()),
+            Wake::Sample => protocol.sample(),
         }
     }
 }

@@ -4,7 +4,7 @@ use super::{
     coordinates::Coordinates,
     motion::{Acceleration, Axis},
 };
-use relocade_machine::{FarPointer, Instant};
+use relocade_machine::{Clock, FarPointer};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Point {
@@ -78,12 +78,12 @@ impl State {
     pub fn packet(
         &mut self,
         coordinates: Coordinates,
-        now: Instant,
+        clock: &Clock,
         buttons: u16,
         x: i16,
         y: i16,
     ) -> Event {
-        let doubled = self.acceleration.sample(now, x, y);
+        let doubled = self.acceleration.sample(clock, x, y);
         self.x.advance(x, doubled);
         self.y.advance(y, doubled);
         self.motion[0] = self.motion[0].wrapping_add(x);

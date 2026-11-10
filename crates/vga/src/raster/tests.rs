@@ -11,8 +11,9 @@ fn dots(count: u64) -> Duration {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn observations_reuse_status_and_phase_until_the_next_edge() {
     let controller = ManualClock::new();
-    let origin = controller.clock().now();
-    let mut raster = Raster::new(origin, Timing::vga(&Registers::default()));
+    let clock = controller.clock();
+    let origin = clock.now();
+    let mut raster = Raster::new(clock.clone(), Timing::vga(&Registers::default()));
     let retrace = controller.at(dots(412 * 800));
     assert_eq!(raster.next_retrace_at(), Some(retrace));
     assert_eq!(raster.next_update, Some(controller.at(dots(640))));
@@ -48,8 +49,8 @@ fn skewed_display_edges_skip_horizontal_work_outside_vertical_display() {
     timing.vertical_display = 2;
     // The ordinary retrace start is outside this short frame.
     let controller = ManualClock::new();
-    let origin = controller.clock().now();
-    let mut raster = Raster::new(origin, timing);
+    let clock = controller.clock();
+    let mut raster = Raster::new(clock.clone(), timing);
     for (dot, status, next) in [
         (0, 1, 8),
         (8, 0, 24),
@@ -78,8 +79,9 @@ fn skewed_display_edges_skip_horizontal_work_outside_vertical_display() {
 fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let mut registers = Registers::default();
     let controller = ManualClock::new();
-    let origin = controller.clock().now();
-    let mut raster = Raster::new(origin, Timing::vga(&registers));
+    let clock = controller.clock();
+    let origin = clock.now();
+    let mut raster = Raster::new(clock.clone(), Timing::vga(&registers));
     let stopped_at = controller.at(dots(100));
     raster.update_to(stopped_at);
     assert_eq!(raster.updated, origin);
@@ -96,9 +98,9 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     assert_eq!(raster.updated, resumed_at);
     assert_eq!(raster.dot, 100);
     // Original fractional progress survives the pause.
-    let edge = resumed_at + dots(640) - dots(100);
+    let edge = clock.add(resumed_at, dots(640) - dots(100));
     assert_eq!(raster.next_update, Some(edge));
-    raster.update_to(edge - Duration::from_nanos(1));
+    raster.update_to(clock.sub(edge, Duration::from_nanos(1)));
     assert_eq!(raster.input_status_1(), 0);
     raster.update_to(edge);
     assert_eq!(raster.input_status_1(), 1);

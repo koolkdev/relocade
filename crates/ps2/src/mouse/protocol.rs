@@ -3,7 +3,7 @@
 use super::{motion::Motion, transmission::Transmission};
 use crate::protocol::{mouse::*, RESEND};
 use relocade_frontend::mouse::MouseEvent;
-use relocade_machine::Instant;
+use relocade_machine::{Clock, Instant};
 use std::time::Duration;
 
 #[derive(Clone, Copy)]
@@ -13,6 +13,7 @@ enum Parameter {
 }
 
 pub(super) struct Protocol {
+    clock: Clock,
     motion: Motion,
     resolution: u8,
     sample_rate: u8,
@@ -27,8 +28,10 @@ pub(super) struct Protocol {
 }
 
 impl Protocol {
-    pub fn new(now: Instant) -> Self {
+    pub fn new(clock: Clock) -> Self {
+        let now = clock.now();
         Self {
+            clock,
             motion: Motion::default(),
             resolution: 2,
             sample_rate: 100,
@@ -55,10 +58,10 @@ impl Protocol {
         self.transmission.byte(&self.motion)
     }
 
-    pub fn sent(&mut self, now: Instant) {
+    pub fn sent(&mut self) {
         // Start the interval when a movement packet's header reaches the controller.
         if self.transmission.sent(&mut self.motion) {
-            self.sampled_at = now;
+            self.sampled_at = self.clock.now();
         }
     }
 
@@ -71,7 +74,8 @@ impl Protocol {
         });
     }
 
-    pub fn command(&mut self, byte: u8, now: Instant) {
+    pub fn command(&mut self, byte: u8) {
+        let now = self.clock.now();
         // BAT and device ID complete reset before another command is accepted.
         if self.transmission.resetting() {
             return;
@@ -195,12 +199,15 @@ impl Protocol {
 
     pub fn deadline(&self) -> Option<Instant> {
         (self.streaming() && self.transmission.idle() && self.motion.pending()).then(|| {
-            self.sampled_at
-                + Duration::from_nanos(1_000_000_000_u64.div_ceil(u64::from(self.sample_rate)))
+            self.clock.add(
+                self.sampled_at,
+                Duration::from_nanos(1_000_000_000_u64.div_ceil(u64::from(self.sample_rate))),
+            )
         })
     }
 
-    pub fn sample(&mut self, now: Instant) {
+    pub fn sample(&mut self) {
+        let now = self.clock.now();
         if self.deadline().is_some_and(|deadline| now >= deadline) {
             self.transmission.stream(self.scaling);
         }

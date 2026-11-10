@@ -12,7 +12,7 @@ async fn clock_waits() {
     let clock = Clock::from(handle);
     let other = clock.clone();
     let waits = async move {
-        let deadline = clock.now() + Duration::from_millis(10);
+        let deadline = clock.add(clock.now(), Duration::from_millis(10));
         let output = clock.sync_to_host(deadline);
         let long = async {
             output.await;
@@ -21,7 +21,7 @@ async fn clock_waits() {
         let short = async {
             let start = other.now();
             other.sleep(Duration::from_millis(1)).await;
-            assert!(other.now() >= start + Duration::from_millis(1));
+            assert!(other.now() >= other.add(start, Duration::from_millis(1)));
         };
         join(long, short).await;
     };
@@ -34,7 +34,7 @@ async fn delayed_driver() {
     let mut cx = Context::from_waker(Waker::noop());
     let worker;
     {
-        let deadline = clock.now() + Duration::from_millis(1);
+        let deadline = clock.add(clock.now(), Duration::from_millis(1));
         let mut sleep = pin!(clock.sleep_until(deadline));
         assert!(sleep.as_mut().poll(&mut cx).is_pending());
         // Delivery time is part of the wait, not an extension to its deadline.
@@ -74,7 +74,7 @@ async fn earlier_deadline() {
         clock.sleep(Duration::ZERO).await;
         // Let the timer thread park on the long deadline before inserting a new one.
         futures_timer::Delay::new(Duration::from_millis(10)).await;
-        let deadline = clock.now() + Duration::from_micros(500);
+        let deadline = clock.add(clock.now(), Duration::from_micros(500));
         clock.sleep_until(deadline).await;
         assert!(clock.now() >= deadline);
         assert!(later.as_mut().poll(&mut cx).is_pending());
