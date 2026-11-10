@@ -110,16 +110,21 @@ async fn connected_input() {
                 );
                 let values = device.borrow().values.clone();
                 (cpu.cpu_state().instruction_count(), values)
-            });
-            use relocade_machine::worker::{Thread, ThreadExt};
-            let peer_thread = matches!(source, InputSource::Peer).then(Thread::new);
+            })
+            .await
+            .unwrap();
+            use relocade_machine::worker::Worker;
+            let peer_thread = matches!(source, InputSource::Peer).then(Worker::new);
             let peer_task = if let Some(thread) = &peer_thread {
                 let peer = worker.wake_peer();
                 let send = send.clone();
                 let sent = sent.clone();
                 let (ready, bound) = oneshot::channel();
                 let (publish, published) = oneshot::channel();
-                let task = thread.run_resource(peer, move |peer| async move {
+                let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+                resources.send(peer).unwrap();
+                let task = thread.run(move || async move {
+                    let peer = resource_input.recv().await.unwrap().unwrap();
                     let _binding = peer.bind();
                     ready.send(()).unwrap();
                     published.await.unwrap();
@@ -136,7 +141,7 @@ async fn connected_input() {
             // latency is independent of notification delivery at a checkpoint.
             start.send(()).unwrap();
             running.await.unwrap();
-            let timers = timers.spawn_with_peer(worker.wake_peer());
+            let timers = timers.spawn_with_peer(worker.wake_peer()).await.unwrap();
             if timed {
                 // This later request completes after the device's queued timer.
                 // Keep guest dispatch held until its notification has arrived.
@@ -153,7 +158,7 @@ async fn connected_input() {
             sent.store(true, Ordering::SeqCst);
             drop(delivery);
             let (result, timers) = join(worker.join(), timers.join()).await;
-            timers.unwrap();
+            timers.unwrap().unwrap();
             assert_eq!(
                 result.unwrap(),
                 Some((1, if timed { vec![7] } else { vec![4, 9] })),
@@ -201,7 +206,9 @@ async fn connected_stop() {
         };
         runner.run_cpu(&mut cpu).await;
         panic!("cancellation must drop the running session");
-    });
+    })
+    .await
+    .unwrap();
     running.await.unwrap();
     let mut stop = std::pin::pin!(worker.stop());
     assert!(futures_lite::future::poll_once(stop.as_mut())
@@ -263,7 +270,9 @@ async fn saturated_count() {
             ExecutionExit::Host(relocade_x86::HostExit::Return),
             "the retirement statistic must not prevent entering a host service"
         );
-    });
+    })
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 
@@ -329,7 +338,7 @@ async fn notified_reentry() {
                 (1..=2).contains(&count),
                 "ready Rust work must run by the next guest checkpoint; retired {count} instructions"
             );
-        });
+        }).await.unwrap();
         assert_eq!(worker.join().await.unwrap(), Some(()));
     }
 }

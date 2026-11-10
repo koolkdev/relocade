@@ -132,7 +132,9 @@ async fn check_devices() {
             let result = memory.view().read_u16(0x300).unwrap();
             (result, io.read_port(0x80, 1))
         },
-    );
+    )
+    .await
+    .unwrap();
     waiting.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
     clock.advance_to(clock_origin() + Duration::from_millis(2));
@@ -162,7 +164,9 @@ async fn check_devices() {
             ready.send(()).unwrap();
             std::future::pending().await
         },
-    );
+    )
+    .await
+    .unwrap();
     started.await.unwrap();
     assert!(active.load(Ordering::SeqCst));
     assert_eq!(worker.stop().await.unwrap(), None);

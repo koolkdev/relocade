@@ -1,9 +1,6 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
-use relocade_machine::{
-    worker::{Thread, ThreadExt},
-    Cpu, CpuConfig, Hook, MachineConfig, Memory,
-};
+use relocade_machine::{worker::Worker, Cpu, CpuConfig, Hook, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -45,10 +42,13 @@ pub async fn cpu_worker() -> Result<(), String> {
     let mut view = memory.view();
     // MOV [0204],AX; JMP 0303. Execution resumes here after the input hook.
     view.write(0x300, &[0xa3, 4, 2, 0xeb, 0xfe]).unwrap();
-    let worker = Thread::new();
+    let worker = Worker::new();
     let (commands, incoming) = mpsc::unbounded();
     let (waiting, started) = oneshot::channel();
-    let task = worker.run_resource(memory.clone(), move |memory| async move {
+    let (mut resources, mut resource_input) = worker.channel().await.unwrap();
+    resources.send(memory.clone()).unwrap();
+    let task = worker.run(move || async move {
+        let memory = resource_input.recv().await.unwrap().unwrap();
         let input = RefCell::new(Input {
             incoming: Some(incoming),
             waiting: Some(waiting),
@@ -110,8 +110,11 @@ pub async fn cpu_worker() -> Result<(), String> {
     assert_eq!(view.read_u16(0x204).unwrap(), 0x42);
 
     // A later worker imports the same allocation and starts with independent CPU state.
-    let worker = Thread::new();
-    let task = worker.run_resource(memory.clone(), move |memory| async move {
+    let worker = Worker::new();
+    let (mut resources, mut resource_input) = worker.channel().await.unwrap();
+    resources.send(memory.clone()).unwrap();
+    let task = worker.run(move || async move {
+        let memory = resource_input.recv().await.unwrap().unwrap();
         let mut cpu = Cpu::new(memory, cpu_config, Default::default())
             .await
             .unwrap();

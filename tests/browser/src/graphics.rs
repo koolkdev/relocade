@@ -5,7 +5,7 @@ pub(crate) mod target;
 use crate::software::{self, SoftwareFrame};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::join, FutureExt, StreamExt};
-use relocade_machine::{timer_service, worker::Thread};
+use relocade_machine::{timer_service, worker::Worker};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -35,8 +35,16 @@ pub async fn graphics_workers() -> Result<(), String> {
         let dropped = Arc::new(AtomicBool::new(false));
         let target_drop = dropped.clone();
         let worker_source = source.clone();
-        let graphics = Thread::new();
-        let task = graphics.run_send(target::context()?, move |context| async move {
+        let graphics = Worker::new();
+        let (mut resources, mut resource_input) = graphics
+            .channel()
+            .await
+            .map_err(|error| error.to_string())?;
+        resources
+            .send(target::context()?)
+            .map_err(|error| error.to_string())?;
+        let task = graphics.run(move || async move {
+            let context = resource_input.recv().await.unwrap().unwrap();
             let mut target = Target::new(context, target_drop).await?;
             let mut cached: Option<Arc<SoftwareFrame>> = None;
             let mut before_conversion = Some((selected, conversion_allowed));

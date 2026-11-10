@@ -69,7 +69,9 @@ async fn captured_deadline() {
                 );
                 assert_eq!(cpu.cpu_state().instruction_count(), 0);
             },
-        );
+        )
+        .await
+        .unwrap();
         assert_eq!(
             armed.next().await,
             Some(host_start + Duration::from_millis(4))
@@ -142,7 +144,9 @@ async fn retained_sync_across_runs() {
                 ExecutionExit::Host(HostExit::Return)
             );
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
@@ -239,7 +243,9 @@ async fn local_output_sync() {
             sync.await;
             assert_eq!(host.next_deadline(), None);
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
     assert_eq!(
         armed.next().await,

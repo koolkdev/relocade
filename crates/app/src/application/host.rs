@@ -6,11 +6,12 @@ use relocade_frontend::{
     keyboard::{KeyboardEvent, KeyboardInput, ModifiersState},
     mouse::{MouseEvent, MouseInput},
 };
-use std::{cell::RefCell, future::Future, rc::Rc, sync::Arc};
+use std::{cell::RefCell, future::Future, pin::Pin, rc::Rc, sync::Arc};
 use winit::event_loop::EventLoopProxy;
 
+pub(super) type StartingGraphics = Pin<Box<dyn Future<Output = Result<Graphics, String>>>>;
 pub(super) type StartGraphics =
-    Box<dyn FnOnce(SurfaceSetup, EventLoopProxy<Event>) -> Graphics + Send>;
+    Box<dyn FnOnce(SurfaceSetup, EventLoopProxy<Event>) -> StartingGraphics + Send>;
 
 #[derive(Default)]
 pub(super) struct HostState {
@@ -97,9 +98,9 @@ impl AppHost {
         }
         state.display_attached = true;
         state.display = Some(Box::new(move |setup, events| {
-            Graphics::spawn(setup, create, move || {
+            Box::pin(Graphics::spawn(setup, create, move || {
                 let _ = events.send_event(Event::RedrawNeeded);
-            })
+            }))
         }));
         self.wake.notify();
         Ok(())

@@ -1,6 +1,4 @@
-use crate::{
-    channel, CancellableWorker, Receiver, ResourceError, SendTask, Sender, WorkerResource,
-};
+use crate::{channel, CancellableWorker, Receiver, ResourceError, Sender, Task, WorkerResource};
 use futures_channel::oneshot;
 use std::future::Future;
 
@@ -24,7 +22,7 @@ impl Worker {
     pub fn run<F: Future + 'static>(
         &self,
         code: impl FnOnce() -> F + Send + 'static,
-    ) -> SendTask<F::Output>
+    ) -> Task<F::Output>
     where
         F::Output: Send,
     {

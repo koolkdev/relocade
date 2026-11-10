@@ -9,7 +9,7 @@ use futures_util::{
     FutureExt, StreamExt,
 };
 use relocade_dos::Dos;
-use relocade_machine::{timer_service, worker::Thread, ExecutionWorker};
+use relocade_machine::{timer_service, worker::Worker, ExecutionWorker};
 use std::{
     future::pending,
     io::Write,
@@ -65,7 +65,9 @@ pub async fn dos_workers() -> Result<(), String> {
         second_done.send(dos.run(runner).await.unwrap()).unwrap();
         // Registered VGA stays active between launches and after process exit.
         pending::<()>().await;
-    });
+    })
+    .await
+    .unwrap();
 
     let app = async move {
         let source = video_ready.await.unwrap();
@@ -77,8 +79,16 @@ pub async fn dos_workers() -> Result<(), String> {
         let target_drop = dropped.clone();
         let conversions = Arc::new(AtomicUsize::new(0));
         let conversion_count = conversions.clone();
-        let graphics = Thread::new();
-        let task = graphics.run_send(target::context()?, move |context| async move {
+        let graphics = Worker::new();
+        let (mut resources, mut resource_input) = graphics
+            .channel()
+            .await
+            .map_err(|error| error.to_string())?;
+        resources
+            .send(target::context()?)
+            .map_err(|error| error.to_string())?;
+        let task = graphics.run(move || async move {
+            let context = resource_input.recv().await.unwrap().unwrap();
             let mut target = target::Target::new(context, target_drop).await?;
             let mut cached: Option<Arc<SoftwareFrame>> = None;
             let mut pending = None;

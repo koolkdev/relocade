@@ -37,8 +37,11 @@ async fn busy_session() {
         let (started, running) = oneshot::channel();
         let dropped = Arc::new(AtomicBool::new(false));
         let worker_drop = dropped.clone();
-        let thread = Thread::new();
-        let task = thread.run_resource(signal, move |signal| async move {
+        let thread = Worker::new();
+        let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+        resources.send(signal).unwrap();
+        let task = thread.run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal.clone()));
             let session = async {
                 let _dropped = Dropped(worker_drop);
@@ -84,8 +87,12 @@ async fn composition() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let thread = Worker::new();
+    let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+    resources.send(signal).unwrap();
+    thread
+        .run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal.clone()));
             for (unordered, during_poll) in [(false, false), (true, false), (false, true)] {
                 let (send, input) = oneshot::channel();
@@ -188,8 +195,12 @@ async fn reentrant_input() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let thread = Worker::new();
+    let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+    resources.send(signal).unwrap();
+    thread
+        .run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal.clone()));
             let (trigger, triggered) = oneshot::channel();
             let (send, receive) = oneshot::channel();
@@ -233,8 +244,12 @@ async fn parking_lifetime() {
     let (released, _release) = oneshot::channel();
     let signal = Signal::new(released);
     let (_host, endpoint) = wake_connection(signal.clone());
-    Thread::new()
-        .run_resource(signal, move |signal| async move {
+    let thread = Worker::new();
+    let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+    resources.send(signal).unwrap();
+    thread
+        .run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             let executor = Executor::new(endpoint.bind(signal));
             for complete in [false, true] {
                 let (send, input) = oneshot::channel();
@@ -325,8 +340,11 @@ async fn idle_session() {
     let (_host, endpoint) = wake_connection(signal.clone());
     let (send, input) = oneshot::channel();
     let (parked, idle) = oneshot::channel();
-    let thread = Thread::new();
-    let task = thread.run_resource(signal, move |signal| async move {
+    let thread = Worker::new();
+    let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+    resources.send(signal).unwrap();
+    let task = thread.run(move || async move {
+        let signal = resource_input.recv().await.unwrap().unwrap();
         let executor = Executor::new(endpoint.bind(signal));
         assert_eq!(
             executor

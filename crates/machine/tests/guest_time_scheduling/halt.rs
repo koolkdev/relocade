@@ -63,7 +63,9 @@ async fn paced_halt() {
             assert_eq!(state.instruction_count(), 3); // STI; HLT; IRET.
             assert_eq!(runner.clock().now(), start + Duration::from_millis(11));
         },
-    );
+    )
+    .await
+    .unwrap();
     // The halted CPU advances idle guest time through the existing paced slices.
     // No instructions retire while it waits for the timer IRQ at guest 10 ms.
     for millis in [4, 8] {

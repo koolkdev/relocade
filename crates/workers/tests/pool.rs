@@ -3,7 +3,7 @@ use futures_util::{
     future::{join, join3},
     FutureExt,
 };
-use relocade_workers::{Pool, PoolError, PoolHandle, Thread};
+use relocade_workers::{Pool, PoolError, PoolHandle, Worker};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Condvar, Mutex,
@@ -62,12 +62,12 @@ impl Drop for Running {
 async fn supplied_workers() {
     fn send_sync<T: Send + Sync>() {}
     send_sync::<PoolHandle>();
-    let threads = vec![Thread::new(), Thread::new()];
+    let threads = vec![Worker::new(), Worker::new()];
     let mut supplied = Vec::new();
     for thread in &threads {
         supplied.push(
             thread
-                .run_send((), |()| async { std::thread::current().id() })
+                .run(|| async { std::thread::current().id() })
                 .await
                 .unwrap(),
         );
@@ -131,7 +131,7 @@ impl Drop for Released {
 }
 
 async fn cancelled_waiters() {
-    let (pool, jobs) = Pool::new(vec![Thread::new()]).unwrap();
+    let (pool, jobs) = Pool::new(vec![Worker::new()]).unwrap();
     let gate = Arc::new(Gate::default());
     let released = Arc::new(AtomicBool::new(false));
     let drained = Arc::new(AtomicBool::new(false));
@@ -167,7 +167,7 @@ async fn cancelled_waiters() {
 
 async fn closed_pool() {
     assert!(matches!(Pool::new(Vec::new()), Err(PoolError::NoThreads)));
-    let (pool, jobs) = Pool::new(vec![Thread::new()]).unwrap();
+    let (pool, jobs) = Pool::new(vec![Worker::new()]).unwrap();
     let released = Arc::new(AtomicBool::new(false));
     let captured = Released(released.clone());
     let mut queued = Box::pin(jobs.execute(move || drop(captured)));
@@ -197,14 +197,12 @@ async fn concurrent_compilations() {
         program(7).compile().unwrap(),
         program(41).compile().unwrap(),
     ];
-    let (pool, local) = Pool::new(vec![Thread::new(), Thread::new()]).unwrap();
+    let (pool, local) = Pool::new(vec![Worker::new(), Worker::new()]).unwrap();
     let remote = local.clone();
     // The driver stays on this thread; a separate coordinator submits through
-    // the same Send handle, including when browser Thread handles are local.
-    let coordinator = Thread::new();
-    let remote = coordinator.run_send((), move |()| async move {
-        program(41).compile_with(&remote).await
-    });
+    // the same Send handle, including when browser Worker handles are local.
+    let coordinator = Worker::new();
+    let remote = coordinator.run(move || async move { program(41).compile_with(&remote).await });
     let local = async move { program(7).compile_with(&local).await };
     let ((), (local, remote)) = join(pool.run(), join(local, remote)).await;
     assert_eq!(local.unwrap(), expected[0]);
@@ -214,12 +212,12 @@ async fn concurrent_compilations() {
 #[cfg(feature = "compiler")]
 async fn concurrent_ir_construction() {
     use relocade_compiler::{Program, I32};
-    let threads = vec![Thread::new(), Thread::new()];
+    let threads = vec![Worker::new(), Worker::new()];
     let mut supplied = Vec::new();
     for thread in &threads {
         supplied.push(
             thread
-                .run_send((), |()| async { std::thread::current().id() })
+                .run(|| async { std::thread::current().id() })
                 .await
                 .unwrap(),
         );

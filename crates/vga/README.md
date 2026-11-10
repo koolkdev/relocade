@@ -856,7 +856,7 @@ let mut graphics = relocade_app::graphics::Graphics::spawn(
         relocade_vga::VgaDisplay::new(device, frames).map_err(|e| e.to_string())
     },
     notify_redraw_needed,
-);
+).await?;
 ```
 
 The adapter retains the source and the last uploaded capture.

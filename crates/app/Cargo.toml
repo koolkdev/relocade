@@ -7,12 +7,12 @@ publish.workspace = true
 
 [features]
 audio = ["dep:cpal", "dep:async-channel"]
-graphics = ["dep:wgpu", "dep:web-thread", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-frontend", "relocade-frontend/display", "relocade-frontend/keyboard", "relocade-frontend/mouse"]
+graphics = ["dep:wgpu", "dep:relocade-workers", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "dep:futures-channel", "dep:async-channel", "dep:futures-lite", "dep:futures-timer", "dep:relocade-renderer", "dep:relocade-frontend", "relocade-frontend/display", "relocade-frontend/keyboard", "relocade-frontend/mouse"]
 
 [dependencies]
 winit = "=0.30.13"
 wgpu = { workspace = true, optional = true }
-web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"], optional = true }
+relocade-workers = { path = "../workers", optional = true }
 futures-channel = { version = "=0.3.34", optional = true }
 async-channel = { version = "=2.5.0", default-features = false, optional = true }
 futures-lite = { version = "=2.6.1", optional = true }
@@ -31,7 +31,7 @@ web-sys = { version = "=0.3.106", features = ["OffscreenCanvas", "Window", "Docu
 
 [dev-dependencies]
 futures-lite = "=2.6.1"
-web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
+relocade-workers = { path = "../workers" }
 async-channel = { version = "=2.5.0", default-features = false }
 futures-channel = "=0.3.34"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }

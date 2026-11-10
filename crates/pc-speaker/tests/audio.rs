@@ -82,8 +82,10 @@ async fn exercise_audio_device() {
             "busy guest unexpectedly returned: {:?}",
             runner.run_cpu(&mut cpu).await
         );
-    });
-    let timers = timers.spawn_with_peer(worker.wake_peer());
+    })
+    .await
+    .unwrap();
+    let timers = timers.spawn_with_peer(worker.wake_peer()).await.unwrap();
     timeout(ready.recv()).await.unwrap();
     // Initial queued silence can precede the guest's programming writes.
     for index in 0..12 {
@@ -100,7 +102,7 @@ async fn exercise_audio_device() {
         buffers.is_closed(),
         "session shutdown drops the device's sender"
     );
-    timeout(timers.join()).await.unwrap();
+    timeout(timers.join()).await.unwrap().unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

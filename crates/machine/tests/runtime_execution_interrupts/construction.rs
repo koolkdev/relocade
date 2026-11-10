@@ -64,7 +64,9 @@ async fn idle_devices() {
             "devices remain active after guest completion"
         );
         assert_eq!(state.ax(), 1);
-    });
+    })
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 

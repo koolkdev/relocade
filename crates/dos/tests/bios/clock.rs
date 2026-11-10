@@ -169,7 +169,9 @@ fn timer_advances_the_clock_during_guest_execution() {
                     );
                     dos.cpu().memory().view().read_u16(0x10302).unwrap()
                 },
-            );
+            )
+            .await
+            .unwrap();
             let memory = shared_memory.await.unwrap();
             let deadline = Instant::now() + Duration::from_secs(10);
             while memory.view().read_u8(0x10300).unwrap() == 0 {

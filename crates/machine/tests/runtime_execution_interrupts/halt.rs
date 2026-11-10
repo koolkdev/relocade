@@ -70,7 +70,9 @@ async fn halted_worker() {
         })
         .await;
         panic!("stopping a halted worker must drop its application");
-    });
+    })
+    .await
+    .unwrap();
     assert_eq!(halted.next().await, Some((0x102, 2, 0)));
     // The registered device task still runs while CPU execution is pending in HLT.
     // Its ordinary input wake must reach the worker without a manual interrupt request.

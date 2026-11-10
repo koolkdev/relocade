@@ -66,7 +66,9 @@ async fn exercise() {
                 },
             )
             .await;
-        });
+        })
+        .await
+        .unwrap();
         let result = async {
             assert_eq!(stages.recv().await.unwrap(), 1);
             output.play();

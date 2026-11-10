@@ -2,7 +2,7 @@ mod render;
 mod worker;
 
 use super::SurfaceSetup;
-use crate::worker::{SendTask, Thread};
+use crate::worker::{Task, Worker};
 use futures_channel::oneshot;
 use futures_lite::future::or;
 use relocade_frontend::display::DisplayRenderer;
@@ -21,8 +21,8 @@ pub struct Graphics {
     redraws: async_channel::Sender<PhysicalSize<u32>>,
     notified: Arc<AtomicBool>,
     stop: Option<oneshot::Sender<()>>,
-    task: SendTask<Result<(), String>>,
-    _thread: Thread,
+    task: Task<Result<(), String>>,
+    _thread: Worker,
 }
 
 impl Graphics {
@@ -39,11 +39,11 @@ impl Graphics {
     /// or a replacement lost before presentation ends the connection with an error.
     /// Poll `finished()` alongside the application to observe startup and runtime
     /// failures. This owner retains the worker through its resource cleanup.
-    pub fn spawn<D: DisplayRenderer + 'static>(
+    pub async fn spawn<D: DisplayRenderer + 'static>(
         setup: SurfaceSetup,
         create: impl FnOnce(&wgpu::Device, &wgpu::Queue) -> Result<D, String> + Send + 'static,
         notify_redraw_needed: impl Fn() + Send + Sync + 'static,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let (redraws, requests) = async_channel::bounded(1);
         let notified = Arc::new(AtomicBool::new(false));
         let changed = notified.clone();
@@ -53,24 +53,42 @@ impl Graphics {
             }
         };
         let (stop, stopping) = oneshot::channel();
-        let thread = Thread::new();
-        let task = thread.run_send(setup, move |setup| async move {
+        let thread = Worker::new();
+        let (mut sender, mut incoming) = thread
+            .channel::<SurfaceSetup>()
+            .await
+            .map_err(|error| error.to_string())?;
+        let task = thread.run(move || async move {
             or(
                 async {
                     let _ = stopping.await;
                     Ok(())
                 },
-                worker::run(setup, create, requests, &notify),
+                async {
+                    let setup = incoming
+                        .recv()
+                        .await
+                        .ok_or("graphics setup channel closed")?
+                        .map_err(|error| error.to_string())?;
+                    drop(incoming);
+                    worker::run(setup, create, requests, &notify).await
+                },
             )
             .await
         });
-        Self {
+        if let Err(error) = sender.send(setup) {
+            drop(sender);
+            let _ = stop.send(());
+            let _ = task.await;
+            return Err(error.to_string());
+        }
+        Ok(Self {
             redraws,
             notified,
             stop: Some(stop),
             task,
             _thread: thread,
-        }
+        })
     }
 
     /// Queues a redraw of the latest available image at this physical size.

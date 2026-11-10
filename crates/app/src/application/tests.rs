@@ -24,6 +24,7 @@ use winit::{
 
 #[derive(Default)]
 struct Counts {
+    created: AtomicBool,
     draws: AtomicUsize,
     updates: AtomicUsize,
     release: AtomicBool,
@@ -73,6 +74,7 @@ enum Startup {
     MouseGuest,
     DisplayError,
     CloseBeforeAttach,
+    CloseDuringStart,
 }
 
 enum Action {
@@ -223,6 +225,7 @@ fn fixture(
     let actions = Actions::default();
     let requests = actions.clone();
     let counts = Arc::new(Counts::default());
+    let completed_counts = counts.clone();
     let (updates, incoming) = mpsc::unbounded();
     let cleaned = Rc::new(Cell::new(false));
     let cleanup_observed = cleaned.clone();
@@ -247,9 +250,9 @@ fn fixture(
             };
             // A held modifier must survive keyboard attachment after startup.
             action(Action::Modifiers).await;
-            let connector = crate::worker::Thread::new();
+            let connector = crate::worker::Worker::new();
             let ((input, mut keys), (mouse, mut pointer)) = connector
-                .run_send((), move |()| async move {
+                .run(move || async move {
                     assert_ne!(main_id, std::thread::current().id());
                     (keyboard::channel(), mouse::channel())
                 })
@@ -287,12 +290,32 @@ fn fixture(
                 image
                     .upload(queue, &[255, 0, 0, 255])
                     .map_err(|e| e.to_string())?;
+                display_counts.created.store(true, SeqCst);
                 Ok(Display {
                     image,
                     updates: incoming,
                     counts: display_counts,
                 })
             })?;
+            if matches!(startup, Startup::CloseDuringStart) {
+                counts.release.store(true, SeqCst);
+                let start = host.state.borrow_mut().display.take().unwrap();
+                let (ready, started) = oneshot::channel();
+                host.state.borrow_mut().display = Some(Box::new(move |setup, events| {
+                    Box::pin(async move {
+                        let graphics = start(setup, events).await?;
+                        wait_for(|| counts.created.load(SeqCst)).await;
+                        ready.send(()).unwrap();
+                        // Keep startup pending while the lifecycle ends. The app
+                        // must retain the window and stop graphics once it arrives.
+                        futures_timer::Delay::new(Duration::from_millis(20)).await;
+                        Ok(graphics)
+                    })
+                }));
+                started.await.unwrap();
+                cleaned.set(true);
+                return Ok(());
+            }
             // Cancelling a closing wait does not prevent a later wait from observing it.
             drop(closing);
             assert_eq!(
@@ -469,6 +492,12 @@ fn fixture(
             Ok(())
         },
         move |result| {
+            if matches!(startup, Startup::CloseDuringStart) {
+                assert!(
+                    completed_counts.dropped.load(SeqCst),
+                    "completion must join graphics that was still starting at close"
+                );
+            }
             assert!(
                 cleanup_observed.get(),
                 "completion must follow lifecycle cleanup"
@@ -500,6 +529,7 @@ fn main_hosts_display_and_awaits_cleanup() {
         Startup::MouseGuest,
         Startup::DisplayError,
         Startup::CloseBeforeAttach,
+        Startup::CloseDuringStart,
     ] {
         let (completed, finished) = oneshot::channel();
         let mut app = fixture(
@@ -535,6 +565,7 @@ async fn main_hosts_display_and_awaits_cleanup() {
         Startup::MouseGuest,
         Startup::DisplayError,
         Startup::CloseBeforeAttach,
+        Startup::CloseDuringStart,
     ] {
         let canvas: web_sys::HtmlCanvasElement = web_sys::window()
             .unwrap()

@@ -4,7 +4,7 @@ use futures_channel::oneshot;
 use relocade_app::{
     graphics::{Surface, SurfaceSetup},
     winit::dpi::PhysicalSize,
-    worker::Thread,
+    worker::Worker,
 };
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 
@@ -94,10 +94,15 @@ async fn render_and_close() {
         window_id,
         ..
     } = ready;
-    let thread = Thread::new();
+    let thread = Worker::new();
     let (presented, visible) = oneshot::channel();
     let (release, observed) = oneshot::channel();
-    let task = thread.run_send(setup, move |setup| draw(setup, size, presented, observed));
+    let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+    resources.send(setup).unwrap();
+    let task = thread.run(move || async move {
+        let setup = resource_input.recv().await.unwrap().unwrap();
+        draw(setup, size, presented, observed).await
+    });
     let presented = visible.await.is_ok();
     #[cfg(target_os = "linux")]
     let pixels_match = presented && window::native::presented_pixels_match(window_id, size);

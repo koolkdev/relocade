@@ -1,6 +1,6 @@
+use crate::worker::{AsJs, Post};
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
-use web_thread::{AsJs, Post};
 use winit::{event_loop::ActiveEventLoop, platform::web::WindowExtWebSys, window::Window};
 
 /// Transfers only the offscreen canvas; GPU objects are created on its worker.

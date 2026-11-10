@@ -71,7 +71,9 @@ async fn pit_interrupts() {
             assert!(runner.clock().now() >= start + Duration::from_millis(14));
             assert!(runner.clock().now() < start + Duration::from_millis(20));
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 

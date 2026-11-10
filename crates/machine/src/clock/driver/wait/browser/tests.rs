@@ -1,5 +1,5 @@
 use super::Wait;
-use crate::worker::Thread;
+use crate::worker::Worker;
 use futures_channel::oneshot;
 use std::{
     future::Future,
@@ -17,9 +17,9 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn notifications_before_waiting_interrupt_timed_and_idle_waits() {
-    let thread = Thread::new();
+    let thread = Worker::new();
     thread
-        .run_send((), |()| async {
+        .run(|| async {
             let mut wait = Wait::new();
             for deadline in [Some(Instant::now() + Duration::from_secs(3600)), None] {
                 wait.waker().wake_by_ref();
@@ -36,9 +36,9 @@ async fn notifications_before_waiting_interrupt_timed_and_idle_waits() {
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_registered_wait_resumes_from_another_thread() {
-    let thread = Thread::new();
+    let thread = Worker::new();
     let (send_waker, receive_waker) = oneshot::channel();
-    let finished = thread.run_send((), |()| async move {
+    let finished = thread.run(|| async move {
         let mut wait = Wait::new();
         let waker = wait.waker();
         let mut pending = pin!(wait.until(None));
@@ -61,9 +61,9 @@ impl Wake for Task {
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cancelling_an_idle_wait_releases_its_task_registration() {
-    let thread = Thread::new();
+    let thread = Worker::new();
     let escaped = thread
-        .run_send((), |()| async {
+        .run(|| async {
             let mut wait = Wait::new();
             let escaped = wait.waker();
             let task = Arc::new(Task(AtomicBool::new(false)));

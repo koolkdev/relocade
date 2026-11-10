@@ -41,7 +41,9 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
                     assert!(runner.clock().now() > time);
                 }
             },
-        );
+        )
+        .await
+        .unwrap();
         assert_eq!(worker.join().await.unwrap(), Some(()));
     });
 }

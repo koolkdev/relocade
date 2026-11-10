@@ -1,6 +1,6 @@
 //! Bounded execution of synchronous Rust jobs on supplied workers.
 
-use crate::{Error, Thread};
+use crate::{Error, Worker};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{
     future::{select, Either},
@@ -18,8 +18,8 @@ use std::fmt;
 ///
 /// ```no_run
 /// use futures_util::future::join;
-/// use relocade_workers::{Pool, PoolError, Thread};
-/// # async fn example(threads: Vec<Thread>) -> Result<(), PoolError> {
+/// use relocade_workers::{Pool, PoolError, Worker};
+/// # async fn example(threads: Vec<Worker>) -> Result<(), PoolError> {
 /// let (pool, jobs) = Pool::new(threads)?;
 /// let (_, result) = join(pool.run(), async move {
 ///     jobs.execute(|| 6 * 7).await
@@ -29,7 +29,7 @@ use std::fmt;
 /// # }
 /// ```
 pub struct Pool {
-    threads: Vec<Thread>,
+    threads: Vec<Worker>,
     jobs: mpsc::UnboundedReceiver<Job>,
 }
 
@@ -70,7 +70,7 @@ impl std::error::Error for PoolError {
 
 impl Pool {
     /// Takes ownership of existing workers without creating additional threads.
-    pub fn new(threads: Vec<Thread>) -> Result<(Self, PoolHandle), PoolError> {
+    pub fn new(threads: Vec<Worker>) -> Result<(Self, PoolHandle), PoolError> {
         if threads.is_empty() {
             return Err(PoolError::NoThreads);
         }
@@ -149,8 +149,8 @@ struct Job {
 }
 
 impl Job {
-    async fn run(self, thread: Thread) -> Option<Thread> {
-        let task = thread.run_send((), move |()| async move { (self.code)() });
+    async fn run(self, thread: Worker) -> Option<Worker> {
+        let task = thread.run(move || async move { (self.code)() });
         let result = task.await;
         let reusable = result.is_ok();
         let _ = self.finished.send(result);

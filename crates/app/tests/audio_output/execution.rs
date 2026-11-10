@@ -86,7 +86,9 @@ async fn callback_wakes_execution() {
         // real CPAL callback must free channel capacity while Wasm stays busy.
         assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         submission.await.unwrap();
-    });
+    })
+    .await
+    .unwrap();
     timeout(registered).await.unwrap();
     audio.play().unwrap();
     assert_eq!(timeout(worker.join()).await.unwrap(), Some(()));

@@ -83,7 +83,9 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         .await
         .unwrap();
         runner.run_cpu(&mut cpu).await;
-    });
+    })
+    .await
+    .unwrap();
 
     let source = source.await.unwrap();
     Guest {

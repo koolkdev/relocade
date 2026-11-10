@@ -4,7 +4,7 @@ use futures_util::{
     future::{join, select, Either},
     FutureExt, StreamExt,
 };
-use relocade_machine::{timer_service, worker::Thread};
+use relocade_machine::{timer_service, worker::Worker};
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::VgaRenderer;
 use std::sync::{
@@ -39,8 +39,8 @@ pub async fn gpu_workers() -> Result<(), String> {
         let renders = Arc::new(AtomicUsize::new(0));
         let render_count = renders.clone();
         let worker_source = source.clone();
-        let graphics = Thread::new();
-        let task = graphics.run_send((), move |()| async move {
+        let graphics = Worker::new();
+        let task = graphics.run(move || async move {
             let instance = wgpu::Instance::default();
             let adapter = instance.request_adapter(&Default::default()).await.unwrap();
             let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();

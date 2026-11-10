@@ -1,5 +1,5 @@
 use relocade_compiler::{abi::Function, Program, I64};
-use relocade_machine::{worker::Thread, Result};
+use relocade_machine::{worker::Worker, Result};
 use relocade_wasm_runtime::{Backend, Module, WasmBackend, WasmCompiler, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
@@ -41,9 +41,21 @@ pub async fn compiled_modules() -> std::result::Result<(), String> {
         .compile(&lower().map_err(|error| error.to_string())?)
         .await
         .map_err(|error| error.to_string())?;
-    let execution = Thread::new();
+    let execution = Worker::new();
+    let (mut resources, mut resource_input) = execution
+        .channel()
+        .await
+        .map_err(|error| error.to_string())?;
+    resources.send(module).map_err(|error| error.to_string())?;
     let values = execution
-        .run_send(module, execute)
+        .run(move || async move {
+            let module = resource_input
+                .recv()
+                .await
+                .unwrap()
+                .map_err(|error| error.to_string())?;
+            execute(module).await
+        })
         .await
         .map_err(|error| error.to_string())??;
     assert_eq!(values, (42, 52));

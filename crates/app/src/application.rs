@@ -78,6 +78,7 @@ struct Application {
     closing: Option<async_channel::Sender<Result<(), String>>>,
     lifecycle: Option<Task>,
     graphics: Option<Graphics>,
+    starting_graphics: Option<host::StartingGraphics>,
     finished: Option<Finished>,
     error: Option<String>,
     suspended: bool,
@@ -108,6 +109,7 @@ impl Application {
             closing: Some(closing),
             lifecycle: Some(Box::pin(lifecycle)),
             graphics: None,
+            starting_graphics: None,
             finished: Some(Box::new(finished)),
             error: None,
             suspended: true,
@@ -166,9 +168,26 @@ impl Application {
                 .surface_setup(event_loop);
             match setup {
                 Ok(setup) => {
-                    self.graphics = Some(start(setup, self.wake.events.clone()));
+                    self.starting_graphics = Some(start(setup, self.wake.events.clone()));
                 }
                 Err(error) => self.close(Err(error)),
+            }
+        }
+        if let Some(starting) = &mut self.starting_graphics {
+            if let Poll::Ready(result) = starting.as_mut().poll(&mut cx) {
+                self.starting_graphics = None;
+                match result {
+                    Ok(mut graphics) => {
+                        if self.host.borrow().phase == Phase::Closing {
+                            graphics.request_close();
+                        }
+                        if let Some(window) = &self.window {
+                            window.winit().request_redraw();
+                        }
+                        self.graphics = Some(graphics);
+                    }
+                    Err(error) => self.close(Err(error)),
+                }
             }
         }
         if let Some(graphics) = &mut self.graphics {
@@ -185,6 +204,7 @@ impl Application {
         if self.host.borrow().phase != Phase::Closing
             || self.lifecycle.is_some()
             || self.graphics.is_some()
+            || self.starting_graphics.is_some()
         {
             return;
         }

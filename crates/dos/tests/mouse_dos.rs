@@ -12,7 +12,7 @@ const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let worker = pollster::block_on(ExecutionWorker::spawn_with_clock(
         move || worker_clock.clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -22,7 +22,8 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
             assert_eq!(dos.cpu().cpu_state().bx(), 3);
             check(&clock, dos).await;
         },
-    );
+    ))
+    .unwrap();
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 
@@ -72,7 +73,7 @@ async fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
 #[test]
 fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
     for mz in [false, true] {
-        let worker = ExecutionWorker::spawn_with_clock(
+        let worker = pollster::block_on(ExecutionWorker::spawn_with_clock(
             || ManualClock::new().clock(),
             async move |runner| {
                 let mut dos = Dos::new(runner).await.unwrap();
@@ -103,7 +104,8 @@ fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
                 assert_eq!(state.eflags(), 0x443);
                 assert_eq!(state.snapshot().segments, before.segments);
             },
-        );
+        ))
+        .unwrap();
         assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
     }
 }

@@ -2,7 +2,7 @@ use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, worker::Thread, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
+    timer_service, worker::Worker, CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, Memory,
 };
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
@@ -18,7 +18,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let (input, incoming) = oneshot::channel();
     let (rendered, presented) = oneshot::channel();
     let (clock, timers) = timer_service();
-    let display = Thread::new();
+    let display = Worker::new();
     let cpu_task = ExecutionWorker::spawn(clock, async move |runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
@@ -113,8 +113,10 @@ pub async fn vga_workers() -> Result<(), String> {
         presented.await.unwrap();
         drop(cpu);
         drop(vga);
-    });
-    let display_task = display.run_send((), move |()| async move {
+    })
+    .await
+    .unwrap();
+    let display_task = display.run(move || async move {
         let display = display_source.await.unwrap();
         input_waiting.await.unwrap();
         // Convert immutable captures on this worker; live VGA state remains on execution.

@@ -1,5 +1,5 @@
 use futures_util::future::join;
-use relocade_workers::{Pool, Thread};
+use relocade_workers::{Pool, Worker};
 use relocade_x86::{build_interpreter, ExecutionProfile, SegmentProfile};
 use std::{env, error::Error, fs, path::PathBuf, thread};
 
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     // The build script has one implicit slot. Retain extra leases until the pool
     // drains; the coordinator only constructs bodies between worker phases.
-    let threads = (0..=tokens.len()).map(|_| Thread::new()).collect();
+    let threads = (0..=tokens.len()).map(|_| Worker::new()).collect();
     let (pool, executor) = Pool::new(threads)?;
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
     let ((), result) = pollster::block_on(join(pool.run(), async move {

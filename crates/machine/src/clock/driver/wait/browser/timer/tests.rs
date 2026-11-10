@@ -1,13 +1,13 @@
 use super::DeadlineTimer;
-use crate::worker::Thread;
+use crate::worker::Worker;
 use std::time::Duration;
 use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cancelling_queued_and_armed_timers_settles_their_promises() {
-    let thread = Thread::new();
+    let thread = Worker::new();
     thread
-        .run_send((), |()| async {
+        .run(|| async {
             let timer = DeadlineTimer::new();
             let queued = JsFuture::from(timer.start(3_600_000.0));
             timer.cancel();

@@ -19,10 +19,10 @@ let execution = ExecutionWorker::spawn(handle, async move |runner| {
     runner.run_cpu(&mut cpu).await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
-});
-let timers = timers.spawn_with_peer(execution.wake_peer());
+}).await?;
+let timers = timers.spawn_with_peer(execution.wake_peer()).await?;
 let result = execution.join().await;
-timers.stop().await?;
+timers.stop().await??;
 ```
 
 `connect(...).await` registers the device's ordinary async `Device::run` future
@@ -34,7 +34,7 @@ and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
 The worker prepares one `CpuStorage` before spawning and posts it through
-`ThreadExt::run_resource`. `runner.create_cpu(memory, config, io).await` consumes
+resource channels. `runner.create_cpu(memory, config, io).await` consumes
 that storage on the execution thread. `Dos::new(runner)` uses the same factory.
 A runner permits one construction attempt, including an attempt that
 fails or is cancelled; later programs reuse that CPU. Independent CPU-level work
@@ -273,10 +273,14 @@ Capture `execution.wake_peer()` on the host, or `runner.wake_peer()` on executio
 and post it when setting up another worker:
 
 ```rust,ignore
-thread.run_resource(execution.wake_peer(), move |peer| async move {
+let (mut sender, mut incoming) = thread.channel().await?;
+sender.send(execution.wake_peer())?;
+thread.run(move || async move {
+    let peer = incoming.recv().await.unwrap()?;
     let _binding = peer.bind();
     send_device_updates(input).await;
-}).await?;
+    Ok::<_, worker::ResourceError>(())
+}).await??;
 ```
 
 Ordinary Rust senders on that thread now signal busy execution through its local
@@ -321,7 +325,7 @@ service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
 worker receiving those captures, without borrowing the live device. The
 [graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with
-`Thread::run_send` and an application-owned request channel. VGA does not create
+`Worker::run` and an application-owned request channel. VGA does not create
 workers or own rendering and presentation lifetimes.
 Application redraws cannot advance VGA time. See the
 [VGA contract](../../vga/README.md) and [renderer API](../../renderer/README.md).

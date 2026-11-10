@@ -1,4 +1,4 @@
-use super::{Result, SendTask, Thread, Worker};
+use super::{Result, Task, Worker};
 use futures_channel::oneshot;
 use std::future::Future;
 
@@ -10,24 +10,11 @@ use std::future::Future;
 /// it early can terminate a browser thread before its Rust destructors run.
 pub struct CancellableWorker<T: Send + 'static> {
     _worker: Worker,
-    task: SendTask<T>,
+    task: Task<T>,
     stop: Option<oneshot::Sender<()>>,
 }
 
 impl<T: Send + 'static> CancellableWorker<T> {
-    /// Starts a task using the existing thread interface.
-    /// Await stop or join before releasing its worker.
-    pub fn spawn(start: impl FnOnce(&Thread, oneshot::Receiver<()>) -> SendTask<T>) -> Self {
-        let worker = Worker::new();
-        let (stop, stopped) = oneshot::channel();
-        let task = start(&worker.thread, stopped);
-        Self {
-            _worker: worker,
-            task,
-            stop: Some(stop),
-        }
-    }
-
     pub(crate) fn new<F: Future<Output = T> + 'static>(
         worker: Worker,
         code: impl FnOnce(oneshot::Receiver<()>) -> F + Send + 'static,

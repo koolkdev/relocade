@@ -156,14 +156,17 @@ a canvas supplied through winit's `with_canvas`. CSS controls browser layout
 unless the caller explicitly specifies dimensions in the window attributes.
 
 With the `graphics` feature, `window.surface_setup(event_loop)` prepares transfer
-to an explicitly created `worker::Thread`. Native surface creation occurs on main
+to an explicitly created `worker::Worker`. Native surface creation occurs on main
 to satisfy platform requirements, including Metal. Web setup transfers the
 offscreen canvas; GPU objects are initialized on the receiving worker.
 
 ```rust,ignore
 let setup = window.surface_setup(event_loop)?;
-let graphics = relocade_app::worker::Thread::new();
-let task = graphics.run_send(setup, |setup| async move {
+let graphics = relocade_app::worker::Worker::new();
+let (mut sender, mut incoming) = graphics.channel().await?;
+sender.send(setup)?;
+let task = graphics.run(move || async move {
+    let setup = incoming.recv().await.unwrap().map_err(|error| error.to_string())?;
     let mut surface = relocade_app::graphics::Surface::new(setup).await?;
     // Acquire an attachment, record draws, submit, then surface.present(frame).
     // Use surface.device, surface.queue and surface.format() with Renderer.
@@ -200,7 +203,7 @@ let mut graphics = relocade_app::graphics::Graphics::spawn(
     window.surface_setup(event_loop)?,
     move |device, queue| create_display(device, queue),
     move || { let _ = events.send_event(MyEvent::RedrawNeeded); },
-);
+).await?;
 
 // On RedrawNeeded, resize or expose, schedule window.winit().request_redraw().
 // On winit's RedrawRequested, when the output is drawable:

@@ -1,6 +1,6 @@
 use super::{GuestTimeConfig, Runner};
 use crate::worker::{
-    self, wake_connection, CancellableWorker, ThreadExt, WakeEndpoint, WakeHost, WakePeer,
+    wake_connection, CancellableWorker, ResourceError, WakeEndpoint, WakeHost, WakePeer, Worker,
 };
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
 use futures_lite::future::or;
@@ -10,16 +10,16 @@ use std::future::Future;
 /// Use `runner.create_cpu` (or `Dos::new`) inside the supplied closure. CPU
 /// storage is prepared before spawning; construction and access stay local.
 ///
-/// Await `stop` or `join` before releasing the worker, just as with `Thread`.
+/// Await `stop` or `join` before releasing the worker, just as with `Worker`.
 /// Dropping the handle or its completion future early can terminate the underlying
 /// browser worker before Rust destructors run.
 pub struct ExecutionWorker<T: Send + 'static> {
-    worker: CancellableWorker<Option<T>>,
+    worker: CancellableWorker<Result<Option<T>, ResourceError>>,
     wake_host: WakeHost<ExecutionInterrupt>,
 }
 
 impl<T: Send + 'static> ExecutionWorker<T> {
-    /// Captures the signal resource for another worker's startup. Bind the posted
+    /// Captures the signal resource for another worker. Bind the received
     /// peer there before using senders that can wake this session.
     pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
         self.wake_host.peer()
@@ -34,81 +34,102 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     pub async fn run_until(
         stop: impl Future,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> worker::Result<Option<T>> {
+    ) -> Result<Option<T>, ResourceError> {
         let (handle, timers) = timer_service();
-        let mut execution = Self::spawn(handle, session);
-        let timers = timers.spawn_with_peer(execution.wake_peer());
+        let mut execution = Self::spawn(handle, session).await?;
+        let timers = match timers.spawn_with_peer(execution.wake_peer()).await {
+            Ok(timers) => timers,
+            Err(error) => {
+                execution.stop().await?;
+                return Err(error);
+            }
+        };
         let completed = or(
             async {
                 stop.await;
                 None
             },
-            async { Some(execution.worker.finished().await) },
+            async {
+                let result = execution.worker.finished().await;
+                Some(result.map_err(ResourceError::from).flatten())
+            },
         )
         .await;
         let result = match completed {
             Some(result) => result,
             None => execution.stop().await.map(|_| None),
         };
-        timers.stop().await?;
+        timers.stop().await??;
         result
     }
 
-    pub fn spawn(
+    pub async fn spawn(
         host_timers: TimerHandle,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> Self {
-        Self::spawn_with_clock(move || host_timers.into(), session)
+    ) -> Result<Self, ResourceError> {
+        Self::spawn_with_clock(move || host_timers.into(), session).await
     }
 
     /// Constructs a clock on the execution owner before starting the session.
     /// A transferable factory can supply a custom clock on that owner.
     /// Use [`Self::spawn_with_guest_time`] for emulated guest time.
-    pub fn spawn_with_clock(
+    pub async fn spawn_with_clock(
         make_clock: impl FnOnce() -> Clock + Send + 'static,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> Self {
+    ) -> Result<Self, ResourceError> {
         Self::spawn_runner(
             move |storage, endpoint| Runner::new(make_clock(), storage, endpoint),
             session,
         )
+        .await
     }
 
     /// Constructs guest-time configuration on the execution owner, then runs
     /// the session. The factory can create a local host clock for pacing execution slices.
     /// Devices keep the existing [`Clock`] interface.
-    pub fn spawn_with_guest_time(
+    pub async fn spawn_with_guest_time(
         make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> Self {
+    ) -> Result<Self, ResourceError> {
         Self::spawn_runner(
             move |storage, endpoint| Runner::with_guest_time(make_time(), storage, endpoint),
             session,
         )
+        .await
     }
 
-    fn spawn_runner(
+    async fn spawn_runner(
         runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner + Send + 'static,
         session: impl AsyncFnOnce(&Runner) -> T + Send + 'static,
-    ) -> Self {
+    ) -> Result<Self, ResourceError> {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(storage, move |storage| async move {
-                runner(storage, endpoint).run(stopped, session).await
-            })
+        let worker = Worker::new();
+        let (mut sender, mut incoming) = worker.channel::<CpuStorage>().await?;
+        let worker = worker.run_cancellable(move |stopped| async move {
+            let Some(storage) = incoming.recv().await else {
+                return Ok(None);
+            };
+            let storage = storage?;
+            drop(incoming);
+            Ok(runner(storage, endpoint).run(stopped, session).await)
         });
-        Self { worker, wake_host }
+        if let Err(error) = sender.send(storage) {
+            drop(sender);
+            let _ = worker.stop().await;
+            return Err(error);
+        }
+        Ok(Self { worker, wake_host })
     }
 
     /// Stops even while a service is pending, drops the session on its owner,
     /// then waits for task completion before releasing the thread.
-    pub async fn stop(self) -> worker::Result<Option<T>> {
-        self.worker.stop().await
+    pub async fn stop(self) -> Result<Option<T>, ResourceError> {
+        self.worker.stop().await?
     }
 
     /// Waits for ordinary completion. `None` denotes an explicit stop.
-    pub async fn join(self) -> worker::Result<Option<T>> {
-        self.worker.join().await
+    pub async fn join(self) -> Result<Option<T>, ResourceError> {
+        self.worker.join().await?
     }
 }

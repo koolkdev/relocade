@@ -184,7 +184,9 @@ async fn exercise_graphics() {
         move || {
             notifications.notifications.fetch_add(1, SeqCst);
         },
-    );
+    )
+    .await
+    .unwrap();
     for _ in 0..20 {
         input.unbounded_send(true).unwrap();
     }

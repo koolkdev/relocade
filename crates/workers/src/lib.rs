@@ -10,9 +10,9 @@
 compile_error!("workers require a threaded browser build; see tests/browser/README.md");
 
 pub use relocade_derive::WorkerResource;
-pub use web_thread::*;
-
-use std::future::Future;
+#[cfg(target_arch = "wasm32")]
+pub use web_thread::{AsJs, PostExt};
+pub use web_thread::{Error, Post, Result, SendTask as Task};
 
 mod cancellable;
 mod channel;
@@ -29,34 +29,4 @@ pub use resource::{ResourceTransfer, WorkerResource};
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };
-
 pub use worker::Worker;
-
-/// Typed resource tasks on the existing [`Thread`], with the same task lifetime.
-pub trait ThreadExt {
-    fn run_resource<R, F>(
-        &self,
-        resource: R,
-        code: impl FnOnce(R) -> F + Send + 'static,
-    ) -> SendTask<F::Output>
-    where
-        R: WorkerResource,
-        F: Future + 'static,
-        F::Output: Send;
-}
-
-impl ThreadExt for Thread {
-    fn run_resource<R, F>(
-        &self,
-        resource: R,
-        code: impl FnOnce(R) -> F + Send + 'static,
-    ) -> SendTask<F::Output>
-    where
-        R: WorkerResource,
-        F: Future + 'static,
-        F::Output: Send,
-    {
-        let ResourceTransfer { posted, rebuild } = resource.prepare();
-        self.run_send(posted, move |posted| code(rebuild(posted)))
-    }
-}

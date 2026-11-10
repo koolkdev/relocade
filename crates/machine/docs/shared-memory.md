@@ -78,7 +78,8 @@ available at stopped guest boundaries, including when outer calls are parked
 during an ISR, but not while a host call is actively pending. Independent state
 and memory handles also work while a call waits and after runner destruction.
 
-Pass `memory.clone()` to `worker.run_resource(...)` using `worker::ThreadExt`.
+Send `memory.clone()` through `worker.channel::<Memory>().await?`, then receive
+it inside a task started with `worker.run(...)`.
 The memory handle retains its configuration in Rust and prepares its shared
 allocation for the existing worker transport. Native handles move directly;
 browser shared-memory objects use structured cloning. The worker receives a

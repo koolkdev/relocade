@@ -136,8 +136,10 @@ async fn timer_interrupts() -> Result<(), String> {
         assert_eq!(memory.view().read_u16(0x300).unwrap(), INTERRUPTS as u16);
         let samples = reports.borrow().samples.clone();
         samples
-    });
-    let timers = timers.spawn_with_peer(worker.wake_peer());
+    })
+    .await
+    .unwrap();
+    let timers = timers.spawn_with_peer(worker.wake_peer()).await.unwrap();
     // Finish timer-worker startup and resource binding before blocking the host.
     warmup.sleep(Duration::ZERO).await;
     start.send(()).unwrap();
@@ -153,7 +155,11 @@ async fn timer_interrupts() -> Result<(), String> {
     } else {
         worker.stop().await
     };
-    timers.stop().await.map_err(|error| error.to_string())?;
+    timers
+        .stop()
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
     assert_eq!(
         delivered_without_host, INTERRUPTS,
         "timer delivery depended on host polling"

@@ -216,7 +216,9 @@ async fn exercise_recovery() {
             })
         },
         || {},
-    );
+    )
+    .await
+    .unwrap();
     wait_until(|| source.bindings.load(SeqCst) == 1).await;
     graphics.request_redraw(ready.size);
     wait_until(|| source.draws.load(SeqCst) == 1).await;

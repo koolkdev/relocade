@@ -1,27 +1,44 @@
 use futures_channel::oneshot;
-use relocade_machine::worker::Thread;
+use relocade_machine::worker::Worker;
 use relocade_wasm_runtime::{
     Backend, SharedMemory, WasmBackend, WasmMemoryAccess, WasmSharedMemory,
 };
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn shared_memory() -> Result<(), String> {
-    let creator = Thread::new();
-    let shared = creator
-        .run((), |()| async {
-            SharedMemory::new(1, 2).map_err(|error| error.to_string())
-        })
+    let creator = Worker::new();
+    let (output, mut memories) =
+        relocade_machine::worker::channel::<SharedMemory>().map_err(|error| error.to_string())?;
+    let (mut resources, mut resource_input) = creator
+        .channel::<relocade_machine::worker::Sender<SharedMemory>>()
         .await
-        .map_err(|error| error.to_string())??;
+        .map_err(|error| error.to_string())?;
+    let creation = creator.run(move || async move {
+        let mut output = resource_input.recv().await.unwrap().unwrap();
+        output.send(SharedMemory::new(1, 2).unwrap()).unwrap();
+    });
+    resources.send(output).map_err(|error| error.to_string())?;
+    let shared = memories
+        .recv()
+        .await
+        .unwrap()
+        .map_err(|error| error.to_string())?;
+    creation.await.map_err(|error| error.to_string())?;
     drop(creator);
     shared.write(0, &[42]);
     let mut backend = Backend::new().map_err(|error| error.to_string())?;
     let memory = backend.import_shared_memory(&shared);
     let offset = 65536;
-    let thread = Thread::new();
+    let thread = Worker::new();
     let (ready, started) = oneshot::channel();
     let (written, updated) = oneshot::channel();
-    let task = thread.run_send(shared.clone(), move |shared| async move {
+    let (mut resources, mut resource_input) =
+        thread.channel().await.map_err(|error| error.to_string())?;
+    resources
+        .send(shared.clone())
+        .map_err(|error| error.to_string())?;
+    let task = thread.run(move || async move {
+        let shared = resource_input.recv().await.unwrap().unwrap();
         let mut access = shared.view();
         let mut initial = [0];
         access.read(0, &mut initial);

@@ -51,7 +51,9 @@ async fn late_host_wake() {
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
             observed
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(5))
@@ -139,7 +141,9 @@ async fn replace_idle_deadline() {
             let result = device.borrow().observed.clone();
             result
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
@@ -198,7 +202,9 @@ async fn cancelled_run_rebinds() {
                 [start + Duration::from_millis(10)]
             );
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
@@ -289,7 +295,9 @@ async fn busy_bursts() {
             assert_eq!(result, ExecutionExit::Host(HostExit::Return));
             cpu.cpu_state().instruction_count()
         },
-    );
+    )
+    .await
+    .unwrap();
     // At 750 instructions/s, four retired instructions cross the first 4 ms
     // boundary. The host wait includes that overshoot.
     assert_eq!(
@@ -347,7 +355,9 @@ async fn ready_service_during_pacing() {
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
             assert!(device.borrow().observed.is_empty());
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(4))

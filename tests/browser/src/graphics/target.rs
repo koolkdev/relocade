@@ -7,7 +7,7 @@ use std::sync::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type Context = ();
+pub struct Context;
 
 #[cfg(target_arch = "wasm32")]
 pub struct Context(web_sys::OffscreenCanvas);
@@ -30,13 +30,22 @@ impl relocade_machine::worker::Post for Context {
     }
 }
 
+impl relocade_machine::worker::WorkerResource for Context {
+    type Posted = Self;
+    fn prepare(
+        self,
+    ) -> relocade_machine::worker::ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send> {
+        relocade_machine::worker::ResourceTransfer::new(self, std::convert::identity)
+    }
+}
+
 pub fn context() -> Result<Context, String> {
     #[cfg(target_arch = "wasm32")]
     return web_sys::OffscreenCanvas::new(1, 1)
         .map(Context)
         .map_err(|error| format!("{error:?}"));
     #[cfg(not(target_arch = "wasm32"))]
-    Ok(())
+    Ok(Context)
 }
 
 pub struct Presented {

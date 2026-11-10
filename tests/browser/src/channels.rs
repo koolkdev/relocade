@@ -1,6 +1,6 @@
 use futures_channel::{mpsc, oneshot};
 use futures_util::{future::poll_fn, StreamExt};
-use relocade_machine::worker::Thread;
+use relocade_machine::worker::Worker;
 use std::{
     cell::Cell,
     rc::Rc,
@@ -23,10 +23,10 @@ struct Command {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn rust_channels() -> Result<(), String> {
     CALLER.set(true);
-    let thread = Thread::new();
+    let thread = Worker::new();
     let (commands, mut incoming) = mpsc::unbounded::<Command>();
     let (waiting, started) = oneshot::channel();
-    let task = thread.run_send((), move |()| async move {
+    let task = thread.run(move || async move {
         assert!(!CALLER.get(), "workers must have independent TLS");
         let local = Rc::new(Cell::new(40));
         let mut waiting = Some(waiting);

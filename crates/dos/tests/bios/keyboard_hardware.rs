@@ -14,13 +14,14 @@ type KeyboardDos = Dos;
 type KeyboardRunner = relocade_machine::Runner;
 
 fn with_hardware(check: impl AsyncFnOnce(&KeyboardRunner, KeyboardDos) + Send + 'static) {
-    let worker = relocade_machine::ExecutionWorker::spawn_with_clock(
+    let worker = pollster::block_on(relocade_machine::ExecutionWorker::spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let dos = Dos::new(runner).await.unwrap();
             check(runner, dos).await;
         },
-    );
+    ))
+    .unwrap();
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 

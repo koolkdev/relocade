@@ -15,7 +15,7 @@ use common::mouse::{wait_status, write};
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let worker = pollster::block_on(ExecutionWorker::spawn_with_clock(
         move || worker_clock.clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -23,7 +23,8 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
                 .unwrap();
             check(&clock, dos).await;
         },
-    );
+    ))
+    .unwrap();
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
 }
 

@@ -114,7 +114,7 @@ let worker = ExecutionWorker::spawn_with_guest_time(
         // Devices receive runner.clock(); the host timer service runs alongside
         // this worker and binds its wake peer.
     },
-);
+).await?;
 ```
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. Its
@@ -306,10 +306,10 @@ For a busy execution worker, bind its notification resource on the timer worker:
 
 ```rust,ignore
 let (handle, driver) = relocade_machine::timer_service();
-let execution = ExecutionWorker::spawn(handle, session);
-let timers = driver.spawn_with_peer(execution.wake_peer());
+let execution = ExecutionWorker::spawn(handle, session).await?;
+let timers = driver.spawn_with_peer(execution.wake_peer()).await?;
 let result = execution.join().await;
-timers.stop().await?;
+timers.stop().await??;
 ```
 
 `spawn_with_peer` uses the existing worker resource transport to bind direct

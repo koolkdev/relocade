@@ -1,4 +1,6 @@
-use crate::worker::{CancellableWorker, ThreadExt, WakePeer, WakeTarget, WorkerResource};
+use crate::worker::{
+    CancellableWorker, ResourceError, WakePeer, WakeTarget, Worker, WorkerResource,
+};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use std::{
@@ -33,23 +35,32 @@ impl HostTimerDriver {
 
     /// Starts a timer worker with explicit stop and join operations.
     pub fn spawn(self) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_send((), move |()| self.drive(stopped))
-        })
+        Worker::new().run_cancellable(move |stopped| self.drive(stopped))
     }
 
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
-    pub fn spawn_with_peer<R: WakeTarget + WorkerResource>(
+    pub async fn spawn_with_peer<R: WakeTarget + WorkerResource>(
         self,
         peer: WakePeer<R>,
-    ) -> CancellableWorker<()> {
-        CancellableWorker::spawn(|thread, stopped| {
-            thread.run_resource(peer, move |peer| async move {
-                let _binding = peer.bind();
-                self.drive(stopped).await;
-            })
-        })
+    ) -> Result<CancellableWorker<Result<(), ResourceError>>, ResourceError> {
+        let worker = Worker::new();
+        let (mut sender, mut incoming) = worker.channel::<WakePeer<R>>().await?;
+        let worker = worker.run_cancellable(move |stopped| async move {
+            let Some(peer) = incoming.recv().await else {
+                return Ok(());
+            };
+            let _binding = peer?.bind();
+            drop(incoming);
+            self.drive(stopped).await;
+            Ok(())
+        });
+        if let Err(error) = sender.send(peer) {
+            drop(sender);
+            let _ = worker.stop().await;
+            return Err(error);
+        }
+        Ok(worker)
     }
 
     async fn drive(mut self, mut stopped: oneshot::Receiver<()>) {

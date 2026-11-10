@@ -1,4 +1,5 @@
 use relocade_app::audio::Audio;
+use relocade_workers::Worker;
 use std::{
     future::Future,
     sync::{
@@ -7,7 +8,6 @@ use std::{
     },
     time::Duration,
 };
-use web_thread::Thread;
 
 #[path = "audio_output/execution.rs"]
 mod execution;
@@ -60,8 +60,8 @@ async fn exercise_output() {
     let worker_holding = holding.clone();
 
     // The caller owns its producer. Audio only consumes its ordinary Rust channel.
-    let producer = Thread::new();
-    let task = producer.run_send((), move |()| async move {
+    let producer = Worker::new();
+    let task = producer.run(move || async move {
         let channels = usize::from(config.channels);
         let mut frequency = 440;
         let mut position = 0u64;

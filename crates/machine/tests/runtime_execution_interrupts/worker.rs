@@ -1,8 +1,7 @@
 use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
-    worker::{Thread, ThreadExt},
-    CpuConfig, CpuStorage, Device, DeviceConnection, MachineConfig,
+    worker::Worker, CpuConfig, CpuStorage, Device, DeviceConnection, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -12,8 +11,11 @@ async fn prepared_storage() {
     let storage = CpuStorage::new().unwrap();
     let interrupt = storage.interrupt_handle();
     interrupt.request();
-    let worker = Thread::new();
-    let task = worker.run_resource(storage, |storage| async move {
+    let worker = Worker::new();
+    let (mut resources, mut resource_input) = worker.channel().await.unwrap();
+    resources.send(storage).unwrap();
+    let task = worker.run(move || async move {
+        let storage = resource_input.recv().await.unwrap().unwrap();
         let map =
             PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])
                 .unwrap();
@@ -85,9 +87,12 @@ async fn request_during_execution() {
             .unwrap();
         }
         let interrupt = cpu.interrupt_handle();
-        let notifier = Thread::new();
+        let notifier = Worker::new();
         let (ready, listening) = oneshot::channel();
-        let notified = notifier.run_resource(interrupt.clone(), move |interrupt| async move {
+        let (mut resources, mut resource_input) = notifier.channel().await.unwrap();
+        resources.send(interrupt.clone()).unwrap();
+        let notified = notifier.run(move || async move {
+            let interrupt = resource_input.recv().await.unwrap().unwrap();
             ready.send(()).unwrap();
             running.await.unwrap();
             interrupt.request();

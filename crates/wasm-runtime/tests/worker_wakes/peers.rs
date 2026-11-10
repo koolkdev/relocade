@@ -12,8 +12,11 @@ async fn peers() {
         let peer = host.peer();
         let (send_waker, receive_waker) = oneshot::channel();
         let (finish, finished) = oneshot::channel();
-        let owner = Thread::new();
-        let task = owner.run_resource(signal, move |signal| async move {
+        let owner = Worker::new();
+        let (mut resources, mut resource_input) = owner.channel().await.unwrap();
+        resources.send(signal).unwrap();
+        let task = owner.run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             let connection = endpoint.bind(signal);
             send_waker.send(connection.waker().clone()).unwrap();
             finished.await.unwrap();
@@ -21,8 +24,11 @@ async fn peers() {
         let waker = receive_waker.await.unwrap();
         let (ready, bound) = oneshot::channel();
         let (check_closed, closed) = oneshot::channel();
-        let thread = Thread::new();
-        let peer_task = thread.run_resource(peer, move |peer| async move {
+        let thread = Worker::new();
+        let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+        resources.send(peer).unwrap();
+        let peer_task = thread.run(move || async move {
+            let peer = resource_input.recv().await.unwrap().unwrap();
             let first = peer.clone().bind();
             let second = peer.clone().bind();
             waker.wake_by_ref();
@@ -103,8 +109,11 @@ async fn unbound_callbacks() {
         let (ready, started) = oneshot::channel();
         let published = Arc::new(AtomicBool::new(false));
         let callback_published = published.clone();
-        let thread = Thread::new();
-        let task = thread.run_resource(signal, move |signal| async move {
+        let thread = Worker::new();
+        let (mut resources, mut resource_input) = thread.channel().await.unwrap();
+        resources.send(signal).unwrap();
+        let task = thread.run(move || async move {
+            let signal = resource_input.recv().await.unwrap().unwrap();
             // No WakePeer binding: a foreign callback only has the Rust waker.
             // The signal resource is retained solely to observe relay delivery.
             ready.send(()).unwrap();

@@ -86,7 +86,9 @@ async fn unpaced_slice_overshoot() {
                 start + Duration::from_nanos(3_333_333_333)
             );
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 
@@ -162,7 +164,9 @@ async fn deadlines_and_final_exit() {
                         .collect::<Vec<_>>()
                 );
             },
-        );
+        )
+        .await
+        .unwrap();
         assert_eq!(worker.join().await.unwrap(), Some(()));
     }
 }
@@ -222,10 +226,12 @@ async fn retained_service() {
             assert!(runner.clock().now() >= start + Duration::from_millis(5));
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
         },
-    );
-    let timers = timers.spawn_with_peer(worker.wake_peer());
+    )
+    .await
+    .unwrap();
+    let timers = timers.spawn_with_peer(worker.wake_peer()).await.unwrap();
     let result = worker.join().await.unwrap();
-    timers.stop().await.unwrap();
+    timers.stop().await.unwrap().unwrap();
     assert_eq!(result, Some(()));
 }
 
@@ -265,7 +271,9 @@ async fn unpaced_idle_service() {
             );
             assert_eq!(cpu.cpu_state().instruction_count(), 0);
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 
@@ -343,12 +351,16 @@ async fn terminal_exit_without_notifications() {
     let worker = ExecutionWorker::spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |runner| immediate_exit(runner).await,
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
     let worker = ExecutionWorker::spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async |runner| immediate_exit(runner).await,
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(()));
 }
 

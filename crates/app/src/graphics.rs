@@ -9,6 +9,14 @@ pub use crate::platform::graphics::SurfaceSetup;
 use std::{marker::PhantomData, rc::Rc};
 use winit::dpi::PhysicalSize;
 
+impl crate::worker::WorkerResource for SurfaceSetup {
+    type Posted = Self;
+
+    fn prepare(self) -> crate::worker::ResourceTransfer<Self, impl FnOnce(Self) -> Self + Send> {
+        crate::worker::ResourceTransfer::new(self, std::convert::identity)
+    }
+}
+
 /// Owns GPU resources and surface operations on the thread that initializes it.
 pub struct Surface {
     pub device: wgpu::Device,

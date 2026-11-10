@@ -28,7 +28,7 @@ fn controller_write(code: &mut Vec<u8>, port: u8, value: u8) {
 fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     let (ready, host_inputs) = mpsc::channel();
     let (resume, resumed) = oneshot::channel();
-    let worker = ExecutionWorker::spawn_with_clock(
+    let worker = pollster::block_on(ExecutionWorker::spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
@@ -121,7 +121,8 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
                 "IRQ frames returned before DOS exit"
             );
         },
-    );
+    ))
+    .unwrap();
     let (mouse, keyboard) = host_inputs.recv_timeout(Duration::from_secs(30)).unwrap();
     mouse
         .unbounded_send(InputEvent::new(MouseEvent::Button {

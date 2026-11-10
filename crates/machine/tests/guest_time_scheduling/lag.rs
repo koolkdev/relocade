@@ -45,7 +45,9 @@ async fn busy_lag_limit() {
                     start + Duration::from_millis(instructions)
                 );
             },
-        );
+        )
+        .await
+        .unwrap();
         assert_eq!(
             armed.next().await,
             Some(host_start + Duration::from_millis(4))
@@ -121,7 +123,9 @@ async fn pending_input_recovery() {
                 [2, 6].map(|ms| start + Duration::from_millis(ms))
             );
         },
-    );
+    )
+    .await
+    .unwrap();
     assert_eq!(
         armed.next().await,
         Some(host_start + Duration::from_millis(4))
