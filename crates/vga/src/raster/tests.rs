@@ -105,3 +105,47 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     raster.update_to(edge);
     assert_eq!(raster.input_status_1(), 1);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn fractional_phase_survives_programming_until_an_explicit_restart() {
+    use relocade_machine::GuestTimeDriver;
+    use std::{future::Future, num::NonZeroU64, pin::pin, task::Context, task::Waker};
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let clock = driver.clock();
+    let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
+    assert!(initial
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    assert!(driver.advance_to_next_deadline());
+    let mut timing = Timing::vga(&Registers::default());
+    let mut raster = Raster::new(clock.clone(), timing);
+    let edge = clock.add(clock.now(), dots(640));
+    assert_eq!(raster.next_update, Some(edge));
+
+    raster.update_to(Timestamp::from_ticks(edge.ticks() - 1));
+    timing.vertical_total += 1;
+    raster.set_timing(timing);
+    assert_eq!(raster.input_status_1(), 0);
+    assert_eq!(raster.updated, clock.sub(edge, Duration::from_nanos(1)));
+    assert_eq!(raster.next_update, Some(edge));
+    raster.update_to(edge);
+    assert_eq!(raster.input_status_1(), 1);
+
+    let restart = Timestamp::from_ticks(edge.ticks() + 1);
+    raster.update_to(restart);
+    raster.restart(timing);
+    assert_eq!(raster.updated, restart);
+    assert_eq!(raster.next_update, Some(clock.add(restart, dots(640))));
+
+    timing.reset_active = true;
+    raster.set_timing(timing);
+    let released = Timestamp::from_ticks(restart.ticks() + 1);
+    raster.update_to(released);
+    timing.reset_active = false;
+    raster.set_timing(timing);
+    assert_eq!(raster.updated, released);
+    assert_eq!(raster.next_update, Some(clock.add(released, dots(640))));
+}

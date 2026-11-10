@@ -210,7 +210,16 @@ fn fractional_initialization_keeps_polling_and_timer_edges_on_the_same_grid() {
     let mut activity = pin!(Pit::run(timer.clone()));
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     // The default mode-3 counter first falls after 32,768 PIT input clocks.
-    let edge = clock.add(Timestamp::from_ticks(0), Duration::from_nanos(27_462_701));
+    let edge = clock.add(clock.now(), Duration::from_nanos(27_462_701));
+    for (reading, consumed, fraction) in [(2, 1, 0), (3, 1, 0), (4, 4, 1_193_182)] {
+        let mut observation = pin!(clock.sleep_until(Timestamp::from_ticks(reading)));
+        assert!(observation.as_mut().poll(&mut cx).is_pending());
+        assert!(driver.advance_to_next_deadline());
+        timer.borrow_mut().sync_to_clock();
+        let snapshot = timer.borrow().channel2_snapshot();
+        assert_eq!(snapshot.at, Timestamp::from_ticks(consumed));
+        assert_eq!(snapshot.fraction, fraction);
+    }
     assert_eq!(driver.next_deadline(), Some(edge));
     assert!(driver.advance_to_next_deadline());
     timer.borrow_mut().sync_to_clock();

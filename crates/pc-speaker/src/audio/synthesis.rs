@@ -10,6 +10,8 @@ pub(super) struct Signal {
 }
 
 impl Signal {
+    /// PIT snapshots and sample boundaries share the PIT's consumed nanosecond
+    /// phase, so interval conversion loses no native fractions between samples.
     /// High time in billionths of one PIT input clock. Advancing while muted
     /// preserves phase; only the audible contribution becomes zero.
     fn advance_to(&mut self, clock: &Clock, end: Timestamp) -> u128 {
@@ -34,18 +36,18 @@ impl Signal {
 pub(super) struct Synthesis {
     clock: Clock,
     rate: u64,
-    origin: Timestamp,
+    started_at: Timestamp,
     frames: u64,
     signal: Signal,
 }
 
 impl Synthesis {
     pub(super) fn new(clock: Clock, rate: u32, signal: Signal) -> Self {
-        let origin = clock.floor(signal.state.at);
+        let started_at = signal.state.at;
         Self {
             clock,
             rate: u64::from(rate),
-            origin,
+            started_at,
             frames: 0,
             signal,
         }
@@ -53,7 +55,7 @@ impl Synthesis {
 
     fn frame_time(&self, frame: u64) -> Timestamp {
         self.clock.add(
-            self.origin,
+            self.started_at,
             Duration::new(
                 frame / self.rate,
                 ((frame % self.rate) * 1_000_000_000).div_ceil(self.rate) as u32,

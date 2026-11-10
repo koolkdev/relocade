@@ -9,10 +9,6 @@ pub(super) struct Timebase(pub(super) NonZeroU64);
 impl Timebase {
     pub(super) const NANOSECONDS: Self = Self(NonZeroU64::new(1).unwrap());
 
-    pub(super) fn floor(self, time: Timestamp) -> Timestamp {
-        Timestamp(time.0 - time.0 % u128::from(self.0.get()))
-    }
-
     fn ticks(self, duration: Duration) -> Option<u128> {
         duration.as_nanos().checked_mul(u128::from(self.0.get()))
     }
@@ -26,15 +22,34 @@ impl Timebase {
     }
 
     pub(super) fn duration_since(self, time: Timestamp, earlier: Timestamp) -> Duration {
-        let rate = u128::from(self.0.get());
-        // Project both endpoints before subtracting: adjacent intervals must
-        // account for every nanosecond even when individual ticks are finer.
-        let nanos = (time.0 / rate).saturating_sub(earlier.0 / rate);
-        Duration::new(
-            (nanos / 1_000_000_000)
-                .try_into()
-                .expect("clock duration fits in u64 seconds"),
-            (nanos % 1_000_000_000) as u32,
+        duration(time.0.saturating_sub(earlier.0) / u128::from(self.0.get()))
+    }
+
+    /// Cross-clock deadlines must not fire before their source time.
+    pub(super) fn duration_until(self, time: Timestamp, earlier: Timestamp) -> Duration {
+        duration(
+            time.0
+                .saturating_sub(earlier.0)
+                .div_ceil(u128::from(self.0.get())),
         )
     }
+
+    pub(super) fn consume_elapsed(self, cursor: &mut Timestamp, time: Timestamp) -> Duration {
+        let elapsed = self.duration_since(time, *cursor);
+        // Advancing by the duration returned leaves any unconsumed native
+        // fraction between the cursor and the observation for the next update.
+        *cursor = self
+            .checked_add(*cursor, elapsed)
+            .expect("consumed time fits before observation");
+        elapsed
+    }
+}
+
+fn duration(nanos: u128) -> Duration {
+    Duration::new(
+        (nanos / 1_000_000_000)
+            .try_into()
+            .expect("clock duration fits in u64 seconds"),
+        (nanos % 1_000_000_000) as u32,
+    )
 }

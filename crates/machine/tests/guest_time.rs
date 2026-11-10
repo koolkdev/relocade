@@ -47,8 +47,8 @@ async fn progress() {
         let fractional_deadline = clock.add(start, Duration::from_nanos(333_333_334));
         let binding = driver.bind(&cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
-        // across counter wrap. Adjacent duration observations account for every ns.
-        let mut previous = start;
+        // across counter wrap. Repeated consumption accounts for every ns.
+        let mut consumed = start;
         let mut elapsed = Duration::ZERO;
         for nanos in [
             333_333_333,
@@ -60,7 +60,7 @@ async fn progress() {
         ] {
             cpu.step();
             let reading = clone.now();
-            elapsed += clock.duration_since(reading, previous);
+            elapsed += clock.consume_elapsed(&mut consumed, reading);
             assert_eq!(
                 clock.duration_since(reading, start),
                 Duration::from_nanos(nanos)
@@ -68,7 +68,6 @@ async fn progress() {
             assert_eq!(elapsed, Duration::from_nanos(nanos));
             assert_eq!(reading >= fractional_deadline, nanos > 333_333_333);
             assert_eq!(driver.clock().now(), reading);
-            previous = reading;
         }
         assert_eq!(cpu.cpu_state().instruction_count(), 4);
         drop(binding);

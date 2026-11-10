@@ -5,7 +5,7 @@ const VERTICAL_RETRACE: u8 = 1 << 3;
 
 /// Exact position at `updated`, with status valid until `next_update`.
 /// Observations between events leave the position lazy. Timing changes materialize
-/// it at `observed` under the old timing before remapping the counters.
+/// it through whole nanoseconds at `observed` before remapping the counters.
 pub(super) struct Raster {
     clock: Clock,
     timing: Timing,
@@ -22,7 +22,7 @@ pub(super) struct Raster {
 
 impl Raster {
     pub fn new(clock: Clock, timing: Timing) -> Self {
-        let now = clock.floor(clock.now());
+        let now = clock.now();
         let mut raster = Self {
             clock,
             timing,
@@ -52,16 +52,15 @@ impl Raster {
         completed
     }
 
-    /// Materialize the exact phase, including when a programming write occurs
-    /// between observable edges. Stopped clocks still move their time anchor.
+    /// Integrate through whole elapsed nanoseconds, retaining the native
+    /// fraction for the next update. Programming takes effect at this consumed
+    /// position. Stopped clocks still consume time without advancing the beam.
     fn advance_to(&mut self, now: Timestamp) -> Option<Timestamp> {
-        let now = self.clock.floor(now);
         let timing = self.timing;
-        let elapsed = self.clock.duration_since(now, self.updated);
+        let elapsed = self.clock.consume_elapsed(&mut self.updated, now);
         if elapsed.is_zero() {
             return None;
         }
-        self.updated = now;
         if !timing.clock_running() {
             return None;
         }
@@ -69,7 +68,7 @@ impl Raster {
         let frame_dots = timing.frame_dots();
         let completed = self
             .next_retrace
-            .filter(|deadline| now >= *deadline)
+            .filter(|deadline| self.updated >= *deadline)
             .map(|_| {
                 let boundary = timing.retrace_dot().expect("Running capture boundary");
                 let since_previous_boundary = (self.dot + frame_dots - boundary) % frame_dots;
@@ -81,7 +80,7 @@ impl Raster {
                     .expect("Display frame sequence exhausted");
                 let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
                 self.clock.sub(
-                    now,
+                    self.updated,
                     timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder),
                 )
             });
@@ -104,6 +103,7 @@ impl Raster {
         self.advance_to(self.observed);
         self.timing = new;
         if old.reset_active || new.reset_active {
+            self.updated = self.observed;
             self.dot = 0;
             self.dot_remainder = 0;
         } else {
@@ -130,7 +130,7 @@ impl Raster {
     /// the lifetime retrace count so consumers can wait across mode switches.
     pub fn restart(&mut self, timing: Timing) {
         self.timing = timing;
-        self.updated = self.clock.floor(self.observed);
+        self.updated = self.observed;
         self.dot = 0;
         self.dot_remainder = 0;
         self.refresh_deadline();

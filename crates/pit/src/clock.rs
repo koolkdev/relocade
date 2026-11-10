@@ -3,7 +3,7 @@ use std::time::Duration;
 /// Nominal PC/AT PIT input frequency.
 pub const INPUT_HZ: u64 = 1_193_182;
 
-/// Completed input clocks at an absolute time from the chosen clock origin.
+/// Completed input clocks after the given elapsed time since PIT initialization.
 pub fn clocks_at(time: Duration) -> u64 {
     (time.as_nanos() * u128::from(INPUT_HZ) / 1_000_000_000)
         .try_into()

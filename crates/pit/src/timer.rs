@@ -7,7 +7,9 @@ use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, Times
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
-/// Channel-2 state at an exact point on the PIT's supplied clock.
+/// Channel-2 state at the PIT's consumed position on its supplied clock.
+/// Whole nanoseconds are integrated from device initialization; a native
+/// fraction remains pending. Snapshot times share that same phase for audio.
 #[derive(Clone, Debug)]
 pub struct Channel2State {
     pub at: Timestamp,
@@ -21,8 +23,8 @@ pub struct Channel2State {
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit {
     clock: Clock,
-    origin: Timestamp,
-    at: Timestamp,
+    started_at: Timestamp,
+    updated: Timestamp,
     channel0: Counter,
     channel2: Counter,
     channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
@@ -48,10 +50,10 @@ impl Pit {
         channel0.write(0);
         channel0.advance(1); // BIOS initialization has already loaded the divisor.
         let irq = pic.irq(TIMER_IRQ, channel0.output());
-        let origin = clock.floor(clock.now());
+        let started_at = clock.now();
         Self {
-            origin,
-            at: origin,
+            started_at,
+            updated: started_at,
             clock,
             channel0,
             channel2: Counter::default(),
@@ -90,9 +92,12 @@ impl Pit {
 
     fn channel2_snapshot(&self) -> Channel2State {
         Channel2State {
-            at: self.at,
+            at: self.updated,
             counter: self.channel2.clone(),
-            fraction: (self.clock.duration_since(self.at, self.origin).as_nanos()
+            fraction: (self
+                .clock
+                .duration_since(self.updated, self.started_at)
+                .as_nanos()
                 * u128::from(crate::INPUT_HZ)
                 % 1_000_000_000) as u32,
         }
@@ -106,9 +111,11 @@ impl Pit {
     }
 
     fn sync_to_clock(&mut self) {
-        let now = self.clock.now();
-        let clocks = clocks_at(self.clock.duration_since(now, self.origin))
-            - clocks_at(self.clock.duration_since(self.at, self.origin));
+        let previous = self.updated;
+        self.clock
+            .consume_elapsed(&mut self.updated, self.clock.now());
+        let clocks = clocks_at(self.clock.duration_since(self.updated, self.started_at))
+            - clocks_at(self.clock.duration_since(previous, self.started_at));
         if self
             .channel0
             .next_rising_edge()
@@ -121,7 +128,6 @@ impl Pit {
         self.channel0.advance(clocks);
         self.irq.set_level(self.channel0.output());
         self.channel2.advance(clocks);
-        self.at = now;
     }
 }
 
@@ -135,9 +141,10 @@ impl Device for Pit {
                 (
                     device.channel0.next_transition().map(|clocks| {
                         clock.add(
-                            device.origin,
+                            device.started_at,
                             time_at(
-                                clocks_at(clock.duration_since(device.at, device.origin)) + clocks,
+                                clocks_at(clock.duration_since(device.updated, device.started_at))
+                                    + clocks,
                             ),
                         )
                     }),

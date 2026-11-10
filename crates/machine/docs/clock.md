@@ -22,13 +22,27 @@ The clock owns its fixed scale; the host timer source owns its host origin.
 
 `Clock::add` and `sub` preserve fractional progress exactly; their checked forms
 return `None` on coordinate overflow or subtraction before the origin.
-`duration_since` projects each endpoint down to the clock's nanosecond timeline
-before subtracting. This keeps adjacent elapsed intervals additive without
-losing fractional progress on every observation. It saturates at zero;
-`checked_duration_since` instead returns `None` for reversed readings.
-`floor(timestamp)` gives the corresponding whole-nanosecond coordinate. Raster,
-PIT, and audio phase anchors use it to keep their duration calculations and cached
-deadlines on the same grid; ordinary deadline comparisons retain native precision.
+`now()` returns the source's native position without converting it to a duration.
+`duration_since` subtracts native readings, then rounds the actual elapsed time
+down to whole nanoseconds. It saturates at zero; `checked_duration_since` instead
+returns `None` for reversed readings. Ordinary comparisons retain native precision.
+
+Repeated integration uses `consume_elapsed` with a saved position:
+
+```rust,ignore
+let mut updated = clock.now();
+// At each observation:
+let elapsed = clock.consume_elapsed(&mut updated, clock.now());
+device.advance(elapsed);
+```
+
+The clock advances `updated` only by the returned duration, retaining any native
+fraction for the next observation. State and derived deadlines refer to this
+consumed position. Raster timing and PIT counters use this operation; PIT snapshots
+and audio frames share its phase. An explicit device restart establishes a new
+phase from `now()`. No clock origin or rounding parameter is needed by consumers.
+Event timers use `add` and comparisons directly; DOS mouse speed measures one
+packet interval with `checked_duration_since`.
 
 A relative sleep captures the full duration from the native reading. For example,
 at three billion instructions per second, a one-nanosecond sleep always requires
@@ -194,10 +208,10 @@ requiring a host wait for every transition.
 
 At stopped boundaries, the clock driver compares host time with the mapped guest
 time. Lag of at most 20 ms can catch up without pacing sleeps. Beyond 20 ms, the
-driver shifts the host correspondence forward by the entire lag, so current guest
-time maps to current host time. This treats a long host stall as a pause without
-skipping guest execution or device deadlines. The tolerance is fixed independently
-of the configured slice duration. Guest time, fractional retirement, instruction
+driver shifts the host correspondence forward by whole nanoseconds of lag,
+retaining any fraction in the correspondence. This treats a long host stall as a
+pause without skipping guest execution or device deadlines. The tolerance is
+fixed independently of the configured slice duration. Guest time, fractional retirement, instruction
 rate and the slice grid do not change. Future CPU and output waits use the new
 correspondence; already-created host waits retain their deadlines.
 
@@ -208,9 +222,9 @@ credit. Replacing a device timer does not replace the pacing wait or grant time.
 
 Completing or cancelling `run_cpu` cancels its host wait. The next run retains
 the same slice boundary and the existing lead or lag, subject to the lag limit.
-Time spent between runs is excluded by shifting the host origin; repeated
-cancellation cannot grant another slice. The clock driver owns this host/guest
-correspondence, while
+Time spent between runs is excluded by shifting the host correspondence by the
+exact native pause duration; repeated cancellation cannot grant another slice.
+The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
 ### Synchronizing external work
@@ -220,6 +234,9 @@ and awaits that guest deadline. Earlier device deadlines and IRQ opportunities
 remain part of normal execution. If guest time has already reached that point,
 the wait completes immediately; it never rewinds time or waits for the host.
 Burst pacing separately limits execution ahead of host time.
+Conversions between host and guest timelines round deadlines toward the future,
+so a fractional native offset cannot cause an early wake. This rounding stays
+inside the correspondence; elapsed-duration measurements still round down.
 
 For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
 The timestamp must use the configured host clock's timebase. Both forms capture

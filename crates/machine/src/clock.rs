@@ -79,13 +79,6 @@ impl Clock {
         self.source.now()
     }
 
-    /// Projects a reading down to a whole nanosecond on this timeline.
-    /// Devices that integrate whole-nanosecond durations use this as their
-    /// phase anchor so cached deadlines agree with their elapsed-time model.
-    pub fn floor(&self, time: Timestamp) -> Timestamp {
-        self.timebase.floor(time)
-    }
-
     /// Adds an exact duration without discarding fractional clock progress.
     /// Panics if the result exceeds the clock's coordinate range.
     pub fn add(&self, time: Timestamp, duration: Duration) -> Timestamp {
@@ -107,15 +100,26 @@ impl Clock {
         self.timebase.checked_sub(time, duration)
     }
 
-    /// Elapsed time between readings projected onto the nanosecond timeline.
-    /// Flooring each endpoint keeps adjacent intervals additive. Returns zero
+    /// Actual elapsed time, rounded down to whole nanoseconds. Returns zero
     /// when `earlier` is later than `time`. Both readings must belong to this clock.
+    /// Repeated integration uses [`Self::consume_elapsed`] to retain fractions.
     pub fn duration_since(&self, time: Timestamp, earlier: Timestamp) -> Duration {
         self.timebase.duration_since(time, earlier)
     }
 
     pub fn checked_duration_since(&self, time: Timestamp, earlier: Timestamp) -> Option<Duration> {
         (time >= earlier).then(|| self.duration_since(time, earlier))
+    }
+
+    /// Consumes whole nanoseconds through `time`, advancing `cursor` only by
+    /// the returned duration. A fractional remainder stays behind for the next
+    /// update. Earlier observations leave the cursor unchanged.
+    ///
+    /// Initialize the cursor from `now()` when the activity starts. Device state
+    /// and its next deadline describe this consumed position, not the later raw
+    /// observation. This keeps repeated updates independent of observation frequency.
+    pub fn consume_elapsed(&self, cursor: &mut Timestamp, time: Timestamp) -> Duration {
+        self.timebase.consume_elapsed(cursor, time)
     }
 
     /// Waits for the host time corresponding to a timestamp from this clock.

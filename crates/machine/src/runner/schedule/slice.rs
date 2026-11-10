@@ -65,11 +65,7 @@ impl ExecutionSlice {
                 (whole % 1_000_000_000) as u32,
             ),
         );
-        self.end.set(if boundary <= now {
-            clock.add(boundary, self.duration)
-        } else {
-            boundary
-        });
+        self.end.set(clock.add(boundary, self.duration));
         Poll::Ready(())
     }
 }
