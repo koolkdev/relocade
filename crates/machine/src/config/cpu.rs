@@ -25,6 +25,19 @@ impl CpuConfig {
     }
 }
 
+impl crate::worker::Transfer for CpuConfig {
+    type State = Self;
+    type Payload = ();
+
+    fn encode(self) -> (Self, ()) {
+        (self, ())
+    }
+
+    fn decode(state: Self, (): ()) -> Self {
+        state
+    }
+}
+
 pub(crate) fn validate_cpu(
     target: ExecutionTarget,
     cpu: &CpuState,

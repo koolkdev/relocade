@@ -70,7 +70,7 @@ impl Cpu {
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
     /// exit request releases retained calls, clears HLT and returns its requested result.
-    /// Dropping the CPU drops retained calls innermost first, before the machine.
+    /// Dropping the CPU drops retained calls innermost first, before the CPU instance.
     ///
     /// Real-mode device IRQs are delivered at stopped guest boundaries according
     /// to live IF. Pending services establish their live guest resume position
@@ -126,7 +126,7 @@ impl Cpu {
             }
             self.pending = match exit {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
-                    Call::start(self.machine.dispatch.handler(service_id), cx)
+                    Call::start(self.instance.dispatch.handler(service_id), cx)
                 }
                 ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
                     Ok(call) => call,

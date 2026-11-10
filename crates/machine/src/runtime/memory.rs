@@ -1,6 +1,6 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
-use super::{CpuStorage, ExecutionInterrupt, Result};
+use super::{ExecutionInterrupt, Result};
 use crate::{CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
 use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
@@ -25,12 +25,11 @@ impl RuntimeMemory {
         backend: &mut super::Backend,
         guest: GuestMemory,
         config: CpuConfig,
-        storage: CpuStorage,
+        storage: SharedMemory,
     ) -> Result<Self> {
         guest
             .configuration()
             .validate_for(config.execution_target().profile)?;
-        let storage = storage.initialize(&config);
         let context = backend.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage.clone());
