@@ -17,6 +17,8 @@ web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["w
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "=0.4.79"
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "=1.0.1"

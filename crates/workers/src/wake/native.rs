@@ -9,8 +9,7 @@ use std::{
 };
 
 pub(super) type HostBinding<R> = Arc<R>;
-#[derive(Clone, Copy)]
-pub(super) struct Endpoint;
+pub(super) type Endpoint = ();
 pub(super) struct Binding;
 
 /// Retains host access to a fixed signal before starting the execution worker.
@@ -29,7 +28,7 @@ pub fn wake_connection<R: WakeTarget + Send + Sync>(target: R) -> (WakeHost<R>, 
             },
             peer: WakePeer {
                 target: (*target).clone(),
-                endpoint: Endpoint,
+                endpoint: (),
                 active: active.clone(),
             },
             _binding: target,
@@ -40,7 +39,7 @@ pub fn wake_connection<R: WakeTarget + Send + Sync>(target: R) -> (WakeHost<R>, 
                 on_close: None,
             },
             notification,
-            binding: Endpoint,
+            binding: (),
             target: PhantomData,
         },
     )

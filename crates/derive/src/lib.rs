@@ -1,4 +1,4 @@
-//! Derives and adapters for ABI values, host services and worker resources.
+//! Derives and adapters for ABI values, host services and worker transfers.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
@@ -8,12 +8,12 @@ mod compiler_value;
 mod input;
 mod interrupt;
 mod interrupt_dispatch;
+mod transfer;
 mod wasm_abi;
-mod worker_resource;
 
-#[proc_macro_derive(WorkerResource, attributes(worker))]
-pub fn derive_worker_resource(input: TokenStream) -> TokenStream {
-    worker_resource::expand(&parse_macro_input!(input as DeriveInput))
+#[proc_macro_derive(Transfer, attributes(transfer))]
+pub fn derive_transfer(input: TokenStream) -> TokenStream {
+    transfer::expand(&parse_macro_input!(input as DeriveInput))
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

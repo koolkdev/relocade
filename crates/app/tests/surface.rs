@@ -4,9 +4,16 @@ use futures_channel::oneshot;
 use relocade_app::{
     graphics::{Surface, SurfaceSetup},
     winit::dpi::PhysicalSize,
-    worker::{Thread, ThreadExt},
+    worker::{Thread, ThreadExt, Transfer},
 };
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
+
+#[derive(Transfer)]
+struct SurfaceRequest {
+    setup: SurfaceSetup,
+    width: u32,
+    height: u32,
+}
 
 async fn draw(
     setup: SurfaceSetup,
@@ -97,7 +104,21 @@ async fn render_and_close() {
     let thread = Thread::new();
     let (presented, visible) = oneshot::channel();
     let (release, observed) = oneshot::channel();
-    let task = thread.run_resource(setup, move |setup| draw(setup, size, presented, observed));
+    let task = thread.run_resource(
+        SurfaceRequest {
+            setup,
+            width: size.width,
+            height: size.height,
+        },
+        move |request| {
+            draw(
+                request.setup,
+                PhysicalSize::new(request.width, request.height),
+                presented,
+                observed,
+            )
+        },
+    );
     let presented = visible.await.is_ok();
     #[cfg(target_os = "linux")]
     let pixels_match = presented && window::native::presented_pixels_match(window_id, size);

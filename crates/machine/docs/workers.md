@@ -34,13 +34,24 @@ let view = memory.view();
 let exit = task.await??;
 ```
 
-`Memory` derives `WorkerResource` and marks its backing with `#[worker(post)]`.
-The common derive supports named and tuple structs with one posted field; other
-fields stay in Rust as `Send` captures. It retains the existing configuration and
-posts shared backing through an opaque `ResourceTransfer`. The
-worker adapter reconstructs the complete handle before invoking the task. Callers
-do not extract backing or pair it with configuration, and the transfer does not
-expose a capability's underlying storage.
+`Memory` derives `Transfer`. Each field's type defines its transfer behavior:
+`SharedMemory` posts its engine handle, and `Arc<MachineConfig>` retains its Rust
+allocation. Named, tuple and unit structs compose those definitions without field
+annotations. The worker reconstructs the complete value before invoking the task.
+
+```rust,ignore
+#[derive(worker::Transfer)]
+struct CpuResources {
+    storage: CpuStorage,
+    memory: Memory,
+}
+```
+
+The generated implementation carries typed Rust state and a platform payload,
+then decodes their fields on the receiving worker. Callers do not extract backing
+or supply reconstruction closures. Every field needs `Transfer`; being `Send`
+alone does not select an encoding. A shared `Arc<T>` retains its allocation when
+`T: Send + Sync`, without requiring transfer behavior on its referent.
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
 CPU construction. Retain `storage.interrupt_handle()`, post the storage with

@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_wasm_runtime::{
-    worker::{wake_connection, Thread, ThreadExt, WakeTarget, WorkerResource},
+    worker::{wake_connection, Thread, ThreadExt, Transfer, WakeTarget},
     SharedMemory,
 };
 use std::{
@@ -20,11 +20,10 @@ mod peers;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-#[derive(Clone, WorkerResource)]
+#[derive(Clone, Transfer)]
 struct Signal {
     wakes: Arc<AtomicUsize>,
     lifetime: Arc<ResourceLifetime>,
-    #[worker(post)]
     memory: SharedMemory,
 }
 

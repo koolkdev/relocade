@@ -14,8 +14,8 @@ const OFFSET: u32 = offset_of!(ExecutionContext, interrupt_requested) as u32;
 ///
 /// This signal does not wake a pending Rust future or run device work. Its owner
 /// must arrange those separately and coordinate acknowledgement with ready work.
-#[derive(Clone, crate::worker::WorkerResource)]
-pub struct ExecutionInterrupt(#[worker(post)] SharedMemory);
+#[derive(Clone, crate::worker::Transfer)]
+pub struct ExecutionInterrupt(SharedMemory);
 
 impl ExecutionInterrupt {
     pub(super) fn new(storage: SharedMemory) -> Self {
