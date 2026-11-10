@@ -1,7 +1,6 @@
 use super::{GuestTimeConfig, Runner};
 use crate::worker::{self, wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
 use crate::{timer_service, Clock, CpuStorage, ExecutionInterrupt, TimerHandle};
-use futures_channel::oneshot;
 use futures_lite::future::or;
 use std::future::Future;
 
@@ -92,8 +91,9 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     ) -> Self {
         let storage = CpuStorage::new().expect("allocate execution worker CPU storage");
         let (wake_host, endpoint) = wake_connection(storage.interrupt_handle());
-        let worker = Worker::spawn_with(storage, move |storage, stopped| {
-            Self::run_session(storage, stopped, endpoint, runner, session)
+        let worker = Worker::spawn_with(storage, move |storage, stopped| async move {
+            let runner = runner(storage, endpoint);
+            runner.run(stopped, session).await
         });
         Self { worker, wake_host }
     }
@@ -107,16 +107,5 @@ impl<T: Send + 'static> ExecutionWorker<T> {
     /// Waits for ordinary completion. `None` denotes an explicit stop.
     pub async fn join(self) -> Result<Option<T>, worker::WorkerError> {
         self.worker.join().await.map(Option::flatten)
-    }
-
-    async fn run_session(
-        storage: CpuStorage,
-        stopped: oneshot::Receiver<()>,
-        endpoint: WakeEndpoint<ExecutionInterrupt>,
-        runner: impl FnOnce(CpuStorage, WakeEndpoint<ExecutionInterrupt>) -> Runner,
-        session: impl AsyncFnOnce(&Runner) -> T,
-    ) -> Option<T> {
-        let runner = runner(storage, endpoint);
-        runner.run(stopped, session).await
     }
 }

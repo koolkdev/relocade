@@ -39,18 +39,10 @@ impl HostTimerDriver {
     /// Binds direct execution notifications on the timer worker at startup.
     /// Browser timer delivery can then interrupt a busy CPU without a host relay.
     pub fn spawn_with_peer<R: WakeTarget + Transfer>(self, peer: WakePeer<R>) -> Worker<()> {
-        Worker::spawn_with(peer, move |peer, stopped| {
-            self.drive_with_peer(peer, stopped)
+        Worker::spawn_with(peer, move |peer, stopped| async move {
+            let _binding = peer.bind();
+            self.drive(stopped).await;
         })
-    }
-
-    async fn drive_with_peer<R: WakeTarget>(
-        self,
-        peer: WakePeer<R>,
-        stopped: oneshot::Receiver<()>,
-    ) {
-        let _binding = peer.bind();
-        self.drive(stopped).await;
     }
 
     async fn drive(mut self, mut stopped: oneshot::Receiver<()>) {
