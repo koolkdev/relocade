@@ -6,13 +6,13 @@ use crate::support::cases::{
     Permissions::{ReadOnly, ReadWrite},
 };
 use relocade_x86::{
-    CpuState, FlagsState,
+    FlagsState,
     Gpr32::{Eax, Ecx, Edi, Esi},
     Segment, SegmentRegister,
 };
 
 fn record(backward: bool) -> FlagsState {
-    let mut flags = CpuState::filled(0xa5).flags;
+    let mut flags = crate::support::machine::protected_state(0xa5).flags;
     flags.bytes.df = u8::from(backward);
     flags
 }

@@ -9,10 +9,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use relocade_x86::{
-    CpuState,
-    Gpr32::{Eax, Ebx, Ecx, Esi},
-};
+use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Esi};
 
 fn carry_result(value: bool) -> Flags<FlagExpectation> {
     Flags {
@@ -56,7 +53,7 @@ fn direction_cases() -> Vec<Case> {
             };
             cases.push(
                 Case::preserving_flags(format!("{name} preserves opaque {fill:02x} status"), &code)
-                    .stored_flags(CpuState::filled(fill).flags)
+                    .stored_flags(crate::support::machine::protected_state(fill).flags)
                     .expect_direct_flag(Flag::DF, result),
             );
         }
@@ -130,7 +127,7 @@ fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
             let code = [0x66, 0x67, 0x64, opcode];
             for fill in [0x80, 0xff] {
                 let mut image = Image::new(&code);
-                image.cpu.flags = CpuState::filled(fill).flags;
+                image.cpu.flags = crate::support::machine::protected_state(fill).flags;
                 if profile == SegmentProfile::Segmented16 {
                     image.cpu.segments.cs.big = 0;
                 }

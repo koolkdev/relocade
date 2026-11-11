@@ -1,6 +1,6 @@
 use relocade_x86::{
-    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState, Segment,
-    SegmentRegister, Segments, SystemSegmentRegister,
+    CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState,
+    PrivilegeLevel, Segment, SegmentDefaultSize, SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::{marker::PhantomData, mem::offset_of, rc::Rc};
 
@@ -38,7 +38,8 @@ mod saved_registers;
 pub use saved_registers::SavedRegisters;
 
 impl CpuStateAccess {
-    /// The execution profile and CPU model represented by these registers.
+    /// Compatibility requirements of the installed generated code. Architectural
+    /// mode and widths are read from live state through the queries below.
     pub fn execution_target(&self) -> ExecutionTarget {
         self.target
     }
@@ -53,6 +54,34 @@ impl CpuStateAccess {
             #[cfg(test)]
             reads: Default::default(),
         }
+    }
+
+    pub fn cr0(&self) -> u32 {
+        self.load(offset_of!(CpuState, cr0))
+    }
+
+    pub fn cr4(&self) -> u32 {
+        self.load(offset_of!(CpuState, cr4))
+    }
+
+    pub fn mode(&self) -> CpuMode {
+        CpuMode::from_control(
+            self.cr0(),
+            self.load::<u8>(offset_of!(CpuState, flags.bytes.vm)) & 1 != 0,
+        )
+    }
+
+    pub fn privilege_level(&self) -> PrivilegeLevel {
+        self.mode()
+            .privilege_level(self.load(offset_of!(CpuState, segments.cs.selector)))
+    }
+
+    pub fn code_default_size(&self) -> SegmentDefaultSize {
+        self.segment(Segment::Cs).default_size()
+    }
+
+    pub fn stack_address_size(&self) -> SegmentDefaultSize {
+        self.segment(Segment::Ss).default_size()
     }
 
     #[inline]
@@ -90,7 +119,16 @@ impl CpuStateAccess {
 
     /// Replaces represented flags. This is host editing, not a privilege-checked
     /// POPFD operation; fixed and unrepresented bits are ignored.
+    ///
+    /// # Panics
+    /// Panics before writing if VM is set; virtual-8086 execution is unsupported.
+    #[track_caller]
     pub fn set_eflags(&self, value: u32) {
+        assert_eq!(
+            value & (1 << 17),
+            0,
+            "virtual-8086 execution is unsupported"
+        );
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
         self.write(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
@@ -140,7 +178,7 @@ impl CpuStateAccess {
     }
 
     pub fn set_idtr(&self, value: DescriptorTableRegister) -> Result<(), ConfigurationError> {
-        crate::config::validate_idtr(self.target.profile, value)?;
+        crate::config::validate_idtr(self.mode(), value)?;
         self.write(offset_of!(CpuState, idtr) as u32, &value.to_bytes());
         Ok(())
     }

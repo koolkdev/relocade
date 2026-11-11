@@ -97,7 +97,7 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
         );
     }
     let invalid = CpuState::filled(0xa5);
-    let mut cpu = invalid;
+    let mut cpu = crate::support::machine::protected_state(0xa5);
     cpu.segments = Segments::flat32();
     cpu.eip = 0x1000;
     cpu.instruction_count = 4;

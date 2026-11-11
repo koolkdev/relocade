@@ -27,9 +27,7 @@ impl RuntimeMemory {
         config: CpuConfig,
         storage: SharedMemory,
     ) -> Result<Self> {
-        guest
-            .configuration()
-            .validate_for(config.execution_target().profile)?;
+        guest.configuration().validate_for(config.cpu().mode())?;
         let context = wasm.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage.clone());

@@ -108,6 +108,15 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
     let context = storage.clone();
     let cpu = CpuStateAccess::new(&config, storage);
     let snapshot = CpuState {
+        cr0: 0x30,
+        cr4: 0x600,
+        flags: relocade_x86::FlagsState {
+            bytes: relocade_x86::FlagBytes {
+                vm: 0,
+                ..CpuState::filled(0xa5).flags.bytes
+            },
+            ..CpuState::filled(0xa5).flags
+        },
         segments: Segments::real_mode(),
         idtr: relocade_x86::DescriptorTableRegister::REAL_MODE_IDTR,
         ldtr: relocade_x86::SystemSegmentRegister::default(),
@@ -120,6 +129,93 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
     expected.instruction_count = 99;
     assert_eq!(cpu.snapshot(), expected);
     assert_eq!(read::<8>(&context, 544), [0xfd, 1, 0, 0, 1, 0, 0, 0]);
+}
+
+#[test]
+fn live_mode_and_width_queries_read_published_state() {
+    use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*, SegmentProfile};
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Segmented16).target(),
+        CpuState::protected_mode(Bits16, Bits32),
+    )
+    .unwrap();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    assert_eq!(cpu.mode(), CpuMode::Protected);
+    assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring3);
+    assert_eq!(cpu.code_default_size(), Bits16);
+    assert_eq!(cpu.stack_address_size(), Bits32);
+    assert_eq!(cpu.cr0(), 0x31);
+    assert_eq!(cpu.cr4(), 0x600);
+    let mut ss = cpu.segment(Segment::Ss);
+    ss.big = 0;
+    cpu.set_segment(Segment::Ss, ss);
+    assert_eq!(cpu.stack_address_size(), Bits16);
+    assert_eq!(cpu.code_default_size(), Bits16);
+}
+
+#[test]
+fn restore_rejects_incompatible_control_state_without_writing() {
+    use relocade_x86::SegmentProfile;
+
+    for config in [
+        configuration(),
+        CpuConfig::new(
+            Compiler::new(SegmentProfile::Flat32).target(),
+            CpuState::default(),
+        )
+        .unwrap(),
+    ] {
+        let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+        let before = cpu.snapshot();
+        for change in [
+            (|cpu: &mut CpuState| cpu.cr0 ^= 1) as fn(&mut CpuState),
+            |cpu| cpu.cr0 |= 1 << 31,
+            |cpu| cpu.cr4 |= 1 << 2,
+            |cpu| cpu.flags.bytes.vm = 1,
+        ] {
+            let mut proposed = before;
+            proposed.registers.eax = 0x1234;
+            change(&mut proposed);
+            assert_eq!(
+                cpu.restore(&proposed),
+                Err(ConfigurationError::IncompatibleCpu)
+            );
+            assert_eq!(cpu.snapshot(), before);
+        }
+    }
+}
+
+// Browser Wasm aborts on panic, so post-panic state checks run natively.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
+    use relocade_x86::SegmentProfile;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    for config in [
+        configuration(),
+        CpuConfig::new(
+            Compiler::new(SegmentProfile::Flat32).target(),
+            CpuState::default(),
+        )
+        .unwrap(),
+    ] {
+        let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+        let before = cpu.snapshot();
+        assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_eflags(0x202 | (1 << 17)))).is_err());
+        assert_eq!(cpu.snapshot(), before);
+    }
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState::default(),
+    )
+    .unwrap();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    let before = cpu.snapshot();
+    let mut cs = before.segments.cs;
+    cs.selector &= !3;
+    assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_segment(Segment::Cs, cs))).is_err());
+    assert_eq!(cpu.snapshot(), before);
 }
 
 #[test]

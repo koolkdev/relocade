@@ -78,8 +78,8 @@ impl CpuContext<'_> {
 
     async fn invoke(&mut self, target: GuestCall) {
         assert_eq!(
-            self.cpu.execution_target().profile,
-            relocade_x86::ExecutionProfile::Real16,
+            self.cpu.mode(),
+            relocade_x86::CpuMode::Real,
             "guest calls require real mode"
         );
         self.guest_calls

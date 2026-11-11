@@ -5,7 +5,7 @@ use crate::support::machine;
 use crate::support::step;
 use machine::{check, Exit, Image, Step};
 use relocade_x86::StatusSourceState;
-use relocade_x86::{CpuState, FlagsState, Gpr32};
+use relocade_x86::{FlagsState, Gpr32};
 use step::TestModule;
 
 fn image(start: u32, code: &[u8]) -> Image {
@@ -116,9 +116,9 @@ fn complete_operand_cases() -> Vec<Case> {
                 status_source: StatusSourceState {
                     kind: 11,
                     left: 0,
-                    ..(CpuState::filled(0xa5).flags).status_source
+                    ..(crate::support::machine::protected_state(0xa5).flags).status_source
                 },
-                ..CpuState::filled(0xa5).flags
+                ..crate::support::machine::protected_state(0xa5).flags
             })
             .preserve_flag_record()
             .at(start)

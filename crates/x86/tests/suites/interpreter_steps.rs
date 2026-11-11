@@ -19,7 +19,7 @@ const REGISTERS: [(Gpr32, u32); 8] = [
 ];
 
 fn state(eip: u32) -> CpuState {
-    let mut cpu = CpuState::filled(0xa5);
+    let mut cpu = crate::support::machine::protected_state(0xa5);
     cpu.segments = relocade_x86::Segments::flat32();
     for (register, value) in REGISTERS {
         cpu.registers[register] = value;

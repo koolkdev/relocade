@@ -2,7 +2,7 @@
 
 pub use relocade_x86_profile::ExecutionProfile;
 
-use crate::{CpuModel, Segments};
+use crate::{CpuMode, CpuModel, CpuState};
 
 /// The processor model and execution assumptions required by a compiled entry.
 ///
@@ -18,13 +18,33 @@ pub struct ExecutionTarget {
 }
 
 impl ExecutionTarget {
-    /// Check an entry against the host's active target and loaded segment caches.
+    /// Check an entry against the installed target and architectural CPU state.
     ///
-    /// The host must supply its actual execution mode; segment caches alone cannot
-    /// establish that mode. Code bytes, fetch permissions and mappings require
+    /// The CPU image supplies the mode; the target retains generated-code policy
+    /// and specialization requirements. Code bytes, fetch permissions and mappings require
     /// separate validation as described by the entry-validity contract.
-    pub fn is_compatible_with(self, active: Self, segments: &Segments) -> bool {
-        self == active && segments.is_compatible_with(self.profile)
+    pub fn is_compatible_with(self, active: Self, cpu: &CpuState) -> bool {
+        self == active && cpu.is_compatible_with(self.profile)
+    }
+}
+
+impl CpuState {
+    /// Admission to the existing fixed-profile execution model. Control bits
+    /// outside the initialized baseline can be stored but cannot execute yet.
+    /// This check does not reload segments or authorize mode transitions.
+    pub fn is_compatible_with(&self, profile: impl Into<ExecutionProfile>) -> bool {
+        let profile = profile.into();
+        let mode = match profile {
+            ExecutionProfile::Real16 => CpuMode::Real,
+            ExecutionProfile::Protected(_) => CpuMode::Protected,
+        };
+        self.mode() == mode
+            && self.flags.bytes.vm & 1 == 0
+            // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
+            && self.cr0 & !1 == 0x30
+            // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
+            && self.cr4 == 0x600
+            && self.segments.is_compatible_with(profile)
     }
 }
 

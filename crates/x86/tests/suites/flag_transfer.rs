@@ -9,7 +9,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
 use relocade_x86::{
-    CpuState, FlagBytes, FlagsState,
+    FlagBytes, FlagsState,
     Gpr32::{Eax, Ebx, Ecx, Esi},
     StatusSourceState,
 };
@@ -53,7 +53,7 @@ fn concrete_record(flags: Flags<bool>, direction: u8) -> FlagsState {
             sf: 0x3c | u8::from(flags.sf),
             of: 0x96 | u8::from(flags.of),
             df: direction,
-            ..CpuState::filled(0xa5).flags.bytes
+            ..crate::support::machine::protected_state(0xa5).flags.bytes
         },
     }
 }

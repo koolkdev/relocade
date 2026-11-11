@@ -898,9 +898,16 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 The runtime must ensure that each entry matches `CompiledModule::execution_target`
 before execution, including entries reached through a direct dispatch link. This
-replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, segments)`
-requires exact target equality and checks the current segment caches. The host
-supplies its actual active target; segment bytes alone cannot establish the mode.
+replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
+requires exact target equality and checks the architectural state and segment
+caches. `CpuState::is_compatible_with(profile)` validates the legacy profile
+contract against CR0, CR4, VM, CPL and loaded caches. Mode comes from CPU state;
+the installed target retains the requirements of existing generated code.
+
+Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
+CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
+but cannot be installed or restored for execution. Other control-state behavior
+and safe mode transitions require further runtime support.
 
 Use the complete target in cache and direct-link keys, and require the same target
 for interpreter fallback. A model with additional enabled capabilities is not an
@@ -917,12 +924,13 @@ time. `SegmentProfile` supplies protected-mode code defaults and segment assumpt
 | `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
 | `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults; the physical map controls A20. |
 
-`Segments::is_compatible_with(profile)` tests those assumptions. Selectors and ordinary
-DS/ES D/B bits do not determine flat compatibility.
+`Segments::is_compatible_with(profile)` tests the loaded-cache assumptions, including
+CS.RPL=3 for protected execution. Other selectors and ordinary DS/ES D/B bits do
+not determine flat compatibility.
 Segmented profiles can admit unusable caches or restrictive limits so execution
 can report their guest faults. All `Protected` entries execute at CPL3, including
-those with 16-bit code defaults. The host selects the execution mode; cache
-compatibility alone cannot distinguish it. The profile is part of the complete
+those with 16-bit code defaults. CR0.PE and EFLAGS.VM establish the execution mode;
+cache compatibility alone cannot distinguish it. The profile is part of the complete
 execution target described above.
 
 Segment fields stay fixed until the terminal segment load. Each field is read
@@ -937,6 +945,9 @@ cache without reading the other segments. Host edits through
 `CpuStateAccess::set_segment` panic if the new cache violates the configured profile.
 `CpuStateAccess::restore` validates the complete
 snapshot and returns a `ConfigurationError` without writing if it is incompatible.
+Live mode, privilege and width queries read the CPU backing fields.
+`CpuStateAccess::set_eflags` rejects VM before writing; host edits cannot enable
+unsupported virtual-8086 execution through a flags update.
 Descriptor callbacks must likewise enforce the profile before returning a cache
 for a guest segment load. The dispatcher and interpreter gateway rely on this
 invariant and do not recheck it on entry. Any future profile transition, including

@@ -1,5 +1,5 @@
 use crate::support::encoding::check_length;
-use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, FlagsState, Gpr32::Eax};
+use relocade_x86::{compile_block_from_bytes, BlockError, FlagsState, Gpr32::Eax};
 use relocade_x86::{FlagBytes, StatusSourceState};
 use wasmparser::Validator;
 
@@ -409,11 +409,11 @@ fn code_page_boundaries() -> Vec<Case> {
             .stored_flags(FlagsState {
                 status_source: StatusSourceState {
                     kind: 0,
-                    ..(CpuState::filled(0xa5).flags).status_source
+                    ..(crate::support::machine::protected_state(0xa5).flags).status_source
                 },
                 bytes: FlagBytes {
                     zf: 1,
-                    ..(CpuState::filled(0xa5).flags).bytes
+                    ..(crate::support::machine::protected_state(0xa5).flags).bytes
                 },
             }).preserve_flag_record()
             .at(0x1fff).map_page(1, 0x3000, ReadOnly).map_page(2, 0xa000, ReadOnly)

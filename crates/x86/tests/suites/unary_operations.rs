@@ -12,7 +12,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::{
-    compile_block_from_bytes, BlockError, CpuState,
+    compile_block_from_bytes, BlockError,
     Gpr32::{self, Eax, Ebx, Ecx, Edi, Edx, Esi},
     StatusSourceState,
 };
@@ -159,7 +159,7 @@ fn stored_carry_cases() -> Vec<Case> {
     ]
     .into_iter()
     .map(|(case, kind, left, concrete_carry)| {
-        let mut record = CpuState::filled(0xa5).flags;
+        let mut record = crate::support::machine::protected_state(0xa5).flags;
         record.status_source = StatusSourceState { kind, left, right: 1, ..record.status_source };
         record.bytes.cf = concrete_carry;
         case.stored_flags(record)

@@ -7,7 +7,10 @@ use std::{
 
 use super::codec::{read_u16, read_u32, write};
 
-use crate::{segment::SegmentAssumptions, ExecutionProfile, Segment, SegmentDefaultSize};
+use crate::{
+    segment::SegmentAssumptions, CpuMode, ExecutionProfile, PrivilegeLevel, Segment,
+    SegmentDefaultSize,
+};
 
 /// A visible selector and the cached properties used for address translation.
 /// Descriptor-table edits do not modify this record; a later segment load does.
@@ -51,7 +54,9 @@ impl SegmentRegister {
     ) -> bool {
         match profile.into() {
             ExecutionProfile::Protected(profile) => {
-                SegmentAssumptions::for_profile(profile, segment).matches(self)
+                (segment != Segment::Cs
+                    || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
+                    && SegmentAssumptions::for_profile(profile, segment).matches(self)
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
         }

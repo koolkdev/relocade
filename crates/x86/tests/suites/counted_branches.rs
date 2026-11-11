@@ -11,7 +11,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::{
-    compile_block_from_bytes, CpuState,
+    compile_block_from_bytes,
     Gpr32::{Eax, Ecx},
 };
 
@@ -145,7 +145,7 @@ fn noncanonical_zero() -> Vec<Case> {
     [false, true]
         .into_iter()
         .map(|zero| {
-            let mut record = CpuState::filled(0xa5).flags;
+            let mut record = crate::support::machine::protected_state(0xa5).flags;
             record.status_source.kind = 0;
             record.bytes.zf = if zero { 0x81 } else { 0xfe };
             Case::new(

@@ -7,7 +7,7 @@ use crate::support::{
     machine::{Exit, Image},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, Gpr32};
+use relocade_x86::{compile_block_from_bytes, BlockError, Gpr32};
 
 #[test]
 fn prefix_order_preserves_the_next_required_fetch() {
@@ -82,7 +82,7 @@ test_cases!(
 );
 
 fn repeated_byte_forms() -> Vec<Case> {
-    let mut flags = CpuState::filled(0xa5).flags;
+    let mut flags = crate::support::machine::protected_state(0xa5).flags;
     flags.status_source.kind = 0;
     flags.bytes.df = 0xfe;
     let mut cases = Vec::new();

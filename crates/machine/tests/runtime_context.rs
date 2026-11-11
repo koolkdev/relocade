@@ -153,6 +153,25 @@ async fn check_retained_cpu_state() {
     assert_eq!(clone.eip(), 0x100);
     assert_eq!(clone.instruction_count(), 2);
     assert!(clone.carry());
+    assert_eq!(clone.mode(), relocade_x86::CpuMode::Real);
+    assert_eq!(clone.privilege_level(), relocade_x86::PrivilegeLevel::Ring0);
+    assert_eq!(
+        clone.code_default_size(),
+        relocade_x86::SegmentDefaultSize::Bits16
+    );
+    assert_eq!(
+        clone.stack_address_size(),
+        relocade_x86::SegmentDefaultSize::Bits16
+    );
+    let before = clone.snapshot();
+    let mut incompatible = before;
+    incompatible.cr0 |= 1;
+    incompatible.registers.eax = 0;
+    assert_eq!(
+        clone.restore(&incompatible),
+        Err(relocade_machine::ConfigurationError::IncompatibleCpu)
+    );
+    assert_eq!(clone.snapshot(), before);
     drop(runner);
     clone.set_ah(0x56);
     assert_eq!(cpu.eax(), 0xaabb_5635);

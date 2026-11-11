@@ -8,7 +8,7 @@ use crate::support::{
 use relocade_x86::Gpr32::{Eax, Ebx};
 use relocade_x86::{FlagBytes, StatusSourceState};
 
-use relocade_x86::{CpuState, FlagsState};
+use relocade_x86::FlagsState;
 
 #[path = "arithmetic_flags/cases.rs"]
 mod cases;
@@ -169,7 +169,7 @@ fn saved_conditions() -> Vec<SequenceCase> {
                 kind,
                 left,
                 right,
-                ..(CpuState::filled(0xa5).flags).status_source
+                ..(crate::support::machine::protected_state(0xa5).flags).status_source
             },
             bytes: FlagBytes {
                 cf: 1,
@@ -196,7 +196,7 @@ fn saved_conditions() -> Vec<SequenceCase> {
         .stored_flags(FlagsState {
             status_source: StatusSourceState {
                 kind: 0,
-                ..(CpuState::filled(0xa5).flags).status_source
+                ..(crate::support::machine::protected_state(0xa5).flags).status_source
             },
             bytes: FlagBytes {
                 cf: 0,

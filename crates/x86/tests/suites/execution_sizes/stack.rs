@@ -123,7 +123,7 @@ fn faults() -> Vec<Case> {
             Segment::Cs,
             SegmentRegister {
                 limit: 0x1fff,
-                ..SegmentRegister::flat_code32(0)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
         .initial_register(Esp, 0xabcd_fffe)
@@ -139,7 +139,7 @@ fn faults() -> Vec<Case> {
             Segment::Cs,
             SegmentRegister {
                 limit: 0x1fff,
-                ..SegmentRegister::flat_code32(0)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
         .initial_register(Esp, 0xabcd_0000)
