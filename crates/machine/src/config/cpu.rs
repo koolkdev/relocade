@@ -11,8 +11,7 @@ pub struct CpuConfig {
 }
 
 impl CpuConfig {
-    /// Initializes architectural state while retaining the compatibility contract
-    /// of today's generated code. The target does not override the CPU's mode.
+    /// Validates the supplied CPU state for execution with `target`.
     pub fn new(target: ExecutionTarget, cpu: CpuState) -> Result<Self, ConfigurationError> {
         validate_cpu(target, &cpu)?;
         Ok(Self { target, cpu })
