@@ -1,11 +1,15 @@
 //! Public snapshot compilation inputs, outputs and entry points.
 
 mod decode;
+mod error;
 mod module;
+
+pub use error::BlockCompileError;
 
 use super::Compiler;
 use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
 use module::BlockModule;
+use relocade_compiler::CompileExecutor;
 
 /// Captured instruction bytes and a compilation bound for one CS-relative entry.
 /// The bytes must match readable guest memory when the resulting block executes.
@@ -175,6 +179,29 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<CompiledBlocks, BlockError> {
-        BlockModule::compile(self, snapshots)
+        let blocks = BlockModule::build(self, snapshots)?;
+        Ok(CompiledBlocks {
+            bytes: blocks.program.compile()?,
+            entries: blocks.entries,
+            execution_target: self.target,
+        })
+    }
+
+    /// Compiles snapshot blocks using the caller's executor for independent jobs.
+    /// Uses the boundaries, entry contract and result of [`Self::compile_blocks`].
+    /// The executor controls admission, concurrency and worker lifetime through
+    /// [`CompileExecutor`]. Block construction errors and executor failures remain
+    /// distinct in [`BlockCompileError`].
+    pub async fn compile_blocks_with<E: CompileExecutor>(
+        &self,
+        snapshots: &[BlockSnapshot<'_>],
+        executor: &E,
+    ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        let blocks = BlockModule::build(self, snapshots)?;
+        Ok(CompiledBlocks {
+            bytes: blocks.program.compile_with(executor).await?,
+            entries: blocks.entries,
+            execution_target: self.target,
+        })
     }
 }
