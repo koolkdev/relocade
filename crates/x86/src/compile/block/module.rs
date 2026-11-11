@@ -2,33 +2,31 @@
 
 use super::{
     decode::{self, DecodedBlock},
-    BlockEntry, BlockSnapshot, CompiledBlocks, Compiler,
+    BlockEntry, BlockSnapshot, Compiler,
 };
 use crate::{execution::ExecutionModule, BlockError};
 use relocade_compiler::Program;
 
 pub(super) struct BlockModule<'a> {
     compiler: &'a Compiler,
-    program: Program,
+    pub(super) program: Program,
+    pub(super) entries: Vec<BlockEntry>,
     execution: ExecutionModule,
 }
 
 impl<'a> BlockModule<'a> {
-    pub(super) fn compile(
+    pub(super) fn build(
         compiler: &'a Compiler,
         snapshots: &[BlockSnapshot<'_>],
-    ) -> Result<CompiledBlocks, BlockError> {
+    ) -> Result<Self, BlockError> {
         let blocks = decode::blocks(snapshots, compiler.target)?;
         let mut module = Self::new(compiler);
-        let mut entries = Vec::with_capacity(blocks.len());
+        module.entries.reserve(blocks.len());
         for block in blocks {
-            entries.push(module.define_block(block)?);
+            let entry = module.define_block(block)?;
+            module.entries.push(entry);
         }
-        Ok(CompiledBlocks {
-            bytes: module.program.compile()?,
-            entries,
-            execution_target: compiler.target,
-        })
+        Ok(module)
     }
 
     fn new(compiler: &'a Compiler) -> Self {
@@ -37,6 +35,7 @@ impl<'a> BlockModule<'a> {
         Self {
             compiler,
             program,
+            entries: Vec::new(),
             execution,
         }
     }

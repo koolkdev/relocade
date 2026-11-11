@@ -4,8 +4,8 @@ mod block;
 mod dispatch;
 
 pub use block::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockEntry, BlockSnapshot,
-    CompiledBlocks,
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
+    BlockSnapshot, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
 

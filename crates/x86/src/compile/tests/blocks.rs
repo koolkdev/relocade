@@ -3,37 +3,37 @@ use crate::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
-    BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel, CpuState,
-    ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile, Segments,
+    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel,
+    CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile, Segments,
 };
 use wasmparser::{Parser, Payload, Validator};
 
 #[test]
 fn entries_report_consumed_spans_in_input_order() {
-    let blocks = Compiler::new(SegmentProfile::Flat32)
-        .compile_blocks(&[
-            BlockSnapshot {
-                start_eip: u32::MAX,
-                bytes: &[0x90, 0x90, 0x0f],
-                instruction_limit: 3,
-            },
-            BlockSnapshot {
-                start_eip: 0x1000,
-                bytes: &[0x90, 0x90, 0x0f],
-                instruction_limit: 3,
-            },
-            BlockSnapshot {
-                start_eip: 0x1001,
-                bytes: &[0x90, 0xeb, 0xfd, 0x0f],
-                instruction_limit: 10,
-            },
-            BlockSnapshot {
-                start_eip: 1,
-                bytes: &[0x0f, 0x0b, 0x0f],
-                instruction_limit: 10,
-            },
-        ])
-        .unwrap();
+    let snapshots = [
+        BlockSnapshot {
+            start_eip: u32::MAX,
+            bytes: &[0x90, 0x90, 0x0f],
+            instruction_limit: 3,
+        },
+        BlockSnapshot {
+            start_eip: 0x1000,
+            bytes: &[0x90, 0x90, 0x0f],
+            instruction_limit: 3,
+        },
+        BlockSnapshot {
+            start_eip: 0x1001,
+            bytes: &[0x90, 0xeb, 0xfd, 0x0f],
+            instruction_limit: 10,
+        },
+        BlockSnapshot {
+            start_eip: 1,
+            bytes: &[0x0f, 0x0b, 0x0f],
+            instruction_limit: 10,
+        },
+    ];
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let blocks = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(
         blocks.entries,
         [
@@ -60,6 +60,20 @@ fn entries_report_consumed_spans_in_input_order() {
         ]
     );
     Validator::new().validate_all(&blocks.bytes).unwrap();
+    let (pool, jobs) = relocade_workers::Pool::new(vec![
+        relocade_workers::Thread::new(),
+        relocade_workers::Thread::new(),
+    ])
+    .unwrap();
+    let ((), parallel) = pollster::block_on(futures_util::future::join(pool.run(), async move {
+        compiler
+            .compile_blocks_with(&snapshots, &jobs)
+            .await
+            .unwrap()
+    }));
+    assert_eq!(parallel.bytes, blocks.bytes);
+    assert_eq!(parallel.entries, blocks.entries);
+    assert_eq!(parallel.execution_target, blocks.execution_target);
 }
 
 #[test]
@@ -83,7 +97,7 @@ fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
 }
 
 #[test]
-fn empty_input_is_valid_and_invalid_snapshots_reject_the_module() {
+fn empty_input_is_valid_and_compilation_errors_are_reported() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
@@ -125,6 +139,23 @@ fn empty_input_is_valid_and_invalid_snapshots_reject_the_module() {
             .err(),
         Some(BlockError::ZeroInstructionLimit)
     );
+
+    let (pool, jobs) = relocade_workers::Pool::new(vec![relocade_workers::Thread::new()]).unwrap();
+    drop(pool);
+    pollster::block_on(async {
+        assert!(matches!(
+            compiler.compile_blocks_with(&[first, first], &jobs).await,
+            Err(BlockCompileError::Block(BlockError::DuplicateBlock {
+                address: 0x1000
+            }))
+        ));
+        assert!(matches!(
+            compiler.compile_blocks_with(&[first], &jobs).await,
+            Err(BlockCompileError::Execution(
+                relocade_workers::PoolError::Closed
+            ))
+        ));
+    });
 }
 
 fn entry_boundaries() {

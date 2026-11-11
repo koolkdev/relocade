@@ -40,6 +40,12 @@ must limit snapshots at registered execution boundaries absent from the batch.
 Every entry still publishes state and dispatches at its boundary, even when the
 successor is another entry in the same module.
 
+`compiler.compile_blocks_with(&snapshots, &executor).await` uses the host's
+`CompileExecutor` for independent compilation jobs. It returns the same
+`CompiledBlocks` as serial `compile_blocks`, keeping Wasm bytes, entry metadata
+and execution target together. `BlockCompileError` distinguishes block construction
+errors from executor failures. Program construction stays inside x86.
+
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
 x87 conditional moves and the x87 comparisons that set EFLAGS. Known encodings
