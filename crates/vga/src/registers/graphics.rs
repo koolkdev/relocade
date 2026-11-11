@@ -30,6 +30,14 @@ impl Default for Graphics {
 }
 
 impl Graphics {
+    pub(crate) fn write_kind(&self) -> super::WriteKind {
+        if self.index <= BIT_MASK {
+            super::WriteKind::Display
+        } else {
+            super::WriteKind::Access
+        }
+    }
+
     pub fn index(&self) -> u8 {
         self.index
     }

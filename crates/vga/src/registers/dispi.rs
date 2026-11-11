@@ -75,10 +75,7 @@ struct ActiveMode {
 }
 
 impl Dispi {
-    pub(crate) fn write_kind(&self, port: u16, bytes: u8) -> super::WriteKind {
-        if port != DATA_PORT || bytes != 2 {
-            return super::WriteKind::Access;
-        }
+    pub(crate) fn write_kind(&self) -> super::WriteKind {
         match self.index {
             ENABLE => super::WriteKind::Timing,
             VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => super::WriteKind::Display,
@@ -155,49 +152,41 @@ impl Dispi {
         })
     }
 
-    pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        // A word at the index port is one register, not adjacent byte writes.
-        if bytes != 2 {
-            return if bytes == 1 { 0xff } else { u32::MAX };
-        }
-        u32::from(match port {
-            INDEX_PORT => self.index,
-            DATA_PORT => match self.index {
-                ID => INTERFACE_ID,
-                X_RESOLUTION => self.width,
-                Y_RESOLUTION => self.height,
-                BITS_PER_PIXEL => self.bits_per_pixel,
-                ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
-                BANK => self.bank,
-                VIRTUAL_WIDTH => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_width() as u16),
-                VIRTUAL_HEIGHT => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_height() as u16),
-                X_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[0] as u16),
-                Y_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[1] as u16),
-                _ => u16::MAX,
-            },
+    pub fn index(&self) -> u16 {
+        self.index
+    }
+
+    pub fn select(&mut self, index: u16) {
+        self.index = index;
+    }
+
+    pub fn read(&self) -> u16 {
+        match self.index {
+            ID => INTERFACE_ID,
+            X_RESOLUTION => self.width,
+            Y_RESOLUTION => self.height,
+            BITS_PER_PIXEL => self.bits_per_pixel,
+            ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
+            BANK => self.bank,
+            VIRTUAL_WIDTH => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_width() as u16),
+            VIRTUAL_HEIGHT => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_height() as u16),
+            X_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[0] as u16),
+            Y_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[1] as u16),
             _ => u16::MAX,
-        })
+        }
     }
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteEffect {
-        if bytes != 2 {
-            return WriteEffect::None;
-        }
-        let value = value as u16;
-        if port == INDEX_PORT {
-            self.index = value;
-            return WriteEffect::None;
-        }
+    pub fn write(&mut self, value: u16) -> WriteEffect {
         match self.index {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,

@@ -26,10 +26,7 @@ impl Wake for Wakes {
 
 fn device(clock: Clock) -> (Rc<RefCell<Vga>>, IoBus) {
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock)));
-    let io = IoBus::new(vga.clone(), |io| {
-        io.map_mmio([relocade_vga::MEMORY_RANGE]);
-        io.map_ports(relocade_vga::PORT_RANGES);
-    });
+    let io = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
     for (register, value) in [(1, 640), (2, 480), (3, 8), (4, 1), (6, 1024)] {
         write_register(&io, register, value);
     }

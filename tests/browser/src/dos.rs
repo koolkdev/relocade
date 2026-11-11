@@ -212,7 +212,10 @@ pub async fn dos_workers() -> Result<(), String> {
         assert_eq!(&*exited.pixels, final_pixels);
         Ok(())
     };
-    let ((), result) = join(timers.run(), app).await;
+    let timers = timers.spawn();
+    let result = app.await;
+    // End the session's timers even if GC still retains callback clock handles.
+    timers.stop().await.map_err(|error| error.to_string())?;
     machine.shutdown().await.unwrap();
     result
 }

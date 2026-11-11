@@ -91,47 +91,11 @@ impl Default for Registers {
 }
 
 impl Registers {
-    pub(crate) fn write_kind(&self, port: u16) -> WriteKind {
-        match port {
-            MISC_OUTPUT_WRITE_PORT => WriteKind::Timing,
-            SEQUENCER_DATA_PORT => match self.sequencer.index() {
-                sequencer::RESET | sequencer::CLOCKING_MODE => WriteKind::Timing,
-                sequencer::MAP_MASK..=sequencer::MEMORY_MODE => WriteKind::Display,
-                _ => WriteKind::Access,
-            },
-            port if port == self.crtc_ports().1 => match self.crtc.index() {
-                crtc::HORIZONTAL_TOTAL
-                | crtc::HORIZONTAL_DISPLAY_END
-                | crtc::HORIZONTAL_BLANK_END
-                | crtc::VERTICAL_TOTAL
-                | crtc::OVERFLOW
-                | crtc::VERTICAL_RETRACE_START
-                | crtc::VERTICAL_RETRACE_END
-                | crtc::VERTICAL_DISPLAY_END
-                | crtc::MODE_CONTROL => WriteKind::Timing,
-                crtc::HORIZONTAL_TOTAL..=crtc::LINE_COMPARE => WriteKind::Display,
-                _ => WriteKind::Access,
-            },
-            // The Attribute address phase also controls display enable.
-            ATTRIBUTE_ADDRESS_PORT | DAC_MASK_PORT | DAC_DATA_PORT => WriteKind::Display,
-            GRAPHICS_DATA_PORT if self.graphics.index() <= graphics::BIT_MASK => WriteKind::Display,
-            _ => WriteKind::Access,
-        }
-    }
-
     pub(crate) fn status_port(&self) -> u16 {
         if self.miscellaneous & 1 == 0 {
             MONO_INPUT_STATUS_1_PORT
         } else {
             COLOR_INPUT_STATUS_1_PORT
-        }
-    }
-
-    fn crtc_ports(&self) -> (u16, u16) {
-        if self.miscellaneous & 1 == 0 {
-            (MONO_CRTC_INDEX_PORT, MONO_CRTC_DATA_PORT)
-        } else {
-            (CRTC_INDEX_PORT, CRTC_DATA_PORT)
         }
     }
 
@@ -148,51 +112,5 @@ impl Registers {
     pub(crate) fn video_memory_enabled(&self) -> bool {
         // Miscellaneous Output bit 1 enables CPU access to display RAM.
         self.miscellaneous & (1 << 1) != 0
-    }
-
-    pub(crate) fn read_port(&mut self, port: u16, raster_status: u8) -> u8 {
-        let (crtc_index, crtc_data) = self.crtc_ports();
-        match port {
-            ATTRIBUTE_ADDRESS_PORT => self.attribute.address(),
-            ATTRIBUTE_DATA_READ_PORT => self.attribute.read(),
-            MISC_OUTPUT_WRITE_PORT => 0x10, // Attached color display; no retrace IRQ wired.
-            MISC_OUTPUT_READ_PORT => self.miscellaneous,
-            SEQUENCER_INDEX_PORT => self.sequencer.index(),
-            SEQUENCER_DATA_PORT => self.sequencer.read(),
-            GRAPHICS_INDEX_PORT => self.graphics.index(),
-            GRAPHICS_DATA_PORT => self.graphics.read(),
-            DAC_MASK_PORT => self.dac.mask,
-            DAC_READ_ADDRESS_PORT => self.dac.state(),
-            DAC_WRITE_ADDRESS_PORT => self.dac.address(),
-            DAC_DATA_PORT => self.dac.read(),
-            FEATURE_CONTROL_READ_PORT => self.feature_control,
-            port if port == self.status_port() => {
-                self.attribute.reset_address();
-                raster_status
-            }
-            port if port == crtc_index => self.crtc.index(),
-            port if port == crtc_data => self.crtc.read(),
-            _ => 0xff,
-        }
-    }
-
-    pub(crate) fn write_port(&mut self, port: u16, value: u8) {
-        let (crtc_index, crtc_data) = self.crtc_ports();
-        match port {
-            ATTRIBUTE_ADDRESS_PORT => self.attribute.write(value),
-            MISC_OUTPUT_WRITE_PORT => self.miscellaneous = value,
-            SEQUENCER_INDEX_PORT => self.sequencer.select(value),
-            SEQUENCER_DATA_PORT => self.sequencer.write(value),
-            GRAPHICS_INDEX_PORT => self.graphics.select(value),
-            GRAPHICS_DATA_PORT => self.graphics.write(value),
-            DAC_MASK_PORT => self.dac.mask = value,
-            DAC_READ_ADDRESS_PORT => self.dac.select(value, true),
-            DAC_WRITE_ADDRESS_PORT => self.dac.select(value, false),
-            DAC_DATA_PORT => self.dac.write(value),
-            port if port == self.status_port() => self.feature_control = value,
-            port if port == crtc_index => self.crtc.select(value),
-            port if port == crtc_data => self.crtc.write(value),
-            _ => {}
-        }
     }
 }

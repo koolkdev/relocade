@@ -68,6 +68,22 @@ impl Crtc {
         ]);
     }
 
+    pub(crate) fn write_kind(&self) -> super::WriteKind {
+        match self.index {
+            HORIZONTAL_TOTAL
+            | HORIZONTAL_DISPLAY_END
+            | HORIZONTAL_BLANK_END
+            | VERTICAL_TOTAL
+            | OVERFLOW
+            | VERTICAL_RETRACE_START
+            | VERTICAL_RETRACE_END
+            | VERTICAL_DISPLAY_END
+            | MODE_CONTROL => super::WriteKind::Timing,
+            HORIZONTAL_TOTAL..=LINE_COMPARE => super::WriteKind::Display,
+            _ => super::WriteKind::Access,
+        }
+    }
+
     pub fn index(&self) -> u8 {
         self.index
     }

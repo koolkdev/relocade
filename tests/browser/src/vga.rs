@@ -1,8 +1,7 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
-use futures_util::future::join;
 use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig};
-use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
+use relocade_vga::{Vga, MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
@@ -41,10 +40,7 @@ pub async fn vga_workers() -> Result<(), String> {
         assert!(source.send(vga.borrow().frames()).is_ok());
 
         runner
-            .connect(vga.clone(), |io| {
-                io.map_mmio([MEMORY_RANGE]);
-                io.map_ports(PORT_RANGES);
-            })
+            .connect(vga.clone(), |io| Vga::configure_io(io, &vga))
             .await;
         crate::vga_fixture::initialize_font(&runner.io());
         let io = runner.io();
@@ -154,7 +150,11 @@ pub async fn vga_workers() -> Result<(), String> {
             [254, 198, 140, 24, 50]
         );
     });
-    let ((), result) = join(timers.run(), cpu_task.join()).await;
+    // Browser callbacks can retain clocks until GC. The timer worker belongs
+    // to this execution session, so shutdown must not wait for those finalizers.
+    let timers = timers.spawn();
+    let result = cpu_task.join().await;
+    timers.stop().await.map_err(|error| error.to_string())?;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(()));
     display_task.await.map_err(|error| error.to_string())?;
     machine.shutdown().await.unwrap();

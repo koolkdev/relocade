@@ -51,6 +51,10 @@ impl Vga {
                 self.raster.retrace_count,
             )),
         };
+        self.snapshot_scanout(scanout)
+    }
+
+    fn snapshot_scanout(&self, scanout: Scanout) -> DisplaySnapshot {
         DisplaySnapshot {
             memory: self.memory.snapshot(scanout.memory_bytes()),
             dac: DacSnapshot {
@@ -86,17 +90,42 @@ impl Vga {
         }
     }
 
-    // Keep capture temporaries and raster arithmetic out of ordinary status reads.
+    pub(super) fn refresh_raster(&mut self) {
+        if self.dispi.display_layout().is_some() {
+            self.refresh_svga_raster();
+        } else {
+            self.refresh_vga_raster();
+        }
+    }
+
+    pub(super) fn refresh_vga_raster(&mut self) {
+        self.capture_raster(|vga| {
+            vga.registers.crtc.latch_display_start();
+            vga.snapshot_scanout(Scanout::Vga(VgaDisplayState::capture(
+                &vga.registers,
+                vga.raster.retrace_count,
+            )))
+        });
+    }
+
+    pub(super) fn refresh_svga_raster(&mut self) {
+        self.capture_raster(|vga| {
+            // Viewport and pitch can change without replacing the mode handler.
+            vga.snapshot_scanout(Scanout::Svga(
+                vga.dispi.display_layout().expect("active SVGA"),
+            ))
+        });
+    }
+
+    // Both status handlers and the output task use the same raster integration
+    // and capture publication. The handler selects only the mode's capture work.
     #[cold]
     #[inline(never)]
-    fn refresh_raster(&mut self) {
+    fn capture_raster(&mut self, capture: impl FnOnce(&mut Self) -> DisplaySnapshot) {
         let Some(time) = self.raster.update_observed() else {
             return;
         };
-        if self.dispi.display_layout().is_none() {
-            self.registers.crtc.latch_display_start();
-        }
-        let display = self.snapshot();
+        let display = capture(self);
         if self
             .output
             .captured

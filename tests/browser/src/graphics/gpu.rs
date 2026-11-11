@@ -1,7 +1,7 @@
 use super::{guest, request, target::read_first_pixel};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{
-    future::{join, select, Either},
+    future::{select, Either},
     FutureExt, StreamExt,
 };
 use relocade_machine::{timer_service, worker::Thread};
@@ -191,6 +191,9 @@ pub async fn gpu_workers() -> Result<(), String> {
         task.await.map_err(|e| e.to_string())?;
         Ok(())
     };
-    let ((), result) = join(timers.run(), app).await;
+    let timers = timers.spawn();
+    let result = app.await;
+    // End the session's timers even if GC still retains callback clock handles.
+    timers.stop().await.map_err(|error| error.to_string())?;
     result
 }

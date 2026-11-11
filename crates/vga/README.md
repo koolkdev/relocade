@@ -78,7 +78,29 @@ time and partial dots. Stopped clocks consume time without advancing the beam.
 Horizontal status edges are skipped outside vertical
 display. Late observations catch up all elapsed retraces without a per-frame loop.
 
-`device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
+`ports.rs` binds each port to its own register operation: index and data ports,
+DAC transfers, setup controls and status reads have separate callbacks. Setup,
+Misc Output, DISPI mode changes and state restoration select cached handlers
+before returning to the guest. Ordinary byte accesses call their
+operation directly, with no port decoding or adapter-enable/alias checks.
+Input Status 1 polls share the raster's authoritative cached status, deadline
+and observed time, plus the Attribute Controller access phase; they borrow the
+full device only when an edge is due. VGA and SVGA readers select their capture
+work at configuration time: VGA latches CRTC display start; SVGA captures its live
+packed layout. Both use the same raster integration and capture publication.
+Inactive reads return FFh without resetting the access phase. Wider status reads
+return FFh in their trailing bytes.
+
+`ports/access.rs` shares transfer-width handling. VGA word/dword accesses run
+the first port's operation directly, release the device borrow, then send each
+trailing byte through the same bus after the preceding effects. Tails stay within
+the starting register cluster; they cannot reach a neighbouring device. Holes and
+read-only starting ports still process those tails. Guest execution, host access
+and test fixtures all use these registered operations. DISPI index and data ports
+accept one word each rather than adjacent bytes. `ports/operations.rs` owns the
+capture and timing effects around register-bank operations; the banks own their
+indices, masks and access phases. `device.rs` owns MMIO and the
+output activity. Ordinary reads, index writes and CPU bank
 changes do not advance the raster. Display writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally
 reconcile the old phase. Timing changes replace the pending deadline. In VGA,
@@ -87,7 +109,8 @@ selections stop it. Screen-off continues to generate retraces. Disabling CRTC
 sync suppresses the status pulse while internal sampling
 continues. Integer arithmetic carries fractional progress so repeated polling
 cannot accumulate drift.
-The shared clock measures session elapsed time, not CPU instruction cycles.
+The shared clock uses the session's configured timebase, including native
+instruction progress when a guest clock is selected.
 
 Static display settings still apply to the whole captured image. Programmed CRTC
 blanking masks pixels to opaque black independently of VRAM, palette and panning.
@@ -586,10 +609,12 @@ state includes sequencer reset, register access phases, the latched CRTC display
 adapter decoding and CPU latches. DAC state includes the exact RGB transfer
 position and Color Select; DISPI state includes staged geometry, active layout,
 enable flags, bank and register index. These values contain no framebuffer bytes.
-`restore_state(core, dac, dispi)` applies selected components together after
+`restore_state(context, core, dac, dispi)` applies selected components together after
 servicing elapsed captures. It preserves VRAM and unselected components, and uses
 the same timing reconciliation as port programming. DAC-only restoration leaves
-raster timing intact. These encodings describe Relocade's current adapter;
+raster timing intact. The scoped I/O context also publishes any changed status
+port routing immediately. Stopped host callers obtain it through `IoBus::with_context`.
+These encodings describe Relocade's current adapter;
 firmware owns the surrounding guest buffer format and version. They are not
 vendor BIOS save formats. The fixed IBM AH=1Ch buffer above remains independent.
 
@@ -725,6 +750,14 @@ sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
 `Vga::initialize(runner).await` creates VGA on the session clock, registers its
 memory aperture and ports, and starts display capture. It returns the device
 handle with its mappings already installed on the runner's bus.
+Manually constructed devices use the same wiring in their connection scope:
+
+```rust
+runner.connect(vga.clone(), |io| Vga::configure_io(io, &vga)).await;
+```
+
+`configure_io` installs the full aperture and fixed port bindings once; mode
+changes reuse those bindings and prepared handlers.
 
 DOS supplies this same snapshot queue through `dos.frames()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists
@@ -1098,7 +1131,8 @@ selected bank; other VGA windows return FFh and ignore writes. Multi-byte
 accesses crossing AFFFFh do not spill into the next bank. Adapter setup and
 Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
 ports program the shared palette, with their existing byte-transfer rules.
-Embeddings use the same `PORT_RANGES` and `MEMORY_RANGE` registrations.
+Embeddings install both VGA and DISPI through `Vga::configure_io` and mark
+`MEMORY_RANGE` as MMIO in the physical map.
 
 Each CPU transfer resolves its adapter gates and addressing mode into `VramAccess`:
 disabled, legacy VGA registers, or a validated `SvgaBankMapping` supplied by DISPI.

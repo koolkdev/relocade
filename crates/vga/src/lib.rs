@@ -13,6 +13,7 @@ mod framebuffer;
 mod geometry;
 mod memory;
 mod output;
+mod ports;
 mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -33,6 +34,7 @@ pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
 use output::Output;
+use ports::Ports;
 use raster::Raster;
 use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
@@ -68,6 +70,7 @@ pub struct Vga {
     dispi: dispi::Dispi,
     clock: Clock,
     raster: Raster,
+    ports: Option<Ports>,
     programming_changed: Event,
     output: Output,
 }
@@ -77,10 +80,7 @@ impl Vga {
     pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
         runner
-            .connect(vga.clone(), |io| {
-                io.map_mmio([MEMORY_RANGE]);
-                io.map_ports(PORT_RANGES);
-            })
+            .connect(vga.clone(), |io| Self::configure_io(io, &vga))
             .await;
         vga
     }
@@ -96,6 +96,7 @@ impl Vga {
             dispi: dispi::Dispi::default(),
             clock,
             raster,
+            ports: None,
             programming_changed: Event::new(),
             output: Output::new(),
         }

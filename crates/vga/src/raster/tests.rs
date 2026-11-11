@@ -101,7 +101,7 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let stopped_at = controller.at(dots(100));
     raster.update_to(stopped_at);
     assert_eq!(raster.updated, origin);
-    registers.write_port(0x3c2, 0x4b); // Disconnected oscillator; preserve counters.
+    registers.miscellaneous = 0x4b; // Disconnected oscillator; preserve counters.
     raster.set_timing(Timing::vga(&registers));
     assert_eq!(raster.updated, stopped_at);
     assert_eq!(raster.dot, 100);
@@ -109,7 +109,7 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let resumed_at = controller.at(Duration::from_secs(1));
     raster.update_to(resumed_at);
     assert_eq!(raster.updated, stopped_at);
-    registers.write_port(0x3c2, 0x43);
+    registers.miscellaneous = 0x43;
     raster.set_timing(Timing::vga(&registers));
     assert_eq!(raster.updated, resumed_at);
     assert_eq!(raster.dot, 100);

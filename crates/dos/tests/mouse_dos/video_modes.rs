@@ -180,9 +180,11 @@ fn mode_x_cursor_uses_page_stride_and_restored_state_on_the_next_mouse_update() 
         assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 0x5a);
         assert_eq!(memory.view().read_u8(0xa4050).unwrap(), 0x6b);
         assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 15);
-        dos.vga()
-            .borrow_mut()
-            .restore_state(Some(core.clone()), None, None);
+        io.with_context(|context| {
+            dos.vga()
+                .borrow_mut()
+                .restore_state(context, Some(core.clone()), None, None);
+        });
         assert_eq!(dos.vga().borrow().core_state(), core);
         assert_eq!(memory.view().read_u8(0xa0050).unwrap(), 0x5a);
         assert_eq!(memory.view().read_u8(0xa4060).unwrap(), 15);

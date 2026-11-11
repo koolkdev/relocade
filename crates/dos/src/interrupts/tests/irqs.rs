@@ -43,10 +43,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
     let io = IoBus::default();
-    io.connect(vga.clone(), |io| {
-        io.map_mmio([relocade_vga::MEMORY_RANGE]);
-        io.map_ports(relocade_vga::PORT_RANGES);
-    });
+    io.connect(vga.clone(), |io| Vga::configure_io(io, &vga));
     io.connect(irq.clone(), |_| {});
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),

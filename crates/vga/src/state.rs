@@ -8,6 +8,7 @@ use crate::{
     registers::{attribute, dac::Dac, dispi::Dispi},
     SvgaLayout, Timing, Vga,
 };
+use relocade_machine::IoContext;
 
 /// DAC colors, pixel mask, exact transfer position and Attribute Color Select.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,8 +73,10 @@ impl Vga {
 
     /// Apply already-validated state classes together. Unselected classes and all
     /// framebuffer bytes are preserved; completed captures retain their old inputs.
+    /// Use the connected bus's context to publish any changed port routing.
     pub fn restore_state(
         &mut self,
+        context: IoContext<'_>,
         core: Option<VgaCoreState>,
         dac: Option<DacState>,
         dispi: Option<DispiState>,
@@ -95,14 +98,18 @@ impl Vga {
         if let Some(dispi) = dispi {
             self.dispi = dispi.0;
         }
-        self.reconfigure(previous_layout, previous_status_port, was_enabled);
+        self.reconfigure(context, previous_layout);
+        if self.registers.status_port() != previous_status_port
+            || self.setup.enabled() != was_enabled
+        {
+            self.programming_changed.notify(usize::MAX);
+        }
     }
 
     pub(super) fn reconfigure(
         &mut self,
+        context: IoContext<'_>,
         previous_layout: Option<SvgaLayout>,
-        previous_status_port: u16,
-        was_enabled: bool,
     ) {
         let layout = self.dispi.display_layout();
         let timing = match layout {
@@ -117,11 +124,10 @@ impl Vga {
         } else {
             self.raster.set_timing(timing)
         };
-        if timing_changed
-            || layout != previous_layout
-            || self.registers.status_port() != previous_status_port
-            || self.setup.enabled() != was_enabled
-        {
+        // Configuration boundaries publish every state-dependent operation,
+        // including the VGA/SVGA status reader. Ordinary accesses do no polling.
+        self.configure_ports(context);
+        if timing_changed || layout != previous_layout {
             self.programming_changed.notify(usize::MAX);
         }
     }
