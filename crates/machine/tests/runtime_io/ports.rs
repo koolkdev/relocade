@@ -50,7 +50,8 @@ fn invalid_host_port_widths_fail_before_device_effects() {
 }
 
 async fn guest_carriers() {
-    for compiled in [false, true] {
+    for (compiled, late_connection) in [(false, false), (true, false), (false, true), (true, true)]
+    {
         let device = RecordingDevice::new(0);
         device.borrow_mut().port = 0x7654_3210;
         let compiler = Compiler::new(ExecutionProfile::Real16);
@@ -68,10 +69,12 @@ async fn guest_carriers() {
         let memory = Memory::new(config.machine).unwrap();
         let code = [0xec, 0xef]; // IN AL,DX; OUT DX,AX.
         memory.view().write(0x100, &code).unwrap();
-        let mut cpu = Cpu::new(memory, config.cpu, port_bus(&device))
-            .await
-            .unwrap();
-        cpu.cpu_state().set_eax(0x89ab_cdef);
+        let io = if late_connection {
+            IoBus::default()
+        } else {
+            port_bus(&device)
+        };
+        let mut cpu = Cpu::new(memory, config.cpu, io.clone()).await.unwrap();
         cpu.cpu_state().set_dx(0xffff);
         if compiled {
             let snapshots = [0, 1].map(|offset| BlockSnapshot {
@@ -90,6 +93,24 @@ async fn guest_carriers() {
                 .collect();
             cpu.install_module(&module.bytes, &entries).await.unwrap();
         }
+        if late_connection {
+            // Run already-linked modules with the unconnected defaults in both directions.
+            assert_eq!(
+                support::run_until(&mut cpu, 0x102).await,
+                ExecutionExit::Interrupted
+            );
+            assert_eq!(cpu.cpu_state().al(), 0xff);
+            assert!(device.borrow().transfers.is_empty());
+            io.connect([DeviceConnection {
+                device: device.clone(),
+                ports: std::iter::once(0xffff..=0xffff).collect(),
+                mmio: vec![],
+            }]);
+            assert_eq!(io.read_port(0xffff, 4), 0x7654_3210);
+            device.borrow_mut().take_transfers();
+        }
+        cpu.cpu_state().set_eip(0x100);
+        cpu.cpu_state().set_eax(0x89ab_cdef);
         assert_eq!(
             support::run_until(&mut cpu, 0x102).await,
             ExecutionExit::Interrupted

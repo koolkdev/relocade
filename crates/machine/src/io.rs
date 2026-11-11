@@ -1,7 +1,9 @@
 //! Device routing and synchronous access on one execution worker.
 
+mod connection;
 mod context;
 mod device;
+pub(crate) mod ports;
 pub use context::IoContext;
 pub use device::{Device, DeviceConnection};
 
@@ -40,6 +42,7 @@ pub(crate) struct State {
     runtime: WasmRuntimeHandle,
     cpu_attached: Cell<bool>,
     connections: OnceCell<Box<[DeviceConnection]>>,
+    ports: ports::Ports,
     identity: Weak<State>,
 }
 
@@ -50,6 +53,7 @@ impl Default for IoBus {
                 runtime: WasmRuntimeHandle::default(),
                 cpu_attached: Cell::new(false),
                 connections: OnceCell::new(),
+                ports: ports::Ports::default(),
                 identity: identity.clone(),
             }),
         }
@@ -80,10 +84,13 @@ impl IoBus {
         let connections: Box<[_]> = connections.into_iter().collect();
         validate_ranges(connections.iter().flat_map(|device| &device.mmio));
         validate_ranges(connections.iter().flat_map(|device| &device.ports));
-        self.state
-            .connections
-            .set(connections)
-            .unwrap_or_else(|_| unreachable!());
+        self.with_context(|mut context| {
+            self.state
+                .connections
+                .set(connections)
+                .unwrap_or_else(|_| unreachable!());
+            connection::register(self.state.connections(), &self.state.ports, &mut context);
+        });
     }
 
     pub fn is_empty(&self) -> bool {
@@ -135,6 +142,10 @@ impl IoBus {
         );
         self.state.runtime.initialize()?;
         Ok(self.state.runtime.clone())
+    }
+
+    pub(crate) fn port_map(&self) -> &ports::Ports {
+        &self.state.ports
     }
 
     pub(crate) fn downgrade(&self) -> Weak<State> {
@@ -210,51 +221,17 @@ impl State {
 
     pub fn read_port(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.read_port_unchecked(context, port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
+        self.ports.read(context, port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
     }
 
     pub fn write_port(&self, context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.write_port_unchecked(
+        self.ports.write(
             context,
             port,
             bytes,
             value & (u32::MAX >> ((4 - bytes) * 8)),
         );
-    }
-
-    /// Generated callers supply a width of 1, 2 or 4 and consume only the low
-    /// result bytes. Host access validates and masks through `read_port`.
-    #[inline]
-    pub(crate) fn read_port_unchecked(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.port_device(port).map_or(u32::MAX, |device| {
-            device.borrow_mut().read_port(context, port, bytes)
-        })
-    }
-
-    /// Generated callers supply a width of 1, 2 or 4 with unused value bits
-    /// cleared. Host access validates and masks through `write_port`.
-    #[inline]
-    pub(crate) fn write_port_unchecked(
-        &self,
-        context: IoContext<'_>,
-        port: u16,
-        bytes: u8,
-        value: u32,
-    ) {
-        debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        debug_assert_eq!(value & (u32::MAX >> ((4 - bytes) * 8)), value);
-        if let Some(device) = self.port_device(port) {
-            device.borrow_mut().write_port(context, port, bytes, value);
-        }
-    }
-
-    fn port_device(&self, port: u16) -> Option<&RefCell<dyn Device>> {
-        self.connections()
-            .iter()
-            .find(|connection| connection.ports.iter().any(|range| range.contains(&port)))
-            .map(|connection| connection.device.as_ref())
     }
 
     fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&RefCell<dyn Device>>, u8) {

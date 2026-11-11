@@ -4,12 +4,11 @@ mod hooks;
 mod table;
 
 use super::{
-    code, hooks::Handler, io::IoBindings, CpuContext, Hook, RuntimeMemory, WasmRuntime,
-    WasmRuntimeHandle,
+    code, hooks::Handler, io, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
-use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Function, Import, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
@@ -34,7 +33,7 @@ pub(super) struct CpuInstance {
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     table: DispatchTable<WasmRuntime>,
     hooks: Hooks,
-    io_bindings: IoBindings,
+    mmio_imports: Vec<Import<'static, WasmRuntime>>,
 }
 
 impl CpuInstance {
@@ -65,8 +64,10 @@ impl CpuInstance {
                 wasm.bind(abi::DISPATCH, &dispatch),
                 wasm.bind(abi::INTERPRET, &interpret),
             ]);
-            let io_bindings = IoBindings::new(wasm, &io)?;
-            imports.extend(io_bindings.imports(wasm));
+            io.port_map().initialize(wasm, &io.downgrade())?;
+            imports.extend(io.port_map().imports(wasm));
+            let mmio_imports = io::mmio_imports(wasm, &io);
+            imports.extend(mmio_imports.iter().cloned());
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
@@ -91,7 +92,7 @@ impl CpuInstance {
                 far_call,
                 table,
                 hooks: Hooks::default(),
-                io_bindings,
+                mmio_imports,
             })
         })
     }
@@ -171,7 +172,8 @@ impl CpuInstance {
                 wasm.bind(abi::DISPATCH, &self.dispatch),
                 wasm.bind(abi::INTERPRET, &self.interpret),
             ]);
-            imports.extend(self.io_bindings.imports(wasm));
+            imports.extend(self.io.port_map().imports(wasm));
+            imports.extend(self.mmio_imports.iter().cloned());
             let instance = wasm.instantiate(module, &imports)?;
             self.table.install(wasm, &instance, &entries)
         })?;
