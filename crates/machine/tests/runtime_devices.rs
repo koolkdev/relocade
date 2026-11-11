@@ -2,7 +2,7 @@ use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, Hook};
+use relocade_machine::{Clock, Device, Hook, IoContext};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -32,7 +32,7 @@ impl Drop for Active {
 }
 
 impl Device for Ticker {
-    fn read_port(&mut self, _port: u16, _bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8) -> u32 {
         self.ticks.get()
     }
 

@@ -4,7 +4,14 @@ use relocade_machine::{Clock, Device};
 use std::time::Duration;
 
 pub fn crtc(device: &mut impl Device, index: u8, value: u8) {
-    device.write_port(0x3d4, 2, u32::from(u16::from_le_bytes([index, value])));
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        device.write_port(
+            context.reborrow(),
+            0x3d4,
+            2,
+            u32::from(u16::from_le_bytes([index, value])),
+        );
+    })
 }
 
 pub fn dots(count: u64, frequency: u64) -> Duration {

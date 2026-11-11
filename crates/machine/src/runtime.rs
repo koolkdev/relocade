@@ -10,8 +10,8 @@
 //! The driver owns the CPU instance directly and alternates guest calls with polling
 //! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
 //! application resources at registration. CPU state and RAM access use shared
-//! storage directly; device access retains its routing.
-//! Pending futures retain their locals
+//! storage directly. Host device access briefly borrows the backend; guest
+//! callbacks use the current engine scope. Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
 //! Pending and IRQ-suspended services survive dropping their run waiter. Dropping

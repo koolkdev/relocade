@@ -11,24 +11,26 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dimensions_follow_captured_crtc_and_character_clock() {
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    let preset = vga.snapshot();
-    assert_eq!(preset.geometry().size, [640, 200]);
-    assert_eq!(preset.geometry().pixel_aspect_ratio(), (5, 12));
-    crtc(&mut vga, 0x11, 0); // Unlock geometry.
-    crtc(&mut vga, 9, 0);
-    for (columns, clocking, overflow, last_line, size) in [
-        (39, 0u8, 0, 7, [360, 8]),
-        (255, 0, 0x42, 255, [2304, 1024]),
-        (0, 1, 0, 0, [8, 1]),
-    ] {
-        crtc(&mut vga, 1, columns);
-        crtc(&mut vga, 7, overflow);
-        crtc(&mut vga, 0x12, last_line);
-        vga.write_port(0x3c4, 2, u32::from(clocking) << 8 | 1);
-        assert_eq!(vga.snapshot().geometry().size, size);
-    }
-    assert_eq!(preset.geometry().size, [640, 200]);
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
+        let preset = vga.snapshot();
+        assert_eq!(preset.geometry().size, [640, 200]);
+        assert_eq!(preset.geometry().pixel_aspect_ratio(), (5, 12));
+        crtc(&mut vga, 0x11, 0); // Unlock geometry.
+        crtc(&mut vga, 9, 0);
+        for (columns, clocking, overflow, last_line, size) in [
+            (39, 0u8, 0, 7, [360, 8]),
+            (255, 0, 0x42, 255, [2304, 1024]),
+            (0, 1, 0, 0, [8, 1]),
+        ] {
+            crtc(&mut vga, 1, columns);
+            crtc(&mut vga, 7, overflow);
+            crtc(&mut vga, 0x12, last_line);
+            vga.write_port(context.reborrow(), 0x3c4, 2, u32::from(clocking) << 8 | 1);
+            assert_eq!(vga.snapshot().geometry().size, size);
+        }
+        assert_eq!(preset.geometry().size, [640, 200]);
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

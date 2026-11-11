@@ -2,7 +2,7 @@
 mod execution;
 use relocade_bios::{KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
-    real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, DeviceConnection, IoBus,
+    real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, DeviceConnection, IoBus, IoContext,
     MachineConfig, Memory,
 };
 use relocade_vga::Vga;
@@ -44,7 +44,7 @@ impl Timer {
 }
 
 impl Device for Timer {
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         if std::mem::take(&mut self.pending) {
             self.acknowledged += 1;
             Poll::Ready(8)

@@ -1,7 +1,7 @@
 use super::{configuration, prepare_cpu};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{timer_service, Device};
+use relocade_machine::{timer_service, Device, IoContext};
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
@@ -25,8 +25,8 @@ impl Device for InputIrq {
         device.borrow_mut().irq.raise();
     }
 
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        self.irq.poll_interrupt(cx)
+    fn poll_interrupt(&mut self, context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
+        self.irq.poll_interrupt(context, cx)
     }
 }
 

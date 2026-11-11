@@ -1,5 +1,6 @@
 use super::{host::*, *};
 use futures_util::StreamExt;
+use relocade_machine::IoContext;
 use std::task::Context;
 
 #[path = "../support/interrupts.rs"]
@@ -24,8 +25,8 @@ impl Device for TimerIrq {
         device.irq.raise();
     }
 
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
-        self.irq.poll_interrupt(cx)
+    fn poll_interrupt(&mut self, context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
+        self.irq.poll_interrupt(context, cx)
     }
 }
 

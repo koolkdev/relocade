@@ -1,10 +1,14 @@
+#[path = "runtime_io/context.rs"]
+mod context;
 #[path = "runtime_io/ownership.rs"]
 mod ownership;
 #[path = "runtime_io/ports.rs"]
 mod ports;
 mod support;
 
-use relocade_machine::{Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory};
+use relocade_machine::{
+    Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, IoContext, Memory,
+};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -45,7 +49,7 @@ impl RecordingDevice {
 }
 
 impl Device for RecordingDevice {
-    fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
+    fn read_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
         self.transfers.push(Transfer::MemoryRead { address, bytes });
         let offset = (address - self.base) as usize;
         let mut result = [0; 8];
@@ -54,7 +58,7 @@ impl Device for RecordingDevice {
         u64::from_le_bytes(result)
     }
 
-    fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
+    fn write_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         self.transfers.push(Transfer::MemoryWrite {
             address,
             bytes,
@@ -65,12 +69,12 @@ impl Device for RecordingDevice {
             .copy_from_slice(&value.to_le_bytes()[..usize::from(bytes)]);
     }
 
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         self.transfers.push(Transfer::PortRead { port, bytes });
         self.port
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         self.transfers
             .push(Transfer::PortWrite { port, bytes, value });
         self.port = value;

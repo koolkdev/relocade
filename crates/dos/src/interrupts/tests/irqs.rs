@@ -1,7 +1,9 @@
 use super::*;
 use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
 use relocade_bios::KeyMode;
-use relocade_machine::{Cpu, CpuConfig, Device, DeviceConnection, IoBus, MachineConfig, Memory};
+use relocade_machine::{
+    Cpu, CpuConfig, Device, DeviceConnection, IoBus, IoContext, MachineConfig, Memory,
+};
 use relocade_vga::Vga;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
@@ -27,7 +29,7 @@ impl Irq {
 }
 
 impl Device for Irq {
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         if std::mem::take(&mut self.pending) {
             self.acknowledged += 1;
             Poll::Ready(8)

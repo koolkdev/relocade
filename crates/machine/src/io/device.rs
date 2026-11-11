@@ -1,3 +1,4 @@
+use super::IoContext;
 use std::{
     cell::RefCell,
     future::{ready, Future},
@@ -15,6 +16,8 @@ use std::{
 /// transfer borrows the device mutably. Callbacks must not reenter guest execution
 /// or access the same device recursively. Publish owned observations separately
 /// when another worker needs to display or inspect device output.
+/// Use the supplied [`IoContext`] to forward I/O;
+/// host convenience methods acquire a separate stopped-runtime borrow.
 pub trait Device {
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
     /// Connection waits for the first poll, which installs this activity's wake
@@ -28,26 +31,26 @@ pub trait Device {
         ready(())
     }
 
-    fn read_mmio(&mut self, _address: u32, _bytes: u8) -> u64 {
+    fn read_mmio(&mut self, _context: IoContext<'_>, _address: u32, _bytes: u8) -> u64 {
         u64::MAX
     }
 
-    fn write_mmio(&mut self, _address: u32, _bytes: u8, _value: u64) {}
+    fn write_mmio(&mut self, _context: IoContext<'_>, _address: u32, _bytes: u8, _value: u64) {}
 
     /// Reads 1, 2 or 4 bytes from a port. Only the low `bytes` bytes of the
     /// result are consumed; unused upper bits need not be cleared.
-    fn read_port(&mut self, _port: u16, _bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8) -> u32 {
         u32::MAX
     }
 
     /// Writes 1, 2 or 4 bytes to a port, with unused upper value bits cleared.
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {}
 
     /// Supplies and acknowledges one pending maskable interrupt vector.
     /// Retain requests until polled. Return Pending and register the waker when a
     /// future request should wake a waiting CPU. This callback must not reenter
     /// guest execution. The default never raises interrupts.
-    fn poll_interrupt(&mut self, _cx: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, _cx: &mut Context<'_>) -> Poll<u8> {
         Poll::Pending
     }
 }

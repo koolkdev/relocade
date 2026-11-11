@@ -1,6 +1,7 @@
 //! In-flight target changes and driver lifetime.
 
 use super::*;
+use relocade_machine::IoContext;
 use relocade_machine::Sleep;
 use std::{
     future::Future,
@@ -33,11 +34,11 @@ impl ReprogrammedTimer {
 }
 
 impl Device for ReprogrammedTimer {
-    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
         self.reprogram();
     }
 
-    fn write_mmio(&mut self, _: u32, _: u8, _: u64) {
+    fn write_mmio(&mut self, _context: IoContext<'_>, _: u32, _: u8, _: u64) {
         self.reprogram();
     }
 }

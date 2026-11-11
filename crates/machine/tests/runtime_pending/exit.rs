@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Cpu, Device, DeviceConnection, ExitHandle, IoBus, Memory};
+use relocade_machine::{Cpu, Device, DeviceConnection, ExitHandle, IoBus, IoContext, Memory};
 
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
@@ -174,7 +174,7 @@ async fn exit_during_poll() {
 #[derive(Default)]
 struct ExitDevice(Option<ExitHandle>);
 impl Device for ExitDevice {
-    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
         self.0.as_ref().unwrap().request();
     }
 }

@@ -10,28 +10,33 @@ use std::{
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
-    let mut pic = Pic::default();
-    pic.unmask_irq(KEYBOARD_IRQ);
-    let controller = Controller::new(&pic, [Port::Keyboard, Port::Auxiliary]);
-    let mut firmware = pin!(controller.run());
-    let mut cx = Context::from_waker(Waker::noop());
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let mut pic = Pic::default();
+        pic.unmask_irq(KEYBOARD_IRQ);
+        let controller = Controller::new(&pic, [Port::Keyboard, Port::Auxiliary]);
+        let mut firmware = pin!(controller.run());
+        let mut cx = Context::from_waker(Waker::noop());
 
-    // Supply keyboard bytes directly to the controller. Their arrival relative
-    // to guest writes must not depend on how often the keyboard task is polled.
-    assert!(pin!(controller.send(Port::Keyboard, 0xf0))
-        .poll(&mut cx)
-        .is_ready());
-    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-    controller.write(STATUS_COMMAND_PORT, 0x60); // Write command byte.
-    assert!(firmware.as_mut().poll(&mut cx).is_pending());
-    controller.write(DATA_PORT, 0x44); // Disable IRQ1, retaining translation.
-    assert!(firmware.as_mut().poll(&mut cx).is_pending());
-    assert!(pin!(controller.send(Port::Keyboard, 0x1c))
-        .poll(&mut cx)
-        .is_ready());
-    assert_ne!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-    assert_eq!(pic.poll_interrupt(&mut cx), Poll::Pending);
-    assert_eq!(controller.read_data(), 0x9e);
+        // Supply keyboard bytes directly to the controller. Their arrival relative
+        // to guest writes must not depend on how often the keyboard task is polled.
+        assert!(pin!(controller.send(Port::Keyboard, 0xf0))
+            .poll(&mut cx)
+            .is_ready());
+        assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+        controller.write(STATUS_COMMAND_PORT, 0x60); // Write command byte.
+        assert!(firmware.as_mut().poll(&mut cx).is_pending());
+        controller.write(DATA_PORT, 0x44); // Disable IRQ1, retaining translation.
+        assert!(firmware.as_mut().poll(&mut cx).is_pending());
+        assert!(pin!(controller.send(Port::Keyboard, 0x1c))
+            .poll(&mut cx)
+            .is_ready());
+        assert_ne!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+        assert_eq!(
+            pic.poll_interrupt(context.reborrow(), &mut cx),
+            Poll::Pending
+        );
+        assert_eq!(controller.read_data(), 0x9e);
+    })
 }
 
 fn write(
@@ -49,59 +54,72 @@ fn write(
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
-    let mut pic = Pic::default();
-    for irq in [
-        KEYBOARD_IRQ,
-        relocade_pic::CASCADE_IRQ,
-        relocade_pic::MOUSE_IRQ,
-    ] {
-        pic.unmask_irq(irq);
-    }
-    let controller = Controller::new(&pic, [Port::Keyboard, Port::Auxiliary]);
-    let mut firmware = pin!(controller.run());
-    let mut cx = Context::from_waker(Waker::noop());
-    let mut mouse = pin!(controller.send(Port::Auxiliary, 0xf0));
-    assert!(
-        mouse.as_mut().poll(&mut cx).is_pending(),
-        "auxiliary interface starts disabled"
-    );
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa8);
-    assert!(mouse.as_mut().poll(&mut cx).is_ready());
-    assert_eq!(controller.status() & 0x21, 0x21);
-    assert_eq!(
-        pic.poll_interrupt(&mut cx),
-        Poll::Pending,
-        "IRQ12 starts disabled"
-    );
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x60);
-    write(&controller, firmware.as_mut(), DATA_PORT, 0x47);
-    assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(0x74));
-    assert_eq!(
-        controller.read_data(),
-        0xf0,
-        "auxiliary F0 is not a break prefix"
-    );
-    assert_eq!(controller.status() & 0x21, 0);
-    pic.write_port(relocade_pic::SLAVE_COMMAND_PORT, 1, 0x20);
-    pic.write_port(relocade_pic::COMMAND_PORT, 1, 0x20);
-    assert!(pin!(controller.send(Port::Keyboard, 0x1c))
-        .poll(&mut cx)
-        .is_ready());
-    assert_eq!(controller.status() & 0x21, 1);
-    assert_eq!(pic.poll_interrupt(&mut cx), Poll::Ready(9));
-    assert_eq!(controller.read_data(), 0x1e);
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa7);
-    assert!(pin!(controller.send(Port::Auxiliary, 1))
-        .poll(&mut cx)
-        .is_pending());
-    assert!(pin!(controller.send(Port::Keyboard, 0x32))
-        .poll(&mut cx)
-        .is_ready());
-    assert_eq!(
-        controller.read_data(),
-        0x30,
-        "auxiliary inhibit leaves keyboard enabled"
-    );
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let mut pic = Pic::default();
+        for irq in [
+            KEYBOARD_IRQ,
+            relocade_pic::CASCADE_IRQ,
+            relocade_pic::MOUSE_IRQ,
+        ] {
+            pic.unmask_irq(irq);
+        }
+        let controller = Controller::new(&pic, [Port::Keyboard, Port::Auxiliary]);
+        let mut firmware = pin!(controller.run());
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut mouse = pin!(controller.send(Port::Auxiliary, 0xf0));
+        assert!(
+            mouse.as_mut().poll(&mut cx).is_pending(),
+            "auxiliary interface starts disabled"
+        );
+        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa8);
+        assert!(mouse.as_mut().poll(&mut cx).is_ready());
+        assert_eq!(controller.status() & 0x21, 0x21);
+        assert_eq!(
+            pic.poll_interrupt(context.reborrow(), &mut cx),
+            Poll::Pending,
+            "IRQ12 starts disabled"
+        );
+        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x60);
+        write(&controller, firmware.as_mut(), DATA_PORT, 0x47);
+        assert_eq!(
+            pic.poll_interrupt(context.reborrow(), &mut cx),
+            Poll::Ready(0x74)
+        );
+        assert_eq!(
+            controller.read_data(),
+            0xf0,
+            "auxiliary F0 is not a break prefix"
+        );
+        assert_eq!(controller.status() & 0x21, 0);
+        pic.write_port(
+            context.reborrow(),
+            relocade_pic::SLAVE_COMMAND_PORT,
+            1,
+            0x20,
+        );
+        pic.write_port(context.reborrow(), relocade_pic::COMMAND_PORT, 1, 0x20);
+        assert!(pin!(controller.send(Port::Keyboard, 0x1c))
+            .poll(&mut cx)
+            .is_ready());
+        assert_eq!(controller.status() & 0x21, 1);
+        assert_eq!(
+            pic.poll_interrupt(context.reborrow(), &mut cx),
+            Poll::Ready(9)
+        );
+        assert_eq!(controller.read_data(), 0x1e);
+        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa7);
+        assert!(pin!(controller.send(Port::Auxiliary, 1))
+            .poll(&mut cx)
+            .is_pending());
+        assert!(pin!(controller.send(Port::Keyboard, 0x32))
+            .poll(&mut cx)
+            .is_ready());
+        assert_eq!(
+            controller.read_data(),
+            0x30,
+            "auxiliary inhibit leaves keyboard enabled"
+        );
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

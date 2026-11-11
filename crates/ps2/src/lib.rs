@@ -13,7 +13,7 @@ use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
 };
-use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Runner};
+use relocade_machine::{Clock, Device, DeviceConnection, IoBus, IoContext, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -98,7 +98,7 @@ impl Device for Ps2Controller {
         .await;
     }
 
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         if bytes != 1 {
             return u32::MAX;
         }
@@ -109,7 +109,7 @@ impl Device for Ps2Controller {
         }
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         if bytes == 1 {
             self.controller.write(port, value as u8);
         }

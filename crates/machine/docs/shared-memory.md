@@ -98,9 +98,11 @@ Worker lifetime belongs to the application.
 
 ## Devices
 
-`Device` owns synchronous MMIO and port behavior. Its methods take `&mut self`,
-including reads that can change hardware state. `IoBus` holds immutable local
-connections, each containing an `Rc<RefCell<dyn Device>>` and the ranges it decodes:
+`Device` owns synchronous MMIO and port behavior. Its methods take `&mut self`
+and a mandatory `IoContext` as the first argument, including reads that can
+change hardware state. Nested device calls forward this context. `IoBus` holds
+immutable local connections, each containing an `Rc<RefCell<dyn Device>>` and the
+ranges it decodes:
 
 ```rust
 let io = IoBus::new([DeviceConnection {
@@ -140,7 +142,9 @@ synchronous call. The bus can be cloned within a worker, but cannot cross thread
 The CPU and `IoBus` retain the same `WasmRuntimeHandle`. It keeps the Wasm runtime
 alive and scopes exclusive access to synchronous operations. Native `WasmRuntime`
 directly owns its Wasmtime store. Wasm callbacks capture weak bus routing references,
-so retaining the runtime does not create a cycle through the devices.
+so retaining the runtime does not create a cycle through the devices. They use
+the current callback context directly. Synchronous host transfers briefly borrow
+the stopped runtime; `IoBus::with_context` reuses that scope for a batch.
 Asynchronous host services retain the bus without holding a device borrow.
 Dropping the CPU releases its handles; retained `MemoryBus` or `IoBus` handles
 keep the devices and runtime alive. Each bus supports one CPU over its lifetime,
