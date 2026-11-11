@@ -86,7 +86,7 @@ fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
         1,
         AccessResult::Fault(crate::Exception::GeneralProtection { error_code: 0 }),
     );
-    cpu.segments.cs = SegmentRegister::flat_code32(0);
+    cpu.segments.cs = SegmentRegister::flat_code32(0x1b);
     cpu.segments.fs.limit = 0x22;
     expect_address(
         &read,

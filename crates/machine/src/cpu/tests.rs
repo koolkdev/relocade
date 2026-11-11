@@ -154,9 +154,8 @@ fn live_mode_and_width_queries_read_published_state() {
 }
 
 #[test]
-fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
+fn restore_rejects_incompatible_control_state_without_writing() {
     use relocade_x86::SegmentProfile;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     for config in [
         configuration(),
@@ -183,6 +182,26 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
             );
             assert_eq!(cpu.snapshot(), before);
         }
+    }
+}
+
+// Browser Wasm aborts on panic, so post-panic state checks run natively.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
+    use relocade_x86::SegmentProfile;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    for config in [
+        configuration(),
+        CpuConfig::new(
+            Compiler::new(SegmentProfile::Flat32).target(),
+            CpuState::default(),
+        )
+        .unwrap(),
+    ] {
+        let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+        let before = cpu.snapshot();
         assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_eflags(0x202 | (1 << 17)))).is_err());
         assert_eq!(cpu.snapshot(), before);
     }
