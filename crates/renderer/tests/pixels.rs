@@ -294,23 +294,22 @@ async fn check_shared_output(device: &wgpu::Device, queue: &wgpu::Queue) {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn check_text_screen(device: &wgpu::Device, queue: &wgpu::Queue) {
-    use relocade_machine::{Device, IoBus};
-    use relocade_vga::{Vga, TEXT_MEMORY_START};
+    use relocade_vga::TEXT_MEMORY_START;
     use std::time::Duration;
     let clock = relocade_clock_test_support::ManualClock::new();
-    let mut vga = Vga::with_clock(clock.clock());
-    vga_fixture::initialize_font(&mut vga);
-    IoBus::default().with_context(|mut context| {
-        for cell in 0..2000 {
-            vga.write_mmio(context.reborrow(), TEXT_MEMORY_START + cell * 2, 2, 0x0720);
-        }
-        vga.write_mmio(context.reborrow(), TEXT_MEMORY_START, 2, 0x1edb);
-        for value in [0x070e, 0xcf0f, 0x060a, 0x070b] {
-            vga.write_port(context.reborrow(), 0x3d4, 2, value);
-        }
-        clock.advance_to(clock.at(Duration::from_millis(20)));
-        vga.read_port(context, 0x3da, 1);
-    });
+    let vga = vga_fixture::ConnectedVga::new(clock.clock());
+    vga_fixture::initialize_font(&vga.io);
+
+    for cell in 0..2000 {
+        vga.io.write_mmio(TEXT_MEMORY_START + cell * 2, 2, 0x0720);
+    }
+    vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
+    for value in [0x070e, 0xcf0f, 0x060a, 0x070b] {
+        vga.io.write_port(0x3d4, 2, value);
+    }
+    clock.advance_to(clock.at(Duration::from_millis(20)));
+    vga.io.read_port(0x3da, 1);
+
     let frame = software::rasterize(&vga.snapshot());
     let size = [frame.width, frame.height];
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;

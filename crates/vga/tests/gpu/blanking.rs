@@ -1,18 +1,18 @@
 //! Literal blanking edges, independent of the CPU text reference.
 use super::{common, graphics::Gpu};
+use crate::common::fixture::ConnectedVga;
 use common::support::{
     indexed256, planar16,
     registers::{indexed, palette},
 };
 use relocade_clock_test_support::ManualClock;
-use relocade_vga::Vga;
 
-fn device(layout: u8, columns: u8, lines: u8) -> Vga {
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
+fn device(layout: u8, columns: u8, lines: u8) -> ConnectedVga {
+    let vga = ConnectedVga::new(ManualClock::new().clock());
     match layout {
-        0 | 1 => indexed(&mut vga, 0x3c4, 1, layout), // Nine/eight-dot text.
-        2 => planar16::program(&mut vga),
-        3 => indexed256::program(&mut vga),
+        0 | 1 => indexed(&vga.io, 0x3c4, 1, layout), // Nine/eight-dot text.
+        2 => planar16::program(&vga.io),
+        3 => indexed256::program(&vga.io),
         _ => unreachable!(),
     }
     for (index, value) in [
@@ -27,11 +27,11 @@ fn device(layout: u8, columns: u8, lines: u8) -> Vga {
         (0x15, 255),
         (0x18, 255),
     ] {
-        common::crtc(&mut vga, index, value);
+        common::crtc(&vga.io, index, value);
     }
     // Every zero-filled pixel uses this bright DAC entry. Blank output must
     // still be opaque black, not palette color zero or the overscan color.
-    palette(&mut vga, 0, [63, 63, 63]);
+    palette(&vga.io, 0, [63, 63, 63]);
     vga
 }
 
@@ -53,8 +53,8 @@ fn expected(size: [u32; 2], blank: impl Fn(u32, u32) -> bool) -> Vec<u8> {
 async fn check_horizontal() {
     let mut gpu = Gpu::new().await;
     for layout in 0..4 {
-        let mut vga = device(layout, 80, 2);
-        common::crtc(&mut vga, 0, 95); // 100 character clocks per line.
+        let vga = device(layout, 80, 2);
+        common::crtc(&vga.io, 0, 95); // 100 character clocks per line.
         let clock_width = if layout == 0 { 9 } else { 8 };
         let pixel_width = clock_width / if layout == 3 { 2 } else { 1 };
         let size = [80 * pixel_width, 2];
@@ -65,9 +65,9 @@ async fn check_horizontal() {
             (97, 1, 0, 0..2),    // Blanking crosses the total-counter reset.
             (2, 5, 2, 1..4),     // Display-enable skew moves the crop origin.
         ] {
-            common::crtc(&mut vga, 2, start);
-            common::crtc(&mut vga, 3, 0x80 | (skew << 5) | (end & 31));
-            common::crtc(&mut vga, 5, (end & 32) << 2);
+            common::crtc(&vga.io, 2, start);
+            common::crtc(&vga.io, 3, 0x80 | (skew << 5) | (end & 31));
+            common::crtc(&vga.io, 5, (end & 32) << 2);
             let capture = vga.snapshot();
             gpu.expect(
                 &capture,
@@ -79,7 +79,7 @@ async fn check_horizontal() {
         // Only registers change between these captures; retaining the earlier
         // one must retain its blanking even after later state has been uploaded.
         let earlier = vga.snapshot();
-        common::crtc(&mut vga, 2, 255); // Unreachable start.
+        common::crtc(&vga.io, 2, 255); // Unreachable start.
         gpu.expect(&vga.snapshot(), size, &expected(size, |_, _| false))
             .await;
         gpu.expect(
@@ -93,7 +93,7 @@ async fn check_horizontal() {
 
 async fn check_vertical() {
     let mut gpu = Gpu::new().await;
-    let mut vga = device(3, 1, 20);
+    let vga = device(3, 1, 20);
     for (start, end, repeat, divisor, height, step, blank_rows) in [
         (2, 4, 1, 1, 20, 1, vec![3, 4]),
         (2, 0x84, 2, 1, 20, 1, vec![3, 4]), // End bit seven is ignored.
@@ -113,7 +113,7 @@ async fn check_vertical() {
             (0x15, start),
             (0x16, end),
         ] {
-            common::crtc(&mut vga, index, value);
+            common::crtc(&vga.io, index, value);
         }
         let capture = vga.snapshot();
         assert_eq!(capture.vga().unwrap().geometry().scanline_step, step);
@@ -135,7 +135,7 @@ async fn check_vertical() {
         (0x16, 5),
         (0x17, 0xa3),
     ] {
-        common::crtc(&mut vga, index, value);
+        common::crtc(&vga.io, index, value);
     }
     let size = [4, 776];
     gpu.expect(

@@ -1,9 +1,9 @@
 use super::{common, pixel, read_pixels};
+use crate::common::fixture::ConnectedVga;
 use common::support::{planar16, registers::palette, svga};
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
-use relocade_machine::Device;
-use relocade_vga::{Vga, VgaDisplay, VgaRenderer};
+use relocade_vga::{VgaDisplay, VgaRenderer};
 
 async fn check_indexed_resolutions() {
     let adapter = wgpu::Instance::default()
@@ -13,14 +13,14 @@ async fn check_indexed_resolutions() {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
     for (width, height) in [(800, 600), (1024, 768)] {
-        let mut vga = Vga::with_clock(ManualClock::new().clock());
-        svga::set_mode(&mut vga, width, height, 8);
-        palette(&mut vga, 0, [0, 0, 0]);
-        palette(&mut vga, 1, [63, 0, 0]);
+        let vga = ConnectedVga::new(ManualClock::new().clock());
+        svga::set_mode(&vga.io, width, height, 8);
+        palette(&vga.io, 0, [0, 0, 0]);
+        palette(&vga.io, 1, [63, 0, 0]);
         let [width, height] = [u32::from(width), u32::from(height)];
         let edges = [0, width - 1, width, width * height - 1];
         for address in edges {
-            svga::write_byte(&mut vga, address, 1);
+            svga::write_byte(&vga.io, address, 1);
         }
         let capture = vga.snapshot();
         drop(vga);
@@ -62,22 +62,22 @@ async fn check_virtual_layout() {
         .unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    svga::enable(&mut vga);
-    palette(&mut vga, 0, [0, 0, 0]);
-    palette(&mut vga, 1, [63, 0, 0]);
-    palette(&mut vga, 2, [0, 63, 0]);
-    svga::set(&mut vga, 6, 1024);
-    svga::set(&mut vga, 8, 384);
-    svga::set(&mut vga, 9, 3616);
+    let vga = ConnectedVga::new(ManualClock::new().clock());
+    svga::enable(&vga.io);
+    palette(&vga.io, 0, [0, 0, 0]);
+    palette(&vga.io, 1, [63, 0, 0]);
+    palette(&vga.io, 2, [0, 63, 0]);
+    svga::set(&vga.io, 6, 1024);
+    svga::set(&vga.io, 8, 384);
+    svga::set(&vga.io, 9, 3616);
     let start = 3616 * 1024 + 384;
     for address in [start, start + 639, start + 1024, 4194303] {
-        svga::write_byte(&mut vga, address, 1);
+        svga::write_byte(&vga.io, address, 1);
     }
-    svga::write_byte(&mut vga, start - 1, 2); // Row padding must not enter the image.
+    svga::write_byte(&vga.io, start - 1, 2); // Row padding must not enter the image.
     let corner = vga.snapshot();
-    svga::set(&mut vga, 8, 0);
-    svga::set(&mut vga, 9, 0);
+    svga::set(&vga.io, 8, 0);
+    svga::set(&vga.io, 9, 0);
     let origin = vga.snapshot();
     drop(vga);
     for (capture, visible) in [(&corner, true), (&origin, false), (&corner, true)] {
@@ -112,14 +112,12 @@ async fn virtual_layout_renders_pitch_origin_and_the_last_vram_byte() {
 }
 
 async fn check_packed_pixels() {
-    let device_io = relocade_machine::IoBus::default();
-
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    svga::enable(&mut vga);
+    let vga = ConnectedVga::new(ManualClock::new().clock());
+    svga::enable(&vga.io);
     for (index, rgb) in [
         (0, [0, 0, 0]),
         (1, [63, 0, 0]),
@@ -130,7 +128,7 @@ async fn check_packed_pixels() {
         (6, [0, 63, 63]),
         (7, [21, 42, 63]),
     ] {
-        palette(&mut vga, index, rgb);
+        palette(&vga.io, index, rgb);
     }
     for (address, index) in [
         (0, 129),
@@ -142,9 +140,9 @@ async fn check_packed_pixels() {
         (0x40000, 7),
         (307199, 1),
     ] {
-        svga::write_byte(&mut vga, address, index);
+        svga::write_byte(&vga.io, address, index);
     }
-    device_io.with_context(|context| vga.write_port(context, 0x3c6, 1, 0x7f)); // High palette indices obey the shared DAC mask.
+    vga.io.write_port(0x3c6, 1, 0x7f); // High palette indices obey the shared DAC mask.
     let original = vga.snapshot();
     assert!(renderer.upload(&queue, &original));
 
@@ -157,18 +155,18 @@ async fn check_packed_pixels() {
         (0x3d4, 0xff0c),
         (0x3ce, 0x6005),
     ] {
-        device_io.with_context(|context| vga.write_port(context, port, 2, value));
+        vga.io.write_port(port, 2, value);
     }
-    device_io.with_context(|context| vga.write_port(context, 0x3c0, 1, 0));
-    svga::set(&mut vga, 5, 63);
-    device_io.with_context(|context| vga.write_port(context, 0x3c8, 1, 200)); // DAC transfer position is not a display input.
+    vga.io.write_port(0x3c0, 1, 0);
+    svga::set(&vga.io, 5, 63);
+    vga.io.write_port(0x3c8, 1, 200); // DAC transfer position is not a display input.
     let unchanged = vga.snapshot();
     assert!(!renderer.upload(&queue, &unchanged));
-    palette(&mut vga, 1, [0, 0, 63]);
+    palette(&vga.io, 1, [0, 0, 63]);
     let recolored = vga.snapshot();
-    svga::write_byte(&mut vga, 0x40000, 0);
+    svga::write_byte(&vga.io, 0x40000, 0);
     let cleared = vga.snapshot();
-    svga::set(&mut vga, 4, 0);
+    svga::set(&vga.io, 4, 0);
     drop(vga);
 
     for (capture, edge, extended) in [
@@ -196,12 +194,12 @@ async fn check_packed_pixels() {
 
     // The uploaded scanout selects the decoder even when geometry and metadata
     // are identical. VGA also captures fewer VRAM blocks than packed scanout.
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    planar16::program(&mut vga);
+    let vga = ConnectedVga::new(ManualClock::new().clock());
+    planar16::program(&vga.io);
     for (index, rgb) in [(0, [0, 0, 0]), (1, [0, 63, 0]), (2, [63, 0, 0])] {
-        palette(&mut vga, index, rgb);
+        palette(&vga.io, index, rgb);
     }
-    planar16::write_pixels(&mut vga, &[2, 1, 0, 0, 0, 0, 0, 0]);
+    planar16::write_pixels(&vga.io, &[2, 1, 0, 0, 0, 0, 0, 0]);
     let legacy = vga.snapshot();
     drop(vga);
     assert_eq!(legacy.geometry(), original.geometry());
@@ -242,20 +240,18 @@ async fn packed_pixels_palette_and_retained_captures_render_independently_of_vga
 }
 
 async fn check_published_display() {
-    let device_io = relocade_machine::IoBus::default();
-
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
-    common::crtc(&mut *vga.borrow_mut(), 0x0a, 0x20);
-    common::fixture::set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    let source = vga.borrow().frames();
+    common::crtc(&vga.io, 0x0a, 0x20);
+    common::fixture::set_cell(&vga.io, 0, 0xdb, 4);
+    let source = vga.device.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
     let entered = common::boundary(1);
     clock.advance_to(clock.at(entered));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -263,21 +259,21 @@ async fn check_published_display() {
     queue.submit([encoder.finish()]);
     assert_eq!(legacy.size(), [640, 200]);
 
-    svga::enable(&mut *vga.borrow_mut());
-    palette(&mut *vga.borrow_mut(), 6, [42, 21, 0]);
-    svga::write_byte(&mut *vga.borrow_mut(), 0, 4);
-    svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 1);
+    svga::enable(&vga.io);
+    palette(&vga.io, 6, [42, 21, 0]);
+    svga::write_byte(&vga.io, 0, 4);
+    svga::write_byte(&vga.io, 0x40000, 1);
     clock.advance_to(clock.at(entered + common::svga_boundary(1)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     // Let two more publications pass without display service or GPU work.
-    svga::write_byte(&mut *vga.borrow_mut(), 0x40000, 5);
+    svga::write_byte(&vga.io, 0x40000, 5);
     clock.advance_to(clock.at(entered + common::svga_boundary(2)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
-    svga::write_byte(&mut *vga.borrow_mut(), 307199, 6);
+    svga::write_byte(&vga.io, 307199, 6);
     clock.advance_to(clock.at(entered + common::svga_boundary(3)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
 
     assert_eq!(display.service(&queue).await, Some(true));
@@ -321,8 +317,6 @@ async fn display_connection_handles_skipped_packed_captures_and_recovers_after_d
 }
 
 async fn check_direct_color() {
-    let device_io = relocade_machine::IoBus::default();
-
     let adapter = wgpu::Instance::default()
         .request_adapter(&Default::default())
         .await
@@ -355,11 +349,11 @@ async fn check_direct_color() {
             ],
         ),
     ] {
-        let mut vga = Vga::with_clock(ManualClock::new().clock());
-        svga::set_mode(&mut vga, 640, 480, bits);
-        svga::set(&mut vga, 6, 1024);
-        svga::set(&mut vga, 8, 384);
-        svga::set(&mut vga, 9, rows - 480);
+        let vga = ConnectedVga::new(ManualClock::new().clock());
+        svga::set_mode(&vga.io, 640, 480, bits);
+        svga::set(&vga.io, 6, 1024);
+        svga::set(&vga.io, 8, 384);
+        svga::set(&vga.io, 9, rows - 480);
         let pixel_bytes = u32::from(bits / 8);
         let start = u32::from(rows - 480) * pitch + 384 * pixel_bytes;
         let boundary_row = 65536 / pitch;
@@ -377,7 +371,7 @@ async fn check_direct_color() {
                 .copied()
                 .enumerate()
             {
-                svga::write_byte(&mut vga, address + byte as u32, value);
+                svga::write_byte(&vga.io, address + byte as u32, value);
             }
         }
         let original = vga.snapshot();
@@ -386,15 +380,15 @@ async fn check_direct_color() {
             Some(if bits == 16 { 0xf8 } else { 0xa5 })
         );
         assert!(renderer.upload(&queue, &original));
-        palette(&mut vga, 0, [63, 63, 63]);
-        device_io.with_context(|context| vga.write_port(context, 0x3c6, 1, 0));
+        palette(&vga.io, 0, [63, 63, 63]);
+        vga.io.write_port(0x3c6, 1, 0);
         let recolored = vga.snapshot();
         assert!(!renderer.upload(&queue, &recolored));
-        svga::set(&mut vga, 8, 0);
-        svga::set(&mut vga, 9, 0);
+        svga::set(&vga.io, 8, 0);
+        svga::set(&vga.io, 9, 0);
         let panned = vga.snapshot();
-        svga::enable(&mut vga);
-        svga::write_byte(&mut vga, 0, 1);
+        svga::enable(&vga.io);
+        svga::write_byte(&vga.io, 0, 1);
         let indexed = vga.snapshot();
         drop(vga);
         // The indexed capture must upload the DAC changes skipped in direct color.
