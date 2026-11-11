@@ -71,7 +71,20 @@ impl TestModule {
                 .any(|patches| !patches.machine.is_empty());
         let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
         let mut linker = Linker::new(engine);
-        ports::register(&mut linker);
+        if std::iter::once(module)
+            .chain(
+                self.interpreter
+                    .map(|interpreter| interpreter.module.wasmtime()),
+            )
+            .any(|module| {
+                module.imports().any(|import| {
+                    import.module() == "relocade"
+                        && matches!(import.name(), "portReads" | "portWrites")
+                })
+            })
+        {
+            ports::register(&mut linker, &mut store);
+        }
         linker
             .define(&store, "relocade", "executionContext", cpu.memory().clone())
             .unwrap();
