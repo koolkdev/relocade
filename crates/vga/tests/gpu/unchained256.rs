@@ -2,40 +2,34 @@ use super::{
     common,
     graphics::{load_palette, pixels, Gpu},
 };
+use crate::common::fixture::ConnectedVga;
 use common::support::{
     indexed256::{program, unchain},
     registers::{attribute, indexed},
 };
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::Device;
-use relocade_vga::Vga;
 
-fn start(vga: &mut impl Device, address: u16) {
+fn start(io: &relocade_machine::IoBus, address: u16) {
     let [high, low] = address.to_be_bytes();
-    indexed(vga, 0x3d4, 12, high);
-    indexed(vga, 0x3d4, 13, low);
+    indexed(io, 0x3d4, 12, high);
+    indexed(io, 0x3d4, 13, low);
 }
 
 async fn check_pages() {
-    let device_io = relocade_machine::IoBus::default();
-
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
-    let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
-    program(&mut *vga.borrow_mut());
-    unchain(&mut *vga.borrow_mut());
-    load_palette(&mut *vga.borrow_mut());
+    let (vga, mut video) = common::start_video(ConnectedVga::new(clock.clock()));
+    program(&vga.io);
+    unchain(&vga.io);
+    load_palette(&vga.io);
     // A wider virtual row leaves room to scroll the 320-pixel display. Four
     // pages cover the entire plane, with the last page wrapping through zero.
-    indexed(&mut *vga.borrow_mut(), 0x3d4, 0x13, 44); // 88 plane bytes = 352 pixels per row.
+    indexed(&vga.io, 0x3d4, 0x13, 44); // 88 plane bytes = 352 pixels per row.
     for plane in 0..4u8 {
-        indexed(&mut *vga.borrow_mut(), 0x3c4, 2, 1 << plane);
+        indexed(&vga.io, 0x3c4, 2, 1 << plane);
         for offset in 0..65536u32 {
             let color = (offset * 7 + (offset >> 8) * 29 + u32::from(plane) * 53) as u8;
-            device_io.with_context(|context| {
-                vga.borrow_mut()
-                    .write_mmio(context, 0xa0000 + offset, 1, u64::from(color))
-            });
+            vga.io.write_mmio(0xa0000 + offset, 1, u64::from(color));
         }
     }
     let expected = |base: u16, pan: u32, height: u32| {
@@ -47,21 +41,21 @@ async fn check_pages() {
             })
         }))
     };
-    let source = vga.borrow().frames();
+    let source = vga.device.borrow().frames();
     let mut retained = Vec::new();
     for (frame, base) in [0, 0x4000, 0x8000, 0xc000].into_iter().enumerate() {
-        start(&mut *vga.borrow_mut(), base);
+        start(&vga.io, base);
         // Programmed bytes already changed, but immediate snapshots still use
         // the previous latch. The shader must not decode the raw start bytes.
         let previous_base = frame.saturating_sub(1) as u16 * 0x4000;
         gpu.expect(
-            &common::snapshot(&vga),
+            &vga.snapshot(),
             [320, 200],
             &expected(previous_base, 0, 200),
         )
         .await;
         clock.advance_to(clock.at(common::boundary(frame as u64 + 1)));
-        device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+        vga.io.read_port(0x3da, 1);
         common::service_video(video.as_mut());
         let capture = source.try_recv().unwrap();
         gpu.expect(&capture, [320, 200], &expected(base, 0, 200))
@@ -69,7 +63,7 @@ async fn check_pages() {
         retained.push(capture);
     }
     // Program a 525-line raster with 480 visible, repeated scanlines.
-    device_io.with_context(|context| vga.borrow_mut().write_port(context, 0x3c2, 1, 0xe3));
+    vga.io.write_port(0x3c2, 1, 0xe3);
     for (index, value) in [
         (6, 0x0b),
         (7, 0x3e),
@@ -79,43 +73,36 @@ async fn check_pages() {
         (0x16, 4),
         (0x11, 0x8c),
     ] {
-        indexed(&mut *vga.borrow_mut(), 0x3d4, index, value);
+        indexed(&vga.io, 0x3d4, index, value);
     }
-    gpu.expect(
-        &common::snapshot(&vga),
-        [320, 240],
-        &expected(0xc000, 0, 240),
-    )
-    .await;
+    gpu.expect(&vga.snapshot(), [320, 240], &expected(0xc000, 0, 240))
+        .await;
     let reset_at = common::boundary(4);
-    program(&mut *vga.borrow_mut());
-    unchain(&mut *vga.borrow_mut());
-    indexed(&mut *vga.borrow_mut(), 0x3d4, 0x13, 44);
+    program(&vga.io);
+    unchain(&vga.io);
+    indexed(&vga.io, 0x3d4, 0x13, 44);
     // A one-byte display-start shift scrolls four pixels. Pel panning then
     // crosses the plane group without changing which byte each plane stores.
-    start(&mut *vga.borrow_mut(), 0x8001);
-    attribute(&mut *vga.borrow_mut(), 0x13, 6);
+    start(&vga.io, 0x8001);
+    attribute(&vga.io, 0x13, 6);
     clock.advance_to(clock.at(reset_at + common::boundary(1)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     let panned = source.try_recv().unwrap();
     let mut changed = expected(0x8001, 3, 200);
     gpu.expect(&panned, [320, 200], &changed).await;
 
     // Change one plane at two nonadjacent physical pages and publish a diff.
-    indexed(&mut *vga.borrow_mut(), 0x3c4, 2, 4);
+    indexed(&vga.io, 0x3c4, 2, 4);
     for (x, y) in [(3, 1), (107, 101)] {
         let panned_x = x + 3;
         let offset = 0x8001 + y * 88 + panned_x / 4;
-        device_io.with_context(|context| {
-            vga.borrow_mut()
-                .write_mmio(context, 0xa0000 + offset, 1, 0xf1)
-        });
+        vga.io.write_mmio(0xa0000 + offset, 1, 0xf1);
         changed[((y * 320 + x) * 4) as usize..((y * 320 + x) * 4 + 4) as usize]
             .copy_from_slice(&super::graphics::color(0xf1).1);
     }
     clock.advance_to(clock.at(reset_at + common::boundary(2)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     gpu.expect(&source.try_recv().unwrap(), [320, 200], &changed)
         .await;
@@ -130,30 +117,25 @@ async fn check_pages() {
 }
 
 async fn check_split() {
-    let device_io = relocade_machine::IoBus::default();
-
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    program(&mut vga);
-    unchain(&mut vga);
-    load_palette(&mut vga);
+    let vga = ConnectedVga::new(clock.clock());
+    program(&vga.io);
+    unchain(&vga.io);
+    load_palette(&vga.io);
     for plane in 0..4u8 {
-        indexed(&mut vga, 0x3c4, 2, 1 << plane);
+        indexed(&vga.io, 0x3c4, 2, 1 << plane);
         for address in 0..32u8 {
-            device_io.with_context(|context| {
-                vga.write_mmio(
-                    context,
-                    0xa0000 + u32::from(address),
-                    1,
-                    u64::from(address * 4 + plane),
-                )
-            });
+            vga.io.write_mmio(
+                0xa0000 + u32::from(address),
+                1,
+                u64::from(address * 4 + plane),
+            );
         }
     }
-    start(&mut vga, 1);
+    start(&vga.io, 1);
     clock.advance_to(clock.at(common::boundary(1)));
-    device_io.with_context(|context| vga.read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     // Eight pixels from a 24-pixel virtual row, beginning halfway through a
     // repeated row. Split after three physical scanlines; byte and pel pan both
     // cross four-plane groups above the split.
@@ -166,12 +148,12 @@ async fn check_split() {
         (0x13, 3),
         (0x18, 2),
     ] {
-        indexed(&mut vga, 0x3d4, index, value);
+        indexed(&vga.io, 0x3d4, index, value);
     }
-    attribute(&mut vga, 0x13, 6);
-    attribute(&mut vga, 0x10, 0x61);
+    attribute(&vga.io, 0x13, 6);
+    attribute(&vga.io, 0x10, 0x61);
     let reset_pan = vga.snapshot();
-    attribute(&mut vga, 0x10, 0x41);
+    attribute(&vga.io, 0x10, 0x41);
     let keep_pan = vga.snapshot();
     drop(vga);
     gpu.expect(

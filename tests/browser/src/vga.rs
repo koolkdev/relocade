@@ -38,7 +38,6 @@ pub async fn vga_workers() -> Result<(), String> {
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let cpu_task = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
-        crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frames()).is_ok());
 
         runner
@@ -47,6 +46,7 @@ pub async fn vga_workers() -> Result<(), String> {
                 io.map_ports(PORT_RANGES);
             })
             .await;
+        crate::vga_fixture::initialize_font(&runner.io());
         let io = runner.io();
         let memory = runner.memory();
         memory

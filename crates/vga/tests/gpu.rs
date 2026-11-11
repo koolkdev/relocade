@@ -52,9 +52,9 @@ async fn check_image() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let mut vga = text_device();
-    set_cell(&mut vga, 0, b'F', 0x6f);
-    set_cell(&mut vga, 1999, 0xdb, 0x09);
+    let vga = text_device();
+    set_cell(&vga.io, 0, b'F', 0x6f);
+    set_cell(&vga.io, 1999, 0xdb, 0x09);
     let input = vga.snapshot();
     let mut encoder = device.create_command_encoder(&Default::default());
     renderer.upload(&queue, &input);
@@ -84,8 +84,8 @@ async fn check_image() {
     let image = frame.clone();
 
     // Another snapshot updates reusable storage, including retained Image handles.
-    let mut vga = text_device();
-    set_cell(&mut vga, 0, 0xdb, 4);
+    let vga = text_device();
+    set_cell(&vga.io, 0, 0xdb, 4);
     let other = vga.snapshot();
     let mut encoder = device.create_command_encoder(&Default::default());
     renderer.upload(&queue, &other);
