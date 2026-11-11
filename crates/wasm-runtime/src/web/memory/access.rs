@@ -1,33 +1,22 @@
 use super::Transfers;
 use crate::{Load, MemoryValue, Store};
-use std::cell::Ref;
 
-/// Keeps the store borrowed when needed; an existing owner needs no extra guard.
-pub(crate) enum MemoryRegion<'a> {
-    Borrowed(&'a Transfers),
-    Stored(Ref<'a, Transfers>),
-}
+/// Borrows a retained allocation for the current engine access scope.
+pub(crate) struct MemoryRegion<'a>(pub(super) &'a Transfers);
 
 impl MemoryRegion<'_> {
-    fn transfers(&self) -> &Transfers {
-        match self {
-            Self::Borrowed(transfers) => transfers,
-            Self::Stored(transfers) => transfers,
-        }
-    }
-
     pub(crate) fn reborrow(&mut self) -> MemoryRegion<'_> {
-        MemoryRegion::Borrowed(self.transfers())
+        MemoryRegion(self.0)
     }
 
     #[inline]
     pub(crate) fn read(&self, offset: u32, bytes: &mut [u8]) {
-        self.transfers().read(offset, bytes);
+        self.0.read(offset, bytes);
     }
 
     #[inline]
     pub(crate) fn write(&self, offset: u32, bytes: &[u8]) {
-        self.transfers().write(offset, bytes);
+        self.0.write(offset, bytes);
     }
 }
 
@@ -37,7 +26,7 @@ where
 {
     #[inline]
     fn load(&self, offset: u32) -> V {
-        self.transfers().load(offset)
+        self.0.load(offset)
     }
 }
 
@@ -47,6 +36,6 @@ where
 {
     #[inline]
     fn store(&mut self, offset: u32, value: V) {
-        self.transfers().store(offset, value);
+        self.0.store(offset, value);
     }
 }

@@ -8,9 +8,10 @@ use js_sys::{Object, Reflect, SharedArrayBuffer, WebAssembly};
 use std::{fmt, rc::Rc};
 use wasm_bindgen::JsCast;
 
-/// A key to memory owned by one backend. Access requires that backend or its context.
+/// Retains a browser allocation on its JavaScript thread. Access requires a
+/// scoped engine context so private views cannot overlap guest execution.
 #[derive(Clone, Debug)]
-pub struct Memory(pub(super) usize);
+pub struct Memory(pub(super) Rc<Allocation>);
 
 pub(crate) struct Allocation {
     pub(super) memory: WebAssembly::Memory,
@@ -33,7 +34,7 @@ impl Allocation {
 
     #[inline]
     pub(super) fn access(&self) -> MemoryAccess<'_> {
-        MemoryAccess::new(MemoryRegion::Borrowed(&self.transfers))
+        MemoryAccess::new(MemoryRegion(&self.transfers))
     }
 }
 
@@ -177,5 +178,37 @@ where
     #[inline]
     fn store(&mut self, offset: u32, value: V) {
         (&self.allocation.transfers).store(offset, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Backend, WasmBackend};
+    use relocade_compiler::abi;
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    fn private_allocations_follow_retained_memory_handles() {
+        let mut backend = Backend::new().unwrap();
+        let memory = backend
+            .create_memory(abi::Memory::new("test", "memory", 1))
+            .unwrap();
+        let lifetime = Rc::downgrade(&memory.0);
+        let alias = memory.clone();
+        drop(memory);
+        assert!(lifetime.upgrade().is_some());
+        drop(alias);
+        assert!(lifetime.upgrade().is_none());
+
+        let memory = backend
+            .create_memory(abi::Memory::new("test", "retained", 1))
+            .unwrap();
+        let lifetime = Rc::downgrade(&memory.0);
+        drop(backend);
+        assert!(lifetime.upgrade().is_some());
+        drop(memory);
+        assert!(lifetime.upgrade().is_none());
     }
 }

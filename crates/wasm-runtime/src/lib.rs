@@ -109,15 +109,16 @@ pub trait WasmContext: WasmMemoryAccess + WasmTableAccess {
     fn state_mut(&mut self) -> &mut Self::State;
 }
 
-/// One thread-local Wasm resource owner. Memory keys implement Send + Sync on
-/// both backends; accessing a key requires its owning backend or context.
+/// One thread-local Wasm resource owner. Accessing memory requires its owning
+/// backend or context; resource handles may belong to that engine's thread.
 /// Preparation futures and environment state need not be Send. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`FunctionContext`]; callable exports retain their signature through [`ExportFunction`].
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
-/// Execution requires the owning backend, which retains its state and memories.
+/// Execution requires the owning backend. Resource handles retain or identify
+/// their engine allocation; backend state has a separate lifetime.
 /// Create a backend on the thread that will run it; transfer compiled modules and
 /// shared memories between owners instead of moving an execution environment.
 ///

@@ -11,9 +11,10 @@ pub use value::MemoryValue;
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
 /// range; violating this storage invariant is a programming error.
 pub trait WasmMemoryAccess {
-    /// A handle to engine-owned memory that host functions can capture. Access to
-    /// the contents still requires the owning backend or its scoped context.
-    type Memory: Clone + Send + Sync + 'static;
+    /// A handle to engine-owned memory that host functions can capture. Handles
+    /// may belong to the engine's thread; use shared memory for worker transfers.
+    /// Access to contents requires the owning backend or its scoped context.
+    type Memory: Clone + 'static;
 
     /// Binds the allocation for a stopped phase. Drop the view before entering
     /// Wasm through this backend or context again.

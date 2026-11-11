@@ -29,19 +29,6 @@ pub struct Backend<T = ()> {
 
 struct Store<T> {
     state: T,
-    memories: Vec<Rc<memory::Allocation>>,
-}
-
-impl<T> Store<T> {
-    fn memory(&self, memory: &Memory) -> &Rc<memory::Allocation> {
-        &self.memories[memory.0]
-    }
-
-    fn insert_memory(&mut self, allocation: Rc<memory::Allocation>) -> Memory {
-        let memory = Memory(self.memories.len());
-        self.memories.push(allocation);
-        memory
-    }
 }
 
 /// Compiled code whose JavaScript handle can be posted to another worker.
@@ -81,10 +68,7 @@ impl<T: 'static> Backend<T> {
                 Rc::new(ModuleCache::default());
         }
         Ok(Self {
-            store: Rc::new(RefCell::new(Store {
-                state,
-                memories: Vec::new(),
-            })),
+            store: Rc::new(RefCell::new(Store { state })),
             modules: MODULES.with(Rc::clone),
         })
     }
@@ -127,12 +111,11 @@ impl<T: 'static> WasmBackend for Backend<T> {
         let memory =
             memory::allocate(declaration.minimum, declaration.maximum, declaration.shared)?;
         let allocation = Rc::new(memory::Allocation::new(memory, declaration.shared)?);
-        Ok(self.store.borrow_mut().insert_memory(allocation))
+        Ok(Memory(allocation))
     }
 
     fn shared_memory(&self, memory: &Memory) -> Option<SharedMemory> {
-        let store = self.store.borrow();
-        let allocation = store.memory(memory);
+        let allocation = &memory.0;
         allocation
             .memory
             .buffer()
@@ -143,9 +126,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn import_shared_memory(&mut self, memory: &SharedMemory) -> Memory {
-        self.store
-            .borrow_mut()
-            .insert_memory(Rc::clone(&memory.allocation))
+        Memory(Rc::clone(&memory.allocation))
     }
 
     fn allocate_table(
@@ -158,8 +139,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn ensure_memory_size(&mut self, memory: &Self::Memory, byte_len: u64) -> Result<()> {
-        let store = self.store.borrow();
-        let memory = &store.memory(memory).memory;
+        let memory = &memory.0.memory;
         let pages = byte_len.div_ceil(65536);
         let current = memory::size(memory)?;
         if pages > current {
@@ -194,9 +174,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
                 namespace.unchecked_into::<Object>()
             };
             let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => {
-                    self.store.borrow().memory(memory).memory.clone().into()
-                }
+                ImportValue::Memory(memory) => memory.0.memory.clone().into(),
                 ImportValue::Table(table) => (*table).clone().into(),
                 ImportValue::Function(function) => function.clone().into(),
             };
@@ -212,10 +190,7 @@ impl<T> WasmMemoryAccess for Backend<T> {
     type Memory = Memory;
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
-        MemoryAccess::new(MemoryRegion::Stored(Ref::map(
-            self.store.borrow(),
-            |store| &store.memory(memory).transfers,
-        )))
+        memory.0.access()
     }
 }
 
