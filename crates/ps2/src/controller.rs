@@ -1,8 +1,7 @@
 //! Shared 8042 registers, command routing and keyboard wire translation.
 
 use crate::{
-    protocol::controller::*, scancodes, AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL,
-    OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
+    protocol::controller::*, scancodes, AUXILIARY_OUTPUT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL,
 };
 use event_listener::Event;
 use relocade_pic::{IrqLine, Pic, KEYBOARD_IRQ, MOUSE_IRQ};
@@ -158,12 +157,15 @@ impl Controller {
         byte
     }
 
-    pub(super) fn write(&self, port: u16, value: u8) {
-        let input = match port {
-            DATA_PORT => Input::Data(value),
-            STATUS_COMMAND_PORT => Input::Command(value),
-            _ => return,
-        };
+    pub(super) fn write_data(&self, value: u8) {
+        self.write_input(Input::Data(value));
+    }
+
+    pub(super) fn write_command(&self, value: u8) {
+        self.write_input(Input::Command(value));
+    }
+
+    fn write_input(&self, input: Input) {
         {
             let mut registers = self.registers.borrow_mut();
             // Software must wait for IBF to clear; busy writes cannot replace it.

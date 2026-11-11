@@ -2,15 +2,25 @@ use relocade_machine::{
     worker::{wake_connection, WakeHost},
     Clock, CpuConfig, ExecutionInterrupt, Machine, MachineConfig, Runner,
 };
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 
-// Device activities run locally with a manual clock; these fixtures never enter a CPU.
+// One execution owner with a manual clock and a page for guest I/O programs.
 pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
-    let mut machine =
-        Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
+    let mut machine = Machine::new(
+        MachineConfig::new(
+            4096,
+            PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
+                .unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let cpu = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState::real_mode(),
+        CpuState {
+            eip: 0x100,
+            ..CpuState::real_mode()
+        },
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu, None).unwrap();

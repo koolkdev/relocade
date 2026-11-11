@@ -4,6 +4,7 @@ mod controller;
 mod input;
 mod keyboard;
 mod mouse;
+mod ports;
 pub mod protocol;
 mod scancodes;
 
@@ -13,7 +14,7 @@ use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
 };
-use relocade_machine::{Clock, Device, IoBus, IoContext, Runner};
+use relocade_machine::{Clock, Device, IoBus, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -51,7 +52,7 @@ pub struct Inputs {
     pub mouse: MouseInput,
 }
 
-/// Registers the shared controller, keyboard and three-button mouse firmware.
+/// Connects the controller's register operations and starts keyboard and mouse firmware.
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
 /// IRQ1/IRQ12 start low; the auxiliary interface and mouse reporting start disabled.
 pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>) {
@@ -63,9 +64,7 @@ pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>) {
         startup: Some((runner.clock().clone(), events, mouse_events)),
     }));
     runner
-        .connect(device, |io| {
-            io.map_ports(PORTS);
-        })
+        .connect(device, |io| ports::configure(io, &controller))
         .await;
     (Inputs { keyboard, mouse }, controller)
 }
@@ -97,23 +96,6 @@ impl Device for Ps2Controller {
             ),
         )
         .await;
-    }
-
-    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        if bytes != 1 {
-            return u32::MAX;
-        }
-        match port {
-            DATA_PORT => self.controller.read_data().into(),
-            STATUS_COMMAND_PORT => self.controller.status().into(),
-            _ => u32::MAX,
-        }
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        if bytes == 1 {
-            self.controller.write(port, value as u8);
-        }
     }
 }
 

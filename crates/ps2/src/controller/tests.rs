@@ -23,9 +23,9 @@ fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
             .poll(&mut cx)
             .is_ready());
         assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-        controller.write(STATUS_COMMAND_PORT, 0x60); // Write command byte.
+        controller.write_command(0x60); // Write command byte.
         assert!(firmware.as_mut().poll(&mut cx).is_pending());
-        controller.write(DATA_PORT, 0x44); // Disable IRQ1, retaining translation.
+        controller.write_data(0x44); // Disable IRQ1, retaining translation.
         assert!(firmware.as_mut().poll(&mut cx).is_pending());
         assert!(pin!(controller.send(Port::Keyboard, 0x1c))
             .poll(&mut cx)
@@ -42,10 +42,9 @@ fn irq_configuration_preserves_a_partially_transmitted_break_sequence() {
 fn write(
     controller: &Controller,
     firmware: std::pin::Pin<&mut impl Future<Output = ()>>,
-    port: u16,
-    value: u8,
+    input: Input,
 ) {
-    controller.write(port, value);
+    controller.write_input(input);
     assert!(firmware
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_pending());
@@ -71,7 +70,7 @@ fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
             mouse.as_mut().poll(&mut cx).is_pending(),
             "auxiliary interface starts disabled"
         );
-        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa8);
+        write(&controller, firmware.as_mut(), Input::Command(0xa8));
         assert!(mouse.as_mut().poll(&mut cx).is_ready());
         assert_eq!(controller.status() & 0x21, 0x21);
         assert_eq!(
@@ -79,8 +78,8 @@ fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
             Poll::Pending,
             "IRQ12 starts disabled"
         );
-        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x60);
-        write(&controller, firmware.as_mut(), DATA_PORT, 0x47);
+        write(&controller, firmware.as_mut(), Input::Command(0x60));
+        write(&controller, firmware.as_mut(), Input::Data(0x47));
         assert_eq!(
             pic.poll_interrupt(context.reborrow(), &mut cx),
             Poll::Ready(0x74)
@@ -107,7 +106,7 @@ fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
             Poll::Ready(9)
         );
         assert_eq!(controller.read_data(), 0x1e);
-        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa7);
+        write(&controller, firmware.as_mut(), Input::Command(0xa7));
         assert!(pin!(controller.send(Port::Auxiliary, 1))
             .poll(&mut cx)
             .is_pending());
@@ -128,7 +127,7 @@ fn both_ports_share_backpressure_and_cancelled_waiters_release_their_turn() {
     let controller = Controller::new(&Pic::default(), [Port::Keyboard, Port::Auxiliary]);
     let mut firmware = pin!(controller.run());
     let mut cx = Context::from_waker(Waker::noop());
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa8);
+    write(&controller, firmware.as_mut(), Input::Command(0xa8));
     assert!(pin!(controller.send(Port::Keyboard, 0x1c))
         .poll(&mut cx)
         .is_ready());
@@ -165,8 +164,8 @@ fn commands_route_to_separate_ports_and_injected_output_is_source_tagged() {
     let controller = Controller::new(&Pic::default(), [Port::Keyboard, Port::Auxiliary]);
     let mut firmware = pin!(controller.run());
     let mut cx = Context::from_waker(Waker::noop());
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd4);
-    write(&controller, firmware.as_mut(), DATA_PORT, 0xf2);
+    write(&controller, firmware.as_mut(), Input::Command(0xd4));
+    write(&controller, firmware.as_mut(), Input::Data(0xf2));
     assert_eq!(
         pin!(controller.receive_device(Port::Auxiliary)).poll(&mut cx),
         Poll::Ready(0xf2)
@@ -174,28 +173,28 @@ fn commands_route_to_separate_ports_and_injected_output_is_source_tagged() {
     assert!(pin!(controller.receive_device(Port::Keyboard))
         .poll(&mut cx)
         .is_pending());
-    write(&controller, firmware.as_mut(), DATA_PORT, 0xed);
+    write(&controller, firmware.as_mut(), Input::Data(0xed));
     assert_eq!(
         pin!(controller.receive_device(Port::Keyboard)).poll(&mut cx),
         Poll::Ready(0xed)
     );
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd4);
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd3); // Replace unfinished D4.
-    write(&controller, firmware.as_mut(), DATA_PORT, 0x1c);
+    write(&controller, firmware.as_mut(), Input::Command(0xd4));
+    write(&controller, firmware.as_mut(), Input::Command(0xd3)); // Replace unfinished D4.
+    write(&controller, firmware.as_mut(), Input::Data(0x1c));
     assert_eq!(controller.status() & 0x21, 0x21);
     assert_eq!(controller.read_data(), 0x1c);
     assert!(pin!(controller.receive_device(Port::Auxiliary))
         .poll(&mut cx)
         .is_pending());
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd2);
-    write(&controller, firmware.as_mut(), DATA_PORT, 0xf0);
+    write(&controller, firmware.as_mut(), Input::Command(0xd2));
+    write(&controller, firmware.as_mut(), Input::Data(0xf0));
     assert_eq!(controller.status() & 0x21, 1);
     assert_eq!(
         controller.read_data(),
         0xf0,
         "injected keyboard bytes are not translated"
     );
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xa9);
+    write(&controller, firmware.as_mut(), Input::Command(0xa9));
     assert_eq!(
         controller.status() & 0x21,
         1,
@@ -211,16 +210,16 @@ fn an_unattached_auxiliary_port_does_not_block_other_commands() {
     let mut firmware = pin!(controller.run());
     let mut cx = Context::from_waker(Waker::noop());
     for byte in [0xff, 0xf2, 0xf4] {
-        write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd4);
-        write(&controller, firmware.as_mut(), DATA_PORT, byte);
+        write(&controller, firmware.as_mut(), Input::Command(0xd4));
+        write(&controller, firmware.as_mut(), Input::Data(byte));
         assert_eq!(controller.status() & INPUT_BUFFER_FULL, 0);
     }
-    write(&controller, firmware.as_mut(), DATA_PORT, 0xee);
+    write(&controller, firmware.as_mut(), Input::Data(0xee));
     assert_eq!(
         pin!(controller.receive_device(Port::Keyboard)).poll(&mut cx),
         Poll::Ready(0xee)
     );
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0x20);
+    write(&controller, firmware.as_mut(), Input::Command(0x20));
     assert_eq!(controller.read_data(), 0x65);
 }
 
@@ -246,7 +245,7 @@ fn readiness_waits_sleep_until_register_changes_and_keep_keyboard_output() {
     let controller = Controller::new(&Pic::default(), []);
     let mut firmware = pin!(controller.run());
 
-    controller.write(STATUS_COMMAND_PORT, 0xd2);
+    controller.write_command(0xd2);
     let mut input = pin!(controller.wait_input_ready());
     assert!(input.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
@@ -268,7 +267,7 @@ fn readiness_waits_sleep_until_register_changes_and_keep_keyboard_output() {
     assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
     assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    write(&controller, firmware.as_mut(), DATA_PORT, 0x1e);
+    write(&controller, firmware.as_mut(), Input::Data(0x1e));
     assert!(wakes.0.swap(0, Ordering::SeqCst) > 0);
     assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
     assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL);
@@ -279,10 +278,10 @@ fn readiness_waits_sleep_until_register_changes_and_keep_keyboard_output() {
     );
     assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
     wakes.0.store(0, Ordering::SeqCst);
-    write(&controller, firmware.as_mut(), STATUS_COMMAND_PORT, 0xd3);
+    write(&controller, firmware.as_mut(), Input::Command(0xd3));
     assert!(auxiliary.as_mut().poll(&mut cx).is_pending());
     wakes.0.store(0, Ordering::SeqCst);
-    write(&controller, firmware.as_mut(), DATA_PORT, 0xfa);
+    write(&controller, firmware.as_mut(), Input::Data(0xfa));
     assert!(
         wakes.0.load(Ordering::SeqCst) > 0,
         "output publication wakes the reader"
