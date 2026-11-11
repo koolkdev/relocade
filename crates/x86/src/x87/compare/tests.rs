@@ -34,6 +34,7 @@ fn loaded_binary64_values_compare_without_source_exceptions() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
+        requirements: Default::default(),
         execution_target: None,
     });
     // Loaded subnormals are normal extended values; loaded SNaNs are quiet.
@@ -101,6 +102,7 @@ fn binary32_promotion_preserves_ordering_and_source_exceptions() {
         let module = step::TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "compare".into(),
+            requirements: Default::default(),
             execution_target: None,
         });
         // LT/EQ/UN/IE/DE: loading quiets SNaN and normalizes narrow denormals;

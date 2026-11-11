@@ -59,6 +59,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
+            requirements: crate::EntryRequirements::for_profile(profile),
             execution_target: Some(self.target),
         })
     }

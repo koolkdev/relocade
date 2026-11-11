@@ -91,6 +91,7 @@ fn mixed_histories_preserve_all_conditions_records_and_earlier_publications() {
             });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
+            requirements: Default::default(),
             execution_target: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
@@ -204,6 +205,7 @@ fn overwritten_partial_changes_do_not_generate_obsolete_stored_reader_calls() {
             .iter()
             .any(|operation| matches!(operation, Operator::Call { .. })));
         let module = TestModule::new(&CompiledModule {
+            requirements: Default::default(),
             execution_target: None,
             bytes,
             entry: "run".into(),
@@ -289,6 +291,7 @@ fn mixed_partial_and_complete_history_keeps_constant_publication_depth() {
             "publication depth must not grow with {length} changes"
         );
         let module = TestModule::new(&CompiledModule {
+            requirements: Default::default(),
             execution_target: None,
             bytes,
             entry: "run".into(),

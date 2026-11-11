@@ -896,6 +896,16 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
+`CompiledModule::requirements` and each `BlockEntry::requirements` retain the
+entry's CPU-state requirements alongside its code. `EntryRequirements::matches`
+checks a CPU snapshot; `baseline_profile()` exposes the conservative profile
+requirement covering existing helpers and profile-selected behavior, and `facts()`
+exposes individually recorded architectural dependencies. Empty requirements are
+used by helper modules that do not execute x86 instructions. Worker results retain
+the per-entry requirements, and `CompiledCode::install` checks every entry before
+changing dispatch. Raw module installation and validity after installation remain
+the embedding's responsibility.
+
 The runtime must ensure that each entry matches `CompiledModule::execution_target`
 before execution, including entries reached through a direct dispatch link. This
 replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`

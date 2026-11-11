@@ -141,6 +141,13 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 ));
                 let code = compiler.recv().await.unwrap().unwrap();
                 assert_eq!(code.blocks()[0].byte_len, 5);
+                assert_eq!(
+                    code.blocks()[0].requirements.baseline_profile(),
+                    Some(target.profile)
+                );
+                assert!(code.blocks()[0]
+                    .requirements
+                    .matches(&runner.cpu().cpu_state().snapshot()));
                 let cpu = runner.cpu();
                 let exit = cpu.exit_handle();
                 cpu.install([

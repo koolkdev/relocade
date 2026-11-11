@@ -50,6 +50,15 @@ impl CompiledCode {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
         }
+        let state = cpu.cpu_state().snapshot();
+        if self
+            .description
+            .blocks
+            .iter()
+            .any(|block| !block.requirements.matches(&state))
+        {
+            return Err(Error::CompilationTarget);
+        }
         let entries: Vec<_> = self
             .description
             .addresses

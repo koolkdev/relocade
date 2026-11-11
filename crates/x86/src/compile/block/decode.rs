@@ -58,6 +58,7 @@ impl DecodedBlock {
                 start_eip: snapshot.start_eip,
                 byte_len: snapshot.bytes.len() - remaining.len(),
                 export: format!("block_{:x}", snapshot.start_eip),
+                requirements: crate::EntryRequirements::for_profile(target.profile),
             },
             instructions,
         })

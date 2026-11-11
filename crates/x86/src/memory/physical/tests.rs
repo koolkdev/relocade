@@ -105,6 +105,7 @@ fn widths(mmio: bool) {
             let module = TestModule::new(&CompiledModule {
                 bytes: transfers().to_vec(),
                 entry: format!("{}{bits}", if write { "write" } else { "read" }),
+                requirements: Default::default(),
                 execution_target: None,
             });
             let mut input = input();
@@ -230,6 +231,7 @@ fn updates() {
         let module = TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "update".into(),
+            requirements: Default::default(),
             execution_target: None,
         });
         let mut input = input();

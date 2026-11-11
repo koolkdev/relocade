@@ -7,7 +7,10 @@ mod module;
 pub use error::BlockCompileError;
 
 use super::Compiler;
-use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
+use crate::{
+    BlockError, CompiledModule, EntryRequirements, ExecutionProfile, ExecutionTarget,
+    SegmentProfile,
+};
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
 
@@ -31,6 +34,8 @@ pub struct BlockEntry {
     pub byte_len: usize,
     /// Name of the export using [`crate::abi::ExecutionSignature`].
     pub export: String,
+    /// CPU-state requirements that must remain valid while this entry executes.
+    pub requirements: EntryRequirements,
 }
 
 /// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
@@ -134,6 +139,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: blocks.bytes,
             entry: entry.export,
+            requirements: entry.requirements,
             execution_target: Some(blocks.execution_target),
         })
     }

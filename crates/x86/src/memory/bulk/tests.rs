@@ -40,6 +40,7 @@ fn transfers(fill: bool) -> TestModule {
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "transfer".into(),
+        requirements: Default::default(),
         execution_target: None,
     })
 }

@@ -70,7 +70,7 @@ pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use interpreter::build_interpreter;
 pub use memory::{page_table, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
-pub use profile::{ExecutionProfile, ExecutionTarget};
+pub use profile::{EntryFact, EntryRequirements, ExecutionProfile, ExecutionTarget, SegmentFact};
 pub use register::Gpr32;
 pub use segment::{
     Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
@@ -88,6 +88,9 @@ pub use state::{
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
+    /// CPU-state requirements for this entry. Non-x86 helper modules use the
+    /// empty default; processor model and host policy remain in `execution_target`.
+    pub requirements: EntryRequirements,
     /// Required processor model and execution assumptions for x86 entries.
     /// The host must establish target compatibility before entry and use matching
     /// targets for cached blocks, direct links and interpreter fallback. A terminal

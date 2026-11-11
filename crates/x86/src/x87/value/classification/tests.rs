@@ -108,6 +108,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
+        requirements: Default::default(),
         execution_target: None,
     });
     // Predicate bits: zero, denormal, special exponent, infinity, NaN, SNaN,
@@ -399,6 +400,7 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
         let module = step::TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "classify".into(),
+            requirements: Default::default(),
             execution_target: None,
         });
         // Predicate bits match class_flags, followed by normal and normal-or-zero.

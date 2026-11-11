@@ -22,6 +22,7 @@ fn module(
     });
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

@@ -1,5 +1,8 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
+mod requirements;
+pub use requirements::{EntryFact, EntryRequirements, SegmentFact};
+
 pub use relocade_x86_profile::ExecutionProfile;
 
 use crate::{CpuMode, CpuModel, CpuState};

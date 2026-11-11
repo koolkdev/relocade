@@ -18,6 +18,7 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     let module = TestModule::new(&relocade_x86::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "enter".into(),
+        requirements: crate::EntryRequirements::for_profile(ExecutionProfile::Real16),
         execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
     })
     .with_interpreter(TestModule::interpreter_with_profile(

@@ -80,6 +80,7 @@ fn named_views<T: RegisterType>() -> CompiledModule {
     });
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -190,6 +191,7 @@ fn mixed_byte_views() -> CompiledModule {
     });
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

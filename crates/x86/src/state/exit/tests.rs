@@ -150,6 +150,7 @@ fn generated_exits_preserve_payloads() {
     ]);
     for (name, expected) in cases {
         let module = TestModule::new(&CompiledModule {
+            requirements: Default::default(),
             execution_target: None,
             bytes: bytes.clone(),
             entry: name.into(),

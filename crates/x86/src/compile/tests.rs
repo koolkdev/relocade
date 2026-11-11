@@ -21,6 +21,11 @@ fn snapshot_helpers_use_unobserved_configuration() {
             .compile_block(0x1000, &code, 1)
             .unwrap();
         assert!(ordinary.bytes == configured.bytes, "{profile:?}");
+        assert_eq!(ordinary.requirements, configured.requirements);
+        assert_eq!(
+            configured.requirements.baseline_profile(),
+            Some(profile.into())
+        );
     }
 }
 

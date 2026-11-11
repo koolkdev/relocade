@@ -44,6 +44,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     );
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

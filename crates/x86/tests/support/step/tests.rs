@@ -19,6 +19,7 @@ fn machine_changes_are_observed_before_a_later_call_restores_them() {
     });
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
@@ -36,6 +37,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
     let entry = program.function::<fn() -> u32>(move |body, ()| body.return_(0));
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "entry".into(),

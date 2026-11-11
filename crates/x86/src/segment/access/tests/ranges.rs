@@ -20,6 +20,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
+        requirements: Default::default(),
         execution_target: Some(crate::Compiler::new(profile).target()),
     })
 }

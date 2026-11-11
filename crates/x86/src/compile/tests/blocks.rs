@@ -40,22 +40,26 @@ fn entries_report_consumed_spans_in_input_order() {
             BlockEntry {
                 start_eip: u32::MAX,
                 byte_len: 2,
-                export: "block_ffffffff".into()
+                export: "block_ffffffff".into(),
+                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
             },
             BlockEntry {
                 start_eip: 0x1000,
                 byte_len: 1,
-                export: "block_1000".into()
+                export: "block_1000".into(),
+                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
             },
             BlockEntry {
                 start_eip: 0x1001,
                 byte_len: 3,
-                export: "block_1001".into()
+                export: "block_1001".into(),
+                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
             },
             BlockEntry {
                 start_eip: 1,
                 byte_len: 2,
-                export: "block_1".into()
+                export: "block_1".into(),
+                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
             },
         ]
     );

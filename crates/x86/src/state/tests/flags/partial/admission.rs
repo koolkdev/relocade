@@ -96,6 +96,7 @@ fn rejected_partial_values_and_predicates_leave_pending_changes_intact() {
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -143,6 +144,7 @@ fn empty_and_constant_false_partial_changes_preserve_the_stored_record() {
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

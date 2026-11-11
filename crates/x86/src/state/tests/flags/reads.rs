@@ -82,6 +82,7 @@ fn mixed_history(local_base: bool) -> CompiledModule {
     });
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
@@ -161,6 +162,7 @@ fn cached_reads_and_writes() -> CompiledModule {
     });
     program.export("run", function).unwrap();
     CompiledModule {
+        requirements: Default::default(),
         execution_target: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),

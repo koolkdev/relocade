@@ -5,6 +5,7 @@ fn transfer(input: &Input, entry: &str) -> Observation {
     let module = TestModule::new(&CompiledModule {
         bytes: transfers().to_vec(),
         entry: entry.into(),
+        requirements: Default::default(),
         execution_target: None,
     });
     module.observe(input, 1)
@@ -209,6 +210,7 @@ fn remapping() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "read".into(),
+        requirements: Default::default(),
         execution_target: None,
     });
     let mut input = input();
