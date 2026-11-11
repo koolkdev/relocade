@@ -4,11 +4,7 @@ use crate::{
 };
 use js_sys::{Function as JsFunction, Object, Reflect, Uint8Array, WebAssembly};
 use relocade_compiler::abi;
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::rc::Rc;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
@@ -21,14 +17,9 @@ pub use context::Context;
 pub(crate) use memory::MemoryRegion;
 pub use memory::{Memory, SharedMemory};
 
-/// One guest's instances, callbacks and host state.
-pub struct Backend<T = ()> {
-    store: Rc<RefCell<Store<T>>>,
+/// Links and executes resources on one JavaScript thread.
+pub struct WasmRuntime {
     modules: Rc<ModuleCache<Module>>,
-}
-
-struct Store<T> {
-    state: T,
 }
 
 /// Compiled code whose JavaScript handle can be posted to another worker.
@@ -55,28 +46,20 @@ impl WasmCompiler for Compiler {
     }
 }
 
-impl Backend {
+impl WasmRuntime {
     pub fn new() -> Result<Self> {
-        Self::with_state(())
-    }
-}
-
-impl<T: 'static> Backend<T> {
-    pub fn with_state(state: T) -> Result<Self> {
         thread_local! {
             static MODULES: Rc<ModuleCache<Module>> =
                 Rc::new(ModuleCache::default());
         }
         Ok(Self {
-            store: Rc::new(RefCell::new(Store { state })),
             modules: MODULES.with(Rc::clone),
         })
     }
 }
 
-impl<T: 'static> WasmBackend for Backend<T> {
-    type State = T;
-    type Context<'a> = Context<'a, T>;
+impl WasmBackend for WasmRuntime {
+    type Context<'a> = Context<'a>;
     type Module = Module;
     type Compiler = Compiler;
     type Instance = WebAssembly::Instance;
@@ -84,19 +67,8 @@ impl<T: 'static> WasmBackend for Backend<T> {
     type ImportFunction = JsFunction;
     type SharedMemory = SharedMemory;
 
-    fn state(&self) -> impl Deref<Target = T> {
-        Ref::map(self.store.borrow(), |store| &store.state)
-    }
-
-    fn state_mut(&mut self) -> impl DerefMut<Target = T> {
-        RefMut::map(self.store.borrow_mut(), |store| &mut store.state)
-    }
-
-    fn context(&mut self) -> Context<'_, T> {
-        Context {
-            store: self.store.borrow_mut(),
-            owner: &self.store,
-        }
+    fn context(&mut self) -> Context<'_> {
+        Context::new()
     }
 
     fn compiler(&self) -> Compiler {
@@ -180,13 +152,13 @@ impl<T: 'static> WasmBackend for Backend<T> {
             };
             set(&namespace, import.name(), &value)?;
         }
-        // Linking and module startup finish while this call borrows the backend.
+        // Linking and module startup finish while this call borrows the runtime.
         WebAssembly::Instance::new(&module.0, &bindings)
             .map_err(|error| js_error("instantiate Wasm", error))
     }
 }
 
-impl<T> WasmMemoryAccess for Backend<T> {
+impl WasmMemoryAccess for WasmRuntime {
     type Memory = Memory;
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {

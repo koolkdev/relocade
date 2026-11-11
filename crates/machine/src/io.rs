@@ -1,97 +1,45 @@
-//! Device connections local to guest execution and its host services.
+//! Device routing and synchronous access on one execution worker.
+
+mod device;
+pub use device::{Device, DeviceConnection};
 
 use std::{
     cell::{OnceCell, RefCell},
-    future::{ready, Future},
     ops::RangeInclusive,
-    rc::Rc,
+    rc::{Rc, Weak},
     task::{Context, Poll},
 };
 
-/// A synchronous device on the machine's memory and port buses.
-/// Addresses are physical bus addresses, after A20 translation for MMIO.
-/// Values are little endian. MMIO transfers contain one through eight bytes;
-/// port transfers retain their architectural width of one, two or four bytes.
-///
-/// The execution worker owns device state. Reads can have side effects, so every
-/// transfer borrows the device mutably. Callbacks must not reenter guest execution
-/// or access the same device recursively. Publish owned observations separately
-/// when another worker needs to display or inspect device output.
-pub trait Device {
-    /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
-    /// Connection waits for the first poll, which installs this activity's wake
-    /// path. Device state must already be initialized before connecting the device.
-    /// Release device borrows before awaiting. Continuously ready activities must
-    /// cooperate with other work, for example through [`crate::yield_now`].
-    fn run(_device: Rc<RefCell<Self>>) -> impl Future<Output = ()>
-    where
-        Self: Sized,
-    {
-        ready(())
-    }
-
-    fn read_mmio(&mut self, _address: u32, _bytes: u8) -> u64 {
-        u64::MAX
-    }
-
-    fn write_mmio(&mut self, _address: u32, _bytes: u8, _value: u64) {}
-
-    /// Reads 1, 2 or 4 bytes from a port. Only the low `bytes` bytes of the
-    /// result are consumed; unused upper bits need not be cleared.
-    fn read_port(&mut self, _port: u16, _bytes: u8) -> u32 {
-        u32::MAX
-    }
-
-    /// Writes 1, 2 or 4 bytes to a port, with unused upper value bits cleared.
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {}
-
-    /// Supplies and acknowledges one pending maskable interrupt vector.
-    /// Retain requests until polled. Return Pending and register the waker when a
-    /// future request should wake a waiting CPU. This callback must not reenter
-    /// guest execution. The default never raises interrupts.
-    fn poll_interrupt(&mut self, _cx: &mut Context<'_>) -> Poll<u8> {
-        Poll::Pending
-    }
-}
-
-/// The addresses decoded by one device. Memory ranges must also be marked
-/// [`relocade_x86::PhysicalMapping::Mmio`] in the machine's physical map.
-/// The same connection carries interrupt requests; address ranges may be empty.
-pub struct DeviceConnection {
-    pub device: Rc<RefCell<dyn Device>>,
-    pub mmio: Vec<RangeInclusive<u32>>,
-    pub ports: Vec<RangeInclusive<u16>>,
-}
-
-/// Device routing initialized once on one execution worker. Clones retain the
-/// same connections; the bus cannot be sent or shared across threads.
+/// Device connections on one execution worker. Clones retain the same devices
+/// and routing. Engine callbacks hold weak routing references.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
 ///
 /// ```compile_fail
 /// let io = relocade_machine::IoBus::default();
 /// std::thread::spawn(move || io.read_port(0x3d4, 1));
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct IoBus {
-    connections: Rc<OnceCell<Box<[DeviceConnection]>>>,
+    state: Rc<State>,
+}
+
+pub(crate) struct State {
+    connections: OnceCell<Box<[DeviceConnection]>>,
+    identity: Weak<State>,
+}
+
+impl Default for IoBus {
+    fn default() -> Self {
+        Self {
+            state: Rc::new_cyclic(|identity| State {
+                connections: OnceCell::new(),
+                identity: identity.clone(),
+            }),
+        }
+    }
 }
 
 impl IoBus {
-    pub fn is_empty(&self) -> bool {
-        self.connections().is_empty()
-    }
-
-    /// Acknowledges the first ready request in connection order. Later requests
-    /// remain with their devices; if none is ready every device sees the waker.
-    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
-        for connection in self.connections() {
-            if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
-                return Poll::Ready(vector);
-            }
-        }
-        Poll::Pending
-    }
-
     /// Connects each device's memory and port ranges together.
     ///
     /// # Panics
@@ -109,22 +57,73 @@ impl IoBus {
     /// Panics if connections are already initialized, or a range is empty or overlaps.
     pub fn connect(&self, connections: impl IntoIterator<Item = DeviceConnection>) {
         assert!(
-            self.connections.get().is_none(),
+            self.state.connections.get().is_none(),
             "devices already connected"
         );
         let connections: Box<[_]> = connections.into_iter().collect();
         validate_ranges(connections.iter().flat_map(|device| &device.mmio));
         validate_ranges(connections.iter().flat_map(|device| &device.ports));
-        self.connections
+        self.state
+            .connections
             .set(connections)
             .unwrap_or_else(|_| unreachable!());
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.state.is_empty()
+    }
+
+    /// Acknowledges the first ready interrupt in connection order.
+    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
+        self.state.poll_interrupt(cx)
+    }
+
+    /// Reads one through eight bytes, splitting only at device boundaries.
+    pub fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
+        self.state.read_mmio(address, bytes)
+    }
+
+    /// Writes the low `bytes` bytes, splitting only at device boundaries.
+    pub fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
+        self.state.write_mmio(address, bytes, value)
+    }
+
+    /// Reads 1, 2 or 4 bytes from the device at `port` in one call. Unused result
+    /// bits are zero; the device owns the meaning of word and dword transfers.
+    /// Panics unless `bytes` is 1, 2 or 4.
+    pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
+        self.state.read_port(port, bytes)
+    }
+
+    /// Writes the low 1, 2 or 4 bytes to the device at `port` in one call.
+    /// Panics unless `bytes` is 1, 2 or 4.
+    pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
+        self.state.write_port(port, bytes, value)
+    }
+
+    pub(crate) fn downgrade(&self) -> Weak<State> {
+        self.state.identity.clone()
+    }
+}
+
+impl State {
     fn connections(&self) -> &[DeviceConnection] {
         self.connections.get().map_or(&[], Box::as_ref)
     }
 
-    /// Reads one through eight bytes, splitting only at device boundaries.
+    pub fn is_empty(&self) -> bool {
+        self.connections().is_empty()
+    }
+
+    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
+        for connection in self.connections() {
+            if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
+                return Poll::Ready(vector);
+            }
+        }
+        Poll::Pending
+    }
+
     pub fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
         check_mmio_range(address, bytes);
         let mut result = [0xff; 8];
@@ -144,7 +143,6 @@ impl IoBus {
         u64::from_le_bytes(result)
     }
 
-    /// Writes the low `bytes` bytes, splitting only at device boundaries.
     pub fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
         check_mmio_range(address, bytes);
         let value = value.to_le_bytes();
@@ -164,25 +162,18 @@ impl IoBus {
         }
     }
 
-    /// Reads from the device mapped at `port` in a single call. The device owns
-    /// the meaning of word and dword reads, including paired index/data registers.
-    /// Unused result bits are zero. Panics unless `bytes` is 1, 2 or 4.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         self.read_port_unchecked(port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
     }
 
-    /// Writes the low `bytes` bytes to the device mapped at `port` in a single
-    /// call. Panics unless `bytes` is 1, 2 or 4.
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         self.write_port_unchecked(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
     }
 
-    /// Reads a port without validating the width or clearing unused result bits.
-    /// The caller must supply 1, 2 or 4 bytes and consume only the low `bytes`
-    /// bytes of the result. Generated x86 callers already guarantee this;
-    /// host callers use [`Self::read_port`] to validate and mask instead.
+    /// Generated callers supply a width of 1, 2 or 4 and consume only the low
+    /// result bytes. Host access validates and masks through `read_port`.
     #[inline]
     pub(crate) fn read_port_unchecked(&self, port: u16, bytes: u8) -> u32 {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
@@ -191,10 +182,8 @@ impl IoBus {
         })
     }
 
-    /// Writes a port without validating the width or clearing unused value bits.
-    /// The caller must supply 1, 2 or 4 bytes and clear bits above the low `bytes`
-    /// bytes of `value`. Generated x86 callers already guarantee this;
-    /// host callers use [`Self::write_port`] to validate and mask instead.
+    /// Generated callers supply a width of 1, 2 or 4 with unused value bits
+    /// cleared. Host access validates and masks through `write_port`.
     #[inline]
     pub(crate) fn write_port_unchecked(&self, port: u16, bytes: u8, value: u32) {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");

@@ -2,22 +2,16 @@ use super::{Memory, StoreData};
 use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
 use wasmtime::{AsContextMut, StoreContextMut};
 
-/// Scoped exclusive access to a store, its memories and its tables.
-pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, StoreData<T>>);
+/// Scoped exclusive access to a store, its memories, functions and tables.
+pub struct Context<'a>(pub(super) StoreContextMut<'a, StoreData>);
 
-impl<T: 'static> WasmContext for Context<'_, T> {
-    type State = T;
-
-    fn state(&self) -> &T {
-        &self.0.data().state
-    }
-
-    fn state_mut(&mut self) -> &mut T {
-        &mut self.0.data_mut().state
+impl WasmContext for Context<'_> {
+    fn reborrow(&mut self) -> Context<'_> {
+        Context(self.0.as_context_mut())
     }
 }
 
-impl<T: 'static> WasmMemoryAccess for Context<'_, T> {
+impl WasmMemoryAccess for Context<'_> {
     type Memory = Memory;
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {

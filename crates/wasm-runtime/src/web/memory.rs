@@ -38,7 +38,7 @@ impl Allocation {
     }
 }
 
-/// A shared allocation retained independently of its backend.
+/// A shared allocation retained independently of its runtime.
 #[derive(Clone)]
 pub struct SharedMemory {
     pub(super) allocation: Rc<Allocation>,
@@ -65,13 +65,13 @@ impl<'de> serde::Deserialize<'de> for SharedMemory {
 }
 
 impl SharedMemory {
-    /// Allocates zeroed shared memory independently of a backend, in 64-KiB pages.
+    /// Allocates zeroed shared memory independently of a runtime, in 64-KiB pages.
     pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
         Self::from_memory(allocate(minimum, Some(maximum), true)?)
     }
 
     /// Accepts a shared memory, including one received through worker postMessage.
-    /// Private memories cannot be read independently of their backend.
+    /// Private memories cannot be read independently of their runtime.
     pub fn from_memory(memory: WebAssembly::Memory) -> Result<Self> {
         if !memory.buffer().is_instance_of::<SharedArrayBuffer>() {
             return Err(Error::new(
@@ -184,15 +184,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, WasmBackend};
+    use crate::{WasmBackend, WasmRuntime};
     use relocade_compiler::abi;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn private_allocations_follow_retained_memory_handles() {
-        let mut backend = Backend::new().unwrap();
-        let memory = backend
+        let mut runtime = WasmRuntime::new().unwrap();
+        let memory = runtime
             .create_memory(abi::Memory::new("test", "memory", 1))
             .unwrap();
         let lifetime = Rc::downgrade(&memory.0);
@@ -202,11 +202,11 @@ mod tests {
         drop(alias);
         assert!(lifetime.upgrade().is_none());
 
-        let memory = backend
+        let memory = runtime
             .create_memory(abi::Memory::new("test", "retained", 1))
             .unwrap();
         let lifetime = Rc::downgrade(&memory.0);
-        drop(backend);
+        drop(runtime);
         assert!(lifetime.upgrade().is_some());
         drop(memory);
         assert!(lifetime.upgrade().is_none());

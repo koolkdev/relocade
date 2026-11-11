@@ -1,8 +1,8 @@
 //! Native and browser Wasm compilation, linking and execution.
 //!
-//! [`Backend`] uses Wasmtime on native targets and the browser WebAssembly APIs
-//! on wasm32. Compiled code may be reused across compatible backends. Instances
-//! bind to one backend's memories, tables and functions.
+//! [`WasmRuntime`] uses Wasmtime on native targets and the browser WebAssembly APIs
+//! on wasm32. Compiled code may be reused across compatible runtimes. Instances
+//! bind to one runtime's memories, tables and functions.
 //!
 //! Portable Rust codecs and browser adapters are supplied by
 //! `relocade-wasm-bindings`. That crate owns direct calls, callback lifetimes and
@@ -11,19 +11,18 @@
 //! `tools/web-build.mjs` supplies the configuration used by applications and tests.
 //! They also link with `--growable-table` and `--export=__stack_pointer`.
 //! Callbacks retain their Rust owners through Wasm externrefs until their last
-//! engine reference is collected. Backend state belongs to the Rust backend and
-//! is released when it is dropped. Functions created through [`Context`] require
-//! that backend to remain alive.
+//! engine reference is collected. Callbacks capture application resources explicitly;
+//! [`Context`] supplies scoped engine access without owning application state.
 //! Wasm traps and invalid ABI values are fatal programming errors.
 //!
 //! ```
-//! use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+//! use relocade_wasm_runtime::{WasmRuntime, WasmBackend, WasmCompiler};
 //!
 //! # async fn example() -> relocade_wasm_runtime::Result<()> {
-//! let mut backend = Backend::new()?;
-//! let compiler = backend.compiler();
+//! let mut runtime = WasmRuntime::new()?;
+//! let compiler = runtime.compiler();
 //! let module = compiler.compile(b"\0asm\x01\0\0\0").await?;
-//! let instance = backend.instantiate(&module, &[])?;
+//! let instance = runtime.instantiate(&module, &[])?;
 //! # Ok(())
 //! # }
 //! ```
@@ -31,14 +30,13 @@
 
 use relocade_compiler::abi::{Function as FunctionDeclaration, Memory as MemoryDeclaration, Value};
 use std::future::Future;
-use std::ops::{Deref, DerefMut};
 
 mod error;
 pub use error::{Error, Result};
 #[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
 mod backend;
-pub use backend::{Backend, Compiler, Context, Memory, Module, SharedMemory};
+pub use backend::{Compiler, Context, Memory, Module, SharedMemory, WasmRuntime};
 
 mod calls;
 mod host;
@@ -88,7 +86,7 @@ impl worker::Transfer for SharedMemory {
     }
 }
 
-/// Compiles Wasm bytes without borrowing a backend or retaining its host state.
+/// Compiles Wasm bytes independently of an execution runtime and its callbacks.
 /// The handle can move to another thread; create and await its futures there.
 /// Futures and compiled modules need not be `Send` because browser engine
 /// objects belong to the JavaScript thread that creates them.
@@ -99,44 +97,42 @@ pub trait WasmCompiler: Clone + Send + 'static {
     fn compile(&self, bytes: &[u8]) -> impl Future<Output = Result<Self::Module>>;
 }
 
-/// Scoped access to host state, live Wasm memory and tables, during a callback or while
+/// Scoped access to live Wasm memory, functions and tables, during a callback or while
 /// execution is stopped. A stopped view may be held across an await; drop it
 /// before entering Wasm again. Callback views cannot outlive their callback.
 pub trait WasmContext: WasmMemoryAccess + WasmTableAccess {
-    type State;
-
-    fn state(&self) -> &Self::State;
-    fn state_mut(&mut self) -> &mut Self::State;
+    /// Borrows this scope for a nested synchronous operation.
+    fn reborrow(&mut self) -> <Self::Backend as WasmBackend>::Context<'_>;
 }
 
-/// One thread-local Wasm resource owner. Accessing memory requires its owning
-/// backend or context; resource handles may belong to that engine's thread.
-/// Preparation futures and environment state need not be Send. Memory is Wasm32 with
+/// Platform interface for [`WasmRuntime`], a thread-local Wasm resource owner.
+/// Accessing memory requires its owning runtime or context; resource handles
+/// may belong to that engine's thread.
+/// Preparation futures and callback captures need not be Send. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
 /// [`FunctionContext`]; callable exports retain their signature through [`ExportFunction`].
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
-/// Execution requires the owning backend. Resource handles retain or identify
-/// their engine allocation; backend state has a separate lifetime.
-/// Create a backend on the thread that will run it; transfer compiled modules and
+/// Execution requires the owning runtime. Resource handles retain or identify
+/// their engine allocation. Callbacks retain only their explicit captures.
+/// Create a runtime on the thread that will run it; transfer compiled modules and
 /// shared memories between owners instead of moving an execution environment.
 ///
 /// ```compile_fail
-/// use relocade_wasm_runtime::Backend;
-/// let backend = Backend::new().unwrap();
-/// std::thread::spawn(move || drop(backend));
+/// use relocade_wasm_runtime::WasmRuntime;
+/// let runtime = WasmRuntime::new().unwrap();
+/// std::thread::spawn(move || drop(runtime));
 /// ```
 /// Scoped contexts also remain on that thread:
 /// ```compile_fail
-/// use relocade_wasm_runtime::{Backend, WasmBackend};
-/// let mut backend = Backend::new().unwrap();
-/// let context = backend.context();
+/// use relocade_wasm_runtime::{WasmRuntime, WasmBackend};
+/// let mut runtime = WasmRuntime::new().unwrap();
+/// let context = runtime.context();
 /// std::thread::scope(|scope| { scope.spawn(move || drop(context)); });
 /// ```
 pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Sized {
-    type State: 'static;
-    type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory, Backend = Self>
+    type Context<'a>: WasmContext<Memory = Self::Memory, Backend = Self>
     where
         Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
@@ -146,23 +142,19 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     type Table: Clone + 'static;
     /// An engine function handle produced by a typed binding.
     type ImportFunction: Clone;
-    /// Retains a shared allocation independently of this backend.
+    /// Retains a shared allocation independently of this runtime.
     type SharedMemory: WasmSharedMemory;
 
-    /// Host state is borrowed only between Wasm calls. A browser backend may
-    /// return a borrow guard; drop it before calling into Wasm.
-    fn state(&self) -> impl Deref<Target = Self::State>;
-    fn state_mut(&mut self) -> impl DerefMut<Target = Self::State>;
-
-    /// Borrows the stopped backend's state, memory and tables. The view may be held
-    /// across an await, but must be dropped before calling into Wasm again.
+    /// Borrows the stopped runtime for memory, function and table operations.
+    /// The view may be held across an await, but must be dropped before calling
+    /// into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
 
-    /// Returns an independent compiler whose modules this backend can instantiate.
+    /// Returns an independent compiler whose modules this runtime can instantiate.
     fn compiler(&self) -> Self::Compiler;
 
     /// Optional storage for modules that callers choose to retain.
-    /// Share it only between backends that can instantiate each other's modules.
+    /// Share it only between runtimes that can instantiate each other's modules.
     /// Ordinary [`WasmCompiler::compile`] calls do not populate this cache.
     fn module_cache(&self) -> Option<&ModuleCache<Self::Module>> {
         None
@@ -176,8 +168,8 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     /// Returns `None` for private memory.
     fn shared_memory(&self, memory: &Self::Memory) -> Option<Self::SharedMemory>;
 
-    /// Attaches an existing shared allocation to this backend. The returned handle
-    /// belongs to this backend; the allocation remains shared with its other users.
+    /// Attaches an existing shared allocation to this runtime. The returned handle
+    /// belongs to this runtime; the allocation remains shared with its other users.
     fn import_shared_memory(&mut self, memory: &Self::SharedMemory) -> Self::Memory;
 
     /// Grows memory when needed to contain `byte_len` bytes, preserving its contents.
@@ -212,10 +204,10 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     /// Rebinding cannot change the function's logical widths:
     /// ```compile_fail
     /// use relocade_compiler::abi::Function as Declaration;
-    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
-    /// fn wrong(backend: &Backend, function: &Function<Backend, fn(u16) -> u32>) {
+    /// use relocade_wasm_runtime::{WasmRuntime, Function, WasmBackend};
+    /// fn wrong(runtime: &WasmRuntime, function: &Function<WasmRuntime, fn(u16) -> u32>) {
     ///     const WIDE: Declaration<fn(u32) -> u32> = Declaration::new("example", "wide");
-    ///     backend.bind(WIDE, function);
+    ///     runtime.bind(WIDE, function);
     /// }
     /// ```
     fn bind<'a, D: ImportBinding<'a, Self>>(
@@ -240,7 +232,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
         FunctionRef::from_handle(self.function_import(&function.handle))
     }
 
-    /// Links a compiled module and runs its startup while borrowing this backend.
+    /// Links a compiled module and runs its startup while borrowing this runtime.
     /// Linking and module startup complete synchronously.
     fn instantiate(
         &mut self,
@@ -270,24 +262,24 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     ///
     /// ```
     /// use relocade_compiler::{abi::Function, Program};
-    /// use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+    /// use relocade_wasm_runtime::{WasmRuntime, WasmBackend, WasmCompiler};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// const ADD: Function<fn(u32, u32) -> u32> = Function::new("example", "add");
     /// let mut program = Program::new();
     /// ADD.define(&mut program, move |body, (a, b)| body.return_(a.add(b)))?;
-    /// let mut backend = Backend::new()?;
-    /// let module = backend.compiler().compile(&program.compile()?).await?;
-    /// let instance = backend.instantiate(&module, &[])?;
-    /// let add = backend.function(&instance, ADD)?;
-    /// assert_eq!(backend.call(&add, (u32::MAX, 2)), 1);
+    /// let mut runtime = WasmRuntime::new()?;
+    /// let module = runtime.compiler().compile(&program.compile()?).await?;
+    /// let instance = runtime.instantiate(&module, &[])?;
+    /// let add = runtime.function(&instance, ADD)?;
+    /// assert_eq!(runtime.call(&add, (u32::MAX, 2)), 1);
     /// # Ok(()) }
     /// ```
     ///
     /// Argument values must match the cached signature:
     /// ```compile_fail
-    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
-    /// fn wrong(backend: &mut Backend, function: &Function<Backend, fn(u16) -> bool>) {
-    ///     backend.call(function, (1_u32,));
+    /// use relocade_wasm_runtime::{WasmRuntime, Function, WasmBackend};
+    /// fn wrong(runtime: &mut WasmRuntime, function: &Function<WasmRuntime, fn(u16) -> bool>) {
+    ///     runtime.call(function, (1_u32,));
     /// }
     /// ```
     fn call<S: CallSignature>(

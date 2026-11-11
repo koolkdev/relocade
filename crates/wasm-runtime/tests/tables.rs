@@ -1,5 +1,6 @@
 use relocade_compiler::{abi, Program, I32};
-use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{FunctionRef, WasmBackend, WasmCompiler, WasmRuntime};
+use std::{cell::RefCell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -16,14 +17,15 @@ async fn check_table_defaults() {
     };
     const RUN: abi::Function<fn(u32, u16) -> u32> = abi::Function::new("test", "run");
     const REPLACEMENT: abi::Function<Read> = abi::Function::new("test", "replacement");
-    let mut backend = Backend::with_state(Vec::<u16>::new()).unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
+    let events = Rc::new(RefCell::new(Vec::<u16>::new()));
+    let captured_events = events.clone();
     let (run, alias) = {
-        let default =
-            FunctionRef::<_, Read>::new(&mut backend.context(), |mut context, (value,)| {
-                context.state_mut().push(value);
-                u32::from(value) + 10
-            });
-        let table = backend.create_table(READ, Some(&default)).unwrap();
+        let default = FunctionRef::<_, Read>::new(&mut runtime.context(), move |_, (value,)| {
+            captured_events.borrow_mut().push(value);
+            u32::from(value) + 10
+        });
+        let table = runtime.create_table(READ, Some(&default)).unwrap();
         let (run, replacement) = {
             let mut program = Program::new();
             let read = program.import_table(READ);
@@ -37,32 +39,32 @@ async fn check_table_defaults() {
                     body.return_(value.unsigned().extend::<I32>().add(100))
                 })
                 .unwrap();
-            let module = backend
+            let module = runtime
                 .compiler()
                 .compile(&program.compile().unwrap())
                 .await
                 .unwrap();
-            let instance = backend
-                .instantiate(&module, &[backend.bind(READ, &table)])
+            let instance = runtime
+                .instantiate(&module, &[runtime.bind(READ, &table)])
                 .unwrap();
-            let run = backend.function(&instance, RUN).unwrap();
-            let replacement = backend.function(&instance, REPLACEMENT).unwrap();
-            (run, backend.import_function(&replacement))
+            let run = runtime.function(&instance, RUN).unwrap();
+            let replacement = runtime.function(&instance, REPLACEMENT).unwrap();
+            (run, runtime.import_function(&replacement))
         };
-        assert_eq!(backend.call(&run, (1, 7)), 18);
+        assert_eq!(runtime.call(&run, (1, 7)), 18);
         let alias = table.clone();
-        alias.set(&mut backend, 1, &replacement).unwrap();
-        table.ensure_size(&mut backend, 4, Some(&default)).unwrap();
+        alias.set(&mut runtime, 1, &replacement).unwrap();
+        table.ensure_size(&mut runtime, 4, Some(&default)).unwrap();
         // Growth never rewrites existing slots, including when no growth is needed.
-        alias.ensure_size(&mut backend, 2, None).unwrap();
+        alias.ensure_size(&mut runtime, 2, None).unwrap();
         (run, alias)
     };
     for (slot, expected) in [(0, 18), (1, 108), (2, 18), (3, 18)] {
-        assert_eq!(backend.call(&run, (slot, 7)), expected);
+        assert_eq!(runtime.call(&run, (slot, 7)), expected);
     }
-    assert_eq!(&*backend.state(), &[7, 7, 7, 7]);
-    assert!(alias.ensure_size(&mut backend, 5, None).is_err());
-    assert_eq!(backend.call(&run, (3, 9)), 20);
+    assert_eq!(&*events.borrow(), &[7, 7, 7, 7]);
+    assert!(alias.ensure_size(&mut runtime, 5, None).is_err());
+    assert_eq!(runtime.call(&run, (3, 9)), 20);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

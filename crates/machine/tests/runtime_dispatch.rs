@@ -2,7 +2,7 @@ mod support;
 use relocade_compiler::{Program, I32};
 
 use relocade_machine::DispatchEntry;
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segments,
@@ -48,8 +48,8 @@ async fn check_dispatch_table() {
         address: 0x200,
         export: "entry",
     }];
-    // Compilation needs no CPU backend. Reuse this module for both batches.
-    let module = Backend::new()
+    // Compilation needs no CPU wasm. Reuse this module for both batches.
+    let module = WasmRuntime::new()
         .unwrap()
         .compiler()
         .compile(&module)
@@ -80,7 +80,7 @@ async fn check_dispatch_table() {
     assert_eq!(u32::from_le_bytes(marker), 10);
 
     let module = callable(20);
-    let compiled = Backend::new()
+    let compiled = WasmRuntime::new()
         .unwrap()
         .compiler()
         .compile(&module)

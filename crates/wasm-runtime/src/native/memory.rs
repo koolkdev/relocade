@@ -18,7 +18,7 @@ pub enum Memory {
 pub struct SharedMemory(wasmtime::SharedMemory);
 
 impl SharedMemory {
-    /// Allocates zeroed shared memory independently of a backend, in 64-KiB pages.
+    /// Allocates zeroed shared memory independently of a runtime, in 64-KiB pages.
     pub fn new(minimum: u32, maximum: u32) -> Result<Self> {
         let memory_type = MemoryType::builder()
             .min(minimum.into())

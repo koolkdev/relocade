@@ -10,7 +10,7 @@
 //! The driver owns the CPU instance directly and alternates guest calls with polling
 //! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
 //! application resources at registration. Access copies values without acquiring
-//! the backend or binding a temporary view. Pending futures retain their locals
+//! the Wasm runtime or binding a temporary view. Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
 //! Pending and IRQ-suspended services survive dropping their run waiter. Dropping
@@ -66,10 +66,8 @@ pub use hooks::Hook;
 use instance::CpuInstance;
 pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
-use relocade_wasm_runtime::Module;
+use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
-
-type Backend = relocade_wasm_runtime::Backend<IoBus>;
 
 /// Executes one guest and owns its execution instance, registered services and suspended calls.
 pub struct Cpu {
@@ -96,13 +94,13 @@ impl Cpu {
         io: IoBus,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
-        let mut backend = Backend::with_state(io.clone())?;
-        let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
-        let host_imports = io::imports(&mut backend);
-        let dispatch = Dispatch::new(&mut backend, &bindings, host_imports).await?;
+        let mut wasm = WasmRuntime::new()?;
+        let bindings = RuntimeMemory::new(&mut wasm, memory, cpu, storage)?;
+        let host_imports = io::imports(&mut wasm, &io);
+        let dispatch = Dispatch::new(&mut wasm, &bindings, host_imports).await?;
         let instruction_target = InstructionTarget::new(&bindings);
         let instance = CpuInstance {
-            backend,
+            wasm,
             bindings,
             io,
             dispatch,
@@ -150,7 +148,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install_module(&mut instance.backend, &instance.bindings, bytes, entries)
+            .install_module(&mut instance.wasm, &instance.bindings, bytes, entries)
             .await
     }
 
@@ -175,7 +173,7 @@ impl Cpu {
         );
         let instance = self.instance_mut();
         instance.dispatch.install_compiled_module(
-            &mut instance.backend,
+            &mut instance.wasm,
             &instance.bindings,
             module,
             entries,
@@ -204,7 +202,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install(&mut instance.backend, &instance.bindings, hooks)
+            .install(&mut instance.wasm, &instance.bindings, hooks)
             .await
     }
 
@@ -226,7 +224,7 @@ impl Cpu {
         &mut self.instance
     }
 
-    /// Retains live CPU state independently of the runner and its backend.
+    /// Retains live CPU state independently of the runner and its Wasm runtime.
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
         self.instance.bindings.cpu.clone()

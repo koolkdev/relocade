@@ -7,7 +7,7 @@ use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemor
 use relocade_x86::abi;
 
 /// Retained CPU and guest storage, plus private mapping storage.
-/// Retaining the guest handle lets the context borrow it independently of the backend.
+/// Retaining the guest handle lets the context borrow it independently of the Wasm runtime.
 pub(super) struct RuntimeMemory {
     pub(crate) config: CpuConfig,
     pub(crate) context: Memory,
@@ -22,7 +22,7 @@ pub(super) struct RuntimeMemory {
 
 impl RuntimeMemory {
     pub fn new(
-        backend: &mut super::Backend,
+        wasm: &mut super::WasmRuntime,
         guest: GuestMemory,
         config: CpuConfig,
         storage: SharedMemory,
@@ -30,18 +30,18 @@ impl RuntimeMemory {
         guest
             .configuration()
             .validate_for(config.execution_target().profile)?;
-        let context = backend.import_shared_memory(&storage);
+        let context = wasm.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage.clone());
-        let guest_import = backend.import_shared_memory(guest.backing());
+        let guest_import = wasm.import_shared_memory(guest.backing());
         let mapping_bytes = guest.configuration().memory_map().to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
-        let mapping = backend.create_memory(MemoryDeclaration {
+        let mapping = wasm.create_memory(MemoryDeclaration {
             minimum: mapping_pages,
             maximum: Some(mapping_pages),
             ..abi::PHYSICAL_MAP
         })?;
-        backend.memory(&mapping).write(0, &mapping_bytes);
+        wasm.memory(&mapping).write(0, &mapping_bytes);
         Ok(Self {
             config,
             context,
@@ -60,12 +60,12 @@ impl RuntimeMemory {
     /// Binds the CPU, guest backing and physical translation memory.
     pub fn imports<'a, B: WasmBackend<Memory = Memory> + 'a>(
         &'a self,
-        backend: &B,
+        wasm: &B,
     ) -> [Import<'a, B>; 3] {
         [
-            backend.bind(abi::EXECUTION_CONTEXT, &self.context),
-            backend.bind(abi::GUEST, &self.guest_import),
-            backend.bind(abi::PHYSICAL_MAP, &self.mapping),
+            wasm.bind(abi::EXECUTION_CONTEXT, &self.context),
+            wasm.bind(abi::GUEST, &self.guest_import),
+            wasm.bind(abi::PHYSICAL_MAP, &self.mapping),
         ]
     }
 }

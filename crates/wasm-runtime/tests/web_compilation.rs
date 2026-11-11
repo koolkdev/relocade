@@ -1,6 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
 use std::{
     future::Future,
     pin::pin,
@@ -12,12 +12,9 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 
-async fn cached<T: 'static>(
-    backend: &Backend<T>,
-    bytes: &'static [u8],
-) -> relocade_wasm_runtime::Module {
-    let compiler = backend.compiler();
-    backend
+async fn cached(runtime: &WasmRuntime, bytes: &'static [u8]) -> relocade_wasm_runtime::Module {
+    let compiler = runtime.compiler();
+    runtime
         .module_cache()
         .unwrap()
         .get_or_compile(bytes, |bytes| compiler.compile(bytes))
@@ -26,21 +23,18 @@ async fn cached<T: 'static>(
 }
 
 #[wasm_bindgen_test]
-async fn backends_share_cached_modules_but_keep_host_state() {
-    let mut first = Backend::with_state(7).unwrap();
-    let second = Backend::with_state("second").unwrap();
+async fn runtimes_share_cached_modules() {
+    let first = WasmRuntime::new().unwrap();
+    let second = WasmRuntime::new().unwrap();
     let first_module = cached(&first, EMPTY_MODULE).await;
     let second_module = cached(&second, EMPTY_MODULE).await;
     assert_eq!(first_module, second_module);
-    *first.state_mut() += 1;
-    assert_eq!(*first.state(), 8);
-    assert_eq!(*second.state(), "second");
 }
 
 #[wasm_bindgen_test]
 async fn concurrent_requests_share_pending_compilation() {
-    let backend = Backend::new().unwrap();
-    let compiler = backend.compiler();
+    let runtime = WasmRuntime::new().unwrap();
+    let compiler = runtime.compiler();
     let cache = relocade_wasm_runtime::ModuleCache::default();
     let mut first = pin!(cache.get_or_compile(EMPTY_MODULE, |bytes| compiler.compile(bytes)));
     assert!(first
@@ -57,10 +51,10 @@ async fn concurrent_requests_share_pending_compilation() {
 
 #[wasm_bindgen_test]
 async fn ordinary_compilation_bypasses_the_shared_cache() {
-    let backend = Backend::new().unwrap();
-    let first = backend.compiler().compile(EMPTY_MODULE).await.unwrap();
-    let retained = cached(&backend, EMPTY_MODULE).await;
-    let second = backend.compiler().compile(EMPTY_MODULE).await.unwrap();
+    let runtime = WasmRuntime::new().unwrap();
+    let first = runtime.compiler().compile(EMPTY_MODULE).await.unwrap();
+    let retained = cached(&runtime, EMPTY_MODULE).await;
+    let second = runtime.compiler().compile(EMPTY_MODULE).await.unwrap();
     assert_ne!(first, second);
     assert_ne!(first, retained);
     assert_ne!(second, retained);

@@ -1,4 +1,4 @@
-//! CPU storage prepared before its execution backend is constructed.
+//! CPU storage prepared before its Wasm runtime is constructed.
 
 use super::{Cpu, ExecutionInterrupt, Result};
 use crate::{CpuConfig, IoBus, Memory};
@@ -10,7 +10,7 @@ use std::mem::offset_of;
 ///
 /// Allocate on the host and retain [`Self::interrupt_handle`] before transferring
 /// this resource to an execution worker. [`Self::into_cpu`] consumes it and creates
-/// the backend on that worker. Neither operation starts guest execution.
+/// the Wasm runtime on that worker. Neither operation starts guest execution.
 #[derive(crate::worker::Transfer)]
 pub struct CpuStorage(SharedMemory);
 
@@ -27,7 +27,7 @@ impl CpuStorage {
         ExecutionInterrupt::new(self.0.clone())
     }
 
-    /// Constructs the execution backend over this storage and existing guest RAM.
+    /// Constructs the Wasm runtime over this storage and existing guest RAM.
     /// CPU initialization preserves any concurrent execution-interrupt request.
     pub async fn into_cpu(self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
         self.initialize(&config);

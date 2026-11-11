@@ -1,13 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
 
 const EMPTY_MODULE: &[u8] = b"\0asm\x01\0\0\0";
 
-fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> relocade_wasm_runtime::Module {
-    let compiler = backend.compiler();
+fn cached(runtime: &WasmRuntime, bytes: &'static [u8]) -> relocade_wasm_runtime::Module {
+    let compiler = runtime.compiler();
     pollster::block_on(
-        backend
+        runtime
             .module_cache()
             .unwrap()
             .get_or_compile(bytes, |bytes| compiler.compile(bytes)),
@@ -16,22 +16,18 @@ fn cached<T>(backend: &Backend<T>, bytes: &'static [u8]) -> relocade_wasm_runtim
 }
 
 #[test]
-fn concurrent_backends_share_cached_modules_but_keep_host_state() {
+fn concurrent_runtimes_share_cached_modules() {
     let threads: Vec<_> = (0..4)
-        .map(|state| {
+        .map(|_| {
             std::thread::spawn(move || {
-                let mut backend = Backend::with_state(state).unwrap();
-                let module = cached(&backend, EMPTY_MODULE);
-                assert_eq!(*backend.state(), state);
-                *backend.state_mut() += 10;
-                assert_eq!(*backend.state(), state + 10);
-                module
+                let runtime = WasmRuntime::new().unwrap();
+                cached(&runtime, EMPTY_MODULE)
             })
         })
         .collect();
     let modules: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
-    let backend = Backend::new().unwrap();
-    let module = cached(&backend, EMPTY_MODULE);
+    let runtime = WasmRuntime::new().unwrap();
+    let module = cached(&runtime, EMPTY_MODULE);
     for other in modules {
         assert_eq!(module, other);
     }
@@ -39,10 +35,10 @@ fn concurrent_backends_share_cached_modules_but_keep_host_state() {
 
 #[test]
 fn ordinary_compilation_bypasses_the_shared_cache() {
-    let backend = Backend::new().unwrap();
-    let first = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
-    let retained = cached(&backend, EMPTY_MODULE);
-    let second = pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).unwrap();
+    let runtime = WasmRuntime::new().unwrap();
+    let first = pollster::block_on(runtime.compiler().compile(EMPTY_MODULE)).unwrap();
+    let retained = cached(&runtime, EMPTY_MODULE);
+    let second = pollster::block_on(runtime.compiler().compile(EMPTY_MODULE)).unwrap();
     assert_ne!(first, second);
     assert_ne!(first, retained);
     assert_ne!(second, retained);
@@ -50,7 +46,7 @@ fn ordinary_compilation_bypasses_the_shared_cache() {
 
 #[test]
 fn failed_compilation_does_not_prevent_later_modules_from_loading() {
-    let backend = Backend::new().unwrap();
-    assert!(pollster::block_on(backend.compiler().compile(b"invalid Wasm")).is_err());
-    assert!(pollster::block_on(backend.compiler().compile(EMPTY_MODULE)).is_ok());
+    let runtime = WasmRuntime::new().unwrap();
+    assert!(pollster::block_on(runtime.compiler().compile(b"invalid Wasm")).is_err());
+    assert!(pollster::block_on(runtime.compiler().compile(EMPTY_MODULE)).is_ok());
 }

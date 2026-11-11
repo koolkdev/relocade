@@ -1,4 +1,4 @@
-use super::{Backend, Context};
+use super::{Context, WasmRuntime};
 use crate::{Error, Result, WasmBackend, WasmTableAccess};
 use wasmtime::{Func, Ref, RefType, Store, Table, TableType};
 
@@ -16,7 +16,7 @@ pub(super) fn create<T: 'static>(
     .map_err(|error| Error::new("create Wasm table", error))
 }
 
-impl<T: 'static> WasmTableAccess for Backend<T> {
+impl WasmTableAccess for WasmRuntime {
     type Backend = Self;
 
     fn ensure_table_size(
@@ -33,8 +33,8 @@ impl<T: 'static> WasmTableAccess for Backend<T> {
     }
 }
 
-impl<T: 'static> WasmTableAccess for Context<'_, T> {
-    type Backend = Backend<T>;
+impl WasmTableAccess for Context<'_> {
+    type Backend = WasmRuntime;
 
     fn ensure_table_size(
         &mut self,

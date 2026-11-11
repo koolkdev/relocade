@@ -31,7 +31,7 @@ impl Cpu {
         if self.halted {
             return ExecutionExit::Halted;
         }
-        let exit = self.instance.dispatch.step(&mut self.instance.backend);
+        let exit = self.instance.dispatch.step(&mut self.instance.wasm);
         self.finish_guest_exit(exit)
     }
 
@@ -44,7 +44,7 @@ impl Cpu {
     /// Both entry paths retain HLT before exposing a completed guest boundary.
     fn finish_guest_exit(&mut self, mut exit: ExecutionExit) -> ExecutionExit {
         while exit == ExecutionExit::InterruptInhibited && !self.exit.is_requested() {
-            exit = self.instance.dispatch.step(&mut self.instance.backend);
+            exit = self.instance.dispatch.step(&mut self.instance.wasm);
         }
         if exit == ExecutionExit::Halted {
             self.halted = true;

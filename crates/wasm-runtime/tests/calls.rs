@@ -2,7 +2,8 @@ use relocade_compiler::{
     abi::{AbiType, AbiValue, Carrier, Function, Table},
     Program, I32, I64,
 };
-use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{FunctionRef, WasmBackend, WasmCompiler, WasmRuntime};
+use std::{cell::Cell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -55,62 +56,64 @@ async fn check_rust_calls() {
         })
         .unwrap();
 
-    let mut backend = Backend::with_state(0_u32).unwrap();
-    let module = backend
+    let mut runtime = WasmRuntime::new().unwrap();
+    let calls = Rc::new(Cell::new(0_u32));
+    let captured_calls = calls.clone();
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
     let imports = [
-        FunctionRef::new(&mut backend.context(), |mut context, (value,)| {
-            *context.state_mut() = value
+        FunctionRef::new(&mut runtime.context(), move |_, (value,)| {
+            captured_calls.set(value)
         })
         .import(OBSERVE),
     ];
-    let instance = backend.instantiate(&module, &imports).unwrap();
-    let narrow = backend.function(&instance, NARROW).unwrap();
+    let instance = runtime.instantiate(&module, &imports).unwrap();
+    let narrow = runtime.function(&instance, NARROW).unwrap();
     assert_eq!(
-        backend.call(&narrow, (true, i8::MAX, i16::MAX, u32::MAX)),
+        runtime.call(&narrow, (true, i8::MAX, i16::MAX, u32::MAX)),
         (false, i8::MIN, i16::MIN, 0)
     );
     assert_eq!(
-        backend.call(&narrow, (false, -1, -1, 0x8000_0000)),
+        runtime.call(&narrow, (false, -1, -1, 0x8000_0000)),
         (true, 0, 0, 0x8000_0001)
     );
-    let add = backend.function(&instance, ADD).unwrap();
-    assert_eq!(backend.call(&add, (u16::MAX, i16::MIN)), 32767);
-    let three = backend.function(&instance, THREE).unwrap();
-    assert_eq!(backend.call(&three, (10, 20, 12)), 42);
-    let wide = backend.function(&instance, WIDE).unwrap();
-    assert_eq!(backend.call(&wide, (u64::MAX,)), 0);
+    let add = runtime.function(&instance, ADD).unwrap();
+    assert_eq!(runtime.call(&add, (u16::MAX, i16::MIN)), 32767);
+    let three = runtime.function(&instance, THREE).unwrap();
+    assert_eq!(runtime.call(&three, (10, 20, 12)), 42);
+    let wide = runtime.function(&instance, WIDE).unwrap();
+    assert_eq!(runtime.call(&wide, (u64::MAX,)), 0);
     assert_eq!(
-        backend.call(&wide, (0x8000_0000_0000_0001,)),
+        runtime.call(&wide, (0x8000_0000_0000_0001,)),
         0x8000_0000_0000_0002
     );
-    let signed = backend.function(&instance, SIGNED).unwrap();
+    let signed = runtime.function(&instance, SIGNED).unwrap();
     for value in [
         i64::MIN,
         i64::MAX,
         -0x20_0000_0000_0001,
         0x20_0000_0000_0001,
     ] {
-        assert_eq!(backend.call(&signed, (value,)), value);
+        assert_eq!(runtime.call(&signed, (value,)), value);
     }
-    let float = backend.function(&instance, FLOAT).unwrap();
+    let float = runtime.function(&instance, FLOAT).unwrap();
     for value in [-0.0_f64, -1.75, f64::INFINITY] {
-        assert_eq!(backend.call(&float, (value,)).to_bits(), value.to_bits());
+        assert_eq!(runtime.call(&float, (value,)).to_bits(), value.to_bits());
     }
-    assert!(backend.call(&float, (f64::NAN,)).is_nan());
-    let single = backend.function(&instance, SINGLE).unwrap();
-    let consume = backend.function(&instance, CONSUME).unwrap();
-    assert!(backend
+    assert!(runtime.call(&float, (f64::NAN,)).is_nan());
+    let single = runtime.function(&instance, SINGLE).unwrap();
+    let consume = runtime.function(&instance, CONSUME).unwrap();
+    assert!(runtime
         .function(&instance, Function::<fn() -> i64>::new("rust", "missing"))
         .is_err());
     for value in [17, u32::MAX] {
-        *backend.state_mut() = 0;
-        assert_eq!(single.call(&mut backend, ()), (0x20_0000_0000_0001,));
-        consume.call(&mut backend, (value,));
-        assert_eq!(*backend.state(), value);
+        calls.set(0);
+        assert_eq!(single.call(&mut runtime, ()), (0x20_0000_0000_0001,));
+        consume.call(&mut runtime, (value,));
+        assert_eq!(calls.get(), value);
     }
 }
 
@@ -131,8 +134,8 @@ async fn check_typed_linking() {
     const QUERY: Function<Query> = Function::new("typed", "query");
     const RELAY: Function<Query> = Function::new("typed", "relay");
     const TABLE: Table<Query> = Table::new("typed", "table", 1);
-    let mut backend = Backend::new().unwrap();
-    let table = backend.create_table(TABLE, None).unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
+    let table = runtime.create_table(TABLE, None).unwrap();
     let query = {
         let mut producer = Program::new();
         QUERY
@@ -148,16 +151,16 @@ async fn check_typed_linking() {
                 ))
             })
             .unwrap();
-        let module = backend
+        let module = runtime
             .compiler()
             .compile(&producer.compile().unwrap())
             .await
             .unwrap();
-        let instance = backend.instantiate(&module, &[]).unwrap();
-        backend.function(&instance, QUERY).unwrap()
+        let instance = runtime.instantiate(&module, &[]).unwrap();
+        runtime.function(&instance, QUERY).unwrap()
     };
-    let function = backend.import_function(&query);
-    table.set(&mut backend, 0, &function).unwrap();
+    let function = runtime.import_function(&query);
+    table.set(&mut runtime, 0, &function).unwrap();
     let mut consumer = Program::new();
     let direct = QUERY.import(&mut consumer);
     let indirect = consumer.import_table(TABLE);
@@ -167,23 +170,23 @@ async fn check_typed_linking() {
             body.tail_call_indirect(indirect, 0, &[next.into()])
         })
         .unwrap();
-    let module = backend
+    let module = runtime
         .compiler()
         .compile(&consumer.compile().unwrap())
         .await
         .unwrap();
-    let instance = backend
+    let instance = runtime
         .instantiate(
             &module,
-            &[backend.bind(QUERY, &query), backend.bind(TABLE, &table)],
+            &[runtime.bind(QUERY, &query), runtime.bind(TABLE, &table)],
         )
         .unwrap();
-    let relay = backend.function(&instance, RELAY).unwrap();
+    let relay = runtime.function(&instance, RELAY).unwrap();
     for (argument, expected) in [
         (u16::MAX, (true, 1, 0x8000_0000_0000_0000)),
         (0x8123, (false, 0x8125, 0x8000_0000_0000_8124)),
     ] {
-        let (bit, word, wide, float) = backend.call(&relay, (argument,));
+        let (bit, word, wide, float) = runtime.call(&relay, (argument,));
         assert_eq!((bit, word, wide), expected);
         assert_eq!(float.to_bits(), (-0.0_f64).to_bits());
     }
@@ -236,15 +239,15 @@ async fn check_domain_values() {
             body.return_(value.add(1))
         })
         .unwrap();
-    let mut backend = Backend::new().unwrap();
-    let module = backend
+    let mut runtime = WasmRuntime::new().unwrap();
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let instance = backend.instantiate(&module, &[]).unwrap();
-    let next = backend.function(&instance, NEXT).unwrap();
-    assert_eq!(backend.call(&next, (Mode::Read,)), Mode::Write);
+    let instance = runtime.instantiate(&module, &[]).unwrap();
+    let next = runtime.function(&instance, NEXT).unwrap();
+    assert_eq!(runtime.call(&next, (Mode::Read,)), Mode::Write);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
