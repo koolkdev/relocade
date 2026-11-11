@@ -1,5 +1,4 @@
 use super::*;
-use relocade_machine::{IoContext, PortBinding};
 
 async fn check_read_replacement() {
     for compiled in [false, true] {
@@ -136,10 +135,10 @@ async fn check_device_methods() {
             let io = IoBus::new(device.clone(), |io| {
                 io.map_mmio(std::iter::once(0x3000..=0x3fff));
                 io.map_ports(std::iter::once(0x3d4..=0x3d5));
-                device.borrow_mut().ports = Some(io.port(0x3d5));
+                device.borrow_mut().ports = Some(io.claim_ports(0x3d5));
                 // Initial setup uses the same method as later port/MMIO callbacks.
                 device.borrow().select_status(io.context(), true);
-                io.port(0x3da)
+                io.claim_ports(0x3da)
                     .set_read(io.context(), &PortRead::new(|_, _, _| 9));
             });
             let entries: &[usize] = if code[0] == 0xef { &[0, 1] } else { &[0] };

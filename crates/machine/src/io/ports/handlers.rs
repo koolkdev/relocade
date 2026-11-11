@@ -41,6 +41,7 @@ impl<S: FunctionSignature, C: ?Sized> Handler<S, C> {
 
 /// A reusable read operation, bound to one bus on first installation.
 /// Keep mode-specific operations in the device and reuse them at state changes.
+/// Prepare operations through a byte or word endpoint's handler factory.
 /// Native runtimes retain prepared functions until bus teardown; captures should
 /// use weak device references when the device itself retains this handler.
 #[derive(Clone)]
@@ -50,7 +51,7 @@ impl PortRead {
     /// Adapts the device's generic [`Device::read_port`] method. This is an
     /// ordinary selectable operation, with no override or restore state.
     /// The device must remain connected while the operation is used.
-    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
+    pub(crate) fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
         let device = Rc::downgrade(device);
         Self::new(move |context, port, bytes| {
             device
@@ -63,7 +64,7 @@ impl PortRead {
 
     /// The callback receives a width of 1, 2 or 4 bytes and owns wide-read
     /// behavior. Callers consume only the low result bytes.
-    pub fn new(read: impl Fn(IoContext<'_>, u16, u8) -> u32 + 'static) -> Self {
+    pub(crate) fn new(read: impl Fn(IoContext<'_>, u16, u8) -> u32 + 'static) -> Self {
         let read = Rc::new(read);
         let captured = read.clone();
         Self(Rc::new(Handler {
@@ -88,9 +89,8 @@ impl PortRead {
 pub struct PortWrite(pub(super) Rc<Handler<abi::PortWriteSignature, Write>>);
 
 impl PortWrite {
-    /// Adapts [`Device::write_port`] with a weak device reference, as in
-    /// [`PortRead::for_device`].
-    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
+    /// Adapts the legacy write method with a weak device reference.
+    pub(crate) fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
         let device = Rc::downgrade(device);
         Self::new(move |context, port, bytes, value| {
             device
@@ -101,7 +101,7 @@ impl PortWrite {
         })
     }
 
-    pub fn new(write: impl Fn(IoContext<'_>, u16, u8, u32) + 'static) -> Self {
+    pub(crate) fn new(write: impl Fn(IoContext<'_>, u16, u8, u32) + 'static) -> Self {
         let write = Rc::new(write);
         let captured = write.clone();
         Self(Rc::new(Handler {

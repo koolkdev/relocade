@@ -62,7 +62,8 @@ pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{
-    Device, DeviceConnection, IoBus, IoContext, PortBinding, PortRange, PortRead, PortWrite,
+    BytePort, Device, DeviceCallbacks, DeviceConnection, IndexedPorts, IoBus, IoContext, Port,
+    PortPolicy, PortRange, PortRead, PortValue, PortWindow, PortWrite, WordPort,
 };
 pub use machine::{CpuHandle, Machine};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};

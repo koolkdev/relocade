@@ -1,6 +1,11 @@
-use super::*;
-use relocade_machine::{Hook, PortBinding, PortRead, PortWrite};
+use super::{PortBinding, PortRead, PortWrite};
+use crate::{Cpu, CpuConfig, Device, DispatchEntry, Hook, IoBus, IoContext, MachineConfig, Memory};
 use relocade_x86::HostExit;
+use relocade_x86::{
+    BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
+    PhysicalMemoryMap,
+};
+use std::{cell::RefCell, rc::Rc};
 
 macro_rules! test_backends {
     ($name:ident, $check:ident) => {
@@ -17,24 +22,27 @@ macro_rules! test_backends {
     };
 }
 
-#[path = "mappings/configuration.rs"]
+#[path = "tests/configuration.rs"]
 mod configuration;
 
 async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu {
     let compiler = Compiler::new(ExecutionProfile::Real16);
-    let config = support::configuration(
+    let cpu_config = CpuConfig::new(
         compiler.target(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
         },
-        0x5000,
-        map(),
     )
     .unwrap();
-    let memory = Memory::new(config.machine).unwrap();
+    let map = PhysicalMemoryMap::new([
+        (0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (0x3000..=0x4fff, PhysicalMapping::Mmio),
+    ])
+    .unwrap();
+    let memory = Memory::new(MachineConfig::new(0x5000, map).unwrap()).unwrap();
     memory.view().write(0x100, code).unwrap();
-    let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
+    let mut cpu = Cpu::new(memory, cpu_config, io).await.unwrap();
     if compiled {
         let snapshots: Vec<_> = entries
             .iter()
@@ -77,18 +85,24 @@ async fn read(cpu: &mut Cpu, expected: u32) {
 
 fn bind(io: &IoBus, port: u16) -> PortBinding {
     let mut binding = None;
-    io.connect(RecordingDevice::new(0), |io| binding = Some(io.port(port)));
+    io.connect(RecordingDevice::new(), |io| {
+        binding = Some(io.claim_ports(port))
+    });
     binding.unwrap()
 }
 
 async fn check_shared_bindings() {
     for compiled in [false, true] {
-        let device = RecordingDevice::new(0);
+        let device = RecordingDevice::new();
         device.borrow_mut().port = 0x1234_5678;
         let mut bindings = None;
         let io = IoBus::new(device.clone(), |io| {
             io.map_ports(std::iter::once(0xfffe..=0xffff));
-            bindings = Some((io.port(0xfffe..=0xffff), io.port(0xffff), io.port(0x3d5)));
+            bindings = Some((
+                io.claim_ports(0xfffe..=0xffff),
+                io.claim_ports(0xffff),
+                io.claim_ports(0x3d5),
+            ));
         });
         let (range, port, start) = bindings.unwrap();
         let generic = PortRead::for_device(&device);
@@ -107,7 +121,7 @@ async fn check_shared_bindings() {
         io.write_port(0xffff, 4, 0x7654_3210);
         assert_eq!(
             device.borrow_mut().take_transfers(),
-            [Transfer::PortWrite {
+            [Transfer::Write {
                 port: 0xffff,
                 bytes: 4,
                 value: 0x7654_3210,
@@ -143,12 +157,12 @@ test_backends!(
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn retained_bindings_and_generic_handlers_do_not_keep_the_bus_or_device_alive() {
-    let device = RecordingDevice::new(0);
+    let device = RecordingDevice::new();
     let weak = Rc::downgrade(&device);
     let generic = PortRead::for_device(&device);
     let mut port = None;
     let io = IoBus::new(device.clone(), |io| {
-        let binding = io.port(0x80);
+        let binding = io.claim_ports(0x80);
         binding.set_read(io.context(), &generic);
         port = Some(binding);
     });
@@ -204,7 +218,7 @@ fn claims_are_fixed_even_without_handlers_and_batches_validate_before_installing
     drop(bind(&io, 0x80));
     assert!(catch_unwind(AssertUnwindSafe(|| bind(&io, 0x80))).is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| io.connect(
-        RecordingDevice::new(0),
+        RecordingDevice::new(),
         |io| {
             io.map_ports([0x70..=0x71, 0x7f..=0x80]);
         }
@@ -212,11 +226,11 @@ fn claims_are_fixed_even_without_handlers_and_batches_validate_before_installing
     .is_err());
     assert_eq!(io.read_port(0x70, 1), 0xff);
     // No prefix claim escaped from the rejected batch.
-    io.connect(RecordingDevice::new(0), |io| {
+    io.connect(RecordingDevice::new(), |io| {
         io.map_ports(std::iter::once(0x70..=0x71));
-        drop(io.port(0x71));
-        assert!(catch_unwind(AssertUnwindSafe(|| io.port(0x71..=0x72))).is_err());
-        drop(io.port(0x72));
+        drop(io.claim_ports(0x71));
+        assert!(catch_unwind(AssertUnwindSafe(|| io.claim_ports(0x71..=0x72))).is_err());
+        drop(io.claim_ports(0x72));
     });
     assert_eq!(io.read_port(0x70, 1), 0);
 }
@@ -230,3 +244,37 @@ const START_READ: &[u8] = &[
     b's', 1, 112, 1, 128, 128, 4, 128, 128, 4, 3, 2, 1, 1, 8, 1, 0, 10, 16, 1, 14, 0, 65, 213, 7,
     65, 1, 65, 213, 7, 17, 0, 0, 26, 11,
 ];
+
+#[derive(Debug, PartialEq)]
+enum Transfer {
+    Read { port: u16, bytes: u8 },
+    Write { port: u16, bytes: u8, value: u32 },
+}
+
+#[derive(Default)]
+struct RecordingDevice {
+    port: u32,
+    transfers: Vec<Transfer>,
+}
+
+impl RecordingDevice {
+    fn new() -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self::default()))
+    }
+
+    fn take_transfers(&mut self) -> Vec<Transfer> {
+        std::mem::take(&mut self.transfers)
+    }
+}
+
+impl Device for RecordingDevice {
+    fn read_port(&mut self, _: IoContext<'_>, port: u16, bytes: u8) -> u32 {
+        self.transfers.push(Transfer::Read { port, bytes });
+        self.port
+    }
+
+    fn write_port(&mut self, _: IoContext<'_>, port: u16, bytes: u8, value: u32) {
+        self.transfers.push(Transfer::Write { port, bytes, value });
+        self.port = value;
+    }
+}

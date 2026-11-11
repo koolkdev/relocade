@@ -1,6 +1,9 @@
 //! Scoped device setup and adaptation of existing register methods.
 
-use super::{validate_ranges, Device, IoContext, PortBinding, PortRange, PortRead, PortWrite};
+use super::{
+    validate_ranges, Device, IoContext, Port, PortBinding, PortPolicy, PortRange, PortRead,
+    PortValue, PortWindow, PortWrite,
+};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 pub(super) struct ConnectedDevice {
@@ -13,15 +16,13 @@ pub(super) struct ConnectedDevice {
 /// Configuration finishes before the device's activity starts.
 ///
 /// ```
-/// use relocade_machine::{Device, IoBus, IoContext};
+/// use relocade_machine::{Device, IoBus, PortPolicy};
 /// use std::{cell::RefCell, rc::Rc};
 /// struct Registers;
-/// impl Device for Registers {
-///     fn read_port(&mut self, _: IoContext<'_>, _: u16, _: u8) -> u32 { 0x14 }
-/// }
+/// impl Device for Registers {}
 /// let io = IoBus::default();
 /// io.connect(Rc::new(RefCell::new(Registers)), |io| {
-///     io.map_ports(std::iter::once(0x64..=0x64));
+///     io.port(0x64, PortPolicy::BYTE, |_| 0x14, |_, _| {});
 /// });
 /// assert_eq!(io.read_port(0x64, 1), 0x14);
 /// ```
@@ -58,13 +59,38 @@ impl<'a> DeviceConnection<'a> {
         self.context.reborrow()
     }
 
-    /// Claims one fixed port or range for this connection. Newly claimed ports
-    /// initially return open bus and ignore writes until handlers are selected.
-    /// Also accepts a subrange wholly contained in one of this connection's
-    /// existing claims, including ranges mapped with [`Self::map_ports`].
-    /// Partial overlaps and ranges spanning separate claims are rejected.
-    /// The returned binding may be retained; ownership lasts for the bus's lifetime.
-    pub fn port(&mut self, ports: impl Into<PortRange>) -> PortBinding {
+    /// Claims and configures one register using this connection's context.
+    /// Pass the logical read/write functions directly; the policy determines
+    /// their value type and how wider transfers behave. Use an FF read or no-op
+    /// write for an unimplemented direction. The returned endpoint can prepare
+    /// and select reusable handlers at later device state boundaries.
+    pub fn port<T: PortValue>(
+        &mut self,
+        address: u16,
+        policy: PortPolicy<T>,
+        read: impl Fn(IoContext<'_>) -> T + 'static,
+        write: impl Fn(IoContext<'_>, T) + 'static,
+    ) -> Port<T> {
+        let port = Port::new(self.claim_ports(address), policy, read, write);
+        port.configure(self.context(), &port.read, &port.write);
+        port
+    }
+
+    /// Claims a fixed window and its transfer policy. Supply its endpoints to
+    /// components, then configure it from current device state. Newly claimed
+    /// ports return open bus and ignore writes until configured.
+    /// Also accepts a subrange wholly contained in one existing claim, including
+    /// a range mapped with [`Self::map_ports`]. Partial overlaps and ranges
+    /// spanning separate claims are rejected.
+    pub fn ports<T: PortValue>(
+        &mut self,
+        ports: impl Into<PortRange>,
+        policy: PortPolicy<T>,
+    ) -> PortWindow<T> {
+        PortWindow::new(self.claim_ports(ports), policy)
+    }
+
+    pub(in crate::io) fn claim_ports(&mut self, ports: impl Into<PortRange>) -> PortBinding {
         let ports = ports.into().0;
         if !self
             .connection
@@ -79,9 +105,9 @@ impl<'a> DeviceConnection<'a> {
     }
 
     /// Maps ranges to this device's existing `read_port` and `write_port` methods.
-    /// Use [`Self::port`] to obtain a binding for a register that needs different
-    /// handling. Generic handling can be selected again with [`PortRead::for_device`]
-    /// and [`PortWrite::for_device`], just like any other reusable operations.
+    /// This compatibility adapter is for devices awaiting migration. New devices
+    /// register individual ports with [`Self::port`] and an explicit policy
+    /// or define windows for grouped configuration with [`Self::ports`].
     pub fn map_ports(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u16>>) {
         let ranges: Vec<_> = ranges.into_iter().collect();
         self.validate_ports(&ranges);
@@ -89,7 +115,7 @@ impl<'a> DeviceConnection<'a> {
             let read = PortRead::for_device(&self.connection.device);
             let write = PortWrite::for_device(&self.connection.device);
             for ports in ranges {
-                let port = self.port(ports);
+                let port = self.claim_ports(ports);
                 port.set_read(self.context(), &read);
                 port.set_write(self.context(), &write);
             }

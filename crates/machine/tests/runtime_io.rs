@@ -1,11 +1,11 @@
 #[path = "runtime_io/context.rs"]
 mod context;
-#[path = "runtime_io/mappings.rs"]
-mod mappings;
 #[path = "runtime_io/ownership.rs"]
 mod ownership;
 #[path = "runtime_io/ports.rs"]
 mod ports;
+#[path = "runtime_io/registers.rs"]
+mod registers;
 mod support;
 
 use relocade_machine::{Cpu, Device, DispatchEntry, FarPointer, IoBus, IoContext, Memory};

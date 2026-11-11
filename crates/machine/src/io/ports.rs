@@ -1,18 +1,29 @@
 //! Fixed device port bindings backed by the shared host and guest port map.
 
+mod callbacks;
 mod handlers;
+mod indexed;
 mod map;
+mod policy;
+mod registers;
+mod widths;
+mod windows;
 
 use super::{IoContext, State};
+pub use callbacks::DeviceCallbacks;
 pub use handlers::{PortRead, PortWrite};
+pub use indexed::IndexedPorts;
 pub(crate) use map::Ports;
+pub use policy::{PortPolicy, PortValue};
+pub use registers::{BytePort, Port, WordPort};
 use std::{
     ops::RangeInclusive,
     rc::{Rc, Weak},
 };
+pub use windows::PortWindow;
 
-/// One port or an inclusive range of starting ports. Wide transfers remain one
-/// callback even when they extend beyond the bound range.
+/// One port or an inclusive address window. The selected transfer policy
+/// determines how wider accesses address the registers inside it.
 pub struct PortRange(pub(super) RangeInclusive<u16>);
 
 impl From<u16> for PortRange {
@@ -28,42 +39,10 @@ impl From<RangeInclusive<u16>> for PortRange {
     }
 }
 
-/// A fixed port or range claimed during [`super::DeviceConnection`].
-/// Retain this binding to select handlers at device state changes. Changes take
-/// effect before the next transfer, including the next element of a REP string
-/// instruction. Reads and writes can be configured independently.
-///
-/// A binding cannot claim more ports or release its claim. Dropping it leaves
-/// the current handlers installed. It does not keep the bus alive.
-/// Use the callback's context, or [`super::IoBus::with_context`] from stopped
-/// host code. The same configuration method can run during connection and later:
-///
-/// ```
-/// use relocade_machine::{Device, IoBus, IoContext, PortBinding, PortRead};
-/// use std::{cell::RefCell, rc::Rc};
-/// struct Registers { status: Option<PortBinding>, ready: bool, idle: PortRead, busy: PortRead }
-/// impl Device for Registers {}
-/// impl Registers {
-///     fn configure(&self, context: IoContext<'_>) {
-///         let read = if self.ready { &self.idle } else { &self.busy };
-///         self.status.as_ref().unwrap().set_read(context, read);
-///     }
-/// }
-/// let device = Rc::new(RefCell::new(Registers {
-///     status: None, ready: true,
-///     idle: PortRead::new(|_, _, _| 0), busy: PortRead::new(|_, _, _| 1),
-/// }));
-/// let io = IoBus::new(device.clone(), |io| {
-///     device.borrow_mut().status = Some(io.port(0x64));
-///     device.borrow().configure(io.context());
-/// });
-/// assert_eq!(io.read_port(0x64, 1), 0);
-/// device.borrow_mut().ready = false;
-/// io.with_context(|context| device.borrow().configure(context));
-/// assert_eq!(io.read_port(0x64, 1), 1);
-/// ```
+/// Internal fixed binding shared by window configuration and the legacy adapter.
+/// Handler replacement publishes directly to host routing and guest tables.
 #[derive(Clone)]
-pub struct PortBinding {
+pub(crate) struct PortBinding {
     bus: Weak<State>,
     ports: RangeInclusive<u16>,
 }
@@ -77,8 +56,6 @@ impl PortBinding {
     }
 
     /// Selects a reusable read operation for this binding's fixed ports.
-    /// To use generic device handling again, select a [`PortRead::for_device`]
-    /// operation through this same method.
     pub fn set_read(&self, context: IoContext<'_>, read: &PortRead) {
         self.bus(&context)
             .ports
@@ -102,3 +79,6 @@ impl PortBinding {
             .expect("port binding requires its live bus")
     }
 }
+
+#[cfg(test)]
+mod tests;
