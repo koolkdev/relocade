@@ -122,7 +122,7 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
     let mut expected = snapshot;
     expected.instruction_count = 99;
     assert_eq!(cpu.snapshot(), expected);
-    assert_eq!(read::<8>(&context, 536), [0xfd, 1, 0, 0, 1, 0, 0, 0]);
+    assert_eq!(read::<8>(&context, 544), [0xfd, 1, 0, 0, 1, 0, 0, 0]);
 }
 
 #[test]

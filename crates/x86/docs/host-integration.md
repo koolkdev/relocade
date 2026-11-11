@@ -113,10 +113,10 @@ execution interrupts and other execution controls.
 Set `cpu_model` to the guest's configured capabilities before execution and keep it
 fixed for that guest. Interpreters read it for instruction admission and CPUID;
 JIT blocks specialize to it. CPU snapshot replacement preserves this field.
-The model is a little-endian 32-bit capability mask at byte offset 536; use
+The model is a little-endian 32-bit capability mask at byte offset 544; use
 `ExecutionContext::to_bytes()` to encode it. The interrupt request byte follows at offset
-540, followed by three zero padding bytes. The absolute instruction target is a
-64-bit field at offset 544. The complete context is 552 bytes.
+548, followed by three zero padding bytes. The absolute instruction target is a
+64-bit field at offset 552. The complete context is 560 bytes.
 Initialize the complete backing before sharing notification handles; live updates
 must not overwrite the interrupt request byte through whole-context copies.
 
@@ -551,32 +551,48 @@ of `ExecutionContext`. Copy exactly `CpuState::BYTE_LEN` bytes at
 `offset_of!(ExecutionContext, cpu)`, preserving the surrounding execution controls.
 Conversion is explicitly little endian and preserves reserved bytes, inactive flag
 payloads, raw segment fields, x87 and XMM encodings. The image is
-`CpuState::BYTE_LEN` (536) bytes:
+`CpuState::BYTE_LEN` (544) bytes:
 
 | Byte offset | Contents |
 | ---: | --- |
 | 0 | 12-byte `StatusSourceState`: kind, three reserved bytes, two u32 operands. |
-| 12 | 16-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, IF, IOPL, three reserved bytes. |
+| 12 | 16-byte `FlagBytes`: CF, PF, AF, ZF, SF, OF, TF, DF, NT, AC, ID, IF, IOPL, VM, two reserved bytes. |
 | 28 | Eight u32 registers: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI. |
 | 60 | u32 EIP. |
 | 64 | Six 16-byte segment records: ES, CS, SS, DS, FS, GS. |
-| 160 | Eight reserved bytes. |
-| 168 | u64 completed-instruction count and virtual timestamp counter. |
-| 176 | Twelve-byte `X87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
-| 188 | u16 full x87 tag word. |
-| 190 | u16 last x87 opcode. |
-| 192 | Two u32 x87 pointer offsets: instruction, data. |
-| 200 | Two u16 x87 pointer selectors: instruction, data. |
-| 204 | Fourteen-byte `X87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
-| 218 | Six reserved bytes. |
-| 224 | Eight 16-byte physical x87 register slots, R0 through R7. |
-| 352 | u32 packed MXCSR. |
-| 356 | Four reserved bytes. |
-| 360 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
-| 488 | Eight-byte GDTR: u32 base, u16 inclusive byte limit, two reserved bytes. |
-| 496 | Eight-byte IDTR, with the same layout as GDTR. |
-| 504 | Sixteen-byte loaded LDTR cache: u32 base, u32 inclusive byte limit, u16 selector, u8 usable, one reserved byte, u32 access rights. |
-| 520 | Sixteen-byte loaded TR cache, with the same layout as LDTR. |
+| 160 | u32 CR0, in architectural bit encoding. |
+| 164 | u32 CR2, the page-fault linear address. |
+| 168 | u32 CR3, the page-table base and control bits. |
+| 172 | u32 CR4, in architectural bit encoding. |
+| 176 | u64 completed-instruction count and virtual timestamp counter. |
+| 184 | Twelve-byte `X87Control`: six mask bytes, PC, RC, IC, padding byte, u16 reserved bits. |
+| 196 | u16 full x87 tag word. |
+| 198 | u16 last x87 opcode. |
+| 200 | Two u32 x87 pointer offsets: instruction, data. |
+| 208 | Two u16 x87 pointer selectors: instruction, data. |
+| 212 | Fourteen-byte `X87Status`: IE, DE, ZE, OE, UE, PE, SF, TOP, C0, C1, C2, C3, ES, B. |
+| 226 | Six reserved bytes. |
+| 232 | Eight 16-byte physical x87 register slots, R0 through R7. |
+| 360 | u32 packed MXCSR. |
+| 364 | Four reserved bytes. |
+| 368 | Eight 16-byte XMM slots, XMM0 through XMM7, low byte first. |
+| 496 | Eight-byte GDTR: u32 base, u16 inclusive byte limit, two reserved bytes. |
+| 504 | Eight-byte IDTR, with the same layout as GDTR. |
+| 512 | Sixteen-byte loaded LDTR cache: u32 base, u32 inclusive byte limit, u16 selector, u8 usable, one reserved byte, u32 access rights. |
+| 528 | Sixteen-byte loaded TR cache, with the same layout as LDTR. |
+
+`CpuState::mode()` derives real, protected or virtual-8086 mode from CR0.PE and
+EFLAGS.VM. `privilege_level()` derives CPL from the loaded CS selector in protected
+mode, and returns ring 0 in real mode or ring 3 in virtual-8086 mode. Representing
+control bits and privilege levels does not implement their execution semantics:
+generated entries still require their declared execution profile.
+
+Default CPU state is protected ring 3, with CS=0x1b and data selectors=0x23.
+CR0 starts at 0x31 (PE, ET, NE), and CR4 at 0x600 (OSFXSR, OSXMMEXCPT).
+Literal snapshots retain all control bits, including unsupported values, without
+normalization. CR2 and CR3 default to zero and are stored without paging or
+page-fault behavior. CR1 and CR5–CR7 are reserved on the Pentium 4 and have no
+backing fields. Snapshots and generated entries must use the same backing layout.
 
 `X87Control` keeps each exception mask in bit 0 of its named byte: invalid,
 denormal, zero divide, overflow, underflow and precision. A set mask suppresses
@@ -642,7 +658,7 @@ let image = cpu.to_bytes(); // Copy to the execution context's `cpu` member.
 assert_eq!(CpuState::from_bytes(image), cpu);
 ```
 
-`CpuState::default()` installs flat segment caches with zero visible selectors
+`CpuState::default()` installs flat ring-3 segment caches with CS=0x1b and data selectors=0x23
 and initializes x87 control fields to represent `037F`, status to zero and the
 tag word to `FFFF` (all eight registers empty).
 IDTR defaults to base zero and limit `03FF`; GDTR and the unusable LDTR/TR caches
@@ -732,8 +748,8 @@ entries report the empty class and retain their payload's sign; examination
 never raises a numerical exception or stack fault, including for signaling
 NaNs and unsupported encodings. Register contents, tags and TOP are unchanged.
 Execution assumes an enabled FPU with native exception reporting, corresponding
-to CR0.EM=0, CR0.TS=0 and CR0.NE=1. CR0 and device-not-available exceptions are not
-modeled by this user-mode environment.
+to CR0.EM=0, CR0.TS=0 and CR0.NE=1. Control bits are retained in snapshots;
+executing other FPU control states and device-not-available exceptions remain unsupported.
 
 FWAIT and FLDCW observe `status.error_summary`, the architectural ES bit. A pending
 exception returns #MF at that waiting instruction's EIP without retirement.

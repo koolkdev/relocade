@@ -16,9 +16,9 @@ pub use exit::{
     ExecutionExit, ExecutionExitCase, ExecutionExitValues, HostExit, HostExitCase, HostExitValues,
 };
 pub use layout::{
-    CpuState, DescriptorTableRegister, FlagBytes, FlagsState, Registers, SegmentRegister, Segments,
-    SimdState, StatusSourceState, SystemSegmentRegister, X87Control, X87Register, X87State,
-    X87Status,
+    CpuMode, CpuState, DescriptorTableRegister, FlagBytes, FlagsState, Registers, SegmentRegister,
+    Segments, SimdState, StatusSourceState, SystemSegmentRegister, X87Control, X87Register,
+    X87State, X87Status,
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;

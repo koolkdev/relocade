@@ -36,13 +36,13 @@ fn host_flag_images_use_low_bits_and_ignore_unrepresented_flags() {
     flags.status_source.kind = 0;
     flags.bytes.cf = 0x80;
     flags.bytes.if_ = 0xfe;
-    assert_eq!(flags.eflags(), 0x247dd6);
+    assert_eq!(flags.eflags(), 0x267dd6);
     flags.set_eflags(u32::MAX);
-    assert_eq!(flags.eflags(), 0x247fd7);
+    assert_eq!(flags.eflags(), 0x267fd7);
     assert_eq!(flags.status_source.kind, 0);
     assert_eq!(flags.status_source.left, u32::MAX);
     assert_eq!(flags.status_source.reserved, [0xff; 3]);
-    assert_eq!(flags.bytes.reserved, [0xff; 3]);
+    assert_eq!(flags.bytes.reserved, [0xff; 2]);
     flags.set_eflags(0);
     assert_eq!(flags.eflags(), 2);
 }

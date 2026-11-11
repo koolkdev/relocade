@@ -22,7 +22,10 @@ impl CpuState {
             },
             eip: read_u32(&bytes, offset_of!(CpuState, eip)),
             segments: Segments::from_bytes(read(&bytes, offset_of!(CpuState, segments))),
-            reserved: read(&bytes, offset_of!(CpuState, reserved)),
+            cr0: read_u32(&bytes, offset_of!(CpuState, cr0)),
+            cr2: read_u32(&bytes, offset_of!(CpuState, cr2)),
+            cr3: read_u32(&bytes, offset_of!(CpuState, cr3)),
+            cr4: read_u32(&bytes, offset_of!(CpuState, cr4)),
             instruction_count: read_u64(&bytes, offset_of!(CpuState, instruction_count)),
             x87: X87State::read(&bytes[offset_of!(CpuState, x87)..]),
             simd: SimdState::read(&bytes[offset_of!(CpuState, simd)..]),
@@ -52,6 +55,10 @@ impl CpuState {
             (offset_of!(CpuState, registers.esi), self.registers.esi),
             (offset_of!(CpuState, registers.edi), self.registers.edi),
             (offset_of!(CpuState, eip), self.eip),
+            (offset_of!(CpuState, cr0), self.cr0),
+            (offset_of!(CpuState, cr2), self.cr2),
+            (offset_of!(CpuState, cr3), self.cr3),
+            (offset_of!(CpuState, cr4), self.cr4),
         ] {
             write(&mut bytes, offset, &value.to_le_bytes());
         }
@@ -60,7 +67,6 @@ impl CpuState {
             offset_of!(CpuState, segments),
             &self.segments.to_bytes(),
         );
-        write(&mut bytes, offset_of!(CpuState, reserved), &self.reserved);
         write(
             &mut bytes,
             offset_of!(CpuState, instruction_count),

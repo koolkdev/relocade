@@ -87,7 +87,9 @@ fn encoding_a_named_segment_changes_only_its_sixteen_bytes() {
 #[test]
 fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
     let cpu = CpuState::default();
-    let mut expected = [0; 176];
+    let mut expected = [0; 184];
+    expected[160] = 0x31;
+    expected[173] = 6;
     for (offset, writable, executable) in [
         (64, 1, 0),
         (80, 0, 1),
@@ -97,10 +99,25 @@ fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
         (144, 1, 0),
     ] {
         expected[offset..offset + 16].copy_from_slice(&[
-            0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0, 0, 1, 1, writable, executable, 0, 1,
+            0,
+            0,
+            0,
+            0,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            if executable != 0 { 0x1b } else { 0x23 },
+            0,
+            1,
+            1,
+            writable,
+            executable,
+            0,
+            1,
         ]);
     }
-    assert_eq!(&cpu.to_bytes()[..176], &expected);
+    assert_eq!(&cpu.to_bytes()[..184], &expected);
     assert_eq!(cpu.segments, Segments::flat32());
     let zero = CpuState::from_bytes([0; CpuState::BYTE_LEN]);
     assert_eq!(zero.to_bytes(), [0; CpuState::BYTE_LEN]);

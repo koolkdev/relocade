@@ -22,7 +22,7 @@ pub(crate) fn image(code: &[u8]) -> Image {
         nt: 0,
         ac: 0,
         id: 0,
-        reserved: [0xa5; 3],
+        reserved: [0xa5; 2],
         ..image.cpu.flags.bytes
     };
     image

@@ -30,6 +30,7 @@ impl FlagsState {
                 id: bytes[offset_of!(FlagsState, bytes.id)],
                 if_: bytes[offset_of!(FlagsState, bytes.if_)],
                 iopl: bytes[offset_of!(FlagsState, bytes.iopl)],
+                vm: bytes[offset_of!(FlagsState, bytes.vm)],
                 reserved: read(&bytes, offset_of!(FlagsState, bytes.reserved)),
             },
         }
@@ -67,6 +68,7 @@ impl FlagsState {
         bytes[offset_of!(FlagsState, bytes.id)] = self.bytes.id;
         bytes[offset_of!(FlagsState, bytes.if_)] = self.bytes.if_;
         bytes[offset_of!(FlagsState, bytes.iopl)] = self.bytes.iopl;
+        bytes[offset_of!(FlagsState, bytes.vm)] = self.bytes.vm;
         write(
             &mut bytes,
             offset_of!(FlagsState, bytes.reserved),
@@ -107,7 +109,7 @@ impl FlagsState {
     }
 }
 
-fn flag_bits(flags: &mut FlagBytes) -> [(&mut u8, u32); 12] {
+fn flag_bits(flags: &mut FlagBytes) -> [(&mut u8, u32); 13] {
     [
         (&mut flags.cf, 0),
         (&mut flags.pf, 2),
@@ -119,6 +121,7 @@ fn flag_bits(flags: &mut FlagBytes) -> [(&mut u8, u32); 12] {
         (&mut flags.if_, 9),
         (&mut flags.df, 10),
         (&mut flags.nt, 14),
+        (&mut flags.vm, 17),
         (&mut flags.ac, 18),
         (&mut flags.id, 21),
     ]
