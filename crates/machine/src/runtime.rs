@@ -9,8 +9,9 @@
 //!
 //! The driver owns the CPU instance directly and alternates guest calls with polling
 //! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
-//! application resources at registration. Access copies values without acquiring
-//! the backend or binding a temporary view. Pending futures retain their locals
+//! application resources at registration. CPU state and RAM access use shared
+//! storage directly; device access retains its routing.
+//! Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
 //! Pending and IRQ-suspended services survive dropping their run waiter. Dropping
@@ -50,6 +51,7 @@ mod instance;
 mod instruction_target;
 mod io;
 mod memory;
+mod owner;
 pub mod real_mode_interrupt;
 mod storage;
 
@@ -66,10 +68,11 @@ pub use hooks::Hook;
 use instance::CpuInstance;
 pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
+pub(crate) use owner::Runtime;
 use relocade_wasm_runtime::Module;
 pub use storage::CpuStorage;
 
-type Backend = relocade_wasm_runtime::Backend<IoBus>;
+pub(crate) type Backend = relocade_wasm_runtime::Backend;
 
 /// Executes one guest and owns its execution instance, registered services and suspended calls.
 pub struct Cpu {
@@ -96,12 +99,14 @@ impl Cpu {
         io: IoBus,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
-        let mut backend = Backend::with_state(io.clone())?;
-        let bindings = RuntimeMemory::new(&mut backend, memory, cpu, storage)?;
-        let dispatch = Dispatch::new(&mut backend, &bindings).await?;
+        let runtime = io.runtime().clone();
+        runtime.attach_cpu()?;
+        let bindings =
+            runtime.with_backend(|backend| RuntimeMemory::new(backend, memory, cpu, storage))?;
+        let dispatch = Dispatch::new(&runtime, &bindings, &io).await?;
         let instruction_target = InstructionTarget::new(&bindings);
         let instance = CpuInstance {
-            backend,
+            runtime,
             bindings,
             io,
             dispatch,
@@ -149,7 +154,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install_module(&mut instance.backend, &instance.bindings, bytes, entries)
+            .install_module(&instance.runtime, &instance.bindings, bytes, entries)
             .await
     }
 
@@ -174,7 +179,7 @@ impl Cpu {
         );
         let instance = self.instance_mut();
         instance.dispatch.install_compiled_module(
-            &mut instance.backend,
+            &instance.runtime,
             &instance.bindings,
             module,
             entries,
@@ -203,7 +208,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install(&mut instance.backend, &instance.bindings, hooks)
+            .install(&instance.runtime, &instance.bindings, hooks)
             .await
     }
 

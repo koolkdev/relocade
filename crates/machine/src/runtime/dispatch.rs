@@ -3,8 +3,8 @@
 mod hooks;
 mod table;
 
-use super::{code, hooks::Handler, io::IoBindings, Backend, Hook, RuntimeMemory};
-use crate::{FarPointer, Result};
+use super::{code, hooks::Handler, io::IoBindings, Backend, Hook, Runtime, RuntimeMemory};
+use crate::{FarPointer, IoBus, Result};
 use hooks::Hooks;
 use relocade_wasm_runtime::{Function, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
@@ -32,43 +32,51 @@ pub(crate) struct Dispatch {
 }
 
 impl Dispatch {
-    pub(crate) async fn new(backend: &mut Backend, bindings: &RuntimeMemory) -> Result<Self> {
+    pub(crate) async fn new(
+        runtime: &Runtime,
+        bindings: &RuntimeMemory,
+        bus: &IoBus,
+    ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
-        let module = code::dispatcher(backend, target).await?;
-        // Link the dispatcher first; the interpreter imports its entry points.
-        let table = DispatchTable::new(backend)?;
-        let mut imports = bindings.imports(backend).to_vec();
-        imports.extend(table.imports(backend));
-        let instance = backend.instantiate(&module, &imports)?;
-        let dispatch = backend.function(&instance, abi::DISPATCH)?;
-        let interpret = backend.function(&instance, abi::INTERPRET)?;
+        let (compiler, cache) =
+            runtime.with_backend(|backend| (backend.compiler(), backend.module_cache().cloned()));
+        let dispatcher = code::dispatcher(&compiler, target).await?;
+        let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
+        runtime.with_backend(|backend| {
+            // Link the dispatcher first; the interpreter imports its entry points.
+            let table = DispatchTable::new(backend)?;
+            let mut imports = bindings.imports(backend).to_vec();
+            imports.extend(table.imports(backend));
+            let instance = backend.instantiate(&dispatcher, &imports)?;
+            let dispatch = backend.function(&instance, abi::DISPATCH)?;
+            let interpret = backend.function(&instance, abi::INTERPRET)?;
 
-        imports.extend([
-            backend.bind(abi::DISPATCH, &dispatch),
-            backend.bind(abi::INTERPRET, &interpret),
-        ]);
-        let io = IoBindings::new(backend)?;
-        imports.extend(io.imports(backend));
-        let module = code::interpreter(backend, target).await?;
-        let instance = backend.instantiate(&module, &imports)?;
-        table.install_interpreter(backend, &instance)?;
-        Ok(Self {
-            dispatch,
-            interpret,
-            step: backend.function(&instance, abi::STEP)?,
-            interrupt: if target.profile == ExecutionProfile::Real16 {
-                Some(backend.function(&instance, abi::INTERRUPT)?)
-            } else {
-                None
-            },
-            far_call: if target.profile == ExecutionProfile::Real16 {
-                Some(backend.function(&instance, abi::FAR_CALL)?)
-            } else {
-                None
-            },
-            table,
-            hooks: Hooks::default(),
-            io,
+            imports.extend([
+                backend.bind(abi::DISPATCH, &dispatch),
+                backend.bind(abi::INTERPRET, &interpret),
+            ]);
+            let io = IoBindings::new(backend, bus)?;
+            imports.extend(io.imports(backend));
+            let instance = backend.instantiate(&interpreter, &imports)?;
+            table.install_interpreter(backend, &instance)?;
+            Ok(Self {
+                dispatch,
+                interpret,
+                step: backend.function(&instance, abi::STEP)?,
+                interrupt: if target.profile == ExecutionProfile::Real16 {
+                    Some(backend.function(&instance, abi::INTERRUPT)?)
+                } else {
+                    None
+                },
+                far_call: if target.profile == ExecutionProfile::Real16 {
+                    Some(backend.function(&instance, abi::FAR_CALL)?)
+                } else {
+                    None
+                },
+                table,
+                hooks: Hooks::default(),
+                io,
+            })
         })
     }
 
@@ -102,12 +110,12 @@ impl Dispatch {
 
     pub(crate) async fn install(
         &mut self,
-        backend: &mut Backend,
+        runtime: &Runtime,
         bindings: &RuntimeMemory,
         hooks: impl IntoIterator<Item = Hook>,
     ) -> Result<()> {
         let module = self.hooks.compile(hooks)?;
-        self.install_module(backend, bindings, &module.bytes, &module.entries())
+        self.install_module(runtime, bindings, &module.bytes, &module.entries())
             .await?;
         self.hooks.install(module);
         Ok(())
@@ -115,18 +123,19 @@ impl Dispatch {
 
     pub(crate) async fn install_module(
         &mut self,
-        backend: &mut Backend,
+        runtime: &Runtime,
         bindings: &RuntimeMemory,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let module = backend.compiler().compile(bytes).await?;
-        self.install_compiled_module(backend, bindings, &module, entries)
+        let compiler = runtime.with_backend(|backend| backend.compiler());
+        let module = compiler.compile(bytes).await?;
+        self.install_compiled_module(runtime, bindings, &module, entries)
     }
 
     pub(crate) fn install_compiled_module(
         &mut self,
-        backend: &mut Backend,
+        runtime: &Runtime,
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
@@ -139,8 +148,10 @@ impl Dispatch {
             .into_iter()
             .map(|(address, export)| DispatchEntry { address, export })
             .collect();
-        let instance = self.instantiate(backend, bindings, module)?;
-        self.table.install(backend, &instance, &entries)?;
+        runtime.with_backend(|backend| {
+            let instance = self.instantiate(backend, bindings, module)?;
+            self.table.install(backend, &instance, &entries)
+        })?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
     }

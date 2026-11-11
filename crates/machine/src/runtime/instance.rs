@@ -1,11 +1,11 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{Backend, CpuContext, Dispatch, RuntimeMemory};
+use super::{CpuContext, Dispatch, Runtime, RuntimeMemory};
 use crate::IoBus;
 use relocade_x86::ExecutionExit;
 
 pub(super) struct CpuInstance {
-    pub backend: Backend,
+    pub runtime: Runtime,
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
@@ -22,6 +22,7 @@ impl CpuInstance {
     }
 
     pub fn dispatch(&mut self) -> ExecutionExit {
-        self.dispatch.run(&mut self.backend)
+        self.runtime
+            .with_backend(|backend| self.dispatch.run(backend))
     }
 }

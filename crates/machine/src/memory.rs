@@ -91,8 +91,8 @@ impl Memory {
 ///
 /// Clones share backing bytes and device connections independently of a CPU.
 /// Views borrow this handle and may cross awaits. Devices are borrowed only
-/// for individual transfers. This handle does not retain a Wasm backend or
-/// move device state between workers.
+/// for individual transfers. The bus retains its runtime for synchronous I/O,
+/// including after CPU drop. Device state stays on the execution worker.
 #[derive(Clone)]
 pub struct MemoryBus {
     memory: Memory,
