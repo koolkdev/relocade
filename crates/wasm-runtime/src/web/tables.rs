@@ -1,4 +1,4 @@
-use super::{js_error, set, Backend, Context};
+use super::{js_error, set, Backend, Context, TableContext};
 use crate::{Result, WasmBackend, WasmTableAccess};
 use js_sys::{Function, Object, WebAssembly::Table};
 use wasm_bindgen::JsValue;
@@ -30,15 +30,34 @@ impl<T: 'static> WasmTableAccess for Backend<T> {
         minimum: u32,
         initial: Option<&Function>,
     ) -> Result<()> {
-        self.context().ensure_table_size(table, minimum, initial)
+        self.table_context()
+            .ensure_table_size(table, minimum, initial)
     }
 
     fn set_table_import(&mut self, table: &Table, index: u32, function: &Function) -> Result<()> {
-        self.context().set_table_import(table, index, function)
+        self.table_context()
+            .set_table_import(table, index, function)
     }
 }
 
 impl<T: 'static> WasmTableAccess for Context<'_, T> {
+    type Backend = Backend<T>;
+
+    fn ensure_table_size(
+        &mut self,
+        table: &Table,
+        minimum: u32,
+        initial: Option<&Function>,
+    ) -> Result<()> {
+        TableContext::<T>::new().ensure_table_size(table, minimum, initial)
+    }
+
+    fn set_table_import(&mut self, table: &Table, index: u32, function: &Function) -> Result<()> {
+        TableContext::<T>::new().set_table_import(table, index, function)
+    }
+}
+
+impl<T: 'static> WasmTableAccess for TableContext<'_, T> {
     type Backend = Backend<T>;
 
     fn ensure_table_size(

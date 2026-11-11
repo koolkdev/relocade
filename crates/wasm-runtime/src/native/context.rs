@@ -5,6 +5,13 @@ use wasmtime::{AsContextMut, StoreContextMut};
 /// Scoped exclusive access to a store, its memories and its tables.
 pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, StoreData<T>>);
 
+impl<T: 'static> Context<'_, T> {
+    /// Borrows this scope for a nested synchronous operation.
+    pub fn reborrow(&mut self) -> Context<'_, T> {
+        Context(self.0.as_context_mut())
+    }
+}
+
 impl<T: 'static> WasmContext for Context<'_, T> {
     type State = T;
 
@@ -14,6 +21,10 @@ impl<T: 'static> WasmContext for Context<'_, T> {
 
     fn state_mut(&mut self) -> &mut T {
         &mut self.0.data_mut().state
+    }
+
+    fn table_context(&mut self) -> super::TableContext<'_, T> {
+        self.reborrow()
     }
 }
 

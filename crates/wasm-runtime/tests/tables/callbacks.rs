@@ -28,11 +28,13 @@ async fn check_callback_replacement() {
                 let table = state.table.as_ref().unwrap().clone();
                 let events = state.events.clone();
                 let increment = value - 5;
-                let replacement =
-                    FunctionRef::<Backend<State>, Read>::new(&mut context, move |_, (value,)| {
+                let replacement = FunctionRef::<Backend<State>, Read>::new(
+                    &mut context.table_context(),
+                    move |_, (value,)| {
                         events.borrow_mut().push(200 + u32::from(value));
                         (value + increment, 0x20_0000_0000_0003)
-                    });
+                    },
+                );
                 table.set(&mut context, 0, &replacement).unwrap();
                 table
                     .ensure_size(&mut context, 2, Some(&replacement))
@@ -102,4 +104,59 @@ fn callbacks_replace_themselves_and_grow_tables_without_relinking() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn callbacks_replace_themselves_and_grow_tables_without_relinking() {
     check_callback_replacement().await;
+}
+
+async fn check_table_context_replacement() {
+    type Read = fn(u8) -> u8;
+    const READ: abi::Table<Read> = abi::Table::new("test", "read", 1);
+    const RUN: abi::Function<fn() -> (u8, u8)> = abi::Function::new("test", "run");
+    let mut backend = Backend::new().unwrap();
+    let table = backend.create_table(READ, None).unwrap();
+    let target = table.clone();
+    let captures = Rc::new(3_u8);
+    let initial = FunctionRef::<Backend, Read>::new(
+        &mut backend.table_context(),
+        move |mut context, (value,)| {
+            let increment = *captures;
+            let replacement =
+                FunctionRef::<Backend, Read>::new(&mut context, move |_, (value,)| {
+                    value + increment
+                });
+            target.set(&mut context, 0, &replacement).unwrap();
+            value + 1
+        },
+    );
+    table.set(&mut backend, 0, &initial).unwrap();
+    let mut program = Program::new();
+    let read = program.import_table(READ);
+    RUN.define(&mut program, move |mut body, ()| {
+        let first = body.call_indirect::<I8>(read, 0, &[7.into()])?;
+        let second = body.call_indirect::<I8>(read, 0, &[9.into()])?;
+        body.return_((first, second))
+    })
+    .unwrap();
+    let module = backend
+        .compiler()
+        .compile(&program.compile().unwrap())
+        .await
+        .unwrap();
+    let instance = backend
+        .instantiate(&module, &[backend.bind(READ, &table)])
+        .await
+        .unwrap();
+    let run = backend.function(&instance, RUN).unwrap();
+    assert_eq!(backend.call(&run, ()), (8, 12));
+    assert_eq!(backend.call(&run, ()), (10, 12));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn table_context_prepares_and_publishes_callback_replacement() {
+    pollster::block_on(check_table_context_replacement());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn table_context_prepares_and_publishes_callback_replacement() {
+    check_table_context_replacement().await;
 }

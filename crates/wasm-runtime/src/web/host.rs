@@ -1,4 +1,4 @@
-use super::{Backend, Context};
+use super::{Backend, Context, TableContext};
 use crate::{CallSignature, FunctionContext};
 use js_sys::Function as JsFunction;
 use relocade_wasm_bindings::{Flat, Value, WasmTuple};
@@ -27,6 +27,25 @@ where
                 },
                 arguments,
             )
+        })
+        .expect("create Rust callback adapter")
+    }
+}
+
+impl<T: 'static, S: CallSignature + 'static> FunctionContext<S> for TableContext<'_, T>
+where
+    Flat<S::Parameters>: WasmTuple,
+    Flat<S::Return>: WasmTuple,
+{
+    type Backend = Backend<T>;
+    type CallbackContext<'a> = TableContext<'a, T>;
+
+    fn wrap_function(
+        &mut self,
+        callback: impl Fn(TableContext<'_, T>, Value<S::Parameters>) -> Value<S::Return> + 'static,
+    ) -> JsFunction {
+        relocade_wasm_bindings::callback::<S::Parameters, S::Return>(move |arguments| {
+            callback(TableContext::new(), arguments)
         })
         .expect("create Rust callback adapter")
     }

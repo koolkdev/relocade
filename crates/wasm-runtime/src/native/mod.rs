@@ -26,6 +26,7 @@ mod memory;
 mod tables;
 pub use compilation::Compiler;
 pub use context::Context;
+pub use context::Context as TableContext;
 pub(crate) use memory::MemoryRegion;
 pub use memory::{Memory, SharedMemory};
 
@@ -67,6 +68,7 @@ impl<T: 'static> Backend<T> {
 impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
+    type TableContext<'a> = TableContext<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
     type Instance = Instance;
@@ -84,6 +86,10 @@ impl<T: 'static> WasmBackend for Backend<T> {
 
     fn context(&mut self) -> Context<'_, T> {
         Context(self.store.as_context_mut())
+    }
+
+    fn table_context(&mut self) -> TableContext<'_, T> {
+        self.context()
     }
 
     fn compiler(&self) -> Compiler {

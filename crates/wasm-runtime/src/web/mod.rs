@@ -17,7 +17,7 @@ mod context;
 mod host;
 pub(crate) mod memory;
 mod tables;
-pub use context::Context;
+pub use context::{Context, TableContext};
 pub(crate) use memory::MemoryRegion;
 pub use memory::{Memory, SharedMemory};
 
@@ -93,6 +93,7 @@ impl<T: 'static> Backend<T> {
 impl<T: 'static> WasmBackend for Backend<T> {
     type State = T;
     type Context<'a> = Context<'a, T>;
+    type TableContext<'a> = TableContext<'a, T>;
     type Module = Module;
     type Compiler = Compiler;
     type Instance = WebAssembly::Instance;
@@ -113,6 +114,10 @@ impl<T: 'static> WasmBackend for Backend<T> {
             store: self.store.borrow_mut(),
             owner: &self.store,
         }
+    }
+
+    fn table_context(&mut self) -> TableContext<'_, T> {
+        TableContext::new()
     }
 
     fn compiler(&self) -> Compiler {

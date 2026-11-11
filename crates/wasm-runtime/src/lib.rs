@@ -13,7 +13,8 @@
 //! Callbacks retain their Rust owners through Wasm externrefs until their last
 //! engine reference is collected. Backend state belongs to the Rust backend and
 //! is released when it is dropped. Functions created through [`Context`] require
-//! that backend to remain alive.
+//! that backend to remain alive. [`TableContext`] functions retain their captures
+//! and operate on table handles without borrowing browser backend state.
 //! Wasm traps and invalid ABI values are fatal programming errors.
 //!
 //! ```
@@ -38,7 +39,7 @@ pub use error::{Error, Result};
 #[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
 mod backend;
-pub use backend::{Backend, Compiler, Context, Memory, Module, SharedMemory};
+pub use backend::{Backend, Compiler, Context, Memory, Module, SharedMemory, TableContext};
 
 mod calls;
 mod host;
@@ -107,6 +108,9 @@ pub trait WasmContext: WasmMemoryAccess + WasmTableAccess {
 
     fn state(&self) -> &Self::State;
     fn state_mut(&mut self) -> &mut Self::State;
+
+    /// Borrows this context for function creation and table edits.
+    fn table_context(&mut self) -> <Self::Backend as WasmBackend>::TableContext<'_>;
 }
 
 /// One thread-local Wasm resource owner. Memory keys implement Send + Sync on
@@ -138,6 +142,11 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory, Backend = Self>
     where
         Self: 'a;
+    /// Scoped function creation and table access. Browser implementations need
+    /// no host-state borrow for these operations.
+    type TableContext<'a>: WasmTableAccess<Backend = Self>
+    where
+        Self: 'a;
     /// Cloning a module shares compiled code without creating a guest instance.
     type Module: Clone + 'static;
     type Compiler: WasmCompiler<Module = Self::Module>;
@@ -156,6 +165,9 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     /// Borrows the stopped backend's state, memory and tables. The view may be held
     /// across an await, but must be dropped before calling into Wasm again.
     fn context(&mut self) -> Self::Context<'_>;
+
+    /// Borrows the stopped backend for function creation and table edits.
+    fn table_context(&mut self) -> Self::TableContext<'_>;
 
     /// Returns an independent compiler whose modules this backend can instantiate.
     fn compiler(&self) -> Self::Compiler;

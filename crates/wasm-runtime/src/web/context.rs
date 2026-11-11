@@ -5,6 +5,21 @@ use std::{
     rc::Rc,
 };
 
+/// Scoped access to browser functions and tables, independent of backend state.
+/// Resources belong to the JavaScript thread and retain their own engine handles.
+pub struct TableContext<'a, T>(std::marker::PhantomData<&'a mut Rc<T>>);
+
+impl<T> TableContext<'_, T> {
+    pub(super) fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+
+    /// Borrows this scope for a nested synchronous operation.
+    pub fn reborrow(&mut self) -> TableContext<'_, T> {
+        TableContext::new()
+    }
+}
+
 /// Scoped exclusive access to retained host state, memories and tables.
 pub struct Context<'a, T> {
     pub(super) store: RefMut<'a, Store<T>>,
@@ -20,6 +35,10 @@ impl<T: 'static> WasmContext for Context<'_, T> {
 
     fn state_mut(&mut self) -> &mut T {
         &mut self.store.state
+    }
+
+    fn table_context(&mut self) -> TableContext<'_, T> {
+        TableContext::new()
     }
 }
 

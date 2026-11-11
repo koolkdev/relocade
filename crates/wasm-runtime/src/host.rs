@@ -52,7 +52,9 @@ impl<B: WasmBackend, S: CallSignature> FunctionRef<B, S> {
     /// form the signature's Rust tuple, as in [`crate::Function::call`].
     /// Creating the function does not enter guest code.
     ///
-    /// Use [`WasmBackend::context`] for host state, memory and table access.
+    /// Use [`WasmBackend::context`] for host state and memory access, or
+    /// [`WasmBackend::table_context`] for function creation and table updates.
+    /// Browser table contexts do not borrow backend state when invoked.
     ///
     /// Captures stay on the execution thread and need not implement Send or Sync.
     /// They must not retain the backend itself. Native stores retain functions
