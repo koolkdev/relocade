@@ -36,7 +36,7 @@ use output::Output;
 use raster::Raster;
 use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
-use relocade_machine::{Clock, DeviceConnection, Runner};
+use relocade_machine::{Clock, Runner};
 #[cfg(feature = "renderer")]
 pub use renderer::VgaRenderer;
 pub use retrace::RetraceEvent;
@@ -74,13 +74,15 @@ pub struct Vga {
 
 impl Vga {
     /// Creates VGA on the runner's clock and starts display capture.
-    /// Returns the device handle and its memory/port connection for the CPU bus.
-    pub async fn initialize(runner: &Runner) -> (Rc<RefCell<Self>>, DeviceConnection) {
+    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
-        let connection = runner
-            .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
+        runner
+            .connect(vga.clone(), |io| {
+                io.map_mmio([MEMORY_RANGE]);
+                io.map_ports(PORT_RANGES);
+            })
             .await;
-        (vga, connection)
+        vga
     }
 
     /// Uses the same timebase for guest status reads and asynchronous scanout.

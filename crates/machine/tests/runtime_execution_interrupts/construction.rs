@@ -44,8 +44,7 @@ async fn idle_devices() {
                     requests: Some(requests),
                     state: state.clone(),
                 })),
-                [],
-                [],
+                |_| {},
             )
             .await;
         let probe = async || {

@@ -2,11 +2,9 @@
 use super::*;
 
 fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {
-    IoBus::new([DeviceConnection {
-        device: device.clone(),
-        ports: std::iter::once(0xffff..=0xffff).collect(),
-        mmio: vec![],
-    }])
+    IoBus::new(device.clone(), |io| {
+        io.map_ports(std::iter::once(0xffff..=0xffff));
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -101,11 +99,9 @@ async fn guest_carriers() {
             );
             assert_eq!(cpu.cpu_state().al(), 0xff);
             assert!(device.borrow().transfers.is_empty());
-            io.connect([DeviceConnection {
-                device: device.clone(),
-                ports: std::iter::once(0xffff..=0xffff).collect(),
-                mmio: vec![],
-            }]);
+            io.connect(device.clone(), |io| {
+                io.map_ports(std::iter::once(0xffff..=0xffff));
+            });
             assert_eq!(io.read_port(0xffff, 4), 0x7654_3210);
             device.borrow_mut().take_transfers();
         }

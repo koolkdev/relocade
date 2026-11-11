@@ -39,17 +39,15 @@ async fn halted_worker() {
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
-        let io = runner.cpu().io();
-        io.connect([runner
+        runner
             .connect(
                 Rc::new(RefCell::new(InputIrq {
                     irq: interrupts::Irq::default(),
                     input: Some(input),
                 })),
-                [],
-                [],
+                |_| {},
             )
-            .await]);
+            .await;
         prepare_cpu(&mut runner, &[0xfb, 0xf4, 0x40, 0xf4], true).await;
         let state = runner.cpu().cpu_state();
         state.set_sp(0x8000);

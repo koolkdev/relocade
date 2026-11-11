@@ -3,7 +3,7 @@
 use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::{yield_now, Clock, Device, DeviceConnection, IoContext, Runner, Timestamp};
+use relocade_machine::{yield_now, Clock, Device, IoContext, Runner, Timestamp};
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
@@ -34,11 +34,14 @@ pub struct Pit {
 
 impl Pit {
     /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
-    /// Returns the shared PIT and its register connection for the CPU bus.
-    pub async fn initialize(runner: &Runner, pic: &Pic) -> (Rc<RefCell<Self>>, DeviceConnection) {
+    pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
         let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
-        let connection = runner.connect(pit.clone(), [], [crate::PORT_RANGE]).await;
-        (pit, connection)
+        runner
+            .connect(pit.clone(), |io| {
+                io.map_ports([crate::PORT_RANGE]);
+            })
+            .await;
+        pit
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.

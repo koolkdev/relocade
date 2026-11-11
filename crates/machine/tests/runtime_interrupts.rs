@@ -3,7 +3,7 @@ mod irq;
 mod support;
 
 use irq::Irq;
-use relocade_machine::{Cpu, Device, DeviceConnection, Hook, IoBus, Memory};
+use relocade_machine::{Cpu, Device, Hook, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister,
@@ -38,11 +38,9 @@ async fn cpu(code: &[u8], flags: u32, irq: &Rc<RefCell<impl Device + 'static>>) 
     Cpu::new(
         memory,
         config.cpu,
-        IoBus::new([DeviceConnection {
-            device: irq.clone(),
-            mmio: vec![],
-            ports: std::iter::once(0x80..=0x80).collect(),
-        }]),
+        IoBus::new(irq.clone(), |io| {
+            io.map_ports(std::iter::once(0x80..=0x80));
+        }),
     )
     .await
     .unwrap()

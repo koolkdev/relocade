@@ -1,4 +1,6 @@
 use relocade_clock_test_support::ManualClock;
+#[path = "runtime_devices/connection.rs"]
+mod connection;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
@@ -92,9 +94,11 @@ async fn check_devices() {
                 active: worker_active.clone(),
             }));
             let io = runner.cpu().io();
-            io.connect([runner
-                .connect(device, [], std::iter::once(0x80..=0x80))
-                .await]);
+            runner
+                .connect(device, |io| {
+                    io.map_ports(std::iter::once(0x80..=0x80));
+                })
+                .await;
             assert!(
                 worker_active.load(Ordering::SeqCst),
                 "connect starts activity before returning"
@@ -161,8 +165,10 @@ async fn check_devices() {
                 report,
                 active: worker_active.clone(),
             }));
-            let _connection = runner
-                .connect(device, [], std::iter::once(0x80..=0x80))
+            runner
+                .connect(device, |io| {
+                    io.map_ports(std::iter::once(0x80..=0x80));
+                })
                 .await;
             ready.send(()).unwrap();
             std::future::pending().await

@@ -39,19 +39,11 @@ impl Pc {
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and speaker emulation require no platform output.
     pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
-        let (vga, vga_device) = Vga::initialize(&runner).await;
-        let (pic, pic_device) = Pic::initialize(&runner).await;
-        let (pit, pit_device) = Pit::initialize(&runner, &pic).await;
-        let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
-        let (inputs, controller, ps2_device) = relocade_ps2::connect(&runner, &pic).await;
-        let io = runner.cpu().io();
-        io.connect([
-            pic_device,
-            pit_device,
-            speaker_device,
-            vga_device,
-            ps2_device,
-        ]);
+        let vga = Vga::initialize(&runner).await;
+        let pic = Pic::initialize(&runner).await;
+        let pit = Pit::initialize(&runner, &pic).await;
+        let speaker = Speaker::initialize(&runner, pit).await;
+        let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
         let clock = runner.clock().clone();

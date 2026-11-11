@@ -29,8 +29,8 @@ the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
 `Pit::initialize(runner, &pic).await` creates the execution-owned
-device on the runner's clock and starts its activity. It returns the shared PIT
-and its connection for the CPU bus. It owns byte transfers at
+device on the runner's clock, connects its registers and starts its activity.
+It returns the shared PIT. It owns byte transfers at
 channel 0 (0x40), channel 2 (0x42) and control/read-back (0x43). Channel 1 (0x41)
 and wider transfers are unsupported: writes are ignored and reads return open bus.
 Read-back can latch both supported channels at the same machine time.

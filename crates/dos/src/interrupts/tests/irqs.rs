@@ -1,9 +1,7 @@
 use super::*;
 use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
 use relocade_bios::KeyMode;
-use relocade_machine::{
-    Cpu, CpuConfig, Device, DeviceConnection, IoBus, IoContext, MachineConfig, Memory,
-};
+use relocade_machine::{Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig, Memory};
 use relocade_vga::Vga;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
@@ -44,18 +42,12 @@ impl Device for Irq {
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
-    let io = IoBus::new([
-        DeviceConnection {
-            device: vga.clone(),
-            mmio: vec![relocade_vga::MEMORY_RANGE],
-            ports: relocade_vga::PORT_RANGES.into_iter().collect(),
-        },
-        DeviceConnection {
-            device: irq.clone(),
-            mmio: vec![],
-            ports: vec![],
-        },
-    ]);
+    let io = IoBus::default();
+    io.connect(vga.clone(), |io| {
+        io.map_mmio([relocade_vga::MEMORY_RANGE]);
+        io.map_ports(relocade_vga::PORT_RANGES);
+    });
+    io.connect(irq.clone(), |_| {});
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),

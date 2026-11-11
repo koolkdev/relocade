@@ -77,8 +77,8 @@ async fn timer_interrupts() -> Result<(), String> {
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
-        let (pic, pic_connection) = Pic::initialize(&runner).await;
-        let (_pit, pit_connection) = Pit::initialize(&runner, &pic).await;
+        let pic = Pic::initialize(&runner).await;
+        let _pit = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
             clock: runner.clock().clone(),
             ready: Some(ready),
@@ -87,8 +87,10 @@ async fn timer_interrupts() -> Result<(), String> {
             samples: Vec::with_capacity(INTERRUPTS),
             exit: None,
         }));
-        let connection = runner
-            .connect(reports.clone(), [], std::iter::once(0x80..=0x81))
+        runner
+            .connect(reports.clone(), |io| {
+                io.map_ports(std::iter::once(0x80..=0x81));
+            })
             .await;
         let memory = runner.memory();
         // Program mode 3, divisor 2386 (approximately 500 Hz); unmask IRQ0.
@@ -112,8 +114,6 @@ async fn timer_interrupts() -> Result<(), String> {
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
         let cpu = runner.cpu();
-        cpu.io()
-            .connect([pic_connection, pit_connection, connection]);
         cpu.context().cpu.set_sp(0xf00);
         let busy = compiler.compile_block(0x113, &program[19..], 32).unwrap();
         cpu.install_module(

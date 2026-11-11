@@ -4,13 +4,15 @@ mod connection;
 mod context;
 mod device;
 pub(crate) mod ports;
+use connection::ConnectedDevice;
+pub use connection::DeviceConnection;
 pub use context::IoContext;
-pub use device::{Device, DeviceConnection};
+pub use device::Device;
 
 use crate::runtime::WasmRuntimeHandle;
 use relocade_wasm_runtime::WasmBackend;
 use std::{
-    cell::{Cell, OnceCell, RefCell},
+    cell::{Cell, RefCell},
     ops::RangeInclusive,
     rc::{Rc, Weak},
     task::{Context, Poll},
@@ -41,7 +43,7 @@ pub struct IoBus {
 pub(crate) struct State {
     runtime: WasmRuntimeHandle,
     cpu_attached: Cell<bool>,
-    connections: OnceCell<Box<[DeviceConnection]>>,
+    connections: RefCell<Vec<ConnectedDevice>>,
     ports: ports::Ports,
     identity: Weak<State>,
 }
@@ -52,7 +54,7 @@ impl Default for IoBus {
             state: Rc::new_cyclic(|identity| State {
                 runtime: WasmRuntimeHandle::default(),
                 cpu_attached: Cell::new(false),
-                connections: OnceCell::new(),
+                connections: RefCell::default(),
                 ports: ports::Ports::default(),
                 identity: identity.clone(),
             }),
@@ -61,35 +63,36 @@ impl Default for IoBus {
 }
 
 impl IoBus {
-    /// Connects each device's memory and port ranges together.
-    ///
-    /// # Panics
-    /// Panics if a range is empty or two ranges on the same bus overlap.
-    pub fn new(connections: impl IntoIterator<Item = DeviceConnection>) -> Self {
+    /// Creates a bus with one configured device. Further connections use
+    /// [`Self::connect`] and share the same port tables.
+    pub fn new(
+        device: Rc<RefCell<dyn Device>>,
+        configure: impl FnOnce(&mut DeviceConnection<'_>),
+    ) -> Self {
         let io = Self::default();
-        io.connect(connections);
+        io.connect(device, configure);
         io
     }
 
-    /// Initializes this bus's device connections once. The CPU keeps this same
-    /// bus throughout its lifetime; devices may be connected after CPU creation.
+    /// Attaches a device and configures its mappings on this bus. Existing devices
+    /// and already-linked guest modules see the mappings immediately. Call this
+    /// at a stopped host boundary; [`crate::Runner::connect`] also starts activity.
+    /// The configuration context cannot escape the closure or cross an await.
     ///
     /// # Panics
-    /// Panics if connections are already initialized, or a range is empty or overlaps.
-    pub fn connect(&self, connections: impl IntoIterator<Item = DeviceConnection>) {
-        assert!(
-            self.state.connections.get().is_none(),
-            "devices already connected"
-        );
-        let connections: Box<[_]> = connections.into_iter().collect();
-        validate_ranges(connections.iter().flat_map(|device| &device.mmio));
-        validate_ranges(connections.iter().flat_map(|device| &device.ports));
-        self.with_context(|mut context| {
+    /// Panics if a range is empty or overlaps another mapping.
+    pub fn connect(
+        &self,
+        device: Rc<RefCell<dyn Device>>,
+        configure: impl FnOnce(&mut DeviceConnection<'_>),
+    ) {
+        self.with_context(|context| {
+            let mut connection = DeviceConnection::new(context, device);
+            configure(&mut connection);
             self.state
                 .connections
-                .set(connections)
-                .unwrap_or_else(|_| unreachable!());
-            connection::register(self.state.connections(), &self.state.ports, &mut context);
+                .borrow_mut()
+                .push(connection.finish());
         });
     }
 
@@ -154,16 +157,12 @@ impl IoBus {
 }
 
 impl State {
-    fn connections(&self) -> &[DeviceConnection] {
-        self.connections.get().map_or(&[], Box::as_ref)
-    }
-
     pub fn is_empty(&self) -> bool {
-        self.connections().is_empty()
+        self.connections.borrow().is_empty()
     }
 
     pub fn poll_interrupt(&self, mut context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
-        for connection in self.connections() {
+        for connection in self.connections.borrow().iter() {
             if let Poll::Ready(vector) = connection
                 .device
                 .borrow_mut()
@@ -177,11 +176,12 @@ impl State {
 
     pub fn read_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
         check_mmio_range(address, bytes);
+        let connections = self.connections.borrow();
         let mut result = [0xff; 8];
         let mut done = 0;
         while done < bytes {
             let current = address + u32::from(done);
-            let (device, count) = self.mmio_span(current, bytes - done);
+            let (device, count) = Self::mmio_span(&connections, current, bytes - done);
             if let Some(device) = device {
                 let value = device
                     .borrow_mut()
@@ -199,11 +199,12 @@ impl State {
 
     pub fn write_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         check_mmio_range(address, bytes);
+        let connections = self.connections.borrow();
         let value = value.to_le_bytes();
         let mut done = 0;
         while done < bytes {
             let current = address + u32::from(done);
-            let (device, count) = self.mmio_span(current, bytes - done);
+            let (device, count) = Self::mmio_span(&connections, current, bytes - done);
             if let Some(device) = device {
                 let mut part = [0; 8];
                 part[..usize::from(count)]
@@ -234,9 +235,13 @@ impl State {
         );
     }
 
-    fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&RefCell<dyn Device>>, u8) {
+    fn mmio_span(
+        connections: &[ConnectedDevice],
+        address: u32,
+        bytes: u8,
+    ) -> (Option<&RefCell<dyn Device>>, u8) {
         let mut count = u64::from(bytes);
-        for connection in self.connections() {
+        for connection in connections {
             for range in &connection.mmio {
                 if range.contains(&address) {
                     count = count.min(u64::from(*range.end()) - u64::from(address) + 1);

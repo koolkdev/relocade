@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Cpu, Device, DeviceConnection, ExitHandle, IoBus, IoContext, Memory};
+use relocade_machine::{Cpu, Device, ExitHandle, IoBus, IoContext, Memory};
 
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
@@ -180,11 +180,9 @@ impl Device for ExitDevice {
 
 async fn exit_during_guest() {
     let device = Rc::new(RefCell::new(ExitDevice::default()));
-    let io = IoBus::new([DeviceConnection {
-        device: device.clone(),
-        mmio: Vec::new(),
-        ports: std::iter::once(0x80..=0x80).collect(),
-    }]);
+    let io = IoBus::new(device.clone(), |io| {
+        io.map_ports(std::iter::once(0x80..=0x80));
+    });
     let mut runner = cpu(io).await;
     device.borrow_mut().0 = Some(runner.exit_handle());
     // OUT 80h,AL; JMP 0500 (host entry).

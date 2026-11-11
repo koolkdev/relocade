@@ -90,22 +90,14 @@ async fn exit_during_entry() {
         let memory = Memory::new(config.machine).unwrap();
         memory.view().write(0x180, &[0, 3, 0, 0]).unwrap();
         memory.view().write(0x300, &[0x40, 0xeb, 0xfe]).unwrap(); // INC AX; JMP to self.
-        let mut runner = Cpu::new(
-            memory,
-            config.cpu,
-            IoBus::new([
-                DeviceConnection {
-                    device: irq.clone(),
-                    mmio: vec![],
-                    ports: vec![],
-                },
-                DeviceConnection {
-                    device: stack.clone(),
-                    mmio: std::iter::once(0x7000..=0x7fff).collect(),
-                    ports: vec![],
-                },
-            ]),
-        )
+        let mut runner = Cpu::new(memory, config.cpu, {
+            let io = IoBus::default();
+            io.connect(irq.clone(), |_| {});
+            io.connect(stack.clone(), |io| {
+                io.map_mmio(std::iter::once(0x7000..=0x7fff));
+            });
+            io
+        })
         .await
         .unwrap();
         stack.borrow_mut().exit = Some(runner.exit_handle());

@@ -1,8 +1,9 @@
 # PC interrupt controllers
 
 `Pic::initialize(runner).await` creates an execution-owned 8259A pair and
-registers master ports 20h–21h and slave ports A0h–A1h. Add the returned connection
-to the CPU bus. A peripheral creates its `IrqLine` through `pic.irq(number, initial_high)`.
+registers master ports 20h–21h and slave ports A0h–A1h on the runner's bus. It
+returns the shared PIC handle. A peripheral creates its `IrqLine` through
+`pic.irq(number, initial_high)`.
 Its `set_level` models a level transition; `pulse` produces a timer edge. The PIC
 alone supplies vectors through the existing machine `Device::poll_interrupt` API.
 Both initial masks are FFh. PC setup calls `pic.unmask_irq(TIMER_IRQ)` to enable

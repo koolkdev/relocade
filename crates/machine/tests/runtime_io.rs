@@ -6,9 +6,7 @@ mod ownership;
 mod ports;
 mod support;
 
-use relocade_machine::{
-    Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, IoContext, Memory,
-};
+use relocade_machine::{Cpu, Device, DispatchEntry, FarPointer, IoBus, IoContext, Memory};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -112,11 +110,10 @@ async fn check_device_access() {
             .await
             .unwrap();
         let io = cpu.io();
-        io.connect([DeviceConnection {
-            device: device.clone(),
-            mmio: std::iter::once(0x3000..=0x4fff).collect(),
-            ports: std::iter::once(0x3d4..=0x3d4).collect(),
-        }]);
+        io.connect(device.clone(), |io| {
+            io.map_mmio(std::iter::once(0x3000..=0x4fff));
+            io.map_ports(std::iter::once(0x3d4..=0x3d4));
+        });
         {
             let mut view = memory.view().with_io(&io);
             view.write_backing(0x3ffe, &[0xaa; 4]).unwrap();
@@ -229,18 +226,13 @@ async fn host_and_guest_access_the_same_devices() {
 fn mmio_crosses_device_boundaries_and_open_bus() {
     let first = RecordingDevice::new(0x3000);
     let second = RecordingDevice::new(0x3000);
-    let io = IoBus::new([
-        DeviceConnection {
-            device: first.clone(),
-            mmio: std::iter::once(0x3000..=0x3002).collect(),
-            ports: vec![],
-        },
-        DeviceConnection {
-            device: second.clone(),
-            mmio: std::iter::once(0x3004..=0x3fff).collect(),
-            ports: vec![],
-        },
-    ]);
+    let io = IoBus::default();
+    io.connect(first.clone(), |io| {
+        io.map_mmio(std::iter::once(0x3000..=0x3002));
+    });
+    io.connect(second.clone(), |io| {
+        io.map_mmio(std::iter::once(0x3004..=0x3fff));
+    });
     let memory = Memory::new(relocade_machine::MachineConfig::new(0x2000, map()).unwrap()).unwrap();
     let mut view = memory.view().with_io(&io);
     view.write_u64(0x3000, 0x0807_0605_0403_0201).unwrap();
@@ -280,18 +272,13 @@ fn mmio_crosses_device_boundaries_and_open_bus() {
 fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
     let low = RecordingDevice::new(0);
     let high = RecordingDevice::new(0xff000);
-    let io = IoBus::new([
-        DeviceConnection {
-            device: low.clone(),
-            mmio: std::iter::once(0..=0xfff).collect(),
-            ports: vec![],
-        },
-        DeviceConnection {
-            device: high.clone(),
-            mmio: std::iter::once(0xff000..=0xfffff).collect(),
-            ports: vec![],
-        },
-    ]);
+    let io = IoBus::default();
+    io.connect(low.clone(), |io| {
+        io.map_mmio(std::iter::once(0..=0xfff));
+    });
+    io.connect(high.clone(), |io| {
+        io.map_mmio(std::iter::once(0xff000..=0xfffff));
+    });
     let map = PhysicalMemoryMap::new([
         (0..=0xfff, PhysicalMapping::Mmio),
         (0xff000..=0xfffff, PhysicalMapping::Mmio),
@@ -336,11 +323,9 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
 fn far_buffers_wrap_offsets_independently_of_a20_and_mapping_policy() {
     for a20_enabled in [false, true] {
         let device = RecordingDevice::new(0xf0000);
-        let io = IoBus::new([DeviceConnection {
-            device: device.clone(),
-            mmio: std::iter::once(0xf0000..=0xf0fff).collect(),
-            ports: vec![],
-        }]);
+        let io = IoBus::new(device.clone(), |io| {
+            io.map_mmio(std::iter::once(0xf0000..=0xf0fff));
+        });
         let mut map = PhysicalMemoryMap::new([
             (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
             (0xf0000..=0xf0fff, PhysicalMapping::Mmio),

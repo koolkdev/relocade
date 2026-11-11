@@ -19,8 +19,10 @@ let cpu = machine.create_cpu(cpu_config, None)?;
 let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
-    let io = runner.cpu().io();
-    io.connect([runner.connect(device, memory_ranges, ports).await]);
+    runner.connect(device, |io| {
+        io.map_mmio(memory_ranges);
+        io.map_ports(ports);
+    }).await;
     runner.run_cpu().await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
@@ -32,10 +34,11 @@ machine.shutdown().await?;
 timers?;
 ```
 
-`connect(...).await` registers the device's ordinary async `Device::run` future
-and waits until its first poll before returning the bus connection. Initialize
-device state before connecting; this wait establishes activity readiness, not
-arbitrary asynchronous construction. Passive devices use the default empty activity. Device
+`connect(...).await` installs the device's mappings and retains the device, then
+starts its ordinary async `Device::run` future. Setup releases its runtime context
+before the activity's first poll; synchronous I/O is available during that poll.
+Connection returns once the activity has installed its wake path. Initialize
+device state before connecting. Passive devices use the default empty activity. Device
 activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
@@ -47,9 +50,9 @@ resetting registers, initially with an empty device bus. Startup observes cancel
 through construction and returns failures to the worker owner without entering the
 session. The callback receives a complete Runner with a usable CPU.
 
-`runner.cpu().io().connect(connections)` initializes the fixed bus once;
-`Dos::new(runner)` uses it after starting the PC's device activities. Retained bus
-handles and already installed modules observe these same connections. `run_cpu()`
+Each `runner.connect(device, configure).await` adds its device to the session's
+existing bus. `Dos::new(runner)` connects PC hardware this way. Retained bus
+handles and already installed modules immediately observe the new mappings. `run_cpu()`
 executes the runner's existing CPU. Construction, connection and launch do not
 execute guest instructions.
 
@@ -227,8 +230,8 @@ the whole session's Rust wakers, including cancellation. Host access exists befo
 spawning. The worker captures a Send connection token alongside that same CPU
 transfer, then binds its locally reconstructed interrupt handle. Binding needs no
 registration channel, return acknowledgment or target replacement.
-`runner.connect(...).await` starts the device activity with its own waker before
-returning its bus connection. Initialize device state before connecting, including
+`runner.connect(...).await` installs the mappings, then starts the device activity
+with its own waker before returning. Initialize device state before connecting, including
 any asynchronous construction. A new `run_cpu` future yields once so siblings in
 CPU-first async composition can register their waits; it performs no device setup.
 The host guard stays alive until worker completion.
@@ -341,7 +344,15 @@ for long straight-line code or REP.
 
 ## Video and application rendering
 
-Register VGA through `runner.connect(vga, [MEMORY_RANGE], PORT_RANGES).await`.
+Register VGA with one scoped connection:
+
+```rust
+runner.connect(vga, |io| {
+    io.map_mmio([MEMORY_RANGE]);
+    io.map_ports(PORT_RANGES);
+}).await;
+```
+
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
 responds to each CPU access.
 The runner drives its device activity throughout the main session, including CPU

@@ -2,7 +2,6 @@ use super::IoContext;
 use std::{
     cell::RefCell,
     future::{ready, Future},
-    ops::RangeInclusive,
     rc::Rc,
     task::{Context, Poll},
 };
@@ -53,13 +52,4 @@ pub trait Device {
     fn poll_interrupt(&mut self, _context: IoContext<'_>, _cx: &mut Context<'_>) -> Poll<u8> {
         Poll::Pending
     }
-}
-
-/// The addresses decoded by one device. Memory ranges must also be marked
-/// [`relocade_x86::PhysicalMapping::Mmio`] in the machine's physical map.
-/// The same connection carries interrupt requests; address ranges may be empty.
-pub struct DeviceConnection {
-    pub device: Rc<RefCell<dyn Device>>,
-    pub mmio: Vec<RangeInclusive<u32>>,
-    pub ports: Vec<RangeInclusive<u16>>,
 }

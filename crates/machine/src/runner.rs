@@ -25,7 +25,6 @@ use relocade_x86::ExecutionExit;
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
-    ops::RangeInclusive,
     pin::pin,
     rc::Rc,
     task::Poll,
@@ -96,6 +95,11 @@ impl Runner {
         self.cpu.memory()
     }
 
+    /// The session's device bus for setup and synchronous host I/O.
+    pub fn io(&self) -> IoBus {
+        self.cpu.io()
+    }
+
     /// Borrows this runner's stopped CPU for setup and low-level execution.
     /// The borrow must end before calling [`Self::run_cpu`].
     pub fn cpu(&mut self) -> &mut Cpu {
@@ -119,23 +123,21 @@ impl Runner {
         self.executor.peer()
     }
 
-    /// Starts a device's activity before returning its bus connection.
-    /// Await this during setup inside [`Self::run`]. The activity has completed
-    /// its first poll with its device waker before this returns; pending waits
-    /// can therefore notify execution before the first guest instruction.
-    /// Initialize bus state before connecting, including any asynchronous setup.
-    /// Once queued, the activity belongs to the session even if this wait is
-    /// cancelled. The returned connection belongs in the CPU's [`crate::IoBus`].
+    /// Connects a device's mappings and starts its activity on this session.
+    /// Await this during setup inside [`Self::run`]. Configuration finishes and
+    /// releases the runtime context before activity starts. On return, activity
+    /// has completed its first poll with the device waker installed.
+    /// Once queued, the connected device and its activity belong to the session
+    /// even if this wait is cancelled.
     pub async fn connect<D: Device + 'static>(
         &self,
         device: Rc<RefCell<D>>,
-        mmio: impl IntoIterator<Item = RangeInclusive<u32>>,
-        ports: impl IntoIterator<Item = RangeInclusive<u16>>,
-    ) -> DeviceConnection {
+        configure: impl FnOnce(&mut DeviceConnection<'_>),
+    ) {
+        self.io().connect(device.clone(), configure);
         let (started, ready) = oneshot::channel();
-        let activity_device = device.clone();
         let activity = async move {
-            let mut run = pin!(D::run(activity_device));
+            let mut run = pin!(D::run(device));
             let completed = poll_once(run.as_mut()).await.is_some();
             let _ = started.send(());
             if !completed {
@@ -146,11 +148,6 @@ impl Runner {
             .unbounded_send(Box::pin(activity))
             .unwrap_or_else(|_| panic!("runner must own its device activities"));
         ready.await.expect("runner must poll registered devices");
-        DeviceConnection {
-            device,
-            mmio: mmio.into_iter().collect(),
-            ports: ports.into_iter().collect(),
-        }
     }
 
     /// Runs the main activity and devices for one execution lifetime.

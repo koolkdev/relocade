@@ -7,11 +7,12 @@ Correctness does not depend on a scheduler turn between keyboard events.
 
 `connect(&runner, &pic).await` registers the controller activity and ports
 (60h and 64h), returning `Inputs { keyboard, mouse }`, an execution-owned
-`Rc<Controller>`, and a `DeviceConnection`. Firmware can await
+`Rc<Controller>`. Firmware can await
 `wait_input_ready()` or `wait_auxiliary_output()` on that controller; these
 notifications do not consume bytes or replace the guest port interface.
-The controller connects IRQ1 and IRQ12 low until an output byte is ready. Add the
-connection to the session bus. Controller, keyboard and mouse firmware run as
+The controller connects IRQ1 and IRQ12 low until an output byte is ready. Its
+registers are already installed on `runner.io()` when connection returns.
+Controller, keyboard and mouse firmware run as
 three async futures in the existing device activity, on the execution owner. Physical frontend key positions feed the keyboard;
 characters and host layouts do not enter the hardware protocol. BIOS or a guest
 interrupt handler translates the bytes into characters.

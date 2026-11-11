@@ -2,8 +2,8 @@
 mod execution;
 use relocade_bios::{KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
-    real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, DeviceConnection, IoBus, IoContext,
-    MachineConfig, Memory,
+    real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
+    Memory,
 };
 use relocade_vga::Vga;
 use relocade_x86::{
@@ -71,18 +71,12 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
-    let io = IoBus::new([
-        DeviceConnection {
-            device: vga.clone(),
-            mmio: vec![relocade_vga::MEMORY_RANGE],
-            ports: relocade_vga::PORT_RANGES.into_iter().collect(),
-        },
-        DeviceConnection {
-            device: timer.clone(),
-            mmio: vec![],
-            ports: vec![],
-        },
-    ]);
+    let io = IoBus::default();
+    io.connect(vga.clone(), |io| {
+        io.map_mmio([relocade_vga::MEMORY_RANGE]);
+        io.map_ports(relocade_vga::PORT_RANGES);
+    });
+    io.connect(timer.clone(), |_| {});
     let mut state = CpuState {
         eip: 0x100,
         ..CpuState::real_mode()

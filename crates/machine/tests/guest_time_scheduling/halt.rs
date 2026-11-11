@@ -48,8 +48,7 @@ async fn paced_halt() {
                 observed: None,
                 irq: interrupts::Irq::default(),
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device.clone(), [], []).await]);
+            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0xfb, 0xf4]).await; // STI; HLT.
             let state = runner.cpu().cpu_state();
             state.set_sp(0x8000);

@@ -24,18 +24,14 @@ impl Device for ForwardingDevice {
 async fn check_forwarding() {
     for compiled in [false, true] {
         let target = RecordingDevice::new(0);
-        let io = IoBus::new([
-            DeviceConnection {
-                device: target.clone(),
-                mmio: vec![],
-                ports: std::iter::once(0x3d4..=0x3d4).collect(),
-            },
-            DeviceConnection {
-                device: Rc::new(RefCell::new(ForwardingDevice)),
-                mmio: std::iter::once(0x3000..=0x4fff).collect(),
-                ports: std::iter::once(0x3d5..=0x3d5).collect(),
-            },
-        ]);
+        let io = IoBus::default();
+        io.connect(target.clone(), |io| {
+            io.map_ports(std::iter::once(0x3d4..=0x3d4));
+        });
+        io.connect(Rc::new(RefCell::new(ForwardingDevice)), |io| {
+            io.map_mmio(std::iter::once(0x3000..=0x4fff));
+            io.map_ports(std::iter::once(0x3d5..=0x3d5));
+        });
         // Host calls receive a real scope before the CPU exists, too.
         io.with_context(|mut context| {
             context.write_port(0x3d5, 2, 0x1234);

@@ -41,10 +41,13 @@ pub async fn vga_workers() -> Result<(), String> {
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frames()).is_ok());
 
-        let io = runner.cpu().io();
-        io.connect([runner
-            .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
-            .await]);
+        runner
+            .connect(vga.clone(), |io| {
+                io.map_mmio([MEMORY_RANGE]);
+                io.map_ports(PORT_RANGES);
+            })
+            .await;
+        let io = runner.io();
         let memory = runner.memory();
         memory
             .view()

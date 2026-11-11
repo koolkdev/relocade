@@ -35,8 +35,7 @@ async fn captured_deadline() {
                     exit: None,
                     exit_after_waits: false,
                 }));
-                let io = runner.cpu().io();
-                io.connect([runner.connect(device.clone(), [], []).await]);
+                runner.connect(device.clone(), |_| {}).await;
                 prepare_cpu(&mut runner, &[0x90]).await;
                 let exit = runner.cpu().exit_handle();
                 let arrival = Rc::new(RefCell::new(Some(arrival)));
@@ -117,8 +116,7 @@ async fn retained_sync_across_runs() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device, [], []).await]);
+            runner.connect(device, |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
