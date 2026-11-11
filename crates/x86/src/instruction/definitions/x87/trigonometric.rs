@@ -52,7 +52,7 @@ fn trigonometric(
     let mut overflow = empty.eq(false).and(full);
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
-    execution.specialize_x87(X87Specialization::Rounding)?;
+    execution.guard_x87_controls(X87Specialization::Rounding)?;
     let mut outside = operand.trigonometric_out_of_range();
     if execution.guard_x87_operands(
         &mut fault,

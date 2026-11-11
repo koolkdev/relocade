@@ -36,17 +36,24 @@ impl Operand {
         body: &mut BlockBuilder<'_>,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<RoundedValue, BuildError> {
-        if nearest_53 {
-            if let Some(rounded) = native::calculate(self) {
-                return Ok(rounded);
-            }
-            // The control guard proves these construction-time constants.
-            // Full-width input still needs exact refinement before rounding.
-            return self.rounded_square_root(body, 2.into(), &RoundingMode::new(0.into()));
-        }
-        self.rounded_square_root(body, precision, rounding)
+        let native = precision
+            .and(3)
+            .eq(2)
+            .and(rounding.is_nearest())
+            .and(self.is_precision53());
+        let components = body.if_value::<RoundedShape>(
+            native,
+            |body| body.yield_(native::calculate(self).components()),
+            |mut body| {
+                let rounded = self.rounded_square_root(&mut body, precision, rounding)?;
+                body.yield_(rounded.components())
+            },
+        )?;
+        Ok(RoundedValue::from_components(
+            components,
+            KnownClass::zero().select(&self.zero, &KnownClass::normal()),
+        ))
     }
 
     fn rounded_square_root(

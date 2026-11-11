@@ -5,10 +5,22 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
-    state::{access::cpu_location, X87Control},
+    state::access::cpu_location,
 };
 
-use super::{X87Access, X87Specialization};
+use super::X87Access;
+
+/// A value already determined by guest execution needs no snapshot prediction.
+pub(super) fn observed_condition(
+    body: &mut BlockBuilder<'_>,
+    condition: Val<I1>,
+) -> Result<Val<I1>, BuildError> {
+    Ok(if body.constant_bits(&condition)?.is_some() {
+        true.into()
+    } else {
+        condition
+    })
+}
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -74,21 +86,23 @@ impl Control {
     pub(super) fn matches_controls(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        expected: &X87Control,
-        specialization: X87Specialization,
+        rounding: Option<u8>,
+        precision: Option<u8>,
     ) -> Result<Val<I1>, BuildError> {
-        let rounding = self
-            .fields
-            .read(body, cpu_location!(x87.control.rounding_control))?;
-        let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
-        Ok(match specialization {
-            X87Specialization::Rounding => matches,
-            X87Specialization::Arithmetic => matches.and(
-                self.precision(body)?
-                    .and(3)
-                    .eq(u32::from(expected.precision_control & 3)),
-            ),
-        })
+        let mut matches = Val::from(true);
+        for (location, expected) in [
+            (cpu_location!(x87.control.rounding_control), rounding),
+            (cpu_location!(x87.control.precision_control), precision),
+        ] {
+            if let Some(expected) = expected {
+                let current = self.fields.read(body, location)?;
+                matches = matches.and(observed_condition(
+                    body,
+                    current.and(3).eq(u32::from(expected & 3)),
+                )?);
+            }
+        }
+        Ok(matches)
     }
 
     pub(super) fn unmasked(

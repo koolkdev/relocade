@@ -1,10 +1,10 @@
-//! Native coefficients retain wide exponents and restart at the extreme range boundary.
+//! Native coefficients retain wide exponents and use the general calculation at the native range boundary.
 
 use super::*;
 use crate::support::machine::step_returns;
 
 #[test]
-fn native_products_preserve_extended_range_and_boundary_restart() {
+fn native_products_preserve_extended_range_and_boundary_handling() {
     // An exact multiplication by one establishes the native significand before
     // the second operation exercises the extended exponent boundaries.
     let code = [0xdc, 0x0d, 0, 0x40, 0, 0, 0xdc, 0x0d, 8, 0x40, 0, 0];
@@ -13,13 +13,13 @@ fn native_products_preserve_extended_range_and_boundary_restart() {
     assert_native_multiply(&module);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
     for (left, multiplier, product, flags, restart) in [
-        // Even an exact lowest-binade result deliberately uses the interpreter.
+        // The general calculation retains an exact lowest-binade result.
         (
             (LEADING, 1),
             0x3ff0_0000_0000_0000_u64,
             (LEADING, 1),
             0,
-            true,
+            false,
         ),
         (
             (LEADING, 1),

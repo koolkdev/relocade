@@ -4,8 +4,10 @@ use crate::floating::RoundingMode;
 use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
-    result::RoundedValue, value::Precision53, ArithmeticCandidate, ArithmeticResult,
-    BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits, ExtendedValue,
+    result::{RoundedShape, RoundedValue},
+    value::{KnownClass, Precision53},
+    ArithmeticCandidate, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
+    ExtendedBits, ExtendedValue,
 };
 
 pub(crate) struct Operand {
@@ -42,6 +44,19 @@ impl Operand {
 
     pub(crate) fn normal_or_zero(&self) -> Val<I1> {
         self.normal_or_zero.clone()
+    }
+
+    /// Normal and zero operands have at most 53 significant bits when their
+    /// low eleven significand bits are clear. This also describes joined values.
+    pub(super) fn is_precision53(&self) -> Val<I1> {
+        self.bits.significand.and(0x7ff_u64).eq(0_u64)
+    }
+
+    /// The caller selects this approximation only when `is_precision53` holds.
+    pub(super) fn precision53_significand(&self) -> Val<F64> {
+        self.precision53_significand
+            .clone()
+            .unwrap_or_else(|| Precision53::from_bits(&self.bits).significand().clone())
     }
 
     /// Preserves the source NaN's sign and payload while setting its quiet bit.
@@ -192,32 +207,38 @@ impl BinaryOperands {
         }
     }
 
-    /// Chooses a calculation without changing JIT coverage for wider operands.
-    /// `nearest_53` is a fact established by the caller's control guard. The
-    /// returned candidate still needs admission before its rounded value is used.
+    /// Chooses native arithmetic from control and operand predicates. Guards
+    /// on those same values let the compiler remove either calculation.
     pub(crate) fn rounding_candidate(
         &self,
         body: &mut BlockBuilder<'_>,
         operation: BinaryOperation,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<ArithmeticCandidate, BuildError> {
-        let calculation = if nearest_53 {
-            if let Some(candidate) = super::native::calculate(self, operation) {
-                return Ok(candidate);
-            }
-            self.calculate(body, operation, 2.into(), &RoundingMode::new(0.into()))?
-        } else {
-            self.calculate(body, operation, precision, rounding)?
-        };
-        let mut candidate = calculation.rounding_candidate(body)?;
-        if nearest_53 {
-            // PC53 proves an exact native view for later consumers. Keeping
-            // the integer view avoids conversion work until one needs it.
-            candidate.rounded.value = candidate.rounded.value.assume_precision53();
-        }
-        Ok(candidate)
+        let candidate = super::native::calculate(self, operation);
+        let native = precision
+            .and(3)
+            .eq(2)
+            .and(rounding.is_nearest())
+            .and(self.left.is_precision53())
+            .and(self.right.is_precision53())
+            .and(&candidate.valid);
+        let (valid, components) = body.if_value::<(I1, RoundedShape)>(
+            native,
+            |body| body.yield_((true, candidate.rounded.components())),
+            |mut body| {
+                let candidate = self
+                    .calculate(&mut body, operation, precision, rounding)?
+                    .rounding_candidate(&mut body)?;
+                body.yield_((candidate.valid, candidate.rounded.components()))
+            },
+        )?;
+        let class = KnownClass::zero().select(&components.0.eq(0_u64), &KnownClass::normal());
+        Ok(ArithmeticCandidate {
+            valid,
+            rounded: RoundedValue::from_components(components, class),
+        })
     }
 
     /// Resolves NaNs and operand exceptions after the operation supplies its

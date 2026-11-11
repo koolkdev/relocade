@@ -92,7 +92,7 @@ fn store<F: StoreFormat>(
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Write, &[])?;
-    execution.specialize_x87(X87Specialization::Rounding)?;
+    execution.guard_x87_controls(X87Specialization::Rounding)?;
     execution.record_x87_memory(&operand)?;
     let mut x87 = execution.x87();
     let source = x87.read_stack(0)?;

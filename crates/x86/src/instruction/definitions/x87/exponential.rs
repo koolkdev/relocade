@@ -17,7 +17,7 @@ fn exponential_minus_one(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(),
     let mut empty = top.is_empty();
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
-    execution.specialize_x87(X87Specialization::Rounding)?;
+    execution.guard_x87_controls(X87Specialization::Rounding)?;
     execution.guard_x87_operands(
         &mut empty,
         operand.normal_or_zero().and(operand.exponential_domain()),
