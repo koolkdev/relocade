@@ -43,7 +43,6 @@ async fn check_table_defaults() {
                 .unwrap();
             let instance = backend
                 .instantiate(&module, &[backend.bind(READ, &table)])
-                .await
                 .unwrap();
             let run = backend.function(&instance, RUN).unwrap();
             let replacement = backend.function(&instance, REPLACEMENT).unwrap();

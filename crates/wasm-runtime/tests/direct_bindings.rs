@@ -87,10 +87,10 @@ async fn codecs_and_callbacks_can_reenter_the_same_binding() {
             )
         }),
     )];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     let mut nested = Backend::new().unwrap();
-    let nested_instance = nested.instantiate(&module, &imports).await.unwrap();
+    let nested_instance = nested.instantiate(&module, &imports).unwrap();
     let nested_run = nested.function(&nested_instance, RUN).unwrap();
     NESTED.with(|slot| *slot.borrow_mut() = Some((nested, nested_run)));
     for phase in [Phase::Lift, Phase::Callback, Phase::Lower] {

@@ -43,7 +43,7 @@ impl Dispatch {
         let table = DispatchTable::new(backend)?;
         let mut imports = bindings.imports(backend).to_vec();
         imports.extend(table.imports(backend));
-        let instance = backend.instantiate(&module, &imports).await?;
+        let instance = backend.instantiate(&module, &imports)?;
         let dispatch = backend.function(&instance, abi::DISPATCH)?;
         let interpret = backend.function(&instance, abi::INTERPRET)?;
 
@@ -53,7 +53,7 @@ impl Dispatch {
         ]);
         imports.extend(host_imports.iter().cloned());
         let module = code::interpreter(backend, target).await?;
-        let instance = backend.instantiate(&module, &imports).await?;
+        let instance = backend.instantiate(&module, &imports)?;
         table.install_interpreter(backend, &instance)?;
         Ok(Self {
             dispatch,
@@ -125,10 +125,9 @@ impl Dispatch {
     ) -> Result<()> {
         let module = backend.compiler().compile(bytes).await?;
         self.install_compiled_module(backend, bindings, &module, entries)
-            .await
     }
 
-    pub(crate) async fn install_compiled_module(
+    pub(crate) fn install_compiled_module(
         &mut self,
         backend: &mut Backend,
         bindings: &RuntimeMemory,
@@ -143,7 +142,7 @@ impl Dispatch {
             .into_iter()
             .map(|(address, export)| DispatchEntry { address, export })
             .collect();
-        let instance = self.instantiate(backend, bindings, module).await?;
+        let instance = self.instantiate(backend, bindings, module)?;
         self.table.install(backend, &instance, &entries)?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
@@ -154,7 +153,7 @@ impl Dispatch {
         self.hooks.handler(id)
     }
 
-    async fn instantiate(
+    fn instantiate(
         &self,
         backend: &mut Backend,
         bindings: &RuntimeMemory,
@@ -167,6 +166,6 @@ impl Dispatch {
             backend.bind(abi::INTERPRET, &self.interpret),
         ]);
         imports.extend(self.host_imports.iter().cloned());
-        backend.instantiate(module, &imports).await
+        backend.instantiate(module, &imports)
     }
 }

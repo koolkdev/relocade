@@ -22,7 +22,7 @@
 //! let mut backend = Backend::new()?;
 //! let compiler = backend.compiler();
 //! let module = compiler.compile(b"\0asm\x01\0\0\0").await?;
-//! let instance = backend.instantiate(&module, &[]).await?;
+//! let instance = backend.instantiate(&module, &[])?;
 //! # Ok(())
 //! # }
 //! ```
@@ -285,12 +285,12 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     }
 
     /// Links a compiled module and runs its startup while borrowing this backend.
-    /// Once polled, instantiation completes without suspending module startup.
+    /// Linking and module startup complete synchronously.
     fn instantiate(
         &mut self,
         module: &Self::Module,
         imports: &[Import<'_, Self>],
-    ) -> impl Future<Output = Result<Self::Instance>>;
+    ) -> Result<Self::Instance>;
 
     /// Resolves an export using the same declaration as the generated function.
     /// The declaration must describe that export. Logical widths are erased in
@@ -321,7 +321,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     /// ADD.define(&mut program, move |body, (a, b)| body.return_(a.add(b)))?;
     /// let mut backend = Backend::new()?;
     /// let module = backend.compiler().compile(&program.compile()?).await?;
-    /// let instance = backend.instantiate(&module, &[]).await?;
+    /// let instance = backend.instantiate(&module, &[])?;
     /// let add = backend.function(&instance, ADD)?;
     /// assert_eq!(backend.call(&add, (u32::MAX, 2)), 1);
     /// # Ok(()) }

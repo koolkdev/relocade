@@ -7,10 +7,11 @@ type ModuleSlot<M> = Arc<Mutex<Option<M>>>;
 /// Compiled modules retained for a fixed set of embedded assets.
 ///
 /// The owner establishes engine compatibility; callers choose which assets to
-/// retain. Entries live as long as the cache. Asset identity avoids hashing the
-/// entire Wasm input on each lookup.
+/// retain. Clones share entries and pending compilations. Asset identity avoids
+/// hashing the entire Wasm input on each lookup.
+#[derive(Clone)]
 pub struct ModuleCache<M> {
-    modules: Mutex<HashMap<AssetId, ModuleSlot<M>>>,
+    modules: Arc<Mutex<HashMap<AssetId, ModuleSlot<M>>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,7 +23,7 @@ struct AssetId {
 impl<M> Default for ModuleCache<M> {
     fn default() -> Self {
         Self {
-            modules: Mutex::new(HashMap::new()),
+            modules: Arc::default(),
         }
     }
 }

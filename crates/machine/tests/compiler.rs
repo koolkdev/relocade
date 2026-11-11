@@ -137,7 +137,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 .unwrap();
                 assert_eq!(first.blocks()[0].byte_len, 3);
                 assert!(matches!(
-                    first.install(runner.cpu()).await,
+                    first.install(runner.cpu()),
                     Err(relocade_machine::Error::CompilationTarget)
                 ));
                 let code = compiler.recv().await.unwrap().unwrap();
@@ -152,7 +152,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 ])
                 .await
                 .unwrap();
-                code.install(cpu).await.unwrap();
+                code.install(cpu).unwrap();
                 assert_eq!(
                     runner.run_cpu().await,
                     ExecutionExit::Host(HostExit::Return)
@@ -285,7 +285,7 @@ async fn independent_machines(compiler: &relocade_machine::CompilerService) {
                 .install([Hook::host(0x105, async move || exit.request())])
                 .await
                 .unwrap();
-            code.install(runner.cpu()).await.unwrap();
+            code.install(runner.cpu()).unwrap();
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)

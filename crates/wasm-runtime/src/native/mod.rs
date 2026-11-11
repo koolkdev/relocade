@@ -108,11 +108,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
         memory.ensure_size(&mut self.store, byte_len)
     }
 
-    async fn instantiate(
-        &mut self,
-        module: &Module,
-        imports: &[Import<'_, Self>],
-    ) -> Result<Instance> {
+    fn instantiate(&mut self, module: &Module, imports: &[Import<'_, Self>]) -> Result<Instance> {
         let mut linker = Linker::new(self.store.engine());
         for import in imports {
             let (module, name) = (import.module(), import.name());
