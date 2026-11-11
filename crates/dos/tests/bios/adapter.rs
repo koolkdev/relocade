@@ -9,7 +9,7 @@ fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
         for mode in [3, 7, 0x0f, 0x13] {
             video(&mut dos, mode, 0, 0, 0);
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             let identity = video(&mut dos, 0x1a00, 0xffff, 0xa5c3, 0x1234);
             assert_eq!(identity.registers.eax as u16, 0x1a1a);
             assert_eq!(identity.registers.ebx as u16, 8); // One color VGA display.
@@ -21,7 +21,7 @@ fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
             assert_eq!(config.registers.ecx as u16, 9); // Startup 400-line profile.
             assert_eq!(config.registers.edx as u16, 0x1234);
             let after = dos.vga().borrow().snapshot();
-            let after_registers = dos.vga().borrow().registers().clone();
+            let after_registers = dos.vga().borrow().registers();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
@@ -48,7 +48,7 @@ fn display_combination_set_uses_the_bios_table_and_equipment_active_selection() 
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for (codes, index, expected) in [
             (7, 0x0d, 7),
             (0x0700, 0x0d, 7),
@@ -72,7 +72,7 @@ fn display_combination_set_uses_the_bios_table_and_equipment_active_selection() 
             0x0801
         );
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));

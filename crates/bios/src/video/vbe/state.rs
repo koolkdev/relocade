@@ -162,7 +162,10 @@ fn restore(
     } else {
         None
     };
-    vga.borrow_mut().restore_state(hardware, dac, dispi);
+    io.with_context(|context| {
+        vga.borrow_mut()
+            .restore_state(context, hardware, dac, dispi)
+    });
     if let Some(bytes) = firmware {
         firmware::restore(memory, &bytes);
     }

@@ -29,14 +29,14 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
             context.io.write_port(0x3c6, 1, 0x5a);
         }
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         let result = video(&mut dos, 0x101b, 0xa5fc, 8, 0x1234);
         assert_eq!(result.registers.eax as u16, 0x101b);
         assert_eq!(result.registers.ebx as u16, 0xa5fc);
         assert_eq!(result.registers.ecx as u16, 8);
         assert_eq!(result.registers.edx as u16, 0x1234);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         let mut expected = before.dac.colors;
         // Pure red=5 and green/blue=50 round below the decimal half boundary.
         for (index, intensity) in [
@@ -75,7 +75,7 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
         }
         video(&mut dos, 0x101b, 0, 256, 0);
         let full = dos.vga().borrow().snapshot();
-        let full_registers = dos.vga().borrow().registers().clone();
+        let full_registers = dos.vga().borrow().registers();
         assert_eq!(full.dac.colors, [[1; 3]; 256]);
         assert_eq!(full_registers.dac.address(), 0);
     });
@@ -98,9 +98,9 @@ fn zero_count_grayscale_preserves_unfinished_dac_reads_and_writes() {
                     context.io.write_port(0x3c9, 1, 17);
                 }
             }
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             video(&mut dos, 0x101b, 255, 0, 0);
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
         }
     });
 }

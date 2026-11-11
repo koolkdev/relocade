@@ -31,7 +31,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
 
         for (selection, control, emulation_flag) in [(0, 0xf6, 0x10), (1, 0xf7, 0)] {
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             let result = video(&mut dos, 0x1200 | selection, 0xa534, 0x5678, 0x9abc);
             assert_eq!(result.registers.eax as u16, 0x1212);
             assert_eq!(result.registers.ebx as u16, 0xa534);
@@ -39,7 +39,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
             assert_eq!(result.registers.edx as u16, 0x9abc);
             assert_eq!(dos.cpu().context().memory.read_u8(0x487).unwrap(), control);
             let after = dos.vga().borrow().snapshot();
-            let after_registers = dos.vga().borrow().registers().clone();
+            let after_registers = dos.vga().borrow().registers();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
                 assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
@@ -56,7 +56,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
         }
 
         video(&mut dos, 0x1200, 0x34, 0, 0);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for selection in [2, 255] {
             assert_eq!(
                 video(&mut dos, 0x1200 | selection, 0x34, 0, 0)
@@ -65,7 +65,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
                 0x1200
             );
             assert_eq!(dos.cpu().context().memory.read_u8(0x487).unwrap(), 0xf6);
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
         }
         for mode in [0x83, 7, 0x13, 3] {
             video(&mut dos, mode, 0, 0, 0);

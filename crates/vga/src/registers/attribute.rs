@@ -1,6 +1,62 @@
 //! Attribute Controller register access, IBM VGA Function pages 2-89–2-96.
 
 use super::text_mode;
+use crate::{programming::display_write, Vga};
+use relocade_machine::{BytePort, DeviceCallbacks, IoContext, PortWrite};
+
+pub const ADDRESS_PORT: u16 = 0x3c0;
+pub const DATA_READ_PORT: u16 = 0x3c1;
+
+#[derive(Default)]
+pub(crate) struct Attribute {
+    pub state: State,
+    ports: Option<Ports>,
+}
+
+struct Ports {
+    address: BytePort,
+    data: BytePort,
+    packed_write: PortWrite,
+}
+
+impl Attribute {
+    pub fn connect(&mut self, address: BytePort, data: BytePort, callbacks: &DeviceCallbacks<Vga>) {
+        // Address writes also control display enable, before the data phase.
+        let address = address.define(
+            callbacks.read(|_, vga| vga.registers.attribute.state.address()),
+            callbacks.write(display_write(write_address_or_data)),
+        );
+        let data = data.define(
+            callbacks.read(|_, vga| vga.registers.attribute.state.read()),
+            |_, _| {},
+        );
+        let packed_write = address.write_handler(callbacks.write(write_address_or_data));
+        self.ports = Some(Ports {
+            address,
+            data,
+            packed_write,
+        });
+    }
+
+    pub fn configure(&self, mut context: IoContext<'_>, packed: bool) {
+        let Some(ports) = &self.ports else { return };
+        let write = if packed {
+            &ports.packed_write
+        } else {
+            &ports.address.write
+        };
+        ports
+            .address
+            .configure(context.reborrow(), &ports.address.read, write);
+        ports
+            .data
+            .configure(context, &ports.data.read, &ports.data.write);
+    }
+}
+
+fn write_address_or_data(_: IoContext<'_>, vga: &mut Vga, value: u8) {
+    vga.registers.attribute.state.write(value);
+}
 
 pub const MODE_CONTROL: u8 = 0x10;
 pub const OVERSCAN_COLOR: u8 = 0x11;
@@ -11,13 +67,13 @@ pub const PALETTE_ADDRESS_SOURCE: u8 = 0x20;
 
 /// Attribute Controller values, raw address byte and CPU access phase.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Attribute {
+pub struct State {
     address: u8,
     data_next: bool,
     pub values: [u8; 0x15],
 }
 
-impl Default for Attribute {
+impl Default for State {
     fn default() -> Self {
         let mut values = [0; 0x15];
         values[..16].copy_from_slice(&text_mode::ATTRIBUTE_PALETTE);
@@ -32,7 +88,7 @@ impl Default for Attribute {
     }
 }
 
-impl Attribute {
+impl State {
     pub fn address(&self) -> u8 {
         self.address
     }

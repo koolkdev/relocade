@@ -1,11 +1,5 @@
 use crate::{
-    registers::{
-        attribute::{self, Attribute},
-        crtc::{self, Crtc},
-        graphics::Graphics,
-        sequencer::Sequencer,
-        setup::Setup,
-    },
+    registers::{attribute, crtc, graphics, sequencer, setup},
     Vga,
 };
 
@@ -14,13 +8,13 @@ use crate::{
 /// to `DispiState`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VgaCoreState {
-    crtc: Crtc,
-    sequencer: Sequencer,
-    graphics: Graphics,
-    attribute: Attribute,
+    crtc: crtc::State,
+    sequencer: sequencer::State,
+    graphics: graphics::State,
+    attribute: attribute::State,
     miscellaneous: u8,
     feature_control: u8,
-    setup: Setup,
+    setup: setup::State,
     latches: [u8; 4],
 }
 
@@ -29,16 +23,16 @@ impl VgaCoreState {
 
     pub(super) fn capture(vga: &Vga) -> Self {
         let registers = &vga.registers;
-        let mut attribute = registers.attribute.clone();
+        let mut attribute = registers.attribute.state.clone();
         attribute.values[attribute::COLOR_SELECT as usize] = 0;
         Self {
-            crtc: registers.crtc.clone(),
-            sequencer: registers.sequencer.clone(),
-            graphics: registers.graphics.clone(),
+            crtc: registers.crtc.state.clone(),
+            sequencer: registers.sequencer.state.clone(),
+            graphics: registers.graphics.state.clone(),
             attribute,
             miscellaneous: registers.miscellaneous,
             feature_control: registers.feature_control,
-            setup: vga.setup.clone(),
+            setup: vga.setup.state.clone(),
             latches: vga.memory.latches(),
         }
     }
@@ -68,19 +62,19 @@ impl VgaCoreState {
 
     pub fn from_bytes(bytes: &[u8; Self::BYTE_LEN]) -> Option<Self> {
         // Reuse each bank's write masks; a noncanonical encoding is rejected.
-        let mut sequencer = Sequencer::default();
+        let mut sequencer = sequencer::State::default();
         for (index, &value) in bytes[15..20].iter().enumerate() {
             sequencer.select(index as u8);
             sequencer.write(value);
         }
         sequencer.select(bytes[4]);
-        let mut graphics = Graphics::default();
+        let mut graphics = graphics::State::default();
         for (index, &value) in bytes[20..29].iter().enumerate() {
             graphics.select(index as u8);
             graphics.write(value);
         }
         graphics.select(bytes[5]);
-        let mut crtc = Crtc::default();
+        let mut crtc = crtc::State::default();
         crtc.registers.values[crtc::VERTICAL_RETRACE_END as usize] &=
             !crtc::PROTECT_TIMING_REGISTERS;
         for (index, &value) in bytes[29..54].iter().enumerate() {
@@ -89,7 +83,7 @@ impl VgaCoreState {
         }
         crtc.select(bytes[6]);
         crtc.display_start = u16::from_le_bytes(bytes[9..11].try_into().unwrap());
-        let mut attribute = Attribute::default();
+        let mut attribute = attribute::State::default();
         for (index, &value) in bytes[54..].iter().enumerate() {
             attribute.reset_address();
             attribute.write(index as u8);
@@ -108,22 +102,22 @@ impl VgaCoreState {
             attribute,
             miscellaneous: bytes[0],
             feature_control: bytes[1],
-            setup: Setup::from_bytes([bytes[2], bytes[3]])?,
+            setup: setup::State::from_bytes([bytes[2], bytes[3]])?,
             latches: bytes[11..15].try_into().unwrap(),
         };
         (state.to_bytes() == *bytes).then_some(state)
     }
 
     pub(super) fn restore(self, vga: &mut Vga) {
-        let color_select = vga.registers.attribute.values[attribute::COLOR_SELECT as usize];
-        vga.registers.crtc = self.crtc;
-        vga.registers.sequencer = self.sequencer;
-        vga.registers.graphics = self.graphics;
-        vga.registers.attribute = self.attribute;
-        vga.registers.attribute.values[attribute::COLOR_SELECT as usize] = color_select;
+        let color_select = vga.registers.attribute.state.values[attribute::COLOR_SELECT as usize];
+        vga.registers.crtc.state = self.crtc;
+        vga.registers.sequencer.state = self.sequencer;
+        vga.registers.graphics.state = self.graphics;
+        vga.registers.attribute.state = self.attribute;
+        vga.registers.attribute.state.values[attribute::COLOR_SELECT as usize] = color_select;
         vga.registers.miscellaneous = self.miscellaneous;
         vga.registers.feature_control = self.feature_control;
-        vga.setup = self.setup;
+        vga.setup.state = self.setup;
         vga.memory.restore_latches(self.latches);
     }
 }

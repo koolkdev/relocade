@@ -1,6 +1,78 @@
 //! Graphics Controller registers, IBM VGA Function pages 2-78–2-88.
 
 use super::text_mode;
+use crate::{
+    programming::{RegisterWrites, WriteEffect},
+    Vga,
+};
+use relocade_machine::{DeviceCallbacks, IndexedPorts, IoContext};
+
+pub const INDEX_PORT: u16 = 0x3ce;
+pub const DATA_PORT: u16 = 0x3cf;
+
+#[derive(Default)]
+pub(crate) struct Graphics {
+    pub state: State,
+    ports: Option<Ports>,
+}
+
+struct Ports {
+    pair: IndexedPorts<u8>,
+    writes: RegisterWrites,
+}
+
+impl Graphics {
+    pub fn connect(&mut self, ports: IndexedPorts<u8>, callbacks: &DeviceCallbacks<Vga>) {
+        let mut pair = ports.index(
+            callbacks.read(|_, vga| vga.registers.graphics.state.index()),
+            callbacks.write(select_index),
+        );
+        pair.data.read = pair
+            .data
+            .read_handler(callbacks.read(|_, vga| vga.registers.graphics.state.read()));
+        let writes = RegisterWrites::new(&pair.data, callbacks, write_data);
+        self.ports = Some(Ports { pair, writes });
+    }
+
+    pub fn configure(&self, context: IoContext<'_>, packed: bool) {
+        let Some(ports) = &self.ports else { return };
+        ports.pair.configure(
+            context,
+            &ports.pair.data.read,
+            ports.writes.get(self.write_effect(packed)),
+        );
+    }
+
+    fn write_effect(&self, packed: bool) -> WriteEffect {
+        if packed {
+            return WriteEffect::RegistersOnly;
+        }
+        if self.state.index <= BIT_MASK {
+            WriteEffect::Display
+        } else {
+            WriteEffect::RegistersOnly
+        }
+    }
+
+    fn configure_write(&self, context: IoContext<'_>, packed: bool) {
+        let Some(ports) = &self.ports else { return };
+        ports
+            .pair
+            .data
+            .set_write(context, ports.writes.get(self.write_effect(packed)));
+    }
+}
+
+fn select_index(context: IoContext<'_>, vga: &mut Vga, value: u8) {
+    if vga.registers.graphics.state.select(value) {
+        let packed = vga.dispi.state.display_layout().is_some();
+        vga.registers.graphics.configure_write(context, packed);
+    }
+}
+
+fn write_data(_: IoContext<'_>, vga: &mut Vga, value: u8) {
+    vga.registers.graphics.state.write(value);
+}
 
 pub const SET_RESET: u8 = 0x00;
 pub const ENABLE_SET_RESET: u8 = 0x01;
@@ -14,12 +86,12 @@ pub const BIT_MASK: u8 = 0x08;
 
 /// Graphics Controller values and the current CPU register index.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Graphics {
+pub struct State {
     index: u8,
     pub values: [u8; 9],
 }
 
-impl Default for Graphics {
+impl Default for State {
     fn default() -> Self {
         let mut values = [0; 9];
         for &(index, value) in text_mode::GRAPHICS_REGISTERS {
@@ -29,13 +101,16 @@ impl Default for Graphics {
     }
 }
 
-impl Graphics {
+impl State {
     pub fn index(&self) -> u8 {
         self.index
     }
 
-    pub(crate) fn select(&mut self, index: u8) {
-        self.index = index & 0x0f;
+    pub(crate) fn select(&mut self, index: u8) -> bool {
+        let index = index & 0x0f;
+        let changed = self.index != index;
+        self.index = index;
+        changed
     }
 
     fn register(&self, index: u8) -> u8 {

@@ -12,10 +12,7 @@ pub struct ConnectedVga {
 impl ConnectedVga {
     pub fn new(clock: Clock) -> Self {
         let device = Rc::new(RefCell::new(Vga::with_clock(clock)));
-        let io = IoBus::new(device.clone(), |io| {
-            io.map_mmio([relocade_vga::MEMORY_RANGE]);
-            io.map_ports(relocade_vga::PORT_RANGES);
-        });
+        let io = IoBus::new(device.clone(), |io| Vga::configure_io(io, &device));
         Self { device, io }
     }
 

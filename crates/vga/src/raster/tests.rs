@@ -1,5 +1,5 @@
 use super::*;
-use crate::Registers;
+use crate::registers::LegacyRegisters;
 use relocade_clock_test_support::ManualClock;
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ fn observations_reuse_status_and_phase_until_the_next_edge() {
     let controller = ManualClock::new();
     let clock = controller.clock();
     let origin = clock.now();
-    let mut raster = Raster::new(clock.clone(), Timing::vga(&Registers::default()));
+    let mut raster = Raster::new(clock.clone(), Timing::vga(&LegacyRegisters::default()));
     let retrace = controller.at(dots(412 * 800));
     assert_eq!(raster.next_retrace_at(), Some(retrace));
     assert_eq!(raster.next_update, Some(controller.at(dots(640))));
@@ -47,7 +47,7 @@ fn observations_reuse_status_and_phase_until_the_next_edge() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn skewed_display_edges_skip_horizontal_work_outside_vertical_display() {
-    let mut timing = Timing::vga(&Registers::default());
+    let mut timing = Timing::vga(&LegacyRegisters::default());
     timing.horizontal_total = 40;
     timing.horizontal_display_skew = 8;
     timing.horizontal_display = 16;
@@ -83,7 +83,7 @@ fn skewed_display_edges_skip_horizontal_work_outside_vertical_display() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
-    let mut registers = Registers::default();
+    let mut registers = LegacyRegisters::default();
     let controller = ManualClock::new();
     let clock = controller.clock();
     let origin = clock.now();
@@ -91,7 +91,7 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let stopped_at = controller.at(dots(100));
     raster.update_to(stopped_at);
     assert_eq!(raster.updated, origin);
-    registers.write_port(0x3c2, 0x4b); // Disconnected oscillator; preserve counters.
+    registers.miscellaneous = 0x4b; // Disconnected oscillator; preserve counters.
     raster.set_timing(Timing::vga(&registers));
     assert_eq!(raster.updated, stopped_at);
     assert_eq!(raster.dot, 100);
@@ -99,7 +99,7 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let resumed_at = controller.at(Duration::from_secs(1));
     raster.update_to(resumed_at);
     assert_eq!(raster.updated, stopped_at);
-    registers.write_port(0x3c2, 0x43);
+    registers.miscellaneous = 0x43;
     raster.set_timing(Timing::vga(&registers));
     assert_eq!(raster.updated, resumed_at);
     assert_eq!(raster.dot, 100);
@@ -126,7 +126,7 @@ fn fractional_phase_survives_programming_until_an_explicit_restart() {
         .poll(&mut Context::from_waker(Waker::noop()))
         .is_pending());
     assert!(driver.advance_to_next_deadline());
-    let mut timing = Timing::vga(&Registers::default());
+    let mut timing = Timing::vga(&LegacyRegisters::default());
     let mut raster = Raster::new(clock.clone(), timing);
     let edge = clock.add(clock.now(), dots(640));
     assert_eq!(raster.next_update, Some(edge));

@@ -33,10 +33,10 @@ fn monochrome_planar_palette_ports_and_no_clear_preservation() {
             }
         }
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         // Mono mode's CGA color call is a no-op, but VGA palette calls use 3BA.
         video(&mut dos, 0x0b00, 0x001f, 0, 0);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
         video(&mut dos, 0x1000, 0x1801, 0, 0);
         video(&mut dos, 0x1010, 24, 0, 0);
         video(&mut dos, 0x1003, 0, 0, 0);

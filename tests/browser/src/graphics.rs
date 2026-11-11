@@ -4,7 +4,7 @@ pub(crate) mod target;
 
 use crate::software::{self, SoftwareFrame};
 use futures_channel::{mpsc, oneshot};
-use futures_util::{future::join, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt};
 use relocade_machine::{
     timer_service,
     worker::{Receiver, Thread},
@@ -155,7 +155,10 @@ pub async fn graphics_workers() -> Result<(), String> {
         assert!(dropped.load(Ordering::Acquire));
         Ok(())
     };
-    let ((), result) = join(timers.run(), app).await;
+    let timers = timers.spawn();
+    let result = app.await;
+    // End the session's timers even if GC still retains callback clock handles.
+    timers.stop().await.map_err(|error| error.to_string())?;
     result
 }
 

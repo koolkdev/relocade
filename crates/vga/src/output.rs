@@ -44,7 +44,7 @@ impl Vga {
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`Vga::frames`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
-        let scanout = match self.dispi.display_layout() {
+        let scanout = match self.dispi.state.display_layout() {
             Some(layout) => Scanout::Svga(layout),
             None => Scanout::Vga(VgaDisplayState::capture(
                 &self.registers,
@@ -54,8 +54,8 @@ impl Vga {
         DisplaySnapshot {
             memory: self.memory.snapshot(scanout.memory_bytes()),
             dac: DacSnapshot {
-                colors: self.registers.dac.colors,
-                mask: self.registers.dac.mask,
+                colors: self.registers.dac.state.colors,
+                mask: self.registers.dac.state.mask,
             },
             scanout,
             #[cfg(feature = "renderer")]
@@ -93,8 +93,8 @@ impl Vga {
         let Some(time) = self.raster.update_observed() else {
             return;
         };
-        if self.dispi.display_layout().is_none() {
-            self.registers.crtc.latch_display_start();
+        if self.dispi.state.display_layout().is_none() {
+            self.registers.crtc.state.latch_display_start();
         }
         let display = self.snapshot();
         if self

@@ -8,14 +8,14 @@ fn scanline_selection_and_font_height_support_twenty_five_forty_three_and_fifty_
         for (selection, height, rows, control) in
             [(1, 14, 43, 0), (2, 16, 50, 0x10), (0, 8, 50, 0x80)]
         {
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             assert_eq!(
                 video(&mut dos, 0x1200 | selection, 0x30, 0, 0)
                     .registers
                     .eax as u16,
                 0x1212
             );
-            assert_eq!(before_registers, dos.vga().borrow().registers().clone());
+            assert_eq!(before_registers, dos.vga().borrow().registers());
             {
                 let mut context = dos.cpu().context();
                 context.memory.write_u16(0xb8000, 0x2e41).unwrap();
@@ -89,13 +89,13 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x0507, 0, 0, 0);
         let before = common::next_capture(&dos).await;
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         assert_eq!(
             video(&mut dos, 0x1114, 0, 0, 0).registers.eax as u16,
             0x8614
         );
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(before_registers, after_registers);
         assert_eq!(before.plane(2), after.plane(2));
         video(&mut dos, 0x0500, 0, 0, 0);

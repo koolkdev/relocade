@@ -11,7 +11,7 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
             // Keep nondefault clocking bits to detect an accidental register reset.
             dos.cpu().context().io.write_port(0x3c4, 2, 0x1d01);
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             for (selection, clocking) in [(1, 0x3d), (0, 0x1d)] {
                 dos.cpu().context().io.write_port(0x3c4, 1, 4);
                 let result = video(&mut dos, 0x1200 | selection, 0xa536, 0x5678, 0x9abc);
@@ -20,7 +20,7 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
                 assert_eq!(result.registers.ecx as u16, 0x5678);
                 assert_eq!(result.registers.edx as u16, 0x9abc);
                 let after = dos.vga().borrow().snapshot();
-                let after_registers = dos.vga().borrow().registers().clone();
+                let after_registers = dos.vga().borrow().registers();
                 let mut expected = before_registers.clone();
                 expected.sequencer.values[1] = clocking;
                 assert_eq!(after_registers, expected); // Includes the final sequencer index.
@@ -30,10 +30,10 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
             }
             for selection in [2, 255] {
                 dos.cpu().context().io.write_port(0x3c4, 1, 4);
-                let before_registers = dos.vga().borrow().registers().clone();
+                let before_registers = dos.vga().borrow().registers();
                 let result = video(&mut dos, 0x1200 | selection, 0x36, 0, 0);
                 assert_eq!(result.registers.eax as u16, 0x1212);
-                assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+                assert_eq!(dos.vga().borrow().registers(), before_registers);
             }
         }
     });

@@ -1,7 +1,7 @@
 //! DAC format control; color transfers use the existing VGA palette services.
 use super::{available, Mode};
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{registers::dac::Dac, PixelFormat};
+use relocade_vga::{registers::dac, PixelFormat};
 
 pub(super) enum FormatError {
     Failed,
@@ -25,8 +25,8 @@ pub(super) fn format(io: &IoBus, operation: u8, bits: u8) -> Result<u8, FormatEr
     // requested width is unavailable. Our fixed DAC cannot select below six.
     // https://www.phatcode.net/res/221/files/vbe20.pdf
     match operation {
-        0 if bits >= Dac::BITS_PER_COMPONENT => Ok(Dac::BITS_PER_COMPONENT),
-        1 => Ok(Dac::BITS_PER_COMPONENT),
+        0 if bits >= dac::BITS_PER_COMPONENT => Ok(dac::BITS_PER_COMPONENT),
+        1 => Ok(dac::BITS_PER_COMPONENT),
         _ => Err(FormatError::Failed),
     }
 }

@@ -2512,6 +2512,7 @@ dependencies = [
  "relocade-frontend",
  "relocade-machine",
  "relocade-renderer",
+ "relocade-x86",
  "wasm-bindgen-test",
  "wgpu",
 ]

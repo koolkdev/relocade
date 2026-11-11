@@ -30,7 +30,7 @@ fn attribute_services_handle_both_ports_and_preserve_display_enable() {
                     let read = video(&mut dos, 0x1007, 0xa502, 0, 0);
                     assert_eq!(read.registers.ebx as u16, 0x3f02);
                     let capture = dos.vga().borrow().snapshot();
-                    let capture_registers = dos.vga().borrow().registers().clone();
+                    let capture_registers = dos.vga().borrow().registers();
                     assert_eq!(capture.vga().unwrap().attributes[2], 63);
                     assert_eq!(u32::from(capture_registers.attribute.address()), address);
                     video(&mut dos, 0x1001, 0x2a00, 0, 0);
@@ -130,7 +130,7 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
             video(&mut dos, 0x1019, 0xa500, 0, 0).registers.ebx as u16,
             0xa57f
         );
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         // Invalid paging modes, paging selectors and read indices fail independently.
         for (ax, bx) in [(0x1013, 0x0200), (0x1013, 0x0002), (0x1007, 0xa515)] {
             let result = video(&mut dos, ax, bx, 0xa5c3, 0x1234);
@@ -139,9 +139,9 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
             assert_eq!(result.registers.ecx as u16, 0xa5c3);
             assert_eq!(result.registers.edx as u16, 0x1234);
         }
-        assert_eq!(before_registers, dos.vga().borrow().registers().clone());
+        assert_eq!(before_registers, dos.vga().borrow().registers());
         video(&mut dos, 0x0013, 0, 0, 0);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for (ax, bx) in [
             (0x1013, 0),
             (0x1013, 1),
@@ -154,7 +154,7 @@ fn blink_paging_and_dac_mask_services_update_only_their_fields() {
                 0x8600 | (ax & 255)
             );
         }
-        assert_eq!(before_registers, dos.vga().borrow().registers().clone());
+        assert_eq!(before_registers, dos.vga().borrow().registers());
     });
 }
 
@@ -197,14 +197,11 @@ fn dac_calls_mask_components_and_wrap_palette_and_segment_addresses() {
             assert_eq!(guard, [0xa5; 9]);
         }
         // Reads and writes of zero colors preserve even DAC streaming state.
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for ax in [0x1012, 0x1017] {
             video(&mut dos, ax, 42, 0, 0xffff);
         }
-        assert_eq!(
-            before_registers.dac,
-            dos.vga().borrow().registers().clone().dac
-        );
+        assert_eq!(before_registers.dac, dos.vga().borrow().registers().dac);
         // A later palette write cannot alter a retained capture.
         video(&mut dos, 0x1010, 0, 0, 0);
         assert_eq!(capture.dac.colors[0], [0, 63, 42]);

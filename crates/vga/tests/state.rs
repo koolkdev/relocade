@@ -34,7 +34,7 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
     vga.io.write_port(0x3d4, 1, 31);
     vga.io.read_port(0x3da, 1);
     vga.io.write_port(0x3c0, 1, 0x12); // Next write is attribute data.
-    let registers = vga.device.borrow().registers().clone();
+    let registers = vga.device.borrow().registers();
     let before = vga.snapshot();
     let state = vga.device.borrow().core_state();
     let saved = VgaCoreState::from_bytes(&state.to_bytes()).unwrap();
@@ -43,11 +43,12 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
     vga.io.write_port(0x3c4, 2, 0x0300);
     crtc(&vga.io, 0x0d, 0x45);
     vga.io.read_port(0x3da, 1);
-
-    vga.device
-        .borrow_mut()
-        .restore_state(Some(saved), None, None);
-    assert_eq!(vga.device.borrow().registers(), &registers);
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, Some(saved), None, None)
+    });
+    assert_eq!(vga.device.borrow().registers(), registers);
     assert_eq!(vga.device.borrow().core_state(), state);
     assert_eq!(vga.device.borrow().registers().crtc.display_start, 0);
     for plane in 0..4 {
@@ -92,10 +93,11 @@ fn dac_restore_continues_partial_transfers_and_preserves_other_state_classes() {
         assert_eq!(decoded, saved);
         vga.io.write_port(0x3c8, 1, 255);
         vga.io.write_port(0x3c9, 1, 63);
-
-        vga.device
-            .borrow_mut()
-            .restore_state(None, Some(decoded), None);
+        vga.io.with_context(|context| {
+            vga.device
+                .borrow_mut()
+                .restore_state(context, None, Some(decoded), None)
+        });
         assert_eq!(vga.device.borrow().core_state(), core);
         assert_eq!(vga.device.borrow().dispi_state(), dispi);
         assert_eq!(vga.device.borrow().dac_state(), saved);
@@ -138,19 +140,21 @@ fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
     let staged = vga.device.borrow().dispi_state();
     assert_eq!(DispiState::from_bytes(&staged.to_bytes()).unwrap(), staged);
     let decoded = DispiState::from_bytes(&saved.to_bytes()).unwrap();
-
-    vga.device
-        .borrow_mut()
-        .restore_state(None, None, Some(decoded));
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, None, None, Some(decoded))
+    });
     assert_eq!(vga.device.borrow().dispi_state(), saved);
     assert_eq!(vga.io.read_port(0x1ce, 2), 0x1234);
     assert_eq!(svga::get(&vga.io, 4), 1);
     assert_eq!(vga.io.read_mmio(0xaffff, 1), 0xab);
     assert_eq!(vga.snapshot().scanout(), retained.scanout());
-
-    vga.device
-        .borrow_mut()
-        .restore_state(None, None, Some(staged.clone()));
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, None, None, Some(staged.clone()))
+    });
     assert_eq!(vga.device.borrow().dispi_state(), staged);
     assert!(matches!(vga.snapshot().scanout(), Scanout::Vga(_)));
     assert!(matches!(retained.scanout(), Scanout::Svga(layout)
@@ -169,9 +173,11 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     }
     let larger = vga.device.borrow().dispi_state();
 
-    vga.device
-        .borrow_mut()
-        .restore_state(None, None, Some(original));
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, None, None, Some(original))
+    });
     let frames = vga.device.borrow().frames();
     let mut wait = pin!(vga.device.borrow_mut().wait_for_retrace().unwrap());
     let mut cx = Context::from_waker(Waker::noop());
@@ -179,13 +185,19 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
     clock.advance_to(clock.at(Duration::from_millis(1)));
     let dac = vga.device.borrow().dac_state();
 
-    vga.device.borrow_mut().restore_state(None, Some(dac), None);
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, None, Some(dac), None)
+    });
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     clock.advance_to(clock.at(svga_boundary(1)));
 
-    vga.device
-        .borrow_mut()
-        .restore_state(None, None, Some(larger));
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, None, None, Some(larger))
+    });
     common::service_video(video.as_mut());
     assert_eq!(
         wait.as_mut().poll(&mut cx),
@@ -247,9 +259,11 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
         svga::enable(&vga.io);
         clock.advance_to(clock.at(Duration::from_millis(1)));
 
-        vga.device
-            .borrow_mut()
-            .restore_state(None, None, Some(decoded));
+        vga.io.with_context(|context| {
+            vga.device
+                .borrow_mut()
+                .restore_state(context, None, None, Some(decoded))
+        });
 
         assert_eq!(vga.device.borrow().dispi_state(), state);
         assert_eq!(svga::get(&vga.io, 6), 1024);

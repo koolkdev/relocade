@@ -3,9 +3,9 @@ use crate::{
     registers::{
         attribute,
         crtc::{self, CrtcRegisters},
-        graphics, sequencer,
+        graphics, sequencer, LegacyRegisters,
     },
-    DisplayGeometry, Registers,
+    DisplayGeometry,
 };
 
 /// VGA display registers and latched state. CPU register indices, transfer phases
@@ -27,15 +27,15 @@ pub struct VgaDisplayState {
 }
 
 impl VgaDisplayState {
-    pub(crate) fn capture(registers: &Registers, retrace_count: u64) -> Self {
+    pub(crate) fn capture(registers: &LegacyRegisters, retrace_count: u64) -> Self {
         Self {
-            sequencer: registers.sequencer.values,
-            crtc: registers.crtc.registers,
-            graphics: registers.graphics.values,
-            attributes: registers.attribute.values,
+            sequencer: registers.sequencer.state.values,
+            crtc: registers.crtc.state.registers,
+            graphics: registers.graphics.state.values,
+            attributes: registers.attribute.state.values,
             miscellaneous: registers.miscellaneous,
-            display_enabled: registers.attribute.address() & 0x20 != 0,
-            display_start: registers.crtc.display_start,
+            display_enabled: registers.attribute.state.address() & 0x20 != 0,
+            display_start: registers.crtc.state.display_start,
             // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
             cursor_blink_on: (retrace_count / 8).is_multiple_of(2),
             attribute_blink_on: (retrace_count / 16).is_multiple_of(2),

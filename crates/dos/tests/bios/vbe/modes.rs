@@ -40,7 +40,7 @@ fn mode_and_window_requests_preserve_memory_only_when_requested() {
             request(&mut dos, 5, 0, bank, 0x4f);
             dos.cpu().context().memory.write_u8(0xa0000, value).unwrap();
         }
-        let registers = dos.vga().borrow().registers().clone();
+        let registers = dos.vga().borrow().registers();
         let mut bda = [0; 0x50];
         dos.cpu().context().memory.read(0x449, &mut bda).unwrap();
         for mode in [0x107, 0x4101, 0xc101, 0x8107, 0x83, 0x7f] {
@@ -52,7 +52,7 @@ fn mode_and_window_requests_preserve_memory_only_when_requested() {
         let mut after = [0; 0x50];
         dos.cpu().context().memory.read(0x449, &mut after).unwrap();
         assert_eq!(after, bda);
-        assert_eq!(dos.vga().borrow().registers(), &registers);
+        assert_eq!(dos.vga().borrow().registers(), registers);
         assert_eq!(request(&mut dos, 3, 0, 0, 0x4f).registers.ebx as u16, 0x101);
         assert_eq!(
             request(&mut dos, 5, 0x100, 0xffff, 0x4f).registers.edx as u16,

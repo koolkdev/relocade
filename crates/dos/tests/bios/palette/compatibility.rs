@@ -12,7 +12,7 @@ fn legacy_color_calls_program_vga_attributes_and_preserve_memory_and_port_select
             context.io.write_port(0x3c0, 1, 5); // Keep display disabled, register five selected.
         }
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         assert_eq!(
             &before.vga().unwrap().attributes[..4],
             &[0, 0x13, 0x15, 0x17]
@@ -26,7 +26,7 @@ fn legacy_color_calls_program_vga_attributes_and_preserve_memory_and_port_select
             video(&mut dos, 0x0b00, bx, 0, 0);
             assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), shadow);
             let after = dos.vga().borrow().snapshot();
-            let after_registers = dos.vga().borrow().registers().clone();
+            let after_registers = dos.vga().borrow().registers();
             let mut expected = before_registers.clone();
             expected.attribute.values[..4].copy_from_slice(&colors);
             expected.attribute.values[0x11] = overscan;
@@ -56,27 +56,27 @@ fn legacy_color_shadows_follow_mode_sets_and_text_palette_selection_is_a_no_op()
         assert_eq!(dos.cpu().context().memory.read_u16(0x465).unwrap(), 0x3f1e);
         video(&mut dos, 3, 0, 0, 0);
         assert_eq!(dos.cpu().context().memory.read_u16(0x465).unwrap(), 0x3029);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x0b00, 0x0100, 0, 0);
         assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x30);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
 
         // Background requests affect text overscan but leave text palette entries alone.
         video(&mut dos, 0x0b00, 0x001e, 0, 0);
         let mut expected = before_registers;
         expected.attribute.values[0x11] = 0x16;
-        assert_eq!(dos.vga().borrow().registers().clone(), expected);
+        assert_eq!(dos.vga().borrow().registers(), expected);
         assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x3e);
         assert_eq!(
             video(&mut dos, 0x0b00, 0x0200, 0, 0).registers.eax as u16,
             0x8600
         );
-        assert_eq!(dos.vga().borrow().registers().clone(), expected);
+        assert_eq!(dos.vga().borrow().registers(), expected);
         assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x3e);
 
         // Monochrome routing ignores even unsupported selectors.
         video(&mut dos, 7, 0, 0, 0);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for bx in [0x000f, 0x0100, 0x0200] {
             let result = video(&mut dos, 0x0b00, bx, 0xa5c3, 0x1234);
             assert_eq!(result.registers.eax as u16, 0x0b00);
@@ -84,7 +84,7 @@ fn legacy_color_shadows_follow_mode_sets_and_text_palette_selection_is_a_no_op()
             assert_eq!(result.registers.ecx as u16, 0xa5c3);
             assert_eq!(result.registers.edx as u16, 0x1234);
             assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x30);
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
         }
     });
 }

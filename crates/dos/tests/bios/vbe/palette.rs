@@ -19,7 +19,7 @@ fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
                 context.cpu.set_di(0x3456);
                 context.cpu.set_bp(0x4567);
             }
-            let registers = dos.vga().borrow().registers().clone();
+            let registers = dos.vga().borrow().registers();
             for (request, status, result) in [
                 (0x0001, 0x4f, 0x0601),
                 (0xff01, 0x4f, 0x0601),
@@ -40,7 +40,7 @@ fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
                 assert_eq!(cpu.registers.esi as u16, 0x2345);
                 assert_eq!(cpu.registers.edi as u16, 0x3456);
                 assert_eq!(cpu.registers.ebp as u16, 0x4567);
-                assert_eq!(dos.vga().borrow().registers(), &registers);
+                assert_eq!(dos.vga().borrow().registers(), registers);
                 assert_eq!(dos.cpu().context().io.read_port(0x1ce, 2), 0x1234);
             }
         }

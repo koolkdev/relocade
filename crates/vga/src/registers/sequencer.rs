@@ -1,6 +1,78 @@
 //! Sequencer registers, IBM VGA Function pages 2-47–2-50.
 
 use super::text_mode;
+use crate::{
+    programming::{RegisterWrites, WriteEffect},
+    Vga,
+};
+use relocade_machine::{DeviceCallbacks, IndexedPorts, IoContext};
+
+pub const INDEX_PORT: u16 = 0x3c4;
+pub const DATA_PORT: u16 = 0x3c5;
+
+#[derive(Default)]
+pub(crate) struct Sequencer {
+    pub state: State,
+    ports: Option<Ports>,
+}
+
+struct Ports {
+    pair: IndexedPorts<u8>,
+    writes: RegisterWrites,
+}
+
+impl Sequencer {
+    pub fn connect(&mut self, ports: IndexedPorts<u8>, callbacks: &DeviceCallbacks<Vga>) {
+        let mut pair = ports.index(
+            callbacks.read(|_, vga| vga.registers.sequencer.state.index()),
+            callbacks.write(select_index),
+        );
+        pair.data.read = pair
+            .data
+            .read_handler(callbacks.read(|_, vga| vga.registers.sequencer.state.read()));
+        let writes = RegisterWrites::new(&pair.data, callbacks, write_data);
+        self.ports = Some(Ports { pair, writes });
+    }
+
+    pub fn configure(&self, context: IoContext<'_>, packed: bool) {
+        let Some(ports) = &self.ports else { return };
+        ports.pair.configure(
+            context,
+            &ports.pair.data.read,
+            ports.writes.get(self.write_effect(packed)),
+        );
+    }
+
+    fn write_effect(&self, packed: bool) -> WriteEffect {
+        if packed {
+            return WriteEffect::RegistersOnly;
+        }
+        match self.state.index {
+            RESET | CLOCKING_MODE => WriteEffect::Timing,
+            MAP_MASK..=MEMORY_MODE => WriteEffect::Display,
+            _ => WriteEffect::RegistersOnly,
+        }
+    }
+
+    fn configure_write(&self, context: IoContext<'_>, packed: bool) {
+        let Some(ports) = &self.ports else { return };
+        ports
+            .pair
+            .data
+            .set_write(context, ports.writes.get(self.write_effect(packed)));
+    }
+}
+
+fn select_index(context: IoContext<'_>, vga: &mut Vga, value: u8) {
+    if vga.registers.sequencer.state.select(value) {
+        let packed = vga.dispi.state.display_layout().is_some();
+        vga.registers.sequencer.configure_write(context, packed);
+    }
+}
+
+fn write_data(_: IoContext<'_>, vga: &mut Vga, value: u8) {
+    vga.registers.sequencer.state.write(value);
+}
 
 pub const RESET: u8 = 0x00;
 pub const CLOCKING_MODE: u8 = 0x01;
@@ -18,12 +90,12 @@ pub const RESET_RELEASED: u8 = 0x03;
 
 /// Sequencer values and the current CPU register index.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Sequencer {
+pub struct State {
     index: u8,
     pub values: [u8; 5],
 }
 
-impl Default for Sequencer {
+impl Default for State {
     fn default() -> Self {
         let mut values = [0; 5];
         for &(index, value) in text_mode::SEQUENCER_REGISTERS {
@@ -36,13 +108,16 @@ impl Default for Sequencer {
     }
 }
 
-impl Sequencer {
+impl State {
     pub fn index(&self) -> u8 {
         self.index
     }
 
-    pub(crate) fn select(&mut self, index: u8) {
-        self.index = index & 7;
+    pub(crate) fn select(&mut self, index: u8) -> bool {
+        let index = index & 7;
+        let changed = self.index != index;
+        self.index = index;
+        changed
     }
 
     pub(crate) fn read(&self) -> u8 {

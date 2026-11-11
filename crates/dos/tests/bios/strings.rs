@@ -32,7 +32,7 @@ fn string_formats_wrap_source_offsets_and_optionally_update_the_requested_page_c
                 context.memory.write(0x50000, &bytes[1..]).unwrap();
                 context.memory.write(0x60000, &[0xff; 5]).unwrap();
             }
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             let cpu = video(&mut dos, 0x1300 | format, 0x077c, 3, 0x014e);
             assert_eq!(cpu.registers.eax as u16, 0x1300 | format);
             assert_eq!(cpu.registers.ebx as u16, 0x077c);
@@ -58,7 +58,7 @@ fn string_formats_wrap_source_offsets_and_optionally_update_the_requested_page_c
             assert_eq!(context.memory.read_u8(0x462).unwrap(), 0);
             assert_eq!(context.memory.read_u16(0x44e).unwrap(), 0);
             assert_eq!(context.memory.read_u16(0x450).unwrap(), 0);
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
         }
     });
 }
@@ -90,7 +90,7 @@ fn string_controls_consume_attribute_pairs_and_scroll_only_the_requested_page() 
                 )
                 .unwrap();
         }
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x1302, 0x017c, 8, 2);
         let context = dos.cpu().context();
         let mut cells = [0; 12];
@@ -106,7 +106,7 @@ fn string_controls_consume_attribute_pairs_and_scroll_only_the_requested_page() 
         assert_eq!(context.memory.read_u16(0x452).unwrap(), 2);
         assert_eq!(context.memory.read_u8(0x462).unwrap(), 0);
         assert_eq!(context.memory.read_u16(0x44e).unwrap(), 0);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
     });
 }
 
@@ -140,10 +140,10 @@ fn graphics_strings_use_selected_fonts_and_scroll_the_hidden_page_with_black_fil
             .write(0x50000, &[b'A', 6, 0x80, 9])
             .unwrap();
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x1303, 0x0700, 2, 0x0102);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         for plane in 0..4 {
             let mut expected = before.plane(plane).to_vec();
             for y in 0..3 {
@@ -233,7 +233,7 @@ fn empty_strings_leave_cursors_untouched_and_invalid_requests_have_no_output() {
         source(&mut dos, 0xffff, 0xffff);
         video(&mut dos, 0x0200, 0, 0, 0x0203);
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         for format in 0..4 {
             assert_eq!(
                 video(&mut dos, 0x1300 | format, 0xff7c, 0, 0xffff)
@@ -253,7 +253,7 @@ fn empty_strings_leave_cursors_untouched_and_invalid_requests_have_no_output() {
             0x8600
         );
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert_eq!(after.plane(plane), before.plane(plane));

@@ -16,11 +16,11 @@ fn indexed_pixel_access_restores_hostile_guest_write_settings() {
         ] {
             dos.cpu().context().io.write_port(port, 2, word);
         }
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x0c85, 0, 0, 0);
         assert_eq!(video(&mut dos, 0x0d00, 0, 0, 0).registers.eax as u8, 0x85);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(after.plane(0)[0], 0x85);
         assert_eq!(after_registers, before_registers);
     });
@@ -177,7 +177,7 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
         ] {
             video(&mut dos, mode, 0, 0, 0);
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             for function in [0x0c5a, 0x0d5a] {
                 assert_eq!(
                     video(&mut dos, function, page << 8, x, y).registers.eax as u16,
@@ -185,7 +185,7 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
                 );
             }
             let after = dos.vga().borrow().snapshot();
-            let after_registers = dos.vga().borrow().registers().clone();
+            let after_registers = dos.vga().borrow().registers();
             for plane in 0..4 {
                 assert_eq!(before.plane(plane), after.plane(plane));
             }

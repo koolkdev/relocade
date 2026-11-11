@@ -46,12 +46,12 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
             context.memory.write(0x60000, &[0xff; 8]).unwrap(); // Would expose a missing ES wrap.
         }
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         let result = video(&mut dos, 0x1100, 0x0605, 2, 65);
         assert_eq!(result.registers.ebp as u16, 0xfffc);
         assert_eq!(result.segments.es.selector, 0x5000);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(after_registers, before_registers);
         for plane in [0, 1, 3] {
             assert_eq!(after.plane(plane), before.plane(plane));
@@ -65,7 +65,7 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
         assert_eq!(&before.plane(2)[0x6820..0x6840], &[0xa5; 32]);
         video(&mut dos, 0x1100, 0x0605, 0, 256);
         let unchanged = dos.vga().borrow().snapshot();
-        let unchanged_registers = dos.vga().borrow().registers().clone();
+        let unchanged_registers = dos.vga().borrow().registers();
         assert_eq!(unchanged_registers, after_registers);
         assert_eq!(unchanged.plane(2), after.plane(2));
         let context = dos.cpu().context();
@@ -167,7 +167,7 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         let font_pointer = dos.cpu().context().memory.read_u32(0x10c).unwrap();
         let mut geometry = [0; 3];
         dos.cpu()
@@ -193,7 +193,7 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
             );
         }
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(
             dos.cpu().context().memory.read_u32(0x10c).unwrap(),
             font_pointer

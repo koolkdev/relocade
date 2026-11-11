@@ -19,7 +19,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     vga.io.read_port(0x3da, 1);
     vga.io.write_port(0x3c0, 1, 0x01); // Palette writes enabled; leave it expecting data.
     let before = vga.snapshot();
-    let registers = vga.device.borrow().registers().clone();
+    let registers = vga.device.borrow().registers();
 
     vga.io.write_port(0x46e8, 1, 0);
     // Exercise every normal port: blocked reads must not advance DAC transfer
@@ -34,7 +34,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     assert_eq!(vga.io.read_mmio(0xb8000, 8), u64::MAX);
     vga.io.write_mmio(0xb8000, 8, 0);
     let blocked = vga.snapshot();
-    assert_eq!(vga.device.borrow().registers(), &registers);
+    assert_eq!(vga.device.borrow().registers(), registers);
     assert_eq!(blocked.scanout(), before.scanout());
     assert_eq!(blocked.dac, before.dac);
     for plane in 0..4 {
@@ -109,7 +109,7 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     clock.advance_to(clock.at(boundary(1)));
     poll_video(video.as_mut(), &mut cx);
     let first = source.try_recv().unwrap();
-    let registers = vga.device.borrow().registers().clone();
+    let registers = vga.device.borrow().registers();
     vga.io.write_port(0x46e8, 1, 0);
     clock.advance_to(clock.at(boundary(2)));
     poll_video(video.as_mut(), &mut cx);
@@ -124,7 +124,7 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
         blinking.vga().unwrap().attribute_blink_on,
         first.vga().unwrap().attribute_blink_on
     );
-    assert_eq!(vga.device.borrow().registers(), &registers);
+    assert_eq!(vga.device.borrow().registers(), registers);
     assert_eq!(blinking.dac, first.dac);
     for plane in 0..4 {
         assert!(std::ptr::eq(blinking.plane(plane), first.plane(plane)));

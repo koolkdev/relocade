@@ -343,16 +343,14 @@ fn changing_character_width_preserves_the_horizontal_counter_and_partial_dot() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn native_guest_deadlines_reach_status_edges_through_the_generic_bus() {
+fn native_guest_deadlines_reach_status_edges_through_configured_ports() {
     use relocade_machine::{GuestTimeDriver, IoBus, Timestamp};
     use std::{future::Future, num::NonZeroU64};
     let driver = GuestTimeDriver::new(NonZeroU64::new(25_175_000).unwrap());
     let clock = driver.clock();
     let start = clock.now();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
-    let bus = IoBus::new(vga, |io| {
-        io.map_ports(std::iter::once(0x3da..=0x3da));
-    });
+    let bus = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
     for (count, status) in [(639, 0), (640, 1), (800, 0), (412 * 800, 9), (414 * 800, 1)] {
         let deadline = clock.add(start, dots(count, 25_175_000));
         // Service a cold edge one native tick late. The following cached edge

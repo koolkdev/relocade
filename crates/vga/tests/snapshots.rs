@@ -73,9 +73,9 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
     vga.io.write_port(0x3c0, 1, 4); // Pending Attribute data write.
     vga.io.write_port(0x3c8, 1, 42);
     vga.io.write_port(0x3c9, 1, 11); // Pending green and blue components.
-    let registers = vga.device.borrow().registers().clone();
+    let registers = vga.device.borrow().registers();
     let snapshot = vga.snapshot();
-    assert_eq!(vga.device.borrow().registers(), &registers);
+    assert_eq!(vga.device.borrow().registers(), registers);
     assert!(source.is_empty());
     assert_eq!(snapshot.plane(2)[0x20], 0xa5);
     vga.io.write_port(0x3c0, 1, 0x31);

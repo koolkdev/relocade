@@ -2,7 +2,105 @@
 //! pages 2-55–2-76. This owner stores register state, not live raster counters.
 
 use super::text_mode;
+use crate::{
+    programming::{RegisterWrites, WriteEffect},
+    Vga,
+};
+use relocade_machine::{DeviceCallbacks, IndexedPorts, IoContext};
 use std::ops::Range;
+
+pub const MONO_INDEX_PORT: u16 = 0x3b4;
+pub const MONO_DATA_PORT: u16 = 0x3b5;
+pub const COLOR_INDEX_PORT: u16 = 0x3d4;
+pub const COLOR_DATA_PORT: u16 = 0x3d5;
+
+#[derive(Default)]
+pub(crate) struct Crtc {
+    pub state: State,
+    ports: Option<[Ports; 2]>,
+}
+
+struct Ports {
+    pair: IndexedPorts<u8>,
+    writes: RegisterWrites,
+}
+
+impl Crtc {
+    pub fn connect(
+        &mut self,
+        mono: IndexedPorts<u8>,
+        color: IndexedPorts<u8>,
+        callbacks: &DeviceCallbacks<Vga>,
+    ) {
+        self.ports = Some([
+            Ports::new(mono, callbacks, false),
+            Ports::new(color, callbacks, true),
+        ]);
+    }
+
+    pub fn configure_alias(&self, context: IoContext<'_>, color: bool, packed: bool) {
+        let Some(aliases) = &self.ports else { return };
+        let ports = &aliases[usize::from(color)];
+        ports.pair.configure(
+            context,
+            &ports.pair.data.read,
+            ports.writes.get(self.write_effect(packed)),
+        );
+    }
+
+    fn write_effect(&self, packed: bool) -> WriteEffect {
+        if packed {
+            return WriteEffect::RegistersOnly;
+        }
+        match self.state.index {
+            HORIZONTAL_TOTAL
+            | HORIZONTAL_DISPLAY_END
+            | HORIZONTAL_BLANK_END
+            | VERTICAL_TOTAL
+            | OVERFLOW
+            | VERTICAL_RETRACE_START
+            | VERTICAL_RETRACE_END
+            | VERTICAL_DISPLAY_END
+            | MODE_CONTROL => WriteEffect::Timing,
+            HORIZONTAL_TOTAL..=LINE_COMPARE => WriteEffect::Display,
+            _ => WriteEffect::RegistersOnly,
+        }
+    }
+
+    fn configure_write(&self, context: IoContext<'_>, color: bool, packed: bool) {
+        let Some(aliases) = &self.ports else { return };
+        let ports = &aliases[usize::from(color)];
+        ports
+            .pair
+            .data
+            .set_write(context, ports.writes.get(self.write_effect(packed)));
+    }
+}
+
+impl Ports {
+    fn new(ports: IndexedPorts<u8>, callbacks: &DeviceCallbacks<Vga>, color: bool) -> Self {
+        let mut pair = ports.index(
+            callbacks.read(|_, vga| vga.registers.crtc.state.index()),
+            callbacks.write(move |context, vga, value| {
+                if vga.registers.crtc.state.select(value) {
+                    let packed = vga.dispi.state.display_layout().is_some();
+                    // Only this active alias may publish a data writer. The other
+                    // alias is configured by its window when decoding changes.
+                    vga.registers.crtc.configure_write(context, color, packed);
+                }
+            }),
+        );
+        pair.data.read = pair
+            .data
+            .read_handler(callbacks.read(|_, vga| vga.registers.crtc.state.read()));
+        let writes = RegisterWrites::new(&pair.data, callbacks, write_data);
+        Self { pair, writes }
+    }
+}
+
+fn write_data(_: IoContext<'_>, vga: &mut Vga, value: u8) {
+    vga.registers.crtc.state.write(value);
+}
 
 pub const HORIZONTAL_TOTAL: u8 = 0x00;
 pub const HORIZONTAL_DISPLAY_END: u8 = 0x01;
@@ -52,7 +150,7 @@ impl Default for CrtcRegisters {
 
 /// Live CRTC registers, the CPU register index and the display-start latch.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Crtc {
+pub struct State {
     index: u8,
     pub registers: CrtcRegisters,
     /// Start address selected at the last vertical retrace. CPU reads of 0C/0D
@@ -60,7 +158,7 @@ pub struct Crtc {
     pub display_start: u16,
 }
 
-impl Crtc {
+impl State {
     pub(crate) fn latch_display_start(&mut self) {
         self.display_start = u16::from_be_bytes([
             self.registers.register(START_ADDRESS_HIGH),
@@ -72,8 +170,11 @@ impl Crtc {
         self.index
     }
 
-    pub(crate) fn select(&mut self, index: u8) {
-        self.index = index & 0x1f;
+    pub(crate) fn select(&mut self, index: u8) -> bool {
+        let index = index & 0x1f;
+        let changed = self.index != index;
+        self.index = index;
+        changed
     }
 
     pub(crate) fn read(&self) -> u8 {

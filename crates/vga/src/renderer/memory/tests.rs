@@ -116,10 +116,7 @@ fn start_video(
     clock: &ManualClock,
 ) -> (Rc<RefCell<Vga>>, IoBus, Pin<Box<impl Future<Output = ()>>>) {
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
-    let io = IoBus::new(vga.clone(), |io| {
-        io.map_mmio([crate::MEMORY_RANGE]);
-        io.map_ports(crate::PORT_RANGES);
-    });
+    let io = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
     let mut video = Box::pin(Vga::run(vga.clone()));
     assert!(video.as_mut().now_or_never().is_none());
     (vga, io, video)

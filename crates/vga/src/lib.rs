@@ -13,6 +13,8 @@ mod framebuffer;
 mod geometry;
 mod memory;
 mod output;
+mod ports;
+mod programming;
 mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -33,8 +35,9 @@ pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
 use output::Output;
+use ports::Ports;
 use raster::Raster;
-use registers::{dispi, setup::Setup};
+use registers::{dispi, setup::Setup, LegacyRegisters};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Runner};
 #[cfg(feature = "renderer")]
@@ -63,11 +66,12 @@ pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;
 /// New video memory is zeroed. The BIOS initializes its font memory, text pages and registers.
 pub struct Vga {
     memory: VideoMemory,
-    registers: Registers,
+    registers: LegacyRegisters,
     setup: Setup,
     dispi: dispi::Dispi,
     clock: Clock,
     raster: Raster,
+    ports: Option<Ports>,
     programming_changed: Event,
     output: Output,
 }
@@ -77,17 +81,14 @@ impl Vga {
     pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
         runner
-            .connect(vga.clone(), |io| {
-                io.map_mmio([MEMORY_RANGE]);
-                io.map_ports(PORT_RANGES);
-            })
+            .connect(vga.clone(), |io| Self::configure_io(io, &vga))
             .await;
         vga
     }
 
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
-        let registers = Registers::default();
+        let registers = LegacyRegisters::default();
         let raster = Raster::new(clock.clone(), Timing::vga(&registers));
         Self {
             memory: VideoMemory::default(),
@@ -96,6 +97,7 @@ impl Vga {
             dispi: dispi::Dispi::default(),
             clock,
             raster,
+            ports: None,
             programming_changed: Event::new(),
             output: Output::new(),
         }
@@ -108,10 +110,11 @@ impl Vga {
         self.output.frames.clone()
     }
 
-    /// Inspect live VGA register banks on the execution owner, including CPU
-    /// port access state. Display captures retain only display inputs.
-    pub fn registers(&self) -> &Registers {
-        &self.registers
+    /// Copy the VGA register banks, including CPU indices and transfer phases.
+    /// The snapshot contains no live port bindings and can be inspected independently.
+    /// Display captures retain only display inputs.
+    pub fn registers(&self) -> Registers {
+        self.registers.snapshot()
     }
 }
 

@@ -1,12 +1,12 @@
 //! Programmable VGA timing decoded before the common raster consumes it.
 //! Character height does not multiply raster totals.
 use super::Timing;
-use crate::registers::Registers;
+use crate::registers::LegacyRegisters;
 
 impl Timing {
-    pub fn vga(registers: &Registers) -> Self {
-        let crtc = &registers.crtc.registers;
-        let sequencer = &registers.sequencer;
+    pub fn vga(registers: &LegacyRegisters) -> Self {
+        let crtc = &registers.crtc.state.registers;
+        let sequencer = &registers.sequencer.state;
         let reset_active = sequencer.reset_active();
         let vertical_total = crtc.vertical_total();
         let retrace_start = crtc.vertical_retrace_start();

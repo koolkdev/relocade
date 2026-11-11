@@ -207,9 +207,9 @@ fn packed_accesses_share_vga_planes_without_changing_read_latches() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn svga_uses_the_existing_dac_without_resetting_legacy_registers() {
     let vga = device();
-    let registers = vga.device.borrow().registers().clone();
+    let registers = vga.device.borrow().registers();
     enable(&vga.io);
-    assert_eq!(vga.device.borrow().registers(), &registers);
+    assert_eq!(vga.device.borrow().registers(), registers);
     vga.io.write_port(0x3c8, 2, 0x012a); // Index 42 and red component through byte VGA ports.
     vga.io.write_port(0x3c9, 1, 2);
     vga.io.write_port(0x3c9, 1, 3);

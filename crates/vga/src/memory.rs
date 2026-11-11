@@ -1,4 +1,4 @@
-use crate::registers::Registers;
+use crate::registers::LegacyRegisters;
 
 mod access;
 pub(crate) use access::VramAccess;
@@ -96,17 +96,17 @@ impl VideoMemory {
         self.storage.clear_changes();
     }
 
-    fn index(offset: u32, registers: &Registers) -> usize {
-        let address_bits = if registers.sequencer.extended_memory() {
+    fn index(offset: u32, registers: &LegacyRegisters) -> usize {
+        let address_bits = if registers.sequencer.state.extended_memory() {
             16
         } else {
             14
         };
-        let offset = if registers.sequencer.chain_four() {
+        let offset = if registers.sequencer.state.chain_four() {
             // Chain-4 uses CPU A0/A1 for plane selection. The plane address
             // receives A14/A15 on those pins, matching CRTC doubleword output.
             (offset & !3) | ((offset >> 14) & 3)
-        } else if registers.graphics.chain_odd_even() {
+        } else if registers.graphics.state.chain_odd_even() {
             // Only the 128-KiB aperture exposes A16. The IBM VGA target has
             // no programmable page-select input for the smaller apertures.
             (offset & !1) | ((offset >> 16) & 1)
@@ -116,8 +116,8 @@ impl VideoMemory {
         (offset & ((1 << address_bits) - 1)) as usize
     }
 
-    fn read_vga_byte(&mut self, address: u32, registers: &Registers) -> u8 {
-        let graphics = &registers.graphics;
+    fn read_vga_byte(&mut self, address: u32, registers: &LegacyRegisters) -> u8 {
+        let graphics = &registers.graphics.state;
         let Some(offset) = graphics.memory_offset(address) else {
             return 0xff;
         };
@@ -126,7 +126,7 @@ impl VideoMemory {
         if graphics.compare_reads() {
             return graphics.compare(self.latches);
         }
-        let plane = if registers.sequencer.chain_four() {
+        let plane = if registers.sequencer.state.chain_four() {
             (offset & 3) as usize
         } else if graphics.odd_even_reads() {
             (graphics.read_plane() & 2) | (offset & 1) as usize
@@ -136,13 +136,13 @@ impl VideoMemory {
         self.latches[plane]
     }
 
-    fn write_vga_byte(&mut self, address: u32, value: u8, registers: &Registers) {
-        let Some(offset) = registers.graphics.memory_offset(address) else {
+    fn write_vga_byte(&mut self, address: u32, value: u8, registers: &LegacyRegisters) {
+        let Some(offset) = registers.graphics.state.memory_offset(address) else {
             return;
         };
         let index = Self::index(offset, registers);
-        let planes = registers.sequencer.write_planes(offset);
-        let values = registers.graphics.write_data(value, self.latches);
+        let planes = registers.sequencer.state.write_planes(offset);
+        let values = registers.graphics.state.write_data(value, self.latches);
         for (plane, value) in values.into_iter().enumerate() {
             if planes & (1 << plane) != 0 {
                 self.storage.write((index * 4 + plane) as u32, value);

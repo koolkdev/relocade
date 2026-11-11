@@ -24,7 +24,7 @@ fn video_addressing_gates_cpu_access_and_preserves_display_and_bios_state() {
                 context.io.write_port(0x3c9, 1, 12);
             }
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             for (selection, expected_ax, accessible) in [
                 (1, 0x1212, false),
                 (2, 0x1200, false),
@@ -62,7 +62,7 @@ fn video_addressing_gates_cpu_access_and_preserves_display_and_bios_state() {
                     assert_eq!(after_bios, bios_state);
                 }
                 let after = dos.vga().borrow().snapshot();
-                let after_registers = dos.vga().borrow().registers().clone();
+                let after_registers = dos.vga().borrow().registers();
                 assert_eq!(after_registers, before_registers);
                 for plane in 0..4 {
                     assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
@@ -104,10 +104,10 @@ fn bios_and_direct_addressing_controls_share_the_same_device_state() {
         // Enabling CPU access preserves both RAM disable and output blanking.
         video(&mut dos, 0x1201, 0x36, 0, 0);
         io.write_port(0x3c2, 1, miscellaneous & !2);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x1201, 0x32, 0, 0);
         video(&mut dos, 0x1200, 0x32, 0, 0);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
         assert_eq!(io.read_port(0x3cc, 1), miscellaneous & !2);
         assert_eq!(
             dos.cpu().context().memory.read_u16(0xb8000).unwrap(),

@@ -68,7 +68,7 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        let registers = dos.vga().borrow().registers().clone();
+        let registers = dos.vga().borrow().registers();
         let (status, bytes) = information(&mut dos, 0, 0, 0xff80);
         assert_eq!(status, 0x004f);
         assert_eq!(&bytes[..6], b"VESA\x02\x01");
@@ -92,7 +92,7 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
                 .collect::<Vec<_>>(),
             [0x101, 0x103, 0x105, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144, 0xffff]
         );
-        assert_eq!(dos.vga().borrow().registers(), &registers);
+        assert_eq!(dos.vga().borrow().registers(), registers);
     });
 }
 

@@ -99,10 +99,10 @@ fn graphics_override_changes_the_live_font_vector_without_uploading_font_memory(
                 .unwrap();
         }
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x93, 0, 0, 0);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
             assert_eq!(after.plane(plane), before.plane(plane));

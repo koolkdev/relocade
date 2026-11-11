@@ -110,10 +110,10 @@ fn palette_suppression_still_applies_underline_after_font_overrides() {
         video(&mut dos, 0x1010, 23, 0x0607, 0x0500);
         video(&mut dos, 0x1201, 0x31, 0, 0);
         let before = dos.vga().borrow().snapshot();
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 3, 0, 0, 0);
         let after = dos.vga().borrow().snapshot();
-        let after_registers = dos.vga().borrow().registers().clone();
+        let after_registers = dos.vga().borrow().registers();
         assert_eq!(
             &after.vga().unwrap().attributes[..16],
             &before.vga().unwrap().attributes[..16]
@@ -153,7 +153,7 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         install(&mut dos);
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         set_profile(
             &mut dos,
             &[
@@ -164,7 +164,7 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
             ],
         );
         video(&mut dos, 3, 0, 0, 0);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
         set_profile(
             &mut dos,
             &[
@@ -172,6 +172,6 @@ fn invalid_palette_ranges_do_not_write_unrelated_registers() {
             ],
         );
         video(&mut dos, 3, 0, 0, 0); // Empty descriptors leave DAC addressing alone.
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
     });
 }

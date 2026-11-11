@@ -23,7 +23,7 @@ impl Vga {
     /// revalidation after [`RetraceEvent::Reprogrammed`]. Capture activity need
     /// not be running.
     pub fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static> {
-        if !self.setup.enabled() {
+        if !self.setup.state.enabled() {
             return None;
         }
         self.advance_raster(self.clock.now());

@@ -40,7 +40,7 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
             (0x13, 1),
         ] {
             video(&mut dos, mode, 0, 0, 0);
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             for ax in [0x0200, 0x0300, 0x0500 | invalid_page] {
                 assert_eq!(
                     video(&mut dos, ax, invalid_page << 8, 0, 0x1234)
@@ -50,7 +50,7 @@ fn graphics_pages_use_plane_offsets_and_keep_cursors_in_bios_memory() {
                 );
             }
             assert_eq!(dos.cpu().context().memory.read_u8(0x462).unwrap(), 0);
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
         }
     });
 }
@@ -104,14 +104,14 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
                 }
             }
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             video(&mut dos, 0x0601, 0x8500, 0x0001, 0x0202);
             let up = dos.vga().borrow().snapshot();
-            let up_registers = dos.vga().borrow().registers().clone();
+            let up_registers = dos.vga().borrow().registers();
             assert_eq!(up_registers, before_registers);
             video(&mut dos, 0x0701, 0x8900, 0x0001, 0x0202);
             let down = dos.vga().borrow().snapshot();
-            let down_registers = dos.vga().borrow().registers().clone();
+            let down_registers = dos.vga().borrow().registers();
             assert_eq!(down_registers, before_registers);
             for plane in 0..4 {
                 let mut expected_up = before.plane(plane).to_vec();
@@ -199,9 +199,9 @@ fn indexed_scrolls_move_character_rows_and_keep_all_eight_color_bits() {
             .unwrap();
         assert_eq!(actual, expected);
         // An empty rectangle does not touch pixels or access registers.
-        let before_registers = dos.vga().borrow().registers().clone();
+        let before_registers = dos.vga().borrow().registers();
         video(&mut dos, 0x06ff, 0, 0x0202, 0x0101);
-        assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+        assert_eq!(dos.vga().borrow().registers(), before_registers);
         dos.cpu()
             .context()
             .memory

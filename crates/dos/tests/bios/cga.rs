@@ -105,7 +105,7 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                 }
             }
             let before = dos.vga().borrow().snapshot();
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             let writes = if mode == 4 {
                 [
                     (0, 0, 3),
@@ -145,7 +145,7 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                 );
             }
             let after = dos.vga().borrow().snapshot();
-            let after_registers = dos.vga().borrow().registers().clone();
+            let after_registers = dos.vga().borrow().registers();
             assert_eq!(after_registers, before_registers);
             let bytes = if mode == 4 {
                 [

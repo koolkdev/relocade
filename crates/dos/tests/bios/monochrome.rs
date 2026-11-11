@@ -67,14 +67,14 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
                 context.io.write_port(0x3b4, 1, 4);
                 assert_eq!(context.io.read_port(0x3b5, 1), 0x55);
             }
-            let before_registers = dos.vga().borrow().registers().clone();
+            let before_registers = dos.vga().borrow().registers();
             for bx in [0x001f, 0x0100, 0xffaa] {
                 assert_eq!(
                     video(&mut dos, 0x0b00, bx, 0, 0).registers.eax as u16,
                     0x0b00
                 );
             }
-            assert_eq!(dos.vga().borrow().registers().clone(), before_registers);
+            assert_eq!(dos.vga().borrow().registers(), before_registers);
             assert_eq!(dos.cpu().context().memory.read_u8(0x466).unwrap(), 0x30);
             // VGA palette services still work through the monochrome status port.
             video(&mut dos, 0x1000, 0x1801, 0, 0);

@@ -7,8 +7,82 @@
 //! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
 //! Invalid requests are ignored.
 
-use crate::{SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
+use crate::{
+    programming::{display_write, RegisterWrites, WriteEffect},
+    SvgaLayout, SvgaMode, Vga, VIDEO_MEMORY_BYTES,
+};
+use relocade_machine::{DeviceCallbacks, IndexedPorts, IoContext};
 use std::ops::RangeInclusive;
+
+#[derive(Default)]
+pub(crate) struct Dispi {
+    pub state: State,
+    ports: Option<Ports>,
+}
+
+struct Ports {
+    pair: IndexedPorts<u16>,
+    writes: RegisterWrites,
+}
+
+impl Dispi {
+    pub fn connect(&mut self, ports: IndexedPorts<u16>, callbacks: &DeviceCallbacks<Vga>) {
+        let mut pair = ports.index(
+            callbacks.read(|_, vga| vga.dispi.state.index()),
+            callbacks.write(|context, vga, value| {
+                if vga.dispi.state.select(value) {
+                    vga.dispi.configure_write(context);
+                }
+            }),
+        );
+        pair.data.read = pair
+            .data
+            .read_handler(callbacks.read(|_, vga| vga.dispi.state.read()));
+        // ENABLE has value-dependent mode/VRAM actions; its completion stays
+        // with DISPI while sharing the same cached effect selection.
+        let writes = RegisterWrites {
+            registers: pair.data.write_handler(callbacks.write(write_data)),
+            display: pair
+                .data
+                .write_handler(callbacks.write(display_write(write_data))),
+            timing: pair.data.write_handler(callbacks.write(write_mode)),
+        };
+        self.ports = Some(Ports { pair, writes });
+    }
+
+    pub fn configure(&self, context: IoContext<'_>) {
+        let Some(ports) = &self.ports else { return };
+        ports.pair.configure(
+            context,
+            &ports.pair.data.read,
+            ports.writes.get(self.state.write_effect()),
+        );
+    }
+
+    fn configure_write(&self, context: IoContext<'_>) {
+        let Some(ports) = &self.ports else { return };
+        ports
+            .pair
+            .data
+            .set_write(context, ports.writes.get(self.state.write_effect()));
+    }
+}
+
+fn write_mode(context: IoContext<'_>, vga: &mut Vga, value: u16) {
+    vga.advance_raster(vga.clock.now());
+    write_data(context, vga, value);
+}
+
+fn write_data(context: IoContext<'_>, vga: &mut Vga, value: u16) {
+    let previous_layout = vga.dispi.state.display_layout();
+    match vga.dispi.state.write(value) {
+        WriteAction::None => {}
+        WriteAction::ClearVram => vga.memory.clear_vram(),
+    }
+    if vga.dispi.state.display_layout() != previous_layout {
+        vga.configure_display(context, previous_layout);
+    }
+}
 
 pub const INDEX_PORT: u16 = 0x01ce;
 pub const DATA_PORT: u16 = 0x01cf;
@@ -50,8 +124,8 @@ impl SvgaBankMapping {
 }
 
 /// An action the device must apply after the register write.
-#[must_use = "DISPI write effects must be applied by the device"]
-pub(crate) enum WriteEffect {
+#[must_use = "DISPI write actions must be applied by the device"]
+pub(crate) enum WriteAction {
     None,
     ClearVram,
 }
@@ -59,7 +133,7 @@ pub(crate) enum WriteEffect {
 /// Geometry writes stage a request while disabled. Only a supported complete
 /// request can enable the packed aperture; active geometry writes are ignored.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Dispi {
+pub(crate) struct State {
     index: u16,
     width: u16,
     height: u16,
@@ -74,15 +148,12 @@ struct ActiveMode {
     flags: u16,
 }
 
-impl Dispi {
-    pub(crate) fn write_kind(&self, port: u16, bytes: u8) -> super::WriteKind {
-        if port != DATA_PORT || bytes != 2 {
-            return super::WriteKind::Access;
-        }
+impl State {
+    fn write_effect(&self) -> WriteEffect {
         match self.index {
-            ENABLE => super::WriteKind::Timing,
-            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => super::WriteKind::Display,
-            _ => super::WriteKind::Access,
+            ENABLE => WriteEffect::Timing,
+            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => WriteEffect::Display,
+            _ => WriteEffect::RegistersOnly,
         }
     }
 
@@ -155,49 +226,43 @@ impl Dispi {
         })
     }
 
-    pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        // A word at the index port is one register, not adjacent byte writes.
-        if bytes != 2 {
-            return if bytes == 1 { 0xff } else { u32::MAX };
-        }
-        u32::from(match port {
-            INDEX_PORT => self.index,
-            DATA_PORT => match self.index {
-                ID => INTERFACE_ID,
-                X_RESOLUTION => self.width,
-                Y_RESOLUTION => self.height,
-                BITS_PER_PIXEL => self.bits_per_pixel,
-                ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
-                BANK => self.bank,
-                VIRTUAL_WIDTH => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_width() as u16),
-                VIRTUAL_HEIGHT => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_height() as u16),
-                X_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[0] as u16),
-                Y_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[1] as u16),
-                _ => u16::MAX,
-            },
+    pub fn index(&self) -> u16 {
+        self.index
+    }
+
+    pub fn select(&mut self, index: u16) -> bool {
+        let changed = self.index != index;
+        self.index = index;
+        changed
+    }
+
+    pub fn read(&self) -> u16 {
+        match self.index {
+            ID => INTERFACE_ID,
+            X_RESOLUTION => self.width,
+            Y_RESOLUTION => self.height,
+            BITS_PER_PIXEL => self.bits_per_pixel,
+            ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
+            BANK => self.bank,
+            VIRTUAL_WIDTH => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_width() as u16),
+            VIRTUAL_HEIGHT => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_height() as u16),
+            X_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[0] as u16),
+            Y_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[1] as u16),
             _ => u16::MAX,
-        })
+        }
     }
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteEffect {
-        if bytes != 2 {
-            return WriteEffect::None;
-        }
-        let value = value as u16;
-        if port == INDEX_PORT {
-            self.index = value;
-            return WriteEffect::None;
-        }
+    pub fn write(&mut self, value: u16) -> WriteAction {
         match self.index {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,
@@ -207,7 +272,7 @@ impl Dispi {
                 let Some(mode) =
                     SvgaMode::from_registers(self.width, self.height, self.bits_per_pixel)
                 else {
-                    return WriteEffect::None;
+                    return WriteAction::None;
                 };
                 self.active = Some(ActiveMode {
                     layout: mode.layout(),
@@ -215,9 +280,9 @@ impl Dispi {
                 });
                 self.bank = 0;
                 return if value & NO_CLEAR_MEMORY == 0 {
-                    WriteEffect::ClearVram
+                    WriteAction::ClearVram
                 } else {
-                    WriteEffect::None
+                    WriteAction::None
                 };
             }
             BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
@@ -238,6 +303,6 @@ impl Dispi {
             }
             _ => {}
         }
-        WriteEffect::None
+        WriteAction::None
     }
 }

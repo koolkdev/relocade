@@ -1,9 +1,8 @@
 //! Video memory access selected from adapter gates and the active addressing mechanism.
 
 use crate::registers::{
-    dispi::{Dispi, SvgaBankMapping},
-    setup::Setup,
-    Registers,
+    dispi::{self, SvgaBankMapping},
+    setup, LegacyRegisters,
 };
 
 /// One transfer's access policy. Both register banks remain on the device;
@@ -11,12 +10,12 @@ use crate::registers::{
 #[derive(Clone, Copy)]
 pub(crate) enum VramAccess<'a> {
     Disabled,
-    Vga(&'a Registers),
+    Vga(&'a LegacyRegisters),
     SvgaBank(SvgaBankMapping),
 }
 
 impl<'a> VramAccess<'a> {
-    pub fn new(setup: &Setup, registers: &'a Registers, dispi: &Dispi) -> Self {
+    pub fn new(setup: &setup::State, registers: &'a LegacyRegisters, dispi: &dispi::State) -> Self {
         if !setup.enabled() || !registers.video_memory_enabled() {
             Self::Disabled
         } else if let Some(mapping) = dispi.bank_mapping() {
