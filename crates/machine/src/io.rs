@@ -1,9 +1,12 @@
 //! Device routing and synchronous access on one execution worker.
 
+mod connection;
 mod context;
 mod device;
+pub(crate) mod ports;
 pub use context::IoContext;
 pub use device::{Device, DeviceConnection};
+pub use ports::{DevicePorts, PortRange, PortRead, PortWrite};
 
 use crate::runtime::Runtime;
 use relocade_wasm_runtime::WasmBackend;
@@ -33,6 +36,7 @@ pub struct IoBus {
 
 pub(crate) struct State {
     connections: OnceCell<Box<[DeviceConnection]>>,
+    ports: ports::Ports,
     identity: Weak<State>,
 }
 
@@ -41,6 +45,7 @@ impl Default for IoBus {
         Self {
             state: Rc::new_cyclic(|identity| State {
                 connections: OnceCell::new(),
+                ports: ports::Ports::default(),
                 identity: identity.clone(),
             }),
             runtime: Runtime::default(),
@@ -61,6 +66,7 @@ impl IoBus {
 
     /// Initializes this bus's device connections once. The CPU keeps this same
     /// bus throughout its lifetime; devices may be connected after CPU creation.
+    /// Port registration uses the runtime, creating it if this bus has none yet.
     ///
     /// # Panics
     /// Panics if connections are already initialized, or a range is empty or overlaps.
@@ -72,14 +78,30 @@ impl IoBus {
         let connections: Box<[_]> = connections.into_iter().collect();
         validate_ranges(connections.iter().flat_map(|device| &device.mmio));
         validate_ranges(connections.iter().flat_map(|device| &device.ports));
-        self.state
-            .connections
-            .set(connections)
-            .unwrap_or_else(|_| unreachable!());
+        self.with_context(|mut context| {
+            self.state
+                .connections
+                .set(connections)
+                .unwrap_or_else(|_| unreachable!());
+            connection::register(self.state.connections(), &self.state.ports, &mut context);
+        });
     }
 
     pub fn is_empty(&self) -> bool {
         self.state.is_empty()
+    }
+
+    /// Returns this device's shared port registrations, creating the handle on
+    /// first use. Existing [`DeviceConnection`] ports use the same handle.
+    /// Custom handlers need no connection; obtaining a handle alone installs
+    /// no handlers or MMIO/interrupt connection and does not retain the device.
+    /// Dropping a handle leaves entries installed; remove or clear them explicitly.
+    pub fn ports<D: Device + ?Sized + 'static>(&self, device: &Rc<RefCell<D>>) -> DevicePorts {
+        self.state.ports.device(&self.state.identity, device)
+    }
+
+    pub(crate) fn port_map(&self) -> &ports::Ports {
+        &self.state.ports
     }
 
     /// Runs synchronous host I/O with a scoped runtime context. The context cannot
@@ -135,7 +157,7 @@ impl State {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.connections().is_empty()
+        self.connections().is_empty() && self.ports.is_empty()
     }
 
     pub fn poll_interrupt(&self, mut context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
@@ -213,9 +235,7 @@ impl State {
     #[inline]
     pub(crate) fn read_port_unchecked(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.port_device(port).map_or(u32::MAX, |device| {
-            device.borrow_mut().read_port(context, port, bytes)
-        })
+        self.ports.read(context, port, bytes)
     }
 
     #[inline]
@@ -228,16 +248,7 @@ impl State {
     ) {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         debug_assert_eq!(value & (u32::MAX >> ((4 - bytes) * 8)), value);
-        if let Some(device) = self.port_device(port) {
-            device.borrow_mut().write_port(context, port, bytes, value);
-        }
-    }
-
-    fn port_device(&self, port: u16) -> Option<&RefCell<dyn Device>> {
-        self.connections()
-            .iter()
-            .find(|connection| connection.ports.iter().any(|range| range.contains(&port)))
-            .map(|connection| connection.device.as_ref())
+        self.ports.write(context, port, bytes, value);
     }
 
     fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&RefCell<dyn Device>>, u8) {

@@ -61,7 +61,9 @@ pub use clock::{
 pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
-pub use io::{Device, DeviceConnection, IoBus, IoContext};
+pub use io::{
+    Device, DeviceConnection, DevicePorts, IoBus, IoContext, PortRange, PortRead, PortWrite,
+};
 pub use machine::{CpuHandle, Machine};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};

@@ -16,7 +16,7 @@ use std::{
 /// transfer borrows the device mutably. Callbacks must not reenter guest execution
 /// or access the same device recursively. Publish owned observations separately
 /// when another worker needs to display or inspect device output.
-/// Use the supplied [`IoContext`] to forward I/O;
+/// Use the supplied [`IoContext`] to forward I/O or update port registrations;
 /// host convenience methods acquire a separate stopped-runtime borrow.
 pub trait Device {
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].

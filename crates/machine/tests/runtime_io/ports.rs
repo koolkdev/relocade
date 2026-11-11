@@ -1,7 +1,7 @@
 //! Host input normalization and generated guest port I/O share one router.
 use super::*;
 
-fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {
+pub(super) fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {
     IoBus::new([DeviceConnection {
         device: device.clone(),
         ports: std::iter::once(0xffff..=0xffff).collect(),
