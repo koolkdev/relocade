@@ -23,7 +23,7 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     image.data(0xa020, &[0x22; 4]);
     for (base, value) in [(0x4000, 0x1111_1111), (0x5000, 0x2222_2222)] {
         image.cpu.segments.fs = data(base, 0xff);
-        assert!(target.is_compatible_with(target, &image.cpu.segments));
+        assert!(target.is_compatible_with(target, &image.cpu));
         let mut cpu = image.cpu;
         cpu.registers.eax = value;
         cpu.eip = 0x1003;
@@ -43,7 +43,7 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
         }
     }
     image.cpu.segments.fs.limit = 0x20;
-    assert!(target.is_compatible_with(target, &image.cpu.segments));
+    assert!(target.is_compatible_with(target, &image.cpu));
     for module in [&block, TestModule::interpreter()] {
         image.check_unchanged_exit(
             module,
@@ -52,7 +52,7 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
         );
     }
     image.cpu.segments.ds.base = 0x6000;
-    assert!(!target.is_compatible_with(target, &image.cpu.segments));
+    assert!(!target.is_compatible_with(target, &image.cpu));
     assert!(image
         .cpu
         .segments

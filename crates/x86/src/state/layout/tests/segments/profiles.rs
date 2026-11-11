@@ -59,10 +59,10 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     assert!(!compatible(&segments));
     assert!(segments.is_compatible_with(SegmentProfile::Segmented32));
     for cache in [
-        SegmentRegister::flat_data32(0),
+        SegmentRegister::flat_data32(0x1b),
         SegmentRegister {
             big: 1,
-            ..SegmentRegister::unusable(0)
+            ..SegmentRegister::unusable(0x1b)
         },
     ] {
         segments.cs = cache;
@@ -88,7 +88,7 @@ fn assumed_data_segments_require_writable_expand_up_data() {
 }
 
 #[test]
-fn selectors_do_not_change_assumptions() {
+fn ring_three_selectors_preserve_profile_assumptions() {
     let mut segments = Segments::flat32();
     for (segment, selector) in Segment::ALL
         .into_iter()
@@ -112,7 +112,7 @@ fn fs_and_gs_changes_do_not_break_the_flat_profile() {
 }
 
 #[test]
-fn segmented_profiles_assume_only_their_code_default_size() {
+fn segmented_profiles_keep_access_checks_dynamic_with_ring_three_code_defaults() {
     for (profile, code_big) in [
         (SegmentProfile::Segmented16, 0),
         (SegmentProfile::Segmented32, 1),

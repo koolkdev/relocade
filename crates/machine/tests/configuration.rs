@@ -17,6 +17,13 @@ fn cpu_must_match_the_execution_profile() {
         CpuConfig::new(target(), CpuState::default()),
         Err(ConfigurationError::IncompatibleCpu)
     ));
+    // Canonical real caches cannot hide protected control state.
+    let mut cpu = CpuState::real_mode();
+    cpu.cr0 |= 1;
+    assert!(matches!(
+        CpuConfig::new(target(), cpu),
+        Err(ConfigurationError::IncompatibleCpu)
+    ));
 }
 
 async fn check_memory_profile() {
@@ -29,7 +36,7 @@ async fn check_memory_profile() {
     assert!(matches!(
         Cpu::new(Memory::new(config).unwrap(), protected, Default::default()).await,
         Err(relocade_machine::Error::Configuration(
-            ConfigurationError::UnsupportedProfile
+            ConfigurationError::UnsupportedMode
         ))
     ));
 }

@@ -26,10 +26,10 @@ impl MachineConfig {
 
     pub(crate) fn validate_for(
         &self,
-        profile: relocade_x86::ExecutionProfile,
+        mode: relocade_x86::CpuMode,
     ) -> Result<(), ConfigurationError> {
-        if profile != relocade_x86::ExecutionProfile::Real16 {
-            return Err(ConfigurationError::UnsupportedProfile);
+        if mode != relocade_x86::CpuMode::Real {
+            return Err(ConfigurationError::UnsupportedMode);
         }
         Ok(())
     }

@@ -47,7 +47,7 @@ fn counters() -> Vec<Case> {
             Segment::Cs,
             SegmentRegister {
                 limit: 0x1002,
-                ..SegmentRegister::flat_code32(0)
+                ..SegmentRegister::flat_code32(0x1b)
             },
         )
         .initial_register(Ecx, 0xabcd_0002)

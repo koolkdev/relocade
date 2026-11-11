@@ -210,7 +210,7 @@ fn interrupt_controls(frontend: Frontend) {
         for fill in [0x80, 0xff] {
             let code = [0x66, 0x67, 0x64, opcode];
             let mut image = image(&code);
-            image.cpu.flags = CpuState::filled(fill).flags;
+            image.cpu.flags = crate::support::machine::protected_state(fill).flags;
             let mut cpu = retired(&image, code.len());
             cpu.flags.bytes.if_ = result;
             cases.check(

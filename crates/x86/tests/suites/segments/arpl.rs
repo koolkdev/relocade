@@ -10,7 +10,7 @@ use crate::support::{
     },
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
-use crate::{CpuState, FlagsState, Gpr32::*, Segment, SegmentRegister};
+use crate::{FlagsState, Gpr32::*, Segment, SegmentRegister};
 
 fn initial_flags(zf: bool) -> Flags<bool> {
     Flags {
@@ -31,7 +31,7 @@ fn zero_flag(set: bool) -> Flags<FlagExpectation> {
 }
 
 fn pending_add() -> FlagsState {
-    let mut flags = CpuState::filled(0xa5).flags;
+    let mut flags = crate::support::machine::protected_state(0xa5).flags;
     flags.status_source.kind = 10;
     flags.status_source.left = 0x7fff_ffff;
     flags.status_source.right = 1;

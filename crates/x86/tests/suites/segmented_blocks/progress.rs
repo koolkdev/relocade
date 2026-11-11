@@ -8,7 +8,6 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Case},
 };
 use relocade_x86::{
-    CpuState,
     Gpr32::{Eax, Ebx, Ecx, Edi, Esi, Esp},
     Segment,
     SegmentDefaultSize::{Bits16, Bits32},
@@ -157,7 +156,7 @@ test_sequences!(
 );
 
 fn repeated_progress() -> Vec<Case> {
-    let mut flags = CpuState::filled(0xa5).flags;
+    let mut flags = crate::support::machine::protected_state(0xa5).flags;
     flags.bytes.df = 0;
     vec![Case::preserving_flags(
         "pending full-register writes feed 16-bit REP and survive a later segment fault",

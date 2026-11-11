@@ -145,7 +145,7 @@ fn budgetless_blocks_publish_once_in_first_write_order_before_tail_dispatch() {
 }
 
 fn abi_state(count: u64) -> CpuState {
-    let mut cpu = CpuState::filled(0xa5);
+    let mut cpu = crate::support::machine::protected_state(0xa5);
     cpu.segments = relocade_x86::Segments::flat32();
     cpu.registers = Registers {
         eax: 0x1111_1111,

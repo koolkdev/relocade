@@ -13,9 +13,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{
-    compile_block_from_bytes, BlockError, CpuState, FlagsState, Gpr32::*, StatusSourceState,
-};
+use relocade_x86::{compile_block_from_bytes, BlockError, FlagsState, Gpr32::*, StatusSourceState};
 
 #[path = "strings/bulk.rs"]
 mod bulk;
@@ -44,7 +42,7 @@ fn flags(bits: u8) -> Flags<FlagExpectation> {
 }
 
 fn record(df: u8) -> FlagsState {
-    let mut record = CpuState::filled(0xa5).flags;
+    let mut record = crate::support::machine::protected_state(0xa5).flags;
     record.status_source = StatusSourceState {
         kind: 0,
         reserved: [0x5a, 0xc3, 0x96],

@@ -4,7 +4,7 @@ use crate::support::{
     cases::Permissions::{ReadOnly, ReadWrite},
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Case},
 };
-use relocade_x86::{CpuState, Gpr32::*, Segment, SegmentRegister};
+use relocade_x86::{Gpr32::*, Segment, SegmentRegister};
 
 fn accesses() -> Vec<Case> {
     vec![
@@ -51,7 +51,7 @@ fn accesses() -> Vec<Case> {
 test_sequences!(ordered_accesses, accesses());
 
 fn repeated_access() -> Vec<Case> {
-    let mut flags = CpuState::filled(0xa5).flags;
+    let mut flags = crate::support::machine::protected_state(0xa5).flags;
     flags.bytes.df = 0;
     vec![
         Case::preserving_flags("REP inherits a page proof but checks each changing source")

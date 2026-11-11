@@ -64,7 +64,7 @@ impl BlockModules {
 
 impl BlockKey {
     fn validate_fetches(&self, cpu: &CpuState) {
-        assert!(self.target.is_compatible_with(self.target, &cpu.segments));
+        assert!(self.target.is_compatible_with(self.target, cpu));
         let cs = cpu.segments.cs;
         assert!(cs.usable != 0 && cs.executable != 0);
         let mut eip = self.start;

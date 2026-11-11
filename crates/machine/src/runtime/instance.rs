@@ -9,7 +9,7 @@ use super::{
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
 use relocade_wasm_runtime::{Function, Import, Module, SharedMemory, WasmBackend, WasmCompiler};
-use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
+use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
 
@@ -69,12 +69,12 @@ impl CpuInstance {
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
-            let interrupt = if target.profile == ExecutionProfile::Real16 {
+            let interrupt = if bindings.cpu.mode() == CpuMode::Real {
                 Some(wasm.function(&instance, abi::INTERRUPT)?)
             } else {
                 None
             };
-            let far_call = if target.profile == ExecutionProfile::Real16 {
+            let far_call = if bindings.cpu.mode() == CpuMode::Real {
                 Some(wasm.function(&instance, abi::FAR_CALL)?)
             } else {
                 None

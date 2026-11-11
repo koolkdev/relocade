@@ -7,7 +7,7 @@ use crate::support::{
     step::TestModule,
 };
 use relocade_x86::StatusSourceState;
-use relocade_x86::{CpuState, FlagsState, Gpr32};
+use relocade_x86::{FlagsState, Gpr32};
 
 #[path = "conditional_moves/memory.rs"]
 mod memory;
@@ -125,9 +125,9 @@ fn stored_flag_cases() -> Vec<Case> {
                     kind,
                     left,
                     right,
-                    ..(CpuState::filled(0xa5).flags).status_source
+                    ..(crate::support::machine::protected_state(0xa5).flags).status_source
                 },
-                ..CpuState::filled(0xa5).flags
+                ..crate::support::machine::protected_state(0xa5).flags
             })
             .preserve_flag_record()
             .register(Gpr32::Eax, 0x4433_2211, eax)

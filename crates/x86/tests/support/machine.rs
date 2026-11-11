@@ -1,6 +1,20 @@
-use relocade_x86::{page_table, CpuState, Exception, ExecutionExit, Registers, Segments};
+use relocade_x86::{page_table, CpuState, Exception, ExecutionExit, Registers};
 
 use super::step::{returned, Event, Input, Observation, Snapshot, TestModule};
+
+/// Gives execution fixtures valid mode state while keeping opaque flag sources,
+/// inactive fields and padding filled for preservation checks.
+pub(crate) fn protected_state(fill: u8) -> CpuState {
+    let initialized = CpuState::default();
+    let mut cpu = CpuState {
+        cr0: initialized.cr0,
+        cr4: initialized.cr4,
+        segments: initialized.segments,
+        ..CpuState::filled(fill)
+    };
+    cpu.flags.bytes.vm = 0;
+    cpu
+}
 
 #[derive(Clone)]
 pub(crate) struct Image {
@@ -19,7 +33,7 @@ impl Image {
     }
 
     pub(crate) fn empty() -> Self {
-        let mut cpu = CpuState::filled(0xa5);
+        let mut cpu = protected_state(0xa5);
         cpu.registers = Registers {
             eax: 0x1111_1111,
             ecx: 0x2222_2222,
@@ -32,11 +46,6 @@ impl Image {
         };
         cpu.eip = 0x1000;
         cpu.instruction_count = u64::MAX;
-        cpu.segments = Segments::flat32();
-        let initial = CpuState::default();
-        cpu.cr0 = initial.cr0;
-        cpu.cr4 = initial.cr4;
-        cpu.flags.bytes.vm = 0;
         cpu.flags.bytes.if_ = 1;
         cpu.flags.bytes.iopl = 0;
         Self {

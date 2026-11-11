@@ -1,7 +1,7 @@
 //! Arbitrates guest calls and device IRQs, suspending host work after entry.
 
 use super::{Cpu, GuestCall, SuspendedCall};
-use relocade_x86::{ExecutionExit, ExecutionProfile};
+use relocade_x86::{CpuMode, ExecutionExit};
 use std::task::{Context, Poll};
 
 impl Cpu {
@@ -46,10 +46,7 @@ impl Cpu {
 
     fn poll_irq(&self, cx: &mut Context<'_>) -> Result<Poll<u8>, ExecutionExit> {
         let cpu = &self.instance.bindings.cpu;
-        if self.instance.io.is_empty()
-            || cpu.execution_target().profile != ExecutionProfile::Real16
-            || !cpu.interrupts_enabled()
-        {
+        if self.instance.io.is_empty() || cpu.mode() != CpuMode::Real || !cpu.interrupts_enabled() {
             return Ok(Poll::Pending);
         }
         let vector = self.instance.io.poll_interrupt(cx);

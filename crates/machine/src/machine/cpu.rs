@@ -21,9 +21,7 @@ impl CpuHandle {
         config: CpuConfig,
         compiler: Option<crate::compiler::Endpoint>,
     ) -> Result<(Self, CpuStateAccess)> {
-        memory
-            .configuration()
-            .validate_for(config.execution_target().profile)?;
+        memory.configuration().validate_for(config.cpu().mode())?;
         let storage = CpuStorage::new()?;
         let backing = storage.initialize(&config);
         let state = CpuStateAccess::new(&config, backing);

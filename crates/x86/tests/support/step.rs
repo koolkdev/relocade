@@ -175,8 +175,8 @@ impl TestModule {
                 .expect("the CPU image"),
         );
         assert!(
-            target.is_compatible_with(target, &cpu.segments),
-            "{} requires compatible {target:?} segment state",
+            target.is_compatible_with(target, &cpu),
+            "{} requires compatible {target:?} CPU state",
             self.entry
         );
     }

@@ -1,6 +1,6 @@
 use super::ConfigurationError;
 use relocade_x86::{
-    CpuState, DescriptorTableRegister, ExecutionProfile, ExecutionTarget, SystemSegmentRegister,
+    CpuMode, CpuState, DescriptorTableRegister, ExecutionTarget, SystemSegmentRegister,
 };
 
 /// Validated initial state and execution policy for one CPU.
@@ -11,6 +11,8 @@ pub struct CpuConfig {
 }
 
 impl CpuConfig {
+    /// Initializes architectural state while retaining the compatibility contract
+    /// of today's generated code. The target does not override the CPU's mode.
     pub fn new(target: ExecutionTarget, cpu: CpuState) -> Result<Self, ConfigurationError> {
         validate_cpu(target, &cpu)?;
         Ok(Self { target, cpu })
@@ -42,19 +44,19 @@ pub(crate) fn validate_cpu(
     target: ExecutionTarget,
     cpu: &CpuState,
 ) -> Result<(), ConfigurationError> {
-    if !cpu.segments.is_compatible_with(target.profile) {
+    if !cpu.is_compatible_with(target.profile) {
         return Err(ConfigurationError::IncompatibleCpu);
     }
-    validate_idtr(target.profile, cpu.idtr)?;
+    validate_idtr(cpu.mode(), cpu.idtr)?;
     validate_system_segment(cpu.ldtr, true)?;
     validate_system_segment(cpu.tr, false)
 }
 
 pub(crate) fn validate_idtr(
-    profile: ExecutionProfile,
+    mode: CpuMode,
     idtr: DescriptorTableRegister,
 ) -> Result<(), ConfigurationError> {
-    if profile == ExecutionProfile::Real16 && (idtr.base != 0 || idtr.limit != 0x3ff) {
+    if mode == CpuMode::Real && (idtr.base != 0 || idtr.limit != 0x3ff) {
         return Err(ConfigurationError::InvalidTableRegister);
     }
     Ok(())

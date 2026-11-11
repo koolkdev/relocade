@@ -4,7 +4,7 @@ use crate::support::{
     step,
 };
 
-use relocade_x86::{compile_block_from_bytes, Compiler, CpuState, Gpr32, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, Compiler, Gpr32, SegmentProfile};
 use step::{CallPatches, Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
@@ -144,7 +144,7 @@ test_sequences!(
 fn instruction_counts_reread_host_changes_between_invocations() {
     let module =
         compile_block_from_bytes(0x1000, &[0xb8, 7, 0, 0, 0, 0xb9, 9, 0, 0, 0], 2).unwrap();
-    let mut initial = CpuState::filled(0xa5);
+    let mut initial = crate::support::machine::protected_state(0xa5);
     initial.segments = relocade_x86::Segments::flat32();
     initial.eip = 0x1000;
     initial.instruction_count = 37;
