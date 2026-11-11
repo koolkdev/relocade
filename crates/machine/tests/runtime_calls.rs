@@ -3,7 +3,7 @@ mod interrupts;
 mod support;
 
 use interrupts::Irq;
-use relocade_machine::{real_mode_interrupt, Cpu, DeviceConnection, IoBus, Memory};
+use relocade_machine::{real_mode_interrupt, Cpu, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
@@ -82,17 +82,9 @@ async fn cpu(irq: &Rc<RefCell<Irq>>, handler: u16) -> Cpu {
         view.write(0x300, &[0xff, 0x06, 0, 5, 0xeb, 0, 0xcf])
             .unwrap();
     }
-    Cpu::new(
-        memory,
-        config.cpu,
-        IoBus::new([DeviceConnection {
-            device: irq.clone(),
-            ports: vec![],
-            mmio: vec![],
-        }]),
-    )
-    .await
-    .unwrap()
+    Cpu::new(memory, config.cpu, IoBus::new(irq.clone(), |_| {}))
+        .await
+        .unwrap()
 }
 
 fn pending(future: impl Future) {

@@ -229,7 +229,7 @@ async fn mapped_arguments() {
             ],
         )
         .unwrap();
-    let mut runner = Cpu::new(memory.clone(), config.cpu, IoBus::new([]))
+    let mut runner = Cpu::new(memory.clone(), config.cpu, IoBus::default())
         .await
         .unwrap();
     let mut interrupts = Interrupts::new(&mut runner);

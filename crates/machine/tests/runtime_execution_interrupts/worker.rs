@@ -2,7 +2,7 @@ use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
     worker::{Receiver, Thread},
-    CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoContext, MachineConfig,
+    CpuConfig, CpuStorage, Device, ExecutionInterrupt, IoContext, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -65,11 +65,9 @@ impl Device for Started {
 async fn request_during_execution() {
     for compiled in [false, true] {
         let (entered, running) = oneshot::channel();
-        let io = IoBus::new([DeviceConnection {
-            device: Rc::new(RefCell::new(Started(Some(entered)))),
-            ports: std::iter::once(0x80..=0x80).collect(),
-            mmio: vec![],
-        }]);
+        let io = IoBus::new(Rc::new(RefCell::new(Started(Some(entered)))), |io| {
+            io.map_ports(std::iter::once(0x80..=0x80));
+        });
         // OUT signals entry; INC AX / JMP then stay inside guest execution.
         let code = [0xe6, 0x80, 0x40, 0xeb, 0xfd];
         let mut cpu = cpu(&code, compiled, io).await;

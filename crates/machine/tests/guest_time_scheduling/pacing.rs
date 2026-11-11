@@ -39,8 +39,7 @@ async fn late_host_wake() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device.clone(), [], []).await]);
+            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
@@ -140,8 +139,7 @@ async fn replace_idle_deadline() {
                 observed: Vec::new(),
                 exit: None,
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device.clone(), [], []).await]);
+            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
@@ -194,8 +192,7 @@ async fn cancelled_run_rebinds() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device.clone(), [], []).await]);
+            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             {
@@ -355,8 +352,7 @@ async fn ready_service_during_pacing() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            let io = runner.cpu().io();
-            io.connect([runner.connect(device.clone(), [], []).await]);
+            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));

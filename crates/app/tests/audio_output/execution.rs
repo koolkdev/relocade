@@ -59,10 +59,11 @@ async fn callback_wakes_execution() {
             ready: Some(ready),
             interrupt: None,
         }));
-        let io = runner.cpu().io();
-        io.connect([runner
-            .connect(started.clone(), [], std::iter::once(0x80..=0x80))
-            .await]);
+        runner
+            .connect(started.clone(), |io| {
+                io.map_ports(std::iter::once(0x80..=0x80));
+            })
+            .await;
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
         let cpu = runner.cpu();

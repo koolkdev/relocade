@@ -41,8 +41,7 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
                     .await
                     .unwrap();
                 let busy = Rc::new(RefCell::new(BusyDevice::default()));
-                let io = runner.cpu().io();
-                io.connect([runner.connect(busy.clone(), [], []).await]);
+                runner.connect(busy.clone(), |_| {}).await;
 
                 let state = runner.cpu().cpu_state();
                 let code = {

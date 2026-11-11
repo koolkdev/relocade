@@ -96,8 +96,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 .write(0x100, &[0xc7, 0x06, 0, 3, 1, 0, 0xeb, 0xfe])
                 .unwrap();
 
-            let io = runner.cpu().io();
-            io.connect([runner
+            runner
                 .connect(
                     Rc::new(RefCell::new(ProgressDevice {
                         clock: runner.clock().clone(),
@@ -105,10 +104,9 @@ pub async fn runner_workers() -> Result<(), String> {
                         progressed: Some(progressed),
                         dropped: Some(device_dropped),
                     })),
-                    [],
-                    [],
+                    |_| {},
                 )
-                .await]);
+                .await;
             let probe = Rc::new(DropProbe {
                 local: Rc::new(()),
                 dropped: Some(dropped),

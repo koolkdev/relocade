@@ -4,8 +4,7 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DeviceConnection, DispatchEntry, GuestTimeDriver, IoBus, IoContext, Memory,
-    Timestamp,
+    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, IoContext, Memory, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -133,11 +132,9 @@ async fn callback_observation() {
             clock: driver.clock(),
             observed: None,
         }));
-        let io = IoBus::new([DeviceConnection {
-            device: device.clone(),
-            ports: std::iter::once(0x80..=0x80).collect(),
-            mmio: vec![],
-        }]);
+        let io = IoBus::new(device.clone(), |io| {
+            io.map_ports(std::iter::once(0x80..=0x80));
+        });
         let config = configuration(99);
         let memory = Memory::new(config.machine).unwrap();
         // NOP; NOP; OUT 80h, AL; JMP to itself.

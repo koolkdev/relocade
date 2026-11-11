@@ -6,8 +6,8 @@ arithmetic and programmable channel-0 IRQ scheduler. BIOS keeps its IRQ handler 
 time-of-day data.
 
 `Speaker::initialize(runner, pit).await` connects the speaker to that PIT,
-registers port 0x61 and starts its activity. It returns the speaker handle and
-its connection for the CPU bus. Both devices stay on the execution worker.
+registers port 0x61 and starts its activity. It returns the connected speaker
+handle. Both devices stay on the execution worker.
 
 The speaker supports byte transfers at `SPEAKER_CONTROL_PORT` (0x61).
 Word/dword writes are ignored and reads return open bus. PIT channel-2 count
@@ -29,10 +29,9 @@ audio.play()?; // In a browser, call from the application's user activation.
 Move `config` and `samples` into the existing execution-worker session:
 
 ```rust,ignore
-let (pic, pic_device) = Pic::initialize(runner).await;
-let (pit, pit_device) = Pit::initialize(runner, &pic).await;
-let (speaker, speaker_device) = Speaker::initialize(runner, pit).await;
-runner.cpu().io().connect([pic_device, pit_device, speaker_device]);
+let pic = Pic::initialize(runner).await;
+let pit = Pit::initialize(runner, &pic).await;
+let speaker = Speaker::initialize(runner, pit).await;
 speaker.borrow_mut().attach_audio(config, samples)?;
 // Run the guest with runner.run_cpu().await.
 ```

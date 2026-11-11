@@ -3,7 +3,7 @@
 #[cfg(feature = "audio")]
 mod audio;
 
-use relocade_machine::{Device, DeviceConnection, IoContext, Runner};
+use relocade_machine::{Device, IoContext, Runner};
 use relocade_pit::Pit;
 use std::{
     cell::{Cell, RefCell},
@@ -27,14 +27,14 @@ pub struct Speaker {
 
 impl Speaker {
     /// Creates the speaker and registers its control port and playback activity.
-    /// Returns the speaker handle and its port connection for the CPU bus.
-    pub async fn initialize(
-        runner: &Runner,
-        pit: Rc<RefCell<Pit>>,
-    ) -> (Rc<RefCell<Self>>, DeviceConnection) {
+    pub async fn initialize(runner: &Runner, pit: Rc<RefCell<Pit>>) -> Rc<RefCell<Self>> {
         let speaker = Rc::new(RefCell::new(Self::new(pit)));
-        let connection = runner.connect(speaker.clone(), [], [PORT_RANGE]).await;
-        (speaker, connection)
+        runner
+            .connect(speaker.clone(), |io| {
+                io.map_ports([PORT_RANGE]);
+            })
+            .await;
+        speaker
     }
 
     pub fn new(pit: Rc<RefCell<Pit>>) -> Self {

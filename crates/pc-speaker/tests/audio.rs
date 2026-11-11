@@ -42,21 +42,13 @@ async fn exercise_audio_device() {
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
-        let (pit, pit_device) =
-            relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
-        let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
-        let io = runner.cpu().io();
-        io.connect([
-            pit_device,
-            speaker_device,
-            runner
-                .connect(
-                    Rc::new(RefCell::new(Started(Some(started)))),
-                    [],
-                    std::iter::once(0x80..=0x80),
-                )
-                .await,
-        ]);
+        let pit = relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
+        let speaker = Speaker::initialize(&runner, pit).await;
+        runner
+            .connect(Rc::new(RefCell::new(Started(Some(started)))), |io| {
+                io.map_ports(std::iter::once(0x80..=0x80));
+            })
+            .await;
         let memory = runner.memory();
         // Program ~1 kHz, notify the test through port 80, then stay in guest code.
         let code = [

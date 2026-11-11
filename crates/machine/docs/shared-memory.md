@@ -101,15 +101,14 @@ Worker lifetime belongs to the application.
 `Device` owns synchronous MMIO and port behavior. Its methods take `&mut self`
 and a mandatory `IoContext` as the first argument, including reads that can
 change hardware state. Nested device calls forward this context. `IoBus` holds
-immutable local connections, each containing an `Rc<RefCell<dyn Device>>` and the
-ranges it decodes:
+local device connections. Setup installs port callbacks in the shared table and
+retains each device with its MMIO ranges and interrupt source:
 
 ```rust
-let io = IoBus::new([DeviceConnection {
-    device,
-    mmio: vec![0xb8000..=0xbffff],
-    ports: vec![0x3d4..=0x3d5],
-}]);
+let io = IoBus::new(device, |io| {
+    io.map_mmio([0xb8000..=0xbffff]);
+    io.map_ports([0x3d4..=0x3d5]);
+});
 let memory = Memory::new(machine_config)?;
 let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 ```

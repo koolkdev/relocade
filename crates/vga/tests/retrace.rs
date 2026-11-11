@@ -1,7 +1,7 @@
 use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, crtc, dots, support::svga, svga_boundary};
-use relocade_machine::{Device, DeviceConnection, IoBus};
+use relocade_machine::{Device, IoBus};
 use relocade_vga::{RetraceEvent, Vga};
 use std::{
     cell::RefCell,
@@ -74,11 +74,9 @@ fn retrace_sleeps_without_device_activity_and_accepts_a_late_timer() {
     let clock = ManualClock::default();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
     svga::enable(&mut *vga.borrow_mut());
-    let io = IoBus::new([DeviceConnection {
-        device: vga.clone(),
-        mmio: vec![],
-        ports: relocade_vga::PORT_RANGES.into_iter().collect(),
-    }]);
+    let io = IoBus::new(vga.clone(), |io| {
+        io.map_ports(relocade_vga::PORT_RANGES);
+    });
     let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());

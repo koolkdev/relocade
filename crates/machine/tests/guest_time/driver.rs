@@ -71,11 +71,10 @@ async fn callback_target_changes() {
                     cancel,
                     writes: 0,
                 }));
-                let io = IoBus::new([DeviceConnection {
-                    device: device.clone(),
-                    ports: std::iter::once(0x80..=0x80).collect(),
-                    mmio: std::iter::once(0x8000..=0x8fff).collect(),
-                }]);
+                let io = IoBus::new(device.clone(), |io| {
+                    io.map_mmio(std::iter::once(0x8000..=0x8fff));
+                    io.map_ports(std::iter::once(0x80..=0x80));
+                });
                 let config = support::configuration(
                     Compiler::new(ExecutionProfile::Real16).target(),
                     CpuState {
@@ -295,11 +294,9 @@ async fn expired_yield_deadline() {
             let mut cpu = Cpu::new(
                 memory,
                 config.cpu,
-                IoBus::new([DeviceConnection {
-                    device: device.clone(),
-                    ports: std::iter::once(0x80..=0x80).collect(),
-                    mmio: vec![],
-                }]),
+                IoBus::new(device.clone(), |io| {
+                    io.map_ports(std::iter::once(0x80..=0x80));
+                }),
             )
             .await
             .unwrap();

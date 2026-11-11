@@ -13,7 +13,7 @@ use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
 };
-use relocade_machine::{Clock, Device, DeviceConnection, IoBus, IoContext, Runner};
+use relocade_machine::{Clock, Device, IoBus, IoContext, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -54,7 +54,7 @@ pub struct Inputs {
 /// Registers the shared controller, keyboard and three-button mouse firmware.
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
 /// IRQ1/IRQ12 start low; the auxiliary interface and mouse reporting start disabled.
-pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>, DeviceConnection) {
+pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>) {
     let (keyboard, events) = frontend::channel();
     let (mouse, mouse_events) = relocade_frontend::mouse::channel();
     let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
@@ -62,11 +62,12 @@ pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>, Dev
         controller: controller.clone(),
         startup: Some((runner.clock().clone(), events, mouse_events)),
     }));
-    (
-        Inputs { keyboard, mouse },
-        controller,
-        runner.connect(device, [], PORTS).await,
-    )
+    runner
+        .connect(device, |io| {
+            io.map_ports(PORTS);
+        })
+        .await;
+    (Inputs { keyboard, mouse }, controller)
 }
 
 /// Port callbacks touch registers only. All firmware tasks run on the same owner.

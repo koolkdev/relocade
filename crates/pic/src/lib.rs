@@ -5,7 +5,7 @@ mod pair;
 
 use controller::{IRQ_COUNT, OCW2_EOI};
 use pair::Pair;
-use relocade_machine::{Device, DeviceConnection, IoBus, IoContext, Runner};
+use relocade_machine::{Device, IoBus, IoContext, Runner};
 use std::{
     cell::RefCell,
     ops::RangeInclusive,
@@ -50,13 +50,14 @@ impl Default for Pic {
 
 impl Pic {
     /// Creates the BIOS-configured pair and registers both chips with the runner.
-    /// Returns a shared controller handle and its connection for the CPU bus.
-    pub async fn initialize(runner: &Runner) -> (Self, DeviceConnection) {
+    pub async fn initialize(runner: &Runner) -> Self {
         let pic = Self::default();
-        let connection = runner
-            .connect(Rc::new(RefCell::new(pic.clone())), [], PORTS)
+        runner
+            .connect(Rc::new(RefCell::new(pic.clone())), |io| {
+                io.map_ports(PORTS);
+            })
             .await;
-        (pic, connection)
+        pic
     }
 
     /// Starts in 8086 edge-triggered mode, with all inputs masked and the slave

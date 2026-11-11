@@ -724,7 +724,7 @@ sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
 
 `Vga::initialize(runner).await` creates VGA on the session clock, registers its
 memory aperture and ports, and starts display capture. It returns the device
-handle and a connection to include in the CPU bus.
+handle with its mappings already installed on the runner's bus.
 
 DOS supplies this same snapshot queue through `dos.frames()`. Construct
 `Dos::new(runner)` inside the execution session; its VGA registration persists

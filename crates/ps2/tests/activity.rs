@@ -66,12 +66,14 @@ async fn connected_activity() {
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();
             pic.unmask_irq(KEYBOARD_IRQ);
-            let (inputs, _controller, keyboard) = connect(&runner, &pic).await;
+            let (inputs, _controller) = connect(&runner, &pic).await;
             let input = inputs.keyboard;
-            let pic = runner
-                .connect(Rc::new(RefCell::new(pic)), [], [PORT_RANGE])
+            runner
+                .connect(Rc::new(RefCell::new(pic)), |io| {
+                    io.map_ports([PORT_RANGE]);
+                })
                 .await;
-            let io = IoBus::new([pic, keyboard]);
+            let io = runner.io();
             io.write_port(DATA_PORT, 1, 0xf3); // Program typematic delay/rate.
             assert_eq!(next_byte(&io).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.

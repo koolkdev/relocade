@@ -1,5 +1,5 @@
 use super::{Speaker, PORT_RANGE};
-use relocade_machine::{Clock, DeviceConnection, IoBus};
+use relocade_machine::{Clock, IoBus};
 use relocade_pit::Pit;
 use std::{cell::RefCell, rc::Rc};
 
@@ -10,17 +10,12 @@ pub fn hardware(clock: Clock) -> (IoBus, Rc<RefCell<Speaker>>) {
         &relocade_pic::Pic::new(0x08, 0x70),
     )));
     let speaker = Rc::new(RefCell::new(Speaker::new(pit.clone())));
-    let io = IoBus::new([
-        DeviceConnection {
-            device: pit,
-            mmio: vec![],
-            ports: vec![relocade_pit::PORT_RANGE],
-        },
-        DeviceConnection {
-            device: speaker.clone(),
-            mmio: vec![],
-            ports: vec![PORT_RANGE],
-        },
-    ]);
+    let io = IoBus::default();
+    io.connect(pit, |io| {
+        io.map_ports([relocade_pit::PORT_RANGE]);
+    });
+    io.connect(speaker.clone(), |io| {
+        io.map_ports([PORT_RANGE]);
+    });
     (io, speaker)
 }

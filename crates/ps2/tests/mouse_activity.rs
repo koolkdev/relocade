@@ -66,12 +66,12 @@ async fn connected_mouse_and_keyboard() {
     let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
-            let (pic, pic_device) = Pic::initialize(&runner).await;
+            let pic = Pic::initialize(&runner).await;
             for irq in [KEYBOARD_IRQ, CASCADE_IRQ, MOUSE_IRQ] {
                 pic.unmask_irq(irq);
             }
-            let (input, _controller, ps2) = relocade_ps2::connect(&runner, &pic).await;
-            let io = IoBus::new([pic_device, ps2]);
+            let (input, _controller) = relocade_ps2::connect(&runner, &pic).await;
+            let io = runner.io();
             write(&io, STATUS_COMMAND_PORT, 0x60).await;
             write(&io, DATA_PORT, 0x47).await;
             write(&io, STATUS_COMMAND_PORT, 0xd4).await;
@@ -187,12 +187,12 @@ async fn queued_mouse_timestamps() {
     assert_eq!(
         runner
             .run(pending::<()>(), async |runner| {
-                let (pic, pic_device) = Pic::initialize(&runner).await;
+                let pic = Pic::initialize(&runner).await;
                 for irq in [CASCADE_IRQ, MOUSE_IRQ] {
                     pic.unmask_irq(irq);
                 }
-                let (input, _controller, ps2) = relocade_ps2::connect(&runner, &pic).await;
-                let io = IoBus::new([pic_device, ps2]);
+                let (input, _controller) = relocade_ps2::connect(&runner, &pic).await;
+                let io = runner.io();
                 write(&io, STATUS_COMMAND_PORT, 0x60).await;
                 write(&io, DATA_PORT, 0x47).await;
                 write(&io, STATUS_COMMAND_PORT, 0xd4).await;
