@@ -15,18 +15,13 @@ impl GuestCall {
     /// Builds the complete entry frame before the driver dispatches guest code.
     pub(super) fn enter(&self, instance: &mut CpuInstance) -> Result<(), ExecutionExit> {
         match self {
-            Self::Interrupt(vector) => match instance
-                .runtime
-                .with_runtime(|wasm| instance.dispatch.enter_interrupt(wasm, *vector))
-            {
+            Self::Interrupt(vector) => match instance.enter_interrupt(*vector) {
                 ExecutionExit::InterruptEntered => Ok(()),
                 exit => Err(exit),
             },
             Self::Far { target, arguments } => {
                 let stack_bytes = size_of_val(arguments.as_ref()) as u16;
-                let exit = instance.runtime.with_runtime(|wasm| {
-                    instance.dispatch.enter_far_call(wasm, *target, stack_bytes)
-                });
+                let exit = instance.enter_far_call(*target, stack_bytes);
                 if exit != ExecutionExit::FarCallEntered {
                     return Err(exit);
                 }

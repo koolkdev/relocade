@@ -126,7 +126,7 @@ impl Cpu {
             }
             self.pending = match exit {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
-                    Call::start(self.instance.dispatch.handler(service_id), cx)
+                    Call::start(self.instance.handler(service_id), cx)
                 }
                 ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
                     Ok(call) => call,
