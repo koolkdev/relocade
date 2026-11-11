@@ -53,6 +53,7 @@ pub(super) enum ValueDefinition {
 
 pub(super) struct Block {
     pub(super) parameters: Vec<usize>,
+    pub(super) assumptions: Vec<usize>,
     pub(super) items: Vec<BlockItem>,
     // Ordinary-call targets recorded during construction and rebuilt during
     // compaction. Terminal call targets are already stored in `exit`.
@@ -140,6 +141,7 @@ impl FunctionGraph {
             effects: Vec::new(),
             blocks: vec![Block {
                 parameters: Vec::new(),
+                assumptions: Vec::new(),
                 items: Vec::new(),
                 callees: Vec::new(),
                 exit: Exit::Open,
@@ -165,6 +167,7 @@ impl FunctionGraph {
             .collect();
         self.blocks.push(Block {
             parameters,
+            assumptions: Vec::new(),
             items: Vec::new(),
             callees: Vec::new(),
             exit: Exit::Open,

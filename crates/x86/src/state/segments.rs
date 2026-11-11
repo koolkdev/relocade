@@ -34,26 +34,45 @@ struct SegmentReadCache {
 }
 
 impl SegmentReadCache {
-    fn new(profile: ExecutionProfile, segment: Segment) -> Self {
+    fn new(
+        body: &mut BlockBuilder<'_>,
+        cpu: &Cpu,
+        profile: ExecutionProfile,
+        segment: Segment,
+    ) -> Result<Self, BuildError> {
         let mut cache = Self::default();
-        match profile {
-            ExecutionProfile::Real16 => {
-                cache.limit = Some(0xffffu32.into());
-                cache.big = Some(false.into());
-            }
+        let mut condition = Val::<I1>::from(true);
+        let assumptions = match profile {
+            ExecutionProfile::Real16 => SegmentAssumptions {
+                limit: Some(0xffff),
+                big: Some(0),
+                ..SegmentAssumptions::default()
+            },
             ExecutionProfile::Protected(profile) => {
-                let facts = SegmentAssumptions::for_profile(profile, segment);
-                cache.base = facts.base.map(Into::into);
-                cache.limit = facts.limit.map(Into::into);
-                cache.usable = facts.usable.map(|value| (value != 0).into());
-                cache.readable = facts.readable.map(|value| (value != 0).into());
-                cache.writable = facts.writable.map(|value| (value != 0).into());
-                cache.executable = facts.executable.map(|value| (value != 0).into());
-                cache.expand_down = facts.expand_down.map(|value| (value != 0).into());
-                cache.big = facts.big.map(|value| (value != 0).into());
+                SegmentAssumptions::for_profile(profile, segment)
             }
+        };
+        macro_rules! assume_field {
+            ($field:ident $(, $convert:ident($argument:expr))?) => {
+                if let Some(expected) = assumptions.$field {
+                    let value = cpu_load!(body, cpu.memory(), segments.es.$field,
+                        at: Val::<I32>::from(segment as u32 * size_of::<SegmentRegister>() as u32))?;
+                    let value = value$(.$convert($argument))?;
+                    condition = condition.and(value.eq(expected$(.$convert(&$argument))?));
+                    cache.$field = Some(value);
+                }
+            };
         }
-        cache
+        assume_field!(base);
+        assume_field!(limit);
+        assume_field!(usable, ne(0));
+        assume_field!(readable, ne(0));
+        assume_field!(writable, ne(0));
+        assume_field!(executable, ne(0));
+        assume_field!(expand_down, ne(0));
+        assume_field!(big, ne(0));
+        body.assume(condition)?;
+        Ok(cache)
     }
 }
 
@@ -87,9 +106,21 @@ impl<'cpu> SegmentReads<'cpu> {
         self.profile
     }
 
-    fn cache(&mut self, segment: Segment) -> &mut SegmentReadCache {
-        self.cached[segment as usize]
-            .get_or_insert_with(|| SegmentReadCache::new(self.profile, segment))
+    fn cache(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        segment: Segment,
+    ) -> Result<&mut SegmentReadCache, BuildError> {
+        let cache = &mut self.cached[segment as usize];
+        if cache.is_none() {
+            *cache = Some(SegmentReadCache::new(
+                body,
+                self.cpu,
+                self.profile,
+                segment,
+            )?);
+        }
+        Ok(cache.as_mut().unwrap())
     }
 
     fn read_field<T: ValueType>(
@@ -101,7 +132,7 @@ impl<'cpu> SegmentReads<'cpu> {
     ) -> Result<Val<T>, BuildError> {
         let index = segment.index();
         if let Some(index) = body.constant_bits(&index)? {
-            let field = field(self.cache(Segment::ALL[index as usize]));
+            let field = field(self.cache(body, Segment::ALL[index as usize])?);
             if let Some(value) = field {
                 return Ok(value.clone());
             }
@@ -110,14 +141,12 @@ impl<'cpu> SegmentReads<'cpu> {
             return Ok(value);
         }
 
-        // Address defaults can reuse constants common to DS and SS.
+        // The compiler can simplify common DS/SS guarantees on these values.
         if segment.is_ds_or_ss() {
-            let ds = field(self.cache(Segment::Ds)).clone();
-            let ss = field(self.cache(Segment::Ss)).clone();
+            let ds = field(self.cache(body, Segment::Ds)?).clone();
+            let ss = field(self.cache(body, Segment::Ss)?).clone();
             if let (Some(ds), Some(ss)) = (ds, ss) {
-                if ds.same_expression(&ss) {
-                    return Ok(ds);
-                }
+                return Ok(index.eq(Segment::Ds as u32).select(ds, ss));
             }
         }
         load(body, index)

@@ -63,9 +63,18 @@ impl ReducedFlow {
             } else {
                 [None; 2]
             };
-            let mut reducer = Reducer::from_facts(
-                incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
-            );
+            let mut reducer =
+                Reducer::from_facts(incoming.with_assumptions(
+                    &graph.values,
+                    observations.into_iter().flatten().chain(
+                        graph.blocks[block].assumptions.iter().map(|&condition| {
+                            Assumption::Truth {
+                                condition,
+                                truth: true,
+                            }
+                        }),
+                    ),
+                ));
             for item in &graph.blocks[block].items {
                 let BlockItem::Effect(id) = item else {
                     unreachable!()

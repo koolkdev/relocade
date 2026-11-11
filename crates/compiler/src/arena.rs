@@ -107,6 +107,9 @@ impl FunctionArena {
     pub(super) fn exit(&self, block: BlockId, exit: Exit) -> Result<(), BuildError> {
         self.with_graph(|graph| graph.blocks[block.0].exit = exit)
     }
+    pub(super) fn assume(&self, block: BlockId, condition: usize) -> Result<(), BuildError> {
+        self.with_graph(|graph| graph.blocks[block.0].assumptions.push(condition))
+    }
     pub(super) fn execute(
         &self,
         block: BlockId,
