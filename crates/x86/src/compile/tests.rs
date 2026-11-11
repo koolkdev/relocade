@@ -4,6 +4,7 @@ mod checkpoints;
 mod dispatch;
 mod fetch;
 mod memory;
+mod state_shape;
 
 use super::*;
 use crate::SegmentProfile;
