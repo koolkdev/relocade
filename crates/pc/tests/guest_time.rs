@@ -9,10 +9,9 @@ use std::{num::NonZeroU64, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn pit_interrupts(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn pit_interrupts(compiler: &relocade_machine::CompilerService) {
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
@@ -93,7 +92,7 @@ async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
     compilation::run(pit_interrupts).await;
 }
 
-async fn keyboard_after_overdue_pit(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn keyboard_after_overdue_pit(compiler: &relocade_machine::CompilerService) {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
     use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
@@ -107,8 +106,7 @@ async fn keyboard_after_overdue_pit(compiler_jobs: relocade_machine::worker::Poo
 
     let host = ManualClock::new();
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();

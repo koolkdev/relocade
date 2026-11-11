@@ -64,9 +64,9 @@ async fn next(io: &IoBus) -> (bool, u8) {
     panic!("connected PS/2 activity did not produce an interrupt");
 }
 
-async fn connected_mouse_and_keyboard(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn connected_mouse_and_keyboard(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
-    let (runner, _host, machine) = common::runner(clock.clock(), compiler_jobs.clone()).await;
+    let (runner, _host, machine) = common::runner(clock.clock(), compiler).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(&runner).await;
@@ -179,7 +179,7 @@ impl relocade_machine::ClockSource for InputTime {
     }
 }
 
-async fn queued_mouse_timestamps(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn queued_mouse_timestamps(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
     let start = clock.host_now();
     let (runner, _host, machine) = common::runner(
@@ -187,7 +187,7 @@ async fn queued_mouse_timestamps(compiler_jobs: relocade_machine::worker::PoolHa
             clock: clock.clone(),
             disconnected_at: clock.at(Duration::from_millis(25)),
         }),
-        compiler_jobs.clone(),
+        compiler,
     )
     .await;
     assert_eq!(

@@ -153,3 +153,17 @@ impl<T: Send + 'static> Transfer for futures_channel::mpsc::UnboundedReceiver<T>
         state
     }
 }
+
+/// Sends completion back across workers without a posted host object.
+impl<T: Send + 'static> Transfer for futures_channel::oneshot::Sender<T> {
+    type State = Self;
+    type Payload = ();
+
+    fn encode(self) -> (Self, ()) {
+        (self, ())
+    }
+
+    fn decode(state: Self, (): ()) -> Self {
+        state
+    }
+}

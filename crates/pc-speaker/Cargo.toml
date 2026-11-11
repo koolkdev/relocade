@@ -21,7 +21,6 @@ cpal = { workspace = true, optional = true }
 cpal = { workspace = true, features = ["audioworklet"], optional = true }
 
 [dev-dependencies]
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-clock-test-support = { path = "../../tests/clock-support" }
 relocade-pic = { path = "../pic" }
 futures-lite = "=2.6.1"

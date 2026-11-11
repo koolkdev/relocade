@@ -20,7 +20,7 @@ pub async fn graphics_workers() -> Result<(), String> {
     crate::compilation::run(run_workers).await
 }
 
-async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Result<(), String> {
+async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
     let (clock, timers) = timer_service();
 
     let app = async move {
@@ -30,7 +30,7 @@ async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Res
             source,
             retraces,
             progress,
-        } = guest::spawn(clock, compiler_jobs).await;
+        } = guest::spawn(clock, compiler).await;
         // A single Sender with buffer size zero has one reserved request slot.
         // This fixture app drops excess requests; VGA owns no request protocol.
         let (mut requests, mut incoming) = mpsc::channel::<[u32; 2]>(0);

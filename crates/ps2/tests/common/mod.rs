@@ -7,11 +7,11 @@ use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segm
 // Device activities run locally with a manual clock; these fixtures never enter a CPU.
 pub async fn runner(
     clock: Clock,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
     let mut machine = Machine::new(
         MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let cpu = CpuConfig::new(

@@ -14,7 +14,7 @@ pub async fn vga_workers() -> Result<(), String> {
     crate::compilation::run(run_workers).await
 }
 
-async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Result<(), String> {
+async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
     let (waiting, input_waiting) = oneshot::channel();
     let (source, display_source) = oneshot::channel();
     let (input, incoming) = oneshot::channel();
@@ -30,7 +30,7 @@ async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Res
         .unwrap(),
     )
     .unwrap();
-    let mut machine = relocade_machine::Machine::new(config, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(config, compiler).unwrap();
     let cpu_config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {

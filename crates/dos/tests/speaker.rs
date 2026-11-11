@@ -8,12 +8,9 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
     pollster::block_on(compilation::run(speaker_ports));
 }
 
-async fn speaker_ports(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+async fn speaker_ports(compiler: &relocade_machine::CompilerService) {
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

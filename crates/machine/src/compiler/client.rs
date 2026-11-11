@@ -1,4 +1,4 @@
-use super::{service::Request, BlockRequest, CompiledCode, Reply};
+use super::{session::Request, BlockRequest, CompiledCode, Reply};
 use crate::{
     worker::{ChannelError, Executor, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Result,
@@ -7,7 +7,7 @@ use futures_channel::mpsc;
 use relocade_x86::ExecutionTarget;
 
 /// One CPU's compilation requests and ordered results.
-/// The machine owns the compiler; dropping this connection closes its request stream.
+/// The machine owns the session; dropping this connection closes its request stream.
 pub struct CompilerClient {
     requests: mpsc::UnboundedSender<Request>,
     results: Receiver<Reply>,

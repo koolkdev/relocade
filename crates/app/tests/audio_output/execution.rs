@@ -26,7 +26,7 @@ impl Device for Started {
     }
 }
 
-async fn callback_wakes_execution(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn callback_wakes_execution(compiler: &relocade_machine::CompilerService) {
     let (audio, config, samples) = Audio::open(|error| panic!("{error}")).unwrap();
     let channels = usize::from(config.channels);
     for _ in 0..samples.capacity().unwrap() {
@@ -41,7 +41,7 @@ async fn callback_wakes_execution(compiler_jobs: relocade_machine::worker::PoolH
                 .unwrap(),
         )
         .unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let cpu_config = CpuConfig::new(

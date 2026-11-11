@@ -1,26 +1,16 @@
-//! Machine-owned compilation over shared guest memory.
+//! Shared compilation service over each machine's guest memory.
 
 mod client;
 mod service;
+mod session;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
-pub(crate) use service::Service;
+pub use service::CompilerService;
+pub(crate) use session::Session;
 
 use crate::{worker::Transfer, Cpu, DispatchEntry, Error, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionTarget};
-
-/// Creates the application's shared compilation pool using half the available
-/// logical parallelism, rounded down, with at least one worker.
-/// Drive the pool alongside machine lifecycles, including their shutdowns.
-/// For an explicit limit, use [`crate::worker::Pool::new`] with supplied threads.
-pub fn compilation_pool() -> Result<(crate::worker::Pool, crate::worker::PoolHandle)> {
-    let parallelism = crate::worker::available_parallelism().map_or(1, usize::from);
-    let threads = (0..(parallelism / 2).max(1))
-        .map(|_| crate::worker::Thread::new())
-        .collect();
-    Ok(crate::worker::Pool::new(threads)?)
-}
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.

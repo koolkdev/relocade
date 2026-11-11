@@ -57,9 +57,7 @@ impl Drop for ProgressDevice {
     }
 }
 
-fn machine(
-    compiler_jobs: relocade_machine::worker::PoolHandle,
-) -> (relocade_machine::Machine, CpuConfig) {
+fn machine(compiler: &relocade_machine::CompilerService) -> (relocade_machine::Machine, CpuConfig) {
     let machine = relocade_machine::Machine::new(
         MachineConfig::new(
             0x1000,
@@ -67,7 +65,7 @@ fn machine(
                 .unwrap(),
         )
         .unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let config = CpuConfig::new(
@@ -87,7 +85,7 @@ pub async fn runner_workers() -> Result<(), String> {
     crate::compilation::run(run_workers).await
 }
 
-async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Result<(), String> {
+async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
     for pending_service in [false, true] {
         let (progressed, ticks) = oneshot::channel();
         let (dropped, mut destroyed) = oneshot::channel();
@@ -95,7 +93,7 @@ async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Res
         let stop = async {
             assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
         };
-        let (mut machine, cpu_config) = machine(compiler_jobs.clone());
+        let (mut machine, cpu_config) = machine(compiler);
         let prepared = machine.create_cpu(cpu_config).unwrap();
         let worker = prepared.run_until(stop, async move |mut runner| {
             EXECUTION_OWNER.set(true);
@@ -151,7 +149,7 @@ async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Res
             .await
             .map_err(|error| error.to_string())?;
     }
-    let (mut machine, cpu_config) = machine(compiler_jobs.clone());
+    let (mut machine, cpu_config) = machine(compiler);
     let prepared = machine.create_cpu(cpu_config).unwrap();
     let result = prepared
         .run_until(pending::<()>(), async |runner| {

@@ -26,5 +26,4 @@ wgpu.workspace = true
 futures-channel = "=0.3.34"
 
 [dev-dependencies]
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-clock-test-support = { path = "../../tests/clock-support" }

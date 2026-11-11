@@ -16,11 +16,10 @@ use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn bios_without_dos(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn bios_without_dos(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
@@ -82,11 +81,10 @@ async fn bios_without_dos(compiler_jobs: relocade_machine::worker::PoolHandle) {
     machine.shutdown().await.unwrap();
 }
 
-async fn default_exceptions(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn default_exceptions(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
@@ -134,11 +132,10 @@ async fn default_exceptions(compiler_jobs: relocade_machine::worker::PoolHandle)
     machine.shutdown().await.unwrap();
 }
 
-async fn absent_services(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn absent_services(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();

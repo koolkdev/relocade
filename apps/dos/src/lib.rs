@@ -12,24 +12,27 @@ pub use console::run_console;
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn run() -> Result<(), String> {
     relocade_app::run_app("Relocade DOS", |app| async move {
-        let (pool, compiler_jobs) =
-            relocade_machine::compilation_pool().map_err(|error| error.to_string())?;
-        let ((), result) =
-            futures_lite::future::zip(pool.run(), run_machine(app, compiler_jobs)).await;
+        let compiler =
+            relocade_machine::CompilerService::start().map_err(|error| error.to_string())?;
+        let result = run_machine(app, &compiler).await;
+        compiler
+            .shutdown()
+            .await
+            .map_err(|error| error.to_string())?;
         result
     })
 }
 
 async fn run_machine(
     mut app: relocade_app::AppHost,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) -> Result<(), String> {
     let output = app.open_audio().ok();
     let (endpoints, ready) = oneshot::channel();
     let closing = app.closing();
     let mut app_result = Ok(());
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler_jobs)
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
             .map_err(|error| error.to_string())?;
     let cpu = match machine.create_cpu(relocade_dos::configuration::cpu()) {
         Ok(cpu) => cpu,

@@ -9,12 +9,9 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
     pollster::block_on(compilation::run(execution_exits));
 }
 
-async fn execution_exits(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+async fn execution_exits(compiler: &relocade_machine::CompilerService) {
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();
@@ -56,12 +53,9 @@ fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
     pollster::block_on(compilation::run(divide_error));
 }
 
-async fn divide_error(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+async fn divide_error(compiler: &relocade_machine::CompilerService) {
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

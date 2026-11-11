@@ -15,9 +15,9 @@ pub async fn dos() -> Dos {
     compilation::run(create_dos).await
 }
 
-async fn create_dos(compiler_jobs: relocade_machine::worker::PoolHandle) -> Dos {
+async fn create_dos(compiler: &relocade_machine::CompilerService) -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
-    let (runner, _host, machine) = runner(clock.into(), compiler_jobs).await;
+    let (runner, _host, machine) = runner(clock.into(), compiler).await;
     let mut dos = runner
         .run(std::future::pending::<()>(), async |runner| {
             Dos::new(runner).await.unwrap()

@@ -1,57 +1,45 @@
 # Background compilation
 
-The application owns one compilation pool and shares its handle across machines.
-`compilation_pool()` defaults to half the available logical parallelism, rounded
-down, with at least one worker. Native builds use the OS parallelism hint;
-browsers use `navigator.hardwareConcurrency`. If unavailable, the default is one.
-For an explicit limit, construct `worker::Pool` with the desired threads.
-
-Drive the pool alongside the whole machine lifecycle, including shutdown:
+Start one `CompilerService` and use it to construct each Machine. The service owns
+its coordinator worker, backend compiler and Rust compilation pool. It progresses
+independently; the application does not poll a separate pool driver.
 
 ```rust,ignore
-let (pool, compiler_jobs) = relocade_machine::compilation_pool()?;
-let application = async move {
-    let mut machine = Machine::new(memory_config, compiler_jobs.clone())?;
-    let execution = async {
-        let cpu = machine.create_cpu(cpu_config)?;
-        cpu.run_until(stop, async move |mut runner| {
-            let mut compiler = runner.take_compiler().unwrap();
-            let target = runner.cpu().cpu_state().execution_target();
-            compiler.request(target, ranges)?;
-            let code = compiler.recv().await.expect("compiler running")?;
-            code.install(runner.cpu()).await?;
-            Ok::<_, relocade_machine::Error>(runner.run_cpu().await)
-        }).await
-    }.await;
-    let shutdown = machine.shutdown().await;
-    let result = execution?;
-    shutdown?;
-    Ok::<_, relocade_machine::Error>(result)
-};
-let ((), result) = futures_util::future::join(pool.run(), application).await;
+let compiler = relocade_machine::CompilerService::start()?;
+let result = run_machine(&compiler).await;
+let shutdown = compiler.shutdown().await;
 let result = result?;
+shutdown?;
 ```
 
-Each `Machine` owns a compilation coordinator worker and transfers shared guest
-memory once. The coordinator captures requested blocks and calls x86's
-`Compiler::compile_blocks_with` with the shared pool. x86 owns decoding, program
+Here `run_machine` creates `Machine::new(memory_config, compiler)` and awaits
+`Machine::shutdown` after execution finishes. It can create several machines with
+the same service. Machine construction borrows the service only to open a session;
+the Machine retains no borrow. CPU request and result endpoints transfer to their
+execution workers.
+
+`CompilerService::start()` defaults to half the available logical parallelism,
+rounded down, with at least one pool worker. Native builds use the OS parallelism
+hint; browsers use `navigator.hardwareConcurrency`. If unavailable, the default
+is one. `start_with_workers(NonZeroUsize)` supplies an explicit pool size.
+
+Each Machine opens a lightweight session in the service and transfers its shared
+guest memory once. A session captures requested blocks and calls x86's
+`Compiler::compile_blocks_with` with the internal pool. x86 owns decoding, program
 construction and the returned bytes, entry metadata and execution target. IR
-construction, placement and Wasm emission use the pool's jobs. The coordinator
-compiles the emitted Wasm with the host engine and returns the module. The pool
-limits concurrent Rust jobs; the host engine's internal compilation threads have
-their own policy.
+construction, placement and Wasm emission use pool jobs. The service compiles the
+emitted Wasm with its backend compiler and returns the module. The pool limits
+concurrent Rust jobs; backend engine parallelism remains separate.
 
-Construction stays synchronous; connections and requests can queue while the
-coordinator starts. Every CPU gets a request/reply connection; each request
-supplies its execution target. Creating a CPU does not create another coordinator
-or pool. The coordinator exists even when the machine only interprets code.
+Sessions are async tasks on the service worker, not extra workers per Machine.
+They keep their memory sources and ordered request streams independent while
+sharing compilation capacity. Construction stays synchronous; connections and
+requests can queue during startup. Every request supplies its execution target.
+Creating another CPU or Machine does not create another pool.
 
-The pool handle is ordinary sendable Rust state. Clones share one queue and worker
-limit across machines. Keep polling the driver while machines drain accepted
-requests, since they may submit further compilation jobs during shutdown. After
-all coordinators and application handles are dropped, the driver drains its jobs
-and exits. The `async move` above owns the original handle so it closes with the
-application.
+The service owns compilation and delivery. Hotness, candidate selection, code
+validity, installation, and future module caching or sharing between CPUs belong
+to the Machine runtime and its execution owners.
 
 `CompilerClient` is a single-owner request/result stream. `request` immediately
 queues the execution target, addresses and compilation bounds. `recv` returns
@@ -72,9 +60,13 @@ Dropping a connection closes its request stream. The worker drains that stream
 and releases its reply sender and wake binding. Unused CPU handles require no
 startup acknowledgement.
 Await `Machine::shutdown` after joining execution workers, or join them separately
-while shutting down. Shutdown closes the incoming connections; the worker then
-closes each request inbox, drains accepted work and exits. Dropping Machine without
-awaiting cleanup can terminate a browser worker before Rust destructors run.
+while shutting down. Shutdown closes that session’s incoming connections and
+request inboxes, drains accepted work and acknowledges completion. Other Machines
+continue using the service.
+
+After all Machines finish, await `CompilerService::shutdown`. It closes admission,
+drains the pool and joins its workers. Dropping the service
+early can terminate browser workers before Rust destructors run.
 
 Compiler clients bind receipt to the Runner's executor during setup. Poll their
 receive futures inside that session, independently of `runner.run_cpu()`.

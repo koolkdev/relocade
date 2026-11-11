@@ -54,9 +54,7 @@ impl Device for Reports {
 }
 
 /// Delivers 500 Hz PIT interrupts to a busy guest while its host cannot relay wakes.
-async fn timer_interrupts(
-    compiler_jobs: relocade_machine::worker::PoolHandle,
-) -> Result<(), String> {
+async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
     let (clock, timers) = timer_service();
     let warmup = clock.clock();
     let (start, started) = oneshot::channel();
@@ -72,7 +70,7 @@ async fn timer_interrupts(
                 .unwrap(),
         )
         .unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let cpu_config = CpuConfig::new(

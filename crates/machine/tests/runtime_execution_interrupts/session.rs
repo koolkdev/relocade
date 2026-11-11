@@ -64,7 +64,7 @@ enum InputSource {
     Peer,
 }
 
-async fn connected_input(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn connected_input(compiler: &relocade_machine::CompilerService) {
     for compiled in [false, true] {
         for source in [InputSource::Host, InputSource::Timer, InputSource::Peer] {
             let timed = matches!(source, InputSource::Timer);
@@ -76,8 +76,7 @@ async fn connected_input(compiler_jobs: relocade_machine::worker::PoolHandle) {
             let (send, mut input) = mpsc::unbounded();
             let (start, started) = oneshot::channel();
             let setup = configuration();
-            let mut machine =
-                relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+            let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
             let prepared = machine.create_cpu(setup.cpu).unwrap();
             let worker = prepared.spawn(clock, async move |mut runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
@@ -187,14 +186,14 @@ async fn session_channels_and_timers_interrupt_guest_execution() {
     compilation::run(connected_input).await;
 }
 
-async fn connected_stop(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn connected_stop(compiler: &relocade_machine::CompilerService) {
     let (clock, _timers) = timer_service();
     let (entered, running) = oneshot::channel();
     let sent = Arc::new(AtomicBool::new(false));
     let worker_sent = sent.clone();
     let (report, stopped) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let device = Rc::new(RefCell::new(InputDevice {
@@ -244,7 +243,7 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
     compilation::run(connected_stop).await;
 }
 
-async fn saturated_count(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn saturated_count(compiler: &relocade_machine::CompilerService) {
     let (clock, _timers) = timer_service();
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -258,8 +257,7 @@ async fn saturated_count(compiler_jobs: relocade_machine::worker::PoolHandle) {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let mut machine =
-        relocade_machine::Machine::new(config.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(config.machine, compiler).unwrap();
     let prepared = machine.create_cpu(config.cpu).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         runner.attach_io(IoBus::default());
@@ -302,12 +300,11 @@ impl Device for PublishInput {
     }
 }
 
-async fn notified_reentry(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn notified_reentry(compiler: &relocade_machine::CompilerService) {
     for nested in [false, true] {
         let (clock, _timers) = timer_service();
         let setup = configuration();
-        let mut machine =
-            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();

@@ -6,7 +6,7 @@ use futures_util::{
     StreamExt,
 };
 
-async fn captured_deadline(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn captured_deadline(compiler: &relocade_machine::CompilerService) {
     for timestamped in [false, true] {
         let (host, mut armed, source) = host();
         let host_time = host.clone();
@@ -14,8 +14,7 @@ async fn captured_deadline(compiler_jobs: relocade_machine::worker::PoolHandle) 
         let advancing_host = host.clone();
         let (arrive, arrival) = oneshot::channel();
         let setup = configuration();
-        let mut machine =
-            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || config(source),
@@ -93,7 +92,7 @@ async fn captured_deadline(compiler_jobs: relocade_machine::worker::PoolHandle) 
     }
 }
 
-async fn retained_sync_across_runs(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn retained_sync_across_runs(compiler: &relocade_machine::CompilerService) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let host_event_start = host.host_now();
@@ -103,7 +102,7 @@ async fn retained_sync_across_runs(compiler_jobs: relocade_machine::worker::Pool
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -188,11 +187,11 @@ async fn clocks_without_host_mapping() {
     }
 }
 
-async fn local_output_sync(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn local_output_sync(compiler: &relocade_machine::CompilerService) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),

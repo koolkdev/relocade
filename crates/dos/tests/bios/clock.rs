@@ -92,7 +92,7 @@ fn bios_reads_ticks_and_consumes_midnight_rollover() {
 
 #[test]
 fn timer_advances_the_clock_during_guest_execution() {
-    pollster::block_on(compilation::run(async |compiler_jobs| {
+    pollster::block_on(compilation::run(async |compiler| {
         // Default BIOS timing, then guest mode 2/divisor 1193: the first IRQ
         // follows the initial load plus 1193 clocks, about one millisecond.
         for (prefix, period) in [
@@ -107,11 +107,9 @@ fn timer_advances_the_clock_during_guest_execution() {
             let clock = ManualClock::default();
             let (ready, shared_memory) = futures_channel::oneshot::channel();
             let worker_clock = clock.clone();
-            let mut machine = relocade_machine::Machine::new(
-                relocade_dos::configuration::memory(),
-                compiler_jobs.clone(),
-            )
-            .unwrap();
+            let mut machine =
+                relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
+                    .unwrap();
             let prepared = machine
                 .create_cpu(relocade_dos::configuration::cpu())
                 .unwrap();
@@ -195,7 +193,7 @@ fn timer_advances_the_clock_during_guest_execution() {
 
 #[test]
 fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
-    pollster::block_on(compilation::run(async |compiler_jobs| {
+    pollster::block_on(compilation::run(async |compiler| {
         // Separate entry wiring: BIOS keyboard, DOS line editor, DOS console handle.
         for (vector, function, expected_ax, expected_buffer, expected_output) in [
             (0x16, 0x0000, 0x1e41_u16, &[][..], &[][..]),
@@ -203,8 +201,7 @@ fn timer_irqs_chain_to_bios_during_bios_and_dos_input() {
             (0x21, 0x3f00, 2, &b"A\r"[..], &b"A\r\n"[..]),
         ] {
             let clock = ManualClock::default();
-            let (runner, _host, machine) =
-                common::runner(clock.clock(), compiler_jobs.clone()).await;
+            let (runner, _host, machine) = common::runner(clock.clock(), compiler).await;
             let (ready, mut prepared) = futures_channel::oneshot::channel();
             let execution = runner.run(std::future::pending::<()>(), async |runner| {
                 let mut dos = relocade_dos::Dos::new(runner).await.unwrap();

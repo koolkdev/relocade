@@ -32,14 +32,11 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     pollster::block_on(compilation::run(mouse_input));
 }
 
-async fn mouse_input(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn mouse_input(compiler: &relocade_machine::CompilerService) {
     let (ready, host_inputs) = mpsc::channel();
     let (resume, resumed) = oneshot::channel();
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

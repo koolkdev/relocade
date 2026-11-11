@@ -11,22 +11,19 @@ use std::time::Duration;
 const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
 
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
-    pollster::block_on(compilation::run(async move |compiler_jobs| {
-        run_mouse(check, compiler_jobs).await
+    pollster::block_on(compilation::run(async move |compiler| {
+        run_mouse(check, compiler).await
     }));
 }
 
 async fn run_mouse(
     check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();
@@ -93,13 +90,11 @@ fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
     pollster::block_on(compilation::run(launches));
 }
 
-async fn launches(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn launches(compiler: &relocade_machine::CompilerService) {
     for mz in [false, true] {
-        let mut machine = relocade_machine::Machine::new(
-            relocade_dos::configuration::memory(),
-            compiler_jobs.clone(),
-        )
-        .unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
+                .unwrap();
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu())
             .unwrap();

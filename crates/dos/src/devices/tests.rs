@@ -102,10 +102,9 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
     use relocade_bios::KeyStroke;
     use relocade_machine::timer_service;
 
-    pollster::block_on(compilation::run(async |compiler_jobs| {
+    pollster::block_on(compilation::run(async |compiler| {
         let (clock, _timers) = timer_service();
-        let (runner, _host, machine) =
-            crate::test_runner::runner(clock.into(), compiler_jobs.clone()).await;
+        let (runner, _host, machine) = crate::test_runner::runner(clock.into(), compiler).await;
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 crate::Dos::new(runner).await.unwrap()

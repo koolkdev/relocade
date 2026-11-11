@@ -6,10 +6,10 @@ use crate::{CpuConfig, Error, Machine, MachineConfig};
 use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
 
-fn cpu(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuHandle) {
+fn cpu(compiler: &relocade_machine::CompilerService) -> (Machine, CpuHandle) {
     let mut machine = Machine::new(
         MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let cpu = machine
@@ -27,8 +27,8 @@ fn cpu(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuHand
     (machine, cpu)
 }
 
-async fn failed_startup(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let (machine, cpu) = cpu(compiler_jobs.clone());
+async fn failed_startup(compiler: &relocade_machine::CompilerService) {
+    let (machine, cpu) = cpu(compiler);
     let worker = ExecutionWorker::<()>::spawn(
         cpu,
         async |_, _| Err(relocade_wasm_runtime::Error::new("construct CPU", "failed").into()),
@@ -49,8 +49,8 @@ impl Drop for Dropped {
     }
 }
 
-async fn stopped_startup(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let (machine, cpu) = cpu(compiler_jobs.clone());
+async fn stopped_startup(compiler: &relocade_machine::CompilerService) {
+    let (machine, cpu) = cpu(compiler);
     let (entered, started) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
     let worker = ExecutionWorker::<()>::spawn(

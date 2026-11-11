@@ -3,7 +3,7 @@ use futures_channel::oneshot;
 use futures_lite::future::poll_once;
 use futures_util::StreamExt;
 
-async fn busy_lag_limit(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn busy_lag_limit(compiler: &relocade_machine::CompilerService) {
     for (late_host, instructions) in [
         (Duration::from_millis(24), 28),
         (Duration::from_nanos(24_000_001), 8),
@@ -12,8 +12,7 @@ async fn busy_lag_limit(compiler_jobs: relocade_machine::worker::PoolHandle) {
         let host_time = host.clone();
         let (stop, stopped) = oneshot::channel();
         let setup = configuration();
-        let mut machine =
-            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || config(source),
@@ -71,13 +70,13 @@ async fn busy_lag_limit(compiler_jobs: relocade_machine::worker::PoolHandle) {
     }
 }
 
-async fn pending_input_recovery(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn pending_input_recovery(compiler: &relocade_machine::CompilerService) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let advancing_host = host.clone();
     let (arrive, arrival) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),

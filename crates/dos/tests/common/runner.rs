@@ -10,11 +10,10 @@ use relocade_machine::{
 // Retain the machine and host while driving the runner.
 pub async fn runner(
     clock: Clock,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
     let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs)
-            .unwrap();
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();

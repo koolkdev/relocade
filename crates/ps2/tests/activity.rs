@@ -62,9 +62,9 @@ async fn no_output(io: &IoBus) {
     );
 }
 
-async fn connected_activity(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn connected_activity(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
-    let (runner, _host, machine) = common::runner(clock.clock(), compiler_jobs.clone()).await;
+    let (runner, _host, machine) = common::runner(clock.clock(), compiler).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();

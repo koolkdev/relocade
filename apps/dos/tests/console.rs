@@ -13,13 +13,10 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
     pollster::block_on(compilation::run(console_session));
 }
 
-async fn console_session(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn console_session(compiler: &relocade_machine::CompilerService) {
     let prompt_row = 6;
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

@@ -75,14 +75,14 @@ fn configuration() -> support::Configuration {
     .unwrap()
 }
 
-async fn check_devices(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn check_devices(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
     let active = Arc::new(AtomicBool::new(false));
     let worker_active = active.clone();
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_clock(
         {
@@ -154,7 +154,7 @@ async fn check_devices(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_clock::<()>(
         move || clock.clock(),

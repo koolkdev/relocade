@@ -24,7 +24,7 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
     .await
 }
 
-async fn exercise_audio_device(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
@@ -35,7 +35,7 @@ async fn exercise_audio_device(compiler_jobs: relocade_machine::worker::PoolHand
                 .unwrap(),
         )
         .unwrap(),
-        compiler_jobs.clone(),
+        compiler,
     )
     .unwrap();
     let cpu_config = CpuConfig::new(

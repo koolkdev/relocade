@@ -14,7 +14,7 @@ use std::{pin::pin, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn setup(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuConfig) {
+fn setup(compiler: &relocade_machine::CompilerService) -> (Machine, CpuConfig) {
     let map = PhysicalMemoryMap::new([(
         0..=0xfff,
         PhysicalMapping::Ram {
@@ -22,11 +22,7 @@ fn setup(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuCo
         },
     )])
     .unwrap();
-    let machine = Machine::new(
-        MachineConfig::new(0x2000, map).unwrap(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap(), compiler).unwrap();
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -39,8 +35,8 @@ fn setup(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuCo
     (machine, config)
 }
 
-async fn prepared_cpus(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let (mut machine, config) = setup(compiler_jobs.clone());
+async fn prepared_cpus(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup(compiler);
     let first = machine.create_cpu(config).unwrap();
     let second = machine.create_cpu(config).unwrap();
     machine.cpus()[0].set_ax(0x1234);
@@ -110,8 +106,8 @@ async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
     compilation::run(prepared_cpus).await;
 }
 
-async fn session_shutdown(compiler_jobs: relocade_machine::worker::PoolHandle) {
-    let (mut machine, config) = setup(compiler_jobs.clone());
+async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup(compiler);
     let prepared = machine.create_cpu(config).unwrap();
     machine.cpus()[0].set_ax(41);
     machine

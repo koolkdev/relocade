@@ -18,7 +18,6 @@ relocade-vga = { path = "../vga" }
 relocade-x86 = { path = "../x86" }
 
 [dev-dependencies]
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-clock-test-support = { path = "../../tests/clock-support" }
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 

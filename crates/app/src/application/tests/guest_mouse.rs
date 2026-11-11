@@ -11,17 +11,14 @@ pub(super) async fn run(
     events: EventLoopProxy<Event>,
     requests: Actions,
 ) -> Result<(), String> {
-    compilation::run(async move |compiler_jobs| {
-        run_guest(host, events, requests, compiler_jobs).await
-    })
-    .await
+    compilation::run(async move |compiler| run_guest(host, events, requests, compiler).await).await
 }
 
 async fn run_guest(
     mut host: AppHost,
     events: EventLoopProxy<Event>,
     requests: Actions,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) -> Result<(), String> {
     let action = |action| {
         let (done, completed) = oneshot::channel();
@@ -33,8 +30,7 @@ async fn run_guest(
     let (ready, busy) = oneshot::channel();
     let (idle, waiting) = oneshot::channel();
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler_jobs)
-            .unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

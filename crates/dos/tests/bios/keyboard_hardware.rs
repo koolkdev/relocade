@@ -15,20 +15,17 @@ mod control_break;
 type KeyboardDos = Dos;
 
 fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
-    pollster::block_on(compilation::run(async move |compiler_jobs| {
-        run_hardware(check, compiler_jobs).await
+    pollster::block_on(compilation::run(async move |compiler| {
+        run_hardware(check, compiler).await
     }));
 }
 
 async fn run_hardware(
     check: impl AsyncFnOnce(KeyboardDos) + Send + 'static,
-    compiler_jobs: relocade_machine::worker::PoolHandle,
+    compiler: &relocade_machine::CompilerService,
 ) {
-    let mut machine = relocade_machine::Machine::new(
-        relocade_dos::configuration::memory(),
-        compiler_jobs.clone(),
-    )
-    .unwrap();
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

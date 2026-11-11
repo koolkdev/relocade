@@ -18,11 +18,10 @@ use std::{
 
 #[test]
 fn pending_character_and_line_reads_retain_their_echo_destination() {
-    pollster::block_on(compilation::run(async |compiler_jobs| {
+    pollster::block_on(compilation::run(async |compiler| {
         for function in [0x01, 0x0a] {
             let (clock, _timers) = timer_service();
-            let (runner, _host, machine) =
-                crate::test_runner::runner(clock.into(), compiler_jobs.clone()).await;
+            let (runner, _host, machine) = crate::test_runner::runner(clock.into(), compiler).await;
             let mut dos = runner
                 .run(std::future::pending::<()>(), async |runner| {
                     Dos::new(runner).await.unwrap()
@@ -76,10 +75,9 @@ fn pending_character_and_line_reads_retain_their_echo_destination() {
 
 #[test]
 fn pending_handle_read_keeps_its_source_and_partial_transfer() {
-    pollster::block_on(compilation::run(async |compiler_jobs| {
+    pollster::block_on(compilation::run(async |compiler| {
         let (clock, _timers) = timer_service();
-        let (runner, _host, machine) =
-            crate::test_runner::runner(clock.into(), compiler_jobs.clone()).await;
+        let (runner, _host, machine) = crate::test_runner::runner(clock.into(), compiler).await;
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 Dos::new(runner).await.unwrap()

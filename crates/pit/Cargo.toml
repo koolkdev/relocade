@@ -12,7 +12,6 @@ relocade-pic = { path = "../pic" }
 relocade-machine = { path = "../machine" }
 
 [dev-dependencies]
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-clock-test-support = { path = "../../tests/clock-support" }
 futures-channel = "=0.3.34"
 relocade-x86 = { path = "../x86" }

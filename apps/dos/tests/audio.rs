@@ -27,17 +27,15 @@ const PROGRAM: &[u8] = &[
     0xb8, 7, 0x4c, 0xcd, 0x21,
 ];
 
-async fn exercise(compiler_jobs: relocade_machine::worker::PoolHandle) {
+async fn exercise(compiler: &relocade_machine::CompilerService) {
     let (clock, timers) = timer_service();
     let main = async move {
         let (output, config, samples) = output::Output::open();
         let (stage_changed, stages) = async_channel::bounded(2);
         let (keys, input) = async_channel::bounded(1);
-        let mut machine = relocade_machine::Machine::new(
-            relocade_dos::configuration::memory(),
-            compiler_jobs.clone(),
-        )
-        .unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
+                .unwrap();
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu())
             .unwrap();
