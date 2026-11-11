@@ -90,7 +90,7 @@ where
 }
 
 /// Concrete bindings consumed by backend implementations. Consumers construct
-/// bindings with [`WasmBackend::bind`] or [`WasmBackend::bind_host`]. Function
+/// bindings with [`WasmBackend::bind`] or [`crate::FunctionRef::import`]. Function
 /// signatures are carried by the declarations when constructing this list.
 #[doc(hidden)]
 pub enum ImportValue<'a, B: WasmBackend> {

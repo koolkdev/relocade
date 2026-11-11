@@ -1,19 +1,19 @@
-use super::Memory;
+use super::{Memory, StoreData};
 use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
 use wasmtime::{AsContextMut, StoreContextMut};
 
 /// Scoped exclusive access to a store, its memories and its tables.
-pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, T>);
+pub struct Context<'a, T: 'static>(pub(super) StoreContextMut<'a, StoreData<T>>);
 
 impl<T: 'static> WasmContext for Context<'_, T> {
     type State = T;
 
     fn state(&self) -> &T {
-        self.0.data()
+        &self.0.data().state
     }
 
     fn state_mut(&mut self) -> &mut T {
-        self.0.data_mut()
+        &mut self.0.data_mut().state
     }
 }
 
