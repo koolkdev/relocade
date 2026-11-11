@@ -11,6 +11,7 @@ pub enum Error {
     Memory(MemoryError),
     Wasm(relocade_wasm_runtime::Error),
     Worker(crate::worker::WorkerError),
+    Pool(crate::worker::PoolError),
     CompilationTarget,
 }
 
@@ -23,6 +24,7 @@ impl fmt::Display for Error {
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
             Self::Worker(error) => error.fmt(f),
+            Self::Pool(error) => error.fmt(f),
             Self::CompilationTarget => {
                 f.write_str("compiled code and CPU execution targets differ")
             }
@@ -39,6 +41,7 @@ impl std::error::Error for Error {
             Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
             Self::Worker(error) => Some(error),
+            Self::Pool(error) => Some(error),
             Self::CompilationTarget => None,
         }
     }
@@ -83,6 +86,21 @@ impl From<crate::worker::WorkerError> for Error {
 impl From<crate::worker::ChannelError> for Error {
     fn from(error: crate::worker::ChannelError) -> Self {
         Self::Worker(error.into())
+    }
+}
+
+impl From<crate::worker::PoolError> for Error {
+    fn from(error: crate::worker::PoolError) -> Self {
+        Self::Pool(error)
+    }
+}
+
+impl From<relocade_x86::BlockCompileError<crate::worker::PoolError>> for Error {
+    fn from(error: relocade_x86::BlockCompileError<crate::worker::PoolError>) -> Self {
+        match error {
+            relocade_x86::BlockCompileError::Block(error) => Self::Compile(error),
+            relocade_x86::BlockCompileError::Execution(error) => Self::Pool(error),
+        }
     }
 }
 

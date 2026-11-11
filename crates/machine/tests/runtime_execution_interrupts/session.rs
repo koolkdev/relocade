@@ -77,7 +77,7 @@ async fn connected_input() {
             let (start, started) = oneshot::channel();
             let setup = configuration();
             let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-            let prepared = machine.create_cpu(setup.cpu).unwrap();
+            let prepared = machine.create_cpu(setup.cpu, None).unwrap();
             let worker = prepared.spawn(clock, async move |mut runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
@@ -194,7 +194,7 @@ async fn connected_stop() {
     let (report, stopped) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let device = Rc::new(RefCell::new(InputDevice {
             entered: Some(entered),
@@ -258,7 +258,7 @@ async fn saturated_count() {
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
-    let prepared = machine.create_cpu(config.cpu).unwrap();
+    let prepared = machine.create_cpu(config.cpu, None).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         runner.attach_io(IoBus::default());
         let exit = runner.cpu().exit_handle();
@@ -305,7 +305,7 @@ async fn notified_reentry() {
         let (clock, _timers) = timer_service();
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
             let io = IoBus::new([runner

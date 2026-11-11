@@ -60,6 +60,8 @@ impl Drop for Running {
 }
 
 async fn supplied_workers() {
+    #[cfg(target_arch = "wasm32")]
+    assert!(relocade_workers::available_parallelism().is_ok());
     fn send_sync<T: Send + Sync>() {}
     send_sync::<PoolHandle>();
     let threads = vec![Thread::new(), Thread::new()];
@@ -67,7 +69,11 @@ async fn supplied_workers() {
     for thread in &threads {
         supplied.push(
             thread
-                .run(|| async { std::thread::current().id() })
+                .run(|| async {
+                    #[cfg(target_arch = "wasm32")]
+                    assert!(relocade_workers::available_parallelism().is_ok());
+                    std::thread::current().id()
+                })
                 .await
                 .unwrap(),
         );

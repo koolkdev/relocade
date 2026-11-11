@@ -1,10 +1,12 @@
-//! Machine-owned compilation over shared guest memory.
+//! Shared compilation service over each machine's guest memory.
 
 mod client;
+mod connection;
 mod service;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
-pub(crate) use service::Service;
+pub(crate) use connection::Connection;
+pub use service::CompilerService;
 
 use crate::{worker::Transfer, Cpu, DispatchEntry, Error, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
@@ -93,6 +95,7 @@ async fn compile(
     memory: &Memory,
     target: ExecutionTarget,
     requests: &[BlockRequest],
+    jobs: &crate::worker::PoolHandle,
 ) -> Result<CompiledCode> {
     let captured: Vec<_> = requests
         .iter()
@@ -110,7 +113,8 @@ async fn compile(
     let blocks = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets)
-        .compile_blocks(&snapshots)?;
+        .compile_blocks_with(&snapshots, jobs)
+        .await?;
     Ok(CompiledCode {
         module: compiler.compile(&blocks.bytes).await?,
         description: Description {

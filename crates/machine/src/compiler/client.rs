@@ -1,4 +1,4 @@
-use super::{service::Request, BlockRequest, CompiledCode, Reply};
+use super::{connection::Request, BlockRequest, CompiledCode, Reply};
 use crate::{
     worker::{ChannelError, Executor, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Result,
@@ -7,7 +7,7 @@ use futures_channel::mpsc;
 use relocade_x86::ExecutionTarget;
 
 /// One CPU's compilation requests and ordered results.
-/// The machine owns the compiler; dropping this connection closes its request stream.
+/// Connects directly to the shared service. Dropping it closes the request stream.
 pub struct CompilerClient {
     requests: mpsc::UnboundedSender<Request>,
     results: Receiver<Reply>,
@@ -51,5 +51,11 @@ impl CompilerClient {
             Ok(Reply(result)) => result,
             Err(error) => Err(error.into()),
         })
+    }
+}
+
+impl Drop for CompilerClient {
+    fn drop(&mut self) {
+        self.requests.close_channel();
     }
 }

@@ -16,7 +16,7 @@ fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),

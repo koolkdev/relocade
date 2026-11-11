@@ -1,169 +1,90 @@
-use super::{compile, BlockRequest, Endpoint, Reply};
+use super::connection::Start;
 use crate::{
-    worker::{
-        self, ChannelError, Receiver, ReceiverEndpoint, Sender, Transfer, WakeBinding, WakePeer,
-        Worker,
-    },
-    ExecutionInterrupt, Memory, Result,
+    worker::{self, Pool, PoolHandle, Receiver, ReceiverEndpoint, Sender, Thread, Worker},
+    Result,
 };
-use futures_channel::mpsc;
 use futures_util::{
-    future::{select, Either},
-    stream::{FuturesUnordered, Stream, StreamFuture},
+    future::{join, select, Either},
+    stream::FuturesUnordered,
     StreamExt,
 };
 use relocade_wasm_runtime::{Backend, WasmBackend};
-use relocade_x86::ExecutionTarget;
-use std::{
-    pin::{pin, Pin},
-    task::{Context, Poll},
-};
+use std::{cell::RefCell, num::NonZeroUsize, pin::pin};
 
-/// The machine's single compiler worker and incoming request streams.
-pub(crate) struct Service {
-    inputs: Sender<Input>,
+/// Owns the compilation worker and its pool, shared by any number of machines.
+/// Work progresses independently after startup; no pool driver needs polling.
+/// Shut down the machines, then await [`Self::shutdown`] to join every worker.
+pub struct CompilerService {
+    inputs: RefCell<Sender<Start>>,
     worker: Worker<Result<()>>,
 }
 
-pub struct Request {
-    pub target: ExecutionTarget,
-    pub blocks: Vec<BlockRequest>,
-}
-
-#[derive(Transfer)]
-struct Start {
-    memory: Memory,
-    inputs: ReceiverEndpoint<Input>,
-}
-
-#[derive(Transfer)]
-struct Input {
-    requests: mpsc::UnboundedReceiver<Request>,
-    results: Sender<Reply>,
-    peer: ReceiverEndpoint<WakePeer<ExecutionInterrupt>>,
-}
-
-struct Inbox {
-    requests: mpsc::UnboundedReceiver<Request>,
-    results: Sender<Reply>,
-    peer: Receiver<WakePeer<ExecutionInterrupt>>,
-    binding: Option<WakeBinding>,
-}
-
-impl Service {
-    pub fn new(memory: Memory) -> Result<Self> {
-        let compiler = Backend::new()?.compiler();
-        let (inputs, incoming) = worker::channel_endpoints()?;
-        let worker = Worker::spawn_with(
-            Start {
-                memory,
-                inputs: incoming,
-            },
-            move |start, _stopped| serve(start, compiler),
-        );
-        Ok(Self { inputs, worker })
+impl CompilerService {
+    /// Starts one pool with half the available logical parallelism, rounded down,
+    /// and at least one worker. Backend engine parallelism is separate.
+    pub fn start() -> Result<Self> {
+        let parallelism = worker::available_parallelism().map_or(1, usize::from);
+        let workers = NonZeroUsize::new((parallelism / 2).max(1)).unwrap();
+        Self::start_with_workers(workers)
     }
 
-    pub fn connect(&mut self) -> Result<Endpoint> {
-        let (requests, incoming) = mpsc::unbounded();
-        let (results, replies) = worker::channel_endpoints()?;
-        let (peer, wake) = worker::channel_endpoints()?;
-        self.inputs.send(Input {
-            requests: incoming,
-            results,
-            peer: wake,
-        })?;
-        Ok(Endpoint {
-            requests,
-            results: replies,
-            peer,
+    /// Starts the service with an explicit pool size.
+    pub fn start_with_workers(workers: NonZeroUsize) -> Result<Self> {
+        let compiler = Backend::new()?.compiler();
+        let (inputs, incoming) = worker::channel_endpoints()?;
+        let worker = Worker::spawn_with(incoming, move |incoming, _stopped| {
+            run(incoming, compiler, workers)
+        });
+        Ok(Self {
+            inputs: RefCell::new(inputs),
+            worker,
         })
     }
 
+    /// Closes CPU admission and joins the service and pool after draining.
+    /// All machines must shut down first.
     pub async fn shutdown(self) -> Result<()> {
-        let Self { inputs, worker } = self;
-        drop(inputs);
-        // Joining preserves startup so every posted inbox can be drained.
-        worker.join().await?.transpose()?;
+        drop(self.inputs);
+        self.worker.join().await?.transpose()?;
+        Ok(())
+    }
+
+    pub(super) fn submit(&self, start: Start) -> Result<()> {
+        self.inputs.borrow_mut().send(start)?;
         Ok(())
     }
 }
 
-async fn serve(start: Start, compiler: relocade_wasm_runtime::Compiler) -> Result<()> {
-    let mut inputs = start.inputs.bind();
-    let mut pending = FuturesUnordered::<StreamFuture<Inbox>>::new();
+async fn run(
+    incoming: ReceiverEndpoint<Start>,
+    compiler: relocade_wasm_runtime::Compiler,
+    workers: NonZeroUsize,
+) -> Result<()> {
+    // Browser thread owners and the pool driver stay together on this worker.
+    let threads = (0..workers.get()).map(|_| Thread::new()).collect();
+    let (pool, jobs) = Pool::new(threads)?;
+    let ((), result) = join(pool.run(), serve(incoming.bind(), compiler, jobs)).await;
+    result
+}
+
+async fn serve(
+    mut incoming: Receiver<Start>,
+    compiler: relocade_wasm_runtime::Compiler,
+    jobs: PoolHandle,
+) -> Result<()> {
+    let mut connections = FuturesUnordered::new();
     loop {
-        let input = if pending.is_empty() {
-            inputs.recv().await
+        let next = if connections.is_empty() {
+            incoming.recv().await
         } else {
-            match select(pin!(inputs.recv()), pending.next()).await {
-                Either::Left((input, _)) => input,
-                Either::Right((next, _)) => {
-                    let (request, mut inbox) = next.expect("a pending request stream");
-                    if let Some(request) = request {
-                        inbox.reply(request, &start.memory, &compiler).await?;
-                        pending.push(inbox.into_future());
-                    }
-                    continue;
-                }
+            match select(pin!(incoming.recv()), connections.next()).await {
+                Either::Left((next, _)) => next,
+                Either::Right(_) => continue,
             }
         };
-        let Some(input) = input else { break };
-        let input = input?;
-        pending.push(
-            Inbox {
-                requests: input.requests,
-                results: input.results,
-                peer: input.peer.bind(),
-                binding: None,
-            }
-            .into_future(),
-        );
+        let Some(start) = next else { break };
+        connections.push(start?.serve(&compiler, &jobs));
     }
-
-    // Closing a Rust receiver does not wake its pending poll. Reinsert each
-    // stream so queued requests drain and idle streams finish without another send.
-    let mut pending: FuturesUnordered<_> = pending
-        .into_iter()
-        .map(|next| {
-            let mut inbox = next.into_inner().expect("a pending request stream");
-            inbox.requests.close();
-            inbox.into_future()
-        })
-        .collect();
-    while let Some((request, mut inbox)) = pending.next().await {
-        if let Some(request) = request {
-            inbox.reply(request, &start.memory, &compiler).await?;
-            pending.push(inbox.into_future());
-        }
-    }
+    while connections.next().await.is_some() {}
     Ok(())
-}
-
-impl Inbox {
-    async fn reply(
-        &mut self,
-        request: Request,
-        memory: &Memory,
-        compiler: &relocade_wasm_runtime::Compiler,
-    ) -> Result<()> {
-        // Unused CPUs need no wake binding and cannot delay shutdown.
-        if self.binding.is_none() {
-            let peer = self.peer.recv().await.ok_or(ChannelError::Closed)??;
-            self.binding = Some(peer.bind());
-        }
-        let result = compile(compiler, memory, request.target, &request.blocks).await;
-        match self.results.send(Reply(result)) {
-            Ok(()) | Err(ChannelError::Closed) => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-}
-
-impl Stream for Inbox {
-    type Item = Request;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Request>> {
-        self.requests.poll_next_unpin(cx)
-    }
 }

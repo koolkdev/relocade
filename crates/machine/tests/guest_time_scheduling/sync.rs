@@ -15,7 +15,7 @@ async fn captured_deadline() {
         let (arrive, arrival) = oneshot::channel();
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || config(source),
             async move |mut runner| {
@@ -103,7 +103,7 @@ async fn retained_sync_across_runs() {
     let (resume, resumed) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
@@ -192,7 +192,7 @@ async fn local_output_sync() {
     let host_time = host.clone();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {

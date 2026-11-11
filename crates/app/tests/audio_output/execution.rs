@@ -49,7 +49,7 @@ async fn callback_wakes_execution() {
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let memory = runner.memory();
         // OUT confirms actual guest entry before the host starts playback.

@@ -6,7 +6,7 @@ fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),
@@ -47,7 +47,7 @@ fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),

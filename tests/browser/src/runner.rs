@@ -89,7 +89,7 @@ pub async fn runner_workers() -> Result<(), String> {
             assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
         };
         let (mut machine, cpu_config) = machine();
-        let prepared = machine.create_cpu(cpu_config).unwrap();
+        let prepared = machine.create_cpu(cpu_config, None).unwrap();
         let worker = prepared.run_until(stop, async move |mut runner| {
             EXECUTION_OWNER.set(true);
             let memory = runner.memory();
@@ -145,7 +145,7 @@ pub async fn runner_workers() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
     let (mut machine, cpu_config) = machine();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let result = prepared
         .run_until(pending::<()>(), async |runner| {
             runner.clock().sleep(Duration::from_millis(1)).await;

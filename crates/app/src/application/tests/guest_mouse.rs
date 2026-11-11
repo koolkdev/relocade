@@ -20,7 +20,7 @@ pub(super) async fn run(
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let result = prepared.run_until(
         async {

@@ -12,14 +12,14 @@ pub struct CpuHandle {
     storage: CpuStorage,
     memory: Memory,
     config: CpuConfig,
-    compiler: crate::compiler::Endpoint,
+    compiler: Option<crate::compiler::Endpoint>,
 }
 
 impl CpuHandle {
     pub(super) fn new(
         memory: Memory,
         config: CpuConfig,
-        compiler: crate::compiler::Endpoint,
+        compiler: Option<crate::compiler::Endpoint>,
     ) -> Result<(Self, CpuStateAccess)> {
         memory
             .configuration()
@@ -57,7 +57,10 @@ impl CpuHandle {
         Ok(cpu)
     }
 
-    pub(crate) async fn into_session(self, io: IoBus) -> Result<(Cpu, crate::compiler::Endpoint)> {
+    pub(crate) async fn into_session(
+        self,
+        io: IoBus,
+    ) -> Result<(Cpu, Option<crate::compiler::Endpoint>)> {
         let cpu = self
             .storage
             .into_initialized_cpu(self.memory, self.config, io)

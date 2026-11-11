@@ -34,8 +34,8 @@ fn setup() -> (Machine, CpuConfig) {
 
 async fn prepared_cpus() {
     let (mut machine, config) = setup();
-    let first = machine.create_cpu(config).unwrap();
-    let second = machine.create_cpu(config).unwrap();
+    let first = machine.create_cpu(config, None).unwrap();
+    let second = machine.create_cpu(config, None).unwrap();
     machine.cpus()[0].set_ax(0x1234);
     machine.cpus()[1].set_ax(11);
     // INC AX; MOV [0080],AX; JMP 0100. The requested interrupt ends the block.
@@ -105,7 +105,7 @@ async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
 
 async fn session_shutdown() {
     let (mut machine, config) = setup();
-    let prepared = machine.create_cpu(config).unwrap();
+    let prepared = machine.create_cpu(config, None).unwrap();
     machine.cpus()[0].set_ax(41);
     machine
         .memory()
@@ -114,6 +114,7 @@ async fn session_shutdown() {
         .unwrap();
     let completed = prepared
         .run_until(std::future::pending::<()>(), async |mut runner| {
+            assert!(runner.take_compiler().is_none());
             let clock = runner.clock().clone();
             let cpu = runner.cpu();
             assert_eq!(cpu.cpu_state().ax(), 41);
@@ -140,7 +141,7 @@ async fn session_shutdown() {
     assert_eq!(machine.cpus()[0].ax(), 42);
 
     let (armed, stop) = futures_channel::oneshot::channel();
-    let prepared = machine.create_cpu(config).unwrap();
+    let prepared = machine.create_cpu(config, None).unwrap();
     let result = prepared
         .run_until(stop, async move |runner| {
             let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));

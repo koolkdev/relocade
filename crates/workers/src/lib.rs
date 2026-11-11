@@ -18,6 +18,14 @@ pub use relocade_derive::Transfer;
 pub use web_thread::{AsJs, PostExt};
 pub use web_thread::{Error, Post, Result, SendTask};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::thread::available_parallelism;
+#[cfg(target_arch = "wasm32")]
+#[path = "parallelism/web.rs"]
+mod parallelism;
+#[cfg(target_arch = "wasm32")]
+pub use parallelism::available_parallelism;
+
 mod channel;
 mod executor;
 mod pool;
@@ -29,9 +37,9 @@ pub use channel::{channel, channel_endpoints, ChannelError, Receiver, ReceiverEn
 pub use executor::Executor;
 pub use pool::{Pool, PoolError, PoolHandle};
 pub use thread::Thread;
-#[doc(hidden)]
-pub use transfer::PayloadPair;
 pub use transfer::Transfer;
+#[doc(hidden)]
+pub use transfer::{PayloadOption, PayloadPair};
 pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };

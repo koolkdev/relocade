@@ -78,14 +78,16 @@ impl Runner {
         }
         let executor = Rc::new(executor);
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
-        let compiler = compiler.connect(&executor)?;
+        let compiler = compiler
+            .map(|compiler| compiler.connect(&executor))
+            .transpose()?;
         Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
             executor,
             cpu,
-            compiler: Some(compiler),
+            compiler,
         })
     }
 
@@ -110,7 +112,8 @@ impl Runner {
         &mut self.cpu
     }
 
-    /// Takes this CPU's compiler connection once. Returns `None` if already taken.
+    /// Takes this CPU's compiler connection once.
+    /// Returns `None` if no service was supplied at CPU creation or it was already taken.
     /// The session receives ordered results through this single owner.
     pub fn take_compiler(&mut self) -> Option<crate::CompilerClient> {
         self.compiler.take()

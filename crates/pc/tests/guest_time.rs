@@ -9,7 +9,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn pit_interrupts() {
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
@@ -103,7 +103,7 @@ async fn keyboard_after_overdue_pit() {
     let host = ManualClock::new();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(

@@ -16,7 +16,7 @@ pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Mach
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu).unwrap();
+    let prepared = machine.create_cpu(cpu, None).unwrap();
     let (host, endpoint) = wake_connection(prepared.interrupt_handle());
     (
         Runner::new(clock, prepared, endpoint).await.unwrap(),

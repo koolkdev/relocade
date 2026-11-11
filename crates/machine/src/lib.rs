@@ -51,11 +51,14 @@ mod memory;
 mod runner;
 pub mod runtime;
 
+#[cfg(test)]
+extern crate self as relocade_machine;
+
 pub use clock::{
     timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Sleep,
     TimerHandle, Timestamp,
 };
-pub use compiler::{BlockRequest, CompiledCode, CompilerClient};
+pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{Device, DeviceConnection, IoBus};

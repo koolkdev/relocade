@@ -14,7 +14,7 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         move || worker_clock.clock(),
@@ -80,7 +80,7 @@ fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
         let mut machine =
             relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
         let prepared = machine
-            .create_cpu(relocade_dos::configuration::cpu())
+            .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
         let worker = prepared.spawn_with_clock(
             || ManualClock::new().clock(),

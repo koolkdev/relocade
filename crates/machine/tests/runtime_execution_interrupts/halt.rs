@@ -37,7 +37,7 @@ async fn halted_worker() {
     let (stopped, dropped) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let io = IoBus::new([runner
             .connect(

@@ -33,7 +33,7 @@ fn configuration(count: u64) -> support::Configuration {
 async fn progress() {
     let setup = configuration(u64::MAX - 1);
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let execution = prepared.run_until(std::future::pending::<()>(), async |mut runner| {
         let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
         let clock = driver.clock();

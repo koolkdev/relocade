@@ -50,7 +50,7 @@ pub async fn dos_workers() -> Result<(), String> {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let execution = prepared.spawn(clock, async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();

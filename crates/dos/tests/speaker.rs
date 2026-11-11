@@ -5,7 +5,7 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let result = pollster::block_on(prepared.run_until(
         std::future::pending::<()>(),

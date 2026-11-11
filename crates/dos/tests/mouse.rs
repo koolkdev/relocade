@@ -31,7 +31,7 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),

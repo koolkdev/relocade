@@ -17,7 +17,7 @@ async fn bios_without_dos() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -81,7 +81,7 @@ async fn default_exceptions() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -131,7 +131,7 @@ async fn absent_services() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)

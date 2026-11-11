@@ -16,6 +16,7 @@ fn cpu() -> (Machine, CpuHandle) {
                 },
             )
             .unwrap(),
+            None,
         )
         .unwrap();
     (machine, cpu)

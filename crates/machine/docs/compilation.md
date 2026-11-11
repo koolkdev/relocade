@@ -1,28 +1,52 @@
 # Background compilation
 
-Creating a machine starts its compiler worker:
+Start one `CompilerService` and connect each CPU to it. The service owns
+its coordinator worker, backend compiler and Rust compilation pool. It progresses
+independently; the application does not poll a separate pool driver.
 
 ```rust,ignore
-let mut machine = Machine::new(memory_config)?;
-let cpu = machine.create_cpu(cpu_config)?;
-let execution = cpu.run_until(stop, async move |mut runner| {
-    let mut compiler = runner.take_compiler().unwrap();
-    let target = runner.cpu().cpu_state().execution_target();
-    compiler.request(target, ranges)?;
-    let code = compiler.recv().await.expect("compiler running")?;
-    code.install(runner.cpu()).await?;
-    Ok::<_, relocade_machine::Error>(runner.run_cpu().await)
-}).await;
-let shutdown = machine.shutdown().await;
-let result = execution?;
+let compiler = relocade_machine::CompilerService::start()?;
+let result = run_machine(&compiler).await;
+let shutdown = compiler.shutdown().await;
+let result = result?;
 shutdown?;
 ```
 
-`Machine` owns one compiler worker and transfers shared guest memory once.
-Construction stays synchronous; connections and requests can queue while the
-worker starts. Every CPU gets a request/reply connection; each request supplies
-its execution target. Creating a CPU does not start another compiler task. The
-worker exists even when the machine only interprets code.
+Here `run_machine` creates `Machine::new(memory_config)` and calls
+`machine.create_cpu(cpu_config, Some(compiler))` for each CPU. CPU creation borrows the
+service only to open that CPU's connection. Its request and result endpoints
+transfer with the CPU to its execution worker; the worker communicates directly
+with the service. The Machine retains no service borrow or routing task.
+Await `Machine::shutdown` after execution finishes. Several Machines can use
+the same service.
+
+Pass `None` to `create_cpu` when a CPU does not need background compilation.
+It uses the bundled interpreter and opens no compiler connection, so tests can
+run without starting a service. `Runner::take_compiler` then returns `None`.
+
+`CompilerService::start()` defaults to half the available logical parallelism,
+rounded down, with at least one pool worker. Native builds use the OS parallelism
+hint; browsers use `navigator.hardwareConcurrency`. If unavailable, the default
+is one. `start_with_workers(NonZeroUsize)` supplies an explicit pool size.
+
+Each CPU connection transfers a handle to its Machine's shared guest memory once;
+requests carry addresses and bounds rather than memory bytes. The service
+captures requested blocks and calls x86's
+`Compiler::compile_blocks_with` with the internal pool. x86 owns decoding, program
+construction and the returned bytes, entry metadata and execution target. IR
+construction, placement and Wasm emission use pool jobs. The service compiles the
+emitted Wasm with its backend compiler and returns the module. The pool limits
+concurrent Rust jobs; backend engine parallelism remains separate.
+
+Each connection has an async request loop on the service worker. Connections keep
+their memory sources and ordered request streams independent while sharing
+compilation capacity. CPU creation stays synchronous; connections and requests can
+queue during startup. Every request supplies its execution target. Creating
+another CPU or Machine does not create another pool.
+
+The service owns compilation and delivery. Hotness, candidate selection, code
+validity, installation, and future module caching or sharing between CPUs belong
+to the Machine runtime and its execution owners.
 
 `CompilerClient` is a single-owner request/result stream. `request` immediately
 queues the execution target, addresses and compilation bounds. `recv` returns
@@ -39,13 +63,18 @@ rules. Each CPU gets its own instance. Pending or parked host services must fini
 before installation. Code discovery, hotness and invalidation remain separate;
 callers keep code and mappings stable through compilation and installed use.
 
-Dropping a connection closes its request stream. The worker drains that stream
-and releases its reply sender and wake binding. Unused CPU handles require no
-startup acknowledgement.
+Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
+that stream and releases its reply sender and wake binding. Unused CPU handles
+require no startup acknowledgement.
 Await `Machine::shutdown` after joining execution workers, or join them separately
-while shutting down. Shutdown closes the incoming connections; the worker then
-closes each request inbox, drains accepted work and exits. Dropping Machine without
-awaiting cleanup can terminate a browser worker before Rust destructors run.
+while shutting down. The Machine closes all its CPUs' request streams and waits
+for every connection to drain accepted work, including when one reports an error.
+Dropping the Machine also closes those streams; awaiting shutdown additionally
+waits for completion. Other Machines continue using the service.
+
+After all Machines finish, await `CompilerService::shutdown`. It closes admission,
+drains the pool and joins its workers. Dropping the service
+early can terminate browser workers before Rust destructors run.
 
 Compiler clients bind receipt to the Runner's executor during setup. Poll their
 receive futures inside that session, independently of `runner.run_cpu()`.

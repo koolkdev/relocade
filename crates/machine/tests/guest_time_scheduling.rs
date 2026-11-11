@@ -57,7 +57,7 @@ async fn unpaced_slice_overshoot() {
     ] {
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
@@ -142,7 +142,7 @@ async fn deadlines_and_final_exit() {
     for final_exit in [false, true] {
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
             || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -213,7 +213,7 @@ async fn retained_service() {
     let (host_time, timers) = timer_service();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -265,7 +265,7 @@ async fn retained_service() {
 async fn unpaced_idle_service() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -381,7 +381,7 @@ async fn immediate_exit(mut runner: Runner) {
 async fn terminal_exit_without_notifications() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |runner| immediate_exit(runner).await,
@@ -390,7 +390,7 @@ async fn terminal_exit_without_notifications() {
     machine.shutdown().await.unwrap();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async |runner| immediate_exit(runner).await,

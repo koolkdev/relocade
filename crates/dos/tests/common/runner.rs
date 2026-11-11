@@ -8,7 +8,7 @@ use relocade_machine::{
 pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (host, endpoint) = wake_connection(prepared.interrupt_handle());
     (

@@ -46,7 +46,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let execution = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());

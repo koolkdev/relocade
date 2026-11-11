@@ -10,9 +10,12 @@ Create the [shared timer service](clock.md) on the host, and pass its transferab
 the execution worker. `ExecutionWorker` uses the existing
 [worker transport](workers.md) and owns runner completion and cancellation:
 
+Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
+or `None` to use the bundled interpreter without background compilation.
+
 ```rust,ignore
 let mut machine = Machine::new(memory_config)?;
-let cpu = machine.create_cpu(cpu_config)?;
+let cpu = machine.create_cpu(cpu_config, None)?;
 let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
@@ -328,7 +331,7 @@ to inspect a completed guest boundary while retaining suspended work. See the
 Continuously ready device loops must also cooperate with the other root futures.
 When the whole session is waiting, including for Wasm compilation, the executor
 parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn. Machine-owned [compiler clients](compilation.md) bind
+a browser event-loop turn. CPU-owned [compiler clients](compilation.md) bind
 posted replies to the executor: a missing payload gets a 1 ms host-clock grace
 interval, followed by one event-loop turn that gates CPU and device activities.
 Guest execution resumes between attempts. Installation remains explicit while

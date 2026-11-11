@@ -80,7 +80,7 @@ async fn check_devices() {
     let (entered, waiting) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_clock(
         {
             let controller = clock.clone();
@@ -152,7 +152,7 @@ async fn check_devices() {
     let (report, _ticks) = mpsc::unbounded();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_clock::<()>(
         move || clock.clock(),
         async move |runner| {
