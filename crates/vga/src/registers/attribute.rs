@@ -3,6 +3,7 @@
 use super::text_mode;
 use crate::{programming::display_write, Vga};
 use relocade_machine::{BytePort, DeviceCallbacks, IoContext, PortWrite};
+use std::{cell::Cell, rc::Rc};
 
 pub const ADDRESS_PORT: u16 = 0x3c0;
 pub const DATA_READ_PORT: u16 = 0x3c1;
@@ -19,7 +20,27 @@ struct Ports {
     packed_write: PortWrite,
 }
 
+/// Lets Input Status 1 readers select the index phase without borrowing the
+/// controller. Attribute owns phase advancement and preserves this allocation
+/// when restoring register state.
+pub(crate) struct AttributePhase {
+    data_next: Rc<Cell<bool>>,
+}
+
+impl AttributePhase {
+    #[inline]
+    pub fn reset_to_index(&self) {
+        self.data_next.set(false);
+    }
+}
+
 impl Attribute {
+    pub fn phase_handle(&self) -> AttributePhase {
+        AttributePhase {
+            data_next: self.state.data_next.clone(),
+        }
+    }
+
     pub fn connect(&mut self, address: BytePort, data: BytePort, callbacks: &DeviceCallbacks<Vga>) {
         // Address writes also control display enable, before the data phase.
         let address = address.define(
@@ -66,10 +87,12 @@ pub const COLOR_SELECT: u8 = 0x14;
 pub const PALETTE_ADDRESS_SOURCE: u8 = 0x20;
 
 /// Attribute Controller values, raw address byte and CPU access phase.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct State {
     address: u8,
-    data_next: bool,
+    /// Status readers share this phase with register writes. Snapshots copy its
+    /// value; restoring registers preserves the live allocation.
+    data_next: Rc<Cell<bool>>,
     pub values: [u8; 0x15],
 }
 
@@ -82,9 +105,25 @@ impl Default for State {
         }
         Self {
             address: PALETTE_ADDRESS_SOURCE,
-            data_next: false,
+            data_next: Rc::new(Cell::new(false)),
             values,
         }
+    }
+}
+
+impl Clone for State {
+    fn clone(&self) -> Self {
+        Self {
+            address: self.address,
+            data_next: Rc::new(Cell::new(self.data_next.get())),
+            values: self.values,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.address = source.address;
+        self.data_next.set(source.data_next.get());
+        self.values = source.values;
     }
 }
 
@@ -94,7 +133,7 @@ impl State {
     }
 
     pub(crate) fn data_next(&self) -> bool {
-        self.data_next
+        self.data_next.get()
     }
 
     fn register(&self, index: u8) -> u8 {
@@ -110,15 +149,15 @@ impl State {
         }
     }
 
-    /// An active Input Status 1 read explicitly selects the address phase.
-    pub(crate) fn reset_address(&mut self) {
-        self.data_next = false;
+    /// Selects the index phase without changing the address or register values.
+    pub(crate) fn reset_to_index(&self) {
+        self.data_next.set(false);
     }
 
     pub(crate) fn write(&mut self, value: u8) {
         // Every write advances the phase, including ignored register writes.
-        let data_phase = self.data_next;
-        self.data_next = !data_phase;
+        let data_phase = self.data_next.get();
+        self.data_next.set(!data_phase);
         if !data_phase {
             self.address = value & 0x3f;
             return;
@@ -133,5 +172,34 @@ impl State {
             _ => return,
         };
         self.values[usize::from(index)] = value & mask;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn restoring_registers_preserves_the_live_phase_and_keeps_snapshots_independent() {
+        let mut attribute = Attribute::default();
+        let phase = attribute.phase_handle();
+        let state = &mut attribute.state;
+        state.write(COLOR_PLANE_ENABLE);
+        assert!(state.data_next());
+        let saved = state.clone();
+
+        phase.reset_to_index();
+        assert!(!state.data_next());
+        assert!(saved.data_next());
+        state.clone_from(&saved);
+        assert!(state.data_next());
+
+        // A retained status reader still resets the restored register bank.
+        phase.reset_to_index();
+        state.write(HORIZONTAL_PANNING);
+        assert_eq!(state.address(), HORIZONTAL_PANNING);
+        assert_eq!(state.values, saved.values);
+        assert!(saved.data_next());
     }
 }

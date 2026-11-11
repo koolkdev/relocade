@@ -8,6 +8,7 @@ use relocade_machine::{Device, IoBus, PortPolicy};
 use relocade_vga::Vga;
 use std::{
     cell::{Cell, RefCell},
+    pin::pin,
     rc::Rc,
 };
 
@@ -134,8 +135,11 @@ fn status_routing_and_attribute_phase_follow_writes_and_state_restore() {
 
     for (bytes, expected) in [(1, 0), (2, 0xff00), (4, 0xffff_ff00)] {
         io.write_port(0x3c0, 1, 0x12);
+        // Cached reads need only the shared phase and status, even while the
+        // rest of the device is being inspected.
+        let inspected = vga.borrow();
         assert_eq!(io.read_port(0x3da, bytes), expected);
-        assert_eq!(vga.borrow().core_state().to_bytes()[8], 0);
+        assert_eq!(inspected.core_state().to_bytes()[8], 0);
     }
 
     // A dword starting at the attribute port reaches Misc Output as its third
@@ -198,4 +202,89 @@ fn status_routing_and_attribute_phase_follow_writes_and_state_restore() {
     io.write_port(0x3c2, 1, 0x43);
     assert_eq!(io.read_port(0x3ba, 1), 0xff);
     assert_eq!(io.read_port(0x3da, 1), 0);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn status_reads_service_capture_edges_and_share_updates_from_the_output_task() {
+    let clock = ManualClock::new();
+    let (vga, io) = connect(&clock);
+    let mut video = pin!(Vga::run(vga.clone()));
+    common::service_video(video.as_mut());
+    let frames = vga.borrow().frames();
+    io.write_port(0x3d4, 2, 0x230d); // Latches at the next internal retrace.
+    io.write_port(0x3d4, 2, 0x2317); // Suppress external sync, retaining capture.
+    clock.advance_to(clock.at(common::boundary(1)));
+    assert_eq!(io.read_port(0x3da, 1) & 8, 0);
+    assert_eq!(vga.borrow().registers().crtc.display_start, 0x23);
+    common::service_video(video.as_mut());
+    assert_eq!(
+        frames.try_recv().unwrap().vga().unwrap().display_start,
+        0x23
+    );
+
+    io.write_port(0x3d4, 2, 0xa317); // Restore sync at the current retrace.
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    clock.advance_to(clock.at(common::boundary(2)));
+    common::service_video(video.as_mut());
+    let inspected = vga.borrow();
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    drop(inspected);
+
+    // Switching between VGA and packed SVGA publishes into the same live cache.
+    let legacy = vga.borrow().dispi_state();
+    io.write_port(0x3d4, 2, 0x450d);
+    for (register, value) in [(1, 640), (2, 480), (3, 8), (4, 0x81)] {
+        io.write_port(0x1ce, 2, register);
+        io.write_port(0x1cf, 2, value);
+    }
+    let packed = vga.borrow().dispi_state();
+    assert_eq!(io.read_port(0x3da, 1), 0);
+    let packed_edge = common::boundary(2) + common::svga_boundary(1);
+    clock.advance_to(clock.at(packed_edge));
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    assert_eq!(vga.borrow().registers().crtc.display_start, 0x23);
+    common::service_video(video.as_mut());
+    assert!(matches!(
+        frames.try_recv().unwrap().scanout(),
+        relocade_vga::Scanout::Svga(_)
+    ));
+
+    // State restore must select the same mode-specific work as DISPI writes.
+    io.with_context(|context| {
+        vga.borrow_mut()
+            .restore_state(context, None, None, Some(legacy))
+    });
+    assert_eq!(io.read_port(0x3da, 1), 0);
+    let legacy_edge = packed_edge + common::boundary(1);
+    clock.advance_to(clock.at(legacy_edge));
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    assert_eq!(vga.borrow().registers().crtc.display_start, 0x45);
+    common::service_video(video.as_mut());
+    assert_eq!(
+        frames.try_recv().unwrap().vga().unwrap().display_start,
+        0x45
+    );
+
+    io.write_port(0x3d4, 2, 0x670d);
+    io.with_context(|context| {
+        vga.borrow_mut()
+            .restore_state(context, None, None, Some(packed))
+    });
+    assert_eq!(io.read_port(0x3da, 1), 0);
+    let packed_edge = legacy_edge + common::svga_boundary(1);
+    clock.advance_to(clock.at(packed_edge));
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    assert_eq!(vga.borrow().registers().crtc.display_start, 0x45);
+    common::service_video(video.as_mut());
+    assert!(matches!(
+        frames.try_recv().unwrap().scanout(),
+        relocade_vga::Scanout::Svga(_)
+    ));
+
+    io.write_port(0x1cf, 2, 0);
+    assert_eq!(io.read_port(0x3da, 1), 0);
+    clock.advance_to(clock.at(packed_edge + common::boundary(1)));
+    assert_eq!(io.read_port(0x3da, 1), 9);
+    assert_eq!(vga.borrow().registers().crtc.display_start, 0x67);
 }

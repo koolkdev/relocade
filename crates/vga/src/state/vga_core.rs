@@ -85,14 +85,14 @@ impl VgaCoreState {
         crtc.display_start = u16::from_le_bytes(bytes[9..11].try_into().unwrap());
         let mut attribute = attribute::State::default();
         for (index, &value) in bytes[54..].iter().enumerate() {
-            attribute.reset_address();
+            attribute.reset_to_index();
             attribute.write(index as u8);
             attribute.write(value);
         }
-        attribute.reset_address();
+        attribute.reset_to_index();
         attribute.write(bytes[7]);
         if bytes[8] == 0 {
-            attribute.reset_address();
+            attribute.reset_to_index();
         }
         attribute.values[attribute::COLOR_SELECT as usize] = 0;
         let state = Self {
@@ -113,7 +113,7 @@ impl VgaCoreState {
         vga.registers.crtc.state = self.crtc;
         vga.registers.sequencer.state = self.sequencer;
         vga.registers.graphics.state = self.graphics;
-        vga.registers.attribute.state = self.attribute;
+        vga.registers.attribute.state.clone_from(&self.attribute);
         vga.registers.attribute.state.values[attribute::COLOR_SELECT as usize] = color_select;
         vga.registers.miscellaneous = self.miscellaneous;
         vga.registers.feature_control = self.feature_control;

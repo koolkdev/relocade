@@ -1,6 +1,7 @@
 //! Adapter-wide decoding and connection of the individual register components.
 //! Windows stay here because transfers and decoding gates cross components.
 
+mod status;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +26,7 @@ struct Alias {
     disabled_read: PortRead,
     disabled_write: PortWrite,
     status: BytePort,
+    packed_read: PortRead,
 }
 
 impl Vga {
@@ -42,11 +44,20 @@ impl Vga {
         let mut dispi = io.ports(dispi::PORT_RANGE, PortPolicy::WORD);
         let mut mono = Alias::new(
             io,
+            &vga,
+            device,
             &callbacks,
             MONO_CRTC_INDEX_PORT..=MONO_CRTC_DATA_PORT,
             MONO_INPUT_STATUS_1_PORT,
         );
-        let mut color = Alias::new(io, &callbacks, CRTC_PORT_RANGE, COLOR_INPUT_STATUS_1_PORT);
+        let mut color = Alias::new(
+            io,
+            &vga,
+            device,
+            &callbacks,
+            CRTC_PORT_RANGE,
+            COLOR_INPUT_STATUS_1_PORT,
+        );
         vga.registers.attribute.connect(
             common.port(ATTRIBUTE_ADDRESS_PORT),
             common.port(ATTRIBUTE_DATA_READ_PORT),
@@ -137,7 +148,12 @@ impl Vga {
                     .configure_alias(context, is_color, packed);
             });
             let (read, write) = if active {
-                (&alias.status.read, &alias.status.write)
+                let read = if packed {
+                    &alias.packed_read
+                } else {
+                    &alias.status.read
+                };
+                (read, &alias.status.write)
             } else {
                 (&alias.disabled_read, &alias.disabled_write)
             };
@@ -149,6 +165,8 @@ impl Vga {
 impl Alias {
     fn new(
         io: &mut DeviceConnection<'_>,
+        vga: &Vga,
+        device: &Rc<RefCell<Vga>>,
         callbacks: &DeviceCallbacks<Vga>,
         crtc: RangeInclusive<u16>,
         status_address: u16,
@@ -157,18 +175,16 @@ impl Alias {
         let status = io.port(
             status_address,
             PortPolicy::BYTE_SEQUENCE,
-            callbacks.read(|_, vga| {
-                vga.advance_raster(vga.clock.now());
-                vga.registers.attribute.state.reset_address();
-                vga.raster.input_status_1()
-            }),
+            status::read(vga, device, Vga::refresh_vga_raster),
             callbacks.write(|_, vga, value| vga.registers.feature_control = value),
         );
+        let packed_read = status.read_handler(status::read(vga, device, Vga::refresh_svga_raster));
         let disabled_read = status.read_handler(|_| 0xff);
         let disabled_write = status.write_handler(|_, _| {});
         Self {
             crtc,
             status,
+            packed_read,
             disabled_read,
             disabled_write,
         }

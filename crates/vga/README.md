@@ -81,15 +81,25 @@ display. Late observations catch up all elapsed retraces without a per-frame loo
 Each component under `registers/` owns its `State`, retained port bindings,
 handlers and mode selection. Simple reads show their bank operation directly;
 index writes select the cached data-write effect for the masked register index.
-`ports.rs` connects the components and owns the shared byte window, Misc Output, Feature Control and status aliases. Setup, Misc Output, DISPI
-mode changes and state restoration select cached handlers before returning to
-the guest, including when no new index write follows. Ordinary byte accesses
-have no port decoding or adapter-enable/alias checks. In packed SVGA, CRTC, Sequencer, Graphics and Attribute writes retain VGA
-programming without capture or timing work; leaving packed mode applies the
-retained programming again. DAC, setup, Misc Output and DISPI retain their
+`ports.rs` connects the components and owns the shared byte window, Misc Output,
+Feature Control and status aliases. Setup, Misc Output, DISPI mode changes and
+state restoration select cached handlers before returning to the guest,
+including when no new index write follows. Ordinary byte accesses
+have no port decoding or adapter-enable/alias checks. In packed SVGA, CRTC,
+Sequencer, Graphics and Attribute writes retain VGA programming without capture
+or timing work; leaving packed mode applies the retained programming again.
+DAC, setup, Misc Output and DISPI retain their
 adapter effects in both modes.
-Input Status 1 services raster edges and resets the Attribute access phase;
-inactive aliases return FFh without affecting that phase.
+Input Status 1 polls the raster's shared deadline and cached bits. Attribute
+supplies a phase handle whose `reset_to_index()` operation selects the index
+phase with one cell write. The phase storage and advancement remain private to
+Attribute. Snapshots copy the phase value, and restoration preserves the live
+allocation held by status readers. Ordinary polls do not borrow the device,
+change port handlers or check its mode. A due edge runs the configured capture
+work: VGA latches CRTC display start, while SVGA captures its current packed
+layout. Both use the same raster
+integration and snapshot publication. Inactive aliases return FFh without
+affecting the phase; wide status reads return FFh in trailing bytes.
 
 Standalone registers use `io.port(address, policy, read, write)`. The connection
 claims the address and configures both functions with its scoped context. The
@@ -104,6 +114,8 @@ callbacks once; `port.configure(context, read, write)` publishes the final pair
 directly. Its retained `read` and `write` fields are reusable definitions, not a
 second copy of the active map. `IndexedPorts<T>` publishes its fixed selector
 operations and the chosen data pair. Index changes replace only the data writer.
+Attribute's index/data alternation and DAC's RGB sequencing stay in those
+components; these per-access transitions do not replace handlers.
 
 `window.configure(context, enabled, ...)` configures undeclared holes and asks
 components for their final handlers. It does not reset implemented ports first.
@@ -112,7 +124,7 @@ re-enabling configures the holes and components together. Hole handlers retain
 the full parent boundary so a wide access can reach a following register.
 Setup controls and Input Status 1 use standalone registration. Setup stays
 accessible independently of adapter decoding; each status alias selects its
-cached active or disabled operations at decoding boundaries. VGA wires all
+cached VGA, packed or disabled operations at mode/decoding boundaries. VGA wires all
 components before its configuration pass. Initial configuration uses the
 connection's context; later changes use the callback's current context.
 
