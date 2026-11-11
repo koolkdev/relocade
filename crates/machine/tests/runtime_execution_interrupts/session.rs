@@ -98,11 +98,12 @@ async fn connected_input() {
                     exit: None,
                     interrupt: None,
                 }));
-                let io = IoBus::new([runner
+                let io = runner.cpu().io();
+                io.connect([runner
                     .connect(device.clone(), [], std::iter::once(0x80..=0x80))
                     .await]);
                 // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
-                prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], compiled, io).await;
+                prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], compiled).await;
                 device.borrow_mut().exit = Some(runner.cpu().exit_handle());
                 device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
                 started.await.unwrap();
@@ -204,10 +205,11 @@ async fn connected_stop() {
             exit: None,
             interrupt: None,
         }));
-        let io = IoBus::new([runner
+        let io = runner.cpu().io();
+        io.connect([runner
             .connect(device.clone(), [], std::iter::once(0x80..=0x80))
             .await]);
-        prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true, io).await;
+        prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
         device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
         let _stopped = Stopped {
             state: runner.cpu().cpu_state(),
@@ -260,7 +262,6 @@ async fn saturated_count() {
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
     let prepared = machine.create_cpu(config.cpu, None).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
-        runner.attach_io(IoBus::default());
         let exit = runner.cpu().exit_handle();
         runner
             .cpu()
@@ -308,7 +309,8 @@ async fn notified_reentry() {
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
-            let io = IoBus::new([runner
+            let io = runner.cpu().io();
+            io.connect([runner
                 .connect(
                     Rc::new(RefCell::new(PublishInput(Some(send)))),
                     [],
@@ -317,7 +319,7 @@ async fn notified_reentry() {
                 .await]);
             // OUT publishes input and exits through STEP. The following JMP
             // supplies the next guest checkpoint if input needs another poll.
-            prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true, io).await;
+            prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
             let state = runner.cpu().cpu_state();
             let exit = runner.cpu().exit_handle();
             let input = async {

@@ -1,7 +1,7 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
-use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, IoBus, MachineConfig};
+use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig};
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -42,7 +42,8 @@ pub async fn vga_workers() -> Result<(), String> {
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());
         assert!(source.send(vga.borrow().frames()).is_ok());
 
-        let io = IoBus::new([runner
+        let io = runner.cpu().io();
+        io.connect([runner
             .connect(vga.clone(), [MEMORY_RANGE], PORT_RANGES)
             .await]);
         let memory = runner.memory();
@@ -77,7 +78,7 @@ pub async fn vga_workers() -> Result<(), String> {
             .unwrap();
 
         let input = RefCell::new(Some((incoming, waiting)));
-        let cpu = runner.attach_io(io.clone());
+        let cpu = runner.cpu();
         cpu.install([
             Hook::host(0x200, {
                 let resources = cpu.memory().with_io(io.clone());

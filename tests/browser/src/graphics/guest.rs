@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_machine::{CpuConfig, ExecutionWorker, Hook, IoBus, MachineConfig, TimerHandle};
+use relocade_machine::{CpuConfig, ExecutionWorker, Hook, MachineConfig, TimerHandle};
 use relocade_vga::{DisplaySnapshot, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -67,8 +67,9 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
             )
             .unwrap();
 
-        let io = IoBus::new([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES).await]);
-        let cpu = runner.attach_io(io);
+        let io = runner.cpu().io();
+        io.connect([runner.connect(vga, [TEXT_MEMORY_RANGE], PORT_RANGES).await]);
+        let cpu = runner.cpu();
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();
             let in_retrace = Cell::new(false);

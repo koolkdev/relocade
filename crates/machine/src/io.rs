@@ -1,7 +1,7 @@
 //! Device connections local to guest execution and its host services.
 
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     future::{ready, Future},
     ops::RangeInclusive,
     rc::Rc,
@@ -20,7 +20,7 @@ use std::{
 pub trait Device {
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
     /// Connection waits for the first poll, which installs this activity's wake
-    /// path. Bus state must already be initialized before connecting the device.
+    /// path. Device state must already be initialized before connecting the device.
     /// Release device borrows before awaiting. Continuously ready activities must
     /// cooperate with other work, for example through [`crate::yield_now`].
     fn run(_device: Rc<RefCell<Self>>) -> impl Future<Output = ()>
@@ -63,8 +63,8 @@ pub struct DeviceConnection {
     pub ports: Vec<RangeInclusive<u16>>,
 }
 
-/// Immutable routing on one execution worker. Clones retain the same local
-/// devices; the bus cannot be sent or shared across threads.
+/// Device routing initialized once on one execution worker. Clones retain the
+/// same connections; the bus cannot be sent or shared across threads.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
 ///
 /// ```compile_fail
@@ -73,18 +73,18 @@ pub struct DeviceConnection {
 /// ```
 #[derive(Clone, Default)]
 pub struct IoBus {
-    connections: Rc<[DeviceConnection]>,
+    connections: Rc<OnceCell<Box<[DeviceConnection]>>>,
 }
 
 impl IoBus {
     pub fn is_empty(&self) -> bool {
-        self.connections.is_empty()
+        self.connections().is_empty()
     }
 
     /// Acknowledges the first ready request in connection order. Later requests
     /// remain with their devices; if none is ready every device sees the waker.
     pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
-        for connection in &*self.connections {
+        for connection in self.connections() {
             if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
                 return Poll::Ready(vector);
             }
@@ -97,12 +97,31 @@ impl IoBus {
     /// # Panics
     /// Panics if a range is empty or two ranges on the same bus overlap.
     pub fn new(connections: impl IntoIterator<Item = DeviceConnection>) -> Self {
-        let connections: Vec<_> = connections.into_iter().collect();
+        let io = Self::default();
+        io.connect(connections);
+        io
+    }
+
+    /// Initializes this bus's device connections once. The CPU keeps this same
+    /// bus throughout its lifetime; devices may be connected after CPU creation.
+    ///
+    /// # Panics
+    /// Panics if connections are already initialized, or a range is empty or overlaps.
+    pub fn connect(&self, connections: impl IntoIterator<Item = DeviceConnection>) {
+        assert!(
+            self.connections.get().is_none(),
+            "devices already connected"
+        );
+        let connections: Box<[_]> = connections.into_iter().collect();
         validate_ranges(connections.iter().flat_map(|device| &device.mmio));
         validate_ranges(connections.iter().flat_map(|device| &device.ports));
-        Self {
-            connections: connections.into(),
-        }
+        self.connections
+            .set(connections)
+            .unwrap_or_else(|_| unreachable!());
+    }
+
+    fn connections(&self) -> &[DeviceConnection] {
+        self.connections.get().map_or(&[], Box::as_ref)
     }
 
     /// Reads one through eight bytes, splitting only at device boundaries.
@@ -186,7 +205,7 @@ impl IoBus {
     }
 
     fn port_device(&self, port: u16) -> Option<&RefCell<dyn Device>> {
-        self.connections
+        self.connections()
             .iter()
             .find(|connection| connection.ports.iter().any(|range| range.contains(&port)))
             .map(|connection| connection.device.as_ref())
@@ -194,7 +213,7 @@ impl IoBus {
 
     fn mmio_span(&self, address: u32, bytes: u8) -> (Option<&RefCell<dyn Device>>, u8) {
         let mut count = u64::from(bytes);
-        for connection in &*self.connections {
+        for connection in self.connections() {
             for range in &connection.mmio {
                 if range.contains(&address) {
                     count = count.min(u64::from(*range.end()) - u64::from(address) + 1);

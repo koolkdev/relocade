@@ -13,7 +13,7 @@ pub mod configuration;
 
 use relocade_bios::Keyboard;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
-use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, IoBus, Runner};
+use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
@@ -44,7 +44,8 @@ impl Pc {
         let (pit, pit_device) = Pit::initialize(&runner, &pic).await;
         let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
         let (inputs, controller, ps2_device) = relocade_ps2::connect(&runner, &pic).await;
-        let io = IoBus::new([
+        let io = runner.cpu().io();
+        io.connect([
             pic_device,
             pit_device,
             speaker_device,
@@ -54,7 +55,7 @@ impl Pc {
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
         let clock = runner.clock().clone();
-        let cpu = runner.attach_io(io);
+        let cpu = runner.cpu();
         {
             let mut context = cpu.context();
             let cpu_model = context.cpu.execution_target().cpu_model;

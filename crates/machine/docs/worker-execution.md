@@ -19,8 +19,8 @@ let cpu = machine.create_cpu(cpu_config, None)?;
 let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
-    let io = IoBus::new([runner.connect(device, memory_ranges, ports).await]);
-    runner.attach_io(io);
+    let io = runner.cpu().io();
+    io.connect([runner.connect(device, memory_ranges, ports).await]);
     runner.run_cpu().await;
     wait_for_next_program().await;
     Ok::<(), Error>(())
@@ -47,12 +47,11 @@ resetting registers, initially with an empty device bus. Startup observes cancel
 through construction and returns failures to the worker owner without entering the
 session. The callback receives a complete Runner with a usable CPU.
 
-`runner.attach_io(io)` synchronously installs the device bus; `Dos::new(runner)`
-uses this operation after connecting the PC's devices. `Cpu::attach_io` also serves
-CPU-level callers. Replacing a bus requires a stopped CPU with no pending or parked
-host calls. Existing bus handles retain their original routing. `run_cpu()` executes
-the runner's existing CPU. Construction, attachment and launch do not execute guest
-instructions.
+`runner.cpu().io().connect(connections)` initializes the fixed bus once;
+`Dos::new(runner)` uses it after starting the PC's device activities. Retained bus
+handles and already installed modules observe these same connections. `run_cpu()`
+executes the runner's existing CPU. Construction, connection and launch do not
+execute guest instructions.
 
 The callback receives its `Runner` by value. PC/DOS retain it across programs;
 `runner.cpu()` lends the stopped backend for setup. The outer session keeps

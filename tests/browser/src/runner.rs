@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_machine::{Clock, CpuConfig, Device, Hook, IoBus, MachineConfig, Memory};
+use relocade_machine::{Clock, CpuConfig, Device, Hook, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
 };
@@ -99,7 +99,8 @@ pub async fn runner_workers() -> Result<(), String> {
                 .write(0x100, &[0xc7, 0x06, 0, 3, 1, 0, 0xeb, 0xfe])
                 .unwrap();
 
-            let io = IoBus::new([runner
+            let io = runner.cpu().io();
+            io.connect([runner
                 .connect(
                     Rc::new(RefCell::new(ProgressDevice {
                         clock: runner.clock().clone(),
@@ -115,7 +116,7 @@ pub async fn runner_workers() -> Result<(), String> {
                 local: Rc::new(()),
                 dropped: Some(dropped),
             });
-            let cpu = runner.attach_io(io);
+            let cpu = runner.cpu();
             if pending_service {
                 let probe = probe.clone();
                 cpu.install([Hook::host(0x100, {
