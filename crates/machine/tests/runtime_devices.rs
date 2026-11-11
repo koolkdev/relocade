@@ -2,7 +2,7 @@ use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, Hook, IoBus};
+use relocade_machine::{Clock, Device, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -93,7 +93,8 @@ async fn check_devices() {
                 report,
                 active: worker_active.clone(),
             }));
-            let io = IoBus::new([runner
+            let io = runner.cpu().io();
+            io.connect([runner
                 .connect(device, [], std::iter::once(0x80..=0x80))
                 .await]);
             assert!(
@@ -103,7 +104,7 @@ async fn check_devices() {
 
             let memory = runner.memory();
             let service_clock = runner.clock().clone();
-            let cpu = runner.attach_io(io.clone());
+            let cpu = runner.cpu();
             // Guest work after the sleeping service, followed by a completion hook.
             memory
                 .view()

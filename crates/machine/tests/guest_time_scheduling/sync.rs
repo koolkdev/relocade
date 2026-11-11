@@ -35,8 +35,9 @@ async fn captured_deadline() {
                     exit: None,
                     exit_after_waits: false,
                 }));
-                let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-                prepare_cpu(&mut runner, &[0x90], io).await;
+                let io = runner.cpu().io();
+                io.connect([runner.connect(device.clone(), [], []).await]);
+                prepare_cpu(&mut runner, &[0x90]).await;
                 let exit = runner.cpu().exit_handle();
                 let arrival = Rc::new(RefCell::new(Some(arrival)));
                 let cpu = runner.cpu();
@@ -116,8 +117,9 @@ async fn retained_sync_across_runs() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            let io = IoBus::new([runner.connect(device, [], []).await]);
-            prepare_cpu(&mut runner, &[0x90], io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device, [], []).await]);
+            prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
             let pause = Rc::new(RefCell::new(Some(pause)));
@@ -198,7 +200,7 @@ async fn local_output_sync() {
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            prepare_cpu(&mut runner, &[0x90], IoBus::default()).await;
+            prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let retained = Rc::new(RefCell::new(None));
             let captured = retained.clone();

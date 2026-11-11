@@ -1,9 +1,7 @@
 use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
-use relocade_machine::{
-    timer_service, CpuConfig, Device, ExecutionInterrupt, IoBus, MachineConfig,
-};
+use relocade_machine::{timer_service, CpuConfig, Device, ExecutionInterrupt, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -61,12 +59,13 @@ async fn callback_wakes_execution() {
             ready: Some(ready),
             interrupt: None,
         }));
-        let io = IoBus::new([runner
+        let io = runner.cpu().io();
+        io.connect([runner
             .connect(started.clone(), [], std::iter::once(0x80..=0x80))
             .await]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner.attach_io(io);
+        let cpu = runner.cpu();
         started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
         let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
         cpu.install_module(

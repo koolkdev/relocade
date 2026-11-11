@@ -2,8 +2,7 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, IoBus, Runner,
-    Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, Runner, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -36,10 +35,9 @@ fn configuration() -> support::Configuration {
     .unwrap()
 }
 
-async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
+async fn prepare_cpu(runner: &mut Runner, code: &[u8]) {
     let memory = runner.memory();
     memory.view().write(0x100, code).unwrap();
-    runner.attach_io(io);
 }
 
 async fn unpaced_slice_overshoot() {
@@ -67,7 +65,7 @@ async fn unpaced_slice_overshoot() {
                 let clock = runner.clock().clone();
                 let start = clock.now();
                 let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
-                prepare_cpu(&mut runner, &code, IoBus::default()).await;
+                prepare_cpu(&mut runner, &code).await;
                 let cpu = runner.cpu();
                 let block = Compiler::new(ExecutionProfile::Real16)
                     .compile_block(0x100, &code, 2)
@@ -173,7 +171,8 @@ async fn deadlines_and_final_exit() {
                 } else {
                     &[0x40, 0xeb, 0xfd][..] // INC AX; JMP 0100.
                 };
-                prepare_cpu(&mut runner, code, IoBus::new([connection])).await;
+                runner.cpu().io().connect([connection]);
+                prepare_cpu(&mut runner, code).await;
                 device.borrow_mut().exit = Some(runner.cpu().exit_handle());
                 assert_eq!(
                     runner.run_cpu().await,
@@ -226,8 +225,9 @@ async fn retained_service() {
                 clock: runner.clock().clone(),
                 wakes: 0,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            prepare_cpu(&mut runner, &[0x90], io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            prepare_cpu(&mut runner, &[0x90]).await;
             let started = Rc::new(Cell::new(0));
             let clock = runner.clock().clone();
             let stop = runner.cpu().exit_handle();
@@ -275,7 +275,7 @@ async fn unpaced_idle_service() {
             let clock = runner.clock().clone();
             let start = clock.now();
             let deadline = clock.add(start, Duration::from_millis(10));
-            prepare_cpu(&mut runner, &[0x90], IoBus::default()).await;
+            prepare_cpu(&mut runner, &[0x90]).await;
             let cpu = runner.cpu();
             let exit = cpu.exit_handle();
             cpu.install([Hook::host(0x100, async move || {
@@ -352,7 +352,7 @@ async fn idle_time_preserves_services_waiting_on_host_timers() {
 }
 
 async fn immediate_exit(mut runner: Runner) {
-    prepare_cpu(&mut runner, &[0x90], IoBus::default()).await;
+    prepare_cpu(&mut runner, &[0x90]).await;
     let completed = Rc::new(Cell::new(false));
     let exit = runner.cpu().exit_handle();
     let cpu = runner.cpu();

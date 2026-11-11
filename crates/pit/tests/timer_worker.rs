@@ -1,7 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, IoBus, MachineConfig,
-    Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, MachineConfig, Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -114,7 +113,9 @@ async fn timer_interrupts() -> Result<(), String> {
             .unwrap();
         let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner.attach_io(IoBus::new([pic_connection, pit_connection, connection]));
+        let cpu = runner.cpu();
+        cpu.io()
+            .connect([pic_connection, pit_connection, connection]);
         cpu.context().cpu.set_sp(0xf00);
         let busy = compiler.compile_block(0x113, &program[19..], 32).unwrap();
         cpu.install_module(

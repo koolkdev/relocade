@@ -167,7 +167,7 @@ an already posted resource, then call `endpoint.bind(local_target)` on execution
 Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
 `CpuHandle` startup does this automatically with its prepared CPU; callers attach
-local devices through `runner.attach_io` or `Dos::new`. `WakeConnection` retains the
+local devices through `runner.cpu().io().connect` or `Dos::new`. `WakeConnection` retains the
 binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
 
 ## Browser build and lifetime

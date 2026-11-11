@@ -20,7 +20,7 @@ async fn busy_lag_limit() {
                 let clock = runner.clock().clone();
                 let start = clock.now();
                 let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
-                prepare_cpu(&mut runner, &code, IoBus::default()).await;
+                prepare_cpu(&mut runner, &code).await;
                 let block = Compiler::new(ExecutionProfile::Real16)
                     .compile_block(0x100, &code, 2)
                     .unwrap();
@@ -92,8 +92,9 @@ async fn pending_input_recovery() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            prepare_cpu(&mut runner, &[0x90], io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
             let cpu = runner.cpu();
