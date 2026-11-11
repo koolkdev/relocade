@@ -1,8 +1,9 @@
 //! Architectural flag images, independent of the stored flag record.
 //!
 //! Protected transfers fix IF=1 and IOPL=0; real mode reads and writes both.
-//! VM/RF/VIF/VIP are unrepresented and stay clear. Transferring TF, IF, NT, AC or ID does
-//! not implement debug delivery, task switching or alignment checks. Real-mode
+//! VM is excluded from these stack images; RF/VIF/VIP remain unrepresented.
+//! Transferring TF, IF, NT, AC or ID does not implement debug delivery, task
+//! switching or alignment checks. Real-mode
 //! external interrupt eligibility uses IF after completing any protected successor.
 
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};

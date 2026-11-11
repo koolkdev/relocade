@@ -136,8 +136,8 @@ fn budgetless_blocks_publish_once_in_first_write_order_before_tail_dispatch() {
         .iter()
         .any(|(name, ty)| name == "dispatch" && matches!(ty, TypeRef::Func(0))));
     // Only the retirement count needs a scalar load.
-    assert_eq!(loads, [168]);
-    assert_eq!(stores, [56, 28, 60, 168]);
+    assert_eq!(loads, [176]);
+    assert_eq!(stores, [56, 28, 60, 176]);
     assert_eq!(additions, 1);
     assert_eq!(tails, [0]);
     // The execution interrupt returns the already-published state.
@@ -394,15 +394,15 @@ fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
     // Both destinations copy the same initial EAX value; retirement is read once.
     assert_eq!(
         accesses(&[0x89, 0xc1, 0x8b, 0xd0], 2),
-        (vec![28, 168], vec![32, 36, 60, 168])
+        (vec![28, 176], vec![32, 36, 60, 176])
     );
     assert_eq!(
         accesses(&[0xb8, 42, 0, 0, 0, 0x89, 0xc1, 0x8b, 0xd1, 0x89, 0xd3], 4),
-        (vec![168], vec![28, 32, 36, 40, 60, 168])
+        (vec![176], vec![28, 32, 36, 40, 60, 176])
     );
     // EAX<-EAX and ECX<-ECX retire without changing any register.
     assert_eq!(
         accesses(&[0x89, 0xc0, 0x8b, 0xc9], 2),
-        (vec![168], vec![60, 168])
+        (vec![176], vec![60, 176])
     );
 }

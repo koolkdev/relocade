@@ -5,11 +5,11 @@ mod x87;
 use std::mem::{offset_of, size_of};
 
 use super::{CpuState, FlagBytes, FlagsState, Registers, StatusSourceState};
-use crate::Gpr32;
+use crate::{CpuMode, Gpr32, PrivilegeLevel};
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
-    assert_eq!(CpuState::BYTE_LEN, 536);
+    assert_eq!(CpuState::BYTE_LEN, 544);
     assert_eq!(size_of::<FlagsState>(), 28);
     assert_eq!(size_of::<StatusSourceState>(), 12);
     assert_eq!(size_of::<FlagBytes>(), 16);
@@ -35,6 +35,7 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, flags.bytes.id),
             offset_of!(CpuState, flags.bytes.if_),
             offset_of!(CpuState, flags.bytes.iopl),
+            offset_of!(CpuState, flags.bytes.vm),
             offset_of!(CpuState, flags.bytes.reserved),
             offset_of!(CpuState, registers.eax),
             offset_of!(CpuState, registers.ecx),
@@ -45,12 +46,15 @@ fn cpu_layout_matches_the_external_byte_contract() {
             offset_of!(CpuState, registers.esi),
             offset_of!(CpuState, registers.edi),
             offset_of!(CpuState, eip),
-            offset_of!(CpuState, reserved),
+            offset_of!(CpuState, cr0),
+            offset_of!(CpuState, cr2),
+            offset_of!(CpuState, cr3),
+            offset_of!(CpuState, cr4),
             offset_of!(CpuState, instruction_count),
         ],
         [
-            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 32, 36, 40, 44,
-            48, 52, 56, 60, 160, 168
+            0, 1, 4, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28, 32, 36, 40,
+            44, 48, 52, 56, 60, 160, 164, 168, 172, 176
         ],
     );
 }
@@ -100,12 +104,13 @@ fn decoding_preserves_little_endian_values_and_every_reserved_byte() {
         }
     );
     assert_eq!(cpu.eip, 0x3f3e_3d3c);
-    assert_eq!(
-        cpu.reserved,
-        std::array::from_fn(|index| (160 + index) as u8)
-    );
-    assert_eq!(cpu.instruction_count, 0xafae_adac_abaa_a9a8);
-    assert_eq!(cpu.flags.bytes.reserved, [25, 26, 27]);
+    assert_eq!(cpu.cr0, 0xa3a2_a1a0);
+    assert_eq!(cpu.cr2, 0xa7a6_a5a4);
+    assert_eq!(cpu.cr3, 0xabaa_a9a8);
+    assert_eq!(cpu.cr4, 0xafae_adac);
+    assert_eq!(cpu.instruction_count, 0xb7b6_b5b4_b3b2_b1b0);
+    assert_eq!(cpu.flags.bytes.vm, 25);
+    assert_eq!(cpu.flags.bytes.reserved, [26, 27]);
     assert_eq!(cpu.to_bytes(), bytes);
 }
 
@@ -120,18 +125,57 @@ fn encoding_changes_only_the_named_fields_including_noncanonical_flags() {
     cpu.flags.bytes.df = 0xfe;
     cpu.flags.bytes.if_ = 0x82;
     cpu.flags.bytes.iopl = 0xff;
+    cpu.flags.bytes.vm = 0x82;
+    cpu.cr0 = 0x8000_0031;
+    cpu.cr2 = 0xfedc_ba98;
+    cpu.cr3 = 0x8765_4321;
+    cpu.cr4 = 0x1234_5678;
     let mut expected = [0xa5; CpuState::BYTE_LEN];
     expected[0] = 0xff;
     expected[12] = 0x80;
     expected[19] = 0xfe;
     expected[23] = 0x82;
     expected[24] = 0xff;
+    expected[25] = 0x82;
     expected[40..44].copy_from_slice(&[0x78, 0x56, 0x34, 0x92]);
     expected[60..64].copy_from_slice(&[2, 0x10, 0, 0]);
-    expected[168..176].fill(0);
+    expected[160..164].copy_from_slice(&[0x31, 0, 0, 0x80]);
+    expected[164..168].copy_from_slice(&[0x98, 0xba, 0xdc, 0xfe]);
+    expected[168..172].copy_from_slice(&[0x21, 0x43, 0x65, 0x87]);
+    expected[172..176].copy_from_slice(&[0x78, 0x56, 0x34, 0x12]);
+    expected[176..184].fill(0);
     assert_eq!(cpu.to_bytes(), expected);
     assert_eq!(CpuState::from_bytes(expected), cpu);
     assert_eq!(CpuState::filled(0).to_bytes(), [0; CpuState::BYTE_LEN]);
+}
+
+#[test]
+fn mode_and_privilege_come_from_control_state_and_loaded_cs() {
+    let mut cpu = CpuState::default();
+    assert_eq!(cpu.mode(), CpuMode::Protected);
+    assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring3);
+    for (rpl, privilege) in [
+        (0, PrivilegeLevel::Ring0),
+        (1, PrivilegeLevel::Ring1),
+        (2, PrivilegeLevel::Ring2),
+        (3, PrivilegeLevel::Ring3),
+    ] {
+        cpu.segments.cs.selector = 0x18 | rpl;
+        assert_eq!(cpu.privilege_level(), privilege);
+    }
+    cpu.flags.bytes.vm = 0x81;
+    cpu.segments.cs.selector = 0x18;
+    assert_eq!(cpu.mode(), CpuMode::Virtual8086);
+    assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring3);
+    cpu.cr0 &= !1;
+    cpu.segments.cs.selector = 0x1b;
+    assert_eq!(cpu.mode(), CpuMode::Real);
+    assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring0);
+    cpu.cr0 |= 1;
+    cpu.segments.cs.selector = 0x18;
+    cpu.flags.bytes.vm = 0x80;
+    assert_eq!(cpu.mode(), CpuMode::Protected);
+    assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring0);
 }
 
 #[test]
@@ -173,9 +217,9 @@ fn encoded_register_indices_address_the_named_registers() {
 
 #[test]
 fn simd_layout_defaults_and_literal_encodings() {
-    assert_eq!(offset_of!(CpuState, simd.mxcsr), 352);
-    assert_eq!(offset_of!(CpuState, simd.reserved), 356);
-    assert_eq!(offset_of!(CpuState, simd.xmm), 360);
+    assert_eq!(offset_of!(CpuState, simd.mxcsr), 360);
+    assert_eq!(offset_of!(CpuState, simd.reserved), 364);
+    assert_eq!(offset_of!(CpuState, simd.xmm), 368);
     assert_eq!(size_of::<super::SimdState>(), 136);
     assert_eq!(CpuState::default().simd.mxcsr, 0x1f80);
     assert_eq!(CpuState::default().simd.xmm, [[0; 16]; 8]);
@@ -183,9 +227,9 @@ fn simd_layout_defaults_and_literal_encodings() {
     cpu.simd.mxcsr = 0xfedc_ba98;
     cpu.simd.xmm[7] = 0x01234567_89abcdef_fedcba98_76543210_u128.to_le_bytes();
     let bytes = cpu.to_bytes();
-    assert_eq!(&bytes[352..356], &[0x98, 0xba, 0xdc, 0xfe]);
-    assert_eq!(&bytes[356..472], &[0xa5; 116]);
-    assert_eq!(&bytes[472..488], &cpu.simd.xmm[7]);
+    assert_eq!(&bytes[360..364], &[0x98, 0xba, 0xdc, 0xfe]);
+    assert_eq!(&bytes[364..480], &[0xa5; 116]);
+    assert_eq!(&bytes[480..496], &cpu.simd.xmm[7]);
     assert_eq!(CpuState::from_bytes(bytes), cpu);
 }
 
@@ -201,7 +245,7 @@ fn table_registers_have_stable_offsets_and_preserve_complete_cache_images() {
             offset_of!(CpuState, ldtr),
             offset_of!(CpuState, tr)
         ],
-        [488, 496, 504, 520]
+        [496, 504, 512, 528]
     );
     let mut cpu = CpuState::filled(0xa5);
     cpu.gdtr = DescriptorTableRegister {
@@ -219,11 +263,11 @@ fn table_registers_have_stable_offsets_and_preserve_complete_cache_images() {
     };
     let bytes = cpu.to_bytes();
     assert_eq!(
-        &bytes[488..496],
+        &bytes[496..504],
         &[0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xde, 0xf0]
     );
     assert_eq!(
-        &bytes[504..520],
+        &bytes[512..528],
         &[
             0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90, 0x45, 0x23, 0x67, 0x89, 0xef, 0xbe,
             0xad, 0xde

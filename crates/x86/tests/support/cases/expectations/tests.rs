@@ -212,7 +212,7 @@ fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
         fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
         rejects(|| fixture.check(), "control and system flags");
         bytes[offset] = 0;
-        for other in (18..25).filter(|other| *other != offset) {
+        for other in (18..26).filter(|other| *other != offset) {
             bytes[other] ^= 0x80;
             fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
             rejects(|| fixture.check(), "control and system flags");
@@ -224,7 +224,7 @@ fn direct_expectations_allow_only_authored_flag_bytes_to_change() {
             rejects(|| fixture.check(), "stored flag record");
             bytes[other] ^= 1;
         }
-        for padding in [1, 25, 26, 27] {
+        for padding in [1, 26, 27] {
             bytes[padding] ^= 1;
             fixture.actual.cpu = relocade_x86::CpuState::from_bytes(bytes);
             rejects(|| fixture.check(), "reserved flag bytes");
@@ -247,7 +247,7 @@ fn current_instruction_expectations_preserve_every_segment_cache_byte() {
 
 #[test]
 fn unspecified_direct_flags_must_preserve_their_entire_bytes() {
-    for offset in 18..25 {
+    for offset in 18..26 {
         let mut fixture = Fixture::new();
         fixture.check();
         let mut bytes = fixture.actual.cpu.to_bytes();

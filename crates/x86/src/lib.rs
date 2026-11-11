@@ -78,7 +78,7 @@ pub use segment::{
     SegmentProfile,
 };
 pub use state::{
-    CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
+    CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
     ExecutionExitValues, FlagBytes, FlagsState, HostExit, HostExitCase, HostExitValues, Registers,
     SegmentRegister, Segments, SimdState, StatusSourceState, SystemSegmentRegister, X87Control,
     X87Register, X87State, X87Status,

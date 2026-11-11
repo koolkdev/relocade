@@ -185,7 +185,8 @@ fn saved_conditions() -> Vec<SequenceCase> {
                 id: 0,
                 if_: 0xa5,
                 iopl: 0xa5,
-                reserved: [0xa5; 3],
+                vm: 0,
+                reserved: [0xa5; 2],
             },
         };
         cases.push(SequenceCase::new(name, flags).stored_flags(record).conditions(conditions));
@@ -211,7 +212,8 @@ fn saved_conditions() -> Vec<SequenceCase> {
                 id: 0,
                 if_: 0xa5,
                 iopl: 0xa5,
-                reserved: [0xa5; 3],
+                vm: 0,
+                reserved: [0xa5; 2],
             },
         })
         .conditions([0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0]));

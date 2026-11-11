@@ -4,7 +4,7 @@ use crate::{CpuState, X87Control, X87Register, X87State, X87Status};
 
 #[test]
 fn x87_backing_appends_the_environment_and_eight_physical_slots() {
-    assert_eq!(offset_of!(CpuState, x87), 176);
+    assert_eq!(offset_of!(CpuState, x87), 184);
     assert_eq!(size_of::<X87State>(), 176);
     assert_eq!(size_of::<X87Register>(), 16);
     assert_eq!(size_of::<X87Status>(), 14);
@@ -75,7 +75,7 @@ fn default_x87_is_initialized_but_literal_zero_backing_remains_zero() {
     let mut expected = [0; 176];
     expected[..12].copy_from_slice(&[1, 1, 1, 1, 1, 1, 3, 0, 0, 0, 0x40, 0]);
     expected[12..14].fill(0xff);
-    assert_eq!(&cpu.to_bytes()[176..352], &expected);
+    assert_eq!(&cpu.to_bytes()[184..360], &expected);
     assert_eq!(cpu.x87, X87State::default());
 
     let literal = CpuState::filled(0);
@@ -92,59 +92,59 @@ fn decoding_preserves_raw_environment_register_encodings_and_padding() {
     assert_eq!(
         cpu.x87.control,
         X87Control {
-            invalid_mask: 0xb0,
-            denormal_mask: 0xb1,
-            zero_divide_mask: 0xb2,
-            overflow_mask: 0xb3,
-            underflow_mask: 0xb4,
-            precision_mask: 0xb5,
-            precision_control: 0xb6,
-            rounding_control: 0xb7,
-            infinity_control: 0xb8,
-            reserved: 0xb9,
-            reserved_bits: 0xbbba,
+            invalid_mask: 0xb8,
+            denormal_mask: 0xb9,
+            zero_divide_mask: 0xba,
+            overflow_mask: 0xbb,
+            underflow_mask: 0xbc,
+            precision_mask: 0xbd,
+            precision_control: 0xbe,
+            rounding_control: 0xbf,
+            infinity_control: 0xc0,
+            reserved: 0xc1,
+            reserved_bits: 0xc3c2,
         }
     );
-    assert_eq!(cpu.x87.tag_word, 0xbdbc);
-    assert_eq!(cpu.x87.opcode, 0xbfbe);
-    assert_eq!(cpu.x87.instruction_offset, 0xc3c2c1c0);
-    assert_eq!(cpu.x87.data_offset, 0xc7c6c5c4);
-    assert_eq!(cpu.x87.instruction_selector, 0xc9c8);
-    assert_eq!(cpu.x87.data_selector, 0xcbca);
+    assert_eq!(cpu.x87.tag_word, 0xc5c4);
+    assert_eq!(cpu.x87.opcode, 0xc7c6);
+    assert_eq!(cpu.x87.instruction_offset, 0xcbcac9c8);
+    assert_eq!(cpu.x87.data_offset, 0xcfcecdcc);
+    assert_eq!(cpu.x87.instruction_selector, 0xd1d0);
+    assert_eq!(cpu.x87.data_selector, 0xd3d2);
     assert_eq!(
         cpu.x87.status,
         X87Status {
-            invalid: 0xcc,
-            denormal: 0xcd,
-            zero_divide: 0xce,
-            overflow: 0xcf,
-            underflow: 0xd0,
-            precision: 0xd1,
-            stack_fault: 0xd2,
-            top: 0xd3,
-            c0: 0xd4,
-            c1: 0xd5,
-            c2: 0xd6,
-            c3: 0xd7,
-            error_summary: 0xd8,
-            busy: 0xd9,
+            invalid: 0xd4,
+            denormal: 0xd5,
+            zero_divide: 0xd6,
+            overflow: 0xd7,
+            underflow: 0xd8,
+            precision: 0xd9,
+            stack_fault: 0xda,
+            top: 0xdb,
+            c0: 0xdc,
+            c1: 0xdd,
+            c2: 0xde,
+            c3: 0xdf,
+            error_summary: 0xe0,
+            busy: 0xe1,
         }
     );
-    assert_eq!(cpu.x87.reserved, [0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf]);
+    assert_eq!(cpu.x87.reserved, [0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7]);
     assert_eq!(
         cpu.x87.registers[0],
         X87Register {
-            significand: 0xe7e6e5e4e3e2e1e0,
-            sign_exponent: 0xe9e8,
-            reserved: [0xea, 0xeb, 0xec, 0xed, 0xee, 0xef],
+            significand: 0xefeeedecebeae9e8,
+            sign_exponent: 0xf1f0,
+            reserved: [0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7],
         }
     );
     assert_eq!(
         cpu.x87.registers[7],
         X87Register {
-            significand: 0x5756555453525150,
-            sign_exponent: 0x5958,
-            reserved: [0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f],
+            significand: 0x5f5e5d5c5b5a5958,
+            sign_exponent: 0x6160,
+            reserved: [0x62, 0x63, 0x64, 0x65, 0x66, 0x67],
         }
     );
     assert_eq!(cpu.to_bytes(), bytes);
@@ -189,11 +189,11 @@ fn encoding_environment_fields_keeps_registers_and_padding_untouched() {
         busy: 0x8e,
     };
     let mut expected = [0xa5; CpuState::BYTE_LEN];
-    expected[176..204].copy_from_slice(&[
+    expected[184..212].copy_from_slice(&[
         0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0xa5, 0x34, 0x12, 0xbc, 0x9a, 0xf0,
         0xde, 0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0xaa, 0x99, 0xcc, 0xbb,
     ]);
-    expected[204..218].copy_from_slice(&[
+    expected[212..226].copy_from_slice(&[
         0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e,
     ]);
     assert_eq!(cpu.to_bytes(), expected);
@@ -202,7 +202,7 @@ fn encoding_environment_fields_keeps_registers_and_padding_untouched() {
 
 #[test]
 fn encoding_each_physical_register_preserves_its_noncanonical_bits() {
-    for (index, offset) in [224, 240, 256, 272, 288, 304, 320, 336]
+    for (index, offset) in [232, 248, 264, 280, 296, 312, 328, 344]
         .into_iter()
         .enumerate()
     {

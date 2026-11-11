@@ -57,12 +57,12 @@ fn budgetless_exits_read_and_write_instruction_count_only_to_publish_progress() 
                 for operation in body.get_operators_reader().unwrap() {
                     match operation.unwrap() {
                         Operator::I64Load { memarg }
-                            if Some(memarg.memory) == cpu_memory && memarg.offset == 168 =>
+                            if Some(memarg.memory) == cpu_memory && memarg.offset == 176 =>
                         {
                             loads += 1;
                         }
                         Operator::I64Store { memarg }
-                            if Some(memarg.memory) == cpu_memory && memarg.offset == 168 =>
+                            if Some(memarg.memory) == cpu_memory && memarg.offset == 176 =>
                         {
                             stores += 1;
                         }

@@ -15,9 +15,9 @@ fn disabled_targets_omit_budget_loads_and_comparisons() {
             if let Payload::CodeSectionEntry(body) = payload.unwrap() {
                 for operator in body.get_operators_reader().unwrap() {
                     match operator.unwrap() {
-                        Operator::I64Load { memarg } if memarg.offset == 544 => target = true,
+                        Operator::I64Load { memarg } if memarg.offset == 552 => target = true,
                         Operator::I64GeS => comparison = true,
-                        Operator::I32AtomicLoad8U { memarg } if memarg.offset == 540 => {
+                        Operator::I32AtomicLoad8U { memarg } if memarg.offset == 548 => {
                             interrupt = true
                         }
                         _ => {}

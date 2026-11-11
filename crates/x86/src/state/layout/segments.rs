@@ -175,13 +175,13 @@ impl Segments {
         }
     }
 
-    /// Initializes flat caches with zero visible selectors. This host setup is
-    /// neither a processor reset image nor a protected-mode segment-load operation.
+    /// Initializes flat ring-3 caches with CS=0x1b and data selectors=0x23.
+    /// This host setup is neither a reset image nor a segment-load operation.
     pub const fn flat32() -> Self {
-        let data = SegmentRegister::flat_data32(0);
+        let data = SegmentRegister::flat_data32(0x23);
         Self {
             es: data,
-            cs: SegmentRegister::flat_code32(0),
+            cs: SegmentRegister::flat_code32(0x1b),
             ss: data,
             ds: data,
             fs: data,

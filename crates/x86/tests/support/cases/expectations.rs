@@ -239,8 +239,19 @@ fn check_effects(
         "{context}: loaded segment registers"
     );
     assert_eq!(
-        actual.cpu.reserved, initial.cpu.reserved,
-        "{context}: reserved CPU bytes"
+        (
+            actual.cpu.cr0,
+            actual.cpu.cr2,
+            actual.cpu.cr3,
+            actual.cpu.cr4
+        ),
+        (
+            initial.cpu.cr0,
+            initial.cpu.cr2,
+            initial.cpu.cr3,
+            initial.cpu.cr4
+        ),
+        "{context}: control registers"
     );
     let mut expected_record = initial.cpu.flags;
     for &(flag, value) in &expected.direct_flags {
@@ -263,6 +274,7 @@ fn check_effects(
             actual.cpu.flags.bytes.id,
             actual.cpu.flags.bytes.if_,
             actual.cpu.flags.bytes.iopl,
+            actual.cpu.flags.bytes.vm,
         ],
         [
             expected_record.bytes.tf,
@@ -272,6 +284,7 @@ fn check_effects(
             expected_record.bytes.id,
             expected_record.bytes.if_,
             expected_record.bytes.iopl,
+            expected_record.bytes.vm,
         ],
         "{context}: control and system flags"
     );
