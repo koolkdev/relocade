@@ -25,7 +25,7 @@ impl Wake for Notified {
 }
 
 pub(super) struct Fixture {
-    device: Rc<RefCell<Ps2Controller>>,
+    io: IoBus,
     activity: LocalBoxFuture<'static, ()>,
     clock: ManualClock,
     notified: Arc<Notified>,
@@ -38,13 +38,15 @@ impl Fixture {
         let clock = ManualClock::default();
         let (input, events) = frontend::channel();
         let (mouse_input, mouse_events) = relocade_frontend::mouse::channel();
+        let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
         let device = Rc::new(RefCell::new(Ps2Controller {
-            controller: Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary])),
+            controller: controller.clone(),
             startup: Some((clock.clock(), events, mouse_events)),
         }));
+        let io = IoBus::new(device.clone(), |io| ports::configure(io, &controller));
         let mut fixture = Self {
-            activity: Box::pin(Ps2Controller::run(device.clone())),
-            device,
+            activity: Box::pin(Ps2Controller::run(device)),
+            io,
             clock,
             notified: Arc::default(),
             input: Some(input),
@@ -74,19 +76,11 @@ impl Fixture {
     }
 
     pub fn status(&self) -> u8 {
-        relocade_machine::IoBus::default().with_context(|mut context| {
-            self.device
-                .borrow_mut()
-                .read_port(context.reborrow(), STATUS_COMMAND_PORT, 1) as u8
-        })
+        self.io.read_port(STATUS_COMMAND_PORT, 1) as u8
     }
 
     pub fn write_unpolled(&mut self, port: u16, value: u8) {
-        relocade_machine::IoBus::default().with_context(|context| {
-            self.device
-                .borrow_mut()
-                .write_port(context, port, 1, u32::from(value));
-        });
+        self.io.write_port(port, 1, u32::from(value));
     }
 
     fn write(&mut self, port: u16, value: u8) {
@@ -104,11 +98,7 @@ impl Fixture {
     }
 
     pub fn read_unpolled(&mut self) -> u8 {
-        relocade_machine::IoBus::default().with_context(|mut context| {
-            self.device
-                .borrow_mut()
-                .read_port(context.reborrow(), DATA_PORT, 1) as u8
-        })
+        self.io.read_port(DATA_PORT, 1) as u8
     }
 
     pub fn read_data(&mut self) -> u8 {
