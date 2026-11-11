@@ -9,7 +9,7 @@ use std::{future::Future, pin::pin};
 mod tests;
 
 /// Owns a worker for one CPU session and its registered devices.
-/// Created by consuming a [`CpuHandle`]. Use `runner.attach_io` or `Dos::new`
+/// Created by consuming a [`CpuHandle`]. Use `runner.cpu().io().connect` or `Dos::new`
 /// inside the callback to attach local devices. The CPU backend is ready before
 /// the callback starts; construction failures are returned by `join` or `stop`.
 ///

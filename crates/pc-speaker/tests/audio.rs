@@ -1,4 +1,4 @@
-use relocade_machine::{timer_service, CpuConfig, Device, IoBus, MachineConfig};
+use relocade_machine::{timer_service, CpuConfig, Device, MachineConfig};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -48,7 +48,8 @@ async fn exercise_audio_device() {
         let (pit, pit_device) =
             relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
         let (speaker, speaker_device) = Speaker::initialize(&runner, pit).await;
-        let io = IoBus::new([
+        let io = runner.cpu().io();
+        io.connect([
             pit_device,
             speaker_device,
             runner
@@ -67,7 +68,6 @@ async fn exercise_audio_device() {
         ];
         memory.view().write(0x100, &code).unwrap();
 
-        runner.attach_io(io);
         speaker
             .borrow_mut()
             .attach_audio(

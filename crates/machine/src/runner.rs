@@ -91,16 +91,6 @@ impl Runner {
         })
     }
 
-    /// Installs the device bus on the existing CPU without starting execution.
-    /// Returns the stopped CPU for further setup.
-    ///
-    /// # Panics
-    /// Panics if a host call is pending or parked.
-    pub fn attach_io(&mut self, io: IoBus) -> &mut Cpu {
-        self.cpu.attach_io(io);
-        self.cpu()
-    }
-
     /// The shared memory established by the machine before execution started.
     pub fn memory(&self) -> Memory {
         self.cpu.memory()

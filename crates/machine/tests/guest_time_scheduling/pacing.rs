@@ -5,8 +5,8 @@ use futures_util::{
     StreamExt,
 };
 
-async fn blocked_cpu(runner: &mut Runner, io: IoBus) {
-    prepare_cpu(runner, &[0x90], io).await;
+async fn blocked_cpu(runner: &mut Runner) {
+    prepare_cpu(runner, &[0x90]).await;
     let cpu = runner.cpu();
     cpu.install([Hook::host(0x100, async || {
         std::future::pending::<()>().await
@@ -39,8 +39,9 @@ async fn late_host_wake() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            blocked_cpu(&mut runner, io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
                 runner.run_cpu().await,
@@ -139,8 +140,9 @@ async fn replace_idle_deadline() {
                 observed: Vec::new(),
                 exit: None,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            blocked_cpu(&mut runner, io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             assert_eq!(
                 runner.run_cpu().await,
@@ -192,8 +194,9 @@ async fn cancelled_run_rebinds() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            blocked_cpu(&mut runner, io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             {
                 match select(pin!(runner.run_cpu()), pin!(paused)).await {
@@ -286,7 +289,7 @@ async fn busy_bursts() {
         },
         async move |mut runner| {
             let code = [0x40, 0xeb, 0xfd]; // Two-instruction loop, with checkpoint overshoot.
-            prepare_cpu(&mut runner, &code, IoBus::default()).await;
+            prepare_cpu(&mut runner, &code).await;
             let block = Compiler::new(ExecutionProfile::Real16)
                 .compile_block(0x100, &code, 2)
                 .unwrap();
@@ -352,8 +355,9 @@ async fn ready_service_during_pacing() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            let io = IoBus::new([runner.connect(device.clone(), [], []).await]);
-            prepare_cpu(&mut runner, &[0x90], io).await;
+            let io = runner.cpu().io();
+            io.connect([runner.connect(device.clone(), [], []).await]);
+            prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
             let clock = runner.clock().clone();

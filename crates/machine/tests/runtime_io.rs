@@ -87,11 +87,6 @@ async fn check_device_access() {
     // Both entries must bind the same I/O bus; neither may bypass it with RAM.
     for compiled in [false, true] {
         let device = RecordingDevice::new(0x3000);
-        let io = IoBus::new([DeviceConnection {
-            device: device.clone(),
-            mmio: std::iter::once(0x3000..=0x4fff).collect(),
-            ports: std::iter::once(0x3d4..=0x3d4).collect(),
-        }]);
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let mut segments = Segments::real_mode();
         segments.ds = SegmentRegister::real_mode(Segment::Ds, 0xffff);
@@ -107,6 +102,15 @@ async fn check_device_access() {
         )
         .unwrap();
         let memory = Memory::new(config.machine).unwrap();
+        let mut cpu = Cpu::new(memory.clone(), config.cpu, IoBus::default())
+            .await
+            .unwrap();
+        let io = cpu.io();
+        io.connect([DeviceConnection {
+            device: device.clone(),
+            mmio: std::iter::once(0x3000..=0x4fff).collect(),
+            ports: std::iter::once(0x3d4..=0x3d4).collect(),
+        }]);
         {
             let mut view = memory.view().with_io(&io);
             view.write_backing(0x3ffe, &[0xaa; 4]).unwrap();
@@ -139,11 +143,6 @@ async fn check_device_access() {
                 0xeb, 0, // JMP to the next entry boundary.
             ];
             view.write(0x100, &code).unwrap();
-            let mut cpu = Cpu::new(memory.clone(), config.cpu, IoBus::default())
-                .await
-                .unwrap();
-            // Backend callbacks and host contexts must both see the attached bus.
-            cpu.attach_io(io.clone());
             if compiled {
                 // OUT and IN each end a block; install all three captured entries.
                 let snapshots = [0, 19, 21].map(|offset| BlockSnapshot {

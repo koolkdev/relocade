@@ -27,7 +27,7 @@ async fn idle_devices() {
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         // INC AX; JMP 0200, where the host service completes this guest run.
-        prepare_cpu(&mut runner, &[0x40, 0xe9, 0xfc, 0], true, IoBus::default()).await;
+        prepare_cpu(&mut runner, &[0x40, 0xe9, 0xfc, 0], true).await;
         let state = runner.cpu().cpu_state();
         let exit = runner.cpu().exit_handle();
         runner

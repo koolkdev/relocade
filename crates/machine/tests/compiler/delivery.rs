@@ -1,6 +1,6 @@
 use super::*;
 use futures_util::future::{select, Either};
-use relocade_machine::{Device, IoBus};
+use relocade_machine::Device;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[derive(Default)]
@@ -41,8 +41,9 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
                     .await
                     .unwrap();
                 let busy = Rc::new(RefCell::new(BusyDevice::default()));
-                let io = IoBus::new([runner.connect(busy.clone(), [], []).await]);
-                runner.attach_io(io);
+                let io = runner.cpu().io();
+                io.connect([runner.connect(busy.clone(), [], []).await]);
+
                 let state = runner.cpu().cpu_state();
                 let code = {
                     let receive = pin!(async {
