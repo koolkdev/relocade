@@ -3,7 +3,7 @@
 use super::*;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile};
 
 fn lane_effects(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
@@ -150,7 +150,7 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
     for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
         image.cpu = initial_cpu;
         if profile == ExecutionProfile::Real16 {
-            image.cpu.segments = Segments::real_mode();
+            image.initialize_real_mode();
         }
         let prior = if restart {
             retire(image.cpu, 1)

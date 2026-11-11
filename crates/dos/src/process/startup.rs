@@ -76,6 +76,6 @@ pub(crate) fn initial_cpu(psp_segment: u16) -> CpuState {
     CpuState {
         segments,
         flags,
-        ..CpuState::default()
+        ..CpuState::real_mode()
     }
 }

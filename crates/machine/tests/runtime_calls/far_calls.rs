@@ -2,7 +2,7 @@ use super::{cpu, support, Irq};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, FarPointer, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentRegister, Segments,
+    PhysicalMemoryMap, Segment, SegmentRegister,
 };
 use std::{
     cell::RefCell,
@@ -183,8 +183,7 @@ async fn canceled_request() {
 async fn mapped_arguments() {
     let mut state = CpuState {
         eip: 0x100,
-        segments: Segments::real_mode(),
-        ..Default::default()
+        ..CpuState::real_mode()
     };
     state.segments.ss = SegmentRegister::real_mode(Segment::Ss, 0x100);
     state.registers.esp = 0x800a;

@@ -6,8 +6,7 @@ async fn cpu(io: IoBus) -> Cpu {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x400,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

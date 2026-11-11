@@ -1,8 +1,6 @@
 use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_machine::{CpuConfig, MachineConfig};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 
 pub fn memory() -> MachineConfig {
     const MEMORY_SIZE: u32 = 1024 * 1024;
@@ -27,10 +25,7 @@ pub fn memory() -> MachineConfig {
 pub fn cpu() -> CpuConfig {
     CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            segments: Segments::real_mode(),
-            ..CpuState::default()
-        },
+        CpuState::real_mode(),
     )
     .expect("fixed real-mode PC CPU")
 }

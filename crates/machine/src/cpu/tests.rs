@@ -34,10 +34,7 @@ fn configuration() -> CpuConfig {
         Compiler::new(ExecutionProfile::Real16)
             .with_cpu_model(model)
             .target(),
-        CpuState {
-            segments: Segments::real_mode(),
-            ..CpuState::default()
-        },
+        CpuState::real_mode(),
     )
     .unwrap()
 }

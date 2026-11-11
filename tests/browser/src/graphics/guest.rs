@@ -1,9 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{CpuConfig, ExecutionWorker, Hook, MachineConfig, TimerHandle};
 use relocade_vga::{DisplaySnapshot, Vga, PORT_RANGES, TEXT_MEMORY_RANGE};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -41,8 +39,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

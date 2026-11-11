@@ -25,11 +25,11 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister, Segments};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister};
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
-    image.cpu.segments = Segments::real_mode();
+    image.initialize_real_mode();
     image
 }
 

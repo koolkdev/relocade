@@ -13,10 +13,10 @@
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
-//! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments};
+//! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 //!
 //! let target = Compiler::new(ExecutionProfile::Real16).target();
-//! let cpu = CpuState { eip: 0x100, segments: Segments::real_mode(), ..CpuState::default() };
+//! let cpu = CpuState { eip: 0x100, ..CpuState::real_mode() };
 //! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
 //! let cpu = CpuConfig::new(target, cpu)?;
 //! let config = MachineConfig::new(2 * 1024 * 1024, map)?;

@@ -88,6 +88,7 @@ fn encoding_a_named_segment_changes_only_its_sixteen_bytes() {
 fn cpu_default_installs_flat_caches_while_literal_zero_images_stay_zero() {
     let cpu = CpuState::default();
     let mut expected = [0; 184];
+    expected[23] = 1;
     expected[160] = 0x31;
     expected[173] = 6;
     for (offset, writable, executable) in [

@@ -252,8 +252,7 @@ async fn saturated_count() {
         CpuState {
             eip: 0x100,
             instruction_count: u64::MAX,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

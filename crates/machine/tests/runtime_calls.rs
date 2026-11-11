@@ -6,7 +6,7 @@ use interrupts::Irq;
 use relocade_machine::{real_mode_interrupt, Cpu, DeviceConnection, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -59,8 +59,7 @@ impl Drop for Operation {
 async fn cpu(irq: &Rc<RefCell<Irq>>, handler: u16) -> Cpu {
     let mut state = CpuState {
         eip: 0x100,
-        segments: Segments::real_mode(),
-        ..Default::default()
+        ..CpuState::real_mode()
     };
     state.registers.esp = 0x8000;
     state.flags.set_eflags(0x243);

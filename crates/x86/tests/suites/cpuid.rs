@@ -10,9 +10,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{
-    compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments,
-};
+use relocade_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile};
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
 const FEATURES: [u32; 4] = [0x601, 0x800, 0, 0x0788_8111];
@@ -44,7 +42,7 @@ fn forms(frontend: Frontend) {
         ] {
             let mut image = Image::new(code);
             match profile {
-                ExecutionProfile::Real16 => image.cpu.segments = Segments::real_mode(),
+                ExecutionProfile::Real16 => image.initialize_real_mode(),
                 ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
                     image.cpu.segments.cs.big = 0;
                 }

@@ -3,7 +3,7 @@
 use super::*;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile};
 
 struct NativeCase {
     opcode: u8,
@@ -23,7 +23,7 @@ fn check(cases: &[NativeCase], restart: bool) {
                     for controls in [0x1f80, 0x1fa0, 0x0f80, 0x0fa0, 0x9fc0] {
                         let mut image = floating_image(&code, controls);
                         if profile == ExecutionProfile::Real16 {
-                            image.cpu.segments = Segments::real_mode();
+                            image.initialize_real_mode();
                         }
                         let lanes = if wide { 2 } else { 4 };
                         let count = if packed { lanes } else { 1 };

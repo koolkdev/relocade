@@ -16,7 +16,7 @@ use step::TestModule;
 
 #[test]
 fn population_count_has_no_supported_encoding() {
-    use relocade_x86::{Compiler, ExecutionProfile, SegmentProfile, Segments};
+    use relocade_x86::{Compiler, ExecutionProfile, SegmentProfile};
 
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
         let compiler = Compiler::new(profile);
@@ -34,7 +34,7 @@ fn population_count_has_no_supported_encoding() {
             );
             let mut image = Image::new(code);
             if profile == ExecutionProfile::Real16 {
-                image.cpu.segments = Segments::real_mode();
+                image.initialize_real_mode();
             }
             image.check_unchanged_exit(
                 interpreter,

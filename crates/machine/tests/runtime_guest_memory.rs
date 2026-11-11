@@ -2,7 +2,6 @@ mod support;
 use relocade_machine::{Cpu, FarPointer, MachineConfig, Memory, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -30,8 +29,7 @@ async fn check_guest_memory() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x3000,
         map,

@@ -6,7 +6,7 @@ use crate::support::{
     machine::expected,
     step::{Event, MmioUpdate, TestModule},
 };
-use relocade_x86::{ExecutionProfile, Segments};
+use relocade_x86::ExecutionProfile;
 
 fn mmio(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -20,7 +20,7 @@ fn mmio(frontend: Frontend) {
                 }
             }
             let mut image = image(&code, mask);
-            image.cpu.segments = Segments::real_mode();
+            image.initialize_real_mode();
             image.cpu.registers.edi = 0xabcd_4011;
             image.data(0x8011, &[0x5a; 16]);
             image.data(0x9011, &[0x5a; 16]);

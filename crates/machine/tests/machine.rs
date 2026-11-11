@@ -4,7 +4,6 @@ use relocade_machine::{
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 use std::{pin::pin, time::Duration};
 
@@ -24,8 +23,7 @@ fn setup() -> (Machine, CpuConfig) {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..Default::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

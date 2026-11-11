@@ -50,8 +50,7 @@ async fn check_forwarding() {
             compiler.target(),
             CpuState {
                 eip: 0x100,
-                segments: Segments::real_mode(),
-                ..Default::default()
+                ..CpuState::real_mode()
             },
             0x5000,
             map(),

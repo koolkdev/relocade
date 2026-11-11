@@ -101,14 +101,10 @@ fn port_boundaries() {
         SegmentProfile::Segmented16,
     ] {
         for code in [&[0xe4, 0x92][..], &[0xef][..]] {
-            let mut image = super::image(code);
-            image.cpu.segments = if profile == SegmentProfile::Segmented16 {
-                let mut segments = Segments::flat32();
-                segments.cs.big = 0;
-                segments
-            } else {
-                Segments::flat32()
-            };
+            let mut image = Image::new(code);
+            if profile == SegmentProfile::Segmented16 {
+                image.cpu.segments.cs.big = 0;
+            }
             let block = blocks.get(&image.cpu, code, 8, profile);
             for module in [block, TestModule::interpreter_with_profile(profile)] {
                 image.check_unchanged_exit(

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile};
 
 fn conversions(frontend: Frontend) {
     let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
@@ -155,7 +155,7 @@ fn sse_scalar_integer_precision_stays_compiled() {
         for mxcsr in [0x1f80, 0x0f80] {
             let mut image = floating_image(&code, mxcsr);
             if profile == ExecutionProfile::Real16 {
-                image.cpu.segments = Segments::real_mode();
+                image.initialize_real_mode();
             }
             lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3fc0_0000);
             let fault = mxcsr == 0x0f80;

@@ -8,6 +8,7 @@ use crate::support::{
 pub(super) fn interrupt_image(code: &[u8], vector: u8) -> Image {
     let mut image = image(code);
     image.cpu.flags.status_source.kind = 0;
+    image.cpu.flags.bytes.iopl = 0xa5; // Preserve dirty-byte and nonzero IOPL frame coverage.
     image.cpu.segments.ss = cache(Segment::Ss, 0x2000);
     image.cpu.registers.esp = 0xabcd_1006;
     image.map(0, 0x7000, false);

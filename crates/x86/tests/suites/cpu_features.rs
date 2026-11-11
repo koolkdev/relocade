@@ -9,9 +9,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{
-    BlockError, Compiler, CpuFeature, CpuModel, ExecutionProfile, SegmentProfile, Segments,
-};
+use relocade_x86::{BlockError, Compiler, CpuFeature, CpuModel, ExecutionProfile, SegmentProfile};
 
 fn disabled_forms(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -37,7 +35,7 @@ fn disabled_forms(frontend: Frontend) {
                 let code = [instruction, &[0x0f]].concat();
                 let mut image = Image::new(&code);
                 if profile == ExecutionProfile::Real16 {
-                    image.cpu.segments = Segments::real_mode();
+                    image.initialize_real_mode();
                 }
                 image.cpu.flags.status_source.kind = 0;
                 image.cpu.flags.bytes.zf = 0; // Even an untaken CMOVE requires CMOV.

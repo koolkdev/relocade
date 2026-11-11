@@ -3,7 +3,7 @@ mod support;
 
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segments,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -15,8 +15,7 @@ async fn runtime_executes_with_live_cpu_and_memory() {
         .target();
     let cpu = CpuState {
         eip: 0x100,
-        segments: Segments::real_mode(),
-        ..CpuState::default()
+        ..CpuState::real_mode()
     };
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();

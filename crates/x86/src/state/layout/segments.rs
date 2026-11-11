@@ -7,7 +7,7 @@ use std::{
 
 use super::codec::{read_u16, read_u32, write};
 
-use crate::{segment::SegmentAssumptions, ExecutionProfile, Segment};
+use crate::{segment::SegmentAssumptions, ExecutionProfile, Segment, SegmentDefaultSize};
 
 /// A visible selector and the cached properties used for address translation.
 /// Descriptor-table edits do not modify this record; a later segment load does.
@@ -32,6 +32,16 @@ pub struct SegmentRegister {
 }
 
 impl SegmentRegister {
+    /// The loaded D/B attribute, with the same nonzero-byte interpretation used
+    /// by generated cache reads. Snapshot decoding does not normalize this byte.
+    pub const fn default_size(&self) -> SegmentDefaultSize {
+        if self.big != 0 {
+            SegmentDefaultSize::Bits32
+        } else {
+            SegmentDefaultSize::Bits16
+        }
+    }
+
     /// Checks a proposed cache against the profile's assumptions for this segment.
     /// Real mode requires the canonical cache for the visible selector.
     pub fn is_compatible_with(

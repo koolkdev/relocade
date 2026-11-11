@@ -279,8 +279,7 @@ fn privilege(frontend: Frontend) {
     for opcode in [0x6d, 0x6f] {
         for count in [0, 1] {
             let code = [0xf3, opcode];
-            let mut image = image(&code);
-            image.cpu.segments = Segments::flat32();
+            let mut image = Image::new(&code);
             image.cpu.registers.ecx = count;
             let module = match frontend {
                 Frontend::Block => blocks.get(&image.cpu, &code, 8, profile),

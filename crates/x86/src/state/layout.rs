@@ -20,7 +20,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use crate::{register::Gpr32, PrivilegeLevel};
+use crate::{register::Gpr32, PrivilegeLevel, SegmentDefaultSize};
 
 /// Architectural operating mode derived from CR0.PE and EFLAGS.VM.
 /// Representing a mode does not imply that generated entries can execute it.
@@ -194,14 +194,25 @@ impl CpuState {
     pub const fn privilege_level(&self) -> PrivilegeLevel {
         self.mode().privilege_level(self.segments.cs.selector)
     }
-}
 
-impl Default for CpuState {
-    fn default() -> Self {
+    /// Loaded CS.D selects the default operand and address sizes. Instruction
+    /// prefixes override these defaults independently of the stack address size.
+    pub const fn code_default_size(&self) -> SegmentDefaultSize {
+        self.segments.cs.default_size()
+    }
+
+    /// Loaded SS.B selects SP or ESP for implicit stack accesses.
+    pub const fn stack_address_size(&self) -> SegmentDefaultSize {
+        self.segments.ss.default_size()
+    }
+
+    /// Ordinary real-mode host initialization, with canonical 16-bit caches.
+    /// This is not processor reset or a transition from an existing CPU image.
+    pub fn real_mode() -> Self {
         Self {
-            segments: Segments::flat32(),
-            // PE, ET and NE; x87 execution has no emulation or task-switch trap.
-            cr0: 0x31,
+            segments: Segments::real_mode(),
+            // ET and NE; x87 execution has no emulation or task-switch trap.
+            cr0: 0x30,
             // OSFXSR and OSXMMEXCPT enable the represented SIMD environment.
             cr4: 0x600,
             x87: X87State::default(),
@@ -209,5 +220,26 @@ impl Default for CpuState {
             idtr: DescriptorTableRegister::REAL_MODE_IDTR,
             ..Self::filled(0)
         }
+    }
+
+    /// Protected ring-3 host initialization with independent code and stack
+    /// defaults. Loaded caches have flat bases and limits; the host supplies
+    /// descriptors if guest instructions reload their selectors.
+    pub fn protected_mode(code_size: SegmentDefaultSize, stack_size: SegmentDefaultSize) -> Self {
+        let mut cpu = Self {
+            segments: Segments::flat32(),
+            cr0: 0x31, // PE, ET and NE.
+            ..Self::real_mode()
+        };
+        cpu.flags.bytes.if_ = 1;
+        cpu.segments.cs.big = u8::from(code_size == SegmentDefaultSize::Bits32);
+        cpu.segments.ss.big = u8::from(stack_size == SegmentDefaultSize::Bits32);
+        cpu
+    }
+}
+
+impl Default for CpuState {
+    fn default() -> Self {
+        Self::protected_mode(SegmentDefaultSize::Bits32, SegmentDefaultSize::Bits32)
     }
 }

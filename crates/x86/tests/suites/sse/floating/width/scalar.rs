@@ -3,13 +3,13 @@
 use super::*;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile};
 
 fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
     let code = [0x90, 0xf2, 0x0f, 0x5a, 0xc0]; // NOP; CVTSD2SS XMM0,XMM0
     let mut image = floating_image(&code, case.controls);
     if profile == ExecutionProfile::Real16 {
-        image.cpu.segments = Segments::real_mode();
+        image.initialize_real_mode();
     }
     lane(&mut image.cpu.simd.xmm[0], true, 0, case.source);
     lane(&mut image.cpu.simd.xmm[0], true, 1, SNAN[1]);

@@ -2,7 +2,7 @@ use relocade_machine::{
     worker::{wake_connection, WakeHost},
     Clock, CpuConfig, ExecutionInterrupt, Machine, MachineConfig, Runner,
 };
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
 
 // Device activities run locally with a manual clock; these fixtures never enter a CPU.
 pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
@@ -10,10 +10,7 @@ pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Mach
         Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
     let cpu = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            segments: Segments::real_mode(),
-            ..Default::default()
-        },
+        CpuState::real_mode(),
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu, None).unwrap();

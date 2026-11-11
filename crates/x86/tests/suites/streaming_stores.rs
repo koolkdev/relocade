@@ -6,7 +6,7 @@ use crate::support::{
     machine::{Exit, Step},
     x87::{stack_image, write_register_bits},
 };
-use relocade_x86::{ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{ExecutionProfile, SegmentProfile};
 
 const BITS: u128 = 0x7f800001_80000000_01234567_89abcdef;
 const FORMS: &[(&[u8], usize, bool)] = &[
@@ -126,7 +126,7 @@ fn real_mode(frontend: Frontend) {
         // under a 16-bit code default, and P66 still selects the XMM variant.
         let code = [&[0x67][..], form].concat();
         let mut image = stack_image(&code, 5, 0xaaaa);
-        image.cpu.segments = Segments::real_mode();
+        image.initialize_real_mode();
         image.cpu.segments.ds.selector = 0x400;
         image.cpu.segments.ds.base = 0x4000;
         image.cpu.registers.eax = 0x10;
