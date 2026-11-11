@@ -151,7 +151,7 @@ duration. The host clock is constructed in the factory.
 The lower-level `Runner::with_guest_time` takes the same configuration directly.
 
 ```rust
-let cpu = machine.create_cpu(cpu_config)?;
+let cpu = machine.create_cpu(cpu_config, &compiler)?;
 let worker = cpu.spawn_with_guest_time(
     move || GuestTimeConfig::new(instructions_per_second)
         .with_slice_duration(Duration::from_millis(4))
@@ -357,7 +357,7 @@ For a busy execution worker, bind its notification resource on the timer worker:
 
 ```rust,ignore
 let (handle, driver) = relocade_machine::timer_service();
-let cpu = machine.create_cpu(cpu_config)?;
+let cpu = machine.create_cpu(cpu_config, &compiler)?;
 let execution = cpu.spawn(handle, session);
 let timers = driver.spawn_with_peer(execution.wake_peer());
 let result = execution.join().await;

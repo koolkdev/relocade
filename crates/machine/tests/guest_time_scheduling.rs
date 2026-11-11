@@ -59,8 +59,8 @@ async fn unpaced_slice_overshoot(compiler: &relocade_machine::CompilerService) {
         ),
     ] {
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
@@ -144,8 +144,8 @@ impl Device for Deadlines {
 async fn deadlines_and_final_exit(compiler: &relocade_machine::CompilerService) {
     for final_exit in [false, true] {
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
         let worker = prepared.spawn_with_guest_time(
             || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -215,8 +215,8 @@ impl Device for Periodic {
 async fn retained_service(compiler: &relocade_machine::CompilerService) {
     let (host_time, timers) = timer_service();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -267,8 +267,8 @@ async fn retained_service(compiler: &relocade_machine::CompilerService) {
 
 async fn unpaced_idle_service(compiler: &relocade_machine::CompilerService) {
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -383,8 +383,8 @@ async fn immediate_exit(mut runner: Runner) {
 
 async fn terminal_exit_without_notifications(compiler: &relocade_machine::CompilerService) {
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |runner| immediate_exit(runner).await,
@@ -392,8 +392,8 @@ async fn terminal_exit_without_notifications(compiler: &relocade_machine::Compil
     assert_eq!(worker.join().await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
         async |runner| immediate_exit(runner).await,

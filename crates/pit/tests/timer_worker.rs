@@ -70,7 +70,6 @@ async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Resul
                 .unwrap(),
         )
         .unwrap(),
-        compiler,
     )
     .unwrap();
     let cpu_config = CpuConfig::new(
@@ -82,7 +81,7 @@ async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Resul
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let (pic, pic_connection) = Pic::initialize(&runner).await;
         let (_pit, pit_connection) = Pit::initialize(&runner, &pic).await;

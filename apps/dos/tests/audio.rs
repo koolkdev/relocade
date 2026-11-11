@@ -34,10 +34,9 @@ async fn exercise(compiler: &relocade_machine::CompilerService) {
         let (stage_changed, stages) = async_channel::bounded(2);
         let (keys, input) = async_channel::bounded(1);
         let mut machine =
-            relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
-                .unwrap();
+            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
         let prepared = machine
-            .create_cpu(relocade_dos::configuration::cpu())
+            .create_cpu(relocade_dos::configuration::cpu(), compiler)
             .unwrap();
         let worker = prepared.spawn(clock, async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();

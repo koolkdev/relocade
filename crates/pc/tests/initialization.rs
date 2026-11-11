@@ -18,10 +18,9 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn bios_without_dos(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), compiler)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -83,10 +82,9 @@ async fn bios_without_dos(compiler: &relocade_machine::CompilerService) {
 
 async fn default_exceptions(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), compiler)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -134,10 +132,9 @@ async fn default_exceptions(compiler: &relocade_machine::CompilerService) {
 
 async fn absent_services(compiler: &relocade_machine::CompilerService) {
     let clock = ManualClock::default();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), compiler)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)

@@ -7,11 +7,8 @@ use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
 
 fn cpu(compiler: &relocade_machine::CompilerService) -> (Machine, CpuHandle) {
-    let mut machine = Machine::new(
-        MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap(),
-        compiler,
-    )
-    .unwrap();
+    let mut machine =
+        Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
     let cpu = machine
         .create_cpu(
             CpuConfig::new(
@@ -22,6 +19,7 @@ fn cpu(compiler: &relocade_machine::CompilerService) -> (Machine, CpuHandle) {
                 },
             )
             .unwrap(),
+            compiler,
         )
         .unwrap();
     (machine, cpu)

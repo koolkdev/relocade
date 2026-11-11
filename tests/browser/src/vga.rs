@@ -30,7 +30,7 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
         .unwrap(),
     )
     .unwrap();
-    let mut machine = relocade_machine::Machine::new(config, compiler).unwrap();
+    let mut machine = relocade_machine::Machine::new(config).unwrap();
     let cpu_config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -40,7 +40,7 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
     let cpu_task = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());

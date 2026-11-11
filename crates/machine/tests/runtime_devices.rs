@@ -82,8 +82,8 @@ async fn check_devices(compiler: &relocade_machine::CompilerService) {
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_clock(
         {
             let controller = clock.clone();
@@ -154,8 +154,8 @@ async fn check_devices(compiler: &relocade_machine::CompilerService) {
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_clock::<()>(
         move || clock.clock(),
         async move |runner| {

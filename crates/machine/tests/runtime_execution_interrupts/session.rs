@@ -76,8 +76,8 @@ async fn connected_input(compiler: &relocade_machine::CompilerService) {
             let (send, mut input) = mpsc::unbounded();
             let (start, started) = oneshot::channel();
             let setup = configuration();
-            let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-            let prepared = machine.create_cpu(setup.cpu).unwrap();
+            let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+            let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
             let worker = prepared.spawn(clock, async move |mut runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
@@ -193,8 +193,8 @@ async fn connected_stop(compiler: &relocade_machine::CompilerService) {
     let worker_sent = sent.clone();
     let (report, stopped) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let device = Rc::new(RefCell::new(InputDevice {
             entered: Some(entered),
@@ -257,8 +257,8 @@ async fn saturated_count(compiler: &relocade_machine::CompilerService) {
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
-    let mut machine = relocade_machine::Machine::new(config.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(config.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
+    let prepared = machine.create_cpu(config.cpu, compiler).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         runner.attach_io(IoBus::default());
         let exit = runner.cpu().exit_handle();
@@ -304,8 +304,8 @@ async fn notified_reentry(compiler: &relocade_machine::CompilerService) {
     for nested in [false, true] {
         let (clock, _timers) = timer_service();
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-        let prepared = machine.create_cpu(setup.cpu).unwrap();
+        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
             let io = IoBus::new([runner

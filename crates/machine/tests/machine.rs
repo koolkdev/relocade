@@ -14,7 +14,7 @@ use std::{pin::pin, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn setup(compiler: &relocade_machine::CompilerService) -> (Machine, CpuConfig) {
+fn setup() -> (Machine, CpuConfig) {
     let map = PhysicalMemoryMap::new([(
         0..=0xfff,
         PhysicalMapping::Ram {
@@ -22,7 +22,7 @@ fn setup(compiler: &relocade_machine::CompilerService) -> (Machine, CpuConfig) {
         },
     )])
     .unwrap();
-    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap(), compiler).unwrap();
+    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -36,9 +36,9 @@ fn setup(compiler: &relocade_machine::CompilerService) -> (Machine, CpuConfig) {
 }
 
 async fn prepared_cpus(compiler: &relocade_machine::CompilerService) {
-    let (mut machine, config) = setup(compiler);
-    let first = machine.create_cpu(config).unwrap();
-    let second = machine.create_cpu(config).unwrap();
+    let (mut machine, config) = setup();
+    let first = machine.create_cpu(config, compiler).unwrap();
+    let second = machine.create_cpu(config, compiler).unwrap();
     machine.cpus()[0].set_ax(0x1234);
     machine.cpus()[1].set_ax(11);
     // INC AX; MOV [0080],AX; JMP 0100. The requested interrupt ends the block.
@@ -107,8 +107,8 @@ async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
 }
 
 async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
-    let (mut machine, config) = setup(compiler);
-    let prepared = machine.create_cpu(config).unwrap();
+    let (mut machine, config) = setup();
+    let prepared = machine.create_cpu(config, compiler).unwrap();
     machine.cpus()[0].set_ax(41);
     machine
         .memory()
@@ -143,7 +143,7 @@ async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
     assert_eq!(machine.cpus()[0].ax(), 42);
 
     let (armed, stop) = futures_channel::oneshot::channel();
-    let prepared = machine.create_cpu(config).unwrap();
+    let prepared = machine.create_cpu(config, compiler).unwrap();
     let result = prepared
         .run_until(stop, async move |runner| {
             let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));

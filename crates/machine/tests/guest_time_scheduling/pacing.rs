@@ -19,8 +19,8 @@ async fn late_host_wake(compiler: &relocade_machine::CompilerService) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
@@ -127,8 +127,8 @@ async fn replace_idle_deadline(compiler: &relocade_machine::CompilerService) {
     let (replace, replacement) = oneshot::channel();
     let (replaced, replacement_done) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
@@ -178,8 +178,8 @@ async fn cancelled_run_rebinds(compiler: &relocade_machine::CompilerService) {
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
@@ -277,8 +277,8 @@ async fn busy_bursts(compiler: &relocade_machine::CompilerService) {
     let host_time = host.clone();
     let (stop, stopped) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(750).unwrap())
@@ -338,8 +338,8 @@ async fn ready_service_during_pacing(compiler: &relocade_machine::CompilerServic
     let host_time = host.clone();
     let (complete, completion) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {

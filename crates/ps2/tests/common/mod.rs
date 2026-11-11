@@ -9,11 +9,8 @@ pub async fn runner(
     clock: Clock,
     compiler: &relocade_machine::CompilerService,
 ) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
-    let mut machine = Machine::new(
-        MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap(),
-        compiler,
-    )
-    .unwrap();
+    let mut machine =
+        Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
     let cpu = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -22,7 +19,7 @@ pub async fn runner(
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu).unwrap();
+    let prepared = machine.create_cpu(cpu, compiler).unwrap();
     let (host, endpoint) = wake_connection(prepared.interrupt_handle());
     (
         Runner::new(clock, prepared, endpoint).await.unwrap(),

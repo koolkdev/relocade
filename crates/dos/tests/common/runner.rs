@@ -12,10 +12,9 @@ pub async fn runner(
     clock: Clock,
     compiler: &relocade_machine::CompilerService,
 ) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
-    let mut machine =
-        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler).unwrap();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu())
+        .create_cpu(relocade_pc::configuration::cpu(), compiler)
         .unwrap();
     let (host, endpoint) = wake_connection(prepared.interrupt_handle());
     (

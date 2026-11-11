@@ -10,9 +10,9 @@ fn speaker_ports_work_without_output_and_survive_process_launches() {
 
 async fn speaker_ports(compiler: &relocade_machine::CompilerService) {
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), compiler)
         .unwrap();
     let result = prepared
         .run_until(std::future::pending::<()>(), async |runner| {

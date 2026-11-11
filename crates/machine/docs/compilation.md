@@ -1,6 +1,6 @@
 # Background compilation
 
-Start one `CompilerService` and use it to construct each Machine. The service owns
+Start one `CompilerService` and connect each CPU to it. The service owns
 its coordinator worker, backend compiler and Rust compilation pool. It progresses
 independently; the application does not poll a separate pool driver.
 
@@ -12,30 +12,33 @@ let result = result?;
 shutdown?;
 ```
 
-Here `run_machine` creates `Machine::new(memory_config, compiler)` and awaits
-`Machine::shutdown` after execution finishes. It can create several machines with
-the same service. Machine construction borrows the service only to open a session;
-the Machine retains no borrow. CPU request and result endpoints transfer to their
-execution workers.
+Here `run_machine` creates `Machine::new(memory_config)` and calls
+`machine.create_cpu(cpu_config, compiler)` for each CPU. CPU creation borrows the
+service only to open that CPU's connection. Its request and result endpoints
+transfer with the CPU to its execution worker; the worker communicates directly
+with the service. The Machine retains no service borrow or routing task.
+Await `Machine::shutdown` after execution finishes. Several Machines can use
+the same service.
 
 `CompilerService::start()` defaults to half the available logical parallelism,
 rounded down, with at least one pool worker. Native builds use the OS parallelism
 hint; browsers use `navigator.hardwareConcurrency`. If unavailable, the default
 is one. `start_with_workers(NonZeroUsize)` supplies an explicit pool size.
 
-Each Machine opens a lightweight session in the service and transfers its shared
-guest memory once. A session captures requested blocks and calls x86's
+Each CPU connection transfers a handle to its Machine's shared guest memory once;
+requests carry addresses and bounds rather than memory bytes. The service
+captures requested blocks and calls x86's
 `Compiler::compile_blocks_with` with the internal pool. x86 owns decoding, program
 construction and the returned bytes, entry metadata and execution target. IR
 construction, placement and Wasm emission use pool jobs. The service compiles the
 emitted Wasm with its backend compiler and returns the module. The pool limits
 concurrent Rust jobs; backend engine parallelism remains separate.
 
-Sessions are async tasks on the service worker, not extra workers per Machine.
-They keep their memory sources and ordered request streams independent while
-sharing compilation capacity. Construction stays synchronous; connections and
-requests can queue during startup. Every request supplies its execution target.
-Creating another CPU or Machine does not create another pool.
+Each connection has an async request loop on the service worker. Connections keep
+their memory sources and ordered request streams independent while sharing
+compilation capacity. CPU creation stays synchronous; connections and requests can
+queue during startup. Every request supplies its execution target. Creating
+another CPU or Machine does not create another pool.
 
 The service owns compilation and delivery. Hotness, candidate selection, code
 validity, installation, and future module caching or sharing between CPUs belong
@@ -56,13 +59,14 @@ rules. Each CPU gets its own instance. Pending or parked host services must fini
 before installation. Code discovery, hotness and invalidation remain separate;
 callers keep code and mappings stable through compilation and installed use.
 
-Dropping a connection closes its request stream. The worker drains that stream
-and releases its reply sender and wake binding. Unused CPU handles require no
-startup acknowledgement.
+Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
+that stream and releases its reply sender and wake binding. Unused CPU handles
+require no startup acknowledgement.
 Await `Machine::shutdown` after joining execution workers, or join them separately
-while shutting down. Shutdown closes that session’s incoming connections and
-request inboxes, drains accepted work and acknowledges completion. Other Machines
-continue using the service.
+while shutting down. The Machine closes all its CPUs' request streams and waits
+for every connection to drain accepted work, including when one reports an error.
+Dropping the Machine also closes those streams; awaiting shutdown additionally
+waits for completion. Other Machines continue using the service.
 
 After all Machines finish, await `CompilerService::shutdown`. It closes admission,
 drains the pool and joins its workers. Dropping the service

@@ -57,7 +57,7 @@ impl Drop for ProgressDevice {
     }
 }
 
-fn machine(compiler: &relocade_machine::CompilerService) -> (relocade_machine::Machine, CpuConfig) {
+fn machine() -> (relocade_machine::Machine, CpuConfig) {
     let machine = relocade_machine::Machine::new(
         MachineConfig::new(
             0x1000,
@@ -65,7 +65,6 @@ fn machine(compiler: &relocade_machine::CompilerService) -> (relocade_machine::M
                 .unwrap(),
         )
         .unwrap(),
-        compiler,
     )
     .unwrap();
     let config = CpuConfig::new(
@@ -93,8 +92,8 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
         let stop = async {
             assert_eq!(ticks.await.unwrap(), if pending_service { 2 } else { 1 });
         };
-        let (mut machine, cpu_config) = machine(compiler);
-        let prepared = machine.create_cpu(cpu_config).unwrap();
+        let (mut machine, cpu_config) = machine();
+        let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
         let worker = prepared.run_until(stop, async move |mut runner| {
             EXECUTION_OWNER.set(true);
             let memory = runner.memory();
@@ -149,8 +148,8 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
             .await
             .map_err(|error| error.to_string())?;
     }
-    let (mut machine, cpu_config) = machine(compiler);
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let (mut machine, cpu_config) = machine();
+    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
     let result = prepared
         .run_until(pending::<()>(), async |runner| {
             runner.clock().sleep(Duration::from_millis(1)).await;

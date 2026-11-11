@@ -35,7 +35,6 @@ async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
                 .unwrap(),
         )
         .unwrap(),
-        compiler,
     )
     .unwrap();
     let cpu_config = CpuConfig::new(
@@ -47,7 +46,7 @@ async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config).unwrap();
+    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let (pit, pit_device) =
             relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;

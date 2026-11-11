@@ -52,9 +52,9 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
     let (second_done, second_exit) = oneshot::channel();
     let (clock, timers) = timer_service();
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), compiler)
         .unwrap();
     let execution = prepared.spawn(clock, async move |runner| {
         let mut dos = Dos::new(runner).await.unwrap();

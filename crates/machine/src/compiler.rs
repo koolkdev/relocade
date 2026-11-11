@@ -1,12 +1,12 @@
 //! Shared compilation service over each machine's guest memory.
 
 mod client;
+mod connection;
 mod service;
-mod session;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
+pub(crate) use connection::Connection;
 pub use service::CompilerService;
-pub(crate) use session::Session;
 
 use crate::{worker::Transfer, Cpu, DispatchEntry, Error, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};

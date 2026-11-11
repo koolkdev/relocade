@@ -18,11 +18,11 @@ impl Device for BusyDevice {
 }
 
 async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
-    let (mut machine, config) = setup(compiler);
+    let (mut machine, config) = setup();
     let memory = machine.memory();
     memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap(); // INC AX; JMP 0100
     memory.view().write(0x200, &[0xbb, 42, 0, 0xeb, 0]).unwrap(); // MOV BX,42; JMP 0205
-    let cpu = machine.create_cpu(config).unwrap();
+    let cpu = machine.create_cpu(config, compiler).unwrap();
     let execution = cpu
         .run_until(
             futures_timer::Delay::new(Duration::from_secs(20)),

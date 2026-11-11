@@ -23,8 +23,8 @@ impl Device for IdleDevice {
 async fn idle_devices(compiler: &relocade_machine::CompilerService) {
     let (clock, _timers) = timer_service();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine, compiler).unwrap();
-    let prepared = machine.create_cpu(setup.cpu).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         // INC AX; JMP 0200, where the host service completes this guest run.
         prepare_cpu(&mut runner, &[0x40, 0xe9, 0xfc, 0], true, IoBus::default()).await;

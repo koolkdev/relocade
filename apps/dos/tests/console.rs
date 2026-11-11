@@ -16,9 +16,9 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
 async fn console_session(compiler: &relocade_machine::CompilerService) {
     let prompt_row = 6;
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), compiler)
         .unwrap();
     let console = prepared.run_until(std::future::pending::<()>(), async move |runner| {
         let clock = runner.clock().clone();

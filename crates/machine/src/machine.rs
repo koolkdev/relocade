@@ -4,27 +4,26 @@ mod cpu;
 pub use cpu::CpuHandle;
 
 use crate::{CompilerService, CpuConfig, CpuStateAccess, MachineConfig, Memory, Result};
+use futures_util::future::join_all;
 
-/// Owns guest memory, its compilation session and every CPU's state.
+/// Owns guest memory, every CPU's state and their compiler connection lifetimes.
 /// CPU handles grant execution access once; the machine retains state after the
 /// worker finishes. Backends and devices are constructed on execution workers.
 pub struct Machine {
     memory: Memory,
     cpus: Vec<CpuStateAccess>,
-    compiler: crate::compiler::Session,
+    compiler_connections: Vec<crate::compiler::Connection>,
 }
 
 impl Machine {
-    /// Allocates shared memory and connects to the shared compiler service.
-    /// CPU connections and compilation requests can queue while the service starts.
+    /// Allocates shared memory before creating CPUs and connecting them to a compiler.
     /// Await [`Self::shutdown`] after execution owners have finished.
-    pub fn new(config: MachineConfig, compiler: &CompilerService) -> Result<Self> {
+    pub fn new(config: MachineConfig) -> Result<Self> {
         let memory = Memory::new(config)?;
-        let compiler = crate::compiler::Session::new(memory.clone(), compiler)?;
         Ok(Self {
             memory,
             cpus: Vec::new(),
-            compiler,
+            compiler_connections: Vec::new(),
         })
     }
 
@@ -33,12 +32,18 @@ impl Machine {
     }
 
     /// Creates and initializes one CPU without starting guest execution.
+    /// Its direct connection can queue requests while the compiler service starts.
     /// Move the returned handle to its execution worker. State is appended to
     /// [`Self::cpus`] and remains available after that worker is joined.
-    pub fn create_cpu(&mut self, config: CpuConfig) -> Result<CpuHandle> {
-        let compiler = self.compiler.connect()?;
-        let (cpu, state) = CpuHandle::new(self.memory(), config, compiler)?;
+    pub fn create_cpu(
+        &mut self,
+        config: CpuConfig,
+        compiler: &CompilerService,
+    ) -> Result<CpuHandle> {
+        let (connection, endpoint) = crate::compiler::Connection::new(self.memory(), compiler)?;
+        let (cpu, state) = CpuHandle::new(self.memory(), config, endpoint)?;
         self.cpus.push(state);
+        self.compiler_connections.push(connection);
         Ok(cpu)
     }
 
@@ -54,6 +59,13 @@ impl Machine {
     /// Other machines can continue using the compiler service.
     /// Other execution owners must already be stopped or be joined independently.
     pub async fn shutdown(self) -> Result<()> {
-        self.compiler.shutdown().await
+        join_all(
+            self.compiler_connections
+                .into_iter()
+                .map(|connection| connection.shutdown()),
+        )
+        .await
+        .into_iter()
+        .collect()
     }
 }

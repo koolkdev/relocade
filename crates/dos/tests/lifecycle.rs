@@ -22,10 +22,9 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
 
     pollster::block_on(compilation::run(async |compiler| {
         let mut machine =
-            relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler)
-                .unwrap();
+            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
         let prepared = machine
-            .create_cpu(relocade_dos::configuration::cpu())
+            .create_cpu(relocade_dos::configuration::cpu(), compiler)
             .unwrap();
         let worker = prepared.spawn_with_guest_time(
             || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),

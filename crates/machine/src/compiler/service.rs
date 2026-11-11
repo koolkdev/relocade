@@ -1,4 +1,4 @@
-use super::session::Start;
+use super::connection::Start;
 use crate::{
     worker::{self, Pool, PoolHandle, Receiver, ReceiverEndpoint, Sender, Thread, Worker},
     Result,
@@ -41,7 +41,7 @@ impl CompilerService {
         })
     }
 
-    /// Closes machine admission and joins the service and pool after draining.
+    /// Closes CPU admission and joins the service and pool after draining.
     /// All machines must shut down first.
     pub async fn shutdown(self) -> Result<()> {
         drop(self.inputs);
@@ -72,19 +72,19 @@ async fn serve(
     compiler: relocade_wasm_runtime::Compiler,
     jobs: PoolHandle,
 ) -> Result<()> {
-    let mut sessions = FuturesUnordered::new();
+    let mut connections = FuturesUnordered::new();
     loop {
-        let next = if sessions.is_empty() {
+        let next = if connections.is_empty() {
             incoming.recv().await
         } else {
-            match select(pin!(incoming.recv()), sessions.next()).await {
+            match select(pin!(incoming.recv()), connections.next()).await {
                 Either::Left((next, _)) => next,
                 Either::Right(_) => continue,
             }
         };
         let Some(start) = next else { break };
-        sessions.push(start?.serve(&compiler, &jobs));
+        connections.push(start?.serve(&compiler, &jobs));
     }
-    while sessions.next().await.is_some() {}
+    while connections.next().await.is_some() {}
     Ok(())
 }

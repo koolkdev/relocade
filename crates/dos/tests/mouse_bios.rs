@@ -27,9 +27,9 @@ async fn run_mouse(
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), compiler)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         move || worker_clock.clock(),

@@ -25,9 +25,9 @@ async fn run_hardware(
     compiler: &relocade_machine::CompilerService,
 ) {
     let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory(), compiler).unwrap();
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu())
+        .create_cpu(relocade_dos::configuration::cpu(), compiler)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
