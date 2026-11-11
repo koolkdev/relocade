@@ -47,44 +47,49 @@ fn controller() -> (Fixture, relocade_pic::Pic) {
 }
 
 fn poll(pic: &mut relocade_pic::Pic) -> Poll<u8> {
-    pic.poll_interrupt(&mut Context::from_waker(Waker::noop()))
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        pic.poll_interrupt(context.reborrow(), &mut Context::from_waker(Waker::noop()))
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn each_output_byte_has_an_irq_and_reads_preserve_the_data_latch() {
-    let (mut controller, mut pic) = controller();
-    event(&mut controller, key(KeyCode::ArrowUp, true));
-    for expected in [0xe0, 0x48] {
-        assert_ne!(controller.status() & 1, 0);
-        assert_eq!(poll(&mut pic), Poll::Ready(9));
-        assert_eq!(controller.read_unpolled(), expected);
-        assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let (mut controller, mut pic) = controller();
+        event(&mut controller, key(KeyCode::ArrowUp, true));
+        for expected in [0xe0, 0x48] {
+            assert_ne!(controller.status() & 1, 0);
+            assert_eq!(poll(&mut pic), Poll::Ready(9));
+            assert_eq!(controller.read_unpolled(), expected);
+            assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+            assert_eq!(
+                controller.read_unpolled(),
+                expected,
+                "a chained reader sees the latch"
+            );
+            assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
+            controller.settle();
+            assert_eq!(poll(&mut pic), Poll::Pending, "next byte waits for EOI");
+            pic.write_port(context.reborrow(), relocade_pic::COMMAND_PORT, 1, 0x20);
+            // Non-specific EOI.
+        }
+        assert_eq!(controller.status() & 1, 0);
+        assert_eq!(poll(&mut pic), Poll::Pending);
         assert_eq!(
-            controller.read_unpolled(),
-            expected,
-            "a chained reader sees the latch"
+            controller.read_data(),
+            0x48,
+            "an empty output still exposes its last value"
         );
         assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-        controller.settle();
-        assert_eq!(poll(&mut pic), Poll::Pending, "next byte waits for EOI");
-        pic.write_port(relocade_pic::COMMAND_PORT, 1, 0x20); // Non-specific EOI.
-    }
-    assert_eq!(controller.status() & 1, 0);
-    assert_eq!(poll(&mut pic), Poll::Pending);
-    assert_eq!(
-        controller.read_data(),
-        0x48,
-        "an empty output still exposes its last value"
-    );
-    assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
-    assert_eq!(
-        poll(&mut pic),
-        Poll::Pending,
-        "rereading does not raise an IRQ"
-    );
-    event(&mut controller, key(KeyCode::ArrowUp, false));
-    assert_eq!(drain(&mut controller), [0xe0, 0xc8]);
+        assert_eq!(
+            poll(&mut pic),
+            Poll::Pending,
+            "rereading does not raise an IRQ"
+        );
+        event(&mut controller, key(KeyCode::ArrowUp, false));
+        assert_eq!(drain(&mut controller), [0xe0, 0xc8]);
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

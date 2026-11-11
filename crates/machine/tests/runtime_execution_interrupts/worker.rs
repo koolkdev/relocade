@@ -2,7 +2,7 @@ use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
     worker::{Receiver, Thread},
-    CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, MachineConfig,
+    CpuConfig, CpuStorage, Device, DeviceConnection, ExecutionInterrupt, IoContext, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -58,7 +58,7 @@ async fn prepared_cpu_storage_preserves_notifications_across_worker_construction
 }
 
 impl Device for Started {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         self.0.take().unwrap().send(()).unwrap();
     }
 }

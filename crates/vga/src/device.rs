@@ -6,7 +6,7 @@ use crate::{
     registers::{dispi, WriteKind, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT},
     Vga,
 };
-use relocade_machine::Device;
+use relocade_machine::{Device, IoContext};
 use std::{cell::RefCell, rc::Rc};
 
 impl Device for Vga {
@@ -14,18 +14,18 @@ impl Device for Vga {
         output::run(device).await;
     }
 
-    fn read_mmio(&mut self, address: u32, bytes: u8) -> u64 {
+    fn read_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
         let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
         self.memory.read(address, bytes, access)
     }
 
-    fn write_mmio(&mut self, address: u32, bytes: u8, value: u64) {
+    fn write_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         self.capture_if_due();
         let access = VramAccess::new(&self.setup, &self.registers, &self.dispi);
         self.memory.write(address, bytes, value, access);
     }
 
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         if dispi::PORT_RANGE.contains(&port) {
             return if self.setup.enabled() {
                 self.dispi.read_port(port, bytes)
@@ -53,7 +53,7 @@ impl Device for Vga {
         u32::from_le_bytes(value)
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         if dispi::PORT_RANGE.contains(&port) {
             if !self.setup.enabled() {
                 return;

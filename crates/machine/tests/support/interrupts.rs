@@ -1,4 +1,4 @@
-use relocade_machine::Device;
+use relocade_machine::{Device, IoContext};
 use std::task::{Context, Poll, Waker};
 
 #[derive(Default)]
@@ -18,11 +18,11 @@ impl Irq {
 }
 
 impl Device for Irq {
-    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
         self.raise();
     }
 
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         if std::mem::take(&mut self.pending) {
             self.acknowledged += 1;
             Poll::Ready(0x60)

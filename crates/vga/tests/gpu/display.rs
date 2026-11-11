@@ -9,6 +9,8 @@ use relocade_vga::{
 };
 
 async fn check_display() {
+    let device_io = relocade_machine::IoBus::default();
+
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
@@ -25,7 +27,10 @@ async fn check_display() {
     // The host can cancel an input wait to service a redraw without losing input.
     assert!(display.service(&queue).now_or_never().is_none());
     clock.advance_to(clock.at(common::boundary(1)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     assert!(
@@ -52,7 +57,10 @@ async fn check_display() {
     );
     for frame in 2..=7 {
         clock.advance_to(clock.at(common::boundary(frame)));
-        vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        device_io.with_context(|context| {
+            vga.borrow_mut()
+                .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+        });
         common::service_video(video.as_mut());
         assert!(display.service(&queue).now_or_never().is_none());
     }
@@ -75,17 +83,26 @@ async fn check_display() {
 
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 1);
     clock.advance_to(clock.at(common::boundary(9)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     // Publication alone cannot change the state used by independent redraws.
     // The later capture becomes visible only after it has been serviced.
     set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 2);
     clock.advance_to(clock.at(common::boundary(10)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     clock.advance_to(clock.at(common::boundary(11)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     let pixels = read_pixels(&device, &queue, image.texture()).await;
     assert_eq!(
@@ -156,6 +173,8 @@ async fn display_connection_services_updates_and_reuses_decoded_pixels() {
 }
 
 async fn check_display_state_changes() {
+    let device_io = relocade_machine::IoBus::default();
+
     let instance = wgpu::Instance::default();
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
@@ -182,7 +201,10 @@ async fn check_display_state_changes() {
         (32, true, [170, 0, 0, 255], [0, 170, 0, 255]),
     ] {
         clock.advance_to(clock.at(common::boundary(frame)));
-        vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+        device_io.with_context(|context| {
+            vga.borrow_mut()
+                .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+        });
         common::service_video(video.as_mut());
         if changed {
             assert_eq!(display.service(&queue).await, Some(true));
@@ -200,7 +222,10 @@ async fn check_display_state_changes() {
     // Palette and geometry changes must also redraw with unchanged VRAM.
     common::support::registers::palette(&mut *vga.borrow_mut(), 4, [0, 0, 63]);
     clock.advance_to(clock.at(common::boundary(33)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -223,7 +248,10 @@ async fn check_display_state_changes() {
         retrace_end,
     );
     clock.advance_to(clock.at(common::boundary(34)));
-    vga.borrow_mut().read_port(COLOR_INPUT_STATUS_1_PORT, 1);
+    device_io.with_context(|context| {
+        vga.borrow_mut()
+            .read_port(context, COLOR_INPUT_STATUS_1_PORT, 1)
+    });
     common::service_video(video.as_mut());
     assert_eq!(display.service(&queue).await, Some(true));
     let mut encoder = device.create_command_encoder(&Default::default());

@@ -11,6 +11,8 @@ use relocade_machine::Device;
 use relocade_vga::Vga;
 
 async fn check_pixels() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
@@ -21,7 +23,7 @@ async fn check_pixels() {
         .collect();
     write_pixels(&mut *vga.borrow_mut(), &indices);
     clock.advance_to(clock.at(common::dots(490 * 800, 25_175_000))); // 640×480 retrace.
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     let source = vga.borrow().frames();
     let first = source.try_recv().unwrap();
@@ -32,11 +34,11 @@ async fn check_pixels() {
     // This uses the same published dirty-page path as text and eight-bit pixels.
     indexed(&mut *vga.borrow_mut(), 0x3ce, 5, 2);
     indexed(&mut *vga.borrow_mut(), 0x3ce, 8, 0x20);
-    vga.borrow_mut().read_mmio(0xa0000 + 12345, 1);
-    vga.borrow_mut().write_mmio(0xa0000 + 12345, 1, 3);
+    device_io.with_context(|context| vga.borrow_mut().read_mmio(context, 0xa0000 + 12345, 1));
+    device_io.with_context(|context| vga.borrow_mut().write_mmio(context, 0xa0000 + 12345, 1, 3));
     indices[12345 * 8 + 2] = 3;
     clock.advance_to(clock.at(common::dots((490 + 525) * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     gpu.expect(
         &source.try_recv().unwrap(),
@@ -53,7 +55,7 @@ async fn check_pixels() {
     attribute(&mut *vga.borrow_mut(), 0x12, 5);
     attribute(&mut *vga.borrow_mut(), 0x10, 0x81);
     attribute(&mut *vga.borrow_mut(), 0x14, 0x0d);
-    vga.borrow_mut().write_port(0x3c6, 1, 0x7f);
+    device_io.with_context(|context| vga.borrow_mut().write_port(context, 0x3c6, 1, 0x7f));
     let expected = pixels(
         indices
             .iter()
@@ -67,13 +69,15 @@ async fn check_pixels() {
 }
 
 async fn check_addressing() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
     let mut vga = Vga::with_clock(clock.clock());
     program(&mut vga);
     indexed(&mut vga, 0x3d4, 13, 1);
     clock.advance_to(clock.at(common::dots(490 * 800, 25_175_000)));
-    vga.read_port(0x3da, 1); // Latch the start before changing the viewport.
+    device_io.with_context(|context| vga.read_port(context, 0x3da, 1)); // Latch the start before changing the viewport.
     load_palette(&mut vga);
     // A 16-pixel window into rows with a 32-pixel stride; two scanlines per row.
     for (index, value) in [(1, 1), (7, 0), (9, 1), (13, 1), (0x12, 3), (0x13, 2)] {

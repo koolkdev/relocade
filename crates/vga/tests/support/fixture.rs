@@ -4,48 +4,56 @@ use relocade_machine::Device;
 use relocade_vga::registers::text_mode;
 
 pub fn initialize_font(vga: &mut impl Device) {
-    for (port, value) in [
-        (0x3c4, 0x0402),
-        (0x3c4, 0x0604),
-        (0x3ce, 0x0005),
-        (0x3ce, 0x0506),
-    ] {
-        vga.write_port(port, 2, value);
-    }
-    for (character, glyph) in text_mode::FONT.as_chunks::<8>().0.iter().enumerate() {
-        for (row, byte) in glyph.iter().enumerate() {
-            vga.write_mmio(
-                0xa0000 + character as u32 * 32 + row as u32,
-                1,
-                u64::from(*byte),
-            );
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        for (port, value) in [
+            (0x3c4, 0x0402),
+            (0x3c4, 0x0604),
+            (0x3ce, 0x0005),
+            (0x3ce, 0x0506),
+        ] {
+            vga.write_port(context.reborrow(), port, 2, value);
         }
-    }
-    for (port, value) in [
-        (0x3c4, 0x0302),
-        (0x3c4, 0x0204),
-        (0x3ce, 0x1005),
-        (0x3ce, 0x0e06),
-    ] {
-        vga.write_port(port, 2, value);
-    }
+        for (character, glyph) in text_mode::FONT.as_chunks::<8>().0.iter().enumerate() {
+            for (row, byte) in glyph.iter().enumerate() {
+                vga.write_mmio(
+                    context.reborrow(),
+                    0xa0000 + character as u32 * 32 + row as u32,
+                    1,
+                    u64::from(*byte),
+                );
+            }
+        }
+        for (port, value) in [
+            (0x3c4, 0x0302),
+            (0x3c4, 0x0204),
+            (0x3ce, 0x1005),
+            (0x3ce, 0x0e06),
+        ] {
+            vga.write_port(context.reborrow(), port, 2, value);
+        }
+    })
 }
 
 pub fn text_device() -> relocade_vga::Vga {
-    let mut vga =
-        relocade_vga::Vga::with_clock(relocade_clock_test_support::ManualClock::new().clock());
-    initialize_font(&mut vga);
-    for cell in 0..2000 {
-        set_cell(&mut vga, cell, b' ', 7);
-    }
-    vga.write_port(0x3d4, 2, 0x200a);
-    vga
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let mut vga =
+            relocade_vga::Vga::with_clock(relocade_clock_test_support::ManualClock::new().clock());
+        initialize_font(&mut vga);
+        for cell in 0..2000 {
+            set_cell(&mut vga, cell, b' ', 7);
+        }
+        vga.write_port(context.reborrow(), 0x3d4, 2, 0x200a);
+        vga
+    })
 }
 
 pub fn set_cell(vga: &mut impl Device, cell: usize, character: u8, attribute: u8) {
-    vga.write_mmio(
-        0xb8000 + cell as u32 * 2,
-        2,
-        u64::from(u16::from_le_bytes([character, attribute])),
-    );
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        vga.write_mmio(
+            context.reborrow(),
+            0xb8000 + cell as u32 * 2,
+            2,
+            u64::from(u16::from_le_bytes([character, attribute])),
+        );
+    })
 }

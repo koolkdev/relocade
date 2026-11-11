@@ -74,13 +74,19 @@ impl Fixture {
     }
 
     pub fn status(&self) -> u8 {
-        self.device.borrow_mut().read_port(STATUS_COMMAND_PORT, 1) as u8
+        relocade_machine::IoBus::default().with_context(|mut context| {
+            self.device
+                .borrow_mut()
+                .read_port(context.reborrow(), STATUS_COMMAND_PORT, 1) as u8
+        })
     }
 
     pub fn write_unpolled(&mut self, port: u16, value: u8) {
-        self.device
-            .borrow_mut()
-            .write_port(port, 1, u32::from(value));
+        relocade_machine::IoBus::default().with_context(|context| {
+            self.device
+                .borrow_mut()
+                .write_port(context, port, 1, u32::from(value));
+        });
     }
 
     fn write(&mut self, port: u16, value: u8) {
@@ -98,7 +104,11 @@ impl Fixture {
     }
 
     pub fn read_unpolled(&mut self) -> u8 {
-        self.device.borrow_mut().read_port(DATA_PORT, 1) as u8
+        relocade_machine::IoBus::default().with_context(|mut context| {
+            self.device
+                .borrow_mut()
+                .read_port(context.reborrow(), DATA_PORT, 1) as u8
+        })
     }
 
     pub fn read_data(&mut self) -> u8 {

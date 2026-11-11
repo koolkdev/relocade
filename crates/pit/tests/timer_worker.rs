@@ -1,6 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, MachineConfig, Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, IoContext, MachineConfig,
+    Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -29,7 +30,7 @@ struct Reports {
 }
 
 impl Device for Reports {
-    fn write_port(&mut self, port: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, _: u8, _: u32) {
         if port == 0x81 {
             self.ready.take().unwrap().send(()).unwrap();
             // Do not deliver the measured interrupts before the host enters its

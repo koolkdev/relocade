@@ -5,7 +5,7 @@ mod pair;
 
 use controller::{IRQ_COUNT, OCW2_EOI};
 use pair::Pair;
-use relocade_machine::{Device, DeviceConnection, IoBus, Runner};
+use relocade_machine::{Device, DeviceConnection, IoBus, IoContext, Runner};
 use std::{
     cell::RefCell,
     ops::RangeInclusive,
@@ -138,20 +138,20 @@ impl IrqLine {
 }
 
 impl Device for Pic {
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         if bytes != 1 {
             return u32::MAX;
         }
         self.update(|state| state.read_port(port))
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         if bytes == 1 {
             self.update(|state| state.write_port(port, value as u8));
         }
     }
 
-    fn poll_interrupt(&mut self, cx: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         let mut state = self.0.borrow_mut();
         state.waker = Some(cx.waker().clone());
         let vector = state.acknowledge();

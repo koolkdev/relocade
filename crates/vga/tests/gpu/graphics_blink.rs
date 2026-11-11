@@ -11,6 +11,8 @@ use relocade_machine::Device;
 use relocade_vga::Vga;
 
 async fn check_blink() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(Vga::with_clock(clock.clock()));
@@ -22,10 +24,10 @@ async fn check_blink() {
     }
     write_pixels(&mut *vga.borrow_mut(), &(0..16).collect::<Vec<_>>());
     attribute(&mut *vga.borrow_mut(), 0x10, 9);
-    vga.borrow_mut().read_port(0x3da, 1); // Finish register access before the first publication.
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1)); // Finish register access before the first publication.
     common::service_video(video.as_mut());
     clock.advance_to(clock.at(common::dots(490 * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     let source = vga.borrow().frames();
     let on = source.try_recv().unwrap();
@@ -34,19 +36,19 @@ async fn check_blink() {
     gpu.expect(&on, [16, 1], &color_on).await;
 
     clock.advance_to(clock.at(common::dots((490 + 525) * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     assert!(source.is_empty());
     // The cursor phase changes at retrace eight, but graphics use attributes.
     clock.advance_to(clock.at(common::dots((490 + 7 * 525) * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     let cursor_off = source.try_recv().unwrap();
     assert!(!cursor_off.vga().unwrap().cursor_blink_on);
     assert!(cursor_off.vga().unwrap().attribute_blink_on);
     gpu.expect(&cursor_off, [16, 1], &color_on).await;
     clock.advance_to(clock.at(common::dots((490 + 15 * 525) * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     let off = source.try_recv().unwrap();
     assert!(!off.vga().unwrap().attribute_blink_on);
@@ -59,7 +61,7 @@ async fn check_blink() {
     attribute(&mut *vga.borrow_mut(), 0x10, 0x0b); // Monochrome blinks independently of bit 3.
     gpu.expect(&common::snapshot(&vga), [16, 1], &upper).await;
     clock.advance_to(clock.at(common::dots((490 + 31 * 525) * 800, 25_175_000)));
-    vga.borrow_mut().read_port(0x3da, 1);
+    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
     common::service_video(video.as_mut());
     let mono_on = source.try_recv().unwrap();
     assert!(mono_on.vga().unwrap().attribute_blink_on);

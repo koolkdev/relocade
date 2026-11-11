@@ -72,35 +72,37 @@ fn direct_color_layouts_separate_pixel_coordinates_from_byte_offsets() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn virtual_registers_validate_without_changing_the_cpu_bank_or_memory() {
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    set(&mut vga, 6, 1024); // Inactive layout writes are ignored.
-    assert_eq!(get(&mut vga, 6), 0);
-    enable(&mut vga);
-    set(&mut vga, 5, 63);
-    vga.write_mmio(0xaffff, 1, 0xa5);
-    set(&mut vga, 6, 1024);
-    set(&mut vga, 8, 384);
-    set(&mut vga, 9, 3616);
-    for (index, value) in [(6, 1023), (6, 1025), (7, 1), (8, 385), (9, 3617)] {
-        set(&mut vga, index, value);
-    }
-    assert_eq!(
-        (
-            get(&mut vga, 6),
-            get(&mut vga, 7),
-            get(&mut vga, 8),
-            get(&mut vga, 9)
-        ),
-        (1024, 4096, 384, 3616)
-    );
-    assert_eq!(get(&mut vga, 5), 63);
-    assert_eq!(vga.read_mmio(0xaffff, 1), 0xa5);
-    set(&mut vga, 4, 0);
-    set(&mut vga, 4, 0x81);
-    assert_eq!(
-        (get(&mut vga, 6), get(&mut vga, 8), get(&mut vga, 9)),
-        (640, 0, 0)
-    );
-    set(&mut vga, 5, 63);
-    assert_eq!(vga.read_mmio(0xaffff, 1), 0xa5);
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let mut vga = Vga::with_clock(ManualClock::new().clock());
+        set(&mut vga, 6, 1024); // Inactive layout writes are ignored.
+        assert_eq!(get(&mut vga, 6), 0);
+        enable(&mut vga);
+        set(&mut vga, 5, 63);
+        vga.write_mmio(context.reborrow(), 0xaffff, 1, 0xa5);
+        set(&mut vga, 6, 1024);
+        set(&mut vga, 8, 384);
+        set(&mut vga, 9, 3616);
+        for (index, value) in [(6, 1023), (6, 1025), (7, 1), (8, 385), (9, 3617)] {
+            set(&mut vga, index, value);
+        }
+        assert_eq!(
+            (
+                get(&mut vga, 6),
+                get(&mut vga, 7),
+                get(&mut vga, 8),
+                get(&mut vga, 9)
+            ),
+            (1024, 4096, 384, 3616)
+        );
+        assert_eq!(get(&mut vga, 5), 63);
+        assert_eq!(vga.read_mmio(context.reborrow(), 0xaffff, 1), 0xa5);
+        set(&mut vga, 4, 0);
+        set(&mut vga, 4, 0x81);
+        assert_eq!(
+            (get(&mut vga, 6), get(&mut vga, 8), get(&mut vga, 9)),
+            (640, 0, 0)
+        );
+        set(&mut vga, 5, 63);
+        assert_eq!(vga.read_mmio(context.reborrow(), 0xaffff, 1), 0xa5);
+    })
 }
