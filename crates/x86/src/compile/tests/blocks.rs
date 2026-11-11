@@ -3,8 +3,8 @@ use crate::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
-    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel,
-    CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile,
+    BlockCompileError, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel, CpuState,
+    ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -35,35 +35,26 @@ fn entries_report_consumed_spans_in_input_order() {
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(
-        blocks.entries,
+        blocks
+            .entries
+            .iter()
+            .map(|entry| (entry.start_eip, entry.byte_len, entry.export.as_str()))
+            .collect::<Vec<_>>(),
         [
-            BlockEntry {
-                start_eip: u32::MAX,
-                byte_len: 2,
-                export: "block_ffffffff".into(),
-                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
-            },
-            BlockEntry {
-                start_eip: 0x1000,
-                byte_len: 1,
-                export: "block_1000".into(),
-                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
-            },
-            BlockEntry {
-                start_eip: 0x1001,
-                byte_len: 3,
-                export: "block_1001".into(),
-                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
-            },
-            BlockEntry {
-                start_eip: 1,
-                byte_len: 2,
-                export: "block_1".into(),
-                requirements: crate::EntryRequirements::for_profile(compiler.target().profile),
-            },
+            (u32::MAX, 2, "block_ffffffff"),
+            (0x1000, 1, "block_1000"),
+            (0x1001, 3, "block_1001"),
+            (1, 2, "block_1"),
         ]
     );
     Validator::new().validate_all(&blocks.bytes).unwrap();
+    let parallel = parallel_blocks(&compiler, &snapshots);
+    assert_eq!(parallel.bytes, blocks.bytes);
+    assert_eq!(parallel.entries, blocks.entries);
+    assert_eq!(parallel.execution_target, blocks.execution_target);
+}
+
+fn parallel_blocks(compiler: &Compiler, snapshots: &[BlockSnapshot<'_>]) -> crate::CompiledBlocks {
     let (pool, jobs) = relocade_workers::Pool::new(vec![
         relocade_workers::Thread::new(),
         relocade_workers::Thread::new(),
@@ -71,13 +62,70 @@ fn entries_report_consumed_spans_in_input_order() {
     .unwrap();
     let ((), parallel) = pollster::block_on(futures_util::future::join(pool.run(), async move {
         compiler
-            .compile_blocks_with(&snapshots, &jobs)
+            .compile_blocks_with(snapshots, &jobs)
             .await
             .unwrap()
     }));
-    assert_eq!(parallel.bytes, blocks.bytes);
+    parallel
+}
+
+#[test]
+fn entries_record_consumed_segment_facts_and_decode_defaults() {
+    use crate::{CpuMode, EntryFact, Segment, SegmentDefaultSize, SegmentFact};
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let snapshots = [
+        BlockSnapshot {
+            start_eip: 0x1000,
+            bytes: &[0x90],
+            instruction_limit: 1,
+        },
+        BlockSnapshot {
+            start_eip: 0x2000,
+            bytes: &[0x8b, 0x00],
+            instruction_limit: 1,
+        }, // MOV EAX,[EAX]
+        BlockSnapshot {
+            start_eip: 0x3000,
+            bytes: &[0x64, 0x8b, 0x00],
+            instruction_limit: 1,
+        }, // MOV EAX,FS:[EAX]
+    ];
+    let blocks = compiler.compile_blocks(&snapshots).unwrap();
+    let parallel = parallel_blocks(&compiler, &snapshots);
     assert_eq!(parallel.entries, blocks.entries);
-    assert_eq!(parallel.execution_target, blocks.execution_target);
+    assert_eq!(parallel.bytes, blocks.bytes);
+    for entry in &blocks.entries {
+        assert!(entry
+            .requirements
+            .facts()
+            .contains(&EntryFact::Mode(CpuMode::Protected)));
+        assert!(entry
+            .requirements
+            .facts()
+            .contains(&EntryFact::CodeDefaultSize(SegmentDefaultSize::Bits32)));
+        assert!(entry.requirements.matches(&CpuState::default()));
+        assert!(!entry.requirements.facts().iter().any(|fact| matches!(
+            fact,
+            EntryFact::Segment {
+                segment: Segment::Fs,
+                ..
+            }
+        )));
+    }
+    let ds_base = EntryFact::Segment {
+        segment: Segment::Ds,
+        fact: SegmentFact::Base(0),
+    };
+    assert!(!blocks.entries[0].requirements.facts().contains(&ds_base));
+    assert!(blocks.entries[1].requirements.facts().contains(&ds_base));
+    assert!(!blocks.entries[2].requirements.facts().contains(&ds_base));
+    assert!(!blocks.entries[1]
+        .requirements
+        .facts()
+        .contains(&EntryFact::Segment {
+            segment: Segment::Ds,
+            fact: SegmentFact::DefaultSize(SegmentDefaultSize::Bits32),
+        }));
 }
 
 #[test]
@@ -189,13 +237,9 @@ fn entry_boundaries() {
     ];
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(blocks.execution_target, compiler.target());
-    let mut module = TestModule::from_bytes(
-        &blocks.bytes,
-        &blocks.entries[0].export,
-        Some(blocks.execution_target),
-    );
+    let mut module = TestModule::from_blocks(&blocks);
     for (index, (snapshot, entry)) in snapshots.iter().zip(&blocks.entries).enumerate() {
-        module.entry.clone_from(&entry.export);
+        module.select_entry(entry);
         let mut image = Image::empty();
         image.cpu = CpuState {
             eip: snapshot.start_eip,
@@ -323,13 +367,9 @@ fn shared_memory_helpers() {
             function_count(&blocks.bytes),
             function_count(&single.bytes) + 1
         );
-        let mut module = TestModule::from_bytes(
-            &blocks.bytes,
-            &blocks.entries[0].export,
-            Some(blocks.execution_target),
-        );
+        let mut module = TestModule::from_blocks(&blocks);
         for entry in &blocks.entries {
-            module.entry.clone_from(&entry.export);
+            module.select_entry(entry);
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
             image.cpu.eip = entry.start_eip;

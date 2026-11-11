@@ -87,6 +87,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         })
     }
 
+    pub(super) fn with_facts(mut self, facts: crate::profile::ProfileFacts) -> Self {
+        self.segments = self.segments.with_facts(facts);
+        self
+    }
+
     /// Shares runtime controls across both interpreter entry modes and target policies.
     pub(super) fn with_interpreter_controls(mut self, single_step: Val<I1>) -> Self {
         self.single_step = single_step;
@@ -189,7 +194,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.segments.profile()
+        self.segments.facts().profile()
     }
 
     pub(crate) fn target(&self) -> ExecutionTarget {

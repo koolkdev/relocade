@@ -900,8 +900,11 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 entry's CPU-state requirements alongside its code. `EntryRequirements::matches`
 checks a CPU snapshot; `baseline_profile()` exposes the conservative profile
 requirement covering existing helpers and profile-selected behavior, and `facts()`
-exposes individually recorded architectural dependencies. Empty requirements are
-used by helper modules that do not execute x86 instructions. Worker results retain
+exposes individually recorded architectural dependencies. Snapshot decoding records
+mode and code defaults; body generation records the segment constants it reads.
+Each deferred body owns its record, so serial and parallel builds return the same
+per-entry requirements without sharing mutable state between jobs. Empty
+requirements are used by helper modules that do not execute x86 instructions. Worker results retain
 the per-entry requirements, and `CompiledCode::install` checks every entry before
 changing dispatch. Raw module installation and validity after installation remain
 the embedding's responsibility.

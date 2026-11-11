@@ -47,11 +47,17 @@ impl Compiler {
         let cpu = Cpu::declare(&mut program);
         let dispatch = Dispatch::declare(&mut program);
         let profile = self.target.profile;
+        let pending = crate::profile::PendingRequirements::new(
+            crate::EntryRequirements::for_profile(profile),
+        );
+        let body_requirements = pending.clone();
         crate::abi::DISPATCH.define(&mut program, move |mut body, ()| {
-            let eip = cpu.read_eip(&mut body)?;
-            let mut segments = SegmentReads::new(&cpu, profile);
-            let base = segments.base(&mut body, &Segment::Cs.into())?;
-            dispatch.lookup(body, &base.add(eip))
+            body_requirements.build(|facts| {
+                let eip = cpu.read_eip(&mut body)?;
+                let mut segments = SegmentReads::new(&cpu, profile).with_facts(facts);
+                let base = segments.base(&mut body, &Segment::Cs.into())?;
+                dispatch.lookup(body, &base.add(eip))
+            })
         })?;
         crate::abi::INTERPRET.define(&mut program, move |body, ()| {
             dispatch.enter(body, EntryTable::INTERPRETER_SLOT)
@@ -59,7 +65,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
-            requirements: crate::EntryRequirements::for_profile(profile),
+            requirements: pending.finish(),
             execution_target: Some(self.target),
         })
     }

@@ -53,6 +53,7 @@ impl TestModule {
                 }
                 .into(),
                 target: Some(target),
+                requirements: crate::EntryRequirements::for_profile(target.profile),
                 interpreter: None,
             }
         })

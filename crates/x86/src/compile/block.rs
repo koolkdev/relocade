@@ -185,12 +185,7 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<CompiledBlocks, BlockError> {
-        let blocks = BlockModule::build(self, snapshots)?;
-        Ok(CompiledBlocks {
-            bytes: blocks.program.compile()?,
-            entries: blocks.entries,
-            execution_target: self.target,
-        })
+        BlockModule::build(self, snapshots)?.compile()
     }
 
     /// Compiles snapshot blocks using the caller's executor for independent jobs.
@@ -203,11 +198,8 @@ impl Compiler {
         snapshots: &[BlockSnapshot<'_>],
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
-        let blocks = BlockModule::build(self, snapshots)?;
-        Ok(CompiledBlocks {
-            bytes: blocks.program.compile_with(executor).await?,
-            entries: blocks.entries,
-            execution_target: self.target,
-        })
+        BlockModule::build(self, snapshots)?
+            .compile_with(executor)
+            .await
     }
 }

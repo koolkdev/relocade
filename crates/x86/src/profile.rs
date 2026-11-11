@@ -1,6 +1,8 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
+mod facts;
 mod requirements;
+pub(crate) use facts::{PendingRequirements, ProfileFacts};
 pub use requirements::{EntryFact, EntryRequirements, SegmentFact};
 
 pub use relocade_x86_profile::ExecutionProfile;

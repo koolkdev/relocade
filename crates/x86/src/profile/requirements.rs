@@ -74,6 +74,12 @@ impl EntryRequirements {
         }
     }
 
+    pub(crate) fn record(&mut self, fact: EntryFact) {
+        if !self.facts.contains(&fact) {
+            self.facts.push(fact);
+        }
+    }
+
     /// The conservative profile requirement retained during consumer conversion.
     pub fn baseline_profile(&self) -> Option<ExecutionProfile> {
         self.baseline_profile

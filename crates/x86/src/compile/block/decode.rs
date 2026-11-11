@@ -36,15 +36,15 @@ impl DecodedBlock {
         if snapshot.instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
+        let facts = crate::profile::ProfileFacts::tracked(crate::EntryRequirements::for_profile(
+            target.profile,
+        ));
+        let code_size = facts.code_default_size();
         let mut instructions = Vec::new();
         let mut remaining = snapshot.bytes;
         let mut eip = snapshot.start_eip;
         for _ in 0..snapshot.instruction_limit {
-            let (decoded, rest) = crate::decode::snapshot(
-                remaining,
-                eip,
-                crate::SegmentDefaultSize::for_profile(target.profile),
-            )?;
+            let (decoded, rest) = crate::decode::snapshot(remaining, eip, code_size)?;
             eip = decoded.fallthrough_eip;
             remaining = rest;
             let ends_block = decoded.ends_block(target);
@@ -58,7 +58,7 @@ impl DecodedBlock {
                 start_eip: snapshot.start_eip,
                 byte_len: snapshot.bytes.len() - remaining.len(),
                 export: format!("block_{:x}", snapshot.start_eip),
-                requirements: crate::EntryRequirements::for_profile(target.profile),
+                requirements: facts.requirements(),
             },
             instructions,
         })

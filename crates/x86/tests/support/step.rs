@@ -136,20 +136,46 @@ pub(crate) struct TestModule {
     module: Arc<Module>,
     pub(crate) entry: String,
     target: Option<ExecutionTarget>,
+    requirements: crate::EntryRequirements,
     interpreter: Option<&'static TestModule>,
 }
 
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
-        Self::from_bytes(&module.bytes, &module.entry, module.execution_target)
+        Self::from_bytes(
+            &module.bytes,
+            &module.entry,
+            module.execution_target,
+            module.requirements.clone(),
+        )
     }
 
-    /// Selects an execution export from a module with any number of entries.
-    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, target: Option<ExecutionTarget>) -> Self {
+    pub(crate) fn from_blocks(blocks: &crate::CompiledBlocks) -> Self {
+        let entry = &blocks.entries[0];
+        Self::from_bytes(
+            &blocks.bytes,
+            &entry.export,
+            Some(blocks.execution_target),
+            entry.requirements.clone(),
+        )
+    }
+
+    pub(crate) fn select_entry(&mut self, entry: &crate::BlockEntry) {
+        self.entry.clone_from(&entry.export);
+        self.requirements.clone_from(&entry.requirements);
+    }
+
+    fn from_bytes(
+        bytes: &[u8],
+        entry: &str,
+        target: Option<ExecutionTarget>,
+        requirements: crate::EntryRequirements,
+    ) -> Self {
         Self {
             module: Arc::new(Module::new(bytes)),
             entry: entry.into(),
             target,
+            requirements,
             interpreter: None,
         }
     }
@@ -173,6 +199,11 @@ impl TestModule {
             bytes[..crate::CpuState::BYTE_LEN]
                 .try_into()
                 .expect("the CPU image"),
+        );
+        assert!(
+            self.requirements.matches(&cpu),
+            "{} entry requirements",
+            self.entry
         );
         assert!(
             target.is_compatible_with(target, &cpu),
