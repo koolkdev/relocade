@@ -175,7 +175,7 @@ fn native_sums_preserve_extended_range_and_restart() {
             (0xc000_0000_0000_0000, 2),
             (LEADING, 1),
             0,
-            true,
+            false, // The general calculation retains an exact lowest-binade result.
         ),
         (
             0xc1,

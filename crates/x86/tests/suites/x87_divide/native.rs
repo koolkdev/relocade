@@ -122,7 +122,7 @@ fn range_and_restarts() {
             0x3ff0_0000_0000_0000_u64,
             (LEADING, 1),
             0,
-            true,
+            false, // The general calculation handles this exact native-range boundary.
         ),
         (
             (LEADING, 1),
