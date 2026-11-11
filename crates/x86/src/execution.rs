@@ -32,7 +32,8 @@ use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, SegmentReads, State};
 use crate::{
-    address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
+    address::AddressSize, exception::ExceptionValues, CpuObservations, ExecutionProfile,
+    ExecutionTarget,
 };
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -55,7 +56,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     eip: Val<I32>,
     completed: u32,
     can_fallback: bool,
-    observed_cpu: Option<&'module CpuState>,
+    observations: CpuObservations,
 }
 
 impl<'body, 'module> ExecutionBuilder<'body, 'module> {
@@ -83,7 +84,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             eip,
             completed: 0,
             can_fallback: false,
-            observed_cpu: None,
+            observations: CpuObservations::default(),
         })
     }
 
@@ -106,8 +107,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Supplies optional observed values for guarded specialization.
-    pub(super) fn with_observed_cpu(mut self, observed_cpu: Option<&'module CpuState>) -> Self {
-        self.observed_cpu = observed_cpu;
+    pub(super) fn with_observations(mut self, observations: CpuObservations) -> Self {
+        self.observations = observations;
         self
     }
 

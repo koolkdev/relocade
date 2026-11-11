@@ -2,6 +2,8 @@
 
 mod block;
 mod dispatch;
+mod observations;
+pub use observations::{CpuObservations, X87Observations};
 
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
@@ -24,7 +26,7 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 /// ```
 pub struct Compiler {
     target: ExecutionTarget,
-    observed_cpu: Option<CpuState>,
+    observations: CpuObservations,
 }
 
 impl Compiler {
@@ -36,7 +38,7 @@ impl Compiler {
                 cpu_model: CpuModel::default(),
                 instruction_budgets: true,
             },
-            observed_cpu: None,
+            observations: CpuObservations::default(),
         }
     }
 
@@ -72,7 +74,14 @@ impl Compiler {
         self.target
     }
 
-    /// Copies a CPU snapshot for guarded specialization of snapshot blocks.
+    /// Supplies independently optional values for guarded specialization.
+    /// Unknown fields stay dynamic; these hints do not constrain entry admission.
+    pub fn with_observations(mut self, observations: CpuObservations) -> Self {
+        self.observations = observations;
+        self
+    }
+
+    /// Extracts supported observations for guarded specialization of snapshot blocks.
     /// Instruction semantics choose which observations to use and check current
     /// values before effects; a mismatch enters the interpreter. Repeated checks
     /// of unchanged values fold away. Interpreter entries do not use observations.
@@ -85,9 +94,8 @@ impl Compiler {
     /// let block = compiler.compile_block(0x1000, &[0xd8, 0xc9], 1)?;
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
-    pub fn specialize_on_cpu(mut self, cpu: &CpuState) -> Self {
-        self.observed_cpu = Some(*cpu);
-        self
+    pub fn specialize_on_cpu(self, cpu: &CpuState) -> Self {
+        self.with_observations(CpuObservations::from_cpu(cpu))
     }
 }
 

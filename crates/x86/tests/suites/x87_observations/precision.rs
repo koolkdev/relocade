@@ -94,13 +94,12 @@ fn mismatch_restarts_before_arithmetic() {
     }
 }
 
-fn clearing_precision_invalidates_the_guard() {
+fn clearing_precision_restores_live_bookkeeping() {
     let code = [0xd8, 0xc9, 0xdb, 0xe2, 0xd8, 0xc9]; // FMUL; FNCLEX; FMUL
     let compiled = masked_precision_compiler(3, 0)
         .compile_block(0x1000, &code, 3)
         .unwrap();
     let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
     let mut image = stack_image(&code, 0, 0xfff0);
     write_value(&mut image.cpu, 0, (LEADING + 1, 0x3fff));
     write_value(&mut image.cpu, 1, (LEADING + 1, 0x3fff));
@@ -110,23 +109,12 @@ fn clearing_precision_invalidates_the_guard() {
     restart.eip += 2;
     restart.instruction_count = restart.instruction_count.wrapping_add(1);
     restart.x87.status.precision = 0;
-    assert_eq!(
-        block.observe(&image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: restart,
-                ram: &[],
-                exit: Exit::Interpret,
-            }]
-        )
-    );
     let mut result = complete_x87(restart, 2, 0x00c9);
     result.x87.status.precision = 1;
     write_value(&mut result, 0, (LEADING + 3, 0x3fff));
     assert_eq!(
-        linked.observe(&image.input(), 1),
-        step_returns(expected(&image, &[dispatch(result)]))
+        block.observe(&image.input(), 1),
+        expected(&image, &[dispatch(result)])
     );
 }
 
@@ -192,6 +180,6 @@ fn faults_precede_precision_mismatch() {
 fn masked_precision_observations_preserve_status_and_restart() {
     matched_arithmetic();
     mismatch_restarts_before_arithmetic();
-    clearing_precision_invalidates_the_guard();
+    clearing_precision_restores_live_bookkeeping();
     faults_precede_precision_mismatch();
 }

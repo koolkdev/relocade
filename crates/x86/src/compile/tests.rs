@@ -55,3 +55,23 @@ fn mxcsr_independent_instructions_do_not_guard_observations() {
         assert!(generic.bytes == specialized.bytes, "{code:02x?}");
     }
 }
+
+#[test]
+fn x87_only_observations_preserve_generic_simd_guards() {
+    let code = [0xf2, 0x0f, 0x58, 0xc1]; // ADDSD XMM0,XMM1
+    let ordinary = Compiler::new(SegmentProfile::Flat32)
+        .compile_block(0x1000, &code, 1)
+        .unwrap();
+    let partial = Compiler::new(SegmentProfile::Flat32)
+        .with_observations(CpuObservations {
+            x87: X87Observations {
+                rounding_control: Some(2),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .compile_block(0x1000, &code, 1)
+        .unwrap();
+    assert_eq!(ordinary.bytes, partial.bytes);
+    assert_eq!(ordinary.requirements, partial.requirements);
+}

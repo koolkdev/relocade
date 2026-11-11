@@ -13,7 +13,8 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{ssa::StateFields, x87::ExtendedValue};
 
-use super::{access::cpu_location, X87State};
+use super::access::cpu_location;
+use crate::X87Observations;
 pub(crate) use control::Exception;
 
 #[derive(Clone, Copy)]
@@ -22,6 +23,12 @@ pub(crate) enum X87Specialization {
     Rounding,
     /// Precision and rounding, plus PM and PE when both were observed set.
     Arithmetic,
+}
+
+/// Facts valid only on the continuation after the execution owner guards `condition`.
+pub(crate) struct X87SpecializationGuard {
+    pub(crate) condition: Val<I1>,
+    pub(crate) nearest_53: bool,
 }
 
 #[derive(Clone)]
@@ -102,33 +109,35 @@ pub(crate) struct X87Access<'state, 'body> {
 impl X87Access<'_, '_> {
     pub(crate) fn specialization_condition(
         &mut self,
-        observed: &X87State,
+        observed: X87Observations,
         specialization: X87Specialization,
-    ) -> Result<Val<I1>, BuildError> {
-        let mut condition =
+    ) -> Result<X87SpecializationGuard, BuildError> {
+        let mut guard =
             self.state
                 .control
-                .matches_controls(self.body, &observed.control, specialization)?;
+                .specialization_condition(self.body, observed, specialization)?;
         if matches!(specialization, X87Specialization::Arithmetic)
-            && observed.control.precision_mask & observed.status.precision & 1 != 0
+            && observed.precision_mask == Some(true)
+            && observed.precision_raised == Some(true)
         {
-            // A masked, already-set PE cannot change on another inexact result.
-            // Guard both facts so repeated exception calculations fold away while
-            // C1 and the numerical result keep their normal rounding behavior.
-            condition = condition
-                .and(
-                    self.state
-                        .control
-                        .unmasked(self.body, Exception::Precision)?
-                        .eq(false),
-                )
-                .and(
-                    self.state
-                        .status
-                        .exception_raised(self.body, Exception::Precision)?,
-                );
+            let masked = self
+                .state
+                .control
+                .unmasked(self.body, Exception::Precision)?
+                .eq(false);
+            let raised = self
+                .state
+                .status
+                .exception_raised(self.body, Exception::Precision)?;
+            // Guest writes such as FNCLEX supersede an old observation. If the
+            // current value is known clear, retain ordinary precision bookkeeping.
+            if self.body.constant_bits(&masked)? != Some(0)
+                && self.body.constant_bits(&raised)? != Some(0)
+            {
+                guard.condition = guard.condition.and(masked).and(raised);
+            }
         }
-        Ok(condition)
+        Ok(guard)
     }
 
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {

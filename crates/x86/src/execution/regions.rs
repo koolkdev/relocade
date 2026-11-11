@@ -62,7 +62,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
             can_fallback: false,
-            observed_cpu: None,
+            observations: crate::CpuObservations::default(),
         }
     }
 

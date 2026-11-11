@@ -5,10 +5,11 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
-    state::{access::cpu_location, X87Control},
+    state::access::cpu_location,
+    X87Observations,
 };
 
-use super::{X87Access, X87Specialization};
+use super::{X87Access, X87Specialization, X87SpecializationGuard};
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -71,24 +72,50 @@ impl Control {
             .read(body, cpu_location!(x87.control.precision_control))
     }
 
-    pub(super) fn matches_controls(
+    pub(super) fn specialization_condition(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        expected: &X87Control,
+        observed: X87Observations,
         specialization: X87Specialization,
-    ) -> Result<Val<I1>, BuildError> {
-        let rounding = self
-            .fields
-            .read(body, cpu_location!(x87.control.rounding_control))?;
-        let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
-        Ok(match specialization {
-            X87Specialization::Rounding => matches,
-            X87Specialization::Arithmetic => matches.and(
-                self.precision(body)?
-                    .and(3)
-                    .eq(u32::from(expected.precision_control & 3)),
-            ),
+    ) -> Result<X87SpecializationGuard, BuildError> {
+        let mut condition = true.into();
+        let rounding = self.specialize_mode(
+            body,
+            cpu_location!(x87.control.rounding_control),
+            observed.rounding_control,
+            &mut condition,
+        )?;
+        let precision = match specialization {
+            X87Specialization::Rounding => None,
+            X87Specialization::Arithmetic => self.specialize_mode(
+                body,
+                cpu_location!(x87.control.precision_control),
+                observed.precision_control,
+                &mut condition,
+            )?,
+        };
+        Ok(X87SpecializationGuard {
+            condition,
+            nearest_53: precision == Some(2) && rounding == Some(0),
         })
+    }
+
+    fn specialize_mode(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        location: Location<I8>,
+        observed: Option<u8>,
+        condition: &mut Val<I1>,
+    ) -> Result<Option<u8>, BuildError> {
+        let current = self.fields.read(body, location)?.and(3);
+        if let Some(known) = body.constant_bits(&current)? {
+            return Ok(Some(known as u8));
+        }
+        let observed = observed.map(|value| value & 3);
+        if let Some(value) = observed {
+            *condition = condition.and(current.eq(u32::from(value)));
+        }
+        Ok(observed)
     }
 
     pub(super) fn unmasked(

@@ -13,7 +13,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuObservations, CpuState, SegmentProfile, X87Observations};
 
 const LEADING: u64 = 1 << 63;
 
@@ -26,7 +26,14 @@ fn observed_cpu(pc: u8, rc: u8) -> CpuState {
 }
 
 fn compiler(pc: u8, rc: u8) -> Compiler {
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed_cpu(pc, rc))
+    Compiler::new(SegmentProfile::Flat32).with_observations(CpuObservations {
+        x87: X87Observations {
+            precision_control: Some(pc | 0x80),
+            rounding_control: Some(rc | 0x80),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
 }
 
 fn masked_precision_compiler(pc: u8, rc: u8) -> Compiler {
@@ -213,4 +220,46 @@ fn observed_modes_preserve_arithmetic_stores_and_restart() {
     converted_stores_use_only_rounding();
     memory_arithmetic_uses_observed_modes();
     mismatch_restarts_at_the_consumer();
+}
+
+#[test]
+fn partial_observations_leave_missing_controls_dynamic() {
+    let code = [0xd8, 0xc9]; // FMUL ST0, ST1
+    for (observed_pc, observed_rc, pc, rc, significand, c1) in [
+        (None, Some(0), 3, 0, LEADING + 2, 0),
+        (None, Some(0), 0, 0, LEADING, 0),
+        (Some(2), None, 2, 2, LEADING + (1 << 11), 1),
+    ] {
+        let compiled = Compiler::new(SegmentProfile::Flat32)
+            .with_observations(CpuObservations {
+                x87: X87Observations {
+                    precision_control: observed_pc,
+                    rounding_control: observed_rc,
+                    precision_mask: Some(true), // Unknown PE must stay dynamic.
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .compile_block(0x1000, &code, 1)
+            .unwrap();
+        let ordinary = Compiler::new(SegmentProfile::Flat32)
+            .compile_block(0x1000, &code, 1)
+            .unwrap();
+        assert_eq!(compiled.requirements, ordinary.requirements);
+        let block = TestModule::new(&compiled);
+        let mut image = stack_image(&code, 0, 0xfff0);
+        image.cpu.x87.control.precision_control = pc;
+        image.cpu.x87.control.rounding_control = rc;
+        image.cpu.x87.status.precision = 0;
+        write_value(&mut image.cpu, 0, (LEADING + 1, 0x3fff));
+        write_value(&mut image.cpu, 1, (LEADING + 1, 0x3fff));
+        let mut result = complete_x87(image.cpu, 2, 0x00c9);
+        result.x87.status.precision = 1;
+        result.x87.status.c1 = c1;
+        write_value(&mut result, 0, (significand, 0x3fff));
+        assert_eq!(
+            block.observe(&image.input(), 1),
+            expected(&image, &[dispatch(result)])
+        );
+    }
 }

@@ -49,8 +49,8 @@ fn loaded_controls() {
 }
 
 fn initialized_controls() {
-    let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8];
-    for (pc, rc, precision_set) in [(3, 0, false), (2, 2, false), (3, 0, true)] {
+    let code = [0xdb, 0xe3, 0xdd, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8];
+    for (pc, rc, precision_set) in [(3, 0, false), (2, 2, false), (2, 0, false), (3, 0, true)] {
         let compiler = if precision_set {
             masked_precision_compiler(pc, rc)
         } else {
@@ -58,14 +58,16 @@ fn initialized_controls() {
         };
         let compiled = compiler.compile_block(0x1000, &code, 3).unwrap();
         let block = TestModule::new(&compiled);
-        let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         let mut image = stack_image(&code, 3, 0);
         set_control(
             &mut image.cpu.x87.control,
             0x007f | (u16::from(pc) << 8) | (u16::from(rc) << 10),
         );
         image.map(4, 0x8000, false);
-        image.data(0x8000, &0x4000_0000_u32.to_le_bytes());
+        image.data(
+            0x8000,
+            &((1.0_f64 + 2.0_f64.powi(-30)).to_bits()).to_le_bytes(),
+        );
         let mut initialized = image.cpu;
         initialized.eip += 2;
         initialized.instruction_count = initialized.instruction_count.wrapping_add(1);
@@ -77,35 +79,18 @@ fn initialized_controls() {
         initialized.x87.data_offset = 0;
         initialized.x87.instruction_selector = 0;
         initialized.x87.data_selector = 0;
-        let mut loaded = complete_x87(initialized, 6, 0x0105);
+        let mut loaded = complete_x87(initialized, 6, 0x0505);
         loaded.x87.status.top = 7;
         loaded.x87.data_offset = 0x4000;
         loaded.x87.data_selector = 0x23;
-        write_value(&mut loaded, 7, (LEADING, 0x4000));
+        write_value(&mut loaded, 7, (LEADING + (1 << 33), 0x3fff));
         let mut result = complete_x87(loaded, 2, 0x00c8);
-        write_value(&mut result, 7, (LEADING, 0x4001));
-        if pc == 3 && rc == 0 && !precision_set {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(&image, &[dispatch(result)])
-            );
-        } else {
-            assert_eq!(
-                block.observe(&image.input(), 1),
-                expected(
-                    &image,
-                    &[Step {
-                        cpu: loaded,
-                        ram: &[],
-                        exit: Exit::Interpret
-                    },]
-                )
-            );
-            assert_eq!(
-                linked.observe(&image.input(), 1),
-                step_returns(expected(&image, &[dispatch(result)]))
-            );
-        }
+        // (1 + 2^-30)^2 = 1 + 2^-29 + 2^-60 needs more than 53 bits.
+        write_value(&mut result, 7, (LEADING + (1 << 34) + 8, 0x3fff));
+        assert_eq!(
+            block.observe(&image.input(), 1),
+            expected(&image, &[dispatch(result)])
+        );
     }
 }
 
@@ -132,7 +117,7 @@ fn exceptions_precede_mode_mismatch() {
         Exit::FloatingPoint,
     );
 
-    // A PE-clear observation keeps masks dynamic: an unmasked #P commits the
+    // Unknown PM and PE keep masks dynamic: an unmasked #P commits the
     // result and leaves the next waiting instruction to deliver #MF.
     let code = [0xd8, 0xc9, 0x9b];
     let block = TestModule::new(&compiler(3, 2).compile_block(0x1000, &code, 2).unwrap());

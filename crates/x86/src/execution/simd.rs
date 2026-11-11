@@ -19,8 +19,8 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.read_mxcsr()?;
         self.if_can_fallback(|jit| {
-            if let Some(observed) = jit.observed_cpu {
-                jit.guard(controls.matches_controls(observed.simd.mxcsr))?;
+            if let Some(observed) = jit.observations.mxcsr {
+                jit.guard(controls.matches_controls(observed))?;
             }
             Ok(())
         })?;
@@ -32,7 +32,7 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn simd_arithmetic_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.simd_controls()?;
         self.if_can_fallback(|jit| {
-            if jit.observed_cpu.is_none() {
+            if jit.observations.mxcsr.is_none() {
                 jit.guard(controls.bits().and(0x6000).eq(0))?;
             }
             Ok(())

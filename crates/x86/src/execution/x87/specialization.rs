@@ -8,14 +8,14 @@ use crate::{
     x87::{ArithmeticCandidate, ArithmeticResult},
 };
 
-/// Control facts validated by the emitted guard, never raw snapshot hints.
+/// Control facts established by current constants or successful guards.
 #[derive(Default)]
 pub(crate) struct X87ControlFacts {
     nearest_53: bool,
 }
 
 impl X87ControlFacts {
-    /// RC alone cannot establish this fact: both PC and RC must be guarded.
+    /// RC alone cannot establish this fact: both PC and RC must be proven.
     pub(crate) fn nearest_53(&self) -> bool {
         self.nearest_53
     }
@@ -30,17 +30,13 @@ impl ExecutionBuilder<'_, '_> {
     ) -> Result<X87ControlFacts, BuildError> {
         Ok(self
             .if_can_fallback(|jit| {
-                let Some(observed) = jit.observed_cpu else {
-                    return Ok(X87ControlFacts::default());
-                };
-                let condition = jit
+                let observations = jit.observations.x87;
+                let guard = jit
                     .x87()
-                    .specialization_condition(&observed.x87, specialization)?;
-                jit.guard(condition)?;
+                    .specialization_condition(observations, specialization)?;
+                jit.guard(guard.condition)?;
                 Ok(X87ControlFacts {
-                    nearest_53: matches!(specialization, X87Specialization::Arithmetic)
-                        && observed.x87.control.precision_control & 3 == 2
-                        && observed.x87.control.rounding_control & 3 == 0,
+                    nearest_53: guard.nearest_53,
                 })
             })?
             .unwrap_or_default())

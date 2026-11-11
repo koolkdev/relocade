@@ -76,7 +76,7 @@ impl<'a> BlockModule<'a> {
         block: DecodedBlock,
     ) -> Result<(BlockEntry, PendingRequirements), BlockError> {
         let module = self.execution.clone();
-        let observed_cpu = self.compiler.observed_cpu;
+        let observations = self.compiler.observations;
         let pending = PendingRequirements::new(block.entry.requirements.clone());
         let body_requirements = pending.clone();
         let function = self
@@ -87,7 +87,7 @@ impl<'a> BlockModule<'a> {
                         .builder(body, block.entry.start_eip)?
                         .with_facts(facts)
                         .with_interpreter_fallback()
-                        .with_observed_cpu(observed_cpu.as_ref());
+                        .with_observations(observations);
                     execution.guard_fetch_span(block.entry.byte_len)?;
                     for instruction in block.instructions {
                         execution.execute(instruction.bind())?;

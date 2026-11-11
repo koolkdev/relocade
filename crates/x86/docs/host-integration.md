@@ -270,20 +270,20 @@ semantics without speculative guards and does not import `interpret` itself.
 
 ## Observed CPU state
 
-`Compiler::new(profile).specialize_on_cpu(&cpu)` copies a CPU snapshot as
-optional input for guarded specialization. Instruction semantics choose which
-observed fields to use; currently these are x87 precision and rounding controls,
-plus the precision exception mask and flag when both are set, and MXCSR control
-settings for SSE numerical operations.
+`Compiler::with_observations(CpuObservations)` accepts independently optional x87
+precision and rounding controls, precision mask and status, and MXCSR controls.
+`None` means unknown. `specialize_on_cpu(&cpu)` remains a convenience that extracts
+only these supported fields; the compiler does not retain the whole CPU image.
+These hints are locally guarded and do not become entry requirements.
 Its `compile_block` method accepts the same EIP, byte snapshot and instruction limit
 as the free snapshot functions. Those functions compile with dynamic modes.
 The `run` and `step` entries built by `build_interpreter` read live CPU state and
 do not use observations. Later changes to the supplied `CpuState` do not change
-the captured snapshot.
+the captured observations.
 
 The generated block checks a mode only where an instruction consumes it:
-x87 arithmetic checks PC and RC, while rounded stores check RC alone. A block without
-these consumers has no additional guard. Successful guards let the compiler fold
+x87 arithmetic checks supplied PC and RC, while rounded stores check supplied RC
+alone. A block without these consumers has no additional guard. Successful guards let the compiler fold
 the unused mode choices and remove repeated checks of unchanged values. FLDCW and
 FNINIT establish new control values; subsequent consumers check or fold those
 values normally.
@@ -293,9 +293,10 @@ also guards those two bits. The compiler can then remove repeated precision
 exception calculations, while numerical rounding and C1 updates retain their
 usual behavior.
 Other observations keep exception masks and flags dynamic; rounded stores still
-guard RC alone. FNCLEX and FNINIT clear PE, so a later arithmetic consumer may
-hand off to the interpreter even when PC and RC still match. Pending exceptions
-take priority over any specialization mismatch, including after FLDCW unmasks PE.
+guard RC alone. Known writes supersede old observations: FNINIT supplies current
+PC/RC, and FNCLEX or FNINIT clearing PE restores live precision bookkeeping.
+Unknown values loaded by FLDCW still need guards before specialization.
+Pending exceptions take priority over any specialization mismatch, including after FLDCW unmasks PE.
 
 SSE numerical consumers guard MXCSR's rounding, DAZ, FTZ and exception-mask bits.
 Sticky status flags and reserved backing bits are excluded from the guard and
