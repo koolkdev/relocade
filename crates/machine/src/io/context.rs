@@ -6,8 +6,8 @@ use std::rc::Weak;
 /// Every transfer receives this as its first argument. Native callbacks borrow
 /// Wasmtime's Caller; browser callbacks need no runtime-state borrow.
 pub struct IoContext<'a> {
-    runtime: Context<'a>,
-    bus: &'a Weak<State>,
+    pub(super) runtime: Context<'a>,
+    pub(super) bus: &'a Weak<State>,
 }
 
 impl<'a> IoContext<'a> {

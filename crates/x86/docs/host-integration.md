@@ -420,8 +420,9 @@ Real16 IN/OUT and INS/OUTS call entries in two synchronous `relocade` function t
 | `portWrites` | `(port: i32, bytes: i32, value: i32) -> ()` |
 
 Both tables have exactly 65536 entries and are indexed by the unsigned port
-number. Bind the same live tables to snapshot blocks and the interpreter. Initialize
-all entries with generic callbacks; entries may share a function. Already-linked
+number. Bind the same live tables to snapshot blocks and the interpreter. Entries
+may share a function. `relocade-machine` installs each registered device's existing
+port methods directly; unconnected slots read FF bytes or ignore writes. Already-linked
 code reads the current entry at every transfer, including each REP element.
 Replacing an entry does not require recompiling code. Function signatures retain
 logical 16-bit ports even though their Wasm carrier is i32.
