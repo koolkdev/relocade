@@ -41,7 +41,6 @@
 mod call;
 mod code;
 mod context;
-mod dispatch;
 mod error;
 mod execution;
 mod execution_interrupt;
@@ -58,14 +57,13 @@ mod wasm;
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
 pub use context::CpuContext;
-use dispatch::Dispatch;
-pub use dispatch::DispatchEntry;
 pub use error::{Error, Result};
 pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 use instance::CpuInstance;
+pub use instance::DispatchEntry;
 pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
@@ -101,17 +99,8 @@ impl Cpu {
         io: IoBus,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
-        let runtime = io.attach_cpu()?;
-        let bindings =
-            runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, memory, cpu, storage))?;
-        let dispatch = Dispatch::new(&runtime, &bindings, &io).await?;
-        let instruction_target = InstructionTarget::new(&bindings);
-        let instance = CpuInstance {
-            runtime,
-            bindings,
-            io,
-            dispatch,
-        };
+        let instance = CpuInstance::new(memory, cpu, io, storage).await?;
+        let instruction_target = InstructionTarget::new(&instance.bindings);
         Ok(Self {
             pending: None,
             suspended: Vec::new(),
@@ -168,11 +157,7 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        let instance = self.instance_mut();
-        instance
-            .dispatch
-            .install_module(&instance.runtime, &instance.bindings, bytes, entries)
-            .await
+        self.instance_mut().install_module(bytes, entries).await
     }
 
     /// Instantiates an already compiled module against this CPU's imports and
@@ -194,13 +179,7 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        let instance = self.instance_mut();
-        instance.dispatch.install_compiled_module(
-            &instance.runtime,
-            &instance.bindings,
-            module,
-            entries,
-        )
+        self.instance_mut().install_compiled_module(module, entries)
     }
 
     /// Installs host and Wasm hooks in one batch. Each address is independently
@@ -222,11 +201,7 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        let instance = self.instance_mut();
-        instance
-            .dispatch
-            .install(&instance.runtime, &instance.bindings, hooks)
-            .await
+        self.instance_mut().install(hooks).await
     }
 
     /// Borrows the stopped CPU and its mapped resources. The context and its views must end before
