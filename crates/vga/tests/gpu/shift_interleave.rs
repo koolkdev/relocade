@@ -11,6 +11,8 @@ use relocade_machine::Device;
 use relocade_vga::Vga;
 
 async fn check_colors() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let mut vga = Vga::with_clock(ManualClock::new().clock());
     program(&mut vga);
@@ -25,7 +27,8 @@ async fn check_colors() {
     {
         indexed(&mut vga, 0x3c4, 2, 1 << plane);
         for (offset, byte) in bytes.into_iter().enumerate() {
-            vga.write_mmio(0xa0000 + offset as u32, 1, byte);
+            device_io
+                .with_context(|context| vga.write_mmio(context, 0xa0000 + offset as u32, 1, byte));
         }
     }
     let original = vga.snapshot();
@@ -77,6 +80,8 @@ async fn check_colors() {
 }
 
 async fn check_banked_rows() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let mut vga = Vga::with_clock(ManualClock::new().clock());
     program(&mut vga);
@@ -109,7 +114,14 @@ async fn check_banked_rows() {
     .enumerate()
     {
         for (offset, byte) in bytes.into_iter().enumerate() {
-            vga.write_mmio(0xb8000 + bank as u32 * 0x2000 + offset as u32, 1, byte);
+            device_io.with_context(|context| {
+                vga.write_mmio(
+                    context,
+                    0xb8000 + bank as u32 * 0x2000 + offset as u32,
+                    1,
+                    byte,
+                )
+            });
         }
     }
     let rows = [

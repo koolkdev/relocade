@@ -4,7 +4,7 @@ use futures_util::{
     future::{join, LocalBoxFuture},
     StreamExt,
 };
-use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle};
+use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle, IoContext};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -25,7 +25,7 @@ struct InputDevice {
 }
 
 impl Device for InputDevice {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         if let Some(entered) = self.entered.take() {
             // Discard startup scheduling wakes before the measured interval.
             // Only the following host notification may interrupt this dispatch.
@@ -294,7 +294,7 @@ async fn retirement_count_does_not_control_execution() {
 
 struct PublishInput(Option<oneshot::Sender<()>>);
 impl Device for PublishInput {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         if let Some(input) = self.0.take() {
             input.send(()).unwrap();
         }

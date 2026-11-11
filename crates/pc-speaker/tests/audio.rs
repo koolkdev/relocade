@@ -1,4 +1,4 @@
-use relocade_machine::{timer_service, CpuConfig, Device, MachineConfig};
+use relocade_machine::{timer_service, CpuConfig, Device, IoContext, MachineConfig};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
@@ -8,7 +8,7 @@ use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 struct Started(Option<async_channel::Sender<()>>);
 
 impl Device for Started {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         self.0.take().unwrap().try_send(()).unwrap();
     }
 }

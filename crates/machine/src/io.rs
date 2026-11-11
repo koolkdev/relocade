@@ -1,9 +1,12 @@
 //! Device routing and synchronous access on one execution worker.
 
+mod context;
 mod device;
+pub use context::IoContext;
 pub use device::{Device, DeviceConnection};
 
 use crate::runtime::Runtime;
+use relocade_wasm_runtime::WasmBackend;
 use std::{
     cell::{OnceCell, RefCell},
     ops::RangeInclusive,
@@ -12,8 +15,11 @@ use std::{
 };
 
 /// Device connections on one execution worker. Clones share routing and the
-/// retained runtime. One CPU may attach to this bus.
+/// runtime used for synchronous host access. One CPU may attach to this bus.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
+///
+/// Host accesses briefly borrow the stopped runtime. Device callbacks use their
+/// supplied [`IoContext`] instead of reacquiring it through this handle.
 ///
 /// ```compile_fail
 /// let io = relocade_machine::IoBus::default();
@@ -76,30 +82,42 @@ impl IoBus {
         self.state.is_empty()
     }
 
+    /// Runs synchronous host I/O with a scoped runtime context. The context cannot
+    /// escape this call or remain borrowed across an await. Reuse it when a batch
+    /// performs several transfers. Panics if guest execution already owns the runtime.
+    pub fn with_context<R>(&self, access: impl FnOnce(IoContext<'_>) -> R) -> R {
+        self.runtime.with_backend(|backend| {
+            access(IoContext::new(
+                backend.table_context(),
+                &self.state.identity,
+            ))
+        })
+    }
+
     /// Acknowledges the first ready interrupt in connection order.
     pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
-        self.state.poll_interrupt(cx)
+        self.with_context(|context| self.state.poll_interrupt(context, cx))
     }
 
     /// Reads one through eight bytes, splitting only at device boundaries.
     pub fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
-        self.state.read_mmio(address, bytes)
+        self.with_context(|context| self.state.read_mmio(context, address, bytes))
     }
 
     /// Writes the low `bytes` bytes, splitting only at device boundaries.
     pub fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
-        self.state.write_mmio(address, bytes, value)
+        self.with_context(|context| self.state.write_mmio(context, address, bytes, value))
     }
 
     /// Reads 1, 2 or 4 bytes from the device at `port` in one call. Unused result
     /// bits are zero; the device owns the meaning of word and dword transfers.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        self.state.read_port(port, bytes)
+        self.with_context(|context| self.state.read_port(context, port, bytes))
     }
 
     /// Writes the low 1, 2 or 4 bytes to the device at `port` in one call.
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
-        self.state.write_port(port, bytes, value)
+        self.with_context(|context| self.state.write_port(context, port, bytes, value))
     }
 
     pub(crate) fn downgrade(&self) -> Weak<State> {
@@ -120,16 +138,20 @@ impl State {
         self.connections().is_empty()
     }
 
-    pub fn poll_interrupt(&self, cx: &mut Context<'_>) -> Poll<u8> {
+    pub fn poll_interrupt(&self, mut context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         for connection in self.connections() {
-            if let Poll::Ready(vector) = connection.device.borrow_mut().poll_interrupt(cx) {
+            if let Poll::Ready(vector) = connection
+                .device
+                .borrow_mut()
+                .poll_interrupt(context.reborrow(), cx)
+            {
                 return Poll::Ready(vector);
             }
         }
         Poll::Pending
     }
 
-    pub fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
+    pub fn read_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
         check_mmio_range(address, bytes);
         let mut result = [0xff; 8];
         let mut done = 0;
@@ -137,7 +159,10 @@ impl State {
             let current = address + u32::from(done);
             let (device, count) = self.mmio_span(current, bytes - done);
             if let Some(device) = device {
-                let value = device.borrow_mut().read_mmio(current, count).to_le_bytes();
+                let value = device
+                    .borrow_mut()
+                    .read_mmio(context.reborrow(), current, count)
+                    .to_le_bytes();
                 result[usize::from(done)..usize::from(done + count)]
                     .copy_from_slice(&value[..usize::from(count)]);
             }
@@ -148,7 +173,7 @@ impl State {
         u64::from_le_bytes(result)
     }
 
-    pub fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
+    pub fn write_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         check_mmio_range(address, bytes);
         let value = value.to_le_bytes();
         let mut done = 0;
@@ -159,38 +184,52 @@ impl State {
                 let mut part = [0; 8];
                 part[..usize::from(count)]
                     .copy_from_slice(&value[usize::from(done)..usize::from(done + count)]);
-                device
-                    .borrow_mut()
-                    .write_mmio(current, count, u64::from_le_bytes(part));
+                device.borrow_mut().write_mmio(
+                    context.reborrow(),
+                    current,
+                    count,
+                    u64::from_le_bytes(part),
+                );
             }
             done += count;
         }
     }
 
-    pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
+    pub fn read_port(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.read_port_unchecked(port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
+        self.read_port_unchecked(context, port, bytes) & (u32::MAX >> ((4 - bytes) * 8))
     }
 
-    pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
+    pub fn write_port(&self, context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
-        self.write_port_unchecked(port, bytes, value & (u32::MAX >> ((4 - bytes) * 8)));
+        self.write_port_unchecked(
+            context,
+            port,
+            bytes,
+            value & (u32::MAX >> ((4 - bytes) * 8)),
+        );
     }
 
     #[inline]
-    pub(crate) fn read_port_unchecked(&self, port: u16, bytes: u8) -> u32 {
+    pub(crate) fn read_port_unchecked(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         self.port_device(port).map_or(u32::MAX, |device| {
-            device.borrow_mut().read_port(port, bytes)
+            device.borrow_mut().read_port(context, port, bytes)
         })
     }
 
     #[inline]
-    pub(crate) fn write_port_unchecked(&self, port: u16, bytes: u8, value: u32) {
+    pub(crate) fn write_port_unchecked(
+        &self,
+        context: IoContext<'_>,
+        port: u16,
+        bytes: u8,
+        value: u32,
+    ) {
         debug_assert!(matches!(bytes, 1 | 2 | 4), "port transfer width");
         debug_assert_eq!(value & (u32::MAX >> ((4 - bytes) * 8)), value);
         if let Some(device) = self.port_device(port) {
-            device.borrow_mut().write_port(port, bytes, value);
+            device.borrow_mut().write_port(context, port, bytes, value);
         }
     }
 

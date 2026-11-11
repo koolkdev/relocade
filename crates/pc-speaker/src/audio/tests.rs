@@ -130,17 +130,11 @@ fn controls_mute_and_resume_at_buffer_boundaries() {
     program(&playback.io);
     let tone = playback.collect(512);
     assert!(tone[384..].iter().any(|&sample| sample > 0.0));
-    playback
-        .speaker
-        .borrow_mut()
-        .write_port(SPEAKER_CONTROL_PORT, 1, 1);
+    playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 1);
     let muted = playback.collect(512);
     assert!(muted[384..].iter().all(|&sample| sample == 0.0));
     // With GATE2 low and data enabled, direct drive remains high.
-    playback
-        .speaker
-        .borrow_mut()
-        .write_port(SPEAKER_CONTROL_PORT, 1, 2);
+    playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
     let direct = playback.collect(512);
     assert!(direct[384..].iter().all(|&sample| sample == 0.2));
 }

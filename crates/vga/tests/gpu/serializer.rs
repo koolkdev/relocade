@@ -100,12 +100,14 @@ async fn check_load_and_count() {
 }
 
 async fn check_packed_output() {
+    let device_io = relocade_machine::IoBus::default();
+
     let mut gpu = Gpu::new().await;
     let mut vga = graphics(4);
     // Each plane supplies different bit pairs/nibbles to the serializers.
     for (plane, byte) in [0x1b, 0xe4, 0x05, 0xaf].into_iter().enumerate() {
         indexed(&mut vga, 0x3c4, 2, 1 << plane);
-        vga.write_mmio(0xa0000, 1, byte);
+        device_io.with_context(|context| vga.write_mmio(context, 0xa0000, 1, byte));
     }
     indexed(&mut vga, 0x3c4, 1, 0x11);
     indexed(&mut vga, 0x3ce, 5, 0x20);
@@ -133,7 +135,7 @@ async fn check_packed_output() {
         0x5f,
     ];
     gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed)).await;
-    vga.write_port(0x3c6, 1, 0x7f);
+    device_io.with_context(|context| vga.write_port(context, 0x3c6, 1, 0x7f));
     gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed.map(|c| c & 0x7f)))
         .await;
 }

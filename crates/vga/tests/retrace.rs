@@ -31,36 +31,41 @@ impl Wake for Wakes {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
-    let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    crtc(&mut vga, 0x17, 0x23);
-    let (vga, mut video) = common::start_video(vga);
-    let frames = vga.borrow().frames();
-    let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(wakes.clone());
-    let mut cx = Context::from_waker(&waker);
-    let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
-    assert!(wait.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(
-        clock.next_deadline().map(|at| clock.elapsed(at)),
-        Some(boundary(1)) // The output task still samples internal retraces.
-    );
-    clock.advance_to(clock.at(boundary(1)));
-    assert_eq!(vga.borrow_mut().read_port(0x3da, 1) & 8, 0);
-    common::service_video(video.as_mut());
-    assert!(frames.try_recv().is_ok());
-    assert!(wait.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
-    crtc(&mut *vga.borrow_mut(), 0x17, 0xa3);
-    assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        wait.as_mut().poll(&mut cx),
-        Poll::Ready(RetraceEvent::Reprogrammed)
-    );
-    assert_eq!(
-        pin!(vga.borrow_mut().wait_for_retrace().unwrap()).poll(&mut cx),
-        Poll::Ready(RetraceEvent::Started)
-    );
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let clock = ManualClock::default();
+        let mut vga = Vga::with_clock(clock.clock());
+        crtc(&mut vga, 0x17, 0x23);
+        let (vga, mut video) = common::start_video(vga);
+        let frames = vga.borrow().frames();
+        let wakes = Arc::new(Wakes::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut wait = pin!(vga.borrow_mut().wait_for_retrace().unwrap());
+        assert!(wait.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(
+            clock.next_deadline().map(|at| clock.elapsed(at)),
+            Some(boundary(1)) // The output task still samples internal retraces.
+        );
+        clock.advance_to(clock.at(boundary(1)));
+        assert_eq!(
+            vga.borrow_mut().read_port(context.reborrow(), 0x3da, 1) & 8,
+            0
+        );
+        common::service_video(video.as_mut());
+        assert!(frames.try_recv().is_ok());
+        assert!(wait.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
+        crtc(&mut *vga.borrow_mut(), 0x17, 0xa3);
+        assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            wait.as_mut().poll(&mut cx),
+            Poll::Ready(RetraceEvent::Reprogrammed)
+        );
+        assert_eq!(
+            pin!(vga.borrow_mut().wait_for_retrace().unwrap()).poll(&mut cx),
+            Poll::Ready(RetraceEvent::Started)
+        );
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -139,49 +144,51 @@ fn mode_changes_invalidate_waits_before_or_after_the_first_poll() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn concurrent_waiters_receive_timer_wakes_and_cancel_independently() {
-    let clock = ManualClock::default();
-    let mut vga = Vga::with_clock(clock.clock());
-    svga::enable(&mut vga);
-    let wakes = [Arc::new(Wakes::default()), Arc::new(Wakes::default())];
-    let wakers = wakes.clone().map(Waker::from);
-    let mut waits = [(); 2].map(|()| Box::pin(vga.wait_for_retrace().unwrap()));
-    for (wait, waker) in waits.iter_mut().zip(&wakers) {
-        assert!(wait
+    relocade_machine::IoBus::default().with_context(|mut context| {
+        let clock = ManualClock::default();
+        let mut vga = Vga::with_clock(clock.clock());
+        svga::enable(&mut vga);
+        let wakes = [Arc::new(Wakes::default()), Arc::new(Wakes::default())];
+        let wakers = wakes.clone().map(Waker::from);
+        let mut waits = [(); 2].map(|()| Box::pin(vga.wait_for_retrace().unwrap()));
+        for (wait, waker) in waits.iter_mut().zip(&wakers) {
+            assert!(wait
+                .as_mut()
+                .poll(&mut Context::from_waker(waker))
+                .is_pending());
+        }
+        clock.advance_to(clock.at(svga_boundary(1)));
+        for wake in &wakes {
+            assert_eq!(wake.0.load(Ordering::SeqCst), 1);
+        }
+        for (wait, waker) in waits.iter_mut().zip(&wakers) {
+            assert_eq!(
+                wait.as_mut().poll(&mut Context::from_waker(waker)),
+                Poll::Ready(RetraceEvent::Started)
+            );
+        }
+        clock.advance_to(clock.at(svga_boundary(1) + Duration::from_millis(1)));
+        for wake in &wakes {
+            wake.0.store(0, Ordering::SeqCst);
+        }
+        let mut cancelled = Box::pin(vga.wait_for_retrace().unwrap());
+        let mut retained = pin!(vga.wait_for_retrace().unwrap());
+        assert!(cancelled
             .as_mut()
-            .poll(&mut Context::from_waker(waker))
+            .poll(&mut Context::from_waker(&wakers[0]))
             .is_pending());
-    }
-    clock.advance_to(clock.at(svga_boundary(1)));
-    for wake in &wakes {
-        assert_eq!(wake.0.load(Ordering::SeqCst), 1);
-    }
-    for (wait, waker) in waits.iter_mut().zip(&wakers) {
+        assert!(retained
+            .as_mut()
+            .poll(&mut Context::from_waker(&wakers[1]))
+            .is_pending());
+        drop(cancelled);
+        vga.write_port(context.reborrow(), 0x46e8, 1, 0);
+        assert_eq!(wakes[0].0.load(Ordering::SeqCst), 0);
+        assert_eq!(wakes[1].0.load(Ordering::SeqCst), 1);
         assert_eq!(
-            wait.as_mut().poll(&mut Context::from_waker(waker)),
-            Poll::Ready(RetraceEvent::Started)
+            retained.as_mut().poll(&mut Context::from_waker(&wakers[1])),
+            Poll::Ready(RetraceEvent::Reprogrammed)
         );
-    }
-    clock.advance_to(clock.at(svga_boundary(1) + Duration::from_millis(1)));
-    for wake in &wakes {
-        wake.0.store(0, Ordering::SeqCst);
-    }
-    let mut cancelled = Box::pin(vga.wait_for_retrace().unwrap());
-    let mut retained = pin!(vga.wait_for_retrace().unwrap());
-    assert!(cancelled
-        .as_mut()
-        .poll(&mut Context::from_waker(&wakers[0]))
-        .is_pending());
-    assert!(retained
-        .as_mut()
-        .poll(&mut Context::from_waker(&wakers[1]))
-        .is_pending());
-    drop(cancelled);
-    vga.write_port(0x46e8, 1, 0);
-    assert_eq!(wakes[0].0.load(Ordering::SeqCst), 0);
-    assert_eq!(wakes[1].0.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        retained.as_mut().poll(&mut Context::from_waker(&wakers[1])),
-        Poll::Ready(RetraceEvent::Reprogrammed)
-    );
-    assert!(vga.wait_for_retrace().is_none());
+        assert!(vga.wait_for_retrace().is_none());
+    })
 }

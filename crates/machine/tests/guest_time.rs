@@ -4,7 +4,8 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DeviceConnection, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
+    Clock, Cpu, Device, DeviceConnection, DispatchEntry, GuestTimeDriver, IoBus, IoContext, Memory,
+    Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -120,7 +121,7 @@ struct ClockPort {
 }
 
 impl Device for ClockPort {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         assert!(self.observed.replace(self.clock.now()).is_none());
     }
 }

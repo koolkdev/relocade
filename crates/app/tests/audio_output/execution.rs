@@ -1,7 +1,9 @@
 use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
-use relocade_machine::{timer_service, CpuConfig, Device, ExecutionInterrupt, MachineConfig};
+use relocade_machine::{
+    timer_service, CpuConfig, Device, ExecutionInterrupt, IoContext, MachineConfig,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segments,
@@ -14,7 +16,7 @@ struct Started {
 }
 
 impl Device for Started {
-    fn write_port(&mut self, _port: u16, _bytes: u8, _value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
         // Ignore setup wakes before the callback under test can run.
         self.interrupt.as_ref().unwrap().take();
         self.ready.take().unwrap().send(()).unwrap();

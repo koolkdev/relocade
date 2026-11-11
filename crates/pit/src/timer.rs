@@ -3,7 +3,7 @@
 use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::{yield_now, Clock, Device, DeviceConnection, Runner, Timestamp};
+use relocade_machine::{yield_now, Clock, Device, DeviceConnection, IoContext, Runner, Timestamp};
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
@@ -163,7 +163,7 @@ impl Device for Pit {
         }
     }
 
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         self.sync_to_clock();
         match (port, bytes) {
             (CHANNEL_0_PORT, 1) => self.channel0.read().into(),
@@ -172,7 +172,7 @@ impl Device for Pit {
         }
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         self.sync_to_clock();
         if bytes != 1 {
             return;

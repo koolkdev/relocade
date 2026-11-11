@@ -3,7 +3,7 @@
 #[cfg(feature = "audio")]
 mod audio;
 
-use relocade_machine::{Device, DeviceConnection, Runner};
+use relocade_machine::{Device, DeviceConnection, IoContext, Runner};
 use relocade_pit::Pit;
 use std::{
     cell::{Cell, RefCell},
@@ -61,7 +61,7 @@ impl Device for Speaker {
         audio::run(device).await;
     }
 
-    fn read_port(&mut self, port: u16, bytes: u8) -> u32 {
+    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
         match (port, bytes) {
             (SPEAKER_CONTROL_PORT, 1) => {
                 let output = self.pit.borrow_mut().channel2_output();
@@ -71,7 +71,7 @@ impl Device for Speaker {
         }
     }
 
-    fn write_port(&mut self, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         if port != SPEAKER_CONTROL_PORT || bytes != 1 {
             return;
         }

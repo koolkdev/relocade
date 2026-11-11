@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Device, ExitHandle};
+use relocade_machine::{Device, ExitHandle, IoContext};
 use std::task::{Context, Poll};
 
 struct ExitPollingDevice {
@@ -9,7 +9,7 @@ struct ExitPollingDevice {
 }
 
 impl Device for ExitPollingDevice {
-    fn poll_interrupt(&mut self, _: &mut Context<'_>) -> Poll<u8> {
+    fn poll_interrupt(&mut self, _context: IoContext<'_>, _: &mut Context<'_>) -> Poll<u8> {
         if !self.armed {
             return Poll::Pending;
         }
@@ -63,7 +63,7 @@ struct StackDevice {
 }
 
 impl Device for StackDevice {
-    fn write_mmio(&mut self, _: u32, _: u8, _: u64) {
+    fn write_mmio(&mut self, _context: IoContext<'_>, _: u32, _: u8, _: u64) {
         self.writes += 1;
         self.exit.as_ref().unwrap().request();
     }
@@ -159,7 +159,7 @@ test_backends!(
 struct ExitOnWrite(Option<ExitHandle>);
 
 impl Device for ExitOnWrite {
-    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
         self.0.as_ref().unwrap().request();
     }
 }

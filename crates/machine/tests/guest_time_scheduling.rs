@@ -2,7 +2,8 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, Runner, Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, IoContext, Runner,
+    Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -131,7 +132,7 @@ impl Device for Deadlines {
         }
     }
 
-    fn write_port(&mut self, _: u16, _: u8, _: u32) {
+    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
         self.exit.as_ref().unwrap().request();
     }
 }
