@@ -8,7 +8,7 @@ use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn fences(frontend: Frontend) {
@@ -18,7 +18,7 @@ fn fences(frontend: Frontend) {
             let code = [0x0f, 0xae, modrm];
             let mut image = Image::new(&code);
             if profile == ExecutionProfile::Real16 {
-                image.cpu.segments = Segments::real_mode();
+                image.initialize_real_mode();
             }
             image.cpu.x87.status.error_summary = 1;
             image.cpu.simd.mxcsr = 0x9fc5;

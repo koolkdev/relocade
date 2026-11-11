@@ -6,7 +6,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{ExecutionExit, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{ExecutionExit, ExecutionProfile, SegmentProfile};
 
 fn forms(frontend: Frontend) {
     for profile in [
@@ -20,7 +20,7 @@ fn forms(frontend: Frontend) {
             for enabled in [false, true] {
                 let mut image = Image::new(code);
                 if profile == ExecutionProfile::Real16 {
-                    image.cpu.segments = Segments::real_mode();
+                    image.initialize_real_mode();
                 } else if profile == SegmentProfile::Segmented16.into() {
                     image.cpu.segments.cs.big = 0;
                 }
@@ -55,7 +55,7 @@ fn halt_does_not_fetch_its_successor() {
     // MOV AX,1234; HLT at the end of the mapped page. The next page is absent.
     let code = [0xb8, 0x34, 0x12, 0xf4];
     let mut image = Image::empty();
-    image.cpu.segments = Segments::real_mode();
+    image.initialize_real_mode();
     image.cpu.eip = 0x1ffc;
     image.map(1, 0x3000, false);
     image.data(0x3ffc, &code);

@@ -11,7 +11,7 @@ use crate::support::{
     machine::{Exit, Image, Step},
     x87::{dispatch, set_control, stack_image, status, write_register_bits},
 };
-use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile, Segments};
+use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
 
 #[derive(Clone, Copy, Debug)]
 struct Format {
@@ -72,7 +72,7 @@ impl Format {
     fn image(self, code: &[u8]) -> Image {
         let mut image = stack_image(code, 5, 0x3f95);
         if self.real {
-            image.cpu.segments = Segments::real_mode();
+            image.initialize_real_mode();
         }
         image.map(4, 0x8000, true);
         image.data(0x8000, &[0xa5; 32]);

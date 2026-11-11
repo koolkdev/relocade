@@ -3,7 +3,6 @@ mod support;
 use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 
 struct Stopped {
@@ -29,8 +28,7 @@ fn configuration() -> support::Configuration {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

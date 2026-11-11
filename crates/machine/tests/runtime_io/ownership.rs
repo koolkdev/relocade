@@ -12,8 +12,7 @@ async fn check_retained_memory_bus() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..Default::default()
+            ..CpuState::real_mode()
         },
         0x5000,
         map(),
@@ -83,10 +82,7 @@ async fn retained_memory_bus_survives_cpu_and_releases_devices() {
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            segments: Segments::real_mode(),
-            ..Default::default()
-        },
+        CpuState::real_mode(),
         0x5000,
         map(),
     )

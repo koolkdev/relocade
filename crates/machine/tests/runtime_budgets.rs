@@ -3,7 +3,7 @@ mod support;
 use relocade_machine::{Cpu, DispatchEntry, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::{
     cell::Cell,
@@ -21,8 +21,7 @@ async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cp
         CpuState {
             eip: 0x100,
             instruction_count: count,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

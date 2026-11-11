@@ -16,7 +16,7 @@ pub enum ExecutionProfile {
     Protected(SegmentProfile),
     /// Ordinary real mode: 16-bit defaults, selector-shifted bases, 64 KiB limits
     /// and host-controlled A20. The host establishes canonical caches with
-    /// `relocade_x86::Segments::real_mode`; retained protected-mode caches are not admitted.
+    /// `relocade_x86::CpuState::real_mode`; retained protected-mode caches are not admitted.
     Real16,
 }
 

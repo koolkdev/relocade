@@ -5,7 +5,6 @@ use futures_util::StreamExt;
 use relocade_machine::{Clock, Device, Hook, IoContext};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -63,8 +62,7 @@ fn configuration() -> support::Configuration {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x1000,
         PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

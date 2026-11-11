@@ -1,7 +1,7 @@
 use super::*;
 use crate::{CpuConfig, Error, Machine, MachineConfig};
 use futures_channel::oneshot;
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
 
 fn cpu() -> (Machine, CpuHandle) {
     let mut machine =
@@ -10,10 +10,7 @@ fn cpu() -> (Machine, CpuHandle) {
         .create_cpu(
             CpuConfig::new(
                 Compiler::new(ExecutionProfile::Real16).target(),
-                CpuState {
-                    segments: Segments::real_mode(),
-                    ..Default::default()
-                },
+                CpuState::real_mode(),
             )
             .unwrap(),
             None,

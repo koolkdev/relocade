@@ -33,12 +33,28 @@ impl Image {
         cpu.eip = 0x1000;
         cpu.instruction_count = u64::MAX;
         cpu.segments = Segments::flat32();
+        let initial = CpuState::default();
+        cpu.cr0 = initial.cr0;
+        cpu.cr4 = initial.cr4;
+        cpu.flags.bytes.vm = 0;
+        cpu.flags.bytes.if_ = 1;
+        cpu.flags.bytes.iopl = 0;
         Self {
             cpu,
             guest: vec![],
             machine: vec![],
             physical_pages: vec![],
         }
+    }
+
+    /// Selects the initial mode while retaining the fixture's registers and
+    /// floating-point environment. This does not simulate a guest transition.
+    pub(crate) fn initialize_real_mode(&mut self) {
+        let initial = CpuState::real_mode();
+        self.cpu.cr0 = initial.cr0;
+        self.cpu.cr4 = initial.cr4;
+        self.cpu.flags.bytes.vm = 0;
+        self.cpu.segments = initial.segments;
     }
     pub(crate) fn map(&mut self, page: u32, frame: u32, writable: bool) {
         let offset = page_table::entry_offset(page * page_table::PAGE_BYTES);

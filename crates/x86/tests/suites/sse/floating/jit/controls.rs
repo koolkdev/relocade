@@ -81,7 +81,7 @@ fn changed_controls() {
         let code = [compare, &add].concat();
         let mut image = floating_image(&code, 0x1f80);
         if profile == ExecutionProfile::Real16 {
-            image.cpu.segments = Segments::real_mode();
+            image.initialize_real_mode();
         }
         image.cpu.registers.eax = 0;
         image.cpu.registers.ecx = 1;
@@ -170,7 +170,7 @@ fn mismatch_before_mmio() {
 
     let code = [0xf3, 0x0f, 0x58, 0x06, 0, 0x20]; // ADDSS XMM0,[2000] in real mode.
     let mut image = floating_image(&code, 0x1f80);
-    image.cpu.segments = Segments::real_mode();
+    image.initialize_real_mode();
     lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
     image.data(0x8000, &0x4000_0000_u32.to_le_bytes()); // 2.0
     let compiled = block(&code, 1, ExecutionProfile::Real16, &image.cpu);

@@ -587,8 +587,12 @@ mode, and returns ring 0 in real mode or ring 3 in virtual-8086 mode. Representi
 control bits and privilege levels does not implement their execution semantics:
 generated entries still require their declared execution profile.
 
-Default CPU state is protected ring 3, with CS=0x1b and data selectors=0x23.
+Default CPU state is protected ring 3, with CS=0x1b, data selectors=0x23 and IF=1.
 CR0 starts at 0x31 (PE, ET, NE), and CR4 at 0x600 (OSFXSR, OSXMMEXCPT).
+`CpuState::protected_mode(code_size, stack_size)` initializes independently sized
+code and stacks. `code_default_size()` reads loaded CS.D; `stack_address_size()`
+reads loaded SS.B. Instruction size prefixes do not change SS.B.
+
 Literal snapshots retain all control bits, including unsupported values, without
 normalization. CR2 and CR3 default to zero and are stored without paging or
 page-fault behavior. CR1 and CR5–CR7 are reserved on the Pentium 4 and have no
@@ -978,16 +982,15 @@ transferring instruction.
 
 ## Ordinary real mode
 
-Select `ExecutionProfile::Real16` and initialize caches with `Segments::real_mode()`.
+Select `ExecutionProfile::Real16` and initialize CPU state with `CpuState::real_mode()`.
 Use `SegmentRegister::real_mode(segment, value)` for a nonzero segment register.
 This configuration is host-selected execution, not a processor reset or an emulated
 CR0 transition. The CPU backing layout is unchanged.
 
 ```rust
-use relocade_x86::{CpuState, ExecutionProfile, Segment, Segments, SegmentRegister};
+use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister};
 
-let mut cpu = CpuState::default();
-cpu.segments = Segments::real_mode();
+let mut cpu = CpuState::real_mode();
 cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
 assert!(cpu.segments.is_compatible_with(ExecutionProfile::Real16));
 ```

@@ -23,8 +23,7 @@ async fn prepared_storage() {
             memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap();
             let initial = CpuState {
                 eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
+                ..CpuState::real_mode()
             };
             let config =
                 CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), initial).unwrap();

@@ -3,7 +3,7 @@
 use super::*;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile, Segments};
+use relocade_x86::{Compiler, ExecutionProfile};
 
 #[test]
 fn sse_arithmetic_compiled_and_restart() {
@@ -51,7 +51,7 @@ fn sse_arithmetic_compiled_and_restart() {
             for (right, controls, raised, result, restart) in cases {
                 let mut image = floating_image(&code, controls);
                 if profile == ExecutionProfile::Real16 {
-                    image.cpu.segments = Segments::real_mode();
+                    image.initialize_real_mode();
                 }
                 lane(&mut image.cpu.simd.xmm[0], true, 0, ONE[1]);
                 lane(&mut image.cpu.simd.xmm[1], true, 0, right);

@@ -6,7 +6,7 @@ use relocade_machine::Cpu;
 use relocade_machine::MemoryError;
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    PhysicalMapping, PhysicalMemoryMap, Segment,
 };
 
 fn create(config: Configuration) -> Cpu {
@@ -18,8 +18,7 @@ fn configuration() -> Configuration {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10001,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

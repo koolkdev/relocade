@@ -6,7 +6,6 @@ use relocade_machine::{
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -36,8 +35,7 @@ pub async fn cpu_worker() -> Result<(), String> {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

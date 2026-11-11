@@ -178,7 +178,7 @@ fn physical_addresses(frontend: Frontend) {
         ];
         for address in [0x4011, 0x1_0000] {
             let mut image = Image::new(&code);
-            image.cpu.segments = Segments::real_mode();
+            image.initialize_real_mode();
             image.cpu.registers.eax = address;
             let mut input = image.input();
             input.mmio_pages = vec![(4, 0x8000)];

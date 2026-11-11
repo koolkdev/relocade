@@ -9,7 +9,7 @@ use relocade_machine::{
 };
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
-    PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    PhysicalMapping, PhysicalMemoryMap, Segment,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -21,8 +21,7 @@ async fn check_interrupt_hooks() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x20000,
         PhysicalMemoryMap::new([
@@ -152,8 +151,7 @@ async fn check_mapped_hook_access() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x3000,
         PhysicalMemoryMap::new([
@@ -253,8 +251,7 @@ async fn check_hook_replacement() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x400,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

@@ -6,9 +6,7 @@ mod controls;
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{
-    compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile, Segments,
-};
+use relocade_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile};
 
 fn common_inputs() {
     let code = [0x0f, 0x2e, 0xc1]; // UCOMISS XMM0,XMM1
@@ -84,7 +82,7 @@ fn precise_restart(profile: ExecutionProfile) {
         for masked in [false, true] {
             let mut image = floating_image(&code, if masked { 0x1f80 } else { 0x1e00 });
             if profile == ExecutionProfile::Real16 {
-                image.cpu.segments = Segments::real_mode();
+                image.initialize_real_mode();
             }
             image.cpu.registers.eax = 0;
             image.cpu.registers.ecx = 1;
@@ -166,7 +164,7 @@ fn real_mode_ram() {
         (SNAN[0], 0x1f00, 0, true, true),
     ] {
         let mut image = floating_image(&code, mxcsr);
-        image.cpu.segments = Segments::real_mode();
+        image.initialize_real_mode();
         lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
         image.data(0x2000, &(operand as u32).to_le_bytes());
         image.map(2, 0x2000, false);

@@ -1,8 +1,6 @@
 use relocade_machine::{timer_service, CpuConfig, Device, IoContext, MachineConfig};
 use relocade_pc_speaker::Speaker;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 struct Started(Option<async_channel::Sender<()>>);
@@ -38,8 +36,7 @@ async fn exercise_audio_device() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

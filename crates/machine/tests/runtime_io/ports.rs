@@ -58,8 +58,7 @@ async fn guest_carriers() {
             compiler.target(),
             CpuState {
                 eip: 0x100,
-                segments: Segments::real_mode(),
-                ..Default::default()
+                ..CpuState::real_mode()
             },
             0x1000,
             PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])

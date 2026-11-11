@@ -5,7 +5,7 @@ use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineCo
 use relocade_vga::{Vga, MEMORY_RANGE, PORT_RANGES};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -31,8 +31,7 @@ pub async fn vga_workers() -> Result<(), String> {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

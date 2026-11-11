@@ -5,7 +5,7 @@ use relocade_machine::DispatchEntry;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
 use relocade_x86::{
     abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::mem::offset_of;
 
@@ -17,8 +17,7 @@ async fn check_dispatch_table() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

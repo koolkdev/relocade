@@ -1,6 +1,6 @@
 use super::{
     support, Compiler, CpuState, ExecutionExit, ExecutionProfile, FarPointer, Interrupts,
-    PhysicalMapping, PhysicalMemoryMap, Segments,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 use relocade_machine::registers as reg;
 use std::{cell::Cell, rc::Rc};
@@ -10,8 +10,7 @@ async fn check_interrupt_call() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..Default::default()
+            ..CpuState::real_mode()
         },
         0x20000,
         PhysicalMemoryMap::new([

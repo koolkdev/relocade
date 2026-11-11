@@ -109,10 +109,7 @@ fn runtime_segment_spans_check_limits_and_wrap() {
 #[test]
 fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
     let module = probe(crate::ExecutionProfile::Real16, Segment::Cs);
-    let mut cpu = CpuState {
-        segments: crate::Segments::real_mode(),
-        ..CpuState::default()
-    };
+    let mut cpu = CpuState::real_mode();
     cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     let cpu = cpu.to_bytes().to_vec();
     for (offset, bytes, denied) in [

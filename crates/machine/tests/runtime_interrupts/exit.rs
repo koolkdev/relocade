@@ -77,8 +77,7 @@ async fn exit_during_entry() {
             Compiler::new(ExecutionProfile::Real16).target(),
             CpuState {
                 eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
+                ..CpuState::real_mode()
             },
             0x7000,
             PhysicalMemoryMap::new([

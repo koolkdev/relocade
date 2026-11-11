@@ -5,9 +5,7 @@ use relocade_machine::{
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segments,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -73,8 +71,7 @@ async fn timer_interrupts() -> Result<(), String> {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

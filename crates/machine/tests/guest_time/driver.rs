@@ -80,8 +80,7 @@ async fn callback_target_changes() {
                     Compiler::new(ExecutionProfile::Real16).target(),
                     CpuState {
                         eip: 0x100,
-                        segments: Segments::real_mode(),
-                        ..CpuState::default()
+                        ..CpuState::real_mode()
                     },
                     0x10000,
                     PhysicalMemoryMap::new([

@@ -1,7 +1,7 @@
 //! Callable entries share address lookup across execution profiles.
 
 use super::*;
-use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment, Segments};
+use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment};
 use relocade_compiler::{
     abi::{
         slots::{Layout, Tuple},
@@ -25,7 +25,7 @@ struct Output {
 fn cases(profile: ExecutionProfile) -> (Vec<Invocation>, Vec<crate::ExecutionExit>) {
     let mut cpu = CpuState::default();
     if profile == ExecutionProfile::Real16 {
-        cpu.segments = Segments::real_mode();
+        cpu = CpuState::real_mode();
         cpu.segments[Segment::Cs] = crate::SegmentRegister::real_mode(Segment::Cs, 0xffff);
     }
     if profile == SegmentProfile::Segmented16.into() {

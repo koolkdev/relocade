@@ -1,7 +1,7 @@
 //! MASKMOV uses DS with overrides, an address-sized index, and no index update.
 
 use super::*;
-use relocade_x86::{ExecutionProfile, Segments};
+use relocade_x86::ExecutionProfile;
 
 fn addressing(frontend: Frontend) {
     for profile in [SegmentProfile::Segmented32.into(), ExecutionProfile::Real16] {
@@ -18,7 +18,7 @@ fn addressing(frontend: Frontend) {
                 let code = [prefixes, code(bytes)].concat();
                 let mut image = image(&code, [0x80; 16]);
                 if profile == ExecutionProfile::Real16 {
-                    image.cpu.segments = Segments::real_mode();
+                    image.initialize_real_mode();
                 }
                 image.cpu.segments.ds.selector = 0x400;
                 image.cpu.segments.ds.base = 0x4000;

@@ -7,7 +7,7 @@ use relocade_machine::{Cpu, CpuConfig, DispatchEntry, MachineConfig, Memory};
 use relocade_pc_speaker::{Speaker, PORT_RANGE};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::time::Duration;
 
@@ -43,8 +43,7 @@ async fn guest_port_io() {
             compiler.target(),
             CpuState {
                 eip: 0x100,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
+                ..CpuState::real_mode()
             },
         )
         .unwrap();

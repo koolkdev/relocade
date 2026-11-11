@@ -6,7 +6,7 @@ use relocade_machine::{
 };
 use relocade_vga::Vga;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, Segments,
+    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
 };
 use std::{cell::RefCell, rc::Rc, task::Poll};
 
@@ -70,10 +70,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            segments: Segments::real_mode(),
-            ..CpuState::default()
-        },
+        CpuState::real_mode(),
     )
     .unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();

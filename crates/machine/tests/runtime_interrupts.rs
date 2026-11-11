@@ -6,7 +6,7 @@ use irq::Irq;
 use relocade_machine::{Cpu, Device, DeviceConnection, Hook, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentRegister, Segments,
+    PhysicalMemoryMap, Segment, SegmentRegister,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -16,8 +16,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn cpu(code: &[u8], flags: u32, irq: &Rc<RefCell<impl Device + 'static>>) -> Cpu {
     let mut state = CpuState {
         eip: 0x100,
-        segments: Segments::real_mode(),
-        ..Default::default()
+        ..CpuState::real_mode()
     };
     state.registers.esp = 0x8000;
     state.flags.set_eflags(flags);

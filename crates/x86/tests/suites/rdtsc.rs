@@ -7,9 +7,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{CallPatches, TestModule},
 };
-use relocade_x86::{
-    compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile, Segments,
-};
+use relocade_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile};
 
 fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuState {
     cpu.registers.eax = eax;
@@ -71,7 +69,7 @@ fn transfers(frontend: Frontend) {
     ] {
         let mut image = Image::new(code);
         match profile {
-            ExecutionProfile::Real16 => image.cpu.segments = Segments::real_mode(),
+            ExecutionProfile::Real16 => image.initialize_real_mode(),
             ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
                 image.cpu.segments.cs.big = 0;
             }

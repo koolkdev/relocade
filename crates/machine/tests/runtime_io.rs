@@ -101,7 +101,7 @@ async fn check_device_access() {
             CpuState {
                 eip: 0x100,
                 segments,
-                ..CpuState::default()
+                ..CpuState::real_mode()
             },
             0x5000,
             map(),

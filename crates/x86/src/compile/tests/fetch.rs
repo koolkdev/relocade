@@ -3,7 +3,7 @@ use crate::{
         machine::{expected, Exit, Image, Step},
         step::TestModule,
     },
-    Compiler, ExecutionProfile, SegmentProfile, Segments,
+    Compiler, ExecutionProfile, SegmentProfile,
 };
 
 fn block(
@@ -136,7 +136,7 @@ fn denied_fetch_spans() {
     let code = [0x89, 0xc0];
     for (eip, exit) in [(0xfffe, Exit::Dispatch(0x10000)), (0xffff, Exit::Interpret)] {
         let mut image = Image::empty();
-        image.cpu.segments = Segments::real_mode();
+        image.initialize_real_mode();
         image.cpu.eip = eip;
         image.cpu.instruction_count = 17;
         image.map(15, 0x3000, false);

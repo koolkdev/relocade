@@ -5,7 +5,7 @@ mod x87;
 use std::mem::{offset_of, size_of};
 
 use super::{CpuState, FlagBytes, FlagsState, Registers, StatusSourceState};
-use crate::{CpuMode, Gpr32, PrivilegeLevel};
+use crate::{CpuMode, Gpr32, PrivilegeLevel, SegmentDefaultSize};
 
 #[test]
 fn cpu_layout_matches_the_external_byte_contract() {
@@ -176,6 +176,36 @@ fn mode_and_privilege_come_from_control_state_and_loaded_cs() {
     cpu.flags.bytes.vm = 0x80;
     assert_eq!(cpu.mode(), CpuMode::Protected);
     assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring0);
+}
+
+#[test]
+fn initializers_keep_code_and_stack_widths_independent() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    for code in [Bits16, Bits32] {
+        for stack in [Bits16, Bits32] {
+            let cpu = CpuState::protected_mode(code, stack);
+            assert_eq!(cpu.mode(), CpuMode::Protected);
+            assert_eq!(cpu.privilege_level(), PrivilegeLevel::Ring3);
+            assert_eq!(cpu.code_default_size(), code);
+            assert_eq!(cpu.stack_address_size(), stack);
+            assert_eq!(cpu.flags.eflags(), 0x202);
+            assert_eq!(cpu.cr0, 0x31);
+            assert_eq!(cpu.cr4, 0x600);
+        }
+    }
+    let mut real = CpuState::real_mode();
+    assert_eq!(real.mode(), CpuMode::Real);
+    assert_eq!(real.privilege_level(), PrivilegeLevel::Ring0);
+    assert_eq!(real.code_default_size(), Bits16);
+    assert_eq!(real.stack_address_size(), Bits16);
+    assert_eq!(real.flags.eflags(), 2);
+    assert_eq!(real.cr0, 0x30);
+    assert_eq!(real.cr4, 0x600);
+    // Queries describe loaded caches; changing control state does not reload them.
+    real.cr0 |= 1;
+    real.segments.cs.big = 0x80;
+    assert_eq!(real.code_default_size(), Bits32);
+    assert_eq!(real.stack_address_size(), Bits16);
 }
 
 #[test]

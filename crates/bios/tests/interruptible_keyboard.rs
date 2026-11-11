@@ -8,7 +8,7 @@ use relocade_machine::{
 use relocade_vga::Vga;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segment, Segments,
+    Segment,
 };
 use std::{
     cell::RefCell,
@@ -85,8 +85,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     ]);
     let mut state = CpuState {
         eip: 0x100,
-        segments: Segments::real_mode(),
-        ..CpuState::default()
+        ..CpuState::real_mode()
     };
     state.registers.esp = 0x8000;
     state.flags.set_eflags(2); // The caller has IF clear, independently of INT entry.

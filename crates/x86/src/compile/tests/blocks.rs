@@ -4,7 +4,7 @@ use crate::{
         step::{CallPatches, TestModule},
     },
     BlockCompileError, BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel,
-    CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile, Segments,
+    CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -196,8 +196,7 @@ fn entry_boundaries() {
         image.cpu = CpuState {
             eip: snapshot.start_eip,
             instruction_count: 17,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         };
         image.map(snapshot.start_eip >> 12, 0x3000, false);
         image.map((snapshot.start_eip >> 12) + 1, 0x4000, false);
@@ -333,7 +332,7 @@ fn shared_memory_helpers() {
             image.cpu.registers.ecx = 0x2fff;
             image.cpu.registers.ebx = 0x4fff;
             if profile == ExecutionProfile::Real16 {
-                image.cpu.segments = Segments::real_mode();
+                image.initialize_real_mode();
             }
             image.map(1, 0x1000, false);
             image.data(entry.start_eip, code);

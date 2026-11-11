@@ -4,7 +4,7 @@ mod support;
 use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -92,8 +92,7 @@ async fn check_pending_calls() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
@@ -290,8 +289,7 @@ async fn check_completed_replacement() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x400,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
@@ -388,8 +386,7 @@ async fn check_custom_completion() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x400,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
@@ -435,8 +432,7 @@ async fn check_completion_and_abandonment() {
             Compiler::new(ExecutionProfile::Real16).target(),
             CpuState {
                 eip: 0x400,
-                segments: Segments::real_mode(),
-                ..CpuState::default()
+                ..CpuState::real_mode()
             },
             0x10000,
             PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])

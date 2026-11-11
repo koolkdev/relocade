@@ -9,7 +9,6 @@ use relocade_machine::{
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, time::Duration};
 
@@ -22,8 +21,7 @@ fn configuration(count: u64) -> support::Configuration {
         CpuState {
             eip: 0x100,
             instruction_count: count,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

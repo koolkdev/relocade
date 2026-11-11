@@ -6,7 +6,6 @@ use relocade_machine::{
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-    Segments,
 };
 use std::{cell::RefCell, pin::pin, rc::Rc};
 
@@ -44,8 +43,7 @@ async fn callback_wakes_execution() {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..CpuState::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();

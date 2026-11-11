@@ -4,7 +4,7 @@ mod compilation;
 use relocade_machine::{BlockRequest, CpuConfig, Hook, Machine, MachineConfig, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segments,
+    PhysicalMemoryMap,
 };
 use std::{future::pending, pin::pin};
 
@@ -19,8 +19,7 @@ fn setup() -> (Machine, CpuConfig) {
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
             eip: 0x100,
-            segments: Segments::real_mode(),
-            ..Default::default()
+            ..CpuState::real_mode()
         },
     )
     .unwrap();
