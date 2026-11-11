@@ -67,7 +67,7 @@ async fn check_aggregates() {
             }
         }),
     )];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     let nan = f64::from_bits(0xfff8_1234_5678_9abc);
     let request = Request {

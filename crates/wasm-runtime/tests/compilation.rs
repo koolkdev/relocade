@@ -28,7 +28,7 @@ async fn check_independent_compiler() {
 
     let mut backend = Backend::with_state(Rc::new(Cell::new(42_i64))).unwrap();
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
-    let instance = backend.instantiate(&module, &[value]).await.unwrap();
+    let instance = backend.instantiate(&module, &[value]).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), 42);
     backend.state().set(52);

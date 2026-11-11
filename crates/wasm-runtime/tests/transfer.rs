@@ -64,7 +64,7 @@ async fn engine_handles() {
     let unit = receiver.recv().await.unwrap().unwrap();
     assert!(Arc::ptr_eq(&unit.metadata, &expected));
     let mut backend = Backend::new().unwrap();
-    let instance = backend.instantiate(&unit.module, &[]).await.unwrap();
+    let instance = backend.instantiate(&unit.module, &[]).unwrap();
     let function = backend.function(&instance, VALUE).unwrap();
     let value = function.call(&mut backend, ());
     assert_eq!(value, unit.metadata.expected);

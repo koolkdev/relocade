@@ -74,7 +74,6 @@ async fn check_callback_replacement() {
                 &module,
                 &[backend.bind(READ, &table), backend.bind(RECORD, &records)],
             )
-            .await
             .unwrap();
         (backend.function(&instance, RUN).unwrap(), table)
     };

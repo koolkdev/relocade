@@ -70,7 +70,7 @@ async fn check_rust_callbacks() {
             }),
         ),
     ];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(
         backend.call(&run, ()),
@@ -152,7 +152,7 @@ async fn check_callback_arguments() {
             *context.state()
         }),
     )];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     for calls in 1..=2 {
         assert_eq!(backend.call(&run, (0, 0)), calls);

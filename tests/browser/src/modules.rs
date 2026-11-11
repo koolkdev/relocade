@@ -31,7 +31,6 @@ async fn execute(mut input: Receiver<Module>) -> std::result::Result<(i64, i64),
     let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
     let instance = backend
         .instantiate(&module, &[value])
-        .await
         .map_err(|error| error.to_string())?;
     let run = backend
         .function(&instance, RUN)
