@@ -128,8 +128,8 @@ resources.io().write_port(0x3d4, 1, 0x0f);
 ```
 
 This `MemoryBus` owns both handles. Its views can cross awaits and outlive the
-CPU without retaining a backend or a device borrow. Clones share the same backing
-bytes and device connections; the last connection owner releases the devices.
+CPU without keeping the Wasm runtime or a device borrowed. Clones share the same
+backing bytes and device connections; the last connection owner releases the devices.
 Use raw `Memory` for sharing backing between workers. An attached empty bus still
 differs from a raw view without device access.
 
@@ -137,10 +137,14 @@ MMIO callbacks receive one through eight little-endian bytes, including partial
 widths at boundaries. Port callbacks retain a complete one-, two- or four-byte
 operation; the device interprets it. Each transfer borrows its device only for the
 synchronous call. The bus can be cloned within a worker, but cannot cross threads.
-The machine and its backend share the local bus. Wasm callbacks access it through
-their backend context. Asynchronous host services use the machine's bus without
-holding a device borrow. Dropping the machine releases its bus handles; retained
-`MemoryBus` or `IoBus` handles can keep the devices alive.
+The CPU and `IoBus` retain the same `WasmRuntimeHandle`. It keeps the Wasm runtime
+alive and scopes exclusive access to synchronous operations. Native `WasmRuntime`
+directly owns its Wasmtime store. Wasm callbacks capture weak bus routing references,
+so retaining the runtime does not create a cycle through the devices.
+Asynchronous host services retain the bus without holding a device borrow.
+Dropping the CPU releases its handles; retained `MemoryBus` or `IoBus` handles
+keep the devices and runtime alive. Each bus supports one CPU over its lifetime,
+including after that CPU is dropped or its initialization fails.
 
 Create devices on the execution worker. Publish owned observations to other
 workers instead of sending the live bus or device. VGA publishes immutable

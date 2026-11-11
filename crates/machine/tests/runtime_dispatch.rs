@@ -48,7 +48,7 @@ async fn check_dispatch_table() {
         address: 0x200,
         export: "entry",
     }];
-    // Compilation needs no CPU wasm. Reuse this module for both batches.
+    // Compilation is independent of the CPU's Wasm runtime. Reuse this module for both batches.
     let module = WasmRuntime::new()
         .unwrap()
         .compiler()

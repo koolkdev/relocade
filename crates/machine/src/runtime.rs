@@ -9,8 +9,9 @@
 //!
 //! The driver owns the CPU instance directly and alternates guest calls with polling
 //! ordinary Rust service futures. Handlers capture CPU state, memory, I/O and
-//! application resources at registration. Access copies values without acquiring
-//! the Wasm runtime or binding a temporary view. Pending futures retain their locals
+//! application resources at registration. CPU state and RAM access use shared
+//! storage directly; device access retains its routing.
+//! Pending futures retain their locals
 //! and may borrow their handler captures; completion drops the future first.
 //!
 //! Pending and IRQ-suspended services survive dropping their run waiter. Dropping
@@ -52,6 +53,7 @@ mod io;
 mod memory;
 pub mod real_mode_interrupt;
 mod storage;
+mod wasm;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
@@ -68,6 +70,7 @@ pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
+pub(crate) use wasm::WasmRuntimeHandle;
 
 /// Executes one guest and owns its execution instance, registered services and suspended calls.
 pub struct Cpu {
@@ -84,6 +87,10 @@ impl Cpu {
     /// Creates CPU state and dispatch over existing guest memory.
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
+    ///
+    /// # Panics
+    /// Panics if this bus was already attached to a CPU, including one that was
+    /// dropped or whose initialization failed. Each CPU needs its own bus.
     pub async fn new(memory: Memory, cpu: CpuConfig, io: IoBus) -> Result<Self> {
         CpuStorage::new()?.into_cpu(memory, cpu, io).await
     }
@@ -94,13 +101,13 @@ impl Cpu {
         io: IoBus,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
-        let mut wasm = WasmRuntime::new()?;
-        let bindings = RuntimeMemory::new(&mut wasm, memory, cpu, storage)?;
-        let host_imports = io::imports(&mut wasm, &io);
-        let dispatch = Dispatch::new(&mut wasm, &bindings, host_imports).await?;
+        let runtime = io.attach_cpu()?;
+        let bindings =
+            runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, memory, cpu, storage))?;
+        let dispatch = Dispatch::new(&runtime, &bindings, &io).await?;
         let instruction_target = InstructionTarget::new(&bindings);
         let instance = CpuInstance {
-            wasm,
+            runtime,
             bindings,
             io,
             dispatch,
@@ -116,8 +123,24 @@ impl Cpu {
         })
     }
 
-    /// Retains this CPU's fixed device bus. Connect its devices during setup;
-    /// all host views and installed modules observe the same bus.
+    /// Returns an owned handle to this CPU's fixed device bus.
+    /// The handle retains its devices and runtime independently of this CPU and
+    /// supports synchronous port and MMIO access at stopped host boundaries.
+    /// Connect devices during setup; all host views and installed modules observe
+    /// the same bus. Capture it when registering a service, like [`Self::cpu_state`]:
+    ///
+    /// ```
+    /// use relocade_machine::{Cpu, Hook};
+    ///
+    /// fn status_service(cpu: &Cpu) -> Hook {
+    ///     let state = cpu.cpu_state();
+    ///     let io = cpu.io();
+    ///     Hook::host(0xf0100, async move || {
+    ///         io.write_port(0x3d4, 1, 0x0a);
+    ///         state.set_al(io.read_port(0x3d5, 1) as u8);
+    ///     })
+    /// }
+    /// ```
     pub fn io(&self) -> IoBus {
         self.instance.io.clone()
     }
@@ -148,7 +171,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install_module(&mut instance.wasm, &instance.bindings, bytes, entries)
+            .install_module(&instance.runtime, &instance.bindings, bytes, entries)
             .await
     }
 
@@ -173,7 +196,7 @@ impl Cpu {
         );
         let instance = self.instance_mut();
         instance.dispatch.install_compiled_module(
-            &mut instance.wasm,
+            &instance.runtime,
             &instance.bindings,
             module,
             entries,
@@ -202,7 +225,7 @@ impl Cpu {
         let instance = self.instance_mut();
         instance
             .dispatch
-            .install(&mut instance.wasm, &instance.bindings, hooks)
+            .install(&instance.runtime, &instance.bindings, hooks)
             .await
     }
 

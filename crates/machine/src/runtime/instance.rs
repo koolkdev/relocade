@@ -1,11 +1,11 @@
 //! The resources borrowed by guest execution and its host services.
 
-use super::{CpuContext, Dispatch, RuntimeMemory, WasmRuntime};
+use super::{CpuContext, Dispatch, RuntimeMemory, WasmRuntimeHandle};
 use crate::IoBus;
 use relocade_x86::ExecutionExit;
 
 pub(super) struct CpuInstance {
-    pub wasm: WasmRuntime,
+    pub runtime: WasmRuntimeHandle,
     pub bindings: RuntimeMemory,
     pub io: IoBus,
     pub dispatch: Dispatch,
@@ -22,6 +22,6 @@ impl CpuInstance {
     }
 
     pub fn dispatch(&mut self) -> ExecutionExit {
-        self.dispatch.run(&mut self.wasm)
+        self.runtime.with_runtime(|wasm| self.dispatch.run(wasm))
     }
 }

@@ -1,25 +1,25 @@
 use crate::Result;
-use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{ModuleCache, WasmCompiler};
 use relocade_x86::{Compiler, ExecutionTarget};
 
-pub(super) async fn dispatcher<B: WasmBackend>(
-    backend: &B,
+pub(super) async fn dispatcher<C: WasmCompiler>(
+    compiler: &C,
     target: ExecutionTarget,
-) -> Result<B::Module> {
-    let compiler = Compiler::new(target.profile)
+) -> Result<C::Module> {
+    let dispatcher = Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
-        .with_instruction_budgets(target.instruction_budgets);
-    let dispatcher = compiler.compile_dispatcher()?;
-    Ok(backend.compiler().compile(&dispatcher.bytes).await?)
+        .with_instruction_budgets(target.instruction_budgets)
+        .compile_dispatcher()?;
+    Ok(compiler.compile(&dispatcher.bytes).await?)
 }
 
-pub(super) async fn interpreter<B: WasmBackend>(
-    backend: &B,
+pub(super) async fn interpreter<C: WasmCompiler>(
+    compiler: &C,
+    cache: Option<&ModuleCache<C::Module>>,
     target: ExecutionTarget,
-) -> Result<B::Module> {
+) -> Result<C::Module> {
     let bytes = relocade_interpreter::module(target.profile);
-    let compiler = backend.compiler();
-    Ok(if let Some(cache) = backend.module_cache() {
+    Ok(if let Some(cache) = cache {
         cache
             .get_or_compile(bytes, |bytes| compiler.compile(bytes))
             .await?
