@@ -2,7 +2,7 @@ use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
-use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
+use relocade_machine::{Clock, ClockSource, Sleep, Timestamp};
 use relocade_vga::{registers::crtc, VgaDisplay};
 use std::{cell::Cell, rc::Rc, time::Duration};
 
@@ -35,8 +35,6 @@ async fn draw(display: &mut VgaDisplay, device: &wgpu::Device, queue: &wgpu::Que
 }
 
 async fn timed_updates() {
-    let device_io = relocade_machine::IoBus::default();
-
     let adapter = wgpu::Instance::default()
         .request_adapter(&Default::default())
         .await
@@ -50,14 +48,14 @@ async fn timed_updates() {
         host: host.clone(),
         offset: offset.clone(),
     })));
-    common::crtc(&mut *vga.borrow_mut(), crtc::CURSOR_START, 0x20);
-    set_cell(&mut *vga.borrow_mut(), 0, 0xdb, 4);
-    let source = vga.borrow().frames();
+    common::crtc(&vga.io, crtc::CURSOR_START, 0x20);
+    set_cell(&vga.io, 0, 0xdb, 4);
+    let source = vga.device.borrow().frames();
     let mut display = VgaDisplay::new(&device, source.clone()).unwrap();
 
     // Late service keeps the deadline at the retrace boundary.
     guest.advance_to(guest.at(common::boundary(1) + Duration::from_micros(1)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     assert!(source.is_empty());
     assert_eq!(host.next_deadline(), Some(host.at(common::boundary(1))));
@@ -67,14 +65,14 @@ async fn timed_updates() {
     assert!(display.encode_image(&queue, &mut encoder).is_none());
     queue.submit([encoder.finish()]);
 
-    set_cell(&mut *vga.borrow_mut(), 1, 0xdb, 1);
+    set_cell(&vga.io, 1, 0xdb, 1);
     guest.advance_to(guest.at(common::boundary(2)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     // A different memory page distinguishes retaining both updates from only
     // uploading the last publication's dirty pages.
-    set_cell(&mut *vga.borrow_mut(), 1999, 0xdb, 2);
+    set_cell(&vga.io, 1999, 0xdb, 2);
     guest.advance_to(guest.at(common::boundary(3)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     // Pending timestamps use the mapping when the task processes them. An
     // already-started wait keeps its original deadline across mapping changes.
     offset.set(Duration::from_secs(1));
@@ -119,9 +117,9 @@ async fn timed_updates() {
     assert_eq!(pixel(&pixels, 8, 0), [0, 0, 170, 255]);
     assert_eq!(pixel(&pixels, 632, 192), [0, 170, 0, 255]);
 
-    set_cell(&mut *vga.borrow_mut(), 2, 0xdb, 4);
+    set_cell(&vga.io, 2, 0xdb, 4);
     guest.advance_to(guest.at(common::boundary(4)));
-    device_io.with_context(|context| vga.borrow_mut().read_port(context, 0x3da, 1));
+    vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());
     assert_eq!(
         host.next_deadline(),

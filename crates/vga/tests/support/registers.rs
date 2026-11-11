@@ -1,31 +1,19 @@
 //! Guest-visible register programming shared by display fixtures.
-use relocade_machine::Device;
 
-pub fn indexed(vga: &mut impl Device, port: u16, index: u8, value: u8) {
-    relocade_machine::IoBus::default().with_context(|mut context| {
-        vga.write_port(
-            context.reborrow(),
-            port,
-            2,
-            u32::from(u16::from_le_bytes([index, value])),
-        );
-    })
+pub fn indexed(io: &relocade_machine::IoBus, port: u16, index: u8, value: u8) {
+    io.write_port(port, 2, u32::from(u16::from_le_bytes([index, value])));
 }
 
-pub fn attribute(vga: &mut impl Device, index: u8, value: u8) {
-    relocade_machine::IoBus::default().with_context(|mut context| {
-        vga.read_port(context.reborrow(), 0x3da, 1);
-        vga.write_port(context.reborrow(), 0x3c0, 1, u32::from(index));
-        vga.write_port(context.reborrow(), 0x3c0, 1, u32::from(value));
-        vga.write_port(context.reborrow(), 0x3c0, 1, 0x20);
-    })
+pub fn attribute(io: &relocade_machine::IoBus, index: u8, value: u8) {
+    io.read_port(0x3da, 1);
+    io.write_port(0x3c0, 1, u32::from(index));
+    io.write_port(0x3c0, 1, u32::from(value));
+    io.write_port(0x3c0, 1, 0x20);
 }
 
-pub fn palette(vga: &mut impl Device, index: u8, rgb: [u8; 3]) {
-    relocade_machine::IoBus::default().with_context(|mut context| {
-        vga.write_port(context.reborrow(), 0x3c8, 1, u32::from(index));
-        for component in rgb {
-            vga.write_port(context.reborrow(), 0x3c9, 1, u32::from(component));
-        }
-    })
+pub fn palette(io: &relocade_machine::IoBus, index: u8, rgb: [u8; 3]) {
+    io.write_port(0x3c8, 1, u32::from(index));
+    for component in rgb {
+        io.write_port(0x3c9, 1, u32::from(component));
+    }
 }
