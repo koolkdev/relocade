@@ -1,5 +1,5 @@
 use relocade_compiler::{abi::Function, Program, I64};
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
 use std::{cell::Cell, rc::Rc};
 
 const VALUE: Function<fn() -> I64> = Function::new("test", "value");
@@ -27,7 +27,8 @@ async fn check_independent_compiler() {
     let module = compilation.await.unwrap();
 
     let mut backend = Backend::with_state(Rc::new(Cell::new(42_i64))).unwrap();
-    let value = backend.bind_host(VALUE, Box::new(|caller| caller.state().get()));
+    let value =
+        FunctionRef::new(&mut backend.context(), |caller, ()| caller.state().get()).import(VALUE);
     let instance = backend.instantiate(&module, &[value]).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), 42);

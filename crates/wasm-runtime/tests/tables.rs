@@ -1,5 +1,5 @@
 use relocade_compiler::{abi, Program, I32};
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -18,10 +18,11 @@ async fn check_table_defaults() {
     const REPLACEMENT: abi::Function<Read> = abi::Function::new("test", "replacement");
     let mut backend = Backend::with_state(Vec::<u16>::new()).unwrap();
     let (run, alias) = {
-        let default = backend.host_function::<Read>(Box::new(|mut context, value| {
-            context.state_mut().push(value);
-            u32::from(value) + 10
-        }));
+        let default =
+            FunctionRef::<_, Read>::new(&mut backend.context(), |mut context, (value,)| {
+                context.state_mut().push(value);
+                u32::from(value) + 10
+            });
         let table = backend.create_table(READ, Some(&default)).unwrap();
         let (run, replacement) = {
             let mut program = Program::new();

@@ -109,7 +109,10 @@ impl<T: 'static> WasmBackend for Backend<T> {
     }
 
     fn context(&mut self) -> Context<'_, T> {
-        Context(self.store.borrow_mut())
+        Context {
+            store: self.store.borrow_mut(),
+            owner: &self.store,
+        }
     }
 
     fn compiler(&self) -> Compiler {

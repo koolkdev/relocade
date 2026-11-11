@@ -2,7 +2,7 @@ use relocade_compiler::{
     abi::{AbiType, AbiValue, Carrier, Function, Table},
     Program, I32, I64,
 };
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -61,10 +61,12 @@ async fn check_rust_calls() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [backend.bind_host(
-        OBSERVE,
-        Box::new(|mut context, value| *context.state_mut() = value),
-    )];
+    let imports = [
+        FunctionRef::new(&mut backend.context(), |mut context, (value,)| {
+            *context.state_mut() = value
+        })
+        .import(OBSERVE),
+    ];
     let instance = backend.instantiate(&module, &imports).unwrap();
     let narrow = backend.function(&instance, NARROW).unwrap();
     assert_eq!(

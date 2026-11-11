@@ -3,7 +3,8 @@ use relocade_compiler::{
     Program, I32, I64, I8,
 };
 use relocade_wasm_runtime::{
-    MemoryAccess, SharedMemory, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmSharedMemory,
+    FunctionRef, MemoryAccess, SharedMemory, WasmBackend, WasmCompiler, WasmMemoryAccess,
+    WasmSharedMemory,
 };
 
 use relocade_wasm_runtime::Backend;
@@ -55,18 +56,16 @@ async fn check_shared_memory() {
     let callback_memory = memory.clone();
     let imports = [
         backend.bind(SHARED, &memory),
-        backend.bind_host(
-            WRITE,
-            Box::new(move |mut context| {
-                let mut bytes = [0; 4];
-                context.memory(&callback_memory).read(0, &mut bytes);
-                assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
-                context
-                    .memory(&callback_memory)
-                    .write(4, &[0xab, 0xcd, 0xef, 0]);
-                0
-            }),
-        ),
+        FunctionRef::new(&mut backend.context(), move |mut context, ()| {
+            let mut bytes = [0; 4];
+            context.memory(&callback_memory).read(0, &mut bytes);
+            assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
+            context
+                .memory(&callback_memory)
+                .write(4, &[0xab, 0xcd, 0xef, 0]);
+            0
+        })
+        .import(WRITE),
     ];
     let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();

@@ -1,5 +1,7 @@
 use relocade_compiler::{abi, Program};
-use relocade_wasm_runtime::{Backend, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess,
+};
 use std::{cell::Cell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
@@ -30,16 +32,16 @@ async fn check_callback_access() {
             .await
             .unwrap();
         let callback_memory = memory.clone();
-        let imports = [backend.bind_host(
-            HOST,
-            Box::new(move |mut caller, value| {
+        let imports = [
+            FunctionRef::new(&mut backend.context(), move |mut caller, (value,)| {
                 caller.state().set(caller.state().get() + 1);
                 let mut memory = caller.memory(&callback_memory);
                 let value = memory.load::<u32>(0) + value;
                 memory.store(0, value);
                 value
-            }),
-        )];
+            })
+            .import(HOST),
+        ];
         let instance = backend.instantiate(&module, &imports).unwrap();
         let run = backend.function(&instance, RUN).unwrap();
         backend.memory(&memory).store(0, 10_u32);

@@ -2,7 +2,9 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    FunctionRef, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess,
+};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -55,30 +57,33 @@ async fn check_stateful_callbacks() {
             .unwrap();
         let read_memory = memory.clone();
         let write_memory = memory.clone();
-        let imports = [
-            backend.bind(MEMORY, &memory),
-            backend.bind_host(CALLS, Box::new(|caller| caller.state().calls)),
-            backend.bind_host(
-                SET_CALLS,
-                Box::new(|mut caller, value| caller.state_mut().calls = value),
-            ),
-            backend.bind_host(
-                READ,
-                Box::new(move |mut caller, offset, _| {
+        let memory_import = backend.bind(MEMORY, &memory);
+        let imports = {
+            let mut context = backend.context();
+            [
+                memory_import,
+                FunctionRef::new(&mut context, |caller, ()| caller.state().calls).import(CALLS),
+                FunctionRef::new(&mut context, |mut caller, (value,)| {
+                    caller.state_mut().calls = value
+                })
+                .import(SET_CALLS),
+                FunctionRef::new(&mut context, move |mut caller, (offset, _)| {
                     let mut bytes = [0; 8];
                     caller.memory(&read_memory).read(offset as u32, &mut bytes);
                     i64::from_le_bytes(bytes)
-                }),
-            ),
-            backend.bind_host(
-                WRITE,
-                Box::new(move |mut caller, offset, _, value| {
-                    caller
-                        .memory(&write_memory)
-                        .write(offset as u32, &value.to_le_bytes());
-                }),
-            ),
-        ];
+                })
+                .import(READ),
+                FunctionRef::<_, fn(I32, I32, I64)>::new(
+                    &mut context,
+                    move |mut caller, (offset, _, value)| {
+                        caller
+                            .memory(&write_memory)
+                            .write(offset as u32, &value.to_le_bytes());
+                    },
+                )
+                .import(WRITE),
+            ]
+        };
         let instance = backend.instantiate(&module, &imports).unwrap();
         let advance = backend.function(&instance, advance_export).unwrap();
         let function = backend.import_function(&advance);
@@ -170,29 +175,26 @@ async fn check_scalar_callbacks() {
             .compile(&program.compile().unwrap())
             .await
             .unwrap();
-        let imports = [
-            backend.bind_host(
-                NARROW,
-                Box::new(|_, bit, byte, word, signed| {
+        let imports = {
+            let mut context = backend.context();
+            [
+                FunctionRef::new(&mut context, |_, (bit, byte, word, signed)| {
                     assert_eq!((bit, byte, word, signed), (1, 255, 65535, -1));
                     0xffff
-                }),
-            ),
-            backend.bind_host(
-                WIDE,
-                Box::new(|_, value| {
+                })
+                .import(NARROW),
+                FunctionRef::new(&mut context, |_, (value,)| {
                     assert_eq!(value, -0x20_0000_0000_0001);
                     value - 2
-                }),
-            ),
-            backend.bind_host(
-                FLOAT,
-                Box::new(|_, value, word| {
+                })
+                .import(WIDE),
+                FunctionRef::new(&mut context, |_, (value, word)| {
                     assert_eq!(word, 65535);
                     value + 0.5
-                }),
-            ),
-        ];
+                })
+                .import(FLOAT),
+            ]
+        };
         let instance = backend.instantiate(&module, &imports).unwrap();
         backend.function(&instance, RUN).unwrap()
     };
@@ -241,14 +243,18 @@ async fn check_tuple_callbacks() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let imports = [
-        backend.bind(MEMORY, &memory),
-        backend.bind_host(
-            MIXED,
-            Box::new(|_| (1, 255, 65535, -1, -0x20_0000_0000_0001, 1.75)),
-        ),
-        backend.bind_host(SINGLE, Box::new(|_| (0x20_0000_0000_0003,))),
-    ];
+    let memory_import = backend.bind(MEMORY, &memory);
+    let imports = {
+        let mut context = backend.context();
+        [
+            memory_import,
+            FunctionRef::new(&mut context, |_, ()| {
+                (1, 255, 65535, -1, -0x20_0000_0000_0001, 1.75)
+            })
+            .import(MIXED),
+            FunctionRef::new(&mut context, |_, ()| (0x20_0000_0000_0003,)).import(SINGLE),
+        ]
+    };
     let instance = backend.instantiate(&module, &imports).unwrap();
     let entry = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&entry, ()), 0x20_0000_0000_0003);

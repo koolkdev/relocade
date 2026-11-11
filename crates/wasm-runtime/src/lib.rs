@@ -12,7 +12,8 @@
 //! They also link with `--growable-table` and `--export=__stack_pointer`.
 //! Callbacks retain their Rust owners through Wasm externrefs until their last
 //! engine reference is collected. Backend state belongs to the Rust backend and
-//! is released when it is dropped. Callbacks require that backend to remain alive.
+//! is released when it is dropped. Functions created through [`Context`] require
+//! that backend to remain alive.
 //! Wasm traps and invalid ABI values are fatal programming errors.
 //!
 //! ```
@@ -45,8 +46,8 @@ mod imports;
 mod memory;
 mod module_cache;
 mod tables;
-pub use calls::{CallSignature, ExportFunction, Function, FunctionRef};
-pub use host::{HostFunction, HostSignature};
+pub use calls::{CallSignature, ExportFunction, Function};
+pub use host::{FunctionContext, FunctionRef};
 pub use imports::{Import, ImportBinding, ImportValue};
 pub use memory::{
     AtomicLoad, AtomicStore, AtomicSwap, Load, MemoryAccess, MemoryValue, Store, WasmMemoryAccess,
@@ -108,15 +109,30 @@ pub trait WasmContext: WasmMemoryAccess + WasmTableAccess {
     fn state_mut(&mut self) -> &mut Self::State;
 }
 
-/// One Wasm resource owner. Memory keys and callbacks implement Send + Sync on
+/// One thread-local Wasm resource owner. Memory keys implement Send + Sync on
 /// both backends; accessing a key requires its owning backend or context.
 /// Preparation futures and environment state need not be Send. Memory is Wasm32 with
 /// 64-KiB pages; tables contain nullable function references. Host callbacks are wrapped by
-/// [`HostFunction`]; callable exports retain their signature through [`ExportFunction`].
+/// [`FunctionContext`]; callable exports retain their signature through [`ExportFunction`].
 ///
 /// Instances retain their imports. Exported functions and table entries remain
 /// valid after the original module and instance handles are dropped.
 /// Execution requires the owning backend, which retains its state and memories.
+/// Create a backend on the thread that will run it; transfer compiled modules and
+/// shared memories between owners instead of moving an execution environment.
+///
+/// ```compile_fail
+/// use relocade_wasm_runtime::Backend;
+/// let backend = Backend::new().unwrap();
+/// std::thread::spawn(move || drop(backend));
+/// ```
+/// Scoped contexts also remain on that thread:
+/// ```compile_fail
+/// use relocade_wasm_runtime::{Backend, WasmBackend};
+/// let mut backend = Backend::new().unwrap();
+/// let context = backend.context();
+/// std::thread::scope(|scope| { scope.spawn(move || drop(context)); });
+/// ```
 pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Sized {
     type State: 'static;
     type Context<'a>: WasmContext<State = Self::State, Memory = Self::Memory, Backend = Self>
@@ -212,67 +228,6 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
         declaration.bind(self, value)
     }
 
-    /// Wraps a callback in the engine and binds it to the shared declaration.
-    /// Callbacks receive a scoped context followed by the declared Rust values.
-    /// The shared ABI codec converts their Wasm representations, including
-    /// zero-extension of signed narrow values. Logical marker declarations retain
-    /// their canonical Rust carrier values.
-    /// Callbacks implement Fn + Send + Sync. Mutable or non-Send environment
-    /// state is accessed through the context. Memory keys can be captured normally.
-    /// Linked modules retain callbacks for as long as they can call them.
-    /// The import owns its handle without borrowing the backend.
-    /// Callbacks access state owned by the backend and do not extend its lifetime.
-    ///
-    /// ```
-    /// use relocade_compiler::abi::Function;
-    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
-    /// const READ: Function<fn(u16, u32) -> u32> = Function::new("example", "read");
-    /// fn bind<B: HostFunction<fn(u16, u32) -> u32>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(READ, Box::new(|_, port, width| u32::from(port) + width));
-    /// }
-    /// ```
-    ///
-    /// A callback with a different return type is rejected by Rust:
-    /// ```compile_fail
-    /// use relocade_compiler::{abi::Function, I16, I32};
-    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
-    /// const READ: Function<fn(I16, I32) -> I32> = Function::new("example", "read");
-    /// fn bind<B: HostFunction<fn(I16, I32) -> I32>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(READ, Box::new(|_, _, _| 0_i64));
-    /// }
-    /// ```
-    /// Parameter types must match too:
-    /// ```compile_fail
-    /// use relocade_compiler::{abi::Function, I32, I64};
-    /// use relocade_wasm_runtime::{HostFunction, WasmBackend};
-    /// const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
-    /// fn bind<B: HostFunction<fn(I32, I32, I64)>>(backend: &mut B) {
-    ///     let _ = backend.bind_host(WRITE, Box::new(|_, _, _, value: i32| {}));
-    /// }
-    /// ```
-    fn bind_host<'a, S: HostSignature<Self>>(
-        &mut self,
-        declaration: FunctionDeclaration<'a, S>,
-        callback: S::Callback,
-    ) -> Import<'a, Self>
-    where
-        Self: HostFunction<S>,
-    {
-        Import::function(declaration, self.host_function::<S>(callback).handle)
-    }
-
-    /// Wraps one callback for reuse in tables. It has the same codec and lifetime
-    /// contract as [`Self::bind_host`], without requiring a named import.
-    fn host_function<S: HostSignature<Self>>(
-        &mut self,
-        callback: S::Callback,
-    ) -> FunctionRef<Self, S>
-    where
-        Self: HostFunction<S>,
-    {
-        FunctionRef::new(self.wrap_host_function(callback))
-    }
-
     /// Obtains a typed table reference without discarding the callable export.
     fn import_function<S: CallSignature>(
         &self,
@@ -281,7 +236,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     where
         Self: ExportFunction<S>,
     {
-        FunctionRef::new(self.function_import(&function.handle))
+        FunctionRef::from_handle(self.function_import(&function.handle))
     }
 
     /// Links a compiled module and runs its startup while borrowing this backend.
