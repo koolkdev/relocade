@@ -67,7 +67,7 @@ async fn check_shared_memory() {
         })
         .import(WRITE),
     ];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), 0x00efcdab12345678);
 
@@ -272,7 +272,6 @@ async fn check_atomic_bytes() {
         .unwrap();
     let instance = backend
         .instantiate(&module, &[backend.bind(SHARED, &imported)])
-        .await
         .unwrap();
     let exchange = backend.function(&instance, EXCHANGE).unwrap();
     assert_eq!(memory.atomic_load::<u8>(OFFSET), 0);

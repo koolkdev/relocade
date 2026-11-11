@@ -29,6 +29,7 @@ impl Wake for WakeCount {
 #[test]
 fn concurrent_requests_share_compilation_and_wake_waiters() {
     let cache = ModuleCache::default();
+    let shared = cache.clone();
     let finished = Cell::new(false);
     let mut first = pin!(cache.get_or_compile(ASSET, |_| poll_fn(|_| {
         if finished.get() {
@@ -44,7 +45,7 @@ fn concurrent_requests_share_compilation_and_wake_waiters() {
 
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
-    let mut second = pin!(cache.get_or_compile(ASSET, |_| async {
+    let mut second = pin!(shared.get_or_compile(ASSET, |_| async {
         panic!("the waiting request must reuse the first module")
     }));
     assert!(second

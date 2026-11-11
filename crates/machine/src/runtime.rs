@@ -172,7 +172,7 @@ impl Cpu {
     ///
     /// # Panics
     /// Panics if a service is pending or parked. Complete or abandon it first.
-    pub async fn install_compiled_module(
+    pub fn install_compiled_module(
         &mut self,
         module: &Module,
         entries: &[DispatchEntry<'_>],
@@ -182,10 +182,12 @@ impl Cpu {
             "host calls are parked; complete or abandon them before installing"
         );
         let instance = self.instance_mut();
-        instance
-            .dispatch
-            .install_compiled_module(&mut instance.backend, &instance.bindings, module, entries)
-            .await
+        instance.dispatch.install_compiled_module(
+            &mut instance.backend,
+            &instance.bindings,
+            module,
+            entries,
+        )
     }
 
     /// Installs host and Wasm hooks in one batch. Each address is independently

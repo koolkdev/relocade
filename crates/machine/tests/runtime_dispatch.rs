@@ -55,10 +55,7 @@ async fn check_dispatch_table() {
         .compile(&module)
         .await
         .unwrap();
-    runtime
-        .install_compiled_module(&module, &entries)
-        .await
-        .unwrap();
+    runtime.install_compiled_module(&module, &entries).unwrap();
     assert_eq!(runtime.context().cpu.eip(), 0x100);
     // A later batch grows both tables while preserving the first callable.
     let mut entries: Vec<_> = (0..4094)
@@ -71,10 +68,7 @@ async fn check_dispatch_table() {
         address: 0x250,
         export: "entry",
     });
-    runtime
-        .install_compiled_module(&module, &entries)
-        .await
-        .unwrap();
+    runtime.install_compiled_module(&module, &entries).unwrap();
     assert_eq!(
         support::run_until(&mut runtime, 0x100).await,
         ExecutionExit::Interrupted
@@ -106,7 +100,6 @@ async fn check_dispatch_table() {
                 },
             ]
         )
-        .await
         .is_err());
     // Failure to resolve a later export must not replace the earlier entry.
     assert_eq!(

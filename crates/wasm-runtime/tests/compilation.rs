@@ -29,7 +29,7 @@ async fn check_independent_compiler() {
     let mut backend = Backend::with_state(Rc::new(Cell::new(42_i64))).unwrap();
     let value =
         FunctionRef::new(&mut backend.context(), |caller, ()| caller.state().get()).import(VALUE);
-    let instance = backend.instantiate(&module, &[value]).await.unwrap();
+    let instance = backend.instantiate(&module, &[value]).unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), 42);
     backend.state().set(52);

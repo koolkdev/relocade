@@ -74,7 +74,7 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
                     "the interpreter continues during compilation and receipt"
                 );
                 assert!(busy.borrow().turns > 1, "device work remains runnable too");
-                code.install(runner.cpu()).await.unwrap();
+                code.install(runner.cpu()).unwrap();
                 runner.cpu().cpu_state().set_eip(0x200);
                 assert_eq!(
                     runner.run_cpu().await,

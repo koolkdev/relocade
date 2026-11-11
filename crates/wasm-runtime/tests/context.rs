@@ -42,7 +42,7 @@ async fn check_callback_access() {
             })
             .import(HOST),
         ];
-        let instance = backend.instantiate(&module, &imports).await.unwrap();
+        let instance = backend.instantiate(&module, &imports).unwrap();
         let run = backend.function(&instance, RUN).unwrap();
         backend.memory(&memory).store(0, 10_u32);
         backend.state().set(20);

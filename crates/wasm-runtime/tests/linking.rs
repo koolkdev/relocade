@@ -84,7 +84,7 @@ async fn check_stateful_callbacks() {
                 .import(WRITE),
             ]
         };
-        let instance = backend.instantiate(&module, &imports).await.unwrap();
+        let instance = backend.instantiate(&module, &imports).unwrap();
         let advance = backend.function(&instance, advance_export).unwrap();
         let function = backend.import_function(&advance);
         table.set(&mut backend, 0, &function).unwrap();
@@ -115,7 +115,6 @@ async fn check_stateful_callbacks() {
                     backend.bind(FUNCTIONS, &table),
                 ],
             )
-            .await
             .unwrap();
         backend.function(&instance, RUN).unwrap()
     };
@@ -196,7 +195,7 @@ async fn check_scalar_callbacks() {
                 .import(FLOAT),
             ]
         };
-        let instance = backend.instantiate(&module, &imports).await.unwrap();
+        let instance = backend.instantiate(&module, &imports).unwrap();
         backend.function(&instance, RUN).unwrap()
     };
     assert_eq!(
@@ -256,7 +255,7 @@ async fn check_tuple_callbacks() {
             FunctionRef::new(&mut context, |_, ()| (0x20_0000_0000_0003,)).import(SINGLE),
         ]
     };
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let entry = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&entry, ()), 0x20_0000_0000_0003);
     let mut bytes = [0; 32];

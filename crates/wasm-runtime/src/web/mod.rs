@@ -182,7 +182,7 @@ impl<T: 'static> WasmBackend for Backend<T> {
         Ok(())
     }
 
-    async fn instantiate(
+    fn instantiate(
         &mut self,
         module: &Self::Module,
         imports: &[Import<'_, Self>],

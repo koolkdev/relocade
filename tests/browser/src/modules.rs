@@ -32,7 +32,6 @@ async fn execute(mut input: Receiver<Module>) -> std::result::Result<(i64, i64),
         FunctionRef::new(&mut backend.context(), |caller, ()| caller.state().get()).import(VALUE);
     let instance = backend
         .instantiate(&module, &[value])
-        .await
         .map_err(|error| error.to_string())?;
     let run = backend
         .function(&instance, RUN)

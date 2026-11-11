@@ -67,7 +67,7 @@ async fn check_rust_calls() {
         })
         .import(OBSERVE),
     ];
-    let instance = backend.instantiate(&module, &imports).await.unwrap();
+    let instance = backend.instantiate(&module, &imports).unwrap();
     let narrow = backend.function(&instance, NARROW).unwrap();
     assert_eq!(
         backend.call(&narrow, (true, i8::MAX, i16::MAX, u32::MAX)),
@@ -153,7 +153,7 @@ async fn check_typed_linking() {
             .compile(&producer.compile().unwrap())
             .await
             .unwrap();
-        let instance = backend.instantiate(&module, &[]).await.unwrap();
+        let instance = backend.instantiate(&module, &[]).unwrap();
         backend.function(&instance, QUERY).unwrap()
     };
     let function = backend.import_function(&query);
@@ -177,7 +177,6 @@ async fn check_typed_linking() {
             &module,
             &[backend.bind(QUERY, &query), backend.bind(TABLE, &table)],
         )
-        .await
         .unwrap();
     let relay = backend.function(&instance, RELAY).unwrap();
     for (argument, expected) in [
@@ -243,7 +242,7 @@ async fn check_domain_values() {
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let instance = backend.instantiate(&module, &[]).await.unwrap();
+    let instance = backend.instantiate(&module, &[]).unwrap();
     let next = backend.function(&instance, NEXT).unwrap();
     assert_eq!(backend.call(&next, (Mode::Read,)), Mode::Write);
 }

@@ -46,7 +46,7 @@ impl CompiledCode {
     /// Publishes these entries through the CPU's existing dispatch and hook path.
     /// The caller maintains code/mapping validity for the installed code's lifetime.
     /// Pending or parked host calls must finish before installation.
-    pub async fn install(&self, cpu: &mut Cpu) -> Result<()> {
+    pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
         }
@@ -60,7 +60,7 @@ impl CompiledCode {
                 export: &block.export,
             })
             .collect();
-        cpu.install_compiled_module(&self.module, &entries).await
+        cpu.install_compiled_module(&self.module, &entries)
     }
 }
 

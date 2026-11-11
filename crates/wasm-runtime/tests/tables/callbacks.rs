@@ -75,7 +75,6 @@ async fn check_callback_replacement() {
                 &module,
                 &[backend.bind(READ, &table), backend.bind(RECORD, &records)],
             )
-            .await
             .unwrap();
         (backend.function(&instance, RUN).unwrap(), table)
     };
@@ -142,7 +141,6 @@ async fn check_table_context_replacement() {
         .unwrap();
     let instance = backend
         .instantiate(&module, &[backend.bind(READ, &table)])
-        .await
         .unwrap();
     let run = backend.function(&instance, RUN).unwrap();
     assert_eq!(backend.call(&run, ()), (8, 12));
