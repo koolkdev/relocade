@@ -25,6 +25,9 @@ pub struct CpuContext<'a> {
     /// Guest memory through the machine's physical map.
     pub memory: MemoryView<'a>,
     /// The same device bus used by guest port and MMIO instructions.
+    /// Clone this handle to retain synchronous I/O beyond the context's lifetime,
+    /// as with [`super::Cpu::io`]. Cloning retains the runtime without borrowing
+    /// the CPU controller.
     pub io: &'a IoBus,
     pub(super) guest_calls: Option<&'a GuestCalls>,
 }

@@ -16,18 +16,17 @@ impl GuestCall {
     pub(super) fn enter(&self, instance: &mut CpuInstance) -> Result<(), ExecutionExit> {
         match self {
             Self::Interrupt(vector) => match instance
-                .dispatch
-                .enter_interrupt(&mut instance.wasm, *vector)
+                .runtime
+                .with_runtime(|wasm| instance.dispatch.enter_interrupt(wasm, *vector))
             {
                 ExecutionExit::InterruptEntered => Ok(()),
                 exit => Err(exit),
             },
             Self::Far { target, arguments } => {
                 let stack_bytes = size_of_val(arguments.as_ref()) as u16;
-                let exit =
-                    instance
-                        .dispatch
-                        .enter_far_call(&mut instance.wasm, *target, stack_bytes);
+                let exit = instance.runtime.with_runtime(|wasm| {
+                    instance.dispatch.enter_far_call(wasm, *target, stack_bytes)
+                });
                 if exit != ExecutionExit::FarCallEntered {
                     return Err(exit);
                 }

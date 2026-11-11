@@ -3,8 +3,8 @@
 mod hooks;
 mod table;
 
-use super::{code, hooks::Handler, Hook, RuntimeMemory, WasmRuntime};
-use crate::{FarPointer, Result};
+use super::{code, hooks::Handler, io, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle};
+use crate::{FarPointer, IoBus, Result};
 use hooks::Hooks;
 use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, ExecutionExit, ExecutionProfile};
@@ -33,45 +33,50 @@ pub(crate) struct Dispatch {
 
 impl Dispatch {
     pub(crate) async fn new(
-        wasm: &mut WasmRuntime,
+        runtime: &WasmRuntimeHandle,
         bindings: &RuntimeMemory,
-        host_imports: Vec<Import<'static, WasmRuntime>>,
+        bus: &IoBus,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
-        let module = code::dispatcher(wasm, target).await?;
-        // Link the dispatcher first; the interpreter imports its entry points.
-        let table = DispatchTable::new(wasm)?;
-        let mut imports = bindings.imports(wasm).to_vec();
-        imports.extend(table.imports(wasm));
-        let instance = wasm.instantiate(&module, &imports)?;
-        let dispatch = wasm.function(&instance, abi::DISPATCH)?;
-        let interpret = wasm.function(&instance, abi::INTERPRET)?;
+        let (compiler, cache) =
+            runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
+        let dispatcher = code::dispatcher(&compiler, target).await?;
+        let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
+        runtime.with_runtime(|wasm| {
+            // Link the dispatcher first; the interpreter imports its entry points.
+            let table = DispatchTable::new(wasm)?;
+            let mut imports = bindings.imports(wasm).to_vec();
+            imports.extend(table.imports(wasm));
+            let instance = wasm.instantiate(&dispatcher, &imports)?;
+            let dispatch = wasm.function(&instance, abi::DISPATCH)?;
+            let interpret = wasm.function(&instance, abi::INTERPRET)?;
 
-        imports.extend([
-            wasm.bind(abi::DISPATCH, &dispatch),
-            wasm.bind(abi::INTERPRET, &interpret),
-        ]);
-        imports.extend(host_imports.iter().cloned());
-        let module = code::interpreter(wasm, target).await?;
-        let instance = wasm.instantiate(&module, &imports)?;
-        table.install_interpreter(wasm, &instance)?;
-        Ok(Self {
-            dispatch,
-            interpret,
-            step: wasm.function(&instance, abi::STEP)?,
-            interrupt: if target.profile == ExecutionProfile::Real16 {
-                Some(wasm.function(&instance, abi::INTERRUPT)?)
-            } else {
-                None
-            },
-            far_call: if target.profile == ExecutionProfile::Real16 {
-                Some(wasm.function(&instance, abi::FAR_CALL)?)
-            } else {
-                None
-            },
-            table,
-            hooks: Hooks::default(),
-            host_imports,
+            imports.extend([
+                wasm.bind(abi::DISPATCH, &dispatch),
+                wasm.bind(abi::INTERPRET, &interpret),
+            ]);
+            let host_imports = io::imports(wasm, bus);
+            imports.extend(host_imports.iter().cloned());
+            let instance = wasm.instantiate(&interpreter, &imports)?;
+            table.install_interpreter(wasm, &instance)?;
+            Ok(Self {
+                dispatch,
+                interpret,
+                step: wasm.function(&instance, abi::STEP)?,
+                interrupt: if target.profile == ExecutionProfile::Real16 {
+                    Some(wasm.function(&instance, abi::INTERRUPT)?)
+                } else {
+                    None
+                },
+                far_call: if target.profile == ExecutionProfile::Real16 {
+                    Some(wasm.function(&instance, abi::FAR_CALL)?)
+                } else {
+                    None
+                },
+                table,
+                hooks: Hooks::default(),
+                host_imports,
+            })
         })
     }
 
@@ -105,12 +110,12 @@ impl Dispatch {
 
     pub(crate) async fn install(
         &mut self,
-        wasm: &mut WasmRuntime,
+        runtime: &WasmRuntimeHandle,
         bindings: &RuntimeMemory,
         hooks: impl IntoIterator<Item = Hook>,
     ) -> Result<()> {
         let module = self.hooks.compile(hooks)?;
-        self.install_module(wasm, bindings, &module.bytes, &module.entries())
+        self.install_module(runtime, bindings, &module.bytes, &module.entries())
             .await?;
         self.hooks.install(module);
         Ok(())
@@ -118,18 +123,19 @@ impl Dispatch {
 
     pub(crate) async fn install_module(
         &mut self,
-        wasm: &mut WasmRuntime,
+        runtime: &WasmRuntimeHandle,
         bindings: &RuntimeMemory,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let module = wasm.compiler().compile(bytes).await?;
-        self.install_compiled_module(wasm, bindings, &module, entries)
+        let compiler = runtime.with_runtime(|wasm| wasm.compiler());
+        let module = compiler.compile(bytes).await?;
+        self.install_compiled_module(runtime, bindings, &module, entries)
     }
 
     pub(crate) fn install_compiled_module(
         &mut self,
-        wasm: &mut WasmRuntime,
+        runtime: &WasmRuntimeHandle,
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
@@ -142,8 +148,10 @@ impl Dispatch {
             .into_iter()
             .map(|(address, export)| DispatchEntry { address, export })
             .collect();
-        let instance = self.instantiate(wasm, bindings, module)?;
-        self.table.install(wasm, &instance, &entries)?;
+        runtime.with_runtime(|wasm| {
+            let instance = self.instantiate(wasm, bindings, module)?;
+            self.table.install(wasm, &instance, &entries)
+        })?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
     }

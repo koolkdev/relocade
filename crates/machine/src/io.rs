@@ -3,15 +3,22 @@
 mod device;
 pub use device::{Device, DeviceConnection};
 
+use crate::runtime::WasmRuntimeHandle;
 use std::{
-    cell::{OnceCell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     ops::RangeInclusive,
     rc::{Rc, Weak},
     task::{Context, Poll},
 };
 
-/// Device connections on one execution worker. Clones retain the same devices
-/// and routing. Engine callbacks hold weak routing references.
+/// An owned handle to device connections and their runtime on one execution worker.
+/// Obtain it through [`crate::Cpu::io`] or clone an existing handle. Clones share
+/// routing and retain the devices and runtime independently of the CPU controller.
+/// Port and MMIO methods perform synchronous transfers through `&self`. Retain
+/// the handle across awaits and use it at stopped host boundaries, including
+/// after the CPU is dropped. Engine callbacks hold weak routing references.
+/// A bus can be attached to only one CPU over its lifetime, including after
+/// that CPU is dropped or its initialization fails.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
 ///
 /// ```compile_fail
@@ -24,6 +31,8 @@ pub struct IoBus {
 }
 
 pub(crate) struct State {
+    runtime: WasmRuntimeHandle,
+    cpu_attached: Cell<bool>,
     connections: OnceCell<Box<[DeviceConnection]>>,
     identity: Weak<State>,
 }
@@ -32,6 +41,8 @@ impl Default for IoBus {
     fn default() -> Self {
         Self {
             state: Rc::new_cyclic(|identity| State {
+                runtime: WasmRuntimeHandle::default(),
+                cpu_attached: Cell::new(false),
                 connections: OnceCell::new(),
                 identity: identity.clone(),
             }),
@@ -99,6 +110,16 @@ impl IoBus {
     /// Panics unless `bytes` is 1, 2 or 4.
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
         self.state.write_port(port, bytes, value)
+    }
+
+    /// Claims this bus for one CPU, including if runtime initialization fails.
+    pub(crate) fn attach_cpu(&self) -> crate::Result<WasmRuntimeHandle> {
+        assert!(
+            !self.state.cpu_attached.replace(true),
+            "an I/O bus supports exactly one CPU"
+        );
+        self.state.runtime.initialize()?;
+        Ok(self.state.runtime.clone())
     }
 
     pub(crate) fn downgrade(&self) -> Weak<State> {
