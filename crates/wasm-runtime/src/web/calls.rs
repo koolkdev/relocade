@@ -1,10 +1,10 @@
-use super::Backend;
+use super::WasmRuntime;
 use crate::{CallSignature, Error, ExportFunction, Result};
 use js_sys::{Function as JsFunction, WebAssembly};
 use relocade_compiler::abi::{Function, Value};
 use relocade_wasm_bindings::{Flat, Function as Binding, WasmTuple};
 
-impl<T: 'static, S: CallSignature> ExportFunction<S> for Backend<T>
+impl<S: CallSignature> ExportFunction<S> for WasmRuntime
 where
     Flat<S::Parameters>: WasmTuple,
     Flat<S::Return>: WasmTuple,

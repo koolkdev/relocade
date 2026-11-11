@@ -7,24 +7,24 @@ pub use atomic::{AtomicLoad, AtomicStore, AtomicSwap};
 pub use scalar::{Load, Store};
 pub use value::MemoryValue;
 
-/// Access to linear memory through a Wasm backend or its scoped context.
+/// Access to linear memory through a Wasm runtime or its scoped context.
 /// Handles belong to that engine. Transfers require an allocated, in-bounds
 /// range; violating this storage invariant is a programming error.
 pub trait WasmMemoryAccess {
     /// A handle to engine-owned memory that host functions can capture. Handles
     /// may belong to the engine's thread; use shared memory for worker transfers.
-    /// Access to contents requires the owning backend or its scoped context.
+    /// Access to contents requires the owning runtime or its scoped context.
     type Memory: Clone + 'static;
 
     /// Binds the allocation for a stopped phase. Drop the view before entering
-    /// Wasm through this backend or context again.
+    /// Wasm through this runtime or context again.
     ///
     /// A bound view cannot overlap guest execution:
     /// ```compile_fail
-    /// use relocade_wasm_runtime::{Backend, Function, Memory, WasmMemoryAccess};
-    /// fn overlap(backend: &mut Backend, memory: &Memory, function: &Function<Backend, fn()>) {
-    ///     let access = backend.memory(memory);
-    ///     function.call(backend, ());
+    /// use relocade_wasm_runtime::{WasmRuntime, Function, Memory, WasmMemoryAccess};
+    /// fn overlap(runtime: &mut WasmRuntime, memory: &Memory, function: &Function<WasmRuntime, fn()>) {
+    ///     let access = runtime.memory(memory);
+    ///     function.call(runtime, ());
     ///     access.read(0, &mut [0]);
     /// }
     /// ```
@@ -43,8 +43,9 @@ impl<A: WasmMemoryAccess + ?Sized> WasmMemoryAccess for &mut A {
 /// guest or host writes and do not provide a consistent snapshot of a range.
 /// The range must be allocated and in bounds, as with [`WasmMemoryAccess`].
 ///
-/// Native backend handles can cross threads. Browser handles stay on their JavaScript
-/// thread; the underlying shared WebAssembly.Memory can be sent to a worker.
+/// On native targets, shared memory handles can cross threads. Browser handles
+/// stay on their JavaScript thread; the underlying shared WebAssembly.Memory
+/// can be sent to a worker.
 pub trait WasmSharedMemory: Clone + 'static {
     /// Borrows live read/write access without excluding other owners or growth.
     fn view(&self) -> MemoryAccess<'_>;
@@ -54,8 +55,8 @@ pub trait WasmSharedMemory: Clone + 'static {
 }
 
 /// Live access to an already bound allocation. Reborrowing does not clone its
-/// resource handle or borrow the backend again. Private access excludes guest
-/// execution through its backend borrow; shared access can overlap other readers,
+/// resource handle or borrow the runtime again. Private access excludes guest
+/// execution through its runtime borrow; shared access can overlap other readers,
 /// writers and growth. Transfers must be allocated and in bounds.
 pub struct MemoryAccess<'a> {
     memory: crate::backend::MemoryRegion<'a>,

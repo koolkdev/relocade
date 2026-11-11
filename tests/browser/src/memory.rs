@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::worker::{channel, Receiver, Sender, Thread};
 use relocade_wasm_runtime::{
-    Backend, SharedMemory, WasmBackend, WasmMemoryAccess, WasmSharedMemory,
+    SharedMemory, WasmBackend, WasmMemoryAccess, WasmRuntime, WasmSharedMemory,
 };
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
@@ -20,8 +20,8 @@ pub async fn shared_memory() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     drop(creator);
     shared.write(0, &[42]);
-    let mut backend = Backend::new().map_err(|error| error.to_string())?;
-    let memory = backend.import_shared_memory(&shared);
+    let mut wasm = WasmRuntime::new().map_err(|error| error.to_string())?;
+    let memory = wasm.import_shared_memory(&shared);
     let offset = 65536;
     let thread = Thread::new();
     let (ready, started) = oneshot::channel();
@@ -36,11 +36,9 @@ pub async fn shared_memory() -> Result<(), String> {
     started.await.map_err(|error| error.to_string())?;
     // The receiving worker already holds its own handle. Growing and writing
     // here must remain visible through that handle, not a copied snapshot.
-    backend
-        .ensure_memory_size(&memory, 2 * 65536)
+    wasm.ensure_memory_size(&memory, 2 * 65536)
         .map_err(|error| error.to_string())?;
-    backend
-        .memory(&memory)
+    wasm.memory(&memory)
         .write(65536, &[1, 2, 3, 4, 5, 6, 7, 8, 0xf9]);
     written.send(()).unwrap();
     let (initial, bytes, scalar) = task.await.map_err(|error| error.to_string())?;
@@ -49,7 +47,7 @@ pub async fn shared_memory() -> Result<(), String> {
     assert_eq!(bytes, [1, 2, 3, 4]);
     assert_eq!(scalar, 0xf908_0706_0504_0302);
     let mut stored = [0; 8];
-    drop(backend);
+    drop(wasm);
     shared.read(65545, &mut stored);
     assert_eq!(stored, [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe]);
     Ok(())

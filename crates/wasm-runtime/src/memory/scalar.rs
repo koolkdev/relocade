@@ -32,7 +32,7 @@ impl MemoryAccess<'_> {
 }
 
 impl SharedMemory {
-    /// Loads one little-endian scalar without borrowing a backend.
+    /// Loads one little-endian scalar without borrowing a runtime.
     /// Shared transfers do not promise an atomic snapshot of the value.
     #[inline]
     pub fn load<V: MemoryValue>(&self, offset: u32) -> V
@@ -42,7 +42,7 @@ impl SharedMemory {
         Load::load(self, offset)
     }
 
-    /// Stores one little-endian scalar without borrowing a backend.
+    /// Stores one little-endian scalar without borrowing a runtime.
     /// Shared transfers do not promise an atomic update of the value.
     #[inline]
     pub fn store<V: MemoryValue>(&self, offset: u32, value: V)

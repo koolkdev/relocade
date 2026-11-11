@@ -31,7 +31,7 @@ impl<B: WasmBackend> Import<'_, B> {
         self.name
     }
 
-    /// The prepared binding, for a backend to install in its engine.
+    /// The prepared binding, for a runtime to install in its engine.
     pub fn value(&self) -> &ImportValue<'_, B> {
         &self.value
     }
@@ -53,7 +53,7 @@ impl<'a, B: WasmBackend> Import<'a, B> {
 /// Maps a declaration to its resource handle.
 pub trait ImportBinding<'a, B: WasmBackend> {
     type Value;
-    fn bind(self, backend: &B, value: Self::Value) -> Import<'a, B>;
+    fn bind(self, runtime: &B, value: Self::Value) -> Import<'a, B>;
 }
 
 impl<'a, B: WasmBackend + 'a> ImportBinding<'a, B> for abi::Memory {
@@ -84,8 +84,8 @@ where
     B::Handle: 'a,
 {
     type Value = &'a Function<B, S>;
-    fn bind(self, backend: &B, value: Self::Value) -> Import<'a, B> {
-        Import::function(self, backend.function_import(&value.handle))
+    fn bind(self, runtime: &B, value: Self::Value) -> Import<'a, B> {
+        Import::function(self, runtime.function_import(&value.handle))
     }
 }
 

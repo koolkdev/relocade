@@ -1,6 +1,6 @@
 use relocade_compiler::{abi, Program};
 use relocade_wasm_runtime::{
-    Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess,
+    FunctionRef, WasmBackend, WasmCompiler, WasmMemoryAccess, WasmRuntime,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -12,8 +12,8 @@ async fn check_callback_access() {
     const RUN: abi::Function<fn(u32) -> u32> = abi::Function::new("context", "run");
     for shared in [false, true] {
         let calls = Rc::new(Cell::new(0_u32));
-        let mut backend = Backend::with_state(Rc::clone(&calls)).unwrap();
-        let memory = backend
+        let mut runtime = WasmRuntime::new().unwrap();
+        let memory = runtime
             .create_memory(abi::Memory {
                 shared,
                 maximum: Some(1),
@@ -26,15 +26,17 @@ async fn check_callback_access() {
             host.tail_call(body, value)
         })
         .unwrap();
-        let module = backend
+        let module = runtime
             .compiler()
             .compile(&program.compile().unwrap())
             .await
             .unwrap();
         let callback_memory = memory.clone();
+        let callback_calls = Rc::downgrade(&calls);
         let imports = [
-            FunctionRef::new(&mut backend.context(), move |mut caller, (value,)| {
-                caller.state().set(caller.state().get() + 1);
+            FunctionRef::new(&mut runtime.context(), move |mut caller, (value,)| {
+                let calls = callback_calls.upgrade().unwrap();
+                calls.set(calls.get() + 1);
                 let mut memory = caller.memory(&callback_memory);
                 let value = memory.load::<u32>(0) + value;
                 memory.store(0, value);
@@ -42,31 +44,32 @@ async fn check_callback_access() {
             })
             .import(HOST),
         ];
-        let instance = backend.instantiate(&module, &imports).unwrap();
-        let run = backend.function(&instance, RUN).unwrap();
-        backend.memory(&memory).store(0, 10_u32);
-        backend.state().set(20);
-        assert_eq!(run.call(&mut backend, (2,)), 12);
-        assert_eq!(run.call(&mut backend, (3,)), 15);
-        assert_eq!(backend.memory(&memory).load::<u32>(0), 15);
-        assert_eq!(backend.state().get(), 22);
+        let instance = runtime.instantiate(&module, &imports).unwrap();
+        let run = runtime.function(&instance, RUN).unwrap();
+        runtime.memory(&memory).store(0, 10_u32);
+        calls.set(20);
+        assert_eq!(run.call(&mut runtime, (2,)), 12);
+        assert_eq!(run.call(&mut runtime, (3,)), 15);
+        assert_eq!(runtime.memory(&memory).load::<u32>(0), 15);
         assert_eq!(calls.get(), 22);
 
-        // Engine handles can survive teardown without retaining backend state.
-        drop(backend);
-        assert_eq!(Rc::strong_count(&calls), 1);
+        // Weak captures let the application owner release state independently.
+        let lifetime = Rc::downgrade(&calls);
+        drop(calls);
+        assert!(lifetime.upgrade().is_none());
+        drop(runtime);
         drop((imports, instance, run));
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn callbacks_borrow_memory_and_state_for_the_backend_lifetime() {
+fn callbacks_access_captured_state_and_scoped_memory() {
     pollster::block_on(check_callback_access());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn callbacks_borrow_memory_and_state_for_the_backend_lifetime() {
+async fn callbacks_access_captured_state_and_scoped_memory() {
     check_callback_access().await;
 }

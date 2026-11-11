@@ -1,29 +1,24 @@
-use super::{Memory, Store};
+use super::{Memory, WasmRuntime};
 use crate::{MemoryAccess, WasmContext, WasmMemoryAccess};
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-};
+use std::marker::PhantomData;
 
-/// Scoped exclusive access to retained host state, memories and tables.
-pub struct Context<'a, T> {
-    pub(super) store: RefMut<'a, Store<T>>,
-    pub(super) owner: &'a Rc<RefCell<Store<T>>>,
-}
+/// Scoped engine access on the current JavaScript thread. Resource handles own
+/// their allocations, so creating or reborrowing a context needs no state lookup.
+pub struct Context<'a>(PhantomData<&'a mut WasmRuntime>);
 
-impl<T: 'static> WasmContext for Context<'_, T> {
-    type State = T;
-
-    fn state(&self) -> &T {
-        &self.store.state
-    }
-
-    fn state_mut(&mut self) -> &mut T {
-        &mut self.store.state
+impl Context<'_> {
+    pub(super) fn new() -> Self {
+        Self(PhantomData)
     }
 }
 
-impl<T> WasmMemoryAccess for Context<'_, T> {
+impl WasmContext for Context<'_> {
+    fn reborrow(&mut self) -> Context<'_> {
+        Context::new()
+    }
+}
+
+impl WasmMemoryAccess for Context<'_> {
     type Memory = Memory;
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {

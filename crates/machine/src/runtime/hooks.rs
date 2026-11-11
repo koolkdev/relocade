@@ -53,7 +53,7 @@ pub(super) enum Implementation {
 
 impl Hook {
     /// Supplies an ordinary async handler that captures CPU state, memory, I/O and
-    /// application resources once at registration. No backend borrow or access
+    /// application resources once at registration. No Wasm runtime borrow or access
     /// binding is held across a pending await. Restore temporary CPU changes on
     /// normal completion, explicitly after the await. Destructors release resources
     /// on abandonment; they must not restore an old invocation's CPU state into the

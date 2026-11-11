@@ -24,7 +24,7 @@ pub(super) use suspended::SuspendedCall;
 ///
 /// Requests remain pending until observed by a polled run. This handle
 /// does not wake suspended execution; session cancellation belongs to its owner.
-/// It retains only the requested result, independently of the CPU and backend.
+/// It retains only the requested result, independently of the CPU and Wasm runtime.
 #[derive(Clone)]
 pub struct ExitHandle(Rc<Cell<Option<ExecutionExit>>>);
 

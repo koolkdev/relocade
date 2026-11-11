@@ -14,7 +14,7 @@ impl<F> Callback<F> {
 }
 
 // SAFETY: This private wrapper is constructed only by host::wrap and immediately
-// moved into Func::wrap on a Store<StoreData<T>>. StoreData is unconditionally
+// moved into Func::wrap on a Store<StoreData>. StoreData is unconditionally
 // !Send and !Sync, as are all contexts borrowing it. Wasmtime roots the closure
 // in that store until destruction; safe Func calls and imports reject other
 // stores. We never expose the HostFunc that could register this closure elsewhere.

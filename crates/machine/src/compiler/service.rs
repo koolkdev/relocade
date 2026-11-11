@@ -8,7 +8,7 @@ use futures_util::{
     stream::FuturesUnordered,
     StreamExt,
 };
-use relocade_wasm_runtime::{Backend, WasmBackend};
+use relocade_wasm_runtime::{WasmBackend, WasmRuntime};
 use std::{cell::RefCell, num::NonZeroUsize, pin::pin};
 
 /// Owns the compilation worker and its pool, shared by any number of machines.
@@ -21,7 +21,7 @@ pub struct CompilerService {
 
 impl CompilerService {
     /// Starts one pool with half the available logical parallelism, rounded down,
-    /// and at least one worker. Backend engine parallelism is separate.
+    /// and at least one worker. Wasm engine parallelism is separate.
     pub fn start() -> Result<Self> {
         let parallelism = worker::available_parallelism().map_or(1, usize::from);
         let workers = NonZeroUsize::new((parallelism / 2).max(1)).unwrap();
@@ -30,7 +30,7 @@ impl CompilerService {
 
     /// Starts the service with an explicit pool size.
     pub fn start_with_workers(workers: NonZeroUsize) -> Result<Self> {
-        let compiler = Backend::new()?.compiler();
+        let compiler = WasmRuntime::new()?.compiler();
         let (inputs, incoming) = worker::channel_endpoints()?;
         let worker = Worker::spawn_with(incoming, move |incoming, _stopped| {
             run(incoming, compiler, workers)

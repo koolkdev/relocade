@@ -8,7 +8,7 @@ const OFFSET: u32 = offset_of!(ExecutionContext, interrupt_requested) as u32;
 
 /// Requests a return from guest execution to its runner, independently of guest IF.
 /// This does not deliver an x86 interrupt or create a guest interrupt frame.
-/// Clones retain only the shared allocation, without CPU access or a backend.
+/// Clones retain only the shared allocation, without CPU access or a Wasm runtime.
 /// Native handles can cross threads; browser handles use the existing worker
 /// message transport. No access to the rest of the CPU is exposed.
 ///

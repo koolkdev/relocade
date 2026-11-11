@@ -17,7 +17,7 @@ impl GuestCall {
         match self {
             Self::Interrupt(vector) => match instance
                 .dispatch
-                .enter_interrupt(&mut instance.backend, *vector)
+                .enter_interrupt(&mut instance.wasm, *vector)
             {
                 ExecutionExit::InterruptEntered => Ok(()),
                 exit => Err(exit),
@@ -27,7 +27,7 @@ impl GuestCall {
                 let exit =
                     instance
                         .dispatch
-                        .enter_far_call(&mut instance.backend, *target, stack_bytes);
+                        .enter_far_call(&mut instance.wasm, *target, stack_bytes);
                 if exit != ExecutionExit::FarCallEntered {
                     return Err(exit);
                 }

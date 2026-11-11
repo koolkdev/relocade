@@ -2,8 +2,9 @@ use relocade_compiler::{
     abi::{AbiType, AbiValue, Carrier, Function},
     Program, I32, I64,
 };
-use relocade_wasm_runtime::{Backend, FunctionRef, WasmBackend, WasmCompiler, WasmContext};
+use relocade_wasm_runtime::{FunctionRef, WasmBackend, WasmCompiler, WasmRuntime};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{cell::Cell, rc::Rc};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -16,7 +17,9 @@ async fn check_rust_callbacks() {
     const SINGLE: Function<fn() -> (i64,)> = Function::new("rust", "single");
     const OBSERVE: Function<fn(u32, u32, u32)> = Function::new("rust", "observe");
     const RUN: Function<fn() -> I64> = Function::new("rust", "run");
-    let mut backend = Backend::with_state(0_u32).unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
+    let calls = Rc::new(Cell::new(0_u32));
+    let captured_calls = calls.clone();
     let mut program = Program::new();
     let narrow = NARROW.import(&mut program);
     let wide = WIDE.import(&mut program);
@@ -41,13 +44,13 @@ async fn check_rust_callbacks() {
         )
     })
     .unwrap();
-    let module = backend
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
     let imports = {
-        let mut context = backend.context();
+        let mut context = runtime.context();
         [
             FunctionRef::new(&mut context, |_, (bit, byte, word, integer)| {
                 assert_eq!((bit, byte, word, integer), (true, -1, -1, u32::MAX));
@@ -60,23 +63,23 @@ async fn check_rust_callbacks() {
             })
             .import(WIDE),
             FunctionRef::new(&mut context, |_, ()| (-0x20_0000_0000_0001,)).import(SINGLE),
-            FunctionRef::new(&mut context, |mut context, (bit, byte, word)| {
+            FunctionRef::new(&mut context, move |_, (bit, byte, word)| {
                 assert_eq!((bit, byte, word), (0, 128, 32768));
-                *context.state_mut() += 1;
+                captured_calls.set(captured_calls.get() + 1);
             })
             .import(OBSERVE),
         ]
     };
-    let instance = backend.instantiate(&module, &imports).unwrap();
-    let run = backend.function(&instance, RUN).unwrap();
+    let instance = runtime.instantiate(&module, &imports).unwrap();
+    let run = runtime.function(&instance, RUN).unwrap();
     assert_eq!(
-        backend.call(&run, ()),
+        runtime.call(&run, ()),
         (0x8000_0000_0000_0001_u64
             ^ 1.75_f64.to_bits()
             ^ (-0x20_0000_0000_0001_i64 as u64)
             ^ u64::from(u32::MAX)) as i64
     );
-    assert_eq!(*backend.state(), 1);
+    assert_eq!(calls.get(), 1);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -134,28 +137,30 @@ async fn check_callback_arguments() {
         accept.tail_call(body, (first, second))
     })
     .unwrap();
-    let mut backend = Backend::with_state(0_u32).unwrap();
-    let module = backend
+    let mut runtime = WasmRuntime::new().unwrap();
+    let calls = Rc::new(Cell::new(0_u32));
+    let captured_calls = calls.clone();
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
     let imports = [
         FunctionRef::<_, fn(OwnedArgument, OwnedArgument) -> u32>::new(
-            &mut backend.context(),
-            |mut context, (first, second)| {
+            &mut runtime.context(),
+            move |_, (first, second)| {
                 assert_eq!(LIVE_ARGUMENTS.load(Ordering::SeqCst), 2);
                 assert_eq!((first.ordinal, second.ordinal), (0, 1));
-                *context.state_mut() += 1;
-                *context.state()
+                captured_calls.set(captured_calls.get() + 1);
+                captured_calls.get()
             },
         )
         .import(ACCEPT),
     ];
-    let instance = backend.instantiate(&module, &imports).unwrap();
-    let run = backend.function(&instance, RUN).unwrap();
+    let instance = runtime.instantiate(&module, &imports).unwrap();
+    let run = runtime.function(&instance, RUN).unwrap();
     for calls in 1..=2 {
-        assert_eq!(backend.call(&run, (0, 0)), calls);
+        assert_eq!(runtime.call(&run, (0, 0)), calls);
         assert_eq!(LIVE_ARGUMENTS.load(Ordering::SeqCst), 0);
     }
 }

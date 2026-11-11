@@ -1,10 +1,10 @@
-use super::Backend;
+use super::WasmRuntime;
 use crate::{CallSignature, Error, ExportFunction, Result};
 use relocade_compiler::abi::{Function, Value};
 use relocade_wasm_bindings::{lift_flat, lower_flat, Flat};
 use wasmtime::{Func, Instance, TypedFunc, WasmParams, WasmResults};
 
-impl<T: 'static, S: CallSignature> ExportFunction<S> for Backend<T>
+impl<S: CallSignature> ExportFunction<S> for WasmRuntime
 where
     Flat<S::Parameters>: WasmParams,
     Flat<S::Return>: WasmResults,

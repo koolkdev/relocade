@@ -26,7 +26,7 @@ pub trait AtomicSwap<V: MemoryValue> {
 }
 
 impl SharedMemory {
-    /// Atomically loads a value without borrowing a backend. See [`AtomicLoad`]
+    /// Atomically loads a value without borrowing a runtime. See [`AtomicLoad`]
     /// for ordering and supported types.
     ///
     /// Wider types are rejected at compile time:
@@ -44,7 +44,7 @@ impl SharedMemory {
         AtomicLoad::atomic_load(self, offset)
     }
 
-    /// Atomically stores a value without borrowing a backend. See [`AtomicStore`]
+    /// Atomically stores a value without borrowing a runtime. See [`AtomicStore`]
     /// for ordering and supported types.
     #[inline]
     pub fn atomic_store<V: MemoryValue>(&self, offset: u32, value: V)
@@ -55,7 +55,7 @@ impl SharedMemory {
     }
 
     /// Atomically replaces a value and returns its previous value without
-    /// borrowing a backend. See [`AtomicSwap`] for ordering and supported types.
+    /// borrowing a runtime. See [`AtomicSwap`] for ordering and supported types.
     #[inline]
     pub fn atomic_swap<V: MemoryValue>(&self, offset: u32, value: V) -> V
     where

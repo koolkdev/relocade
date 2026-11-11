@@ -2,9 +2,8 @@ use relocade_compiler::{
     abi::{Function, Memory, Table},
     Program, F64, I1, I16, I32, I64, I8,
 };
-use relocade_wasm_runtime::{
-    FunctionRef, WasmBackend, WasmCompiler, WasmContext, WasmMemoryAccess,
-};
+use relocade_wasm_runtime::{FunctionRef, WasmBackend, WasmCompiler, WasmMemoryAccess};
+use std::{cell::Cell, rc::Rc};
 
 const MEMORY: Memory = Memory::new("example", "memory", 1);
 const FUNCTIONS: Table<fn() -> I64> = Table::new("example", "functions", 1);
@@ -15,20 +14,16 @@ const WRITE: Function<fn(I32, I32, I64)> = Function::new("example", "write");
 const NEXT: Function<fn() -> I64> = Function::new("example", "next");
 const RUN: Function<fn() -> I64> = Function::new("example", "run");
 
-use relocade_wasm_runtime::Backend;
+use relocade_wasm_runtime::WasmRuntime;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-struct HostState {
-    calls: i32,
-}
-
 async fn check_stateful_callbacks() {
-    let state = HostState { calls: 0 };
-    let mut backend = Backend::with_state(state).unwrap();
-    let memory = backend.create_memory(MEMORY).unwrap();
-    let table = backend.create_table(FUNCTIONS, None).unwrap();
+    let counter = Rc::new(Cell::new(0_i32));
+    let mut runtime = WasmRuntime::new().unwrap();
+    let memory = runtime.create_memory(MEMORY).unwrap();
+    let table = runtime.create_table(FUNCTIONS, None).unwrap();
     let entry = {
         // Snapshot blocks also use names constructed at runtime.
         let export_name = format!("advance_{}", 7);
@@ -50,23 +45,23 @@ async fn check_stateful_callbacks() {
             body.return_(current)
         });
         advance_export.export(&mut producer, advance).unwrap();
-        let module = backend
+        let module = runtime
             .compiler()
             .compile(&producer.compile().unwrap())
             .await
             .unwrap();
         let read_memory = memory.clone();
         let write_memory = memory.clone();
-        let memory_import = backend.bind(MEMORY, &memory);
+        let memory_import = runtime.bind(MEMORY, &memory);
+        let get_calls = counter.clone();
+        let set_calls = counter.clone();
         let imports = {
-            let mut context = backend.context();
+            let mut context = runtime.context();
             [
                 memory_import,
-                FunctionRef::new(&mut context, |caller, ()| caller.state().calls).import(CALLS),
-                FunctionRef::new(&mut context, |mut caller, (value,)| {
-                    caller.state_mut().calls = value
-                })
-                .import(SET_CALLS),
+                FunctionRef::new(&mut context, move |_, ()| get_calls.get()).import(CALLS),
+                FunctionRef::new(&mut context, move |_, (value,)| set_calls.set(value))
+                    .import(SET_CALLS),
                 FunctionRef::new(&mut context, move |mut caller, (offset, _)| {
                     let mut bytes = [0; 8];
                     caller.memory(&read_memory).read(offset as u32, &mut bytes);
@@ -84,10 +79,10 @@ async fn check_stateful_callbacks() {
                 .import(WRITE),
             ]
         };
-        let instance = backend.instantiate(&module, &imports).unwrap();
-        let advance = backend.function(&instance, advance_export).unwrap();
-        let function = backend.import_function(&advance);
-        table.set(&mut backend, 0, &function).unwrap();
+        let instance = runtime.instantiate(&module, &imports).unwrap();
+        let advance = runtime.function(&instance, advance_export).unwrap();
+        let function = runtime.import_function(&advance);
+        table.set(&mut runtime, 0, &function).unwrap();
 
         // The consumer shares memory and imports the producer's export under a new name.
         let mut consumer = Program::new();
@@ -101,39 +96,39 @@ async fn check_stateful_callbacks() {
             body.tail_call_indirect(functions, 0, &[])
         });
         RUN.export(&mut consumer, run).unwrap();
-        let module = backend
+        let module = runtime
             .compiler()
             .compile(&consumer.compile().unwrap())
             .await
             .unwrap();
-        let instance = backend
+        let instance = runtime
             .instantiate(
                 &module,
                 &[
-                    backend.bind(MEMORY, &memory),
-                    backend.bind(NEXT, &advance),
-                    backend.bind(FUNCTIONS, &table),
+                    runtime.bind(MEMORY, &memory),
+                    runtime.bind(NEXT, &advance),
+                    runtime.bind(FUNCTIONS, &table),
                 ],
             )
             .unwrap();
-        backend.function(&instance, RUN).unwrap()
+        runtime.function(&instance, RUN).unwrap()
     };
 
     // Functions retain their linked resources after module/instance handles drop.
     // Both signs exceed the exact integer range of JavaScript Number.
     let mut memory_size = 65536;
     for initial in [0x20_0000_0000_0001_i64, -0x20_0000_0000_0021_i64] {
-        backend.state_mut().calls = 0;
-        backend.memory(&memory).write(0, &initial.to_le_bytes());
+        counter.set(0);
+        runtime.memory(&memory).write(0, &initial.to_le_bytes());
         // Each invocation adds four in the consumer, then the next two callback counts.
-        for (calls, increment) in [(2, 7), (4, 18)] {
-            assert_eq!(backend.call(&entry, ()), initial + increment);
-            assert_eq!(backend.state().calls, calls);
+        for (expected_calls, increment) in [(2, 7), (4, 18)] {
+            assert_eq!(runtime.call(&entry, ()), initial + increment);
+            assert_eq!(counter.get(), expected_calls);
             let mut bytes = [0; 8];
-            backend.memory(&memory).read(0, &mut bytes);
+            runtime.memory(&memory).read(0, &mut bytes);
             assert_eq!(i64::from_le_bytes(bytes), initial + increment);
             memory_size += 65536;
-            backend.ensure_memory_size(&memory, memory_size).unwrap();
+            runtime.ensure_memory_size(&memory, memory_size).unwrap();
         }
     }
 }
@@ -156,7 +151,7 @@ async fn check_scalar_callbacks() {
     const WIDE: Function<fn(I64) -> I64> = Function::new("scalar", "wide");
     const FLOAT: Function<fn(F64, I16) -> F64> = Function::new("scalar", "float");
 
-    let mut backend = Backend::new().unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
     let entry = {
         let mut program = Program::new();
         let narrow = program.import_function(NARROW);
@@ -170,13 +165,13 @@ async fn check_scalar_callbacks() {
             body.return_(wide.xor(float.to_bits()))
         });
         RUN.export(&mut program, run).unwrap();
-        let module = backend
+        let module = runtime
             .compiler()
             .compile(&program.compile().unwrap())
             .await
             .unwrap();
         let imports = {
-            let mut context = backend.context();
+            let mut context = runtime.context();
             [
                 FunctionRef::new(&mut context, |_, (bit, byte, word, signed)| {
                     assert_eq!((bit, byte, word, signed), (1, 255, 65535, -1));
@@ -195,11 +190,11 @@ async fn check_scalar_callbacks() {
                 .import(FLOAT),
             ]
         };
-        let instance = backend.instantiate(&module, &imports).unwrap();
-        backend.function(&instance, RUN).unwrap()
+        let instance = runtime.instantiate(&module, &imports).unwrap();
+        runtime.function(&instance, RUN).unwrap()
     };
     assert_eq!(
-        backend.call(&entry, ()),
+        runtime.call(&entry, ()),
         -0x20_0000_0000_0003_i64 ^ 1.75_f64.to_bits() as i64
     );
 }
@@ -220,8 +215,8 @@ async fn check_tuple_callbacks() {
     type Mixed = (I1, I8, I16, I32, I64, F64);
     const MIXED: Function<fn() -> Mixed> = Function::new("tuple", "mixed");
     const SINGLE: Function<fn() -> (I64,)> = Function::new("tuple", "single");
-    let mut backend = Backend::new().unwrap();
-    let memory = backend.create_memory(MEMORY).unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
+    let memory = runtime.create_memory(MEMORY).unwrap();
     let mut program = Program::new();
     let output = program.import_memory(MEMORY);
     let mixed = program.import_function(MIXED);
@@ -238,14 +233,14 @@ async fn check_tuple_callbacks() {
         body.return_(result)
     });
     RUN.export(&mut program, run).unwrap();
-    let module = backend
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let memory_import = backend.bind(MEMORY, &memory);
+    let memory_import = runtime.bind(MEMORY, &memory);
     let imports = {
-        let mut context = backend.context();
+        let mut context = runtime.context();
         [
             memory_import,
             FunctionRef::new(&mut context, |_, ()| {
@@ -255,11 +250,11 @@ async fn check_tuple_callbacks() {
             FunctionRef::new(&mut context, |_, ()| (0x20_0000_0000_0003,)).import(SINGLE),
         ]
     };
-    let instance = backend.instantiate(&module, &imports).unwrap();
-    let entry = backend.function(&instance, RUN).unwrap();
-    assert_eq!(backend.call(&entry, ()), 0x20_0000_0000_0003);
+    let instance = runtime.instantiate(&module, &imports).unwrap();
+    let entry = runtime.function(&instance, RUN).unwrap();
+    assert_eq!(runtime.call(&entry, ()), 0x20_0000_0000_0003);
     let mut bytes = [0; 32];
-    backend.memory(&memory).read(0, &mut bytes);
+    runtime.memory(&memory).read(0, &mut bytes);
     assert_eq!(
         &bytes[..16],
         &[1, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0, 255, 255, 255, 255]

@@ -23,7 +23,7 @@ impl<S> CallSignature for S where
 }
 
 /// A cached callable export with its declared Rust signature.
-/// Use it with the backend that resolved it. The handle retains its instance and
+/// Use it with the runtime that resolved it. The handle retains its instance and
 /// imports after the original instance and module handles have been dropped.
 pub struct Function<B: ExportFunction<S>, S: CallSignature> {
     pub(crate) handle: B::Handle,
@@ -31,20 +31,20 @@ pub struct Function<B: ExportFunction<S>, S: CallSignature> {
 }
 
 impl<B: ExportFunction<S>, S: CallSignature> Function<B, S> {
-    /// Enters Wasm through the backend that owns this function's instance.
-    /// Host memory and state borrows must end before entering Wasm. Callbacks
+    /// Enters Wasm through the runtime that owns this function's instance.
+    /// Host memory and context borrows must end before entering Wasm. Callbacks
     /// acquire fresh access while the guest is suspended.
     ///
     /// ```compile_fail
-    /// use relocade_wasm_runtime::{Backend, Function, WasmBackend};
-    /// fn wrong(backend: &mut Backend<u32>, function: &Function<Backend<u32>, fn()>) {
-    ///     let mut state = backend.state_mut();
-    ///     function.call(backend, ());
-    ///     *state = 1;
+    /// use relocade_wasm_runtime::{WasmRuntime, Function, WasmBackend};
+    /// fn wrong(runtime: &mut WasmRuntime, function: &Function<WasmRuntime, fn()>) {
+    ///     let context = runtime.context();
+    ///     function.call(runtime, ());
+    ///     drop(context);
     /// }
     /// ```
-    pub fn call(&self, backend: &mut B, arguments: Value<S::Parameters>) -> Value<S::Return> {
-        backend.invoke_function(&self.handle, arguments)
+    pub fn call(&self, runtime: &mut B, arguments: Value<S::Parameters>) -> Value<S::Return> {
+        runtime.invoke_function(&self.handle, arguments)
     }
 
     pub(crate) fn new(handle: B::Handle) -> Self {

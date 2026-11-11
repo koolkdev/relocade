@@ -3,7 +3,7 @@
 mod hooks;
 mod table;
 
-use super::{code, hooks::Handler, Backend, Hook, RuntimeMemory};
+use super::{code, hooks::Handler, Hook, RuntimeMemory, WasmRuntime};
 use crate::{FarPointer, Result};
 use hooks::Hooks;
 use relocade_wasm_runtime::{Function, Import, Module, WasmBackend, WasmCompiler};
@@ -21,51 +21,51 @@ pub struct DispatchEntry<'a> {
 /// Keeps module linking and installation together so every entry uses the same
 /// runtime bindings and execution table.
 pub(crate) struct Dispatch {
-    dispatch: Function<Backend, abi::ExecutionSignature>,
-    interpret: Function<Backend, abi::ExecutionSignature>,
-    step: Function<Backend, abi::ExecutionSignature>,
-    interrupt: Option<Function<Backend, abi::InterruptSignature>>,
-    far_call: Option<Function<Backend, abi::FarCallSignature>>,
-    table: DispatchTable<Backend>,
+    dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
+    interpret: Function<WasmRuntime, abi::ExecutionSignature>,
+    step: Function<WasmRuntime, abi::ExecutionSignature>,
+    interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
+    far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
+    table: DispatchTable<WasmRuntime>,
     hooks: Hooks,
-    host_imports: Vec<Import<'static, Backend>>,
+    host_imports: Vec<Import<'static, WasmRuntime>>,
 }
 
 impl Dispatch {
     pub(crate) async fn new(
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         bindings: &RuntimeMemory,
-        host_imports: Vec<Import<'static, Backend>>,
+        host_imports: Vec<Import<'static, WasmRuntime>>,
     ) -> Result<Self> {
         let target = bindings.configuration().execution_target();
-        let module = code::dispatcher(backend, target).await?;
+        let module = code::dispatcher(wasm, target).await?;
         // Link the dispatcher first; the interpreter imports its entry points.
-        let table = DispatchTable::new(backend)?;
-        let mut imports = bindings.imports(backend).to_vec();
-        imports.extend(table.imports(backend));
-        let instance = backend.instantiate(&module, &imports)?;
-        let dispatch = backend.function(&instance, abi::DISPATCH)?;
-        let interpret = backend.function(&instance, abi::INTERPRET)?;
+        let table = DispatchTable::new(wasm)?;
+        let mut imports = bindings.imports(wasm).to_vec();
+        imports.extend(table.imports(wasm));
+        let instance = wasm.instantiate(&module, &imports)?;
+        let dispatch = wasm.function(&instance, abi::DISPATCH)?;
+        let interpret = wasm.function(&instance, abi::INTERPRET)?;
 
         imports.extend([
-            backend.bind(abi::DISPATCH, &dispatch),
-            backend.bind(abi::INTERPRET, &interpret),
+            wasm.bind(abi::DISPATCH, &dispatch),
+            wasm.bind(abi::INTERPRET, &interpret),
         ]);
         imports.extend(host_imports.iter().cloned());
-        let module = code::interpreter(backend, target).await?;
-        let instance = backend.instantiate(&module, &imports)?;
-        table.install_interpreter(backend, &instance)?;
+        let module = code::interpreter(wasm, target).await?;
+        let instance = wasm.instantiate(&module, &imports)?;
+        table.install_interpreter(wasm, &instance)?;
         Ok(Self {
             dispatch,
             interpret,
-            step: backend.function(&instance, abi::STEP)?,
+            step: wasm.function(&instance, abi::STEP)?,
             interrupt: if target.profile == ExecutionProfile::Real16 {
-                Some(backend.function(&instance, abi::INTERRUPT)?)
+                Some(wasm.function(&instance, abi::INTERRUPT)?)
             } else {
                 None
             },
             far_call: if target.profile == ExecutionProfile::Real16 {
-                Some(backend.function(&instance, abi::FAR_CALL)?)
+                Some(wasm.function(&instance, abi::FAR_CALL)?)
             } else {
                 None
             },
@@ -75,42 +75,42 @@ impl Dispatch {
         })
     }
 
-    pub(crate) fn run(&self, backend: &mut Backend) -> ExecutionExit {
-        self.dispatch.call(backend, ())
+    pub(crate) fn run(&self, wasm: &mut WasmRuntime) -> ExecutionExit {
+        self.dispatch.call(wasm, ())
     }
 
-    pub(crate) fn enter_interrupt(&self, backend: &mut Backend, vector: u8) -> ExecutionExit {
+    pub(crate) fn enter_interrupt(&self, wasm: &mut WasmRuntime, vector: u8) -> ExecutionExit {
         self.interrupt
             .as_ref()
             .expect("real-mode interrupt entry")
-            .call(backend, (vector,))
+            .call(wasm, (vector,))
     }
 
     pub(crate) fn enter_far_call(
         &self,
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         target: FarPointer,
         stack_bytes: u16,
     ) -> ExecutionExit {
         self.far_call
             .as_ref()
             .expect("real-mode far-call entry")
-            .call(backend, (target.segment, target.offset, stack_bytes))
+            .call(wasm, (target.segment, target.offset, stack_bytes))
     }
 
     #[cold]
-    pub(crate) fn step(&self, backend: &mut Backend) -> ExecutionExit {
-        self.step.call(backend, ())
+    pub(crate) fn step(&self, wasm: &mut WasmRuntime) -> ExecutionExit {
+        self.step.call(wasm, ())
     }
 
     pub(crate) async fn install(
         &mut self,
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         bindings: &RuntimeMemory,
         hooks: impl IntoIterator<Item = Hook>,
     ) -> Result<()> {
         let module = self.hooks.compile(hooks)?;
-        self.install_module(backend, bindings, &module.bytes, &module.entries())
+        self.install_module(wasm, bindings, &module.bytes, &module.entries())
             .await?;
         self.hooks.install(module);
         Ok(())
@@ -118,18 +118,18 @@ impl Dispatch {
 
     pub(crate) async fn install_module(
         &mut self,
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         bindings: &RuntimeMemory,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let module = backend.compiler().compile(bytes).await?;
-        self.install_compiled_module(backend, bindings, &module, entries)
+        let module = wasm.compiler().compile(bytes).await?;
+        self.install_compiled_module(wasm, bindings, &module, entries)
     }
 
     pub(crate) fn install_compiled_module(
         &mut self,
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         bindings: &RuntimeMemory,
         module: &Module,
         entries: &[DispatchEntry<'_>],
@@ -142,8 +142,8 @@ impl Dispatch {
             .into_iter()
             .map(|(address, export)| DispatchEntry { address, export })
             .collect();
-        let instance = self.instantiate(backend, bindings, module)?;
-        self.table.install(backend, &instance, &entries)?;
+        let instance = self.instantiate(wasm, bindings, module)?;
+        self.table.install(wasm, &instance, &entries)?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
     }
@@ -155,17 +155,17 @@ impl Dispatch {
 
     fn instantiate(
         &self,
-        backend: &mut Backend,
+        wasm: &mut WasmRuntime,
         bindings: &RuntimeMemory,
         module: &Module,
-    ) -> relocade_wasm_runtime::Result<<Backend as WasmBackend>::Instance> {
-        let mut imports = bindings.imports(backend).to_vec();
-        imports.extend(self.table.imports(backend));
+    ) -> relocade_wasm_runtime::Result<<WasmRuntime as WasmBackend>::Instance> {
+        let mut imports = bindings.imports(wasm).to_vec();
+        imports.extend(self.table.imports(wasm));
         imports.extend([
-            backend.bind(abi::DISPATCH, &self.dispatch),
-            backend.bind(abi::INTERPRET, &self.interpret),
+            wasm.bind(abi::DISPATCH, &self.dispatch),
+            wasm.bind(abi::INTERPRET, &self.interpret),
         ]);
         imports.extend(self.host_imports.iter().cloned());
-        backend.instantiate(module, &imports)
+        wasm.instantiate(module, &imports)
     }
 }

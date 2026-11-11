@@ -2,7 +2,7 @@ use futures_channel::oneshot;
 use relocade_compiler::{abi::Function, Program, I32};
 use relocade_wasm_runtime::{
     worker::{channel, Receiver, Sender, Thread, Transfer},
-    Backend, Module, SharedMemory, WasmBackend, WasmCompiler, WasmSharedMemory,
+    Module, SharedMemory, WasmBackend, WasmCompiler, WasmRuntime, WasmSharedMemory,
 };
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ async fn engine_handles() {
                 VALUE
                     .define(&mut program, |body, ()| body.return_(42))
                     .unwrap();
-                let module = Backend::new()
+                let module = WasmRuntime::new()
                     .unwrap()
                     .compiler()
                     .compile(&program.compile().unwrap())
@@ -63,10 +63,10 @@ async fn engine_handles() {
     input.send(sender).unwrap();
     let unit = receiver.recv().await.unwrap().unwrap();
     assert!(Arc::ptr_eq(&unit.metadata, &expected));
-    let mut backend = Backend::new().unwrap();
-    let instance = backend.instantiate(&unit.module, &[]).unwrap();
-    let function = backend.function(&instance, VALUE).unwrap();
-    let value = function.call(&mut backend, ());
+    let mut runtime = WasmRuntime::new().unwrap();
+    let instance = runtime.instantiate(&unit.module, &[]).unwrap();
+    let function = runtime.function(&instance, VALUE).unwrap();
+    let value = function.call(&mut runtime, ());
     assert_eq!(value, unit.metadata.expected);
     let mut initial = [0];
     unit.memory.read(0, &mut initial);

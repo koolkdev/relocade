@@ -7,7 +7,7 @@ use relocade_wasm_runtime::{
     WasmSharedMemory,
 };
 
-use relocade_wasm_runtime::Backend;
+use relocade_wasm_runtime::WasmRuntime;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -25,16 +25,16 @@ async fn check_shared_memory() {
     let reader = SharedMemory::new(SHARED.minimum, SHARED.maximum.unwrap()).unwrap();
     assert_eq!(reader.byte_len(), 65536);
     assert_eq!(reader.view().load::<u64>(0), 0);
-    let mut backend = Backend::new().unwrap();
-    let private = backend
+    let mut runtime = WasmRuntime::new().unwrap();
+    let private = runtime
         .create_memory(Memory {
             shared: false,
             ..SHARED
         })
         .unwrap();
-    assert!(backend.shared_memory(&private).is_none());
-    let memory = backend.import_shared_memory(&reader);
-    backend.shared_memory(&memory).unwrap().write(0, &[0x42]);
+    assert!(runtime.shared_memory(&private).is_none());
+    let memory = runtime.import_shared_memory(&reader);
+    runtime.shared_memory(&memory).unwrap().write(0, &[0x42]);
     assert_eq!(reader.view().load::<u8>(0), 0x42);
 
     let mut program = Program::new();
@@ -48,15 +48,15 @@ async fn check_shared_memory() {
         body.return_(value)
     });
     RUN.export(&mut program, run).unwrap();
-    let module = backend
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
     let callback_memory = memory.clone();
     let imports = [
-        backend.bind(SHARED, &memory),
-        FunctionRef::new(&mut backend.context(), move |mut context, ()| {
+        runtime.bind(SHARED, &memory),
+        FunctionRef::new(&mut runtime.context(), move |mut context, ()| {
             let mut bytes = [0; 4];
             context.memory(&callback_memory).read(0, &mut bytes);
             assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12]);
@@ -67,33 +67,33 @@ async fn check_shared_memory() {
         })
         .import(WRITE),
     ];
-    let instance = backend.instantiate(&module, &imports).unwrap();
-    let run = backend.function(&instance, RUN).unwrap();
-    assert_eq!(backend.call(&run, ()), 0x00efcdab12345678);
+    let instance = runtime.instantiate(&module, &imports).unwrap();
+    let run = runtime.function(&instance, RUN).unwrap();
+    assert_eq!(runtime.call(&run, ()), 0x00efcdab12345678);
 
     let mut retained = reader.view();
-    backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
+    runtime.ensure_memory_size(&memory, 2 * 65536).unwrap();
     retained.reborrow().write(65536, &[0x55, 0x66]);
     let mut grown = [0; 2];
     retained.read(65536, &mut grown);
     assert_eq!(grown, [0x55, 0x66]);
     retained.store(65537, 0xfedc_ba98_7654_3210_u64);
     assert_eq!(reader.view().load::<u64>(65537), 0xfedc_ba98_7654_3210);
-    assert!(backend.ensure_memory_size(&memory, 4 * 65536).is_err());
+    assert!(runtime.ensure_memory_size(&memory, 4 * 65536).is_err());
     // Stopped access and independent readers observe the same live allocation.
     {
-        backend.memory(&memory).write(65534, &[1, 2, 3, 4]);
+        runtime.memory(&memory).write(65534, &[1, 2, 3, 4]);
         let mut bytes = [0; 4];
         reader.view().read(65534, &mut bytes);
         assert_eq!(bytes, [1, 2, 3, 4]);
         for _ in 0..2 {
-            backend.memory(&memory).write(0, &[0; 8]);
-            assert_eq!(run.call(&mut backend, ()), 0x00efcdab12345678);
-            backend.memory(&memory).read(4, &mut bytes);
+            runtime.memory(&memory).write(0, &[0; 8]);
+            assert_eq!(run.call(&mut runtime, ()), 0x00efcdab12345678);
+            runtime.memory(&memory).read(4, &mut bytes);
             assert_eq!(bytes, [0xab, 0xcd, 0xef, 0]);
         }
     }
-    drop(backend);
+    drop(runtime);
     // The reader owns the allocation, including its newly grown portion.
     let mut bytes = [0; 8];
     reader.clone().view().read(0, &mut bytes);
@@ -102,13 +102,13 @@ async fn check_shared_memory() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn shared_memory_outlives_the_backend_and_tracks_growth() {
+fn shared_memory_outlives_the_runtime_and_tracks_growth() {
     pollster::block_on(check_shared_memory());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn shared_memory_outlives_the_backend_and_tracks_growth() {
+async fn shared_memory_outlives_the_runtime_and_tracks_growth() {
     check_shared_memory().await;
 }
 
@@ -157,11 +157,11 @@ fn check_scalars(access: &mut MemoryAccess<'_>, offset: u32) {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn scalar_and_bulk_transfers_follow_memory_growth() {
     for shared in [false, true] {
-        let mut backend = Backend::new().unwrap();
-        let memory = backend.create_memory(Memory { shared, ..SHARED }).unwrap();
-        check_scalars(&mut backend.memory(&memory), 0);
-        backend.ensure_memory_size(&memory, 2 * 65536).unwrap();
-        let mut access = backend.memory(&memory);
+        let mut runtime = WasmRuntime::new().unwrap();
+        let memory = runtime.create_memory(Memory { shared, ..SHARED }).unwrap();
+        check_scalars(&mut runtime.memory(&memory), 0);
+        runtime.ensure_memory_size(&memory, 2 * 65536).unwrap();
+        let mut access = runtime.memory(&memory);
         check_scalars(&mut access, 65529);
         check_scalars(&mut access.reborrow(), 65537);
         let input: Vec<u8> = (0..4097).map(|i| (i * 13) as u8).collect();
@@ -178,14 +178,14 @@ fn scalar_and_bulk_transfers_follow_memory_growth() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn transfers_follow_rust_memory_growth() {
     use wasm_bindgen::JsCast;
-    let mut backend = Backend::new().unwrap();
-    let memory = backend
+    let mut runtime = WasmRuntime::new().unwrap();
+    let memory = runtime
         .create_memory(Memory {
             shared: false,
             ..SHARED
         })
         .unwrap();
-    let mut access = backend.memory(&memory);
+    let mut access = runtime.memory(&memory);
     check_scalars(&mut access, 0);
     wasm_bindgen::memory()
         .unchecked_into::<js_sys::WebAssembly::Memory>()
@@ -200,10 +200,10 @@ fn shared_scalars_track_growth_and_owner_drop() {
         let retained = {
             let memory = SharedMemory::new(minimum, 2).unwrap();
             let retained = memory.clone();
-            let mut backend = Backend::new().unwrap();
-            let imported = backend.import_shared_memory(&memory);
+            let mut runtime = WasmRuntime::new().unwrap();
+            let imported = runtime.import_shared_memory(&memory);
             memory.write(minimum * 65536, &[]);
-            backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+            runtime.ensure_memory_size(&imported, 2 * 65536).unwrap();
             // One value straddles the original allocation's page boundary. Existing
             // handles and views must observe the newly grown bytes too.
             retained.store(65533, 0xfedc_ba98_7654_3210_u64);
@@ -237,9 +237,9 @@ fn shared_memory_can_be_accessed_and_grown_on_another_thread() {
     let writer = memory.clone();
     std::thread::spawn(move || {
         assert_eq!(writer.load::<u16>(1), 0x1234);
-        let mut backend = Backend::new().unwrap();
-        let imported = backend.import_shared_memory(&writer);
-        backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+        let mut runtime = WasmRuntime::new().unwrap();
+        let imported = runtime.import_shared_memory(&writer);
+        runtime.ensure_memory_size(&imported, 2 * 65536).unwrap();
         writer.store(65535, 0xfedc_ba98_u32);
         writer.store(1, 0x5678_u16);
     })
@@ -254,9 +254,9 @@ async fn check_atomic_bytes() {
     const OFFSET: u32 = 65537;
     let memory = SharedMemory::new(1, 2).unwrap();
     let retained = memory.clone();
-    let mut backend = Backend::new().unwrap();
-    let imported = backend.import_shared_memory(&memory);
-    backend.ensure_memory_size(&imported, 2 * 65536).unwrap();
+    let mut runtime = WasmRuntime::new().unwrap();
+    let imported = runtime.import_shared_memory(&memory);
+    runtime.ensure_memory_size(&imported, 2 * 65536).unwrap();
     let mut program = Program::new();
     let shared = program.import_memory(SHARED);
     EXCHANGE
@@ -265,22 +265,22 @@ async fn check_atomic_bytes() {
             body.return_(previous)
         })
         .unwrap();
-    let module = backend
+    let module = runtime
         .compiler()
         .compile(&program.compile().unwrap())
         .await
         .unwrap();
-    let instance = backend
-        .instantiate(&module, &[backend.bind(SHARED, &imported)])
+    let instance = runtime
+        .instantiate(&module, &[runtime.bind(SHARED, &imported)])
         .unwrap();
-    let exchange = backend.function(&instance, EXCHANGE).unwrap();
+    let exchange = runtime.function(&instance, EXCHANGE).unwrap();
     assert_eq!(memory.atomic_load::<u8>(OFFSET), 0);
     retained.atomic_store(OFFSET, 0x81_u8);
-    assert_eq!(exchange.call(&mut backend, (0xfe,)), 0x81);
+    assert_eq!(exchange.call(&mut runtime, (0xfe,)), 0x81);
     assert_eq!(memory.atomic_load::<u8>(OFFSET), 0xfe);
     assert_eq!(retained.atomic_swap(OFFSET, 0_u8), 0xfe);
-    assert_eq!(exchange.call(&mut backend, (0x42,)), 0);
-    drop(backend);
+    assert_eq!(exchange.call(&mut runtime, (0x42,)), 0);
+    drop(runtime);
     drop(memory);
     assert_eq!(retained.atomic_swap(OFFSET, 0_u8), 0x42);
     assert_eq!(retained.atomic_load::<u8>(OFFSET), 0);
