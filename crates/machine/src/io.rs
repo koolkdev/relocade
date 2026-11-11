@@ -8,6 +8,7 @@ use connection::ConnectedDevice;
 pub use connection::DeviceConnection;
 pub use context::IoContext;
 pub use device::Device;
+pub use ports::{PortBinding, PortRange, PortRead, PortWrite};
 
 use crate::runtime::WasmRuntimeHandle;
 use relocade_wasm_runtime::WasmBackend;

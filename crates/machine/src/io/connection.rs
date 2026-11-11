@@ -1,9 +1,6 @@
 //! Scoped device setup and adaptation of existing register methods.
 
-use super::{
-    ports::{PortRead, PortWrite},
-    validate_ranges, Device, IoContext,
-};
+use super::{validate_ranges, Device, IoContext, PortBinding, PortRange, PortRead, PortWrite};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 pub(super) struct ConnectedDevice {
@@ -55,9 +52,51 @@ impl<'a> DeviceConnection<'a> {
         }
     }
 
+    /// Borrows the same context used by port and MMIO callbacks. Use it to run
+    /// the device's ordinary configuration method during initial connection.
+    pub fn context(&mut self) -> IoContext<'_> {
+        self.context.reborrow()
+    }
+
+    /// Claims one fixed port or range for this connection. Newly claimed ports
+    /// initially return open bus and ignore writes until handlers are selected.
+    /// Also accepts a subrange wholly contained in one of this connection's
+    /// existing claims, including ranges mapped with [`Self::map_ports`].
+    /// Partial overlaps and ranges spanning separate claims are rejected.
+    /// The returned binding may be retained; ownership lasts for the bus's lifetime.
+    pub fn port(&mut self, ports: impl Into<PortRange>) -> PortBinding {
+        let ports = ports.into().0;
+        if !self
+            .connection
+            .ports
+            .iter()
+            .any(|claim| claim.contains(ports.start()) && claim.contains(ports.end()))
+        {
+            self.validate_ports(std::slice::from_ref(&ports));
+            self.connection.ports.push(ports.clone());
+        }
+        PortBinding::new(self.context.bus, ports)
+    }
+
     /// Maps ranges to this device's existing `read_port` and `write_port` methods.
+    /// Use [`Self::port`] to obtain a binding for a register that needs different
+    /// handling. Generic handling can be selected again with [`PortRead::for_device`]
+    /// and [`PortWrite::for_device`], just like any other reusable operations.
     pub fn map_ports(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u16>>) {
         let ranges: Vec<_> = ranges.into_iter().collect();
+        self.validate_ports(&ranges);
+        if !ranges.is_empty() {
+            let read = PortRead::for_device(&self.connection.device);
+            let write = PortWrite::for_device(&self.connection.device);
+            for ports in ranges {
+                let port = self.port(ports);
+                port.set_read(self.context(), &read);
+                port.set_write(self.context(), &write);
+            }
+        }
+    }
+
+    fn validate_ports(&self, ranges: &[RangeInclusive<u16>]) {
         let bus = self.context.bus.upgrade().expect("live I/O bus");
         validate_ranges(
             bus.connections
@@ -65,19 +104,8 @@ impl<'a> DeviceConnection<'a> {
                 .iter()
                 .flat_map(|device| &device.ports)
                 .chain(&self.connection.ports)
-                .chain(&ranges),
+                .chain(ranges),
         );
-        if !ranges.is_empty() {
-            let read = PortRead::new(port_read(&self.connection.device));
-            let write = PortWrite::new(port_write(&self.connection.device));
-            for ports in &ranges {
-                bus.ports
-                    .set_read(self.context.reborrow(), ports.clone(), &read);
-                bus.ports
-                    .set_write(self.context.reborrow(), ports.clone(), &write);
-            }
-        }
-        self.connection.ports.extend(ranges);
     }
 
     /// Maps physical ranges to this device's MMIO methods. The machine's physical
@@ -98,28 +126,5 @@ impl<'a> DeviceConnection<'a> {
 
     pub(super) fn finish(self) -> ConnectedDevice {
         self.connection
-    }
-}
-
-// Engine functions must not prolong a legacy device's lifetime beyond its bus.
-fn port_read(device: &Rc<RefCell<dyn Device>>) -> impl Fn(IoContext<'_>, u16, u8) -> u32 + 'static {
-    let device = Rc::downgrade(device);
-    move |context, port, bytes| {
-        device
-            .upgrade()
-            .expect("connected device")
-            .borrow_mut()
-            .read_port(context, port, bytes)
-    }
-}
-
-fn port_write(device: &Rc<RefCell<dyn Device>>) -> impl Fn(IoContext<'_>, u16, u8, u32) + 'static {
-    let device = Rc::downgrade(device);
-    move |context, port, bytes, value| {
-        device
-            .upgrade()
-            .expect("connected device")
-            .borrow_mut()
-            .write_port(context, port, bytes, value)
     }
 }

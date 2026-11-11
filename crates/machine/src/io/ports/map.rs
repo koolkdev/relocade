@@ -105,9 +105,9 @@ impl Ports {
         ports: RangeInclusive<u16>,
         read: &PortRead,
     ) {
+        let function = read.0.function(&mut context);
         self.reads.set(ports, read, |port| {
             if let Some(tables) = self.tables.get() {
-                let function = read.0.function(&mut context);
                 tables
                     .reads
                     .set(&mut context.runtime, port.into(), function)
@@ -122,9 +122,9 @@ impl Ports {
         ports: RangeInclusive<u16>,
         write: &PortWrite,
     ) {
+        let function = write.0.function(&mut context);
         self.writes.set(ports, write, |port| {
             if let Some(tables) = self.tables.get() {
-                let function = write.0.function(&mut context);
                 tables
                     .writes
                     .set(&mut context.runtime, port.into(), function)

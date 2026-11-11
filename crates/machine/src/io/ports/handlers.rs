@@ -1,12 +1,12 @@
 //! Reusable operations with a host call view and one lazily prepared Wasm function.
 
 use crate::io::State;
-use crate::IoContext;
+use crate::{Device, IoContext};
 use relocade_compiler::abi::FunctionSignature;
 use relocade_wasm_runtime::{FunctionRef, WasmRuntime};
 use relocade_x86::abi;
 use std::{
-    cell::OnceCell,
+    cell::{OnceCell, RefCell},
     rc::{Rc, Weak},
 };
 
@@ -39,10 +39,28 @@ impl<S: FunctionSignature, C: ?Sized> Handler<S, C> {
     }
 }
 
+/// A reusable read operation, bound to one bus on first installation.
+/// Keep mode-specific operations in the device and reuse them at state changes.
+/// Native runtimes retain prepared functions until bus teardown; captures should
+/// use weak device references when the device itself retains this handler.
 #[derive(Clone)]
-pub(crate) struct PortRead(pub(super) Rc<Handler<abi::PortReadSignature, Read>>);
+pub struct PortRead(pub(super) Rc<Handler<abi::PortReadSignature, Read>>);
 
 impl PortRead {
+    /// Adapts the device's generic [`Device::read_port`] method. This is an
+    /// ordinary selectable operation, with no override or restore state.
+    /// The device must remain connected while the operation is used.
+    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
+        let device = Rc::downgrade(device);
+        Self::new(move |context, port, bytes| {
+            device
+                .upgrade()
+                .expect("connected device")
+                .borrow_mut()
+                .read_port(context, port, bytes)
+        })
+    }
+
     /// The callback receives a width of 1, 2 or 4 bytes and owns wide-read
     /// behavior. Callers consume only the low result bytes.
     pub fn new(read: impl Fn(IoContext<'_>, u16, u8) -> u32 + 'static) -> Self {
@@ -64,10 +82,25 @@ impl PortRead {
     }
 }
 
+/// A reusable write operation with the same binding and lifetime rules as
+/// [`PortRead`]. Callbacks receive values with unused upper bits cleared.
 #[derive(Clone)]
-pub(crate) struct PortWrite(pub(super) Rc<Handler<abi::PortWriteSignature, Write>>);
+pub struct PortWrite(pub(super) Rc<Handler<abi::PortWriteSignature, Write>>);
 
 impl PortWrite {
+    /// Adapts [`Device::write_port`] with a weak device reference, as in
+    /// [`PortRead::for_device`].
+    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
+        let device = Rc::downgrade(device);
+        Self::new(move |context, port, bytes, value| {
+            device
+                .upgrade()
+                .expect("connected device")
+                .borrow_mut()
+                .write_port(context, port, bytes, value);
+        })
+    }
+
     pub fn new(write: impl Fn(IoContext<'_>, u16, u8, u32) + 'static) -> Self {
         let write = Rc::new(write);
         let captured = write.clone();
