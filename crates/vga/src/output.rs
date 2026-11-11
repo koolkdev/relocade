@@ -81,7 +81,7 @@ impl Vga {
     /// any remaining phase at this observed time before remapping the counters.
     #[inline]
     pub(super) fn advance_raster(&mut self, now: Timestamp) {
-        if self.raster.observe(now) {
+        if self.raster.status.observe(now) {
             self.refresh_raster();
         }
     }

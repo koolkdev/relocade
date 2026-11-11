@@ -41,7 +41,7 @@ impl Device for Vga {
                 port if self.setup.enabled() => {
                     let status = if port == self.registers.status_port() {
                         self.advance_raster(self.clock.now());
-                        self.raster.input_status_1()
+                        self.raster.status.input_status_1()
                     } else {
                         0
                     };

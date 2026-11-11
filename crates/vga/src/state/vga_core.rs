@@ -119,7 +119,7 @@ impl VgaCoreState {
         vga.registers.crtc = self.crtc;
         vga.registers.sequencer = self.sequencer;
         vga.registers.graphics = self.graphics;
-        vga.registers.attribute = self.attribute;
+        vga.registers.attribute.clone_from(&self.attribute);
         vga.registers.attribute.values[attribute::COLOR_SELECT as usize] = color_select;
         vga.registers.miscellaneous = self.miscellaneous;
         vga.registers.feature_control = self.feature_control;

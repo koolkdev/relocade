@@ -1,6 +1,7 @@
 //! Attribute Controller register access, IBM VGA Function pages 2-89–2-96.
 
 use super::text_mode;
+use std::{cell::Cell, rc::Rc};
 
 pub const MODE_CONTROL: u8 = 0x10;
 pub const OVERSCAN_COLOR: u8 = 0x11;
@@ -10,10 +11,12 @@ pub const COLOR_SELECT: u8 = 0x14;
 pub const PALETTE_ADDRESS_SOURCE: u8 = 0x20;
 
 /// Attribute Controller values, raw address byte and CPU access phase.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Attribute {
     address: u8,
-    data_next: bool,
+    /// Status readers share this phase with register writes. Snapshots copy its
+    /// value; restoring registers preserves the live allocation.
+    pub(crate) data_next: Rc<Cell<bool>>,
     pub values: [u8; 0x15],
 }
 
@@ -26,9 +29,25 @@ impl Default for Attribute {
         }
         Self {
             address: PALETTE_ADDRESS_SOURCE,
-            data_next: false,
+            data_next: Rc::new(Cell::new(false)),
             values,
         }
+    }
+}
+
+impl Clone for Attribute {
+    fn clone(&self) -> Self {
+        Self {
+            address: self.address,
+            data_next: Rc::new(Cell::new(self.data_next.get())),
+            values: self.values,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.address = source.address;
+        self.data_next.set(source.data_next.get());
+        self.values = source.values;
     }
 }
 
@@ -38,7 +57,7 @@ impl Attribute {
     }
 
     pub(crate) fn data_next(&self) -> bool {
-        self.data_next
+        self.data_next.get()
     }
 
     fn register(&self, index: u8) -> u8 {
@@ -55,14 +74,14 @@ impl Attribute {
     }
 
     /// An active Input Status 1 read explicitly selects the address phase.
-    pub(crate) fn reset_address(&mut self) {
-        self.data_next = false;
+    pub(crate) fn reset_address(&self) {
+        self.data_next.set(false);
     }
 
     pub(crate) fn write(&mut self, value: u8) {
         // Every write advances the phase, including ignored register writes.
-        let data_phase = self.data_next;
-        self.data_next = !data_phase;
+        let data_phase = self.data_next.get();
+        self.data_next.set(!data_phase);
         if !data_phase {
             self.address = value & 0x3f;
             return;
@@ -77,5 +96,32 @@ impl Attribute {
             _ => return,
         };
         self.values[usize::from(index)] = value & mask;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn restoring_registers_preserves_the_live_phase_and_keeps_snapshots_independent() {
+        let mut attribute = Attribute::default();
+        let phase = attribute.data_next.clone();
+        attribute.write(COLOR_PLANE_ENABLE);
+        assert!(phase.get());
+        let saved = attribute.clone();
+
+        phase.set(false);
+        assert!(saved.data_next());
+        attribute.clone_from(&saved);
+        assert!(phase.get());
+
+        // A retained status reader still resets the restored register bank.
+        phase.set(false);
+        attribute.write(HORIZONTAL_PANNING);
+        assert_eq!(attribute.address(), HORIZONTAL_PANNING);
+        assert_eq!(attribute.values, saved.values);
+        assert!(saved.data_next());
     }
 }
