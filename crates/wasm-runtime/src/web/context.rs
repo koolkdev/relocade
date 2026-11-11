@@ -27,6 +27,6 @@ impl<T> WasmMemoryAccess for Context<'_, T> {
     type Memory = Memory;
 
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
-        self.store.memory(memory).access()
+        memory.0.access()
     }
 }
