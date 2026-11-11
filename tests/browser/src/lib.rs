@@ -10,9 +10,6 @@ pub fn initialize() {
 mod vga_support;
 use vga_support::{fixture as vga_fixture, software};
 
-#[path = "../../../crates/machine/tests/support/compilation.rs"]
-mod compilation;
-
 mod channels;
 mod clock;
 mod cpus;

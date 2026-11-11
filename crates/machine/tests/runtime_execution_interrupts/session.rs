@@ -64,7 +64,7 @@ enum InputSource {
     Peer,
 }
 
-async fn connected_input(compiler: &relocade_machine::CompilerService) {
+async fn connected_input() {
     for compiled in [false, true] {
         for source in [InputSource::Host, InputSource::Timer, InputSource::Peer] {
             let timed = matches!(source, InputSource::Timer);
@@ -77,7 +77,7 @@ async fn connected_input(compiler: &relocade_machine::CompilerService) {
             let (start, started) = oneshot::channel();
             let setup = configuration();
             let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-            let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
+            let prepared = machine.create_cpu(setup.cpu, None).unwrap();
             let worker = prepared.spawn(clock, async move |mut runner| {
                 let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
                     let clock = runner.clock().clone();
@@ -177,16 +177,16 @@ async fn connected_input(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn session_channels_and_timers_interrupt_guest_execution() {
-    pollster::block_on(compilation::run(connected_input));
+    pollster::block_on(connected_input());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn session_channels_and_timers_interrupt_guest_execution() {
-    compilation::run(connected_input).await;
+    connected_input().await;
 }
 
-async fn connected_stop(compiler: &relocade_machine::CompilerService) {
+async fn connected_stop() {
     let (clock, _timers) = timer_service();
     let (entered, running) = oneshot::channel();
     let sent = Arc::new(AtomicBool::new(false));
@@ -194,7 +194,7 @@ async fn connected_stop(compiler: &relocade_machine::CompilerService) {
     let (report, stopped) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let device = Rc::new(RefCell::new(InputDevice {
             entered: Some(entered),
@@ -234,16 +234,16 @@ async fn connected_stop(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
-    pollster::block_on(compilation::run(connected_stop));
+    pollster::block_on(connected_stop());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
-    compilation::run(connected_stop).await;
+    connected_stop().await;
 }
 
-async fn saturated_count(compiler: &relocade_machine::CompilerService) {
+async fn saturated_count() {
     let (clock, _timers) = timer_service();
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -258,7 +258,7 @@ async fn saturated_count(compiler: &relocade_machine::CompilerService) {
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
-    let prepared = machine.create_cpu(config.cpu, compiler).unwrap();
+    let prepared = machine.create_cpu(config.cpu, None).unwrap();
     let worker = prepared.spawn(clock, async |mut runner| {
         runner.attach_io(IoBus::default());
         let exit = runner.cpu().exit_handle();
@@ -282,13 +282,13 @@ async fn saturated_count(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn retirement_count_does_not_control_execution() {
-    pollster::block_on(compilation::run(saturated_count));
+    pollster::block_on(saturated_count());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn retirement_count_does_not_control_execution() {
-    compilation::run(saturated_count).await;
+    saturated_count().await;
 }
 
 struct PublishInput(Option<oneshot::Sender<()>>);
@@ -300,12 +300,12 @@ impl Device for PublishInput {
     }
 }
 
-async fn notified_reentry(compiler: &relocade_machine::CompilerService) {
+async fn notified_reentry() {
     for nested in [false, true] {
         let (clock, _timers) = timer_service();
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
+        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
             let io = IoBus::new([runner
@@ -353,11 +353,11 @@ async fn notified_reentry(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn notifications_before_guest_reentry_use_the_next_checkpoint() {
-    pollster::block_on(compilation::run(notified_reentry));
+    pollster::block_on(notified_reentry());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn notifications_before_guest_reentry_use_the_next_checkpoint() {
-    compilation::run(notified_reentry).await;
+    notified_reentry().await;
 }

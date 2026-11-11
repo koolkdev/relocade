@@ -2,7 +2,7 @@ use crate::Post;
 use std::sync::Arc;
 
 mod payload;
-pub use payload::PayloadPair;
+pub use payload::{PayloadOption, PayloadPair};
 
 /// Defines how a value crosses a worker boundary.
 ///
@@ -17,6 +17,7 @@ pub use payload::PayloadPair;
 /// Deriving this trait composes every field's implementation. Named, tuple and
 /// unit structs are supported. `Send` alone does not imply `Transfer`; each field
 /// must implement this contract. Shared `Arc` referents need only `Send + Sync`.
+/// `Option<T>` uses `T`'s transfer behavior when a value is present.
 /// Set `#[transfer(crate = path)]` to use a renamed dependency or a re-export.
 ///
 /// ```
@@ -123,6 +124,24 @@ impl<T: ?Sized + Send + Sync + 'static> Transfer for Arc<T> {
 
     fn decode(state: Self, (): ()) -> Self {
         state
+    }
+}
+
+impl<T: Transfer> Transfer for Option<T> {
+    type State = Option<T::State>;
+    type Payload = PayloadOption<T::Payload>;
+
+    fn encode(self) -> (Self::State, Self::Payload) {
+        let (state, payload) = self.map(T::encode).unzip();
+        (state, PayloadOption(payload))
+    }
+
+    fn decode(state: Self::State, payload: Self::Payload) -> Self {
+        match (state, payload.0) {
+            (Some(state), Some(payload)) => Some(T::decode(state, payload)),
+            (None, None) => None,
+            _ => unreachable!("optional transfer state and payload must travel together"),
+        }
     }
 }
 

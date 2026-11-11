@@ -1,4 +1,4 @@
-use super::{compilation, configuration, prepare_cpu};
+use super::{configuration, prepare_cpu};
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use relocade_machine::{timer_service, Device, IoBus};
@@ -30,14 +30,14 @@ impl Device for InputIrq {
     }
 }
 
-async fn halted_worker(compiler: &relocade_machine::CompilerService) {
+async fn halted_worker() {
     let (clock, _timers) = timer_service();
     let (send, input) = oneshot::channel();
     let (report, mut halted) = mpsc::unbounded();
     let (stopped, dropped) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn::<()>(clock, async move |mut runner| {
         let io = IoBus::new([runner
             .connect(
@@ -92,11 +92,11 @@ async fn halted_worker(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn halted_worker_drives_devices_and_accepts_cancellation() {
-    pollster::block_on(compilation::run(halted_worker));
+    pollster::block_on(halted_worker());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn halted_worker_drives_devices_and_accepts_cancellation() {
-    compilation::run(halted_worker).await;
+    halted_worker().await;
 }

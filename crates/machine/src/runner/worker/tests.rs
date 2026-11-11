@@ -1,12 +1,9 @@
-#[path = "../../../tests/support/compilation.rs"]
-mod compilation;
-
 use super::*;
 use crate::{CpuConfig, Error, Machine, MachineConfig};
 use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap, Segments};
 
-fn cpu(compiler: &relocade_machine::CompilerService) -> (Machine, CpuHandle) {
+fn cpu() -> (Machine, CpuHandle) {
     let mut machine =
         Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
     let cpu = machine
@@ -19,14 +16,14 @@ fn cpu(compiler: &relocade_machine::CompilerService) -> (Machine, CpuHandle) {
                 },
             )
             .unwrap(),
-            compiler,
+            None,
         )
         .unwrap();
     (machine, cpu)
 }
 
-async fn failed_startup(compiler: &relocade_machine::CompilerService) {
-    let (machine, cpu) = cpu(compiler);
+async fn failed_startup() {
+    let (machine, cpu) = cpu();
     let worker = ExecutionWorker::<()>::spawn(
         cpu,
         async |_, _| Err(relocade_wasm_runtime::Error::new("construct CPU", "failed").into()),
@@ -47,8 +44,8 @@ impl Drop for Dropped {
     }
 }
 
-async fn stopped_startup(compiler: &relocade_machine::CompilerService) {
-    let (machine, cpu) = cpu(compiler);
+async fn stopped_startup() {
+    let (machine, cpu) = cpu();
     let (entered, started) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
     let worker = ExecutionWorker::<()>::spawn(
@@ -69,23 +66,23 @@ async fn stopped_startup(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn construction_errors_reach_the_worker_owner() {
-    pollster::block_on(compilation::run(failed_startup));
+    pollster::block_on(failed_startup());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn construction_errors_reach_the_worker_owner() {
-    compilation::run(failed_startup).await;
+    failed_startup().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn stopping_during_construction_drops_startup_before_joining() {
-    pollster::block_on(compilation::run(stopped_startup));
+    pollster::block_on(stopped_startup());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn stopping_during_construction_drops_startup_before_joining() {
-    compilation::run(stopped_startup).await;
+    stopped_startup().await;
 }

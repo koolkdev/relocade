@@ -10,12 +10,12 @@ Create the [shared timer service](clock.md) on the host, and pass its transferab
 the execution worker. `ExecutionWorker` uses the existing
 [worker transport](workers.md) and owns runner completion and cancellation:
 
-The application starts one [compiler service](compilation.md), connects CPUs to it
-when creating them, and shuts it down after the Machines finish.
+Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
+or `None` to use the bundled interpreter without background compilation.
 
 ```rust,ignore
 let mut machine = Machine::new(memory_config)?;
-let cpu = machine.create_cpu(cpu_config, &compiler)?;
+let cpu = machine.create_cpu(cpu_config, None)?;
 let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());

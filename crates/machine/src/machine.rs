@@ -32,18 +32,23 @@ impl Machine {
     }
 
     /// Creates and initializes one CPU without starting guest execution.
-    /// Its direct connection can queue requests while the compiler service starts.
+    /// Pass a compiler service to enable background compilation, or `None` to
+    /// use the bundled interpreter without opening a compiler connection.
+    /// A compiler connection can queue requests while the service starts.
     /// Move the returned handle to its execution worker. State is appended to
     /// [`Self::cpus`] and remains available after that worker is joined.
     pub fn create_cpu(
         &mut self,
         config: CpuConfig,
-        compiler: &CompilerService,
+        compiler: Option<&CompilerService>,
     ) -> Result<CpuHandle> {
-        let (connection, endpoint) = crate::compiler::Connection::new(self.memory(), compiler)?;
+        let (connection, endpoint) = compiler
+            .map(|compiler| crate::compiler::Connection::new(self.memory(), compiler))
+            .transpose()?
+            .unzip();
         let (cpu, state) = CpuHandle::new(self.memory(), config, endpoint)?;
         self.cpus.push(state);
-        self.compiler_connections.push(connection);
+        self.compiler_connections.extend(connection);
         Ok(cpu)
     }
 

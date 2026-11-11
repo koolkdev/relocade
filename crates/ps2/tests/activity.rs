@@ -1,6 +1,3 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 mod common;
 
 use relocade_clock_test_support::ManualClock;
@@ -62,9 +59,9 @@ async fn no_output(io: &IoBus) {
     );
 }
 
-async fn connected_activity(compiler: &relocade_machine::CompilerService) {
+async fn connected_activity() {
     let clock = ManualClock::default();
-    let (runner, _host, machine) = common::runner(clock.clock(), compiler).await;
+    let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let pic = Pic::default();
@@ -134,11 +131,11 @@ async fn connected_activity(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn connected_keyboard_delivers_events_and_clock_driven_repeats() {
-    pollster::block_on(compilation::run(connected_activity));
+    pollster::block_on(connected_activity());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn connected_keyboard_delivers_events_and_clock_driven_repeats() {
-    compilation::run(connected_activity).await;
+    connected_activity().await;
 }

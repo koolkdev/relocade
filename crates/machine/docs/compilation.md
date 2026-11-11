@@ -13,12 +13,16 @@ shutdown?;
 ```
 
 Here `run_machine` creates `Machine::new(memory_config)` and calls
-`machine.create_cpu(cpu_config, compiler)` for each CPU. CPU creation borrows the
+`machine.create_cpu(cpu_config, Some(compiler))` for each CPU. CPU creation borrows the
 service only to open that CPU's connection. Its request and result endpoints
 transfer with the CPU to its execution worker; the worker communicates directly
 with the service. The Machine retains no service borrow or routing task.
 Await `Machine::shutdown` after execution finishes. Several Machines can use
 the same service.
+
+Pass `None` to `create_cpu` when a CPU does not need background compilation.
+It uses the bundled interpreter and opens no compiler connection, so tests can
+run without starting a service. `Runner::take_compiler` then returns `None`.
 
 `CompilerService::start()` defaults to half the available logical parallelism,
 rounded down, with at least one pool worker. Native builds use the OS parallelism

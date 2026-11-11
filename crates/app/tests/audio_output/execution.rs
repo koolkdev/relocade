@@ -1,6 +1,3 @@
-#[path = "../../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
@@ -26,7 +23,7 @@ impl Device for Started {
     }
 }
 
-async fn callback_wakes_execution(compiler: &relocade_machine::CompilerService) {
+async fn callback_wakes_execution() {
     let (audio, config, samples) = Audio::open(|error| panic!("{error}")).unwrap();
     let channels = usize::from(config.channels);
     for _ in 0..samples.capacity().unwrap() {
@@ -52,7 +49,7 @@ async fn callback_wakes_execution(compiler: &relocade_machine::CompilerService) 
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let memory = runner.memory();
         // OUT confirms actual guest entry before the host starts playback.
@@ -103,12 +100,12 @@ async fn callback_wakes_execution(compiler: &relocade_machine::CompilerService) 
 #[test]
 #[ignore = "requires a default audio output; CI uses ALSA null"]
 fn output_backpressure_interrupts_busy_guest_execution() {
-    pollster::block_on(compilation::run(callback_wakes_execution));
+    pollster::block_on(callback_wakes_execution());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 #[ignore = "AudioWorklet bugs: https://github.com/koolkdev/relocade/issues/970 and https://github.com/koolkdev/relocade/issues/971"]
 async fn output_backpressure_interrupts_busy_guest_execution() {
-    compilation::run(callback_wakes_execution).await;
+    callback_wakes_execution().await;
 }

@@ -1,7 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use common::compilation;
-
 use relocade_clock_test_support::ManualClock;
 mod common;
 use relocade_dos::Dos;
@@ -11,21 +9,12 @@ use std::time::Duration;
 const PROGRAM: &[u8] = &[0xcd, 0x33, 0xeb, 0xfe];
 
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
-    pollster::block_on(compilation::run(async move |compiler| {
-        run_mouse(check, compiler).await
-    }));
-}
-
-async fn run_mouse(
-    check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static,
-    compiler: &relocade_machine::CompilerService,
-) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_clock(
         move || worker_clock.clock(),
@@ -38,8 +27,8 @@ async fn run_mouse(
             check(&clock, dos).await;
         },
     );
-    assert_eq!(worker.join().await.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
+    assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 async fn call(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
@@ -87,15 +76,11 @@ async fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) {
 
 #[test]
 fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
-    pollster::block_on(compilation::run(launches));
-}
-
-async fn launches(compiler: &relocade_machine::CompilerService) {
     for mz in [false, true] {
         let mut machine =
             relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
         let prepared = machine
-            .create_cpu(relocade_dos::configuration::cpu(), compiler)
+            .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
         let worker = prepared.spawn_with_clock(
             || ManualClock::new().clock(),
@@ -129,8 +114,8 @@ async fn launches(compiler: &relocade_machine::CompilerService) {
                 assert_eq!(state.snapshot().segments, before.segments);
             },
         );
-        assert_eq!(worker.join().await.unwrap(), Some(()));
-        machine.shutdown().await.unwrap();
+        assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
+        pollster::block_on(machine.shutdown()).unwrap();
     }
 }
 

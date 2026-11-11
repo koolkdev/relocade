@@ -1,5 +1,3 @@
-use common::compilation;
-
 mod common;
 #[path = "lifecycle/vectors.rs"]
 mod vectors;
@@ -20,11 +18,11 @@ use std::{
 fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
     use std::num::NonZeroU64;
 
-    pollster::block_on(compilation::run(async |compiler| {
+    pollster::block_on(async {
         let mut machine =
             relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
         let prepared = machine
-            .create_cpu(relocade_dos::configuration::cpu(), compiler)
+            .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
         let worker = prepared.spawn_with_guest_time(
             || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
@@ -51,16 +49,16 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
         );
         assert_eq!(worker.join().await.unwrap(), Some(()));
         machine.shutdown().await.unwrap();
-    }));
+    });
 }
 
 #[test]
 fn installing_dos_preserves_the_existing_pc_and_bios() {
     use relocade_machine::timer_service;
 
-    pollster::block_on(compilation::run(async |compiler| {
+    pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host, machine) = common::runner(clock.clock(), compiler).await;
+        let (runner, _host, machine) = common::runner(clock.clock()).await;
         runner
             .run(
                 futures_timer::Delay::new(std::time::Duration::from_secs(30)),
@@ -126,7 +124,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
             .await
             .expect("DOS guest timed out");
         machine.shutdown().await.unwrap();
-    }));
+    });
 }
 
 #[test]

@@ -59,6 +59,36 @@ async fn rust_state() {
     assert_eq!(value, (42, 7));
 }
 
+async fn optional_values() {
+    let worker = Thread::new();
+    let (mut input, task) = worker
+        .listen(|mut input: Receiver<Option<Option<Local>>>| async move {
+            let mut values = Vec::new();
+            while let Some(value) = input.recv().await {
+                values.push(value.unwrap().map(|value| value.map(|local| *local.0)));
+            }
+            values
+        })
+        .unwrap();
+    input.send(None).unwrap();
+    input.send(Some(None)).unwrap();
+    input.send(Some(Some(Local(Rc::new(42))))).unwrap();
+    drop(input);
+    assert_eq!(task.await.unwrap(), vec![None, Some(None), Some(Some(42))]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn optional_transfer_preserves_absent_nested_and_empty_payloads() {
+    pollster::block_on(optional_values());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn optional_transfer_preserves_absent_nested_and_empty_payloads() {
+    optional_values().await;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn rust_state_keeps_identity_and_reconstructs_local_values() {

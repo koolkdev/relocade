@@ -1,6 +1,3 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use relocade_machine::{timer_service, CpuConfig, Device, IoBus, MachineConfig};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{
@@ -24,7 +21,7 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
     .await
 }
 
-async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
+async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
@@ -46,7 +43,7 @@ async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let (pit, pit_device) =
             relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
@@ -111,7 +108,7 @@ async fn exercise_audio_device(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn speaker_activity_submits_while_guest_execution_is_busy() {
-    pollster::block_on(compilation::run(exercise_audio_device));
+    pollster::block_on(exercise_audio_device());
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -120,5 +117,5 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn speaker_activity_submits_while_guest_execution_is_busy() {
-    compilation::run(exercise_audio_device).await;
+    exercise_audio_device().await;
 }

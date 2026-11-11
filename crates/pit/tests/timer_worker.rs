@@ -1,6 +1,3 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use futures_channel::oneshot;
 use relocade_machine::{
     timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, IoBus, MachineConfig,
@@ -54,7 +51,7 @@ impl Device for Reports {
 }
 
 /// Delivers 500 Hz PIT interrupts to a busy guest while its host cannot relay wakes.
-async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
+async fn timer_interrupts() -> Result<(), String> {
     let (clock, timers) = timer_service();
     let warmup = clock.clock();
     let (start, started) = oneshot::channel();
@@ -81,7 +78,7 @@ async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Resul
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let (pic, pic_connection) = Pic::initialize(&runner).await;
         let (_pit, pit_connection) = Pit::initialize(&runner, &pic).await;
@@ -167,7 +164,7 @@ async fn timer_interrupts(compiler: &relocade_machine::CompilerService) -> Resul
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn timer_interrupts_reach_a_busy_guest_without_host_polling() {
-    pollster::block_on(compilation::run(timer_interrupts)).unwrap();
+    pollster::block_on(timer_interrupts()).unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -176,5 +173,5 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn timer_interrupts_reach_a_busy_guest_without_host_polling() {
-    compilation::run(timer_interrupts).await.unwrap();
+    timer_interrupts().await.unwrap();
 }

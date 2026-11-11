@@ -1,21 +1,15 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use relocade_dos::Dos;
 
 #[test]
 fn speaker_ports_work_without_output_and_survive_process_launches() {
-    pollster::block_on(compilation::run(speaker_ports));
-}
-
-async fn speaker_ports(compiler: &relocade_machine::CompilerService) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let result = prepared
-        .run_until(std::future::pending::<()>(), async |runner| {
+    let result = pollster::block_on(prepared.run_until(
+        std::future::pending::<()>(),
+        async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.launch_com(
                 &[
@@ -51,8 +45,8 @@ async fn speaker_ports(compiler: &relocade_machine::CompilerService) {
                 .read(base + 0x400, &mut readback)
                 .unwrap();
             assert_eq!(readback, [0x22, 0x36, 0x20]);
-        })
-        .await;
+        },
+    ));
     assert_eq!(result.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
+    pollster::block_on(machine.shutdown()).unwrap();
 }

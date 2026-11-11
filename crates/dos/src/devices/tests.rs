@@ -1,5 +1,3 @@
-use crate::test_runner::compilation;
-
 use super::*;
 use crate::files::{FileSystem, Files, Handle};
 use relocade_bios::KeyMode;
@@ -102,9 +100,9 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
     use relocade_bios::KeyStroke;
     use relocade_machine::timer_service;
 
-    pollster::block_on(compilation::run(async |compiler| {
+    pollster::block_on(async {
         let (clock, _timers) = timer_service();
-        let (runner, _host, machine) = crate::test_runner::runner(clock.into(), compiler).await;
+        let (runner, _host, machine) = crate::test_runner::runner(clock.into()).await;
         let mut dos = runner
             .run(std::future::pending::<()>(), async |runner| {
                 crate::Dos::new(runner).await.unwrap()
@@ -148,5 +146,5 @@ fn console_drivers_keep_their_own_extended_key_bytes_when_replaced_or_flushed() 
         assert_eq!(replacement.peek_character().await.unwrap(), None);
         assert_eq!(original.read_character().await.unwrap(), 0x3b);
         assert_eq!(original.peek_character().await.unwrap(), None);
-    }));
+    });
 }

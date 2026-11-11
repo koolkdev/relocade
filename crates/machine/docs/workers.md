@@ -29,12 +29,12 @@ Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
 
 For CPUs owned by one machine, prepare state before choosing a worker:
 
-The application starts one [compiler service](compilation.md), connects CPUs to it
-when creating them, and shuts it down after the Machines finish.
+Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
+or `None` to use the bundled interpreter without background compilation.
 
 ```rust,ignore
 let mut machine = Machine::new(machine_config)?;
-let cpu = machine.create_cpu(cpu_config, &compiler)?;
+let cpu = machine.create_cpu(cpu_config, None)?;
 machine.cpus()[0].set_ax(42);
 let worker = Worker::spawn_with(cpu, run_cpu);
 let result = worker.join().await;

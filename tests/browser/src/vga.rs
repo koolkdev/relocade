@@ -11,10 +11,6 @@ use std::{cell::RefCell, rc::Rc};
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn vga_workers() -> Result<(), String> {
-    crate::compilation::run(run_workers).await
-}
-
-async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(), String> {
     let (waiting, input_waiting) = oneshot::channel();
     let (source, display_source) = oneshot::channel();
     let (input, incoming) = oneshot::channel();
@@ -40,7 +36,7 @@ async fn run_workers(compiler: &relocade_machine::CompilerService) -> Result<(),
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let cpu_task = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());

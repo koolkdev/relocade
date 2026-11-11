@@ -33,7 +33,7 @@ async fn run_machine(
     let mut app_result = Ok(());
     let mut machine = relocade_machine::Machine::new(relocade_dos::configuration::memory())
         .map_err(|error| error.to_string())?;
-    let cpu = match machine.create_cpu(relocade_dos::configuration::cpu(), compiler) {
+    let cpu = match machine.create_cpu(relocade_dos::configuration::cpu(), Some(compiler)) {
         Ok(cpu) => cpu,
         Err(error) => {
             machine

@@ -1,8 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-#[path = "../../../crates/machine/tests/support/compilation.rs"]
-mod compilation;
-
 use futures_lite::future::or;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
@@ -10,15 +7,11 @@ use std::{io::Read, time::Duration};
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
-    pollster::block_on(compilation::run(console_session));
-}
-
-async fn console_session(compiler: &relocade_machine::CompilerService) {
     let prompt_row = 6;
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let console = prepared.run_until(std::future::pending::<()>(), async move |runner| {
         let clock = runner.clock().clone();
@@ -121,6 +114,6 @@ async fn console_session(compiler: &relocade_machine::CompilerService) {
             "echo executes in Rust without launching guest code"
         );
     });
-    assert_eq!(console.await.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
+    assert_eq!(pollster::block_on(console).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }

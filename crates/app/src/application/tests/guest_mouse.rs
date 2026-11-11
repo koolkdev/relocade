@@ -1,24 +1,12 @@
 //! AppHost input crosses the execution worker, PS/2 and BIOS into a DOS program.
-#[path = "../../../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use super::*;
 use relocade_dos::Dos;
 use relocade_machine::{real_mode_interrupt::Interrupts, FarPointer, Hook};
 
 pub(super) async fn run(
-    host: AppHost,
-    events: EventLoopProxy<Event>,
-    requests: Actions,
-) -> Result<(), String> {
-    compilation::run(async move |compiler| run_guest(host, events, requests, compiler).await).await
-}
-
-async fn run_guest(
     mut host: AppHost,
     events: EventLoopProxy<Event>,
     requests: Actions,
-    compiler: &relocade_machine::CompilerService,
 ) -> Result<(), String> {
     let action = |action| {
         let (done, completed) = oneshot::channel();
@@ -32,7 +20,7 @@ async fn run_guest(
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let result = prepared.run_until(
         async {

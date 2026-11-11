@@ -1,6 +1,3 @@
-#[path = "support/compilation.rs"]
-mod compilation;
-
 use relocade_machine::{
     worker::{Receiver, Thread},
     CpuConfig, CpuHandle, Machine, MachineConfig,
@@ -35,10 +32,10 @@ fn setup() -> (Machine, CpuConfig) {
     (machine, config)
 }
 
-async fn prepared_cpus(compiler: &relocade_machine::CompilerService) {
+async fn prepared_cpus() {
     let (mut machine, config) = setup();
-    let first = machine.create_cpu(config, compiler).unwrap();
-    let second = machine.create_cpu(config, compiler).unwrap();
+    let first = machine.create_cpu(config, None).unwrap();
+    let second = machine.create_cpu(config, None).unwrap();
     machine.cpus()[0].set_ax(0x1234);
     machine.cpus()[1].set_ax(11);
     // INC AX; MOV [0080],AX; JMP 0100. The requested interrupt ends the block.
@@ -97,18 +94,18 @@ async fn prepared_cpus(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    pollster::block_on(compilation::run(prepared_cpus));
+    pollster::block_on(prepared_cpus());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    compilation::run(prepared_cpus).await;
+    prepared_cpus().await;
 }
 
-async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
+async fn session_shutdown() {
     let (mut machine, config) = setup();
-    let prepared = machine.create_cpu(config, compiler).unwrap();
+    let prepared = machine.create_cpu(config, None).unwrap();
     machine.cpus()[0].set_ax(41);
     machine
         .memory()
@@ -117,6 +114,7 @@ async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     let completed = prepared
         .run_until(std::future::pending::<()>(), async |mut runner| {
+            assert!(runner.take_compiler().is_none());
             let clock = runner.clock().clone();
             let cpu = runner.cpu();
             assert_eq!(cpu.cpu_state().ax(), 41);
@@ -143,7 +141,7 @@ async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
     assert_eq!(machine.cpus()[0].ax(), 42);
 
     let (armed, stop) = futures_channel::oneshot::channel();
-    let prepared = machine.create_cpu(config, compiler).unwrap();
+    let prepared = machine.create_cpu(config, None).unwrap();
     let result = prepared
         .run_until(stop, async move |runner| {
             let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
@@ -162,10 +160,10 @@ async fn session_shutdown(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn session_completion_and_cancellation_stop_their_timer_workers() {
-    pollster::block_on(compilation::run(session_shutdown));
+    pollster::block_on(session_shutdown());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn session_completion_and_cancellation_stop_their_timer_workers() {
-    compilation::run(session_shutdown).await;
+    session_shutdown().await;
 }

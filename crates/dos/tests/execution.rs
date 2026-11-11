@@ -1,22 +1,16 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use relocade_dos::{Dos, ProcessStatus, RunError, ServiceError};
 use relocade_x86::{Exception, ExecutionExit};
 
 #[test]
 fn runner_distinguishes_process_completion_service_errors_and_cpu_exits() {
-    pollster::block_on(compilation::run(execution_exits));
-}
-
-async fn execution_exits(compiler: &relocade_machine::CompilerService) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let result = prepared
-        .run_until(std::future::pending::<()>(), async |runner| {
+    let result = pollster::block_on(prepared.run_until(
+        std::future::pending::<()>(),
+        async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             assert_eq!(dos.run().await, Err(RunError::NoProcess));
             dos.launch_com(&[0xb8, 7, 0x4c, 0xcd, 0x21], Default::default())
@@ -42,25 +36,22 @@ async fn execution_exits(compiler: &relocade_machine::CompilerService) {
                 )))
             );
             assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
-        })
-        .await;
+        },
+    ));
     assert_eq!(result.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 #[test]
 fn unhandled_divide_errors_reach_the_host_with_the_dos_fault_frame() {
-    pollster::block_on(compilation::run(divide_error));
-}
-
-async fn divide_error(compiler: &relocade_machine::CompilerService) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_dos::configuration::cpu(), compiler)
+        .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let result = prepared
-        .run_until(std::future::pending::<()>(), async |runner| {
+    let result = pollster::block_on(prepared.run_until(
+        std::future::pending::<()>(),
+        async |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.launch_com(&[0x31, 0xdb, 0xf6, 0xf3], Default::default())
                 .unwrap(); // XOR BX,BX; DIV BL.
@@ -84,8 +75,8 @@ async fn divide_error(compiler: &relocade_machine::CompilerService) {
                 }
             );
             assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
-        })
-        .await;
+        },
+    ));
     assert_eq!(result.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
+    pollster::block_on(machine.shutdown()).unwrap();
 }

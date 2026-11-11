@@ -50,14 +50,14 @@ fn request() -> BlockRequest {
 async fn connections(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
     // An unused CPU must not block later connections or compiler shutdown.
-    let _unused = machine.create_cpu(config, compiler).unwrap();
-    let first = machine.create_cpu(config, compiler).unwrap();
+    let _unused = machine.create_cpu(config, Some(compiler)).unwrap();
+    let first = machine.create_cpu(config, Some(compiler)).unwrap();
     let mut other_target = config.execution_target();
     other_target.instruction_budgets = !other_target.instruction_budgets;
     let second = machine
         .create_cpu(
             CpuConfig::new(other_target, *config.cpu()).unwrap(),
-            compiler,
+            Some(compiler),
         )
         .unwrap();
     for (cpu, value) in [(first, 42_u16), (second, 73)] {
@@ -175,8 +175,10 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
         .view()
         .write(0x100, &[0xb8, 42, 0, 0xeb, 0])
         .unwrap();
-    let cpu = machine.create_cpu(config, compiler).unwrap();
-    let other_cpu = other_machine.create_cpu(other_config, compiler).unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    let other_cpu = other_machine
+        .create_cpu(other_config, Some(compiler))
+        .unwrap();
     other_machine
         .memory()
         .view()
@@ -249,7 +251,7 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
 
 async fn immediate_shutdown(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
-    let _cpu = machine.create_cpu(config, compiler).unwrap();
+    let _cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     // No await gives startup a host turn before shutdown begins.
     machine.shutdown().await.unwrap();
 }
@@ -257,8 +259,8 @@ async fn immediate_shutdown(compiler: &relocade_machine::CompilerService) {
 async fn independent_machines(compiler: &relocade_machine::CompilerService) {
     let (mut first, first_config) = setup();
     let (mut second, second_config) = setup();
-    let _unused = first.create_cpu(first_config, compiler).unwrap();
-    let cpu = second.create_cpu(second_config, compiler).unwrap();
+    let _unused = first.create_cpu(first_config, Some(compiler)).unwrap();
+    let cpu = second.create_cpu(second_config, Some(compiler)).unwrap();
     first
         .memory()
         .view()
@@ -303,8 +305,8 @@ async fn service_shutdown() {
     )
     .unwrap();
     let (mut machine, config) = setup();
-    let _first = machine.create_cpu(config, &compiler).unwrap();
-    let _second = machine.create_cpu(config, &compiler).unwrap();
+    let _first = machine.create_cpu(config, Some(&compiler)).unwrap();
+    let _second = machine.create_cpu(config, Some(&compiler)).unwrap();
     // Retained CPU handles must not keep a dropped machine's connections open.
     drop(machine);
     // Joining must allow startup and pool cleanup to finish before returning.

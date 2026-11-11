@@ -22,10 +22,7 @@ pub(super) struct Guest {
     pub progress: Arc<AtomicUsize>,
 }
 
-pub(super) async fn spawn(
-    clock: TimerHandle,
-    compiler: &relocade_machine::CompilerService,
-) -> Guest {
+pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let (send_source, source) = oneshot::channel();
     let (retrace, retraces) = async_channel::bounded(1);
     let progress = Arc::new(AtomicUsize::new(0));
@@ -49,7 +46,7 @@ pub(super) async fn spawn(
         },
     )
     .unwrap();
-    let prepared = machine.create_cpu(cpu_config, compiler).unwrap();
+    let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let execution = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(Vga::with_clock(runner.clock().clone())));
         crate::vga_fixture::initialize_font(&mut *vga.borrow_mut());

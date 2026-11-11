@@ -1,6 +1,3 @@
-#[path = "../../machine/tests/support/compilation.rs"]
-mod compilation;
-
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
@@ -16,11 +13,11 @@ use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn bios_without_dos(compiler: &relocade_machine::CompilerService) {
+async fn bios_without_dos() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu(), compiler)
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -80,11 +77,11 @@ async fn bios_without_dos(compiler: &relocade_machine::CompilerService) {
     machine.shutdown().await.unwrap();
 }
 
-async fn default_exceptions(compiler: &relocade_machine::CompilerService) {
+async fn default_exceptions() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu(), compiler)
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -130,11 +127,11 @@ async fn default_exceptions(compiler: &relocade_machine::CompilerService) {
     machine.shutdown().await.unwrap();
 }
 
-async fn absent_services(compiler: &relocade_machine::CompilerService) {
+async fn absent_services() {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
-        .create_cpu(relocade_pc::configuration::cpu(), compiler)
+        .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::new(clock.clock(), prepared, endpoint)
@@ -197,35 +194,35 @@ async fn absent_services(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
-    pollster::block_on(compilation::run(bios_without_dos));
+    pollster::block_on(bios_without_dos());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
-    compilation::run(bios_without_dos).await;
+    bios_without_dos().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_installs_default_exception_handlers() {
-    pollster::block_on(compilation::run(default_exceptions));
+    pollster::block_on(default_exceptions());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_installs_default_exception_handlers() {
-    compilation::run(default_exceptions).await;
+    default_exceptions().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_returns_from_absent_services_and_default_callbacks() {
-    pollster::block_on(compilation::run(absent_services));
+    pollster::block_on(absent_services());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_returns_from_absent_services_and_default_callbacks() {
-    compilation::run(absent_services).await;
+    absent_services().await;
 }

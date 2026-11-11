@@ -29,12 +29,12 @@ impl Device for TimerIrq {
     }
 }
 
-async fn paced_halt(compiler: &relocade_machine::CompilerService) {
+async fn paced_halt() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu, compiler).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
         async move |mut runner| {
@@ -96,11 +96,11 @@ async fn paced_halt(compiler: &relocade_machine::CompilerService) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn halted_cpu_advances_paced_guest_time_until_a_timer_irq() {
-    pollster::block_on(compilation::run(paced_halt));
+    pollster::block_on(paced_halt());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn halted_cpu_advances_paced_guest_time_until_a_timer_irq() {
-    compilation::run(paced_halt).await;
+    paced_halt().await;
 }
