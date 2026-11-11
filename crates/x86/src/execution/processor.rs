@@ -3,31 +3,11 @@
 use super::ExecutionBuilder;
 use crate::{
     processor::{self, CpuidValues},
-    CpuFeature, Exception, ExecutionExitValues, ExecutionProfile,
+    CpuFeature, Exception, ExecutionExitValues,
 };
 use relocade_compiler::{BuildError, Val, I1, I32, I64, I8};
 
 impl ExecutionBuilder<'_, '_> {
-    /// Admission establishes these conditions; supported instructions preserve
-    /// them until dispatch.
-    pub(super) fn assume_entry_state(
-        &mut self,
-        profile: ExecutionProfile,
-    ) -> Result<(), BuildError> {
-        let protected = matches!(profile, ExecutionProfile::Protected(_));
-        let cr0 = self.state.read_cr0(&mut self.body)?;
-        let cr4 = self.state.read_cr4(&mut self.body)?;
-        let virtual_8086 = self.state.virtual_8086(&mut self.body)?;
-        let mut condition = cr0
-            .eq(0x30 | u32::from(protected))
-            .and(cr4.eq(0x600))
-            .and(virtual_8086.eq(false));
-        if protected {
-            condition = condition.and(self.privilege_level()?.eq(3));
-        }
-        self.body.assume(condition)
-    }
-
     pub(crate) fn protected_mode(&mut self) -> Result<Val<I1>, BuildError> {
         self.state.protected_mode(&mut self.body)
     }

@@ -53,6 +53,7 @@ fn translation(
         bytes,
         entry: "translate".into(),
         execution_target: Some(crate::Compiler::new(profile).target()),
+        state_assumptions: crate::StateAssumption::for_profile(profile),
     }
 }
 

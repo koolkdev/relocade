@@ -7,7 +7,9 @@ mod module;
 pub use error::BlockCompileError;
 
 use super::Compiler;
-use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
+use crate::{
+    BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile, StateAssumption,
+};
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
 
@@ -41,6 +43,9 @@ pub struct CompiledBlocks {
     /// Required target for every entry and its interpreter fallback.
     /// The host also maintains each entry's code bytes and mapping validity.
     pub execution_target: ExecutionTarget,
+    /// Supplied state conditions shared by every export, including unused conditions.
+    /// Guarded observations remain local to each block and do not appear here.
+    pub state_assumptions: Vec<StateAssumption>,
 }
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
@@ -135,6 +140,7 @@ impl Compiler {
             bytes: blocks.bytes,
             entry: entry.export,
             execution_target: Some(blocks.execution_target),
+            state_assumptions: blocks.state_assumptions,
         })
     }
 
@@ -184,6 +190,7 @@ impl Compiler {
             bytes: blocks.program.compile()?,
             entries: blocks.entries,
             execution_target: self.target,
+            state_assumptions: StateAssumption::for_profile(self.target.profile),
         })
     }
 
@@ -202,6 +209,7 @@ impl Compiler {
             bytes: blocks.program.compile_with(executor).await?,
             entries: blocks.entries,
             execution_target: self.target,
+            state_assumptions: StateAssumption::for_profile(self.target.profile),
         })
     }
 }

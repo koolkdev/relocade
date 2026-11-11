@@ -23,6 +23,7 @@ fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     program.export("probe", function).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
     })

@@ -26,6 +26,7 @@ fn mode_and_privilege_queries_read_architectural_state() {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     for (cr0, vm, selector, expected) in [
         (0x30, 0xa5, 0xffff, (0, 0)),

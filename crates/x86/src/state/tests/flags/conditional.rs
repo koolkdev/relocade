@@ -64,6 +64,7 @@ fn conditional_publication(local_base: bool) -> CompiledModule {
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }
@@ -140,6 +141,7 @@ fn preserving_or_consuming_carry_uses_the_selected_conditional_source() {
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         });
@@ -198,6 +200,7 @@ fn constant_predicates_omit_false_updates_and_discard_history_on_true() {
         program.export("run", function).unwrap();
         let compiled = CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         };

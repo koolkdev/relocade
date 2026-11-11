@@ -17,6 +17,7 @@ fn check_scaled_division(narrow: bool) {
         bytes: program.compile().unwrap(),
         entry: "divide".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     let boundaries = [
         LEADING,

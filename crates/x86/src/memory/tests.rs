@@ -342,11 +342,13 @@ fn memory_widths_execute_in_wasmtime() {
     for case in WIDTHS {
         let read = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -417,11 +419,13 @@ fn aligned_and_unaligned_single_page_transfers_ignore_unrelated_pte_bits() {
     for case in WIDTHS.iter().filter(|case| !case.second.is_empty()) {
         let read = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
         });
         let write = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
         });
@@ -476,6 +480,7 @@ fn wrapping_writes_report_read_only_first_page_faults() {
     ] {
         let write = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: entry.into(),
         });
@@ -503,11 +508,13 @@ fn multi_byte_accesses_wrap_between_real_page_mappings() {
             bytes: bytes.clone(),
             entry: format!("read{}", case.name),
             execution_target: None,
+            state_assumptions: Vec::new(),
         });
         let write = TestModule::new(&crate::CompiledModule {
             bytes: bytes.clone(),
             entry: format!("write{}", case.name),
             execution_target: None,
+            state_assumptions: Vec::new(),
         });
         let payload = [case.first, case.second].concat();
         let mut input = Input {

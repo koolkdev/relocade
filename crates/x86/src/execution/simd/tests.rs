@@ -45,6 +45,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

@@ -81,7 +81,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             can_fallback: false,
             observed_cpu: None,
         };
-        execution.assume_entry_state(target.profile)?;
+        execution
+            .state
+            .assume_entry_state(&mut execution.body, target.profile)?;
         Ok(execution)
     }
 

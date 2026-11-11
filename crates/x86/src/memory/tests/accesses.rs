@@ -35,6 +35,7 @@ fn write_then_read() -> TestModule {
     program.export("write_then_read", function).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "write_then_read".into(),
     })
@@ -175,6 +176,7 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
         program.export("update", function).unwrap();
         let module = TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: program.compile().unwrap(),
             entry: "update".into(),
         });
@@ -267,6 +269,7 @@ fn later_pages_and_new_entries_use_current_mappings() {
     program.export("sum", function).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "sum".into(),
     });

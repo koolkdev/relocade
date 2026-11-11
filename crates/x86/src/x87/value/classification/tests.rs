@@ -109,6 +109,7 @@ fn known_classes_survive_selection_and_indefinite_replacement() {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     // Predicate bits: zero, denormal, special exponent, infinity, NaN, SNaN,
     // unsupported. Expectations come directly from these extended encodings.
@@ -400,6 +401,7 @@ fn loaded_binary_values_share_classification_across_exact_representations() {
             bytes: program.compile().unwrap(),
             entry: "classify".into(),
             execution_target: None,
+            state_assumptions: Vec::new(),
         });
         // Predicate bits match class_flags, followed by normal and normal-or-zero.
         // Source classification bits: zero, finite, special exponent, infinity, NaN.
