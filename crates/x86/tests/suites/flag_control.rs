@@ -152,7 +152,9 @@ crate::support::execution::test_frontends!(
 
 #[test]
 fn protected_interrupt_controls_stop_before_snapshot_successors() {
-    use relocade_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
+    use relocade_x86::{
+        compile_block_from_bytes_with_profile, EntryFact, PrivilegeLevel, SegmentProfile,
+    };
 
     for profile in [
         SegmentProfile::Flat32,
@@ -161,6 +163,10 @@ fn protected_interrupt_controls_stop_before_snapshot_successors() {
     ] {
         for code in [&[0xfa][..], &[0x66, 0x67, 0x64, 0xfb]] {
             let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
+            assert!(complete
+                .requirements
+                .facts()
+                .contains(&EntryFact::PrivilegeLevel(PrivilegeLevel::Ring3)));
             for suffix in [&[][..], &[0x0f], &[0xf1], &[0xb0, 0x7f]] {
                 assert_eq!(
                     compile_block_from_bytes_with_profile(

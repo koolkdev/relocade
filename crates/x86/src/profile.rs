@@ -2,7 +2,7 @@
 
 mod facts;
 mod requirements;
-pub(crate) use facts::{PendingRequirements, ProfileFacts};
+pub(crate) use facts::{FlagTransferPolicy, PendingRequirements, ProfileFacts};
 pub use requirements::{EntryFact, EntryRequirements, SegmentFact};
 
 pub use relocade_x86_profile::ExecutionProfile;

@@ -178,8 +178,12 @@ pub(crate) struct ResolvedForm {
 }
 
 impl ResolvedForm {
-    pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
-        self.form.ends_block || self.form.requirements.fault(target).is_some()
+    pub(crate) fn ends_block(
+        &self,
+        cpu_model: crate::CpuModel,
+        facts: &crate::profile::ProfileFacts,
+    ) -> bool {
+        self.form.ends_block || self.form.requirements.fault(cpu_model, facts).is_some()
     }
 
     pub(crate) fn address_size(&self) -> AddressSize {

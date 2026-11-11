@@ -31,10 +31,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, SegmentReads, State};
-use crate::{
-    address::AddressSize, exception::ExceptionValues, CpuObservations, ExecutionProfile,
-    ExecutionTarget,
-};
+use crate::{address::AddressSize, exception::ExceptionValues, CpuObservations, ExecutionProfile};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -44,7 +41,6 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     state: State<'module>,
     accesses: Accesses<'module>,
     segments: SegmentReads<'module>,
-    target: ExecutionTarget,
     cpu_features: Val<I32>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
@@ -72,7 +68,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             state: State::new(&module.cpu).with_instruction_budgets(target.instruction_budgets),
             accesses: module.memory.accesses(),
             segments: SegmentReads::new(&module.cpu, target.profile),
-            target,
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
@@ -194,12 +189,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.locked
     }
 
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.segments.facts().profile()
+    pub(crate) fn facts(&self) -> &crate::profile::ProfileFacts {
+        self.segments.facts()
     }
 
-    pub(crate) fn target(&self) -> ExecutionTarget {
-        self.target
+    pub(crate) fn profile(&self) -> ExecutionProfile {
+        self.facts().profile()
     }
 
     /// Retired instructions, including this entry's unpublished progress.

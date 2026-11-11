@@ -10,7 +10,7 @@ use crate::{
     },
     register::{RegisterCode, RegisterSelector},
     segment::{Segment, SegmentDefaultSize},
-    BlockError, ExecutionTarget,
+    BlockError, CpuModel,
 };
 
 /// Decoded encoding inputs can move between threads before binding creates IR values.
@@ -23,8 +23,12 @@ pub(crate) struct SnapshotInstruction {
 }
 
 impl SnapshotInstruction {
-    pub(crate) fn ends_block(&self, target: ExecutionTarget) -> bool {
-        self.form.ends_block(target)
+    pub(crate) fn ends_block(
+        &self,
+        cpu_model: CpuModel,
+        facts: &crate::profile::ProfileFacts,
+    ) -> bool {
+        self.form.ends_block(cpu_model, facts)
     }
 
     pub(crate) fn bind(self) -> DecodedInstruction<u32, u32> {

@@ -82,7 +82,10 @@ impl BlockKey {
                 "snapshot instruction {eip:#x}..={last:#x} exceeds CS limit {:#x}",
                 cs.limit
             );
-            if decoded.ends_block(self.target) {
+            if decoded.ends_block(
+                self.target.cpu_model,
+                &crate::profile::ProfileFacts::untracked(self.target.profile),
+            ) {
                 break;
             }
             eip = decoded.fallthrough_eip;
@@ -99,7 +102,10 @@ pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionPro
         let (decoded, rest) =
             crate::decode::snapshot(bytes, eip, crate::SegmentDefaultSize::for_profile(profile))
                 .expect("fixture instructions decode");
-        if decoded.ends_block(Compiler::new(profile).target()) {
+        if decoded.ends_block(
+            Compiler::new(profile).target().cpu_model,
+            &crate::profile::ProfileFacts::untracked(profile),
+        ) {
             return index + 1;
         }
         bytes = rest;

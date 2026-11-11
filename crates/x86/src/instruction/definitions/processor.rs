@@ -19,6 +19,7 @@ instruction_families! {
     }
     RDTSC {
         execute: rdtsc;
+        availability: TimestampCounter;
         requires: [Tsc];
         forms {
             0x0F 0x31 => no_operands();

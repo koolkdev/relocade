@@ -903,6 +903,10 @@ checks a CPU snapshot; `baseline_profile()` exposes the conservative profile
 requirement covering existing helpers and profile-selected behavior, and `facts()`
 exposes individually recorded architectural dependencies. Snapshot decoding records
 mode and code defaults; body generation records the segment constants it reads.
+Instruction admission records mode or CPL dependencies, and RDTSC records its
+CR4.TSD requirement. Decode-time fault boundaries and emitted instruction checks
+use the same tracked policy. Protected flag transfers retain effective IF=1 and
+IOPL=0 without treating those policy values as constraints on stored EFLAGS.
 Each deferred body owns its record, so serial and parallel builds return the same
 per-entry requirements without sharing mutable state between jobs. Empty
 requirements are used by helper modules that do not execute x86 instructions. Worker results retain

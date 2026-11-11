@@ -47,7 +47,7 @@ impl DecodedBlock {
             let (decoded, rest) = crate::decode::snapshot(remaining, eip, code_size)?;
             eip = decoded.fallthrough_eip;
             remaining = rest;
-            let ends_block = decoded.ends_block(target);
+            let ends_block = decoded.ends_block(target.cpu_model, &facts);
             instructions.push(decoded);
             if ends_block || boundaries.contains(&eip) {
                 break;

@@ -10,10 +10,7 @@ pub(crate) fn lower(
 ) -> Result<Val<I32>, BuildError> {
     let supported = execution.supports_cpu_features(instruction.requirements.features);
     execution.fault_if(supported.eq(false), Exception::InvalidOpcode)?;
-    if let Some(exception) = instruction
-        .requirements
-        .mode_fault(execution.target().profile)
-    {
+    if let Some(exception) = instruction.requirements.state_fault(execution.facts()) {
         execution.fault(exception)?;
         return Ok(fallthrough_eip);
     }

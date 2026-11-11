@@ -9,9 +9,16 @@ use std::{
 use relocade_compiler::BuildError;
 
 use crate::{
-    CpuMode, EntryFact, EntryRequirements, ExecutionProfile, Segment, SegmentDefaultSize,
-    SegmentFact,
+    CpuMode, EntryFact, EntryRequirements, ExecutionProfile, PrivilegeLevel, Segment,
+    SegmentDefaultSize, SegmentFact,
 };
+
+/// Protected execution retains its effective IF=1/IOPL=0 transfer policy.
+/// These are policy values, not predicates over the stored EFLAGS bytes.
+pub(crate) enum FlagTransferPolicy {
+    Live,
+    ProtectedUser,
+}
 
 /// Clones share only the dependency record. Execution builders retain their own
 /// SSA state and guards when they fork into nested regions.
@@ -47,11 +54,51 @@ impl ProfileFacts {
     }
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.record(EntryFact::Mode(match self.profile {
+        self.mode();
+        self.profile
+    }
+
+    pub(crate) fn mode(&self) -> CpuMode {
+        let mode = match self.profile {
             ExecutionProfile::Real16 => CpuMode::Real,
             ExecutionProfile::Protected(_) => CpuMode::Protected,
-        }));
-        self.profile
+        };
+        self.record(EntryFact::Mode(mode));
+        mode
+    }
+
+    pub(crate) fn privilege_level(&self) -> PrivilegeLevel {
+        let level = match self.profile {
+            ExecutionProfile::Real16 => PrivilegeLevel::Ring0,
+            ExecutionProfile::Protected(_) => PrivilegeLevel::Ring3,
+        };
+        self.record(EntryFact::PrivilegeLevel(level));
+        level
+    }
+
+    pub(crate) fn allows_io(&self) -> bool {
+        // Real mode bypasses IOPL. Protected profiles retain effective IOPL0,
+        // independently of the stored IOPL bits; the baseline covers that policy.
+        self.mode() == CpuMode::Real || self.privilege_level() == PrivilegeLevel::Ring0
+    }
+
+    pub(crate) fn flag_transfer_policy(&self) -> FlagTransferPolicy {
+        match self.profile() {
+            ExecutionProfile::Real16 => FlagTransferPolicy::Live,
+            ExecutionProfile::Protected(_) => {
+                self.privilege_level();
+                FlagTransferPolicy::ProtectedUser
+            }
+        }
+    }
+
+    pub(crate) fn timestamp_restricted(&self) -> bool {
+        // All admitted profiles currently guarantee CR4.TSD=0.
+        self.record(EntryFact::Cr4 {
+            mask: 1 << 2,
+            value: 0,
+        });
+        false
     }
 
     pub(crate) fn code_default_size(&self) -> SegmentDefaultSize {

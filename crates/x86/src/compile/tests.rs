@@ -75,3 +75,30 @@ fn x87_only_observations_preserve_generic_simd_guards() {
     assert_eq!(ordinary.bytes, partial.bytes);
     assert_eq!(ordinary.requirements, partial.requirements);
 }
+
+#[test]
+fn privilege_requirements_preserve_policy_and_record_only_consumers() {
+    use crate::{EntryFact, PrivilegeLevel};
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let cpl = EntryFact::PrivilegeLevel(PrivilegeLevel::Ring3);
+    let tsd = EntryFact::Cr4 {
+        mask: 1 << 2,
+        value: 0,
+    };
+    let mut cpu = CpuState::default();
+    cpu.flags.bytes.iopl = 3;
+    cpu.flags.bytes.if_ = 0;
+    for (code, consumes_cpl, consumes_tsd) in [
+        (&[0x90][..], false, false),      // NOP
+        (&[0xfa][..], true, false),       // CLI still faults under effective IOPL0.
+        (&[0xf4][..], true, false),       // HLT
+        (&[0x9c][..], true, false),       // PUSHFD keeps the protected flag policy.
+        (&[0x9d][..], true, false),       // POPFD uses the same policy for writes.
+        (&[0x0f, 0x31][..], false, true), // RDTSC relies on TSD=0.
+    ] {
+        let block = compiler.compile_block(0x1000, code, 1).unwrap();
+        assert_eq!(block.requirements.facts().contains(&cpl), consumes_cpl);
+        assert_eq!(block.requirements.facts().contains(&tsd), consumes_tsd);
+        assert!(block.requirements.matches(&cpu));
+    }
+}
