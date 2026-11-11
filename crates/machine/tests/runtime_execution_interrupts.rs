@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 mod support;
 
 use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};

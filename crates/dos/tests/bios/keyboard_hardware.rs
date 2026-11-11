@@ -1,3 +1,5 @@
+use crate::common::compilation;
+
 use crate::common;
 use relocade_bios::KeyMode;
 use relocade_dos::Dos;
@@ -13,8 +15,20 @@ mod control_break;
 type KeyboardDos = Dos;
 
 fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
-    let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    pollster::block_on(compilation::run(async move |compiler_jobs| {
+        run_hardware(check, compiler_jobs).await
+    }));
+}
+
+async fn run_hardware(
+    check: impl AsyncFnOnce(KeyboardDos) + Send + 'static,
+    compiler_jobs: relocade_machine::worker::PoolHandle,
+) {
+    let mut machine = relocade_machine::Machine::new(
+        relocade_dos::configuration::memory(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();
@@ -25,8 +39,8 @@ fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
             check(dos).await;
         },
     );
-    assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
-    pollster::block_on(machine.shutdown()).unwrap();
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 async fn wait_status(io: &IoBus, flag: u8, set: bool) {

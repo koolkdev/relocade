@@ -10,8 +10,11 @@ Create the [shared timer service](clock.md) on the host, and pass its transferab
 the execution worker. `ExecutionWorker` uses the existing
 [worker transport](workers.md) and owns runner completion and cancellation:
 
+The application supplies `compiler_jobs` from its [shared compilation pool](compilation.md)
+and keeps that pool running through machine shutdown.
+
 ```rust,ignore
-let mut machine = Machine::new(memory_config)?;
+let mut machine = Machine::new(memory_config, compiler_jobs.clone())?;
 let cpu = machine.create_cpu(cpu_config)?;
 let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {

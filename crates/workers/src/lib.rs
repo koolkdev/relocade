@@ -18,6 +18,14 @@ pub use relocade_derive::Transfer;
 pub use web_thread::{AsJs, PostExt};
 pub use web_thread::{Error, Post, Result, SendTask};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::thread::available_parallelism;
+#[cfg(target_arch = "wasm32")]
+#[path = "parallelism/web.rs"]
+mod parallelism;
+#[cfg(target_arch = "wasm32")]
+pub use parallelism::available_parallelism;
+
 mod channel;
 mod executor;
 mod pool;

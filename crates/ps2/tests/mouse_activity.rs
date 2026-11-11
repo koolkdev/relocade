@@ -1,3 +1,6 @@
+#[path = "../../machine/tests/support/compilation.rs"]
+mod compilation;
+
 mod common;
 
 use relocade_clock_test_support::ManualClock;
@@ -61,9 +64,9 @@ async fn next(io: &IoBus) -> (bool, u8) {
     panic!("connected PS/2 activity did not produce an interrupt");
 }
 
-async fn connected_mouse_and_keyboard() {
+async fn connected_mouse_and_keyboard(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let clock = ManualClock::default();
-    let (runner, _host, machine) = common::runner(clock.clock()).await;
+    let (runner, _host, machine) = common::runner(clock.clock(), compiler_jobs.clone()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
             let (pic, pic_device) = Pic::initialize(&runner).await;
@@ -145,13 +148,13 @@ async fn connected_mouse_and_keyboard() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn connected_mouse_and_keyboard_keep_independent_irq_sources() {
-    pollster::block_on(connected_mouse_and_keyboard());
+    pollster::block_on(compilation::run(connected_mouse_and_keyboard));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn connected_mouse_and_keyboard_keep_independent_irq_sources() {
-    connected_mouse_and_keyboard().await;
+    compilation::run(connected_mouse_and_keyboard).await;
 }
 
 // Protocol tests control time directly. This source supplies input synchronization
@@ -176,13 +179,16 @@ impl relocade_machine::ClockSource for InputTime {
     }
 }
 
-async fn queued_mouse_timestamps() {
+async fn queued_mouse_timestamps(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let clock = ManualClock::default();
     let start = clock.host_now();
-    let (runner, _host, machine) = common::runner(relocade_machine::Clock::new(InputTime {
-        clock: clock.clone(),
-        disconnected_at: clock.at(Duration::from_millis(25)),
-    }))
+    let (runner, _host, machine) = common::runner(
+        relocade_machine::Clock::new(InputTime {
+            clock: clock.clone(),
+            disconnected_at: clock.at(Duration::from_millis(25)),
+        }),
+        compiler_jobs.clone(),
+    )
     .await;
     assert_eq!(
         runner
@@ -320,10 +326,10 @@ async fn queued_mouse_timestamps() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn queued_mouse_input_keeps_timestamps_across_samples_and_cancelled_waiters() {
-    pollster::block_on(queued_mouse_timestamps());
+    pollster::block_on(compilation::run(queued_mouse_timestamps));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn queued_mouse_input_keeps_timestamps_across_samples_and_cancelled_waiters() {
-    queued_mouse_timestamps().await;
+    compilation::run(queued_mouse_timestamps).await;
 }

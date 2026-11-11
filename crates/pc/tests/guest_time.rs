@@ -1,3 +1,6 @@
+#[path = "../../machine/tests/support/compilation.rs"]
+mod compilation;
+
 use relocade_machine::{DispatchEntry, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
@@ -6,8 +9,10 @@ use std::{num::NonZeroU64, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn pit_interrupts() {
-    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+async fn pit_interrupts(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let mut machine =
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
+            .unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
@@ -80,15 +85,15 @@ async fn pit_interrupts() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
-    pollster::block_on(pit_interrupts());
+    pollster::block_on(compilation::run(pit_interrupts));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
-    pit_interrupts().await;
+    compilation::run(pit_interrupts).await;
 }
 
-async fn keyboard_after_overdue_pit() {
+async fn keyboard_after_overdue_pit(compiler_jobs: relocade_machine::worker::PoolHandle) {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
     use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
@@ -101,7 +106,9 @@ async fn keyboard_after_overdue_pit() {
     };
 
     let host = ManualClock::new();
-    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let mut machine =
+        relocade_machine::Machine::new(relocade_pc::configuration::memory(), compiler_jobs.clone())
+            .unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu())
         .unwrap();
@@ -189,10 +196,10 @@ async fn keyboard_after_overdue_pit() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn overdue_pit_interrupts_run_before_later_physical_keyboard_input() {
-    pollster::block_on(keyboard_after_overdue_pit());
+    pollster::block_on(compilation::run(keyboard_after_overdue_pit));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn overdue_pit_interrupts_run_before_later_physical_keyboard_input() {
-    keyboard_after_overdue_pit().await;
+    compilation::run(keyboard_after_overdue_pit).await;
 }

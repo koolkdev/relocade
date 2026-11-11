@@ -22,7 +22,10 @@ pub(super) struct Guest {
     pub progress: Arc<AtomicUsize>,
 }
 
-pub(super) async fn spawn(clock: TimerHandle) -> Guest {
+pub(super) async fn spawn(
+    clock: TimerHandle,
+    compiler_jobs: relocade_machine::worker::PoolHandle,
+) -> Guest {
     let (send_source, source) = oneshot::channel();
     let (retrace, retraces) = async_channel::bounded(1);
     let progress = Arc::new(AtomicUsize::new(0));
@@ -36,7 +39,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
         .unwrap(),
     )
     .unwrap();
-    let mut machine = relocade_machine::Machine::new(config).unwrap();
+    let mut machine = relocade_machine::Machine::new(config, compiler_jobs).unwrap();
     let cpu_config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {

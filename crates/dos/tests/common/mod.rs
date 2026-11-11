@@ -4,7 +4,7 @@ use relocade_dos::{Dos, ProcessStatus};
 mod input;
 pub mod mouse;
 mod runner;
-pub use runner::runner;
+pub use runner::{compilation, runner};
 #[path = "../../../machine/tests/support/execution.rs"]
 mod execution;
 #[allow(unused_imports)]
@@ -12,8 +12,12 @@ pub use execution::{checkpoint, run_until, steps};
 
 // Service tests step the CPU directly; worker tests drive registered devices.
 pub async fn dos() -> Dos {
+    compilation::run(create_dos).await
+}
+
+async fn create_dos(compiler_jobs: relocade_machine::worker::PoolHandle) -> Dos {
     let (clock, timers) = relocade_machine::timer_service();
-    let (runner, _host, machine) = runner(clock.into()).await;
+    let (runner, _host, machine) = runner(clock.into(), compiler_jobs).await;
     let mut dos = runner
         .run(std::future::pending::<()>(), async |runner| {
             Dos::new(runner).await.unwrap()

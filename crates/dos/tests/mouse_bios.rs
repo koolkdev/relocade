@@ -1,5 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use common::compilation;
+
 use relocade_clock_test_support::ManualClock;
 #[path = "mouse_bios/callbacks.rs"]
 mod callbacks;
@@ -13,10 +15,22 @@ use relocade_x86::{CpuState, ExecutionExit};
 use common::mouse::{wait_status, write};
 
 fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
+    pollster::block_on(compilation::run(async move |compiler_jobs| {
+        run_mouse(check, compiler_jobs).await
+    }));
+}
+
+async fn run_mouse(
+    check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static,
+    compiler_jobs: relocade_machine::worker::PoolHandle,
+) {
     let clock = ManualClock::new();
     let worker_clock = clock.clone();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let mut machine = relocade_machine::Machine::new(
+        relocade_dos::configuration::memory(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();
@@ -29,8 +43,8 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
             check(&clock, dos).await;
         },
     );
-    assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
-    pollster::block_on(machine.shutdown()).unwrap();
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
 }
 
 async fn call(dos: &mut Dos, ax: u16, bx: u16) -> CpuState {

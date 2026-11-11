@@ -3,7 +3,7 @@ use futures_channel::oneshot;
 use futures_lite::future::poll_once;
 use futures_util::StreamExt;
 
-async fn busy_lag_limit() {
+async fn busy_lag_limit(compiler_jobs: relocade_machine::worker::PoolHandle) {
     for (late_host, instructions) in [
         (Duration::from_millis(24), 28),
         (Duration::from_nanos(24_000_001), 8),
@@ -12,7 +12,8 @@ async fn busy_lag_limit() {
         let host_time = host.clone();
         let (stop, stopped) = oneshot::channel();
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || config(source),
@@ -70,13 +71,13 @@ async fn busy_lag_limit() {
     }
 }
 
-async fn pending_input_recovery() {
+async fn pending_input_recovery(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let advancing_host = host.clone();
     let (arrive, arrival) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -159,23 +160,23 @@ async fn pending_input_recovery() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn busy_execution_discards_lag_only_beyond_twenty_milliseconds() {
-    pollster::block_on(busy_lag_limit());
+    pollster::block_on(compilation::run(busy_lag_limit));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn busy_execution_discards_lag_only_beyond_twenty_milliseconds() {
-    busy_lag_limit().await;
+    compilation::run(busy_lag_limit).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn recovery_releases_pending_input_without_advancing_device_deadlines() {
-    pollster::block_on(pending_input_recovery());
+    pollster::block_on(compilation::run(pending_input_recovery));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn recovery_releases_pending_input_without_advancing_device_deadlines() {
-    pending_input_recovery().await;
+    compilation::run(pending_input_recovery).await;
 }

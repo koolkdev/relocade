@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 use relocade_machine::{
     worker::{Receiver, Thread},
     CpuConfig, CpuHandle, Machine, MachineConfig,
@@ -11,7 +14,7 @@ use std::{pin::pin, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn setup() -> (Machine, CpuConfig) {
+fn setup(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuConfig) {
     let map = PhysicalMemoryMap::new([(
         0..=0xfff,
         PhysicalMapping::Ram {
@@ -19,7 +22,11 @@ fn setup() -> (Machine, CpuConfig) {
         },
     )])
     .unwrap();
-    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
+    let machine = Machine::new(
+        MachineConfig::new(0x2000, map).unwrap(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -32,8 +39,8 @@ fn setup() -> (Machine, CpuConfig) {
     (machine, config)
 }
 
-async fn prepared_cpus() {
-    let (mut machine, config) = setup();
+async fn prepared_cpus(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs.clone());
     let first = machine.create_cpu(config).unwrap();
     let second = machine.create_cpu(config).unwrap();
     machine.cpus()[0].set_ax(0x1234);
@@ -94,17 +101,17 @@ async fn prepared_cpus() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    pollster::block_on(prepared_cpus());
+    pollster::block_on(compilation::run(prepared_cpus));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    prepared_cpus().await;
+    compilation::run(prepared_cpus).await;
 }
 
-async fn session_shutdown() {
-    let (mut machine, config) = setup();
+async fn session_shutdown(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs.clone());
     let prepared = machine.create_cpu(config).unwrap();
     machine.cpus()[0].set_ax(41);
     machine
@@ -159,10 +166,10 @@ async fn session_shutdown() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn session_completion_and_cancellation_stop_their_timer_workers() {
-    pollster::block_on(session_shutdown());
+    pollster::block_on(compilation::run(session_shutdown));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn session_completion_and_cancellation_stop_their_timer_workers() {
-    session_shutdown().await;
+    compilation::run(session_shutdown).await;
 }

@@ -30,6 +30,7 @@ js-sys = { version = "=0.3.106", optional = true }
 web-sys = { version = "=0.3.106", features = ["OffscreenCanvas", "Window", "Document", "HtmlCanvasElement", "Navigator", "UserActivation", "console"], optional = true }
 
 [dev-dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 futures-lite = "=2.6.1"
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
 async-channel = { version = "=2.5.0", default-features = false }

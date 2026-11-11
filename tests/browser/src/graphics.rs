@@ -17,6 +17,10 @@ use target::Target;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn graphics_workers() -> Result<(), String> {
+    crate::compilation::run(run_workers).await
+}
+
+async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Result<(), String> {
     let (clock, timers) = timer_service();
 
     let app = async move {
@@ -26,7 +30,7 @@ pub async fn graphics_workers() -> Result<(), String> {
             source,
             retraces,
             progress,
-        } = guest::spawn(clock).await;
+        } = guest::spawn(clock, compiler_jobs).await;
         // A single Sender with buffer size zero has one reserved request slot.
         // This fixture app drops excess requests; VGA owns no request protocol.
         let (mut requests, mut incoming) = mpsc::channel::<[u32; 2]>(0);

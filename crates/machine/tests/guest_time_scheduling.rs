@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 mod support;
 
 use futures_util::future::join;
@@ -42,7 +45,7 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8], io: IoBus) {
     runner.attach_io(io);
 }
 
-async fn unpaced_slice_overshoot() {
+async fn unpaced_slice_overshoot(compiler_jobs: relocade_machine::worker::PoolHandle) {
     for (rate, slice, elapsed) in [
         (
             3,
@@ -56,7 +59,8 @@ async fn unpaced_slice_overshoot() {
         ),
     ] {
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || {
@@ -138,10 +142,11 @@ impl Device for Deadlines {
     }
 }
 
-async fn deadlines_and_final_exit() {
+async fn deadlines_and_final_exit(compiler_jobs: relocade_machine::worker::PoolHandle) {
     for final_exit in [false, true] {
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             || {
@@ -209,10 +214,10 @@ impl Device for Periodic {
     }
 }
 
-async fn retained_service() {
+async fn retained_service(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host_time, timers) = timer_service();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
@@ -262,9 +267,9 @@ async fn retained_service() {
     machine.shutdown().await.unwrap();
 }
 
-async fn unpaced_idle_service() {
+async fn unpaced_idle_service(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || {
@@ -310,45 +315,45 @@ async fn unpaced_idle_service() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn unpaced_idle_time_skips_slice_boundaries() {
-    pollster::block_on(unpaced_idle_service());
+    pollster::block_on(compilation::run(unpaced_idle_service));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn unpaced_idle_time_skips_slice_boundaries() {
-    unpaced_idle_service().await;
+    compilation::run(unpaced_idle_service).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn unpaced_slices_carry_checkpoint_overshoot_forward() {
-    pollster::block_on(unpaced_slice_overshoot());
+    pollster::block_on(compilation::run(unpaced_slice_overshoot));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn unpaced_slices_carry_checkpoint_overshoot_forward() {
-    unpaced_slice_overshoot().await;
+    compilation::run(unpaced_slice_overshoot).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
-    pollster::block_on(deadlines_and_final_exit());
+    pollster::block_on(compilation::run(deadlines_and_final_exit));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
-    deadlines_and_final_exit().await;
+    compilation::run(deadlines_and_final_exit).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn idle_time_preserves_services_waiting_on_host_timers() {
-    pollster::block_on(retained_service());
+    pollster::block_on(compilation::run(retained_service));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn idle_time_preserves_services_waiting_on_host_timers() {
-    retained_service().await;
+    compilation::run(retained_service).await;
 }
 
 async fn immediate_exit(mut runner: Runner) {
@@ -378,9 +383,9 @@ async fn immediate_exit(mut runner: Runner) {
     assert_eq!(result, ExecutionExit::Host(HostExit::Return));
 }
 
-async fn terminal_exit_without_notifications() {
+async fn terminal_exit_without_notifications(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
@@ -389,7 +394,7 @@ async fn terminal_exit_without_notifications() {
     assert_eq!(worker.join().await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_clock(
         || relocade_clock_test_support::ManualClock::new().clock(),
@@ -402,13 +407,13 @@ async fn terminal_exit_without_notifications() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn terminal_exit_without_ready_work_adds_no_activity_turn() {
-    pollster::block_on(terminal_exit_without_notifications());
+    pollster::block_on(compilation::run(terminal_exit_without_notifications));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
-    terminal_exit_without_notifications().await;
+    compilation::run(terminal_exit_without_notifications).await;
 }
 
 #[path = "guest_time_scheduling/halt.rs"]

@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 use relocade_machine::{BlockRequest, CpuConfig, Hook, Machine, MachineConfig, MemoryError};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -11,7 +14,7 @@ mod delivery;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn setup() -> (Machine, CpuConfig) {
+fn setup(compiler_jobs: relocade_machine::worker::PoolHandle) -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -31,7 +34,11 @@ fn setup() -> (Machine, CpuConfig) {
         (0x1000..=0x1fff, PhysicalMapping::Mmio),
     ])
     .unwrap();
-    let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
+    let machine = Machine::new(
+        MachineConfig::new(0x2000, map).unwrap(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     (machine, config)
 }
 
@@ -44,8 +51,8 @@ fn request() -> BlockRequest {
     }
 }
 
-async fn sessions() {
-    let (mut machine, config) = setup();
+async fn sessions(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs.clone());
     // An unused CPU must not block later connections or compiler shutdown.
     let _unused = machine.create_cpu(config).unwrap();
     let first = machine.create_cpu(config).unwrap();
@@ -161,15 +168,21 @@ async fn sessions() {
     machine.shutdown().await.unwrap();
 }
 
-async fn shutdown() {
-    let (mut machine, config) = setup();
+async fn shutdown(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs.clone());
+    let (mut other_machine, other_config) = setup(compiler_jobs);
     machine
         .memory()
         .view()
         .write(0x100, &[0xb8, 42, 0, 0xeb, 0])
         .unwrap();
     let cpu = machine.create_cpu(config).unwrap();
-    let other_cpu = machine.create_cpu(config).unwrap();
+    let other_cpu = other_machine.create_cpu(other_config).unwrap();
+    other_machine
+        .memory()
+        .view()
+        .write(0x100, &[0xb8, 73, 0, 0xeb, 0])
+        .unwrap();
     let (submitted, ready) = futures_channel::oneshot::channel();
     let (other_submitted, other_ready) = futures_channel::oneshot::channel();
     let execution = cpu.run_until(pending::<()>(), async move |mut runner| {
@@ -209,17 +222,25 @@ async fn shutdown() {
                 }],
             )
             .unwrap();
+        compiler.request(target, vec![request()]).unwrap();
         other_submitted.send(()).unwrap();
         assert!(matches!(
             compiler.recv().await.unwrap(),
             Err(relocade_machine::Error::Compile(_))
         ));
+        assert_eq!(
+            compiler.recv().await.unwrap().unwrap().blocks()[0].byte_len,
+            5
+        );
         assert!(compiler.recv().await.is_none());
     });
     let closing = async move {
         ready.await.unwrap();
         other_ready.await.unwrap();
-        machine.shutdown().await.unwrap();
+        let (first, second) =
+            futures_util::future::join(machine.shutdown(), other_machine.shutdown()).await;
+        first.unwrap();
+        second.unwrap();
     };
     let (result, other_result, ()) =
         futures_util::future::join3(execution, other_execution, closing).await;
@@ -227,8 +248,8 @@ async fn shutdown() {
     assert_eq!(other_result.unwrap(), Some(()));
 }
 
-async fn immediate_shutdown() {
-    let (mut machine, config) = setup();
+async fn immediate_shutdown(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs.clone());
     let _cpu = machine.create_cpu(config).unwrap();
     // No await gives startup a host turn before shutdown begins.
     machine.shutdown().await.unwrap();
@@ -237,32 +258,32 @@ async fn immediate_shutdown() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn machine_shutdown_joins_compiler_startup() {
-    pollster::block_on(immediate_shutdown());
+    pollster::block_on(compilation::run(immediate_shutdown));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_shutdown_joins_compiler_startup() {
-    immediate_shutdown().await;
+    compilation::run(immediate_shutdown).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn compiler_serves_independent_cpu_sessions_over_shared_memory() {
-    pollster::block_on(sessions());
+    pollster::block_on(compilation::run(sessions));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn compiler_serves_independent_cpu_sessions_over_shared_memory() {
-    sessions().await;
+    compilation::run(sessions).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn machine_shutdown_finishes_accepted_compilation() {
-    pollster::block_on(shutdown());
+fn machines_sharing_a_pool_finish_accepted_compilation_during_shutdown() {
+    pollster::block_on(compilation::run(shutdown));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn machine_shutdown_finishes_accepted_compilation() {
-    shutdown().await;
+async fn machines_sharing_a_pool_finish_accepted_compilation_during_shutdown() {
+    compilation::run(shutdown).await;
 }

@@ -1,3 +1,6 @@
+#[path = "../../../crates/machine/tests/support/compilation.rs"]
+mod compilation;
+
 #[path = "audio/output.rs"]
 mod output;
 
@@ -24,14 +27,17 @@ const PROGRAM: &[u8] = &[
     0xb8, 7, 0x4c, 0xcd, 0x21,
 ];
 
-async fn exercise() {
+async fn exercise(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (clock, timers) = timer_service();
     let main = async move {
         let (output, config, samples) = output::Output::open();
         let (stage_changed, stages) = async_channel::bounded(2);
         let (keys, input) = async_channel::bounded(1);
-        let mut machine =
-            relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+        let mut machine = relocade_machine::Machine::new(
+            relocade_dos::configuration::memory(),
+            compiler_jobs.clone(),
+        )
+        .unwrap();
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu())
             .unwrap();
@@ -101,7 +107,7 @@ async fn exercise() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn guest_speaker_plays_and_stops_during_dos_keyboard_waits() {
-    pollster::block_on(exercise());
+    pollster::block_on(compilation::run(exercise));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -111,5 +117,5 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[wasm_bindgen_test::wasm_bindgen_test]
 #[ignore = "AudioWorklet bugs: https://github.com/koolkdev/relocade/issues/970 and https://github.com/koolkdev/relocade/issues/971"]
 async fn guest_speaker_plays_and_stops_during_dos_keyboard_waits() {
-    exercise().await;
+    compilation::run(exercise).await;
 }

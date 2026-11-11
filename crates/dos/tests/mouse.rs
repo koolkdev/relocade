@@ -1,5 +1,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+#[path = "../../machine/tests/support/compilation.rs"]
+mod compilation;
+
 use futures_channel::oneshot;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
@@ -26,10 +29,17 @@ fn controller_write(code: &mut Vec<u8>, port: u8, value: u8) {
 
 #[test]
 fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
+    pollster::block_on(compilation::run(mouse_input));
+}
+
+async fn mouse_input(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (ready, host_inputs) = mpsc::channel();
     let (resume, resumed) = oneshot::channel();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let mut machine = relocade_machine::Machine::new(
+        relocade_dos::configuration::memory(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();
@@ -151,7 +161,7 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
         }))
         .unwrap();
     resume.send(()).unwrap();
-    pollster::block_on(async {
+    {
         let mut join = pin!(worker.join());
         let mut timeout = pin!(futures_timer::Delay::new(Duration::from_secs(30)));
         let result = poll_fn(|cx| {
@@ -166,6 +176,6 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
         })
         .await;
         assert_eq!(result.unwrap(), Some(()));
-    });
-    pollster::block_on(machine.shutdown()).unwrap();
+    };
+    machine.shutdown().await.unwrap();
 }

@@ -40,6 +40,10 @@ const SECOND_PROGRAM: &[u8] = &[
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn dos_workers() -> Result<(), String> {
+    crate::compilation::run(run_workers).await
+}
+
+async fn run_workers(compiler_jobs: relocade_machine::worker::PoolHandle) -> Result<(), String> {
     let (video, video_ready) = oneshot::channel();
     let (leave_busy, busy_observed) = oneshot::channel();
     let (key, key_input) = oneshot::channel();
@@ -47,8 +51,11 @@ pub async fn dos_workers() -> Result<(), String> {
     let (launch_next, next_launch) = oneshot::channel();
     let (second_done, second_exit) = oneshot::channel();
     let (clock, timers) = timer_service();
-    let mut machine =
-        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let mut machine = relocade_machine::Machine::new(
+        relocade_dos::configuration::memory(),
+        compiler_jobs.clone(),
+    )
+    .unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu())
         .unwrap();

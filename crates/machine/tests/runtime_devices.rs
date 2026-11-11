@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 use relocade_clock_test_support::ManualClock;
 mod support;
 use futures_channel::{mpsc, oneshot};
@@ -72,14 +75,14 @@ fn configuration() -> support::Configuration {
     .unwrap()
 }
 
-async fn check_devices() {
+async fn check_devices(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let clock = ManualClock::default();
     let active = Arc::new(AtomicBool::new(false));
     let worker_active = active.clone();
     let (report, mut ticks) = mpsc::unbounded();
     let (entered, waiting) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_clock(
         {
@@ -151,7 +154,7 @@ async fn check_devices() {
     let (ready, started) = oneshot::channel();
     let (report, _ticks) = mpsc::unbounded();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_clock::<()>(
         move || clock.clock(),
@@ -182,12 +185,12 @@ async fn check_devices() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn cpu_and_registered_devices_sleep_independently_and_end_together() {
-    pollster::block_on(check_devices());
+    pollster::block_on(compilation::run(check_devices));
 }
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cpu_and_registered_devices_sleep_independently_and_end_together() {
-    check_devices().await;
+    compilation::run(check_devices).await;
 }

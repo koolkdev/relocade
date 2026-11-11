@@ -1,8 +1,8 @@
 use super::{compile, BlockRequest, Endpoint, Reply};
 use crate::{
     worker::{
-        self, ChannelError, Receiver, ReceiverEndpoint, Sender, Transfer, WakeBinding, WakePeer,
-        Worker,
+        self, ChannelError, PoolHandle, Receiver, ReceiverEndpoint, Sender, Transfer, WakeBinding,
+        WakePeer, Worker,
     },
     ExecutionInterrupt, Memory, Result,
 };
@@ -19,7 +19,7 @@ use std::{
     task::{Context, Poll},
 };
 
-/// The machine's single compiler worker and incoming request streams.
+/// The machine's compilation coordinator and incoming request streams.
 pub(crate) struct Service {
     inputs: Sender<Input>,
     worker: Worker<Result<()>>,
@@ -51,7 +51,7 @@ struct Inbox {
 }
 
 impl Service {
-    pub fn new(memory: Memory) -> Result<Self> {
+    pub fn new(memory: Memory, jobs: PoolHandle) -> Result<Self> {
         let compiler = Backend::new()?.compiler();
         let (inputs, incoming) = worker::channel_endpoints()?;
         let worker = Worker::spawn_with(
@@ -59,7 +59,7 @@ impl Service {
                 memory,
                 inputs: incoming,
             },
-            move |start, _stopped| serve(start, compiler),
+            move |start, _stopped| serve(start, compiler, jobs),
         );
         Ok(Self { inputs, worker })
     }
@@ -89,7 +89,11 @@ impl Service {
     }
 }
 
-async fn serve(start: Start, compiler: relocade_wasm_runtime::Compiler) -> Result<()> {
+async fn serve(
+    start: Start,
+    compiler: relocade_wasm_runtime::Compiler,
+    jobs: PoolHandle,
+) -> Result<()> {
     let mut inputs = start.inputs.bind();
     let mut pending = FuturesUnordered::<StreamFuture<Inbox>>::new();
     loop {
@@ -101,7 +105,9 @@ async fn serve(start: Start, compiler: relocade_wasm_runtime::Compiler) -> Resul
                 Either::Right((next, _)) => {
                     let (request, mut inbox) = next.expect("a pending request stream");
                     if let Some(request) = request {
-                        inbox.reply(request, &start.memory, &compiler).await?;
+                        inbox
+                            .reply(request, &start.memory, &compiler, &jobs)
+                            .await?;
                         pending.push(inbox.into_future());
                     }
                     continue;
@@ -133,7 +139,9 @@ async fn serve(start: Start, compiler: relocade_wasm_runtime::Compiler) -> Resul
         .collect();
     while let Some((request, mut inbox)) = pending.next().await {
         if let Some(request) = request {
-            inbox.reply(request, &start.memory, &compiler).await?;
+            inbox
+                .reply(request, &start.memory, &compiler, &jobs)
+                .await?;
             pending.push(inbox.into_future());
         }
     }
@@ -146,13 +154,14 @@ impl Inbox {
         request: Request,
         memory: &Memory,
         compiler: &relocade_wasm_runtime::Compiler,
+        jobs: &PoolHandle,
     ) -> Result<()> {
         // Unused CPUs need no wake binding and cannot delay shutdown.
         if self.binding.is_none() {
             let peer = self.peer.recv().await.ok_or(ChannelError::Closed)??;
             self.binding = Some(peer.bind());
         }
-        let result = compile(compiler, memory, request.target, &request.blocks).await;
+        let result = compile(compiler, memory, request.target, &request.blocks, jobs).await;
         match self.results.send(Reply(result)) {
             Ok(()) | Err(ChannelError::Closed) => Ok(()),
             Err(error) => Err(error.into()),

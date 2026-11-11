@@ -6,7 +6,7 @@ use futures_util::{
     StreamExt,
 };
 
-async fn captured_deadline() {
+async fn captured_deadline(compiler_jobs: relocade_machine::worker::PoolHandle) {
     for timestamped in [false, true] {
         let (host, mut armed, source) = host();
         let host_time = host.clone();
@@ -14,7 +14,8 @@ async fn captured_deadline() {
         let advancing_host = host.clone();
         let (arrive, arrival) = oneshot::channel();
         let setup = configuration();
-        let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+        let mut machine =
+            relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
         let prepared = machine.create_cpu(setup.cpu).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || config(source),
@@ -92,7 +93,7 @@ async fn captured_deadline() {
     }
 }
 
-async fn retained_sync_across_runs() {
+async fn retained_sync_across_runs(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let host_event_start = host.host_now();
@@ -102,7 +103,7 @@ async fn retained_sync_across_runs() {
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -187,11 +188,11 @@ async fn clocks_without_host_mapping() {
     }
 }
 
-async fn local_output_sync() {
+async fn local_output_sync(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -281,34 +282,34 @@ async fn local_output_sync() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn output_sync_retains_its_host_deadline_on_the_execution_owner() {
-    pollster::block_on(local_output_sync());
+    pollster::block_on(compilation::run(local_output_sync));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn output_sync_retains_its_host_deadline_on_the_execution_owner() {
-    local_output_sync().await;
+    compilation::run(local_output_sync).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn sync_captures_host_time_at_construction_and_services_earlier_deadlines() {
-    pollster::block_on(captured_deadline());
+    pollster::block_on(compilation::run(captured_deadline));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn sync_captures_host_time_at_construction_and_services_earlier_deadlines() {
-    captured_deadline().await;
+    compilation::run(captured_deadline).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_retained_sync_keeps_its_guest_deadline_across_cpu_run_cancellation() {
-    pollster::block_on(retained_sync_across_runs());
+    pollster::block_on(compilation::run(retained_sync_across_runs));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_retained_sync_keeps_its_guest_deadline_across_cpu_run_cancellation() {
-    retained_sync_across_runs().await;
+    compilation::run(retained_sync_across_runs).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

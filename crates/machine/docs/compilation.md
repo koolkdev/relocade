@@ -1,28 +1,57 @@
 # Background compilation
 
-Creating a machine starts its compiler worker:
+The application owns one compilation pool and shares its handle across machines.
+`compilation_pool()` defaults to half the available logical parallelism, rounded
+down, with at least one worker. Native builds use the OS parallelism hint;
+browsers use `navigator.hardwareConcurrency`. If unavailable, the default is one.
+For an explicit limit, construct `worker::Pool` with the desired threads.
+
+Drive the pool alongside the whole machine lifecycle, including shutdown:
 
 ```rust,ignore
-let mut machine = Machine::new(memory_config)?;
-let cpu = machine.create_cpu(cpu_config)?;
-let execution = cpu.run_until(stop, async move |mut runner| {
-    let mut compiler = runner.take_compiler().unwrap();
-    let target = runner.cpu().cpu_state().execution_target();
-    compiler.request(target, ranges)?;
-    let code = compiler.recv().await.expect("compiler running")?;
-    code.install(runner.cpu()).await?;
-    Ok::<_, relocade_machine::Error>(runner.run_cpu().await)
-}).await;
-let shutdown = machine.shutdown().await;
-let result = execution?;
-shutdown?;
+let (pool, compiler_jobs) = relocade_machine::compilation_pool()?;
+let application = async move {
+    let mut machine = Machine::new(memory_config, compiler_jobs.clone())?;
+    let execution = async {
+        let cpu = machine.create_cpu(cpu_config)?;
+        cpu.run_until(stop, async move |mut runner| {
+            let mut compiler = runner.take_compiler().unwrap();
+            let target = runner.cpu().cpu_state().execution_target();
+            compiler.request(target, ranges)?;
+            let code = compiler.recv().await.expect("compiler running")?;
+            code.install(runner.cpu()).await?;
+            Ok::<_, relocade_machine::Error>(runner.run_cpu().await)
+        }).await
+    }.await;
+    let shutdown = machine.shutdown().await;
+    let result = execution?;
+    shutdown?;
+    Ok::<_, relocade_machine::Error>(result)
+};
+let ((), result) = futures_util::future::join(pool.run(), application).await;
+let result = result?;
 ```
 
-`Machine` owns one compiler worker and transfers shared guest memory once.
+Each `Machine` owns a compilation coordinator worker and transfers shared guest
+memory once. The coordinator captures requested blocks and calls x86's
+`Compiler::compile_blocks_with` with the shared pool. x86 owns decoding, program
+construction and the returned bytes, entry metadata and execution target. IR
+construction, placement and Wasm emission use the pool's jobs. The coordinator
+compiles the emitted Wasm with the host engine and returns the module. The pool
+limits concurrent Rust jobs; the host engine's internal compilation threads have
+their own policy.
+
 Construction stays synchronous; connections and requests can queue while the
-worker starts. Every CPU gets a request/reply connection; each request supplies
-its execution target. Creating a CPU does not start another compiler task. The
-worker exists even when the machine only interprets code.
+coordinator starts. Every CPU gets a request/reply connection; each request
+supplies its execution target. Creating a CPU does not create another coordinator
+or pool. The coordinator exists even when the machine only interprets code.
+
+The pool handle is ordinary sendable Rust state. Clones share one queue and worker
+limit across machines. Keep polling the driver while machines drain accepted
+requests, since they may submit further compilation jobs during shutdown. After
+all coordinators and application handles are dropped, the driver drains its jobs
+and exits. The `async move` above owns the original handle so it closes with the
+application.
 
 `CompilerClient` is a single-owner request/result stream. `request` immediately
 queues the execution target, addresses and compilation bounds. `recv` returns

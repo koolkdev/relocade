@@ -1,3 +1,6 @@
+#[path = "support/compilation.rs"]
+mod compilation;
+
 mod support;
 
 #[path = "guest_time/driver.rs"]
@@ -30,9 +33,9 @@ fn configuration(count: u64) -> support::Configuration {
     .unwrap()
 }
 
-async fn progress() {
+async fn progress(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let setup = configuration(u64::MAX - 1);
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let execution = prepared.run_until(std::future::pending::<()>(), async |mut runner| {
         let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
@@ -106,12 +109,12 @@ async fn progress() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn guest_time_preserves_progress_across_wrap_idle_and_rebinding() {
-    pollster::block_on(progress());
+    pollster::block_on(compilation::run(progress));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn guest_time_preserves_progress_across_wrap_idle_and_rebinding() {
-    progress().await;
+    compilation::run(progress).await;
 }
 
 struct ClockPort {

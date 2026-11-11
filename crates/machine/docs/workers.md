@@ -29,8 +29,11 @@ Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
 
 For CPUs owned by one machine, prepare state before choosing a worker:
 
+The application supplies `compiler_jobs` from its [shared compilation pool](compilation.md)
+and keeps that pool running through machine shutdown.
+
 ```rust,ignore
-let mut machine = Machine::new(machine_config)?;
+let mut machine = Machine::new(machine_config, compiler_jobs.clone())?;
 let cpu = machine.create_cpu(cpu_config)?;
 machine.cpus()[0].set_ax(42);
 let worker = Worker::spawn_with(cpu, run_cpu);

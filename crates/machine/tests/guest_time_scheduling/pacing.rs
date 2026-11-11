@@ -15,11 +15,11 @@ async fn blocked_cpu(runner: &mut Runner, io: IoBus) {
     .unwrap();
 }
 
-async fn late_host_wake() {
+async fn late_host_wake(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || {
@@ -121,13 +121,13 @@ impl Device for ReplacedDeadline {
     }
 }
 
-async fn replace_idle_deadline() {
+async fn replace_idle_deadline(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let (replace, replacement) = oneshot::channel();
     let (replaced, replacement_done) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -171,14 +171,14 @@ async fn replace_idle_deadline() {
     machine.shutdown().await.unwrap();
 }
 
-async fn cancelled_run_rebinds() {
+async fn cancelled_run_rebinds(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
     let (resume, resumed) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -242,42 +242,42 @@ async fn cancelled_run_rebinds() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn late_host_wakes_service_each_guest_deadline_without_shifting_the_mapping() {
-    pollster::block_on(late_host_wake());
+    pollster::block_on(compilation::run(late_host_wake));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn late_host_wakes_service_each_guest_deadline_without_shifting_the_mapping() {
-    late_host_wake().await;
+    compilation::run(late_host_wake).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn timer_replacement_preserves_the_current_burst_and_host_wait() {
-    pollster::block_on(replace_idle_deadline());
+    pollster::block_on(compilation::run(replace_idle_deadline));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn timer_replacement_preserves_the_current_burst_and_host_wait() {
-    replace_idle_deadline().await;
+    compilation::run(replace_idle_deadline).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    pollster::block_on(cancelled_run_rebinds());
+    pollster::block_on(compilation::run(cancelled_run_rebinds));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    cancelled_run_rebinds().await;
+    compilation::run(cancelled_run_rebinds).await;
 }
 
-async fn busy_bursts() {
+async fn busy_bursts(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let (stop, stopped) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || {
@@ -332,13 +332,13 @@ async fn busy_bursts() {
     machine.shutdown().await.unwrap();
 }
 
-async fn ready_service_during_pacing() {
+async fn ready_service_during_pacing(compiler_jobs: relocade_machine::worker::PoolHandle) {
     let (host, mut armed, source) = host();
     let host_event_start = host.host_now();
     let host_time = host.clone();
     let (complete, completion) = oneshot::channel();
     let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine, compiler_jobs.clone()).unwrap();
     let prepared = machine.create_cpu(setup.cpu).unwrap();
     let worker = prepared.spawn_with_guest_time(
         move || config(source),
@@ -396,21 +396,21 @@ async fn ready_service_during_pacing() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn active_execution_preserves_burst_boundaries_and_checkpoint_overshoot() {
-    pollster::block_on(busy_bursts());
+    pollster::block_on(compilation::run(busy_bursts));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn active_execution_preserves_burst_boundaries_and_checkpoint_overshoot() {
-    busy_bursts().await;
+    compilation::run(busy_bursts).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_ready_host_service_can_exit_during_a_pacing_wait() {
-    pollster::block_on(ready_service_during_pacing());
+    pollster::block_on(compilation::run(ready_service_during_pacing));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_ready_host_service_can_exit_during_a_pacing_wait() {
-    ready_service_during_pacing().await;
+    compilation::run(ready_service_during_pacing).await;
 }

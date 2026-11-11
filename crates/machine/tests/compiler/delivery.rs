@@ -17,8 +17,8 @@ impl Device for BusyDevice {
     }
 }
 
-async fn receive_while_running() {
-    let (mut machine, config) = setup();
+async fn receive_while_running(compiler_jobs: relocade_machine::worker::PoolHandle) {
+    let (mut machine, config) = setup(compiler_jobs);
     let memory = machine.memory();
     memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap(); // INC AX; JMP 0100
     memory.view().write(0x200, &[0xbb, 42, 0, 0xeb, 0]).unwrap(); // MOV BX,42; JMP 0205
@@ -96,10 +96,10 @@ async fn receive_while_running() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
-    pollster::block_on(receive_while_running());
+    pollster::block_on(compilation::run(receive_while_running));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
-    receive_while_running().await;
+    compilation::run(receive_while_running).await;
 }

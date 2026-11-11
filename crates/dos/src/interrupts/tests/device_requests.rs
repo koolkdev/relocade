@@ -1,3 +1,5 @@
+use crate::test_runner::compilation;
+
 use super::*;
 use crate::devices::{attributes, CharacterDriver, DriverFuture};
 use futures_channel::oneshot;
@@ -54,10 +56,11 @@ impl CharacterDriver for WaitingConsole {
 
 #[test]
 fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
-    pollster::block_on(async {
+    pollster::block_on(compilation::run(async |compiler_jobs| {
         for function in [0x4000, 0x4406, 0x4407, 0x0c00, 0x0c01, 0x0c0a] {
             let (clock, _timers) = timer_service();
-            let (runner, _host, machine) = crate::test_runner::runner(clock.into()).await;
+            let (runner, _host, machine) =
+                crate::test_runner::runner(clock.into(), compiler_jobs.clone()).await;
             let mut dos = runner
                 .run(std::future::pending::<()>(), async |runner| {
                     Dos::new(runner).await.unwrap()
@@ -139,5 +142,5 @@ fn device_write_status_and_flush_can_suspend_the_current_dos_request() {
                 _ => unreachable!(),
             }
         }
-    });
+    }));
 }
