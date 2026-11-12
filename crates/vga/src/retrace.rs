@@ -10,17 +10,17 @@ use std::future::Future;
 pub enum RetraceEvent {
     /// Retrace occurred; its pulse may have ended before the caller resumes.
     Started,
-    /// Device programming changed; revalidate the request before waiting again.
-    Reprogrammed,
+    /// Video configuration or port decoding changed; revalidate before waiting again.
+    Reconfigured,
 }
 
 impl Vga {
     /// Prepare an owned wait without retaining a device borrow across suspension.
     /// Already being in retrace completes immediately. Suppressed sync waits
-    /// for programming to restore the signal; disabled VGA returns None.
-    /// Notifications are installed before returning, so intervening programming
-    /// invalidates even a wait that has not yet been polled. The caller handles
-    /// revalidation after [`RetraceEvent::Reprogrammed`]. Capture activity need
+    /// for configuration changes to restore the signal; disabled VGA returns None.
+    /// Notifications are installed before returning, so configuration changes
+    /// invalidate even a wait that has not yet been polled. The caller handles
+    /// revalidation after [`RetraceEvent::Reconfigured`]. Capture activity need
     /// not be running.
     pub fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static> {
         if !self.setup.enabled() {
@@ -35,18 +35,18 @@ impl Vga {
         Some(self.retrace_wait(deadline))
     }
 
-    /// Install both wake paths before releasing the device borrow. Programming
-    /// takes priority when the timer and notification are both ready.
+    /// Install both wake paths before releasing the device borrow. Configuration
+    /// changes take priority when the timer and notification are both ready.
     pub(super) fn retrace_wait(
         &self,
         deadline: Option<Timestamp>,
     ) -> impl Future<Output = RetraceEvent> + 'static {
         let clock = self.clock.clone();
-        let changed = self.programming_changed.listen();
+        let changed = self.configuration_changed.listen();
         async move {
             let changed = async {
                 changed.await;
-                RetraceEvent::Reprogrammed
+                RetraceEvent::Reconfigured
             };
             if let Some(deadline) = deadline {
                 or(changed, async {

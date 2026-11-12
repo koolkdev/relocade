@@ -9,6 +9,7 @@
 mod device;
 #[cfg(feature = "renderer")]
 mod display;
+mod effects;
 mod framebuffer;
 mod geometry;
 mod memory;
@@ -68,7 +69,7 @@ pub struct Vga {
     dispi: dispi::Dispi,
     clock: Clock,
     raster: Raster,
-    programming_changed: Event,
+    configuration_changed: Event,
     output: Output,
 }
 
@@ -96,7 +97,7 @@ impl Vga {
             dispi: dispi::Dispi::default(),
             clock,
             raster,
-            programming_changed: Event::new(),
+            configuration_changed: Event::new(),
             output: Output::new(),
         }
     }
@@ -117,6 +118,6 @@ impl Vga {
 
 impl Drop for Vga {
     fn drop(&mut self) {
-        self.programming_changed.notify(usize::MAX);
+        self.configuration_changed.notify(usize::MAX);
     }
 }

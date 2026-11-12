@@ -4,9 +4,12 @@
 mod vga_core;
 pub use vga_core::VgaCoreState;
 
+use relocade_machine::IoContext;
+
 use crate::{
+    effects::Effects,
     registers::{attribute, dac::Dac, dispi::Dispi},
-    SvgaLayout, Timing, Vga,
+    Vga,
 };
 
 /// DAC colors, pixel mask, exact transfer position and Attribute Color Select.
@@ -74,6 +77,7 @@ impl Vga {
     /// framebuffer bytes are preserved; completed captures retain their old inputs.
     pub fn restore_state(
         &mut self,
+        context: IoContext<'_>,
         core: Option<VgaCoreState>,
         dac: Option<DacState>,
         dispi: Option<DispiState>,
@@ -81,48 +85,23 @@ impl Vga {
         if core.is_none() && dac.is_none() && dispi.is_none() {
             return;
         }
-        self.advance_raster(self.clock.now());
-        let previous_layout = self.dispi.display_layout();
-        let previous_status_port = self.registers.status_port();
-        let was_enabled = self.setup.enabled();
-        if let Some(core) = core {
-            core.restore(self);
-        }
-        if let Some(dac) = dac {
-            self.registers.dac = dac.dac;
-            self.registers.attribute.values[attribute::COLOR_SELECT as usize] = dac.color_select;
-        }
-        if let Some(dispi) = dispi {
-            self.dispi = dispi.0;
-        }
-        self.reconfigure(previous_layout, previous_status_port, was_enabled);
-    }
-
-    pub(super) fn reconfigure(
-        &mut self,
-        previous_layout: Option<SvgaLayout>,
-        previous_status_port: u16,
-        was_enabled: bool,
-    ) {
-        let layout = self.dispi.display_layout();
-        let timing = match layout {
-            Some(layout) => Timing::svga(layout),
-            None => Timing::vga(&self.registers),
-        };
-        let timing_changed = if layout.map(|layout| layout.mode().resolution())
-            != previous_layout.map(|layout| layout.mode().resolution())
-        {
-            self.raster.restart(timing);
-            true
+        let effects = if core.is_some() || dispi.is_some() {
+            Effects::CONFIGURATION_AND_IO
         } else {
-            self.raster.set_timing(timing)
+            Effects::IMAGE
         };
-        if timing_changed
-            || layout != previous_layout
-            || self.registers.status_port() != previous_status_port
-            || self.setup.enabled() != was_enabled
-        {
-            self.programming_changed.notify(usize::MAX);
-        }
+        self.with_effects(context, effects, |vga| {
+            if let Some(core) = core {
+                core.restore(vga);
+            }
+            if let Some(dac) = dac {
+                vga.registers.dac = dac.dac;
+                vga.registers.attribute.values[attribute::COLOR_SELECT as usize] = dac.color_select;
+            }
+            if let Some(dispi) = dispi {
+                // Restoring state is not an enable command and never clears VRAM.
+                vga.dispi = dispi.0;
+            }
+        });
     }
 }

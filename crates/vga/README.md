@@ -81,7 +81,7 @@ display. Late observations catch up all elapsed retraces without a per-frame loo
 `device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
 changes do not advance the raster. Display writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally
-reconcile the old phase. Timing changes replace the pending deadline. In VGA,
+advance the old raster phase. Timing changes replace the pending deadline. In VGA,
 sequencer reset holds the raster, and disconnected external or reserved clock
 selections stop it. Screen-off continues to generate retraces. Disabling CRTC
 sync suppresses the status pulse while internal sampling
@@ -586,10 +586,10 @@ state includes sequencer reset, register access phases, the latched CRTC display
 adapter decoding and CPU latches. DAC state includes the exact RGB transfer
 position and Color Select; DISPI state includes staged geometry, active layout,
 enable flags, bank and register index. These values contain no framebuffer bytes.
-`restore_state(core, dac, dispi)` applies selected components together after
+`restore_state(context, core, dac, dispi)` applies selected components together after
 servicing elapsed captures. It preserves VRAM and unselected components, and uses
-the same timing reconciliation as port programming. DAC-only restoration leaves
-raster timing intact. These encodings describe Relocade's current adapter;
+the same timing updates as port writes. DAC-only restoration leaves raster timing
+intact. These encodings describe Relocade's current adapter;
 firmware owns the surrounding guest buffer format and version. They are not
 vendor BIOS save formats. The fixed IBM AH=1Ch buffer above remains independent.
 
@@ -1057,16 +1057,17 @@ retrace synchronization. Requests validate the whole visible rectangle;
 invalid coordinates or reserved selectors leave state unchanged. The retrace
 variant uses `Vga::wait_for_retrace` on the same device passed by `Pc` to BIOS
 interrupt registration. The method prepares an owned future from VGA's clock
-and programming notifications; BIOS releases the device borrow before awaiting
-it. `RetraceEvent::Started` reports a retrace occurrence, while `Reprogrammed`
+and configuration notifications; BIOS releases the device borrow before awaiting
+it. `RetraceEvent::Started` reports a retrace occurrence, while `Reconfigured`
 asks the caller to revalidate and prepare another wait. BIOS keeps that short
 async loop and validates its mode/layout after every completion. Register access
 continues through the existing synchronous `IoBus`.
 
-Mode, layout, status-routing or adapter-decoding changes wake the wait to
+Video configuration or port decoding changes wake the wait to
 revalidate the request and recalculate its deadline; index and bank writes do
 not. Disabled VGA cannot prepare a wait. Suppressed sync waits for
-programming to restore the signal, while internal capture boundaries continue.
+configuration changes to restore the signal, while internal capture boundaries
+continue.
 Both capture activity and the retrace wait use the same timing and
 notification mechanism. Waiting works without a running capture task and through
 unchanged-frame suppression.
