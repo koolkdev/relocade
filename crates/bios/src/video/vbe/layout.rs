@@ -3,19 +3,19 @@
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
 use super::{available, read_register, write_register, Mode};
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{registers::dispi, RetraceEvent, SvgaLayout, Vga};
+use relocade_vga::{registers::dispi, PackedLayout, RetraceEvent, Vga};
 use std::cell::RefCell;
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn active(io: &IoBus) -> Option<SvgaLayout> {
+pub(super) fn active(io: &IoBus) -> Option<PackedLayout> {
     if !available(io) {
         return None;
     }
     Mode::active(io)?
         .display
-        .layout()
+        .layout(relocade_vga::VIDEO_MEMORY_BYTES)?
         .with_virtual_width(u32::from(read_register(io, dispi::VIRTUAL_WIDTH)))?
         .with_origin([
             u32::from(read_register(io, dispi::X_OFFSET)),
@@ -38,7 +38,11 @@ pub(super) enum ScanlineError {
     Err(ScanlineError::TooWide) => { ax = 0x024f },
     Err(ScanlineError::Failed) => { ax = 0x014f },
 })]
-pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayout, ScanlineError> {
+pub(super) fn scanline(
+    io: &IoBus,
+    operation: u8,
+    width: u16,
+) -> Result<PackedLayout, ScanlineError> {
     let layout = active(io).ok_or(ScanlineError::Failed)?;
     match operation {
         0 | 2 => {
@@ -49,7 +53,7 @@ pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayo
                 u32::from(width)
             };
             let pitch = pixels.max(layout.size()[0]) * pixel_bytes;
-            if pitch > layout.mode().max_pitch() {
+            if pitch > layout.max_pitch() {
                 return Err(ScanlineError::TooWide);
             }
             let next = layout.with_pitch(pitch).ok_or(ScanlineError::Failed)?;
@@ -59,9 +63,8 @@ pub(super) fn scanline(io: &IoBus, operation: u8, width: u16) -> Result<SvgaLayo
         1 => Ok(layout),
         // Report capability independently of the current viewport origin.
         3 => layout
-            .mode()
-            .layout()
-            .with_pitch(layout.mode().max_pitch())
+            .with_origin([0, 0])
+            .and_then(|layout| layout.with_pitch(layout.max_pitch()))
             .ok_or(ScanlineError::Failed),
         _ => Err(ScanlineError::Failed),
     }

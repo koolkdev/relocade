@@ -103,7 +103,7 @@ fn mode_switches_finish_old_boundaries_and_preserve_retained_memory() {
     common::service_video(video.as_mut());
     let packed = source.try_recv().unwrap();
 
-    assert!(matches!(packed.scanout(), Scanout::Svga(_)));
+    assert!(matches!(packed.scanout(), Scanout::Packed(_)));
     assert_eq!(packed.vram_byte(307199), Some(6));
 
     vga.io.write_port(0x1ce, 2, 4);
@@ -114,7 +114,7 @@ fn mode_switches_finish_old_boundaries_and_preserve_retained_memory() {
     let last_packed = source.try_recv().unwrap();
 
     assert_eq!(last_packed.vram_byte(307199), Some(7));
-    assert!(matches!(last_packed.scanout(), Scanout::Svga(_)));
+    assert!(matches!(last_packed.scanout(), Scanout::Packed(_)));
     vga.io.write_mmio(0xb8000, 2, 0x0742);
     clock.advance_to(clock.at(exited + boundary(1) - Duration::from_nanos(1)));
     assert_eq!(vga.io.read_port(0x3da, 1) & 8, 0);
@@ -164,7 +164,7 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     let Poll::Ready(Ok(first)) = first.as_mut().poll(&mut cx) else {
         panic!("first packed frame")
     };
-    assert!(matches!(first.scanout(), Scanout::Svga(_)));
+    assert!(matches!(first.scanout(), Scanout::Packed(_)));
 
     svga::set(&vga.io, 4, 1); // Repeated enable must not restart the phase.
     poll_video(video.as_mut(), &mut cx);
@@ -272,11 +272,11 @@ fn pitch_and_origin_updates_preserve_raster_phase_and_completed_captures() {
     common::service_video(video.as_mut());
     let next = vga.device.borrow().frames().try_recv().unwrap();
 
-    let Scanout::Svga(layout) = next.scanout() else {
+    let Scanout::Packed(layout) = next.scanout() else {
         panic!("packed layout")
     };
     assert_eq!((layout.pitch(), layout.origin()), (1024, [32, 480]));
-    let Scanout::Svga(old) = original.scanout() else {
+    let Scanout::Packed(old) = original.scanout() else {
         panic!("packed layout")
     };
     assert_eq!((old.pitch(), old.origin()), (640, [0, 0]));

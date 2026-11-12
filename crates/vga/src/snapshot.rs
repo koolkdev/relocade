@@ -72,14 +72,14 @@ impl DisplaySnapshot {
     pub fn vga(&self) -> Option<&VgaDisplayState> {
         match &self.scanout {
             Scanout::Vga(state) => Some(state),
-            Scanout::Svga(_) => None,
+            Scanout::Packed(_) => None,
         }
     }
 
     pub fn vga_mut(&mut self) -> Option<&mut VgaDisplayState> {
         match &mut self.scanout {
             Scanout::Vga(state) => Some(state),
-            Scanout::Svga(_) => None,
+            Scanout::Packed(_) => None,
         }
     }
 

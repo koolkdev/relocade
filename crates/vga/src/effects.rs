@@ -2,7 +2,7 @@
 
 mod writes;
 
-use crate::{registers::WriteKind, SvgaLayout, Timing, Vga};
+use crate::{registers::WriteKind, PackedLayout, Timing, Vga};
 use relocade_machine::IoContext;
 
 #[derive(Clone, Copy)]
@@ -90,20 +90,19 @@ impl Vga {
         result
     }
 
-    fn update_video_configuration(&mut self, previous_layout: Option<SvgaLayout>) -> bool {
+    fn update_video_configuration(&mut self, previous_layout: Option<PackedLayout>) -> bool {
         let layout = self.dispi.display_layout();
         let timing = match layout {
-            Some(layout) => Timing::svga(layout),
+            Some(_) => self.dispi.timing().expect("active DISPI timing"),
             None => Timing::vga(&self.registers),
         };
-        let timing_changed = if layout.map(|layout| layout.mode().resolution())
-            != previous_layout.map(|layout| layout.mode().resolution())
-        {
-            self.raster.restart(timing);
-            true
-        } else {
-            self.raster.set_timing(timing)
-        };
+        let timing_changed =
+            if layout.map(|layout| layout.size()) != previous_layout.map(|layout| layout.size()) {
+                self.raster.restart(timing);
+                true
+            } else {
+                self.raster.set_timing(timing)
+            };
         timing_changed || layout != previous_layout
     }
 }

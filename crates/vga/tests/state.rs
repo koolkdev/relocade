@@ -161,7 +161,7 @@ fn dispi_restore_recovers_exact_flags_layout_bank_and_disabled_staging() {
     });
     assert_eq!(vga.device.borrow().dispi_state(), staged);
     assert!(matches!(vga.snapshot().scanout(), Scanout::Vga(_)));
-    assert!(matches!(retained.scanout(), Scanout::Svga(layout)
+    assert!(matches!(retained.scanout(), Scanout::Packed(layout)
         if layout.size() == [800, 600] && layout.format() == PixelFormat::Indexed8));
 }
 
@@ -208,7 +208,7 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
         Poll::Ready(RetraceEvent::Reconfigured)
     );
     let old = frames.try_recv().unwrap();
-    assert!(matches!(old.scanout(), Scanout::Svga(layout)
+    assert!(matches!(old.scanout(), Scanout::Packed(layout)
         if layout.size() == [640, 480] && layout.format() == PixelFormat::Indexed8));
     let mut next = pin!(vga.device.borrow_mut().wait_for_retrace().unwrap());
     assert!(next.as_mut().poll(&mut cx).is_pending());

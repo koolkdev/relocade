@@ -14,6 +14,7 @@ mod framebuffer;
 mod geometry;
 mod memory;
 mod output;
+mod packed;
 mod ports;
 mod raster;
 pub mod registers;
@@ -23,7 +24,6 @@ mod retrace;
 mod scanout;
 mod snapshot;
 mod state;
-mod svga;
 mod timing;
 
 use async_channel::Receiver;
@@ -35,7 +35,9 @@ pub use geometry::DisplayGeometry;
 use memory::VideoMemory;
 pub use memory::VIDEO_MEMORY_BYTES;
 use output::Output;
+pub use packed::{PackedLayout, PixelFormat};
 use raster::Raster;
+pub use registers::dispi::{DispiMode, DispiResolution};
 use registers::{dispi, setup::Setup};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE, PORT_RANGES};
 use relocade_machine::{Clock, Runner};
@@ -46,7 +48,6 @@ pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 pub use state::{DacState, DispiState, VgaCoreState};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
-pub use svga::{PixelFormat, SvgaLayout, SvgaMode, SvgaResolution};
 use timing::Timing;
 
 /// The color text aperture selected by the BIOS text preset.

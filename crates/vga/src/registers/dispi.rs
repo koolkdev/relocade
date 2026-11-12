@@ -7,7 +7,10 @@
 //! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
 //! Invalid requests are ignored.
 
-use crate::{effects::Effects, memory::VramWindow, SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
+mod modes;
+pub use modes::{DispiMode, DispiResolution};
+
+use crate::{effects::Effects, memory::VramWindow, PackedLayout, Timing, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -54,7 +57,7 @@ pub(crate) struct Dispi {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveMode {
-    layout: SvgaLayout,
+    layout: PackedLayout,
     flags: u16,
 }
 
@@ -69,7 +72,7 @@ impl Dispi {
 
     pub fn to_state_bytes(&self) -> [u8; 18] {
         let layout = self.display_layout();
-        let [x, y] = layout.map_or([0, 0], SvgaLayout::origin);
+        let [x, y] = layout.map_or([0, 0], PackedLayout::origin);
         let words = [
             self.index,
             self.width,
@@ -106,8 +109,8 @@ impl Dispi {
             if flags & !NO_CLEAR_MEMORY != ENABLED {
                 return None;
             }
-            let layout = SvgaMode::from_registers(width, height, bits_per_pixel)?
-                .layout()
+            let layout = DispiMode::from_registers(width, height, bits_per_pixel)?
+                .layout(VIDEO_MEMORY_BYTES)?
                 .with_pitch(u32::from(pitch))?
                 .with_origin([u32::from(x), u32::from(y)])?;
             Some(ActiveMode { layout, flags })
@@ -126,8 +129,13 @@ impl Dispi {
         self.active.is_some()
     }
 
-    pub fn display_layout(&self) -> Option<SvgaLayout> {
+    pub fn display_layout(&self) -> Option<PackedLayout> {
         self.active.as_ref().map(|active| active.layout)
+    }
+
+    pub(crate) fn timing(&self) -> Option<Timing> {
+        self.active.as_ref()?;
+        Some(DispiMode::from_registers(self.width, self.height, self.bits_per_pixel)?.timing())
     }
 
     /// The bank register is validated on writes and restoration, so the whole
@@ -182,12 +190,14 @@ impl Dispi {
             ENABLE if value == DISABLED => self.active = None,
             ENABLE if value & !NO_CLEAR_MEMORY == ENABLED && !self.enabled() => {
                 let Some(mode) =
-                    SvgaMode::from_registers(self.width, self.height, self.bits_per_pixel)
+                    DispiMode::from_registers(self.width, self.height, self.bits_per_pixel)
                 else {
                     return WriteAction::None;
                 };
                 self.active = Some(ActiveMode {
-                    layout: mode.layout(),
+                    layout: mode
+                        .layout(VIDEO_MEMORY_BYTES)
+                        .expect("supported DISPI mode fits VRAM"),
                     flags: value,
                 });
                 self.bank = 0;

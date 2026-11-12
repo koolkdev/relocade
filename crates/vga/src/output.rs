@@ -45,7 +45,7 @@ impl Vga {
     /// Unlike [`Vga::frames`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
         let scanout = match self.dispi.display_layout() {
-            Some(layout) => Scanout::Svga(layout),
+            Some(layout) => Scanout::Packed(layout),
             None => Scanout::Vga(VgaDisplayState::capture(
                 &self.registers,
                 self.raster.retrace_count,
