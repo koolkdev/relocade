@@ -2,8 +2,8 @@
 pub(super) mod vbe;
 
 use crate::video::{
-    COLOR_TEXT_80X25,
     modes::{self, ModeSet},
+    COLOR_TEXT_80X25,
 };
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::dispi;

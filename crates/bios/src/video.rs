@@ -26,16 +26,16 @@ mod tables;
 pub use firmware::VideoFirmware;
 
 pub use characters::{
-    CharacterCell, CharacterRun, read_character, teletype, write_characters,
-    write_characters_preserving_attributes, write_characters_with_attribute,
+    read_character, teletype, write_characters, write_characters_preserving_attributes,
+    write_characters_with_attribute, CharacterCell, CharacterRun,
 };
 pub use control::{set_screen_output, set_video_addressing};
-pub use cursor::{CursorState, cursor, select_page, set_cursor, set_cursor_shape};
+pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
 pub(super) use fonts::Glyph;
 pub use graphics::pixel::{read_pixel, write_pixel};
 pub(crate) use interrupt::dispatch_entry;
-pub(super) use modes::{COLOR_TEXT_80X25, GRAPHICS_640X480_2, text_memory_start};
-pub use modes::{ModeInfo, mode, set_mode};
+pub use modes::{mode, set_mode, ModeInfo};
+pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 pub use scroll::{scroll, scroll_down, scroll_up};
 
 pub use crate::screen::{ScrollDirection, Window};

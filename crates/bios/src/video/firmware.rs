@@ -1,10 +1,10 @@
 //! The video firmware selected by the machine composition.
 pub mod dispi;
 
-use super::{COLOR_TEXT_80X25, modes};
+use super::{modes, COLOR_TEXT_80X25};
 use relocade_machine::{
-    CpuContext, IoBus, MemoryView,
     real_mode_interrupt::{interrupt, interrupt_dispatch},
+    CpuContext, IoBus, MemoryView,
 };
 use relocade_vga::DispiAdapter;
 use std::{cell::RefCell, rc::Rc};
