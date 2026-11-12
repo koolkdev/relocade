@@ -222,7 +222,15 @@ fn restored_programming_services_old_capture_and_replaces_only_changed_timing() 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn malformed_component_bytes_are_rejected_before_restoration() {
     let vga = ConnectedVga::new(ManualClock::new().clock());
-    for (offset, value) in [(3, 2), (4, 8), (8, 2), (15, 4)] {
+    for (offset, value) in [
+        (3, 2),
+        (4, 8),
+        (7, 0x40), // Attribute address reserved bit.
+        (8, 2),
+        (15, 4),
+        (54, 0x40), // Attribute palette entry exceeds six bits.
+        (70, 0x10), // Attribute Mode Control reserved bit.
+    ] {
         let mut bytes = vga.device.borrow().core_state().to_bytes();
         bytes[offset] = value;
         assert!(VgaCoreState::from_bytes(&bytes).is_none());

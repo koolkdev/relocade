@@ -265,6 +265,77 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn cpu_access_controls_preserve_display_inputs_and_leave_waiters_asleep() {
+    let clock = ManualClock::default();
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    let source = vga.device.borrow().frames();
+    tick(&clock, video.as_mut(), boundary(1));
+    let first = source.try_recv().unwrap();
+    let wakes = Arc::new(WakeCount::default());
+    let change_waker = waker(wakes.clone());
+    let mut cx = Context::from_waker(&change_waker);
+    let mut changed = std::pin::pin!(source.recv());
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+
+    for (port, index, value) in [
+        (0x3c4, 2, 0x00), // CPU plane mask.
+        (0x3c4, 4, 0x0e), // Chain four and odd/even, preserving extended fonts.
+        (0x3ce, 0, 0x0f), // Set/reset and CPU read/write controls.
+        (0x3ce, 1, 0x0f),
+        (0x3ce, 2, 0x0f),
+        (0x3ce, 3, 0x1f),
+        (0x3ce, 4, 0x03),
+        (0x3ce, 5, 0x1b), // Read/write modes without changing serialization.
+        (0x3ce, 6, 0x02), // Aperture and CPU odd/even without changing text mode.
+        (0x3ce, 7, 0x00),
+        (0x3ce, 8, 0x00),
+    ] {
+        vga.io.write_port(port, 2, index | (value << 8));
+        assert_eq!(vga.io.read_port(port + 1, 1), value);
+    }
+    let inspected = vga.snapshot();
+    assert_ne!(
+        first.vga(),
+        inspected.vga(),
+        "raw inspection stays complete"
+    );
+    assert_eq!(inspected.vga().unwrap().sequencer[2], 0);
+    assert_eq!(inspected.vga().unwrap().graphics[5], 0x1b);
+
+    tick(&clock, video.as_mut(), boundary(2));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    assert!(changed.as_mut().poll(&mut cx).is_pending());
+    assert!(source.is_empty());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn mixed_register_display_bits_still_publish_new_inputs() {
+    let clock = ManualClock::default();
+    let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
+    let source = vga.device.borrow().frames();
+    tick(&clock, video.as_mut(), boundary(1));
+    let first = source.try_recv().unwrap();
+    assert_eq!(first.vga().unwrap().sequencer[4] & 2, 2);
+
+    for (frame, port, value) in [
+        (2, 0x3c4, 0x0004), // Extended font addressing.
+        (3, 0x3ce, 0x3005), // Graphics serializer shift, preserving CPU read mode.
+        (4, 0x3ce, 0x0f06), // Graphics/text interpretation, preserving CPU mapping.
+    ] {
+        vga.io.write_port(port, 2, value);
+        tick(&clock, video.as_mut(), boundary(frame));
+        let capture = source
+            .try_recv()
+            .expect("display bits must publish a frame");
+        for plane in 0..4 {
+            assert!(std::ptr::eq(first.plane(plane), capture.plane(plane)));
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_immutable() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());

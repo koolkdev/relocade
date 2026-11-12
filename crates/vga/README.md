@@ -615,6 +615,11 @@ display enable, the effective start-address latch and both blink phases. CPU
 register indices, access phases and DAC transfer position remain on the live
 device; execution-owner inspection uses `Vga::registers()`. Capture creation
 copies display values without advancing any port or memory-access state.
+Frame publication ignores known CPU-only Sequencer and Graphics controls and
+compares all other captured state in full. Comparison uses copies, leaving raw
+snapshots and their public equality intact. Extended-font addressing remains
+significant; timing, CRTC and Attribute changes can conservatively publish another
+frame even when the displayed pixels are unchanged.
 `CrtcRegisters` keeps programmed CRTC bytes and field decoding together in both
 the live device and its captured VGA payload. Indexed port access, write
 protection and display-start latching remain on the live `Crtc`.
@@ -1125,6 +1130,26 @@ addresses. Setup bindings remain installed in every mode and enforce their own
 protocol checks. The mono/color selection remains in the register while disabled;
 restoring only a different selection does not wake configuration waiters.
 Re-enabling applies that retained selection.
+
+Input Status 1 shares the raster's observed time, deadline and cached bits. An
+ordinary poll reads the clock, checks that deadline and returns the cached value
+through Attribute's status reader without borrowing VGA.
+When the deadline is due, the reader borrows VGA to refresh the raster. Both
+physical status ports retain one reader across mode changes. The shared refresh
+path selects VGA or packed capture after servicing the raster. VGA capture latches
+the CRTC display start; packed capture uses the current DISPI layout.
+Attribute's private protocol owns the six-bit address latch and alternating
+index/data phase. `handle_write(value, write_data)` consumes index writes and
+passes the stored address and data to one synchronous callback. Every write
+advances the phase, including ignored data writes. Attribute owns register
+validity, palette-access gating and masks; its effect classification and data
+writes use the same eligibility rules. `handle_read` prepares a reader that
+restarts index selection after raster work, without changing the selected
+register or its contents. Snapshots copy access state independently; restore
+updates the live phase used by existing readers.
+Attribute validates its saved bytes internally, so save/restore does not replay
+the access protocol. Inactive status aliases leave that state untouched, and wide
+status reads supply FF trailing bytes.
 
 For each CPU transfer, `select_memory_access` in the device glue resolves the
 adapter gates and active interface into `VramAccess`: disabled, legacy VGA

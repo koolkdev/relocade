@@ -1,58 +1,81 @@
 use crate::timing::Timing;
 use relocade_machine::{Clock, Timestamp};
+use std::{cell::Cell, rc::Rc};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
 
-/// Exact position at `updated`, with status valid until `next_update`.
+/// Exact position at `updated`, with shared status valid until its next update.
 /// Observations between events leave the position lazy. Timing changes materialize
 /// it through whole nanoseconds at `observed` before remapping the counters.
 pub(super) struct Raster {
     clock: Clock,
     timing: Timing,
     updated: Timestamp,
-    observed: Timestamp,
     dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
     dot_remainder: u64,
     pub retrace_count: u64,
     next_retrace: Option<Timestamp>,
-    status: u8,
-    next_update: Option<Timestamp>,
+    pub status: Rc<RasterStatus>,
 }
 
-impl Raster {
-    pub fn new(clock: Clock, timing: Timing) -> Self {
-        let now = clock.now();
-        let mut raster = Self {
-            clock,
-            timing,
-            updated: now,
-            observed: now,
-            dot: 0,
-            dot_remainder: 0,
-            retrace_count: 0,
-            next_retrace: None,
-            status: 0,
-            next_update: None,
-        };
-        raster.refresh_deadline();
-        raster.refresh_status();
-        raster
+/// Authoritative polling state shared with status-port readers. Only the raster
+/// publishes status and deadlines; readers record time and service due edges.
+pub(super) struct RasterStatus {
+    clock: Clock,
+    observed: Cell<Timestamp>,
+    value: Cell<u8>,
+    next_update: Cell<Option<Timestamp>>,
+}
+
+impl RasterStatus {
+    pub fn observe_now(&self) -> bool {
+        self.observe(self.clock.now())
     }
 
     /// Record observed time even between events, so a programming change can
     /// materialize the remaining phase under the old timing. Return whether
     /// the caller must service a status or capture edge before continuing.
     #[inline]
-    pub fn observe(&mut self, now: Timestamp) -> bool {
-        self.observed = now;
-        self.next_update.is_some_and(|deadline| now >= deadline)
+    pub fn observe(&self, now: Timestamp) -> bool {
+        self.observed.set(now);
+        self.next_update
+            .get()
+            .is_some_and(|deadline| now >= deadline)
+    }
+
+    pub fn input_status_1(&self) -> u8 {
+        self.value.get()
+    }
+}
+
+impl Raster {
+    pub fn new(clock: Clock, timing: Timing) -> Self {
+        let now = clock.now();
+        let mut raster = Self {
+            clock: clock.clone(),
+            timing,
+            updated: now,
+            dot: 0,
+            dot_remainder: 0,
+            retrace_count: 0,
+            next_retrace: None,
+            status: Rc::new(RasterStatus {
+                clock,
+                observed: Cell::new(now),
+                value: Cell::new(0),
+                next_update: Cell::new(None),
+            }),
+        };
+        raster.refresh_deadline();
+        raster.refresh_status();
+        raster
     }
 
     /// Service the observed edge and return the latest crossed retrace time.
     /// Multiple missed retraces contribute to the count without a per-frame loop.
     pub fn update_observed(&mut self) -> Option<Timestamp> {
-        let completed = self.advance_to(self.observed);
+        let completed = self.advance_to(self.status.observed.get());
         self.refresh_status();
         completed
     }
@@ -105,10 +128,10 @@ impl Raster {
         }
         // The caller already serviced every due capture; only the phase between
         // events can remain lazy here.
-        self.advance_to(self.observed);
+        self.advance_to(self.status.observed.get());
         self.timing = new;
         if old.reset_active || new.reset_active {
-            self.updated = self.observed;
+            self.updated = self.status.observed.get();
             self.dot = 0;
             self.dot_remainder = 0;
         } else {
@@ -135,7 +158,7 @@ impl Raster {
     /// the lifetime retrace count so consumers can wait across mode switches.
     pub fn restart(&mut self, timing: Timing) {
         self.timing = timing;
-        self.updated = self.observed;
+        self.updated = self.status.observed.get();
         self.dot = 0;
         self.dot_remainder = 0;
         self.refresh_deadline();
@@ -170,16 +193,12 @@ impl Raster {
         )
     }
 
-    pub fn input_status_1(&self) -> u8 {
-        self.status
-    }
-
     pub fn in_retrace(&self) -> bool {
-        self.status & VERTICAL_RETRACE != 0
+        self.status.input_status_1() & VERTICAL_RETRACE != 0
     }
 
     fn refresh_status(&mut self) {
-        self.status = self.timing.input_status_1(self.dot);
+        self.status.value.set(self.timing.input_status_1(self.dot));
         let next_status = self.timing.next_status_in_dots(self.dot).and_then(|dots| {
             self.clock.checked_add(
                 self.updated,
@@ -188,10 +207,12 @@ impl Raster {
         });
         // Internal captures still advance latches and blink when external sync
         // is suppressed, independently of the observable status bits.
-        self.next_update = match (next_status, self.next_retrace) {
-            (Some(status), Some(retrace)) => Some(status.min(retrace)),
-            (status, retrace) => status.or(retrace),
-        };
+        self.status
+            .next_update
+            .set(match (next_status, self.next_retrace) {
+                (Some(status), Some(retrace)) => Some(status.min(retrace)),
+                (status, retrace) => status.or(retrace),
+            });
     }
 }
 

@@ -61,7 +61,7 @@ struct ActiveMode {
 impl Dispi {
     pub(crate) fn write_effect(&self) -> Effects {
         match self.index {
-            ENABLE => Effects::CONFIGURATION_AND_IO,
+            ENABLE => Effects::CONFIGURATION,
             VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => Effects::CONFIGURATION,
             _ => Effects::NONE,
         }

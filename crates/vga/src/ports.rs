@@ -1,5 +1,7 @@
 //! Connection-time wiring and changes to physical address decoding.
 
+mod status;
+
 use crate::{registers::*, Vga, MEMORY_RANGE};
 use relocade_machine::{
     DeviceCallbacks, DeviceConnection, IoContext, PortBinding, PortRange, PortRead, PortWrite,
@@ -114,11 +116,18 @@ impl Vga {
         );
         let mono = crtc(
             io,
+            device,
             &callbacks,
             MONO_CRTC_INDEX_PORT,
             MONO_INPUT_STATUS_1_PORT,
         );
-        let color = crtc(io, &callbacks, CRTC_INDEX_PORT, COLOR_INPUT_STATUS_1_PORT);
+        let color = crtc(
+            io,
+            device,
+            &callbacks,
+            CRTC_INDEX_PORT,
+            COLOR_INPUT_STATUS_1_PORT,
+        );
         let ports = Io {
             common,
             dispi,
@@ -269,6 +278,7 @@ fn bind_dispi_ports(
 
 fn crtc(
     io: &mut DeviceConnection<'_>,
+    device: &Rc<RefCell<Vga>>,
     callbacks: &DeviceCallbacks<Vga>,
     index: u16,
     status: u16,
@@ -292,7 +302,7 @@ fn crtc(
         Mapping::bind(
             io,
             status,
-            PortRead::low_byte(callbacks.read(|_, vga| vga.read_status())),
+            PortRead::low_byte(status::read(&device.borrow(), device)),
             PortWrite::low_byte(
                 callbacks.write(|_, vga, value| vga.registers.feature_control = value),
             ),

@@ -9,8 +9,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn attribute_access_alternates_writes_and_only_active_status_resets_it() {
     let vga = ConnectedVga::new(ManualClock::new().clock());
-    vga.io.write_port(0x3c0, 1, 2);
-    assert_eq!(vga.io.read_port(0x3c0, 1) & 0x3f, 2);
+    vga.io.write_port(0x3c0, 1, 0xc2); // Address writes ignore the reserved high bits.
+    assert_eq!(vga.io.read_port(0x3c0, 1), 2);
     assert_eq!(vga.io.read_port(0x3c1, 1) & 0x3f, 2);
     vga.io.read_port(0x3ba, 1); // Inactive status address must not reset the phase.
     vga.io.write_port(0x3c0, 1, 0x31);

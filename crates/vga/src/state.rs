@@ -85,8 +85,10 @@ impl Vga {
         if core.is_none() && dac.is_none() && dispi.is_none() {
             return;
         }
-        let effects = if core.is_some() || dispi.is_some() {
+        let effects = if core.is_some() {
             Effects::CONFIGURATION_AND_IO
+        } else if dispi.is_some() {
+            Effects::CONFIGURATION
         } else {
             Effects::IMAGE
         };
