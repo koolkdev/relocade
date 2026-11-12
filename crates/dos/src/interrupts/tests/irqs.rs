@@ -47,7 +47,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     io.connect(irq.clone(), |_| {});
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
-        (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
+        (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
         (
             0xf0000..=0xfffff,
             PhysicalMapping::Rom {

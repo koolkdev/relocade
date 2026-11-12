@@ -23,8 +23,8 @@ impl PhysicalMemory {
     pub(super) fn declare(program: &mut Program) -> Self {
         let backing = program.import_memory(crate::abi::GUEST);
         let table = PhysicalTable::declare(program);
-        let mmio_reader = program.import_function(crate::abi::READ_MMIO);
-        let mmio_writer = program.import_function(crate::abi::WRITE_MMIO);
+        let mmio_reader = program.import_table(crate::abi::MMIO_READS);
+        let mmio_writer = program.import_table(crate::abi::MMIO_WRITES);
         Self {
             backing,
             table,

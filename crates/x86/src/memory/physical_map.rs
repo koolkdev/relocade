@@ -9,6 +9,23 @@ pub(super) const RAM: u32 = 1;
 pub(super) const ROM: u32 = 2;
 pub(super) const MMIO: u32 = 3;
 
+/// Index in an execution instance's paired MMIO operation tables.
+/// Zero keeps the range resolver used for unconnected or mixed-device pages.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MmioHandlerId(u32);
+
+impl MmioHandlerId {
+    pub const GENERIC: Self = Self(0);
+
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
 /// Where a physical address is routed. Backing offsets address bytes in the
 /// host's Wasm backing memory; they are not guest physical addresses.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -21,21 +38,26 @@ pub enum PhysicalMapping {
     Ram { backing_offset: u32 },
     /// Reads access backing memory directly; writes are ignored.
     Rom { backing_offset: u32 },
-    /// Reads and writes use the host's MMIO callbacks.
-    Mmio,
+    /// Reads and writes call this index in the live MMIO operation tables.
+    Mmio { handler: MmioHandlerId },
 }
 
 impl PhysicalMapping {
+    /// MMIO resolved by the bus, including sub-page boundaries and holes.
+    pub const MMIO: Self = Self::Mmio {
+        handler: MmioHandlerId::GENERIC,
+    };
+
     fn backing_offset(self) -> Option<u32> {
         match self {
-            Self::Unmapped | Self::Mmio => None,
+            Self::Unmapped | Self::Mmio { .. } => None,
             Self::Ram { backing_offset } | Self::Rom { backing_offset } => Some(backing_offset),
         }
     }
 
     fn advance(self, bytes: u32) -> Self {
         match self {
-            Self::Unmapped | Self::Mmio => self,
+            Self::Unmapped | Self::Mmio { .. } => self,
             Self::Ram { backing_offset } => Self::Ram {
                 backing_offset: backing_offset + bytes,
             },
@@ -167,7 +189,8 @@ impl PhysicalMemoryMap {
 
     /// Serializes 272 entries of eight bytes each, followed by the A20 mask. Each entry
     /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
-    /// followed by a u32 backing-page offset. Unmapped and MMIO offsets are zero.
+    /// followed by a u32 backing-page offset or MMIO handler index. Unmapped
+    /// payloads are zero; MMIO index zero selects generic range resolution.
     /// The trailing u32 is FFFFFFFF when A20 is enabled and FFEFFFFF otherwise.
     /// The host installs the 2180-byte image at offset zero in `physicalMap`.
     /// This format uses explicit fields, independent of Rust's enum layout.
@@ -179,7 +202,7 @@ impl PhysicalMemoryMap {
                 PhysicalMapping::Unmapped => (UNMAPPED, 0),
                 PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
                 PhysicalMapping::Rom { backing_offset } => (ROM, backing_offset),
-                PhysicalMapping::Mmio => (MMIO, 0),
+                PhysicalMapping::Mmio { handler } => (MMIO, handler.index()),
             };
             entry[..4].copy_from_slice(&kind.to_le_bytes());
             entry[4..].copy_from_slice(&backing.to_le_bytes());

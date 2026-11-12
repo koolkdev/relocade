@@ -1,9 +1,9 @@
 //! Physical routing and byte-backed MMIO devices for execution tests.
 
 use relocade_test_support::SharedBytes;
-use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{MmioHandlerId, PhysicalMapping, PhysicalMemoryMap};
 use std::{collections::BTreeMap, sync::Arc};
-use wasmtime::{Caller, Linker, Memory, MemoryType, Store};
+use wasmtime::{Caller, Func, Linker, Memory, MemoryType, Ref, RefType, Store, Table, TableType};
 
 use super::{Event, ExecutionEvents, Input};
 
@@ -26,10 +26,19 @@ pub(super) fn register(
                 },
             )
         });
-    let devices = input
-        .mmio_pages
-        .iter()
-        .map(|&(page, _)| (page * 4096..=page * 4096 + 4095, PhysicalMapping::Mmio));
+    let devices = input.mmio_pages.iter().map(|&(page, _)| {
+        let index = input
+            .mmio_handlers
+            .iter()
+            .find_map(|&(mapped_page, index)| (mapped_page == page).then_some(index))
+            .unwrap_or(0);
+        (
+            page * 4096..=page * 4096 + 4095,
+            PhysicalMapping::Mmio {
+                handler: MmioHandlerId::new(index),
+            },
+        )
+    });
     let mut map = PhysicalMemoryMap::new(backing.chain(devices)).unwrap();
     map.set_a20_enabled(input.a20_enabled);
     let image = map.to_bytes();
@@ -40,12 +49,30 @@ pub(super) fn register(
         .unwrap();
     let devices: Arc<BTreeMap<u32, u32>> = Arc::new(input.mmio_pages.iter().copied().collect());
     let observe = input.observe_mmio;
-    let read_devices = devices.clone();
-    let read_guest = guest.clone();
-    linker
-        .func_wrap(
-            "relocade",
-            "readMmio",
+    let count = input
+        .mmio_handlers
+        .iter()
+        .map(|&(_, index)| index)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let reads = Table::new(
+        &mut *store,
+        TableType::new(RefType::FUNCREF, count, None),
+        Ref::Func(None),
+    )
+    .unwrap();
+    let writes = Table::new(
+        &mut *store,
+        TableType::new(RefType::FUNCREF, count, None),
+        Ref::Func(None),
+    )
+    .unwrap();
+    for index in 0..count {
+        let read_devices = devices.clone();
+        let read_guest = guest.clone();
+        let read = Func::wrap(
+            &mut *store,
             move |mut caller: Caller<'_, ExecutionEvents>, address: i32, bytes: i32| {
                 assert!((1..=8).contains(&bytes));
                 if observe {
@@ -62,18 +89,18 @@ pub(super) fn register(
                 };
                 for offset in 0..bytes as u32 {
                     let address = (address as u32).checked_add(offset).unwrap();
-                    let backing = device_backing(&read_devices, table.data(&caller), address);
+                    let backing =
+                        device_backing(&read_devices, table.data(&caller), address, index);
                     value |= u64::from(read_guest.read(backing as u32, 1)[0]) << (offset * 8);
                 }
                 apply_update(&mut caller, &read_guest, table);
                 value as i64
             },
-        )
-        .unwrap();
-    linker
-        .func_wrap(
-            "relocade",
-            "writeMmio",
+        );
+        let write_devices = devices.clone();
+        let write_guest = guest.clone();
+        let write = Func::wrap(
+            &mut *store,
             move |mut caller: Caller<'_, ExecutionEvents>, address: i32, bytes: i32, value: i64| {
                 assert!((1..=8).contains(&bytes));
                 assert!(
@@ -89,16 +116,29 @@ pub(super) fn register(
                 }
                 for (offset, &byte) in value.iter().enumerate() {
                     let address = (address as u32).checked_add(offset as u32).unwrap();
-                    let backing = device_backing(&devices, table.data(&caller), address);
-                    guest.write(backing as u32, &[byte]);
+                    let backing =
+                        device_backing(&write_devices, table.data(&caller), address, index);
+                    write_guest.write(backing as u32, &[byte]);
                 }
-                apply_update(&mut caller, &guest, table);
+                apply_update(&mut caller, &write_guest, table);
             },
-        )
+        );
+        reads
+            .set(&mut *store, u64::from(index), Ref::Func(Some(read)))
+            .unwrap();
+        writes
+            .set(&mut *store, u64::from(index), Ref::Func(Some(write)))
+            .unwrap();
+    }
+    linker
+        .define(&*store, "relocade", "mmioReads", reads)
+        .unwrap();
+    linker
+        .define(&*store, "relocade", "mmioWrites", writes)
         .unwrap();
 }
 
-fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32) -> usize {
+fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32, index: u32) -> usize {
     let page = address >> 12;
     assert!(
         (page as usize) < PhysicalMemoryMap::PAGE_COUNT,
@@ -109,6 +149,11 @@ fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32) -> u
         u32::from_le_bytes(table[offset..offset + 4].try_into().unwrap()),
         3,
         "callback must stay within MMIO"
+    );
+    assert_eq!(
+        u32::from_le_bytes(table[offset + 4..offset + 8].try_into().unwrap()),
+        index,
+        "MMIO dispatch must use the current page handler"
     );
     (devices[&page] + (address & 4095)) as usize
 }

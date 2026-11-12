@@ -16,7 +16,7 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
             },
         ),
         (0x1000..=0x1fff, PhysicalMapping::Rom { backing_offset: 0 }),
-        (0x3000..=0x3fff, PhysicalMapping::Mmio),
+        (0x3000..=0x3fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     let backing = allocate(map);
@@ -81,7 +81,7 @@ fn bulk_transfers_walk_partial_and_complete_mapping_spans() {
                 backing_offset: 0x1000,
             },
         ),
-        (0x3000..=0x3fff, PhysicalMapping::Mmio),
+        (0x3000..=0x3fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     let backing = allocate(map);
@@ -113,7 +113,7 @@ fn attached_empty_bus_preserves_ram_and_open_mmio_accesses() {
     let backing = allocate(
         PhysicalMemoryMap::new([
             (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (0x1000..=0x1fff, PhysicalMapping::Mmio),
+            (0x1000..=0x1fff, PhysicalMapping::MMIO),
         ])
         .unwrap(),
     );

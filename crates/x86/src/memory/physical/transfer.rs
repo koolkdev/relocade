@@ -1,7 +1,7 @@
 //! One general reader and writer per module handle all non-direct transfers.
 
 use relocade_compiler::{
-    BlockBuilder, BuildError, Func, Mem, Program, TypedFunc, Val, I32, I64, I8,
+    BlockBuilder, BuildError, Mem, Program, Table, TypedFunc, Val, I32, I64, I8,
 };
 
 use super::{
@@ -19,7 +19,7 @@ pub(super) fn declare_reader(
     program: &mut Program,
     backing: Mem,
     table: PhysicalTable,
-    mmio_reader: Func,
+    mmio_reader: Table,
 ) -> TypedFunc<fn(u32, u32) -> u64> {
     program.function::<fn(u32, u32) -> u64>(move |mut body, (address, bytes)| {
         let value = body.loop_::<(I32, I64), I64>((0, 0), |mut part, labels, (done, value)| {
@@ -38,7 +38,7 @@ pub(super) fn declare_reader(
 
 fn read_part(
     backing: Mem,
-    callback: Func,
+    callback: Table,
     body: &mut BlockBuilder<'_>,
     entry: &Entry,
     bytes: &Val<I32>,
@@ -46,7 +46,11 @@ fn read_part(
     body.if_value::<I64>(
         entry.kind.eq(MMIO),
         |mut mmio| {
-            let value = mmio.call::<I64>(callback, &[(&entry.address).into(), bytes.into()])?;
+            let value = mmio.call_indirect::<I64>(
+                callback,
+                &entry.payload,
+                &[(&entry.address).into(), bytes.into()],
+            )?;
             mmio.yield_(value)
         },
         |mut ordinary| {
@@ -67,7 +71,7 @@ pub(super) fn declare_writer(
     program: &mut Program,
     backing: Mem,
     table: PhysicalTable,
-    mmio_writer: Func,
+    mmio_writer: Table,
 ) -> TypedFunc<fn(u32, u32, u64)> {
     program.function::<fn(u32, u32, u64)>(move |mut body, (address, bytes, value)| {
         body.loop_::<I32, ()>(0, |mut part, labels, done| {
@@ -86,7 +90,7 @@ pub(super) fn declare_writer(
 
 fn write_part(
     backing: Mem,
-    callback: Func,
+    callback: Table,
     body: &mut BlockBuilder<'_>,
     entry: &Entry,
     bytes: &Val<I32>,
@@ -95,8 +99,9 @@ fn write_part(
     body.if_else(
         entry.kind.eq(MMIO),
         |mut mmio| {
-            mmio.call::<()>(
+            mmio.call_indirect::<()>(
                 callback,
+                &entry.payload,
                 &[
                     (&entry.address).into(),
                     bytes.into(),

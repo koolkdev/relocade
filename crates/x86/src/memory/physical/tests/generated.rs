@@ -17,10 +17,10 @@ fn imports(bytes: &[u8]) -> Vec<String> {
 }
 
 #[test]
-fn physical_accesses_import_backing_map_and_only_mmio_callbacks() {
+fn physical_accesses_import_backing_map_and_mmio_tables() {
     assert_eq!(
         imports(transfers()),
-        ["guest", "physicalMap", "readMmio", "writeMmio"]
+        ["guest", "mmioReads", "mmioWrites", "physicalMap"]
     );
 }
 
@@ -59,7 +59,7 @@ fn one_slow_reader_serves_all_widths_and_callers_without_a_writer() {
         program.export(&format!("read{index}"), function).unwrap();
     }
     let bytes = program.compile().unwrap();
-    assert_eq!(imports(&bytes), ["guest", "physicalMap", "readMmio"]);
+    assert_eq!(imports(&bytes), ["guest", "mmioReads", "physicalMap"]);
     for payload in Parser::new(0).parse_all(&bytes) {
         if let Payload::FunctionSection(functions) = payload.unwrap() {
             assert_eq!(functions.count(), 13, "twelve callers share one reader");

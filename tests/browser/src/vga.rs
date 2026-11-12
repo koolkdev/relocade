@@ -21,7 +21,7 @@ pub async fn vga_workers() -> Result<(), String> {
         0x1000,
         PhysicalMemoryMap::new([
             (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (MEMORY_RANGE, PhysicalMapping::Mmio),
+            (MEMORY_RANGE, PhysicalMapping::MMIO),
         ])
         .unwrap(),
     )

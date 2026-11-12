@@ -337,3 +337,79 @@ fn routing_preserves_mmio_portions_and_live_mappings() {
     last_real_mode_page();
     a20();
 }
+#[test]
+fn mmio_spans_require_matching_handler_indices() {
+    for (first, second) in [(0, 0), (1, 1), (0, 1)] {
+        for write in [false, true] {
+            let mut input = input();
+            input.mmio_pages = vec![(1, 0x3000), (2, 0x5000)];
+            input.mmio_handlers = vec![(1, first), (2, second)];
+            input.arguments = vec![Argument::I32(0x1fff)];
+            if write {
+                input.arguments.push(Argument::I32(0x4433_2211));
+            }
+            let observed = transfer(&input, if write { "write32" } else { "read32" });
+            let expected = match (write, first == second) {
+                (false, true) => vec![Event::MmioRead {
+                    address: 0x1fff,
+                    bytes: 4,
+                }],
+                (false, false) => vec![
+                    Event::MmioRead {
+                        address: 0x1fff,
+                        bytes: 1,
+                    },
+                    Event::MmioRead {
+                        address: 0x2000,
+                        bytes: 3,
+                    },
+                ],
+                (true, true) => vec![Event::MmioWrite {
+                    address: 0x1fff,
+                    value: vec![0x11, 0x22, 0x33, 0x44],
+                }],
+                (true, false) => vec![
+                    Event::MmioWrite {
+                        address: 0x1fff,
+                        value: vec![0x11],
+                    },
+                    Event::MmioWrite {
+                        address: 0x2000,
+                        value: vec![0x22, 0x33, 0x44],
+                    },
+                ],
+            };
+            assert_eq!(&observed.events[..observed.events.len() - 1], expected);
+            if !write {
+                assert_eq!(value(&observed), 0x5566_7788);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_split_transfer_reloads_the_next_page_handler_after_a_callback() {
+    let mut input = input();
+    input.mmio_pages = vec![(1, 0x3000), (2, 0x5000)];
+    input.mmio_handlers = vec![(2, 1)];
+    input.mmio_updates = vec![MmioUpdate {
+        map: vec![(2 * 8 + 4, 0u32.to_le_bytes().to_vec())],
+        ..MmioUpdate::default()
+    }];
+    input.arguments = vec![Argument::I32(0x1fff)];
+    let observed = transfer(&input, "read32");
+    assert_eq!(value(&observed), 0x5566_7788);
+    assert_eq!(
+        &observed.events[..2],
+        &[
+            Event::MmioRead {
+                address: 0x1fff,
+                bytes: 1
+            },
+            Event::MmioRead {
+                address: 0x2000,
+                bytes: 3
+            },
+        ]
+    );
+}
