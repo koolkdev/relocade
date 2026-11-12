@@ -4,9 +4,9 @@ use super::{BlockEntry, BlockSnapshot};
 use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget};
 use std::collections::BTreeSet;
 
-pub(super) struct DecodedBlock {
-    pub(super) entry: BlockEntry,
-    pub(super) instructions: Vec<SnapshotInstruction>,
+pub(in crate::compile) struct DecodedBlock {
+    pub(in crate::compile) entry: BlockEntry,
+    pub(in crate::compile) instructions: Vec<SnapshotInstruction>,
 }
 
 pub(super) fn blocks(
@@ -28,6 +28,22 @@ pub(super) fn blocks(
 }
 
 impl DecodedBlock {
+    pub(in crate::compile) fn new(start_eip: u32) -> Self {
+        Self {
+            entry: BlockEntry {
+                start_eip,
+                byte_len: 0,
+                export: format!("block_{start_eip:x}"),
+            },
+            instructions: Vec::new(),
+        }
+    }
+
+    pub(in crate::compile) fn push(&mut self, instruction: SnapshotInstruction) {
+        self.entry.byte_len += instruction.fallthrough_eip.wrapping_sub(instruction.eip) as usize;
+        self.instructions.push(instruction);
+    }
+
     fn decode(
         snapshot: &BlockSnapshot<'_>,
         target: ExecutionTarget,
@@ -36,7 +52,7 @@ impl DecodedBlock {
         if snapshot.instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
-        let mut instructions = Vec::new();
+        let mut block = Self::new(snapshot.start_eip);
         let mut remaining = snapshot.bytes;
         let mut eip = snapshot.start_eip;
         for _ in 0..snapshot.instruction_limit {
@@ -48,18 +64,11 @@ impl DecodedBlock {
             eip = decoded.fallthrough_eip;
             remaining = rest;
             let ends_block = decoded.ends_block(target);
-            instructions.push(decoded);
+            block.push(decoded);
             if ends_block || boundaries.contains(&eip) {
                 break;
             }
         }
-        Ok(Self {
-            entry: BlockEntry {
-                start_eip: snapshot.start_eip,
-                byte_len: snapshot.bytes.len() - remaining.len(),
-                export: format!("block_{:x}", snapshot.start_eip),
-            },
-            instructions,
-        })
+        Ok(block)
     }
 }

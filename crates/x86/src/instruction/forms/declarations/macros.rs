@@ -5,6 +5,7 @@ macro_rules! instruction_families {
     ($($family:ident {
         execute: $handler:ident $(::<$size:tt>)? $(($($argument:expr),* $(,)?))?;
         $(effects: [$($effect:ident),* $(,)?];)?
+        $(flow: $flow:ident;)?
         $(availability: $availability:ident;)?
         $(requires: [$($feature:ident),* $(,)?];)?
         forms $rows:tt
@@ -13,7 +14,7 @@ macro_rules! instruction_families {
             use crate::instruction::forms::declarations::*;
             // Runtime decoder tables identify forms across catalog traversals.
             static FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($availability)?] [$($($feature),*)?] $rows)
+                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($flow)?] [$($availability)?] [$($($feature),*)?] $rows)
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -21,7 +22,7 @@ macro_rules! instruction_families {
 }
 
 macro_rules! declaration_family {
-    ($call:tt $effects:tt $availability:tt $features:tt {
+    ($call:tt $effects:tt $flow:tt $availability:tt $features:tt {
         $($($prefix:ident)? $opcode:literal $($extended:literal)? $(+ $pattern:ident)? $(/ $extension:literal)? $(@ $modrm:literal $(+ $modrm_range:ident)?)? =>
             $width:ident $operands:tt $(| $other_width:ident $other_operands:tt)? $($lockable:ident)?;
         )+
@@ -29,7 +30,7 @@ macro_rules! declaration_family {
         &[$({
             const FORM: Form = {
                 $(same_layout(declaration_operands!($operands), declaration_operands!($other_operands));)?
-                Declaration {
+                let mut form = Declaration {
                     opcode: Opcode {
                         map: declaration_opcode!(@map $opcode $($extended)?),
                         byte: declaration_opcode!(@byte $opcode $($extended)?),
@@ -45,7 +46,9 @@ macro_rules! declaration_family {
                     availability: declaration_opcode!(@availability $availability),
                     features: declaration_opcode!(@features $features),
                     lockable: declaration_opcode!(@lockable $($lockable)?),
-                }.form()
+                }.form();
+                form.control_flow = declaration_opcode!(@flow $flow);
+                form
             };
             declaration_opcode!(@rows FORM; $($pattern)?)
         }),+]
@@ -63,6 +66,8 @@ macro_rules! declaration_effects {
 }
 
 macro_rules! declaration_opcode {
+    (@flow []) => { None };
+    (@flow [$flow:ident]) => { Some(crate::instruction::forms::ControlFlow::$flow) };
     (@features [$($feature:ident),*]) => {
         &[$(crate::CpuFeature::$feature),*]
     };

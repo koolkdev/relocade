@@ -1,8 +1,8 @@
 //! Public snapshot compilation inputs, outputs and entry points.
 
-mod decode;
+pub(super) mod decode;
 mod error;
-mod module;
+pub(super) mod module;
 
 pub use error::BlockCompileError;
 
@@ -179,7 +179,7 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<CompiledBlocks, BlockError> {
-        let blocks = BlockModule::build(self, snapshots)?;
+        let blocks = BlockModule::build(self, decode::blocks(snapshots, self.target)?)?;
         Ok(CompiledBlocks {
             bytes: blocks.program.compile()?,
             entries: blocks.entries,
@@ -197,7 +197,7 @@ impl Compiler {
         snapshots: &[BlockSnapshot<'_>],
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
-        let blocks = BlockModule::build(self, snapshots)?;
+        let blocks = BlockModule::build(self, decode::blocks(snapshots, self.target)?)?;
         Ok(CompiledBlocks {
             bytes: blocks.program.compile_with(executor).await?,
             entries: blocks.entries,

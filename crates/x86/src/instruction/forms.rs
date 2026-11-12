@@ -26,6 +26,14 @@ pub(crate) enum OpcodeMap {
     Extended,
 }
 
+/// Statically discoverable successors of near control transfers.
+#[derive(Clone, Copy)]
+pub(crate) enum ControlFlow {
+    Jump,
+    Branch,
+    Call,
+}
+
 impl OpcodeMap {
     pub(crate) const fn bytes(self) -> u32 {
         match self {
@@ -121,6 +129,7 @@ pub(crate) struct Form {
     handlers: SizedHandlers<HandlerBinding>,
     pub(super) condition: Option<Condition>,
     pub(super) ends_block: bool,
+    pub(super) control_flow: Option<ControlFlow>,
     pub(super) requirements: Requirements,
 }
 
@@ -178,6 +187,37 @@ pub(crate) struct ResolvedForm {
 }
 
 impl ResolvedForm {
+    pub(crate) fn successors(
+        &self,
+        immediates: [Option<u32>; 2],
+        fallthrough: u32,
+        target: crate::ExecutionTarget,
+    ) -> [Option<u32>; 2] {
+        if self.form.requirements.fault(target).is_some() {
+            return [None, None];
+        }
+        let mask = match self.operand_size {
+            OperandSize::Word => 0xffff,
+            OperandSize::Dword => u32::MAX,
+        };
+        match self.form.control_flow {
+            Some(ControlFlow::Jump | ControlFlow::Branch) => {
+                let destination = fallthrough
+                    .wrapping_add(immediates[0].expect("relative transfers have a displacement"))
+                    & mask;
+                [
+                    Some(destination),
+                    matches!(self.form.control_flow, Some(ControlFlow::Branch))
+                        .then_some(fallthrough),
+                ]
+            }
+            // CALL pushes an operand-sized return address. Discovery follows the
+            // possible continuation without assuming the callee actually returns.
+            Some(ControlFlow::Call) => [Some(fallthrough & mask), None],
+            None => [None, None],
+        }
+    }
+
     pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
         self.form.ends_block || self.form.requirements.fault(target).is_some()
     }
