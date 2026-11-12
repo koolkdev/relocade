@@ -6,7 +6,7 @@ use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
 use relocade_machine::IoBus;
-use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ, PORT_RANGE};
+use relocade_pic::{end_of_interrupt, Pic, KEYBOARD_IRQ};
 use relocade_ps2::{
     connect, read_keyboard_latch, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
 };
@@ -68,10 +68,9 @@ async fn connected_activity() {
             pic.unmask_irq(KEYBOARD_IRQ);
             let (inputs, _controller) = connect(&runner, &pic).await;
             let input = inputs.keyboard;
+            let pic = Rc::new(RefCell::new(pic));
             runner
-                .connect(Rc::new(RefCell::new(pic)), |io| {
-                    io.map_ports([PORT_RANGE]);
-                })
+                .connect(pic.clone(), |io| Pic::configure_io(io, &pic))
                 .await;
             let io = runner.io();
             io.write_port(DATA_PORT, 1, 0xf3); // Program typematic delay/rate.

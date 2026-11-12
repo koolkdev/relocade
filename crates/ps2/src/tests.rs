@@ -55,8 +55,10 @@ fn poll(pic: &mut relocade_pic::Pic) -> Poll<u8> {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn each_output_byte_has_an_irq_and_reads_preserve_the_data_latch() {
-    relocade_machine::IoBus::default().with_context(|mut context| {
-        let (mut controller, mut pic) = controller();
+    let (mut controller, mut pic) = controller();
+    let device = Rc::new(RefCell::new(pic.clone()));
+    let io = IoBus::new(device.clone(), |io| Pic::configure_io(io, &device));
+    io.with_context(|mut context| {
         event(&mut controller, key(KeyCode::ArrowUp, true));
         for expected in [0xe0, 0x48] {
             assert_ne!(controller.status() & 1, 0);
@@ -71,7 +73,7 @@ fn each_output_byte_has_an_irq_and_reads_preserve_the_data_latch() {
             assert_eq!(controller.status() & OUTPUT_BUFFER_FULL, 0);
             controller.settle();
             assert_eq!(poll(&mut pic), Poll::Pending, "next byte waits for EOI");
-            pic.write_port(context.reborrow(), relocade_pic::COMMAND_PORT, 1, 0x20);
+            context.write_port(relocade_pic::COMMAND_PORT, 1, 0x20);
             // Non-specific EOI.
         }
         assert_eq!(controller.status() & 1, 0);

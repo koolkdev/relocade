@@ -5,7 +5,9 @@ mod pair;
 
 use controller::{IRQ_COUNT, OCW2_EOI};
 use pair::Pair;
-use relocade_machine::{Device, IoBus, IoContext, Runner};
+use relocade_machine::{
+    Device, DeviceCallbacks, DeviceConnection, IoBus, IoContext, PortRead, PortWrite, Runner,
+};
 use std::{
     cell::RefCell,
     ops::RangeInclusive,
@@ -52,12 +54,44 @@ impl Pic {
     /// Creates the BIOS-configured pair and registers both chips with the runner.
     pub async fn initialize(runner: &Runner) -> Self {
         let pic = Self::default();
+        let device = Rc::new(RefCell::new(pic.clone()));
         runner
-            .connect(Rc::new(RefCell::new(pic.clone())), |io| {
-                io.map_ports(PORTS);
-            })
+            .connect(device.clone(), |io| Self::configure_io(io, &device))
             .await;
         pic
+    }
+
+    /// Bind the master and slave command/data operations. Both chips accept bytes only.
+    pub fn configure_io(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = DeviceCallbacks::new(device);
+        io.bind(
+            COMMAND_PORT,
+            &PortRead::byte(callbacks.read(|_, pic| pic.update(|pair| pair.master.read_command()))),
+            &PortWrite::byte(
+                callbacks.write(|_, pic, value| pic.update(|pair| pair.master.command(value))),
+            ),
+        );
+        io.bind(
+            MASK_PORT,
+            &PortRead::byte(callbacks.read(|_, pic| pic.update(|pair| pair.master.mask))),
+            &PortWrite::byte(
+                callbacks.write(|_, pic, value| pic.update(|pair| pair.master.data(value))),
+            ),
+        );
+        io.bind(
+            SLAVE_COMMAND_PORT,
+            &PortRead::byte(callbacks.read(|_, pic| pic.update(Pair::read_slave_command))),
+            &PortWrite::byte(
+                callbacks.write(|_, pic, value| pic.update(|pair| pair.slave.command(value))),
+            ),
+        );
+        io.bind(
+            SLAVE_MASK_PORT,
+            &PortRead::byte(callbacks.read(|_, pic| pic.update(|pair| pair.slave.mask))),
+            &PortWrite::byte(
+                callbacks.write(|_, pic, value| pic.update(|pair| pair.slave.data(value))),
+            ),
+        );
     }
 
     /// Starts in 8086 edge-triggered mode, with all inputs masked and the slave
@@ -139,19 +173,6 @@ impl IrqLine {
 }
 
 impl Device for Pic {
-    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        if bytes != 1 {
-            return u32::MAX;
-        }
-        self.update(|state| state.read_port(port))
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        if bytes == 1 {
-            self.update(|state| state.write_port(port, value as u8));
-        }
-    }
-
     fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         let mut state = self.0.borrow_mut();
         state.waker = Some(cx.waker().clone());
