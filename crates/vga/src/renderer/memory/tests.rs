@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DisplaySnapshot, Vga};
+use crate::{DispiAdapter, DisplaySnapshot};
 use futures_util::FutureExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Device, IoBus};
@@ -41,10 +41,12 @@ impl Uploads {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
-    let vga = Vga::with_clock(ManualClock::new().clock());
-    let narrow = vga.snapshot();
+    let vga = DispiAdapter::with_clock(ManualClock::new().clock());
+    let memory = crate::memory::VideoMemory::default();
+    let mut narrow = vga.snapshot();
+    narrow.memory = memory.snapshot(0x40000);
     let mut wide = narrow.clone();
-    wide.memory = vga.memory.snapshot(0x80000);
+    wide.memory = memory.snapshot(0x80000);
     wide.changes = Some(crate::snapshot::MemoryChanges {
         baseline: narrow.memory.clone(),
         pages: Default::default(),
@@ -114,10 +116,14 @@ fn packed_snapshots_preserve_skipped_extended_writes_and_clear_on_mode_entry() {
 
 fn start_video(
     clock: &ManualClock,
-) -> (Rc<RefCell<Vga>>, IoBus, Pin<Box<impl Future<Output = ()>>>) {
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
-    let io = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
-    let mut video = Box::pin(Vga::run(vga.clone()));
+) -> (
+    Rc<RefCell<DispiAdapter>>,
+    IoBus,
+    Pin<Box<impl Future<Output = ()>>>,
+) {
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
+    let mut video = Box::pin(DispiAdapter::run(vga.clone()));
     assert!(video.as_mut().now_or_never().is_none());
     (vga, io, video)
 }
@@ -129,7 +135,7 @@ fn publish(io: &IoBus, video: Pin<&mut impl Future<Output = ()>>, clock: &Manual
 }
 
 fn take(
-    vga: &Rc<RefCell<Vga>>,
+    vga: &Rc<RefCell<DispiAdapter>>,
     io: &IoBus,
     video: Pin<&mut impl Future<Output = ()>>,
     clock: &ManualClock,
@@ -306,7 +312,7 @@ fn skipped_queued_snapshots_restore_blocks_with_a_different_upload_baseline() {
     drop(vga);
     assert_eq!(uploads.update(&skipped), [(0, 65536)]);
     assert_eq!(uploads.update(&first), [(131072, 65536)]);
-    let other = Vga::with_clock(ManualClock::new().clock());
+    let other = DispiAdapter::with_clock(ManualClock::new().clock());
     assert_eq!(
         uploads.update(&other.snapshot()),
         [(0, 65536), (65536, 65536), (131072, 65536), (196608, 65536)]

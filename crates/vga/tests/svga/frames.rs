@@ -3,7 +3,7 @@ use crate::common::{self, boundary, crtc, dots, poll_video, svga_boundary};
 use common::support::{registers::palette, svga};
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::Device;
-use relocade_vga::{Scanout, Vga};
+use relocade_vga::{DispiAdapter, Scanout};
 use std::{
     future::Future,
     task::{Context, Poll, Waker},
@@ -142,7 +142,7 @@ fn mode_changes_wake_the_timer_and_slow_consumers_skip_unchanged_refreshes() {
     clock.advance_to(clock.at(origin));
     let vga = ConnectedVga::new(clock.clock());
     vga.io.write_port(0x3c4, 2, 0x0100); // Hold the legacy raster in reset.
-    let mut video = std::pin::pin!(Vga::run(vga.device.clone()));
+    let mut video = std::pin::pin!(DispiAdapter::run(vga.device.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(clock.next_deadline().map(|at| clock.elapsed(at)), None);

@@ -4,7 +4,7 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer, IoBus, MemoryView,
 };
-use relocade_vga::{DacState, DispiState, Vga, VgaCoreState};
+use relocade_vga::{DacState, DispiAdapter, DispiState, VgaCoreState};
 use std::cell::RefCell;
 
 const HEADER_SIZE: usize = 16;
@@ -64,7 +64,11 @@ impl BufferLayout {
 }
 
 #[interrupt(context(call), args(operation = dl))]
-pub(super) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<Vga>, operation: u8) {
+pub(super) async fn dispatch(
+    call: &mut CpuContext<'_>,
+    vga: &RefCell<DispiAdapter>,
+    operation: u8,
+) {
     interrupt_dispatch!(
         call,
         match operation {
@@ -90,7 +94,7 @@ fn required_blocks(io: &IoBus, components: u16) -> Option<u16> {
 fn save(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    vga: &RefCell<Vga>,
+    vga: &RefCell<DispiAdapter>,
     components: u16,
     destination: FarPointer,
 ) -> Option<()> {
@@ -126,7 +130,7 @@ fn save(
 fn restore(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    vga: &RefCell<Vga>,
+    vga: &RefCell<DispiAdapter>,
     components: u16,
     source: FarPointer,
 ) -> Option<()> {

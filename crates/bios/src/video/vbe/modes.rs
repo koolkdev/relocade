@@ -5,8 +5,9 @@ use crate::video::{
     CURSORS, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
 };
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+use relocade_vga::dispi;
 use relocade_vga::{
-    registers::{dispi, MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
+    registers::{MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
     DispiMode, DispiResolution, PixelFormat, VIDEO_MEMORY_BYTES,
 };
 

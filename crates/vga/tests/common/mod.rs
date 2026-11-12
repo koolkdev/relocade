@@ -42,7 +42,7 @@ pub fn start_video(
     fixture::ConnectedVga,
     std::pin::Pin<Box<impl std::future::Future<Output = ()>>>,
 ) {
-    let mut video = Box::pin(relocade_vga::Vga::run(vga.device.clone()));
+    let mut video = Box::pin(relocade_vga::DispiAdapter::run(vga.device.clone()));
     service_video(video.as_mut());
     (vga, video)
 }

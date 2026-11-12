@@ -3,7 +3,7 @@
 use super::{available, layout, Mode};
 use crate::BIOS_SEGMENT;
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
-use relocade_vga::{registers::dispi, PixelFormat, VIDEO_MEMORY_BYTES};
+use relocade_vga::{dispi, PixelFormat, VIDEO_MEMORY_BYTES};
 
 // Follows the legacy video parameter table (F000:A700–AE3F).
 const OEM: FarPointer = FarPointer {

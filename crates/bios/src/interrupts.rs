@@ -5,7 +5,7 @@ use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
 };
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use relocade_x86::Exception;
 use std::{cell::RefCell, rc::Rc};
 
@@ -109,7 +109,7 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 pub fn register_interrupts(
     interrupts: &mut Interrupts<'_>,
     keyboard: Keyboard,
-    vga: Rc<RefCell<Vga>>,
+    vga: Rc<RefCell<DispiAdapter>>,
     mouse: Option<Mouse>,
 ) {
     for (index, exception) in [

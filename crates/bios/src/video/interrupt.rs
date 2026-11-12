@@ -9,11 +9,11 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use std::cell::RefCell;
 
 #[interrupt(context(call), args(function = ah))]
-pub(crate) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<Vga>, function: u8) {
+pub(crate) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<DispiAdapter>, function: u8) {
     interrupt_dispatch!(
         call,
         match function {

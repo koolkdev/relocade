@@ -4,7 +4,6 @@
 pub mod attribute;
 pub mod crtc;
 pub mod dac;
-pub mod dispi;
 pub mod graphics;
 pub mod sequencer;
 pub(crate) mod setup;
@@ -41,9 +40,8 @@ pub const COLOR_INPUT_STATUS_1_PORT: u16 = 0x3da;
 pub const ADAPTER_CONTROL_PORT: u16 = 0x46e8;
 pub const CRTC_PORT_RANGE: RangeInclusive<u16> = CRTC_INDEX_PORT..=CRTC_DATA_PORT;
 
-/// VGA register, status, setup and DISPI ports, including monochrome/color aliases.
-pub const PORT_RANGES: [RangeInclusive<u16>; 8] = [
-    dispi::PORT_RANGE,
+/// Standard VGA register, status and setup ports, including both address aliases.
+pub const PORT_RANGES: [RangeInclusive<u16>; 7] = [
     OPTION_SELECT_PORT..=OPTION_SELECT_PORT,
     MONO_CRTC_INDEX_PORT..=MONO_CRTC_DATA_PORT,
     MONO_INPUT_STATUS_1_PORT..=MONO_INPUT_STATUS_1_PORT,

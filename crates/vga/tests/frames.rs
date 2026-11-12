@@ -5,7 +5,7 @@ use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
-use relocade_vga::{Vga, CRTC_INDEX_PORT, TEXT_MEMORY_START};
+use relocade_vga::{DispiAdapter, CRTC_INDEX_PORT, TEXT_MEMORY_START};
 use std::{
     future::Future,
     pin::Pin,
@@ -82,7 +82,7 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
 fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());
-    let mut video = Box::pin(Vga::run(vga.device.clone()));
+    let mut video = Box::pin(DispiAdapter::run(vga.device.clone()));
     let source = vga.device.borrow().frames();
     assert!(source.is_empty());
     vga.io.write_mmio(TEXT_MEMORY_START, 4, 0x2fdb_1edb);
@@ -153,7 +153,7 @@ fn deadlines_capture_coherent_frames_and_coalesce_late_service() {
 fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());
-    let mut video = Box::pin(Vga::run(vga.device.clone()));
+    let mut video = Box::pin(DispiAdapter::run(vga.device.clone()));
     let source = vga.device.borrow().frames();
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
@@ -192,7 +192,7 @@ fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
 fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());
-    let mut video = std::pin::pin!(Vga::run(vga.device.clone()));
+    let mut video = std::pin::pin!(DispiAdapter::run(vga.device.clone()));
     let source = vga.device.borrow().frames();
     tick(&clock, video.as_mut(), boundary(1));
     let first = source.try_recv().unwrap();
@@ -339,7 +339,7 @@ fn mixed_register_display_bits_still_publish_new_inputs() {
 fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_immutable() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());
-    let mut video = Box::pin(Vga::run(vga.device.clone()));
+    let mut video = Box::pin(DispiAdapter::run(vga.device.clone()));
     vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x94db);
     vga.io.write_mmio(TEXT_MEMORY_START + 2, 2, 0x0720);
     crtc(&vga.io, 0x0f, 1);

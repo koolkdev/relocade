@@ -2,7 +2,7 @@ use super::*;
 use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
 use relocade_bios::KeyMode;
 use relocade_machine::{Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig, Memory};
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
 };
@@ -41,9 +41,9 @@ impl Device for Irq {
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.into())));
     let io = IoBus::default();
-    io.connect(vga.clone(), |io| Vga::configure_io(io, &vga));
+    io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(irq.clone(), |_| {});
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),

@@ -2,7 +2,7 @@
 
 mod status;
 
-use crate::{registers::*, Vga, MEMORY_RANGE};
+use crate::{dispi, registers::*, DispiAdapter, MEMORY_RANGE};
 use relocade_machine::{
     DeviceCallbacks, DeviceConnection, IoContext, PortBinding, PortRange, PortRead, PortWrite,
 };
@@ -89,7 +89,7 @@ impl Mapping {
     }
 }
 
-impl Vga {
+impl DispiAdapter {
     /// Connects VGA's MMIO aperture and individual port operations. VGA sequences
     /// retain their physical windows; setup/status consume the low byte, and
     /// DISPI accepts exact word accesses.
@@ -102,16 +102,16 @@ impl Vga {
         // Setup remains accessible while the adapter's other addresses are off.
         io.bind(
             OPTION_SELECT_PORT,
-            &PortRead::low_byte(callbacks.read(|_, vga| vga.setup.read_option())),
+            &PortRead::low_byte(callbacks.read(|_, card| card.vga.setup.read_option())),
             &PortWrite::low_byte(
-                callbacks.write(|context, vga, value| vga.write_option_select(context, value)),
+                callbacks.write(|context, card, value| card.write_option_select(context, value)),
             ),
         );
         io.bind(
             ADAPTER_CONTROL_PORT,
             &PortRead::new(|_, _, _| u32::MAX),
             &PortWrite::low_byte(
-                callbacks.write(|context, vga, value| vga.write_adapter_control(context, value)),
+                callbacks.write(|context, card, value| card.write_adapter_control(context, value)),
             ),
         );
         let mono = crtc(
@@ -137,15 +137,15 @@ impl Vga {
             disabled_read: PortRead::new(|_, _, _| u32::MAX),
             disabled_write: PortWrite::new(|_, _, _, _| {}),
         };
-        let mut vga = device.borrow_mut();
-        ports.update_decoding(io.context(), None, vga.decoding());
-        vga.io = Some(ports);
+        let mut card = device.borrow_mut();
+        ports.update_decoding(io.context(), None, card.decoding());
+        card.io = Some(ports);
     }
 
     pub(super) fn decoding(&self) -> PortDecoding {
-        if !self.setup.enabled() {
+        if !self.vga.setup.enabled() {
             PortDecoding::Disabled
-        } else if self.registers.miscellaneous & 1 != 0 {
+        } else if self.vga.registers.miscellaneous & 1 != 0 {
             PortDecoding::Color
         } else {
             PortDecoding::Monochrome
@@ -155,7 +155,7 @@ impl Vga {
 
 fn bind_common_vga_ports(
     io: &mut DeviceConnection<'_>,
-    callbacks: &DeviceCallbacks<Vga>,
+    callbacks: &DeviceCallbacks<DispiAdapter>,
 ) -> Vec<Mapping> {
     // Enabled holes must continue wide transfers to later implemented ports.
     vec![
@@ -164,14 +164,14 @@ fn bind_common_vga_ports(
             io,
             COMMON,
             ATTRIBUTE_ADDRESS_PORT,
-            callbacks.read(|_, vga| vga.registers.attribute.address()),
-            callbacks.write(|context, vga, value| vga.write_attribute(context, value)),
+            callbacks.read(|_, card| card.vga.registers.attribute.address()),
+            callbacks.write(|context, card, value| card.write_attribute(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             ATTRIBUTE_DATA_READ_PORT,
-            callbacks.read(|_, vga| vga.registers.attribute.read()),
+            callbacks.read(|_, card| card.vga.registers.attribute.read()),
             |_, _| {},
         ),
         Mapping::byte(
@@ -179,76 +179,76 @@ fn bind_common_vga_ports(
             COMMON,
             MISC_OUTPUT_WRITE_PORT,
             |_| 0x10,
-            callbacks.write(|context, vga, value| vga.write_misc_output(context, value)),
+            callbacks.write(|context, card, value| card.write_misc_output(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             SEQUENCER_INDEX_PORT,
-            callbacks.read(|_, vga| vga.registers.sequencer.index()),
-            callbacks.write(|_, vga, value| vga.registers.sequencer.select(value)),
+            callbacks.read(|_, card| card.vga.registers.sequencer.index()),
+            callbacks.write(|_, card, value| card.vga.registers.sequencer.select(value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             SEQUENCER_DATA_PORT,
-            callbacks.read(|_, vga| vga.registers.sequencer.read()),
-            callbacks.write(|context, vga, value| vga.write_sequencer_data(context, value)),
+            callbacks.read(|_, card| card.vga.registers.sequencer.read()),
+            callbacks.write(|context, card, value| card.write_sequencer_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             GRAPHICS_INDEX_PORT,
-            callbacks.read(|_, vga| vga.registers.graphics.index()),
-            callbacks.write(|_, vga, value| vga.registers.graphics.select(value)),
+            callbacks.read(|_, card| card.vga.registers.graphics.index()),
+            callbacks.write(|_, card, value| card.vga.registers.graphics.select(value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             GRAPHICS_DATA_PORT,
-            callbacks.read(|_, vga| vga.registers.graphics.read()),
-            callbacks.write(|context, vga, value| vga.write_graphics_data(context, value)),
+            callbacks.read(|_, card| card.vga.registers.graphics.read()),
+            callbacks.write(|context, card, value| card.write_graphics_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_MASK_PORT,
-            callbacks.read(|_, vga| vga.registers.dac.mask),
-            callbacks.write(|context, vga, value| vga.write_dac_mask(context, value)),
+            callbacks.read(|_, card| card.vga.registers.dac.mask),
+            callbacks.write(|context, card, value| card.write_dac_mask(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_READ_ADDRESS_PORT,
-            callbacks.read(|_, vga| vga.registers.dac.state()),
-            callbacks.write(|_, vga, value| vga.registers.dac.select(value, true)),
+            callbacks.read(|_, card| card.vga.registers.dac.state()),
+            callbacks.write(|_, card, value| card.vga.registers.dac.select(value, true)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_WRITE_ADDRESS_PORT,
-            callbacks.read(|_, vga| vga.registers.dac.address()),
-            callbacks.write(|_, vga, value| vga.registers.dac.select(value, false)),
+            callbacks.read(|_, card| card.vga.registers.dac.address()),
+            callbacks.write(|_, card, value| card.vga.registers.dac.select(value, false)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_DATA_PORT,
-            callbacks.read(|_, vga| vga.registers.dac.read()),
-            callbacks.write(|context, vga, value| vga.write_dac_data(context, value)),
+            callbacks.read(|_, card| card.vga.registers.dac.read()),
+            callbacks.write(|context, card, value| card.write_dac_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             FEATURE_CONTROL_READ_PORT,
-            callbacks.read(|_, vga| vga.registers.feature_control),
+            callbacks.read(|_, card| card.vga.registers.feature_control),
             |_, _| {},
         ),
         Mapping::byte(
             io,
             COMMON,
             MISC_OUTPUT_READ_PORT,
-            callbacks.read(|_, vga| vga.registers.miscellaneous),
+            callbacks.read(|_, card| card.vga.registers.miscellaneous),
             |_, _| {},
         ),
     ]
@@ -256,21 +256,21 @@ fn bind_common_vga_ports(
 
 fn bind_dispi_ports(
     io: &mut DeviceConnection<'_>,
-    callbacks: &DeviceCallbacks<Vga>,
+    callbacks: &DeviceCallbacks<DispiAdapter>,
 ) -> [Mapping; 2] {
     [
         Mapping::bind(
             io,
             dispi::INDEX_PORT,
-            PortRead::word(callbacks.read(|_, vga| vga.dispi.index())),
-            PortWrite::word(callbacks.write(|_, vga, value| vga.dispi.select(value))),
+            PortRead::word(callbacks.read(|_, card| card.dispi.index())),
+            PortWrite::word(callbacks.write(|_, card, value| card.dispi.select(value))),
         ),
         Mapping::bind(
             io,
             dispi::DATA_PORT,
-            PortRead::word(callbacks.read(|_, vga| vga.dispi.read())),
+            PortRead::word(callbacks.read(|_, card| card.dispi.read())),
             PortWrite::word(
-                callbacks.write(|context, vga, value| vga.write_dispi_data(context, value)),
+                callbacks.write(|context, card, value| card.write_dispi_data(context, value)),
             ),
         ),
     ]
@@ -278,8 +278,8 @@ fn bind_dispi_ports(
 
 fn crtc(
     io: &mut DeviceConnection<'_>,
-    device: &Rc<RefCell<Vga>>,
-    callbacks: &DeviceCallbacks<Vga>,
+    device: &Rc<RefCell<DispiAdapter>>,
+    callbacks: &DeviceCallbacks<DispiAdapter>,
     index: u16,
     status: u16,
 ) -> Vec<Mapping> {
@@ -289,22 +289,22 @@ fn crtc(
             io,
             window.clone(),
             index,
-            callbacks.read(|_, vga| vga.registers.crtc.index()),
-            callbacks.write(|_, vga, value| vga.registers.crtc.select(value)),
+            callbacks.read(|_, card| card.vga.registers.crtc.index()),
+            callbacks.write(|_, card, value| card.vga.registers.crtc.select(value)),
         ),
         Mapping::byte(
             io,
             window,
             index + 1,
-            callbacks.read(|_, vga| vga.registers.crtc.read()),
-            callbacks.write(|context, vga, value| vga.write_crtc_data(context, value)),
+            callbacks.read(|_, card| card.vga.registers.crtc.read()),
+            callbacks.write(|context, card, value| card.write_crtc_data(context, value)),
         ),
         Mapping::bind(
             io,
             status,
             PortRead::low_byte(status::read(&device.borrow(), device)),
             PortWrite::low_byte(
-                callbacks.write(|_, vga, value| vga.registers.feature_control = value),
+                callbacks.write(|_, card, value| card.vga.registers.feature_control = value),
             ),
         ),
     ]

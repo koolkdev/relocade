@@ -3,7 +3,7 @@
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
 use super::{available, read_register, write_register, Mode};
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{registers::dispi, PackedLayout, RetraceEvent, Vga};
+use relocade_vga::{dispi, DispiAdapter, PackedLayout, RetraceEvent};
 use std::cell::RefCell;
 
 #[cfg(test)]
@@ -76,7 +76,7 @@ pub(super) fn scanline(
 })]
 pub(super) async fn display_start(
     io: &IoBus,
-    vga: &RefCell<Vga>,
+    vga: &RefCell<DispiAdapter>,
     operation: u16,
     x: u16,
     y: u16,
