@@ -11,7 +11,7 @@
 
 pub mod configuration;
 
-use relocade_bios::Keyboard;
+use relocade_bios::{video::VideoFirmware, Keyboard};
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
 use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
 use relocade_pc_speaker::Speaker;
@@ -40,6 +40,7 @@ impl Pc {
     /// Display capture and speaker emulation require no platform output.
     pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
         let vga = DispiAdapter::initialize(&runner).await;
+        let video_firmware = VideoFirmware::Dispi(vga.clone());
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
@@ -59,13 +60,14 @@ impl Pc {
                     math_coprocessor: cpu_model.supports(CpuFeature::Fpu),
                     pointing_device: true,
                 },
+                &video_firmware,
             );
         }
         let mut interrupts = Interrupts::new(cpu);
         relocade_bios::register_interrupts(
             &mut interrupts,
             keyboard.clone(),
-            vga.clone(),
+            video_firmware,
             Some(relocade_bios::Mouse::new(clock, controller)),
         );
         interrupts.install().await?;

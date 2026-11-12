@@ -980,7 +980,17 @@ BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
 ### Banked VBE profile
 
-The BIOS reports VBE 1.2. Its `video::vbe` module provides `INT 10h/4F00h`
+PC assembly selects `VideoFirmware::Dispi` for BIOS initialization and interrupt
+registration. The `video::firmware::dispi` module owns DISPI preparation and VBE
+services. A legacy mode request is validated and its guest parameter table read
+before DISPI is disabled; common VGA routines then load fonts and program the
+mode. `VideoFirmware::Vga` uses those routines directly and has no VBE interface.
+Common VGA programming never accesses DISPI ports.
+Each firmware chooses its startup mode. Both currently select 80×25 VGA text
+to preserve BIOS console output; the DISPI firmware exposes packed graphics
+through VBE for the guest to select.
+
+The DISPI firmware reports VBE 1.2. Its VBE module provides `INT 10h/4F00h`
 controller discovery and `4F01h` information for nine banked modes,
 `4F02h`/`4F03h` mode control,
 `4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
@@ -1034,7 +1044,9 @@ preserve unselected classes and never use scratch VRAM or clear the framebuffer.
 The BIOS-data component shares the existing IBM metadata/vector implementation.
 The hardware, DAC and SVGA components use `VgaCoreState`, `DacState` and
 `DispiState`, respectively. DISPI's saved pitch remains a byte count in every
-pixel format; the component encoding stays 18 bytes. IBM AH=1Ch retains its
+pixel format; the component encoding stays 18 bytes. The card applies the validated
+device components together in one effects operation, without replaying an enable
+command or clearing VRAM. IBM AH=1Ch retains its
 separate fixed buffer format and behavior.
 
 Logical scanlines support setting pixels or bytes, querying the current stride,

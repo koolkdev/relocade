@@ -88,11 +88,16 @@ const BIOS_SEGMENT: u16 = 0xf000;
 /// Initializes machine/clock/video data and ROM fonts. Use [`register_interrupts`] to bind
 /// BIOS interrupt vectors and their handlers to a CPU.
 /// The machine must map low memory as RAM and F0000..FFFFF as identity-backed ROM.
-/// Map [`relocade_vga::MEMORY_RANGE`] as MMIO and connect VGA through
-/// [`relocade_vga::DispiAdapter::configure_io`] on the supplied bus. Font loading uses
+/// Connect the selected video card on the supplied bus and supply its firmware.
+/// Map the card's video aperture as MMIO. Font loading uses
 /// the A0000 aperture before mode setup restores the color text aperture.
-pub fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, configuration: Configuration) {
+pub fn initialize(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    configuration: Configuration,
+    video: &video::VideoFirmware,
+) {
     information::initialize(memory, configuration);
-    video::initialize(memory, io);
+    video::initialize(memory, io, video);
     clock::initialize(memory);
 }

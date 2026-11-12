@@ -1,23 +1,21 @@
 //! INT 10h service selection. Implementations declare their own register ABI.
 
 use super::{
-    adapter, characters, control, cursor, fonts, graphics, information, modes, palette, scroll,
-    state, strings, vbe,
+    adapter, characters, control, cursor, firmware, fonts, graphics, information, modes, palette,
+    scroll, state, strings, VideoFirmware,
 };
 use crate::screen;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext,
 };
-use relocade_vga::DispiAdapter;
-use std::cell::RefCell;
 
 #[interrupt(context(call), args(function = ah))]
-pub(crate) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<DispiAdapter>, function: u8) {
+pub(crate) async fn dispatch(call: &mut CpuContext<'_>, video: &VideoFirmware, function: u8) {
     interrupt_dispatch!(
         call,
         match function {
-            0x00 => modes::set_mode,
+            0x00 => firmware::set_mode(video),
             0x01 => cursor::set_cursor_shape,
             0x02 => cursor::set_cursor,
             0x03 => cursor::cursor,
@@ -39,7 +37,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<DispiAdapt
             0x1a => display_combination,
             0x1b => information::write_report,
             0x1c => state_services,
-            0x4f => vbe::dispatch(vga),
+            0x4f => firmware::vbe(video),
             _ => crate::interrupts::unsupported,
         }
     );

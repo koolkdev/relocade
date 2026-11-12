@@ -10,6 +10,7 @@ mod adapter;
 mod characters;
 mod control;
 mod cursor;
+pub mod firmware;
 mod fonts;
 pub(super) mod graphics;
 mod information;
@@ -22,7 +23,7 @@ mod scroll;
 mod state;
 mod strings;
 mod tables;
-mod vbe;
+pub use firmware::VideoFirmware;
 
 pub use characters::{
     read_character, teletype, write_characters, write_characters_preserving_attributes,
@@ -59,18 +60,12 @@ pub(super) const VIDEO_CONTROL: u32 = 0x487;
 const VIDEO_SWITCHES: u32 = 0x488;
 const MODESET_CONTROL: u32 = 0x489;
 
-pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, firmware: &VideoFirmware) {
     adapter::initialize(memory);
     fonts::initialize(memory);
     information::initialize(memory);
     tables::initialize(memory);
-    vbe::initialize(memory);
-    // VGA color startup uses 80×25 nine-dot cells and the 16-high font.
-    assert!(
-        modes::select_scanlines(memory, 2),
-        "initial scanline profile"
-    );
-    set_mode(memory, io, COLOR_TEXT_80X25).expect("initial text mode");
+    firmware.initialize(memory, io);
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {

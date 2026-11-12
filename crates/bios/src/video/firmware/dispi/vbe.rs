@@ -16,7 +16,11 @@ pub(super) use information::initialize;
 use modes::Mode;
 
 #[interrupt(context(call), args(function = al))]
-pub(super) async fn dispatch(call: &mut CpuContext<'_>, vga: &RefCell<DispiAdapter>, function: u8) {
+pub(in crate::video::firmware) async fn dispatch(
+    call: &mut CpuContext<'_>,
+    vga: &RefCell<DispiAdapter>,
+    function: u8,
+) {
     interrupt_dispatch!(
         call,
         match function {
