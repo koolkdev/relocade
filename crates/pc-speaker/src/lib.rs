@@ -3,7 +3,7 @@
 #[cfg(feature = "audio")]
 mod audio;
 
-use relocade_machine::{Device, IoContext, Runner};
+use relocade_machine::{Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner};
 use relocade_pit::Pit;
 use std::{
     cell::{Cell, RefCell},
@@ -30,11 +30,19 @@ impl Speaker {
     pub async fn initialize(runner: &Runner, pit: Rc<RefCell<Pit>>) -> Rc<RefCell<Self>> {
         let speaker = Rc::new(RefCell::new(Self::new(pit)));
         runner
-            .connect(speaker.clone(), |io| {
-                io.map_ports([PORT_RANGE]);
-            })
+            .connect(speaker.clone(), |io| Self::configure_io(io, &speaker))
             .await;
         speaker
+    }
+
+    /// Bind the byte-only system control register.
+    pub fn configure_io(io: &mut DeviceConnection<'_>, speaker: &Rc<RefCell<Self>>) {
+        let callbacks = DeviceCallbacks::new(speaker);
+        io.bind(
+            SPEAKER_CONTROL_PORT,
+            &PortRead::byte(callbacks.read(|_, speaker| speaker.read_control())),
+            &PortWrite::byte(callbacks.write(|_, speaker, value| speaker.write_control(value))),
+        );
     }
 
     pub fn new(pit: Rc<RefCell<Pit>>) -> Self {
@@ -53,33 +61,24 @@ impl Speaker {
         let output = self.pit.borrow_mut().channel2_output();
         self.control.get() & 2 != 0 && output
     }
+    fn read_control(&mut self) -> u8 {
+        let output = self.pit.borrow_mut().channel2_output();
+        self.control.get() | (u8::from(output) << 5)
+    }
+
+    fn write_control(&mut self, value: u8) {
+        let control = value & 3;
+        if self.control.get() == control {
+            return;
+        }
+        self.control.set(control);
+        self.pit.borrow_mut().set_channel2_gate(control & 1 != 0);
+    }
 }
 
 impl Device for Speaker {
     #[cfg(feature = "audio")]
     async fn run(device: Rc<RefCell<Self>>) {
         audio::run(device).await;
-    }
-
-    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        match (port, bytes) {
-            (SPEAKER_CONTROL_PORT, 1) => {
-                let output = self.pit.borrow_mut().channel2_output();
-                (self.control.get() | (u8::from(output) << 5)).into()
-            }
-            _ => u32::MAX,
-        }
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        if port != SPEAKER_CONTROL_PORT || bytes != 1 {
-            return;
-        }
-        let control = value as u8 & 3;
-        if self.control.get() == control {
-            return;
-        }
-        self.control.set(control);
-        self.pit.borrow_mut().set_channel2_gate(control & 1 != 0);
     }
 }

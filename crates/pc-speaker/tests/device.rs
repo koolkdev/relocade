@@ -1,7 +1,7 @@
 use relocade_clock_test_support::ManualClock;
 mod common;
 
-use relocade_pc_speaker::{Speaker, PORT_RANGE, SPEAKER_CONTROL_PORT};
+use relocade_pc_speaker::{Speaker, SPEAKER_CONTROL_PORT};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT, INPUT_HZ};
 use std::time::Duration;
 

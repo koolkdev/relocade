@@ -4,7 +4,7 @@ mod common;
 mod execution;
 
 use relocade_machine::{Cpu, CpuConfig, DispatchEntry, MachineConfig, Memory};
-use relocade_pc_speaker::{Speaker, PORT_RANGE};
+use relocade_pc_speaker::Speaker;
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap,
