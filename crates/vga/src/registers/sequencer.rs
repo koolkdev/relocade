@@ -37,6 +37,14 @@ impl Default for Sequencer {
 }
 
 impl Sequencer {
+    pub(crate) fn write_effect(&self) -> super::WriteKind {
+        match self.index {
+            RESET | CLOCKING_MODE => super::WriteKind::Timing,
+            CHARACTER_MAP_SELECT | MEMORY_MODE => super::WriteKind::Display,
+            _ => super::WriteKind::Access,
+        }
+    }
+
     pub fn index(&self) -> u8 {
         self.index
     }

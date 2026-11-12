@@ -72,10 +72,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     let (clock, _timers) = relocade_machine::timer_service();
     let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
     let io = IoBus::default();
-    io.connect(vga.clone(), |io| {
-        io.map_mmio([relocade_vga::MEMORY_RANGE]);
-        io.map_ports(relocade_vga::PORT_RANGES);
-    });
+    io.connect(vga.clone(), |io| Vga::configure_io(io, &vga));
     io.connect(timer.clone(), |_| {});
     let mut state = CpuState {
         eip: 0x100,

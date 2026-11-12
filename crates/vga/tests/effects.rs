@@ -38,6 +38,8 @@ fn access_and_decode_controls_do_no_clock_work() {
     reads.store(0, Ordering::Relaxed);
     for (port, bytes, value) in [
         (0x3c4, 1, 2),
+        (0x3c5, 1, 0x0f),   // CPU write-plane mask.
+        (0x3ce, 2, 0x0500), // CPU set/reset value.
         (0x3ce, 1, 4),
         (0x3d4, 1, 0x0f),
         (0x3c7, 1, 3),
@@ -66,4 +68,19 @@ fn access_and_decode_controls_do_no_clock_work() {
         reads.load(Ordering::Relaxed) > 0,
         "the palette still affects packed output"
     );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn font_addressing_change_preserves_overdue_display_inputs() {
+    let clock = ManualClock::new();
+    let (vga, mut video) = common::start_video(ConnectedVga::new(clock.clock()));
+    let frames = vga.device.borrow().frames();
+    clock.advance_to(clock.at(common::boundary(1)));
+    // Sequencer Memory Mode controls extended font addressing as well as CPU
+    // accesses, so its write must capture the previous display first.
+    vga.io.write_port(0x3c4, 2, 0x0004);
+    assert_eq!(vga.snapshot().vga().unwrap().sequencer[4], 0);
+    common::service_video(video.as_mut());
+    assert_eq!(frames.try_recv().unwrap().vga().unwrap().sequencer[4], 2);
 }

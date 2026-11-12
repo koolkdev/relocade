@@ -1,5 +1,7 @@
 //! Effects of VGA state changes on display output and port decoding.
 
+mod writes;
+
 use crate::{registers::WriteKind, SvgaLayout, Timing, Vga};
 use relocade_machine::IoContext;
 
@@ -57,7 +59,7 @@ impl Vga {
     /// Register-only and decoding-only operations do no clock or video work.
     pub(super) fn with_effects<R>(
         &mut self,
-        _context: IoContext<'_>,
+        mut context: IoContext<'_>,
         effects: Effects,
         mutate: impl FnOnce(&mut Self) -> R,
     ) -> R {
@@ -68,15 +70,19 @@ impl Vga {
         }
         let previous_layout = matches!(effects.video, VideoEffect::Configuration)
             .then(|| self.dispi.display_layout());
-        let previous_decoding = effects
-            .port_decode
-            .then(|| (self.setup.enabled(), self.registers.status_port()));
+        let previous_decoding = effects.port_decode.then(|| self.decoding());
         let result = mutate(self);
         let video_changed =
             previous_layout.is_some_and(|previous| self.update_video_configuration(previous));
-        // The decoder observes the resulting address selection on its next access.
         let decoding_changed = previous_decoding.is_some_and(|previous| {
-            previous != (self.setup.enabled(), self.registers.status_port())
+            let decoding = self.decoding();
+            if previous == decoding {
+                return false;
+            }
+            if let Some(io) = &self.io {
+                io.update_decoding(context.reborrow(), Some(previous), decoding);
+            }
+            true
         });
         if video_changed || decoding_changed {
             self.configuration_changed.notify(usize::MAX);

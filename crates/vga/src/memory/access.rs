@@ -1,28 +1,28 @@
-//! Video memory access selected from adapter gates and the active addressing mechanism.
+//! Transfer policies supplied by the device for CPU access to video memory.
 
-use crate::registers::{
-    dispi::{Dispi, SvgaBankMapping},
-    setup::Setup,
-    Registers,
-};
+use crate::registers::Registers;
 
-/// One transfer's access policy. Both register banks remain on the device;
-/// this value only selects how the CPU reaches their shared video memory.
+/// One transfer's access policy, selected by the device before borrowing memory.
 #[derive(Clone, Copy)]
 pub(crate) enum VramAccess<'a> {
     Disabled,
     Vga(&'a Registers),
-    SvgaBank(SvgaBankMapping),
+    Window(VramWindow),
 }
 
-impl<'a> VramAccess<'a> {
-    pub fn new(setup: &Setup, registers: &'a Registers, dispi: &Dispi) -> Self {
-        if !setup.enabled() || !registers.video_memory_enabled() {
-            Self::Disabled
-        } else if let Some(mapping) = dispi.bank_mapping() {
-            Self::SvgaBank(mapping)
-        } else {
-            Self::Vga(registers)
-        }
+/// A bounded CPU address window into contiguous physical VRAM. The device
+/// supplies a window whose entire backing range is valid.
+#[derive(Clone, Copy)]
+pub(crate) struct VramWindow {
+    pub cpu_start: u32,
+    pub vram_start: u32,
+    pub bytes: u32,
+}
+
+impl VramWindow {
+    /// Bytes beyond the CPU window do not spill into adjacent VRAM.
+    pub(super) fn memory_offset(self, address: u32) -> Option<u32> {
+        let offset = address.checked_sub(self.cpu_start)?;
+        (offset < self.bytes).then(|| self.vram_start + offset)
     }
 }

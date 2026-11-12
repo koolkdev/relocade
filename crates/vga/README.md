@@ -1099,13 +1099,41 @@ selected bank; other VGA windows return FFh and ignore writes. Multi-byte
 accesses crossing AFFFFh do not spill into the next bank. Adapter setup and
 Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
 ports program the shared palette, with their existing byte-transfer rules.
-Embeddings use the same `PORT_RANGES` and `MEMORY_RANGE` registrations.
+Embeddings register the same operations and MMIO aperture through
+`Vga::configure_io(io, &vga)`. Separate helpers bind the common VGA ports and
+the DISPI interface through that same connection. The existing I/O companion
+retains both sets of operations, with the same adapter-enable gate. Port
+operations are prepared once at connection.
+VGA byte transfers use their physical window, including holes and adjacent
+controllers; DISPI index and data ports each accept exactly one complete word.
+Setup and Input Status 1 operations use `low_byte`: a byte, word or dword access
+invokes the byte callback once, with FF padding on reads and discarded upper
+write bytes. These operations never continue to another address. Enabled holes
+use bounded sequences, while disabled starting addresses consume the whole
+access with FF reads and ignored writes.
 
-Each CPU transfer resolves its adapter gates and addressing mode into `VramAccess`:
-disabled, legacy VGA registers, or a validated `SvgaBankMapping` supplied by DISPI.
-`VideoMemory` applies that policy to every byte, retaining ownership of VGA
-latches, aperture bounds and shared storage. The device applies explicit
-`WriteEffect` actions from DISPI, including `ClearVram` on mode entry. Both
+Register selection changes only controller state. Data operations read that
+state and declare their effects when invoked. The private `with_effects` helper
+preserves overdue output, runs the mutation, then updates video configuration
+and port decoding before returning. CPU-only controls avoid clock work. VGA's
+I/O companion retains fixed bindings and active/disabled operations, replacing
+only the address groups whose enable or mono/color selection actually changes.
+`PortDecoding` represents the effective address routing as `Disabled`,
+`Monochrome` or `Color`. Its `enables(PortGroup)` method defines which groups
+respond: common VGA and DISPI in either active mode, plus that mode's CRTC/status
+addresses. Setup bindings remain installed in every mode and enforce their own
+protocol checks. The mono/color selection remains in the register while disabled;
+restoring only a different selection does not wake configuration waiters.
+Re-enabling applies that retained selection.
+
+For each CPU transfer, `select_memory_access` in the device glue resolves the
+adapter gates and active interface into `VramAccess`: disabled, legacy VGA
+registers, or a `VramWindow`. Memory owns this small window value: a CPU start
+address, VRAM start offset and byte length. DISPI constructs it from its validated
+bank register. `VideoMemory` applies the supplied policy to every byte, retaining
+ownership of VGA latches, aperture bounds and shared storage without selecting
+an interface or depending on DISPI state. The device applies explicit
+`WriteAction` results from DISPI, including `ClearVram` on mode entry. Both
 register banks remain stored on the device across addressing-mode changes.
 
 Packed byte addresses interleave physical VGA planes: addresses 0, 1, 2 and 3
