@@ -2,28 +2,27 @@ use super::{
     common,
     graphics::{load_palette, pixels, Gpu},
 };
+use crate::common::fixture::ConnectedVga;
 use common::support::{
     planar16::{program, write_pixels},
     registers::{attribute, indexed},
 };
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::Device;
-use relocade_vga::Vga;
 
-fn graphics(columns: u8) -> Vga {
-    let mut vga = Vga::with_clock(ManualClock::new().clock());
-    program(&mut vga);
-    load_palette(&mut vga);
+fn graphics(columns: u8) -> ConnectedVga {
+    let vga = ConnectedVga::new(ManualClock::new().clock());
+    program(&vga.io);
+    load_palette(&vga.io);
     // One visible scanline, with blanking outside the small image.
     for (index, value) in [(1, columns - 1), (2, 255), (7, 0x10), (9, 0x40), (0x12, 0)] {
-        indexed(&mut vga, 0x3d4, index, value);
+        indexed(&vga.io, 0x3d4, index, value);
     }
     vga
 }
 
 async fn check_load_and_count() {
     let mut gpu = Gpu::new().await;
-    let mut vga = graphics(8);
+    let vga = graphics(8);
     let first = [1, 2, 4, 8, 3, 6, 12, 9];
     let second = [8, 1, 2, 4, 9, 3, 6, 12];
     let third = [4, 8, 1, 2, 12, 9, 3, 6];
@@ -31,7 +30,7 @@ async fn check_load_and_count() {
     let memory = [
         first, [15; 8], [2; 8], [7; 8], [4; 8], [11; 8], [8; 8], [13; 8],
     ];
-    write_pixels(&mut vga, memory.as_flattened());
+    write_pixels(&vga.io, memory.as_flattened());
     let ordinary = vga.snapshot();
     gpu.expect(&ordinary, [64, 1], &pixels(memory.into_iter().flatten()))
         .await;
@@ -53,7 +52,7 @@ async fn check_load_and_count() {
             [first, second, third, fourth, [4; 8], [2; 8], [1; 8], [8; 8]],
         ),
     ] {
-        indexed(&mut vga, 0x3c4, 1, clocking);
+        indexed(&vga.io, 0x3c4, 1, clocking);
         gpu.expect(
             &vga.snapshot(),
             [64, 1],
@@ -63,7 +62,7 @@ async fn check_load_and_count() {
     }
 
     // Loading every four clocks with counting every two fetches addresses 0, 2.
-    indexed(&mut vga, 0x3d4, 0x17, 0xeb);
+    indexed(&vga.io, 0x3d4, 0x17, 0xeb);
     let groups = [first, second, third, fourth, [2; 8], [1; 8], [8; 8], [4; 8]];
     gpu.expect(
         &vga.snapshot(),
@@ -72,8 +71,8 @@ async fn check_load_and_count() {
     )
     .await;
     // Counting every four instead fetches addresses 0, 1.
-    indexed(&mut vga, 0x3d4, 0x17, 0xe3);
-    indexed(&mut vga, 0x3d4, 0x14, 0x20);
+    indexed(&vga.io, 0x3d4, 0x17, 0xe3);
+    indexed(&vga.io, 0x3d4, 0x14, 0x20);
     let groups = [
         first, second, third, fourth, [15; 8], [15; 8], [15; 8], [15; 8],
     ];
@@ -84,7 +83,7 @@ async fn check_load_and_count() {
     )
     .await;
     // Without delayed loads, count-by-four repeats the original eight dots.
-    indexed(&mut vga, 0x3c4, 1, 1);
+    indexed(&vga.io, 0x3c4, 1, 1);
     let groups = [
         first, first, first, first, [15; 8], [15; 8], [15; 8], [15; 8],
     ];
@@ -100,17 +99,15 @@ async fn check_load_and_count() {
 }
 
 async fn check_packed_output() {
-    let device_io = relocade_machine::IoBus::default();
-
     let mut gpu = Gpu::new().await;
-    let mut vga = graphics(4);
+    let vga = graphics(4);
     // Each plane supplies different bit pairs/nibbles to the serializers.
     for (plane, byte) in [0x1b, 0xe4, 0x05, 0xaf].into_iter().enumerate() {
-        indexed(&mut vga, 0x3c4, 2, 1 << plane);
-        device_io.with_context(|context| vga.write_mmio(context, 0xa0000, 1, byte));
+        indexed(&vga.io, 0x3c4, 2, 1 << plane);
+        vga.io.write_mmio(0xa0000, 1, byte);
     }
-    indexed(&mut vga, 0x3c4, 1, 0x11);
-    indexed(&mut vga, 0x3ce, 5, 0x20);
+    indexed(&vga.io, 0x3c4, 1, 0x11);
+    indexed(&vga.io, 0x3ce, 5, 0x20);
     let interleaved = [
         0, 1, 6, 7, 11, 10, 13, 12, 0, 8, 3, 11, 13, 5, 14, 6, 0, 4, 9, 13, 14, 10, 7, 3, 0, 2, 12,
         14, 7, 5, 11, 9,
@@ -118,7 +115,7 @@ async fn check_packed_output() {
     gpu.expect(&vga.snapshot(), [32, 1], &pixels(interleaved))
         .await;
     // Attribute plane masking applies to the serializer outputs, not VRAM planes.
-    attribute(&mut vga, 0x12, 5);
+    attribute(&vga.io, 0x12, 5);
     gpu.expect(
         &vga.snapshot(),
         [32, 1],
@@ -128,41 +125,38 @@ async fn check_packed_output() {
 
     // In 256-color mode both nibbles pass through the four serializers. GC bit 6
     // still wins over bit 5, and neither changes the sequencer load interval.
-    indexed(&mut vga, 0x3ce, 5, 0x60);
-    attribute(&mut vga, 0x10, 0x41);
+    indexed(&vga.io, 0x3ce, 5, 0x60);
+    attribute(&vga.io, 0x10, 0x41);
     let indexed = [
         0x1b, 0xe4, 0x05, 0xaf, 0x8d, 0x72, 0x0a, 0x5f, 0x4e, 0xb1, 0x05, 0xaf, 0x27, 0xd8, 0x0a,
         0x5f,
     ];
     gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed)).await;
-    device_io.with_context(|context| vga.write_port(context, 0x3c6, 1, 0x7f));
+    vga.io.write_port(0x3c6, 1, 0x7f);
     gpu.expect(&vga.snapshot(), [16, 1], &pixels(indexed.map(|c| c & 0x7f)))
         .await;
 }
 
 async fn check_text() {
     let mut gpu = Gpu::new().await;
-    let mut vga = common::fixture::text_device();
-    common::fixture::set_cell(&mut vga, 0, b'F', 0x6f);
-    common::fixture::set_cell(&mut vga, 1, 0xdb, 0x09);
+    let vga = common::fixture::text_device();
+    common::fixture::set_cell(&vga.io, 0, b'F', 0x6f);
+    common::fixture::set_cell(&vga.io, 1, 0xdb, 0x09);
     let expected = super::software::render(&vga.snapshot());
     for clocking in [5, 0x11, 0x15] {
-        indexed(&mut vga, 0x3c4, 1, clocking);
+        indexed(&vga.io, 0x3c4, 1, clocking);
         gpu.expect(&vga.snapshot(), [640, 200], &expected).await;
     }
 }
 
 async fn check_byte_pan() {
     let mut gpu = Gpu::new().await;
-    let mut vga = graphics(2);
-    write_pixels(
-        &mut vga,
-        &[7, 6, 5, 4, 11, 10, 9, 8, 2, 2, 2, 2, 2, 2, 2, 2],
-    );
-    indexed(&mut vga, 0x3c4, 1, 0x11);
-    indexed(&mut vga, 0x3d4, 0x14, 0x20);
-    indexed(&mut vga, 0x3d4, 8, 0x60);
-    attribute(&mut vga, 0x13, 7);
+    let vga = graphics(2);
+    write_pixels(&vga.io, &[7, 6, 5, 4, 11, 10, 9, 8, 2, 2, 2, 2, 2, 2, 2, 2]);
+    indexed(&vga.io, 0x3c4, 1, 0x11);
+    indexed(&vga.io, 0x3d4, 0x14, 0x20);
+    indexed(&vga.io, 0x3d4, 8, 0x60);
+    attribute(&vga.io, 0x13, 7);
     // Byte pan 3 plus pel pan 7 starts at the last dot of the 32-dot load.
     gpu.expect(
         &vga.snapshot(),
@@ -171,7 +165,7 @@ async fn check_byte_pan() {
     )
     .await;
     // The same pan still precedes address counting when loads occur every clock.
-    indexed(&mut vga, 0x3c4, 1, 1);
+    indexed(&vga.io, 0x3c4, 1, 1);
     gpu.expect(
         &vga.snapshot(),
         [16, 1],

@@ -1,6 +1,5 @@
 //! GPU comparison and distinctive palette values for graphics-layout checks.
 use super::{common::support::registers::palette, read_pixels};
-use relocade_machine::Device;
 use relocade_vga::{DisplaySnapshot, VgaRenderer};
 
 pub(super) fn color(index: u8) -> ([u8; 3], [u8; 4]) {
@@ -16,9 +15,9 @@ pub(super) fn color(index: u8) -> ([u8; 3], [u8; 4]) {
     )
 }
 
-pub(super) fn load_palette(vga: &mut impl Device) {
+pub(super) fn load_palette(io: &relocade_machine::IoBus) {
     for index in 0..=255 {
-        palette(vga, index, color(index).0);
+        palette(io, index, color(index).0);
     }
 }
 

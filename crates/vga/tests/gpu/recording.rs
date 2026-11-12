@@ -9,9 +9,9 @@ async fn check_recording(packed: bool) {
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut vga = VgaRenderer::new(&device).unwrap();
     let mut renderer = Renderer::new(device.clone(), Image::FORMAT).unwrap();
-    let mut device_state = text_device();
+    let device_state = text_device();
     if packed {
-        svga::enable(&mut device_state);
+        svga::enable(&device_state.io);
     }
     let geometry = device_state.snapshot().geometry();
     let output = Image::new(&device, geometry.size, geometry.pixel_aspect_ratio()).unwrap();
@@ -23,9 +23,9 @@ async fn check_recording(packed: bool) {
         [(4, [170, 0, 0, 255], false), (1, [0, 0, 170, 255], true)]
     {
         if packed {
-            svga::write_byte(&mut device_state, 0, attribute);
+            svga::write_byte(&device_state.io, 0, attribute);
         } else {
-            set_cell(&mut device_state, 0, 0xdb, attribute);
+            set_cell(&device_state.io, 0, 0xdb, attribute);
         }
         let input = device_state.snapshot();
 

@@ -12,9 +12,9 @@ fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn glyph_orientation_colors_and_last_cell() {
-    let mut vga = text_device();
-    set_cell(&mut vga, 0, b'F', 0x6f);
-    set_cell(&mut vga, 1999, 0xdb, 0x09);
+    let vga = text_device();
+    set_cell(&vga.io, 0, b'F', 0x6f);
+    set_cell(&vga.io, 1999, 0xdb, 0x09);
     let pixels = render(&vga.snapshot());
     assert_eq!(pixels.len(), 640 * 200 * 4);
     for (y, bits) in [0xfe, 0x62, 0x68, 0x78, 0x68, 0x60, 0xf0, 0]
@@ -37,9 +37,9 @@ fn glyph_orientation_colors_and_last_cell() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cp437_controls_and_box_drawing_are_glyphs() {
-    let mut vga = text_device();
+    let vga = text_device();
     for (cell, character) in [1, 0xc4, 0xb3].into_iter().enumerate() {
-        set_cell(&mut vga, cell, character, 7);
+        set_cell(&vga.io, cell, character, 7);
     }
     let pixels = render(&vga.snapshot());
     assert_eq!(pixel(&pixels, 1, 0), [170, 170, 170, 255]);
@@ -54,9 +54,9 @@ fn cp437_controls_and_box_drawing_are_glyphs() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn blinking_uses_the_captured_frame_phase() {
-    let mut vga = text_device();
-    set_cell(&mut vga, 0, 0xdb, 0x94);
-    set_cell(&mut vga, 1, 0xdb, 0x14);
+    let vga = text_device();
+    set_cell(&vga.io, 0, 0xdb, 0x94);
+    set_cell(&vga.io, 1, 0xdb, 0x14);
     let mut snapshot = vga.snapshot();
     for (blink_on, blinking_color) in [(true, [170, 0, 0, 255]), (false, [0, 0, 170, 255])] {
         snapshot.vga_mut().unwrap().attribute_blink_on = blink_on;
