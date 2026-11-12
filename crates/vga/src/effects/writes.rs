@@ -59,10 +59,4 @@ impl Vga {
             }
         });
     }
-
-    pub(crate) fn read_status(&mut self) -> u8 {
-        self.advance_raster(self.clock.now());
-        self.registers.attribute.reset_address();
-        self.raster.input_status_1()
-    }
 }

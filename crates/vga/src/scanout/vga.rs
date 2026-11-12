@@ -34,12 +34,38 @@ impl VgaDisplayState {
             graphics: registers.graphics.values,
             attributes: registers.attribute.values,
             miscellaneous: registers.miscellaneous,
-            display_enabled: registers.attribute.address() & 0x20 != 0,
+            display_enabled: registers.attribute.display_enabled(),
             display_start: registers.crtc.display_start,
             // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
             cursor_blink_on: (retrace_count / 8).is_multiple_of(2),
             attribute_blink_on: (retrace_count / 16).is_multiple_of(2),
         }
+    }
+
+    /// Compare all captured state except known CPU-only controls. Normalizing
+    /// copies preserves the raw snapshots and their public equality.
+    pub(super) fn same_inputs(&self, other: &Self) -> bool {
+        self.display_inputs() == other.display_inputs()
+    }
+
+    fn display_inputs(mut self) -> Self {
+        self.sequencer[sequencer::MAP_MASK as usize] = 0;
+        // Exclude chain-four and CPU odd/even; retain extended-font addressing.
+        self.sequencer[sequencer::MEMORY_MODE as usize] &= !0x0c;
+        for index in [
+            graphics::SET_RESET,
+            graphics::ENABLE_SET_RESET,
+            graphics::COLOR_COMPARE,
+            graphics::DATA_ROTATE,
+            graphics::READ_MAP_SELECT,
+            graphics::COLOR_DONT_CARE,
+            graphics::BIT_MASK,
+        ] {
+            self.graphics[index as usize] = 0;
+        }
+        self.graphics[graphics::MODE as usize] &= !0x1b; // CPU read/write modes.
+        self.graphics[graphics::MISCELLANEOUS as usize] &= !0x0e; // CPU aperture and odd/even.
+        self
     }
 }
 

@@ -81,15 +81,16 @@ impl Vga {
     /// any remaining phase at this observed time before remapping the counters.
     #[inline]
     pub(super) fn advance_raster(&mut self, now: Timestamp) {
-        if self.raster.observe(now) {
+        if self.raster.status.observe(now) {
             self.refresh_raster();
         }
     }
 
-    // Keep capture temporaries and raster arithmetic out of ordinary status reads.
+    // Status readers and the output task share raster integration and capture.
+    // Mode selection is only needed when a retrace produces new display inputs.
     #[cold]
     #[inline(never)]
-    fn refresh_raster(&mut self) {
+    pub(super) fn refresh_raster(&mut self) {
         let Some(time) = self.raster.update_observed() else {
             return;
         };

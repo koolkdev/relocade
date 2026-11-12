@@ -54,6 +54,16 @@ fn access_and_decode_controls_do_no_clock_work() {
     }
     assert_eq!(reads.load(Ordering::Relaxed), 0);
 
+    // Palette gating and register validity determine video preparation for data
+    // writes; display addressing still permits other Attribute registers.
+    for (address, prepares_video) in [(0x24, false), (0x1f, false), (0x32, true)] {
+        vga.io.write_port(0x3c0, 1, address);
+        reads.store(0, Ordering::Relaxed);
+        vga.io.write_port(0x3c0, 1, 7);
+        assert_eq!(reads.load(Ordering::Relaxed) > 0, prepares_video);
+    }
+    assert_eq!(vga.io.read_port(0x3c1, 1), 7);
+
     svga::enable(&vga.io);
     reads.store(0, Ordering::Relaxed);
     // Legacy registers still mutate while packed output ignores their image

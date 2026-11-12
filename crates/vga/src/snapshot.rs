@@ -52,10 +52,10 @@ impl DisplaySnapshot {
         }
     }
 
-    // Conservative input comparison, not pixel equivalence. Block identities
-    // avoid scanning VRAM; CPU port access state is not captured.
+    // Conservative input comparison, not pixel equivalence. Only known CPU
+    // controls are excluded; block identities avoid scanning VRAM.
     pub(crate) fn same_inputs(&self, other: &Self) -> bool {
-        self.scanout == other.scanout
+        self.scanout.same_inputs(&other.scanout)
             && self.dac == other.dac
             && self.memory.same_blocks(&other.memory)
     }

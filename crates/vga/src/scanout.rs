@@ -13,6 +13,13 @@ pub enum Scanout {
 }
 
 impl Scanout {
+    pub(crate) fn same_inputs(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Vga(left), Self::Vga(right)) => left.same_inputs(right),
+            _ => self == other,
+        }
+    }
+
     pub(crate) fn memory_bytes(&self) -> u32 {
         match self {
             Self::Vga(_) => VGA_MEMORY_BYTES,
