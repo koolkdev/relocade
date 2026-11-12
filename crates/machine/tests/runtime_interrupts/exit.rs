@@ -83,7 +83,7 @@ async fn exit_during_entry() {
             0x7000,
             PhysicalMemoryMap::new([
                 (0..=0x6fff, PhysicalMapping::Ram { backing_offset: 0 }),
-                (0x7000..=0x7fff, PhysicalMapping::Mmio),
+                (0x7000..=0x7fff, PhysicalMapping::MMIO),
             ])
             .unwrap(),
         )

@@ -21,7 +21,7 @@ async fn check_guest_memory() {
                 backing_offset: 0x1000,
             },
         ),
-        (0x3000..=0x3fff, PhysicalMapping::Mmio),
+        (0x3000..=0x3fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     map.set_a20_enabled(false);

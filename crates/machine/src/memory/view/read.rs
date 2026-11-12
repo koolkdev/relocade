@@ -16,7 +16,7 @@ impl<'a> MemoryView<'a> {
                 | PhysicalMapping::Rom { backing_offset } => {
                     self.storage.read(backing_offset, part)
                 }
-                PhysicalMapping::Mmio => {
+                PhysicalMapping::Mmio { .. } => {
                     let io = self.io.expect("MMIO access requires a local I/O bus");
                     for (index, chunk) in part.chunks_mut(8).enumerate() {
                         let value =

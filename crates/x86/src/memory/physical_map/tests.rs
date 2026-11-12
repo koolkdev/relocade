@@ -1,6 +1,25 @@
-use super::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+use super::{MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 
-use PhysicalMapping::{Mmio, Ram, Rom, Unmapped};
+use PhysicalMapping::{Ram, Rom, Unmapped};
+
+#[test]
+fn mmio_handler_indices_use_the_existing_payload_word() {
+    let mapping = PhysicalMapping::Mmio {
+        handler: MmioHandlerId::new(7),
+    };
+    let map = PhysicalMemoryMap::new([
+        (0x1000..=0x1fff, PhysicalMapping::MMIO),
+        (0x2000..=0x3fff, mapping),
+    ])
+    .unwrap();
+    assert_eq!(map.get(0x2123), mapping);
+    assert_eq!(map.get(0x3fff), mapping);
+    assert!(map.fits_backing(0));
+    let bytes = map.to_bytes();
+    assert_eq!(&bytes[8..16], &[3, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(&bytes[16..24], &[3, 0, 0, 0, 7, 0, 0, 0]);
+    assert_eq!(&bytes[24..32], &[3, 0, 0, 0, 7, 0, 0, 0]);
+}
 
 #[test]
 fn empty_regions_produce_a_complete_unmapped_table() {
@@ -78,7 +97,7 @@ fn later_regions_replace_only_the_requested_pages() {
                 backing_offset: 0x5000,
             },
         ),
-        (0x2000..=0x3fff, Mmio),
+        (0x2000..=0x3fff, PhysicalMapping::MMIO),
         (0x3000..=0x3fff, Unmapped),
     ])
     .unwrap();
@@ -94,7 +113,7 @@ fn later_regions_replace_only_the_requested_pages() {
             backing_offset: 0x5000
         }
     );
-    assert_eq!(map.get(0x2fff), Mmio);
+    assert_eq!(map.get(0x2fff), PhysicalMapping::MMIO);
     assert_eq!(map.get(0x3000), Unmapped);
     assert_eq!(
         map.get(0x4000),
@@ -148,7 +167,7 @@ fn constructor_rejects_invalid_regions() {
         (0..=0x1ffe, Unmapped, PhysicalMapError::UnalignedRange),
         (
             0x110000..=0x110fff,
-            Mmio,
+            PhysicalMapping::MMIO,
             PhysicalMapError::RangeOutOfBounds,
         ),
         (0..=0x110fff, Unmapped, PhysicalMapError::RangeOutOfBounds),
@@ -210,7 +229,7 @@ fn last_real_mode_page_can_use_the_last_32_bit_backing_page() {
 #[test]
 fn serialization_has_fixed_little_endian_entries_without_a_header() {
     let map = PhysicalMemoryMap::new([
-        (0..=0xfff, Mmio),
+        (0..=0xfff, PhysicalMapping::MMIO),
         (
             0x1000..=0x1fff,
             Ram {

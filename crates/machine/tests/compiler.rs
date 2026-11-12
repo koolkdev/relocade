@@ -33,7 +33,7 @@ fn setup() -> (Machine, CpuConfig) {
                 backing_offset: 0x1000,
             },
         ),
-        (0x1000..=0x1fff, PhysicalMapping::Mmio),
+        (0x1000..=0x1fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();

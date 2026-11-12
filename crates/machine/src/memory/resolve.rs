@@ -45,12 +45,12 @@ impl Iterator for Spans<'_> {
         );
         let mapping = self.map.get(self.address);
         let address = self.map.bus_address(self.address);
-        if mapping == PhysicalMapping::Mmio {
+        if matches!(mapping, PhysicalMapping::Mmio { .. }) {
             // Like guest transfers, keep a width-aware device access intact
             // across adjacent MMIO pages, but never across an A20 discontinuity.
             while len < self.remaining {
                 let next = self.address + len as u32;
-                if self.map.get(next) != PhysicalMapping::Mmio
+                if self.map.get(next) != mapping
                     || self.map.bus_address(next) != address + len as u32
                 {
                     break;
