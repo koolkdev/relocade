@@ -2,6 +2,7 @@
 use crate::{
     body::{BlockId, Edge, Exit, Layout},
     function::PendingBlock,
+    place::Assumption,
     results, Arguments, BlockBuilder, BuildError, Results, Type, Val, I1,
 };
 mod block;
@@ -42,6 +43,10 @@ impl BlockBuilder<'_> {
             .layout
             .push(Layout::Block(self.pending.current));
         self.pending.current = continuation;
+        self.pending.assumptions.push(Assumption::Truth {
+            condition,
+            truth: true,
+        });
         Ok(())
     }
 

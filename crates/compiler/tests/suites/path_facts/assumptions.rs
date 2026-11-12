@@ -7,6 +7,8 @@ fn assumed_bits_fold_without_emitting_their_read_or_check() {
     let module = fixture.function(&[], &[Type::I32], move |mut body| {
         let state = body.load::<I32>(memory, 0)?;
         body.assume(state.and(0xff).eq(5))?;
+        assert_eq!(body.known_bits(state.and(0xff))?, Some(5));
+        assert_eq!(body.constant_bits(state.and(0xff))?, None);
         body.return_(state.and(0xff).add(1))
     });
     assert_eq!(module.instantiate().call::<i32>(()), Ok(6));
@@ -28,6 +30,9 @@ fn assumptions_preserve_unknown_bits_and_new_memory_values() {
         body.assume(before.and(0xff).eq(5))?;
         body.store::<I32>(memory, 0, 9)?;
         let after = body.load::<I32>(memory, 0)?;
+        assert_eq!(body.known_bits(before.and(0xff))?, Some(5));
+        assert_eq!(body.known_bits(&before)?, None);
+        assert_eq!(body.known_bits(&after)?, None);
         body.return_((before, after))
     });
     assert_eq!(module.instantiate().call::<(i32, i32)>(()), Ok((0x705, 9)));
@@ -44,8 +49,10 @@ fn assumptions_do_not_reach_a_bypassing_path_or_earlier_effects() {
         body.block::<()>(|mut path, exit| {
             path.branch_if(skip, &exit, ())?;
             path.assume(value.eq(5))?;
+            assert_eq!(path.known_bits(&value)?, Some(5));
             path.store(memory, 0, value.add(1))
         })?;
+        assert_eq!(body.known_bits(&value)?, None);
         let result = body.load::<I32>(memory, 0)?;
         body.return_(result)
     });

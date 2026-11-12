@@ -218,7 +218,7 @@ impl BlockBuilder<'_> {
 
     /// Returns constant logical bits proved on the current construction path.
     /// Unlike [`Self::constant_bits`], this includes enclosing branch conditions
-    /// and conditions established by earlier conditional exits. Unknown values
+    /// and predicates established by earlier exits or [`Self::assume`]. Unknown values
     /// return `None`; facts about newly joined values are left to placement.
     /// The query does not change the value or make its facts visible on other paths.
     pub fn known_bits<T: IntType>(
