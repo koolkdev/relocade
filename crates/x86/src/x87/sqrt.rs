@@ -7,6 +7,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 use crate::floating::{FiniteInput, RoundingMode};
 
 use super::{
+    native::native_mode,
     result::{RoundedShape, RoundedValue},
     value::KnownClass,
     ArithmeticResult, ExtendedValue, Operand,
@@ -37,11 +38,7 @@ impl Operand {
         precision: Val<I8>,
         rounding: &RoundingMode,
     ) -> Result<RoundedValue, BuildError> {
-        let native = precision
-            .and(3)
-            .eq(2)
-            .and(rounding.is_nearest())
-            .and(self.is_precision53());
+        let native = native_mode(&precision, rounding).and(self.is_precision53());
         let components = body.if_value::<RoundedShape>(
             native,
             |body| body.yield_(native::calculate(self).components()),

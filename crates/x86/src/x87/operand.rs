@@ -4,6 +4,7 @@ use crate::floating::RoundingMode;
 use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
+    native::native_mode,
     result::{RoundedShape, RoundedValue},
     value::{KnownClass, Precision53},
     ArithmeticCandidate, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
@@ -217,10 +218,7 @@ impl BinaryOperands {
         rounding: &RoundingMode,
     ) -> Result<ArithmeticCandidate, BuildError> {
         let candidate = super::native::calculate(self, operation);
-        let native = precision
-            .and(3)
-            .eq(2)
-            .and(rounding.is_nearest())
+        let native = native_mode(&precision, rounding)
             .and(self.left.is_precision53())
             .and(self.right.is_precision53())
             .and(&candidate.valid);
