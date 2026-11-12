@@ -1,4 +1,5 @@
 //! The complete DISPI adapter: shared VGA core, one VRAM, and one raster/output lifetime.
+mod configuration;
 mod device;
 mod effects;
 mod framebuffer;

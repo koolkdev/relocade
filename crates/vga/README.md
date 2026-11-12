@@ -982,8 +982,12 @@ BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
 PC assembly selects `VideoFirmware::Dispi` for BIOS initialization and interrupt
 registration. The `video::firmware::dispi` module owns DISPI preparation and VBE
-services. A legacy mode request is validated and its guest parameter table read
-before DISPI is disabled; common VGA routines then load fonts and program the
+services. Firmware calls card operations for mode entry, banking, pitch and display
+origin, and reads the active packed layout directly. These operations share the
+register mutation and effects code used by guest port accesses. They honor adapter
+address decoding and preserve the DISPI index left by firmware writes; queries
+leave that index alone. A legacy mode request is validated and its guest parameter
+table read before DISPI is disabled; common VGA routines then load fonts and program the
 mode. `VideoFirmware::Vga` uses those routines directly and has no VBE interface.
 Common VGA programming never accesses DISPI ports.
 Each firmware chooses its startup mode. Both currently select 80×25 VGA text

@@ -1,26 +1,19 @@
-//! Logical framebuffer services use the device's checked layout through DISPI.
+//! Logical framebuffer services use the card's checked packed layout.
 //! VBE 2.0 sections 4.9–4.10 define the extended selectors and error results:
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
-use super::{available, read_register, write_register, Mode};
+use super::available;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{dispi, DispiAdapter, PackedLayout, RetraceEvent};
+use relocade_vga::{DispiAdapter, PackedLayout, RetraceEvent};
 use std::cell::RefCell;
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn active(io: &IoBus) -> Option<PackedLayout> {
-    if !available(io) {
+pub(super) fn active(card: &RefCell<DispiAdapter>) -> Option<PackedLayout> {
+    if !available(card) {
         return None;
     }
-    Mode::active(io)?
-        .display
-        .layout(relocade_vga::VIDEO_MEMORY_BYTES)?
-        .with_virtual_width(u32::from(read_register(io, dispi::VIRTUAL_WIDTH)))?
-        .with_origin([
-            u32::from(read_register(io, dispi::X_OFFSET)),
-            u32::from(read_register(io, dispi::Y_OFFSET)),
-        ])
+    card.borrow().packed_layout()
 }
 
 pub(super) enum ScanlineError {
@@ -40,10 +33,11 @@ pub(super) enum ScanlineError {
 })]
 pub(super) fn scanline(
     io: &IoBus,
+    card: &RefCell<DispiAdapter>,
     operation: u8,
     width: u16,
 ) -> Result<PackedLayout, ScanlineError> {
-    let layout = active(io).ok_or(ScanlineError::Failed)?;
+    let layout = active(card).ok_or(ScanlineError::Failed)?;
     match operation {
         0 | 2 => {
             let pixel_bytes = layout.format().bytes_per_pixel();
@@ -56,9 +50,8 @@ pub(super) fn scanline(
             if pitch > layout.max_pitch() {
                 return Err(ScanlineError::TooWide);
             }
-            let next = layout.with_pitch(pitch).ok_or(ScanlineError::Failed)?;
-            write_register(io, dispi::VIRTUAL_WIDTH, next.virtual_width() as u16);
-            Ok(next)
+            io.with_context(|context| card.borrow_mut().set_packed_pitch(context, pitch))
+                .ok_or(ScanlineError::Failed)
         }
         1 => Ok(layout),
         // Report capability independently of the current viewport origin.
@@ -76,22 +69,22 @@ pub(super) fn scanline(
 })]
 pub(super) async fn display_start(
     io: &IoBus,
-    vga: &RefCell<DispiAdapter>,
+    card: &RefCell<DispiAdapter>,
     operation: u16,
     x: u16,
     y: u16,
 ) -> Option<[u16; 2]> {
-    let layout = active(io)?;
+    let layout = active(card)?;
     match operation {
         1 => Some(layout.origin().map(|value| value as u16)),
         0 | 0x80 => {
             layout.with_origin([u32::from(x), u32::from(y)])?;
             if operation == 0x80 {
                 loop {
-                    let wait = { vga.borrow_mut().wait_for_retrace()? };
+                    let wait = { card.borrow_mut().wait_for_retrace()? };
                     let event = wait.await;
                     // Revalidation services the completed boundary before the origin changes.
-                    if active(io) != Some(layout) {
+                    if active(card) != Some(layout) {
                         return None;
                     }
                     if event == RetraceEvent::Started {
@@ -99,9 +92,8 @@ pub(super) async fn display_start(
                     }
                 }
             }
-            write_register(io, dispi::X_OFFSET, x);
-            write_register(io, dispi::Y_OFFSET, y);
-            Some([x, y])
+            io.with_context(|context| card.borrow_mut().set_display_origin(context, [x, y]))
+                .then_some([x, y])
         }
         _ => None, // BH is reserved; only the three complete BX values are valid.
     }
