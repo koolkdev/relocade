@@ -1,10 +1,7 @@
 //! FSQRT replaces ST(0), applying the selected precision and rounding modes.
 
 use super::*;
-use crate::{
-    state::x87::X87Specialization,
-    x87::{ArithmeticResult, Operand},
-};
+use crate::x87::{ArithmeticResult, Operand};
 
 instruction_families! {
     FSQRT {
@@ -22,7 +19,13 @@ fn square_root(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildErro
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
     let guarded_result = execution.if_can_fallback(|execution| {
-        execution.guard_x87_controls(X87Specialization::Arithmetic)?;
+        execution.guard_observed_x87(|state, observed| {
+            let rounding = state.observed_rounding_condition(observed)?;
+            let precision = state.observed_precision_condition(observed)?;
+            // If PM and PE were both set, specialize repeated exception handling.
+            let status = state.observed_masked_precision_condition(observed)?;
+            Ok(rounding.and(precision).and(status))
+        })?;
         execution.guard_x87_operands(
             &mut empty,
             operand.normal_or_zero().and(

@@ -6,6 +6,7 @@ use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
     state::access::cpu_location,
+    X87State,
 };
 
 use super::X87Access;
@@ -178,23 +179,23 @@ impl Control {
 impl X87Access<'_, '_> {
     pub(crate) fn observed_rounding_condition(
         &mut self,
-        observed: u8,
+        observed: &X87State,
     ) -> Result<Val<I1>, BuildError> {
         self.state.control.matches_observed_mode(
             self.body,
             cpu_location!(x87.control.rounding_control),
-            observed,
+            observed.control.rounding_control,
         )
     }
 
     pub(crate) fn observed_precision_condition(
         &mut self,
-        observed: u8,
+        observed: &X87State,
     ) -> Result<Val<I1>, BuildError> {
         self.state.control.matches_observed_mode(
             self.body,
             cpu_location!(x87.control.precision_control),
-            observed,
+            observed.control.precision_control,
         )
     }
 

@@ -8,7 +8,7 @@ use crate::{
     floating::BinaryFormat,
     instruction::X87StackIndex,
     memory::Intent,
-    state::x87::{ConditionCode, Exception, StackValue, X87Specialization},
+    state::x87::{ConditionCode, Exception, StackValue},
 };
 use format::{PackedDecimal, SignedInteger, StoreFormat};
 use relocade_compiler::{MemoryInt, I64};
@@ -92,7 +92,7 @@ fn store<F: StoreFormat>(
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Write, &[])?;
-    execution.guard_x87_controls(X87Specialization::Rounding)?;
+    execution.guard_observed_x87(|state, observed| state.observed_rounding_condition(observed))?;
     execution.record_x87_memory(&operand)?;
     let mut x87 = execution.x87();
     let source = x87.read_stack(0)?;

@@ -6,7 +6,6 @@ use crate::{
     execution::{X87MemoryFormat, X87Operand, X87Operands},
     floating::BinaryFormat,
     instruction::X87StackIndex,
-    state::x87::X87Specialization,
     x87::BinaryOperation,
 };
 
@@ -279,7 +278,13 @@ fn arithmetic(
     let precision = execution.x87().precision()?;
     let rounding = execution.x87().rounding()?;
     let guarded_result = execution.if_can_fallback(|execution| {
-        execution.guard_x87_controls(X87Specialization::Arithmetic)?;
+        execution.guard_observed_x87(|state, observed| {
+            let rounding = state.observed_rounding_condition(observed)?;
+            let precision = state.observed_precision_condition(observed)?;
+            // If PM and PE were both set, specialize repeated exception handling.
+            let status = state.observed_masked_precision_condition(observed)?;
+            Ok(rounding.and(precision).and(status))
+        })?;
         execution.guard_x87_operands(&mut stack_fault, operands.precision_only(operation))?;
         let candidate = execution.calculate(|body| {
             operands.rounding_candidate(body, operation, precision.clone(), &rounding)

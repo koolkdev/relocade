@@ -4,38 +4,22 @@ use relocade_compiler::{BuildError, Val, I1};
 
 use crate::{
     execution::ExecutionBuilder,
-    state::x87::X87Specialization,
+    state::x87::X87Access,
     x87::{ArithmeticCandidate, ArithmeticResult},
+    X87State,
 };
 
 impl ExecutionBuilder<'_, '_> {
-    /// Guards observed state so the compiler can simplify subsequent calculations.
-    pub(crate) fn guard_x87_controls(
+    /// Builds one observation guard; skips the callback without fallback or a snapshot.
+    pub(crate) fn guard_observed_x87(
         &mut self,
-        specialization: X87Specialization,
+        build_condition: impl FnOnce(&mut X87Access<'_, '_>, &X87State) -> Result<Val<I1>, BuildError>,
     ) -> Result<(), BuildError> {
         self.if_can_fallback(|jit| {
             let Some(observed) = jit.observed_cpu else {
                 return Ok(());
             };
-            // All callers use rounding control (RC).
-            let mut condition = jit
-                .x87()
-                .observed_rounding_condition(observed.x87.control.rounding_control)?;
-            if matches!(specialization, X87Specialization::Arithmetic) {
-                // FADD/FSUB/FMUL/FDIV and FSQRT also use precision control (PC).
-                let precision = jit
-                    .x87()
-                    .observed_precision_condition(observed.x87.control.precision_control)?;
-                condition = condition.and(precision);
-
-                // PM=1 and PE=1 let repeated precision-exception updates fold away.
-                let precision_masked = observed.x87.control.precision_mask & 1 != 0;
-                let precision_raised = observed.x87.status.precision & 1 != 0;
-                if precision_masked && precision_raised {
-                    condition = condition.and(jit.x87().observed_masked_precision_condition()?);
-                }
-            }
+            let condition = build_condition(&mut jit.x87(), &observed.x87)?;
             jit.guard(condition)
         })?;
         Ok(())

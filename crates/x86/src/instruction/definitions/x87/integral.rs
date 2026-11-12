@@ -1,10 +1,7 @@
 //! FRNDINT rounds ST(0) to an integral floating value under RC alone.
 
 use super::*;
-use crate::{
-    state::x87::X87Specialization,
-    x87::{ArithmeticResult, Operand},
-};
+use crate::x87::{ArithmeticResult, Operand};
 
 instruction_families! {
     FRNDINT {
@@ -20,7 +17,7 @@ fn round_integral(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildE
     let mut empty = top.is_empty();
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
-    execution.guard_x87_controls(X87Specialization::Rounding)?;
+    execution.guard_observed_x87(|state, observed| state.observed_rounding_condition(observed))?;
     let operands_guarded = execution.guard_x87_operands(&mut empty, operand.normal_or_zero())?;
     let result = operand.round_integral(&rounding);
     let result = if operands_guarded {

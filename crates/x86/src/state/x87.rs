@@ -11,18 +11,10 @@ pub(crate) use status::ConditionCode;
 
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
-use crate::{ssa::StateFields, x87::ExtendedValue};
+use crate::{ssa::StateFields, x87::ExtendedValue, X87State};
 
 use super::access::cpu_location;
 pub(crate) use control::Exception;
-
-#[derive(Clone, Copy)]
-pub(crate) enum X87Specialization {
-    /// Observe rounding control only.
-    Rounding,
-    /// Also observe precision control and masked precision-exception status.
-    Arithmetic,
-}
 
 #[derive(Clone)]
 pub(crate) struct X87Tracker {
@@ -100,8 +92,16 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
-    /// Predicts PM=1 and PE=1 only for fields whose current values are unknown.
-    pub(crate) fn observed_masked_precision_condition(&mut self) -> Result<Val<I1>, BuildError> {
+    /// Predicts PM=1 and PE=1 only when both were present in the snapshot.
+    pub(crate) fn observed_masked_precision_condition(
+        &mut self,
+        observed: &X87State,
+    ) -> Result<Val<I1>, BuildError> {
+        let precision_masked = observed.control.precision_mask & 1 != 0;
+        let precision_raised = observed.status.precision & 1 != 0;
+        if !precision_masked || !precision_raised {
+            return Ok(true.into());
+        }
         let masked = self
             .state
             .control
