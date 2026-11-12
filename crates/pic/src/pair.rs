@@ -2,13 +2,13 @@
 
 use crate::{
     controller::{Controller, IRQ_COUNT},
-    CASCADE_IRQ, COMMAND_PORT, MASK_PORT, SLAVE_COMMAND_PORT, SLAVE_MASK_PORT,
+    CASCADE_IRQ,
 };
 use std::task::Waker;
 
 pub(super) struct Pair {
     pub master: Controller,
-    slave: Controller,
+    pub slave: Controller,
     pub waker: Option<Waker>,
 }
 
@@ -51,30 +51,12 @@ impl Pair {
         Some(self.slave.vector_base | slave_irq)
     }
 
-    pub fn read_port(&mut self, port: u16) -> u32 {
-        match port {
-            COMMAND_PORT => self.master.read_command().into(),
-            MASK_PORT => self.master.mask.into(),
-            SLAVE_COMMAND_PORT => {
-                // Polling acknowledges just the addressed chip. Software must
-                // poll both chips to service a cascaded request this way.
-                if self.slave.poll_pending {
-                    self.master.set_level(CASCADE_IRQ, false);
-                }
-                self.slave.read_command().into()
-            }
-            SLAVE_MASK_PORT => self.slave.mask.into(),
-            _ => u32::MAX,
+    pub fn read_slave_command(&mut self) -> u8 {
+        // Polling acknowledges just the addressed chip. Software must
+        // poll both chips to service a cascaded request this way.
+        if self.slave.poll_pending {
+            self.master.set_level(CASCADE_IRQ, false);
         }
-    }
-
-    pub fn write_port(&mut self, port: u16, value: u8) {
-        match port {
-            COMMAND_PORT => self.master.command(value),
-            MASK_PORT => self.master.data(value),
-            SLAVE_COMMAND_PORT => self.slave.command(value),
-            SLAVE_MASK_PORT => self.slave.data(value),
-            _ => {}
-        }
+        self.slave.read_command()
     }
 }

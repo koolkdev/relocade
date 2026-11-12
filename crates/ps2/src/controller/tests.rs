@@ -4,6 +4,7 @@ use relocade_pic::{Pic, KEYBOARD_IRQ};
 use std::{
     future::Future,
     pin::pin,
+    rc::Rc,
     task::{Context, Poll, Waker},
 };
 
@@ -53,8 +54,10 @@ fn write(
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
-    relocade_machine::IoBus::default().with_context(|mut context| {
-        let mut pic = Pic::default();
+    let mut pic = Pic::default();
+    let device = Rc::new(RefCell::new(pic.clone()));
+    let io = relocade_machine::IoBus::new(device.clone(), |io| Pic::configure_io(io, &device));
+    io.with_context(|mut context| {
         for irq in [
             KEYBOARD_IRQ,
             relocade_pic::CASCADE_IRQ,
@@ -90,13 +93,8 @@ fn auxiliary_bytes_keep_their_source_and_bypass_keyboard_translation() {
             "auxiliary F0 is not a break prefix"
         );
         assert_eq!(controller.status() & 0x21, 0);
-        pic.write_port(
-            context.reborrow(),
-            relocade_pic::SLAVE_COMMAND_PORT,
-            1,
-            0x20,
-        );
-        pic.write_port(context.reborrow(), relocade_pic::COMMAND_PORT, 1, 0x20);
+        context.write_port(relocade_pic::SLAVE_COMMAND_PORT, 1, 0x20);
+        context.write_port(relocade_pic::COMMAND_PORT, 1, 0x20);
         assert!(pin!(controller.send(Port::Keyboard, 0x1c))
             .poll(&mut cx)
             .is_ready());
