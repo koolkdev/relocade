@@ -19,6 +19,8 @@ macro_rules! test_backends {
 
 #[path = "mappings/configuration.rs"]
 mod configuration;
+#[path = "mappings/mmio.rs"]
+mod mmio;
 #[path = "mappings/transfers.rs"]
 mod transfers;
 

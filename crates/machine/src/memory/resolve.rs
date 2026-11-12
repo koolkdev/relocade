@@ -1,4 +1,5 @@
 use super::{range_fits, MemoryError};
+use crate::IoBus;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 pub(super) struct Span {
@@ -13,6 +14,7 @@ pub(super) struct Spans<'a> {
     map: &'a PhysicalMemoryMap,
     address: u32,
     remaining: usize,
+    io: Option<&'a IoBus>,
 }
 
 impl<'a> Spans<'a> {
@@ -29,7 +31,22 @@ impl<'a> Spans<'a> {
             map,
             address,
             remaining: len,
+            io: None,
         })
+    }
+
+    pub(super) fn with_io(mut self, io: Option<&'a IoBus>) -> Self {
+        self.io = io;
+        self
+    }
+
+    fn mapping(&self, address: u32) -> PhysicalMapping {
+        match (self.map.get(address), self.io) {
+            (PhysicalMapping::Mmio { .. }, Some(io)) => PhysicalMapping::Mmio {
+                handler: io.mmio_map().page_handler(self.map.bus_address(address)),
+            },
+            (mapping, _) => mapping,
+        }
     }
 }
 
@@ -43,19 +60,22 @@ impl Iterator for Spans<'_> {
         let mut len = self.remaining.min(
             (PhysicalMemoryMap::PAGE_BYTES - self.address % PhysicalMemoryMap::PAGE_BYTES) as usize,
         );
-        let mapping = self.map.get(self.address);
+        let mapping = self.mapping(self.address);
         let address = self.map.bus_address(self.address);
         if matches!(mapping, PhysicalMapping::Mmio { .. }) {
+            // Yield after each callback so the next span sees current routing.
+            let remaining = self.remaining.min(8);
+            len = len.min(remaining);
             // Like guest transfers, keep a width-aware device access intact
             // across adjacent MMIO pages, but never across an A20 discontinuity.
-            while len < self.remaining {
+            while len < remaining {
                 let next = self.address + len as u32;
-                if self.map.get(next) != mapping
+                if self.mapping(next) != mapping
                     || self.map.bus_address(next) != address + len as u32
                 {
                     break;
                 }
-                len += (self.remaining - len).min(
+                len += (remaining - len).min(
                     (PhysicalMemoryMap::PAGE_BYTES - next % PhysicalMemoryMap::PAGE_BYTES) as usize,
                 );
             }

@@ -1,6 +1,9 @@
 //! Scoped device setup and adaptation of existing register methods.
 
-use super::{validate_ranges, Device, IoContext, PortBinding, PortRange, PortRead, PortWrite};
+use super::{
+    validate_ranges, Device, IoContext, MmioBinding, MmioRead, MmioWrite, PortBinding, PortRange,
+    PortRead, PortWrite,
+};
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 pub(super) struct ConnectedDevice {
@@ -107,6 +110,46 @@ impl<'a> DeviceConnection<'a> {
     /// map must also mark these addresses as [`relocade_x86::PhysicalMapping::MMIO`].
     pub fn map_mmio(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u32>>) {
         let ranges: Vec<_> = ranges.into_iter().collect();
+        self.validate_mmio(&ranges);
+        let device = Rc::downgrade(&self.connection.device);
+        let read = MmioRead::new(move |context, address, bytes| {
+            device
+                .upgrade()
+                .expect("connected device")
+                .borrow_mut()
+                .read_mmio(context, address, bytes)
+        });
+        let device = Rc::downgrade(&self.connection.device);
+        let write = MmioWrite::new(move |context, address, bytes, value| {
+            device
+                .upgrade()
+                .expect("connected device")
+                .borrow_mut()
+                .write_mmio(context, address, bytes, value);
+        });
+        for range in ranges {
+            self.bind_mmio(range, &read, &write);
+        }
+    }
+
+    /// Claims a fixed physical window and installs its prepared operations.
+    /// The physical map must mark these addresses as MMIO. Transfers split at
+    /// window boundaries; complete pages call the installed operations directly.
+    /// Retain the binding only to replace reads or writes later.
+    pub fn bind_mmio(
+        &mut self,
+        addresses: RangeInclusive<u32>,
+        read: &MmioRead,
+        write: &MmioWrite,
+    ) -> MmioBinding {
+        self.validate_mmio(std::slice::from_ref(&addresses));
+        self.connection.mmio.push(addresses.clone());
+        let bus = self.context.bus.upgrade().expect("live I/O bus");
+        let handler = bus.mmio.bind(self.context(), addresses, read, write);
+        MmioBinding::new(&bus.identity, handler)
+    }
+
+    fn validate_mmio(&self, ranges: &[RangeInclusive<u32>]) {
         let bus = self.context.bus.upgrade().expect("live I/O bus");
         validate_ranges(
             bus.connections
@@ -114,9 +157,8 @@ impl<'a> DeviceConnection<'a> {
                 .iter()
                 .flat_map(|device| &device.mmio)
                 .chain(&self.connection.mmio)
-                .chain(&ranges),
+                .chain(ranges),
         );
-        self.connection.mmio.extend(ranges);
     }
 
     pub(super) fn finish(self) -> ConnectedDevice {

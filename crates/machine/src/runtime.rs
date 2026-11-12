@@ -48,7 +48,6 @@ mod guest;
 mod hooks;
 mod instance;
 mod instruction_target;
-mod io;
 mod memory;
 pub mod real_mode_interrupt;
 mod storage;

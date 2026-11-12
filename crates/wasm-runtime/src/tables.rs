@@ -17,19 +17,21 @@ use std::marker::PhantomData;
 /// ```
 pub struct Table<B: WasmBackend, S: FunctionSignature> {
     pub(crate) handle: B::Table,
+    maximum: Option<u32>,
     signature: PhantomData<fn() -> S>,
 }
 
 impl<B: WasmBackend, S: FunctionSignature> Clone for Table<B, S> {
     fn clone(&self) -> Self {
-        Self::new(self.handle.clone())
+        Self::new(self.handle.clone(), self.maximum)
     }
 }
 
 impl<B: WasmBackend, S: FunctionSignature> Table<B, S> {
-    pub(crate) fn new(handle: B::Table) -> Self {
+    pub(crate) fn new(handle: B::Table, maximum: Option<u32>) -> Self {
         Self {
             handle,
+            maximum,
             signature: PhantomData,
         }
     }
@@ -56,7 +58,8 @@ impl<B: WasmBackend, S: FunctionSignature> Table<B, S> {
         access.set_table_import(&self.handle, index, &function.handle)
     }
 
-    /// Grows to at least `minimum` entries, up to the declared maximum.
+    /// Grows to at least `minimum` entries, doubling when possible without
+    /// exceeding the declared maximum. A request above that maximum fails.
     /// Existing entries are preserved. New entries share `initial`, or contain
     /// null when it is absent. A smaller minimum leaves the table unchanged.
     pub fn ensure_size(
@@ -65,9 +68,18 @@ impl<B: WasmBackend, S: FunctionSignature> Table<B, S> {
         minimum: u32,
         initial: Option<&FunctionRef<B, S>>,
     ) -> Result<()> {
+        let current = access.table_size(&self.handle);
+        if u64::from(minimum) <= current {
+            return Ok(());
+        }
+        let maximum = u64::from(self.maximum.unwrap_or(u32::MAX));
+        let capacity = current
+            .saturating_mul(2)
+            .min(maximum)
+            .max(u64::from(minimum));
         access.ensure_table_size(
             &self.handle,
-            minimum,
+            capacity as u32,
             initial.map(|function| &function.handle),
         )
     }
@@ -79,6 +91,9 @@ impl<B: WasmBackend, S: FunctionSignature> Table<B, S> {
 /// Consumers use the typed operations on [`Table`].
 pub trait WasmTableAccess {
     type Backend: WasmBackend;
+
+    #[doc(hidden)]
+    fn table_size(&self, table: &<Self::Backend as WasmBackend>::Table) -> u64;
 
     #[doc(hidden)]
     fn set_table_import(

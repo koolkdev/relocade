@@ -188,7 +188,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
             declaration.maximum,
             initial.map(|function| &function.handle),
         )
-        .map(Table::new)
+        .map(|handle| Table::new(handle, declaration.maximum))
     }
 
     #[doc(hidden)]
