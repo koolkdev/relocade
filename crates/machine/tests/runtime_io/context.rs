@@ -1,17 +1,8 @@
 use super::*;
-use relocade_machine::IoContext;
 
 struct ForwardingDevice;
 
-impl Device for ForwardingDevice {
-    fn read_mmio(&mut self, mut context: IoContext<'_>, _: u32, bytes: u8) -> u64 {
-        context.read_port(0x3d4, bytes).into()
-    }
-
-    fn write_mmio(&mut self, mut context: IoContext<'_>, _: u32, bytes: u8, value: u64) {
-        context.write_port(0x3d4, bytes, value as u32);
-    }
-}
+impl Device for ForwardingDevice {}
 
 async fn check_forwarding() {
     for compiled in [false, true] {
@@ -21,7 +12,13 @@ async fn check_forwarding() {
             RecordingDevice::bind(io, &target, 0x3d4);
         });
         io.connect(Rc::new(RefCell::new(ForwardingDevice)), |io| {
-            io.map_mmio(std::iter::once(0x3000..=0x4fff));
+            io.bind_mmio(
+                0x3000..=0x4fff,
+                &MmioRead::new(|mut context, _, bytes| context.read_port(0x3d4, bytes).into()),
+                &MmioWrite::new(|mut context, _, bytes, value| {
+                    context.write_port(0x3d4, bytes, value as u32);
+                }),
+            );
             io.bind(
                 0x3d5,
                 &PortRead::new(|mut context, _, bytes| context.read_port(0x3d4, bytes)),

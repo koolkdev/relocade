@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::IoBus;
+use relocade_machine::{IoBus, MmioRead, MmioWrite};
 use std::rc::Weak;
 
 struct Startup {
@@ -11,24 +11,16 @@ struct Startup {
 impl Device for Startup {
     async fn run(device: Rc<RefCell<Self>>) {
         let io = device.borrow().bus.upgrade().unwrap();
-        // Both the port entry and the retained MMIO device must be
+        // Both the port and MMIO operations must be
         // installed, with the setup runtime borrow released before this poll.
         assert_eq!(io.read_port(0x80, 1), 0x11);
         assert_eq!(io.read_mmio(0x2000, 1), 0x11);
         device.borrow_mut().started = true;
     }
-
-    fn read_mmio(&mut self, _: IoContext<'_>, _: u32, _: u8) -> u64 {
-        self.value.into()
-    }
 }
 
 struct Adjacent;
-impl Device for Adjacent {
-    fn read_mmio(&mut self, _: IoContext<'_>, _: u32, _: u8) -> u64 {
-        0x33
-    }
-}
+impl Device for Adjacent {}
 
 async fn connected_before_startup() {
     let clock = ManualClock::default();
@@ -46,8 +38,12 @@ async fn connected_before_startup() {
             }));
             runner
                 .connect(device.clone(), |io| {
-                    io.map_mmio(std::iter::once(0x2000..=0x2000));
                     let callbacks = relocade_machine::DeviceCallbacks::new(&device);
+                    io.bind_mmio(
+                        0x2000..=0x2000,
+                        &MmioRead::new(callbacks.read_mmio(|_, device, _, _| device.value.into())),
+                        &MmioWrite::new(|_, _, _, _| {}),
+                    );
                     let read = callbacks.read(|_, device| device.value);
                     let write = callbacks.write(|_, device, value| device.value = value);
                     io.bind(
@@ -65,7 +61,11 @@ async fn connected_before_startup() {
 
             runner
                 .connect(Rc::new(RefCell::new(Adjacent)), |io| {
-                    io.map_mmio(std::iter::once(0x2001..=0x2001));
+                    io.bind_mmio(
+                        0x2001..=0x2001,
+                        &MmioRead::new(|_, _, _| 0x33),
+                        &MmioWrite::new(|_, _, _, _| {}),
+                    );
                     io.bind(
                         0x82,
                         &relocade_machine::PortRead::new(|_, _, _| 0x44),

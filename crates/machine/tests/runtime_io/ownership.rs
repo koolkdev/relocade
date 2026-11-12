@@ -4,7 +4,7 @@ async fn check_retained_memory_bus() {
     let device = RecordingDevice::new(0x3000);
     let lifetime = Rc::downgrade(&device);
     let io = IoBus::new(device.clone(), |io| {
-        io.map_mmio(std::iter::once(0x3000..=0x4fff));
+        RecordingDevice::bind_memory(io, &device, 0x3000..=0x4fff);
         RecordingDevice::bind(io, &device, 0x3d4);
     });
     drop(device);
