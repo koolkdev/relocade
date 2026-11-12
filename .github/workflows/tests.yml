@@ -18,9 +18,6 @@ env:
   CARGO_TERM_COLOR: always
   # Keep line-number backtraces while reducing test artifacts and linker work.
   CARGO_PROFILE_TEST_DEBUG: 1
-  # Remove this mirror override when the Ubuntu DNS incident is resolved:
-  # https://github.com/actions/runner-images/issues/15296
-  UBUNTU_APT_MIRROR: https://mirrors.edge.kernel.org/ubuntu/
 
 jobs:
   native:
@@ -67,7 +64,6 @@ jobs:
       - name: Install native test dependencies
         if: matrix.system-packages != ''
         run: |
-          printf '%s\n' "$UBUNTU_APT_MIRROR" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
           sudo apt-get update
           sudo apt-get install -y ${{ matrix.system-packages }}
 
@@ -162,7 +158,6 @@ jobs:
 
       - name: Install audio build dependencies
         run: |
-          printf '%s\n' "$UBUNTU_APT_MIRROR" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
           sudo apt-get update
           sudo apt-get install -y libasound2-dev
 
