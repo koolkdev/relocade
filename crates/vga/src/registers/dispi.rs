@@ -7,7 +7,7 @@
 //! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
 //! Invalid requests are ignored.
 
-use crate::{effects::Effects, SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
+use crate::{effects::Effects, memory::VramWindow, SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -32,22 +32,6 @@ pub const NO_CLEAR_MEMORY: u16 = 0x80;
 pub const BANK_BYTES: u32 = 65536;
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
-
-/// Maps the fixed CPU window to a validated SVGA bank in physical VRAM.
-/// Only DISPI constructs these values, after validating its bank register.
-#[derive(Clone, Copy)]
-pub(crate) struct SvgaBankMapping {
-    vram_start: u32,
-}
-
-impl SvgaBankMapping {
-    /// Other VGA apertures are closed; accesses never spill into the next bank.
-    pub fn memory_offset(self, address: u32) -> Option<u32> {
-        BANK_RANGE
-            .contains(&address)
-            .then(|| self.vram_start + address - BANK_START)
-    }
-}
 
 /// An action the device must apply after the register write.
 #[must_use = "DISPI write actions must be applied by the device"]
@@ -75,10 +59,7 @@ struct ActiveMode {
 }
 
 impl Dispi {
-    pub(crate) fn write_effect(&self, port: u16, bytes: u8) -> Effects {
-        if port != DATA_PORT || bytes != 2 {
-            return Effects::NONE;
-        }
+    pub(crate) fn write_effect(&self) -> Effects {
         match self.index {
             ENABLE => Effects::CONFIGURATION_AND_IO,
             VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => Effects::CONFIGURATION,
@@ -149,55 +130,51 @@ impl Dispi {
         self.active.as_ref().map(|active| active.layout)
     }
 
-    pub fn bank_mapping(&self) -> Option<SvgaBankMapping> {
-        self.enabled().then_some(SvgaBankMapping {
+    /// The bank register is validated on writes and restoration, so the whole
+    /// CPU window is backed by physical VRAM.
+    pub fn bank_mapping(&self) -> Option<VramWindow> {
+        self.enabled().then_some(VramWindow {
+            cpu_start: BANK_START,
             vram_start: u32::from(self.bank) * BANK_BYTES,
+            bytes: BANK_BYTES,
         })
     }
 
-    pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
-        // A word at the index port is one register, not adjacent byte writes.
-        if bytes != 2 {
-            return if bytes == 1 { 0xff } else { u32::MAX };
-        }
-        u32::from(match port {
-            INDEX_PORT => self.index,
-            DATA_PORT => match self.index {
-                ID => INTERFACE_ID,
-                X_RESOLUTION => self.width,
-                Y_RESOLUTION => self.height,
-                BITS_PER_PIXEL => self.bits_per_pixel,
-                ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
-                BANK => self.bank,
-                VIRTUAL_WIDTH => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_width() as u16),
-                VIRTUAL_HEIGHT => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.virtual_height() as u16),
-                X_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[0] as u16),
-                Y_OFFSET => self
-                    .display_layout()
-                    .map_or(0, |layout| layout.origin()[1] as u16),
-                _ => u16::MAX,
-            },
+    pub fn index(&self) -> u16 {
+        self.index
+    }
+
+    pub fn select(&mut self, index: u16) {
+        self.index = index;
+    }
+
+    pub fn read(&self) -> u16 {
+        match self.index {
+            ID => INTERFACE_ID,
+            X_RESOLUTION => self.width,
+            Y_RESOLUTION => self.height,
+            BITS_PER_PIXEL => self.bits_per_pixel,
+            ENABLE => self.active.as_ref().map_or(DISABLED, |active| active.flags),
+            BANK => self.bank,
+            VIRTUAL_WIDTH => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_width() as u16),
+            VIRTUAL_HEIGHT => self
+                .display_layout()
+                .map_or(0, |layout| layout.virtual_height() as u16),
+            X_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[0] as u16),
+            Y_OFFSET => self
+                .display_layout()
+                .map_or(0, |layout| layout.origin()[1] as u16),
             _ => u16::MAX,
-        })
+        }
     }
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteAction {
-        if bytes != 2 {
-            return WriteAction::None;
-        }
-        let value = value as u16;
-        if port == INDEX_PORT {
-            self.index = value;
-            return WriteAction::None;
-        }
+    pub fn write(&mut self, value: u16) -> WriteAction {
         match self.index {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,

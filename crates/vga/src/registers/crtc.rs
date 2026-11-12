@@ -61,6 +61,22 @@ pub struct Crtc {
 }
 
 impl Crtc {
+    pub(crate) fn write_effect(&self) -> super::WriteKind {
+        match self.index {
+            HORIZONTAL_TOTAL
+            | HORIZONTAL_DISPLAY_END
+            | HORIZONTAL_BLANK_END
+            | VERTICAL_TOTAL
+            | OVERFLOW
+            | VERTICAL_RETRACE_START
+            | VERTICAL_RETRACE_END
+            | VERTICAL_DISPLAY_END
+            | MODE_CONTROL => super::WriteKind::Timing,
+            HORIZONTAL_TOTAL..=LINE_COMPARE => super::WriteKind::Display,
+            _ => super::WriteKind::Access,
+        }
+    }
+
     pub(crate) fn latch_display_start(&mut self) {
         self.display_start = u16::from_be_bytes([
             self.registers.register(START_ADDRESS_HIGH),

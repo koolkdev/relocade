@@ -347,10 +347,7 @@ for long straight-line code or REP.
 Register VGA with one scoped connection:
 
 ```rust
-runner.connect(vga, |io| {
-    io.map_mmio([MEMORY_RANGE]);
-    io.map_ports(PORT_RANGES);
-}).await;
+runner.connect(vga.clone(), |io| Vga::configure_io(io, &vga)).await;
 ```
 
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture

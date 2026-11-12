@@ -33,6 +33,18 @@ impl Default for Attribute {
 }
 
 impl Attribute {
+    pub(crate) fn write_effect(&self) -> super::WriteKind {
+        let index = self.address & 0x1f;
+        if !self.data_next()
+            || matches!(index, MODE_CONTROL..=COLOR_SELECT)
+            || (index <= 0x0f && self.address & PALETTE_ADDRESS_SOURCE == 0)
+        {
+            super::WriteKind::Display
+        } else {
+            super::WriteKind::Access
+        }
+    }
+
     pub fn address(&self) -> u8 {
         self.address
     }

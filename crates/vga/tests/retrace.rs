@@ -93,6 +93,42 @@ fn retrace_sleeps_without_device_activity_and_accepts_a_late_timer() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn restoring_inactive_address_selection_does_not_wake_the_output_task() {
+    let clock = ManualClock::default();
+    let vga = ConnectedVga::new(clock.clock());
+    let miscellaneous = vga.io.read_port(0x3cc, 1);
+    vga.io.write_port(0x3d4, 1, 0x0d);
+    vga.io.write_port(0x3c2, 1, miscellaneous & !1);
+    vga.io.write_port(0x46e8, 1, 0);
+    let monochrome = vga.device.borrow().core_state();
+    vga.io.write_port(0x46e8, 1, 0x0e);
+    vga.io.write_port(0x3c2, 1, miscellaneous | 1);
+    vga.io.write_port(0x46e8, 1, 0);
+
+    // The output task still waits for raster/configuration changes while CPU
+    // access is disabled. Keep time fixed so only address selection changes.
+    let (vga, mut video) = common::start_video(vga);
+    let wakes = Arc::new(Wakes::default());
+    let waker = Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    common::poll_video(video.as_mut(), &mut cx);
+    vga.io.with_context(|context| {
+        vga.device
+            .borrow_mut()
+            .restore_state(context, Some(monochrome), None, None);
+    });
+    assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
+    assert_eq!(vga.io.read_port(0x3b4, 1), 0xff);
+    assert_eq!(vga.io.read_port(0x3d4, 1), 0xff);
+
+    vga.io.write_port(0x46e8, 1, 0x0e);
+    assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
+    assert_eq!(vga.io.read_port(0x3b4, 1), 0x0d);
+    assert_eq!(vga.io.read_port(0x3d4, 1), 0xff);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn mode_changes_invalidate_waits_before_or_after_the_first_poll() {
     for poll_before_change in [false, true] {
         let clock = ManualClock::default();

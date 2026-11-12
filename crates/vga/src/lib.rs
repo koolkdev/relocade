@@ -14,6 +14,7 @@ mod framebuffer;
 mod geometry;
 mod memory;
 mod output;
+mod ports;
 mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -67,6 +68,7 @@ pub struct Vga {
     registers: Registers,
     setup: Setup,
     dispi: dispi::Dispi,
+    io: Option<ports::Io>,
     clock: Clock,
     raster: Raster,
     configuration_changed: Event,
@@ -78,10 +80,7 @@ impl Vga {
     pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
         runner
-            .connect(vga.clone(), |io| {
-                io.map_mmio([MEMORY_RANGE]);
-                io.map_ports(PORT_RANGES);
-            })
+            .connect(vga.clone(), |io| Self::configure_io(io, &vga))
             .await;
         vga
     }
@@ -95,6 +94,7 @@ impl Vga {
             registers,
             setup: Setup::default(),
             dispi: dispi::Dispi::default(),
+            io: None,
             clock,
             raster,
             configuration_changed: Event::new(),

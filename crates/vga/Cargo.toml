@@ -20,6 +20,7 @@ futures-lite = { version = "=2.6.1", default-features = false }
 
 [dev-dependencies]
 relocade-clock-test-support = { path = "../../tests/clock-support" }
+relocade-x86 = { path = "../x86" }
 futures-channel = "=0.3.34"
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 

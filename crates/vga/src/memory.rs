@@ -1,7 +1,7 @@
 use crate::registers::Registers;
 
 mod access;
-pub(crate) use access::VramAccess;
+pub(crate) use access::{VramAccess, VramWindow};
 mod storage;
 pub(crate) use storage::MemorySnapshot;
 use storage::Storage;
@@ -54,7 +54,7 @@ impl VideoMemory {
             *byte = match access {
                 VramAccess::Disabled => 0xff,
                 VramAccess::Vga(registers) => self.read_vga_byte(address, registers),
-                VramAccess::SvgaBank(mapping) => mapping
+                VramAccess::Window(window) => window
                     .memory_offset(address)
                     .map_or(0xff, |offset| self.storage.read(offset)),
             };
@@ -68,8 +68,8 @@ impl VideoMemory {
             match access {
                 VramAccess::Disabled => {}
                 VramAccess::Vga(registers) => self.write_vga_byte(address, *byte, registers),
-                VramAccess::SvgaBank(mapping) => {
-                    if let Some(offset) = mapping.memory_offset(address) {
+                VramAccess::Window(window) => {
+                    if let Some(offset) = window.memory_offset(address) {
                         self.storage.write(offset, *byte);
                     }
                 }

@@ -30,6 +30,13 @@ impl Default for Graphics {
 }
 
 impl Graphics {
+    pub(crate) fn write_effect(&self) -> super::WriteKind {
+        match self.index {
+            MODE | MISCELLANEOUS => super::WriteKind::Display,
+            _ => super::WriteKind::Access,
+        }
+    }
+
     pub fn index(&self) -> u8 {
         self.index
     }
