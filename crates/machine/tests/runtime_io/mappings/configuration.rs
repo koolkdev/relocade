@@ -101,17 +101,7 @@ impl ConfigurableDevice {
     }
 }
 
-impl Device for ConfigurableDevice {
-    fn write_mmio(&mut self, context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
-        assert_eq!((address, bytes), (0x3000, 2));
-        self.select_status(context, value & 1 != 0);
-    }
-    fn read_mmio(&mut self, context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
-        assert_eq!((address, bytes), (0x3000, 2));
-        self.select_status(context, true);
-        0
-    }
-}
+impl Device for ConfigurableDevice {}
 
 async fn check_device_methods() {
     for compiled in [false, true] {
@@ -126,8 +116,21 @@ async fn check_device_methods() {
                 idle_read: PortRead::new(|_, _, _| 0x33),
             }));
             let io = IoBus::new(device.clone(), |io| {
-                io.map_mmio(std::iter::once(0x3000..=0x3fff));
                 let callbacks = relocade_machine::DeviceCallbacks::new(&device);
+                io.bind_mmio(
+                    0x3000..=0x3fff,
+                    &MmioRead::new(callbacks.read_mmio(|context, device, address, bytes| {
+                        assert_eq!((address, bytes), (0x3000, 2));
+                        device.select_status(context, true);
+                        0
+                    })),
+                    &MmioWrite::new(callbacks.write_mmio(
+                        |context, device, address, bytes, value| {
+                            assert_eq!((address, bytes), (0x3000, 2));
+                            device.select_status(context, value & 1 != 0);
+                        },
+                    )),
+                );
                 io.bind(
                     0x3d4,
                     &device.borrow().idle_read,

@@ -1,8 +1,7 @@
 //! In-flight target changes and driver lifetime.
 
 use super::*;
-use relocade_machine::IoContext;
-use relocade_machine::Sleep;
+use relocade_machine::{MmioRead, MmioWrite, Sleep};
 use std::{
     future::Future,
     pin::Pin,
@@ -36,6 +35,11 @@ impl ReprogrammedTimer {
 impl ReprogrammedTimer {
     fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
         let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind_mmio(
+            0x8000..=0x8fff,
+            &MmioRead::new(|_, _, _| u64::MAX),
+            &MmioWrite::new(callbacks.write_mmio(|_, device, _, _, _| device.reprogram())),
+        );
         io.bind(
             0x80,
             &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
@@ -46,11 +50,7 @@ impl ReprogrammedTimer {
     }
 }
 
-impl Device for ReprogrammedTimer {
-    fn write_mmio(&mut self, _context: IoContext<'_>, _: u32, _: u8, _: u64) {
-        self.reprogram();
-    }
-}
+impl Device for ReprogrammedTimer {}
 
 async fn callback_target_changes() {
     for compiled in [false, true] {
@@ -81,7 +81,6 @@ async fn callback_target_changes() {
                     writes: 0,
                 }));
                 let io = IoBus::new(device.clone(), |io| {
-                    io.map_mmio(std::iter::once(0x8000..=0x8fff));
                     ReprogrammedTimer::configure_io(io, &device);
                 });
                 let config = support::configuration(

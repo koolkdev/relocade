@@ -6,14 +6,12 @@ use std::{
     task::{Context, Poll},
 };
 
-/// An execution-owned device with MMIO, interrupts and optional async activity.
-/// MMIO addresses are physical addresses after A20 translation. Values are
-/// little endian and transfers contain one through eight bytes.
-/// Port operations are installed separately through [`crate::DeviceConnection::bind`];
-/// [`crate::DeviceCallbacks`] can adapt methods that borrow this device.
+/// An execution-owned device with interrupts and optional async activity.
+/// Port and MMIO operations are installed through [`crate::DeviceConnection::bind`]
+/// and [`crate::DeviceConnection::bind_mmio`]. [`crate::DeviceCallbacks`] can adapt
+/// concrete methods that borrow this device.
 ///
-/// The execution worker owns device state. MMIO reads can have side effects,
-/// so they borrow the device mutably. Callbacks must not reenter guest execution
+/// The execution worker owns device state. Callbacks must not reenter guest execution
 /// or access the same device recursively. Publish owned observations separately
 /// when another worker needs to display or inspect device output.
 /// Use the supplied [`IoContext`] to forward I/O;
@@ -30,12 +28,6 @@ pub trait Device {
     {
         ready(())
     }
-
-    fn read_mmio(&mut self, _context: IoContext<'_>, _address: u32, _bytes: u8) -> u64 {
-        u64::MAX
-    }
-
-    fn write_mmio(&mut self, _context: IoContext<'_>, _address: u32, _bytes: u8, _value: u64) {}
 
     /// Supplies and acknowledges one pending maskable interrupt vector.
     /// Retain requests until polled. Return Pending and register the waker when a
