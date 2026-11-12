@@ -3,7 +3,10 @@
 use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
 use event_listener::Event;
 use futures_lite::future::or;
-use relocade_machine::{yield_now, Clock, Device, IoContext, Runner, Timestamp};
+use relocade_machine::{
+    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
+    Timestamp,
+};
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
@@ -37,11 +40,38 @@ impl Pit {
     pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
         let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
         runner
-            .connect(pit.clone(), |io| {
-                io.map_ports([crate::PORT_RANGE]);
-            })
+            .connect(pit.clone(), |io| Self::configure_io(io, &pit))
             .await;
         pit
+    }
+
+    /// Bind count and control operations with the PIT's byte-only transfer policy.
+    pub fn configure_io(io: &mut DeviceConnection<'_>, pit: &Rc<RefCell<Self>>) {
+        let callbacks = DeviceCallbacks::new(pit);
+        let unused_read = PortRead::byte(callbacks.read(|_, pit| {
+            pit.sync_to_clock();
+            0xff
+        }));
+        io.bind(
+            CHANNEL_0_PORT,
+            &PortRead::byte(callbacks.read(|_, pit| pit.read_channel0())),
+            &PortWrite::byte(callbacks.write(|_, pit, value| pit.write_channel0(value))),
+        );
+        io.bind(
+            CHANNEL_0_PORT + 1,
+            &unused_read,
+            &PortWrite::byte(callbacks.write(|_, pit, _| pit.sync_to_clock())),
+        );
+        io.bind(
+            CHANNEL_2_PORT,
+            &PortRead::byte(callbacks.read(|_, pit| pit.read_channel2())),
+            &PortWrite::byte(callbacks.write(|_, pit, value| pit.write_channel2(value))),
+        );
+        io.bind(
+            CONTROL_PORT,
+            &unused_read,
+            &PortWrite::byte(callbacks.write(|_, pit, value| pit.write_control(value))),
+        );
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
@@ -113,6 +143,60 @@ impl Pit {
         }
     }
 
+    fn read_channel0(&mut self) -> u8 {
+        self.sync_to_clock();
+        self.channel0.read()
+    }
+
+    fn read_channel2(&mut self) -> u8 {
+        self.sync_to_clock();
+        self.channel2.read()
+    }
+
+    fn write_channel0(&mut self, value: u8) {
+        self.sync_to_clock();
+        self.channel0.write(value);
+        self.notify_channel0();
+    }
+
+    fn write_channel2(&mut self, value: u8) {
+        self.sync_to_clock();
+        self.channel2.write(value);
+        self.notify_channel2();
+    }
+
+    fn notify_channel0(&self) {
+        self.irq.set_level(self.channel0.output());
+        self.changed.notify(1);
+    }
+
+    fn write_control(&mut self, value: u8) {
+        self.sync_to_clock();
+        match value >> 6 {
+            0 => {
+                self.channel0.control(value);
+                if value & 0x30 != 0 {
+                    self.notify_channel0();
+                }
+            }
+            2 => {
+                self.channel2.control(value);
+                if value & 0x30 != 0 {
+                    self.notify_channel2();
+                }
+            }
+            3 if value & 1 == 0 => {
+                // Read-back selection bits are high-active; requests are low-active.
+                for (bit, counter) in [(2, &mut self.channel0), (8, &mut self.channel2)] {
+                    if value & bit != 0 {
+                        counter.latch(value & 0x20 == 0, value & 0x10 == 0);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn sync_to_clock(&mut self) {
         let previous = self.updated;
         self.clock
@@ -163,59 +247,6 @@ impl Device for Pit {
             // Divisor 2 can leave every deadline overdue. Give the CPU a turn
             // even then; elapsed edges still coalesce at the next synchronization.
             yield_now().await;
-        }
-    }
-
-    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        self.sync_to_clock();
-        match (port, bytes) {
-            (CHANNEL_0_PORT, 1) => self.channel0.read().into(),
-            (CHANNEL_2_PORT, 1) => self.channel2.read().into(),
-            _ => u32::MAX,
-        }
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        self.sync_to_clock();
-        if bytes != 1 {
-            return;
-        }
-        let value = value as u8;
-        let channel = match port {
-            CHANNEL_0_PORT => 0,
-            CHANNEL_2_PORT => 2,
-            CONTROL_PORT if value >> 6 == 3 => {
-                // Read-back selection bits are high-active; requests are low-active.
-                if value & 1 == 0 {
-                    for (bit, counter) in [(2, &mut self.channel0), (8, &mut self.channel2)] {
-                        if value & bit != 0 {
-                            counter.latch(value & 0x20 == 0, value & 0x10 == 0);
-                        }
-                    }
-                }
-                return;
-            }
-            CONTROL_PORT => value >> 6,
-            _ => return,
-        };
-        let counter = match channel {
-            0 => &mut self.channel0,
-            2 => &mut self.channel2,
-            _ => return,
-        };
-        if port == CONTROL_PORT {
-            counter.control(value);
-            if value & 0x30 == 0 {
-                return;
-            }
-        } else {
-            counter.write(value);
-        }
-        if channel == 0 {
-            self.irq.set_level(self.channel0.output());
-            self.changed.notify(1);
-        } else {
-            self.notify_channel2();
         }
     }
 }
