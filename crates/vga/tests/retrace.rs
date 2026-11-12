@@ -53,7 +53,7 @@ fn suppressed_retrace_signal_keeps_waiting_while_capture_continues() {
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(
         wait.as_mut().poll(&mut cx),
-        Poll::Ready(RetraceEvent::Reprogrammed)
+        Poll::Ready(RetraceEvent::Reconfigured)
     );
     assert_eq!(
         pin!(vga.device.borrow_mut().wait_for_retrace().unwrap()).poll(&mut cx),
@@ -110,7 +110,7 @@ fn mode_changes_invalidate_waits_before_or_after_the_first_poll() {
         clock.advance_to(clock.at(svga_boundary(1)));
         assert_eq!(
             wait.as_mut().poll(&mut cx),
-            Poll::Ready(RetraceEvent::Reprogrammed)
+            Poll::Ready(RetraceEvent::Reconfigured)
         );
         let mut next_wait = pin!(vga.device.borrow_mut().wait_for_retrace().unwrap());
         // 800x600 starts at the mode change, using 1056 dots/line, retrace at
@@ -174,7 +174,7 @@ fn concurrent_waiters_receive_timer_wakes_and_cancel_independently() {
     assert_eq!(wakes[1].0.load(Ordering::SeqCst), 1);
     assert_eq!(
         retained.as_mut().poll(&mut Context::from_waker(&wakers[1])),
-        Poll::Ready(RetraceEvent::Reprogrammed)
+        Poll::Ready(RetraceEvent::Reconfigured)
     );
     assert!(vga.device.borrow_mut().wait_for_retrace().is_none());
 }

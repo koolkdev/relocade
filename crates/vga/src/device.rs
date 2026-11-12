@@ -1,9 +1,13 @@
 //! Guest bus access and registration of the execution owner's output task.
 
 use crate::{
+    effects::Effects,
     memory::VramAccess,
     output,
-    registers::{dispi, WriteKind, ADAPTER_CONTROL_PORT, OPTION_SELECT_PORT},
+    registers::{
+        dispi, ADAPTER_CONTROL_PORT, DAC_DATA_PORT, DAC_MASK_PORT, MISC_OUTPUT_WRITE_PORT,
+        OPTION_SELECT_PORT,
+    },
     Vga,
 };
 use relocade_machine::{Device, IoContext};
@@ -53,20 +57,17 @@ impl Device for Vga {
         u32::from_le_bytes(value)
     }
 
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
+    fn write_port(&mut self, mut context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
         if dispi::PORT_RANGE.contains(&port) {
             if !self.setup.enabled() {
                 return;
             }
-            self.prepare_write(self.dispi.write_kind(port, bytes));
-            let previous_layout = self.dispi.display_layout();
-            match self.dispi.write_port(port, bytes, value) {
-                dispi::WriteEffect::None => {}
-                dispi::WriteEffect::ClearVram => self.memory.clear_vram(),
-            }
-            if self.dispi.display_layout() != previous_layout {
-                self.reconfigure(previous_layout, self.registers.status_port(), true);
-            }
+            let effects = self.dispi.write_effect(port, bytes);
+            self.with_effects(context, effects, |vga| {
+                if let dispi::WriteAction::ClearVram = vga.dispi.write_port(port, bytes, value) {
+                    vga.memory.clear_vram();
+                }
+            });
             return;
         }
         // Decode each byte after preceding index writes have taken effect.
@@ -74,37 +75,26 @@ impl Device for Vga {
             let port = port.wrapping_add(index as u16);
             match port {
                 ADAPTER_CONTROL_PORT | OPTION_SELECT_PORT => {
-                    let was_enabled = self.setup.enabled();
-                    if port == ADAPTER_CONTROL_PORT {
-                        self.setup.write_control(*byte);
-                    } else {
-                        self.setup.write_option(*byte);
-                    }
-                    if self.setup.enabled() != was_enabled {
-                        self.programming_changed.notify(usize::MAX);
-                    }
+                    self.with_effects(context.reborrow(), Effects::IO, |vga| {
+                        if port == ADAPTER_CONTROL_PORT {
+                            vga.setup.write_control(*byte);
+                        } else {
+                            vga.setup.write_option(*byte);
+                        }
+                    });
                 }
                 port if self.setup.enabled() => {
-                    let kind = self.registers.write_kind(port);
-                    self.prepare_write(kind);
-                    let previous_status_port = self.registers.status_port();
-                    self.registers.write_port(port, *byte);
-                    if kind == WriteKind::Timing {
-                        self.reconfigure(self.dispi.display_layout(), previous_status_port, true);
-                    }
+                    let effects = match port {
+                        MISC_OUTPUT_WRITE_PORT => Effects::CONFIGURATION_AND_IO,
+                        DAC_MASK_PORT | DAC_DATA_PORT => Effects::IMAGE,
+                        _ => self.legacy_effect(self.registers.write_kind(port)),
+                    };
+                    self.with_effects(context.reborrow(), effects, |vga| {
+                        vga.registers.write_port(port, *byte);
+                    });
                 }
                 _ => {}
             }
-        }
-    }
-}
-
-impl Vga {
-    fn prepare_write(&mut self, kind: WriteKind) {
-        match kind {
-            WriteKind::Access => {}
-            WriteKind::Display => self.capture_if_due(),
-            WriteKind::Timing => self.advance_raster(self.clock.now()),
         }
     }
 }

@@ -7,7 +7,7 @@
 //! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
 //! Invalid requests are ignored.
 
-use crate::{SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
+use crate::{effects::Effects, SvgaLayout, SvgaMode, VIDEO_MEMORY_BYTES};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -50,8 +50,8 @@ impl SvgaBankMapping {
 }
 
 /// An action the device must apply after the register write.
-#[must_use = "DISPI write effects must be applied by the device"]
-pub(crate) enum WriteEffect {
+#[must_use = "DISPI write actions must be applied by the device"]
+pub(crate) enum WriteAction {
     None,
     ClearVram,
 }
@@ -75,14 +75,14 @@ struct ActiveMode {
 }
 
 impl Dispi {
-    pub(crate) fn write_kind(&self, port: u16, bytes: u8) -> super::WriteKind {
+    pub(crate) fn write_effect(&self, port: u16, bytes: u8) -> Effects {
         if port != DATA_PORT || bytes != 2 {
-            return super::WriteKind::Access;
+            return Effects::NONE;
         }
         match self.index {
-            ENABLE => super::WriteKind::Timing,
-            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => super::WriteKind::Display,
-            _ => super::WriteKind::Access,
+            ENABLE => Effects::CONFIGURATION_AND_IO,
+            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => Effects::CONFIGURATION,
+            _ => Effects::NONE,
         }
     }
 
@@ -189,14 +189,14 @@ impl Dispi {
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteEffect {
+    pub fn write_port(&mut self, port: u16, bytes: u8, value: u32) -> WriteAction {
         if bytes != 2 {
-            return WriteEffect::None;
+            return WriteAction::None;
         }
         let value = value as u16;
         if port == INDEX_PORT {
             self.index = value;
-            return WriteEffect::None;
+            return WriteAction::None;
         }
         match self.index {
             X_RESOLUTION if !self.enabled() => self.width = value,
@@ -207,7 +207,7 @@ impl Dispi {
                 let Some(mode) =
                     SvgaMode::from_registers(self.width, self.height, self.bits_per_pixel)
                 else {
-                    return WriteEffect::None;
+                    return WriteAction::None;
                 };
                 self.active = Some(ActiveMode {
                     layout: mode.layout(),
@@ -215,9 +215,9 @@ impl Dispi {
                 });
                 self.bank = 0;
                 return if value & NO_CLEAR_MEMORY == 0 {
-                    WriteEffect::ClearVram
+                    WriteAction::ClearVram
                 } else {
-                    WriteEffect::None
+                    WriteAction::None
                 };
             }
             BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
@@ -238,6 +238,6 @@ impl Dispi {
             }
             _ => {}
         }
-        WriteEffect::None
+        WriteAction::None
     }
 }
