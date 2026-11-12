@@ -4,7 +4,7 @@ mod hooks;
 mod table;
 
 use super::{
-    code, hooks::Handler, io, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
+    code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
@@ -33,7 +33,6 @@ pub(super) struct CpuInstance {
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     table: DispatchTable<WasmRuntime>,
     hooks: Hooks,
-    mmio_tables: io::MmioTables,
 }
 
 impl CpuInstance {
@@ -66,8 +65,13 @@ impl CpuInstance {
             ]);
             io.port_map().initialize(wasm, &io.downgrade())?;
             imports.extend(io.port_map().imports(wasm));
-            let mmio_tables = io::MmioTables::new(wasm, &io)?;
-            imports.extend(mmio_tables.imports(wasm));
+            io.mmio_map().initialize(
+                wasm,
+                &io.downgrade(),
+                &bindings.mapping,
+                bindings.guest.configuration().memory_map(),
+            )?;
+            imports.extend(io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
@@ -92,7 +96,6 @@ impl CpuInstance {
                 far_call,
                 table,
                 hooks: Hooks::default(),
-                mmio_tables,
             })
         })
     }
@@ -173,7 +176,7 @@ impl CpuInstance {
                 wasm.bind(abi::INTERPRET, &self.interpret),
             ]);
             imports.extend(self.io.port_map().imports(wasm));
-            imports.extend(self.mmio_tables.imports(wasm));
+            imports.extend(self.io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(module, &imports)?;
             self.table.install(wasm, &instance, &entries)
         })?;

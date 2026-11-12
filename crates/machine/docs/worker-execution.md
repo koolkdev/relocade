@@ -20,7 +20,7 @@ let (handle, timers) = relocade_machine::timer_service();
 let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     runner.connect(device, |io| {
-        io.map_mmio(memory_ranges);
+        io.bind_mmio(memory_range, &memory_read, &memory_write);
         io.bind(ports, &read, &write);
     }).await;
     runner.run_cpu().await;

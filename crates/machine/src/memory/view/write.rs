@@ -9,7 +9,7 @@ impl<'a> MemoryView<'a> {
     /// # Panics
     /// Panics if the access reaches MMIO without an attached local I/O bus.
     pub fn write(&mut self, address: u32, mut bytes: &[u8]) -> Result<(), MemoryError> {
-        for span in Spans::new(self.config.memory_map(), address, bytes.len())? {
+        for span in Spans::new(self.config.memory_map(), address, bytes.len())?.with_io(self.io) {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
                 PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),

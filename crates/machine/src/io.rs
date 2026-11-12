@@ -1,14 +1,19 @@
 //! Device routing and synchronous access on one execution worker.
 
+mod callbacks;
 mod connection;
 mod context;
 mod device;
+mod handlers;
+pub(crate) mod mmio;
 pub(crate) mod ports;
+pub use callbacks::DeviceCallbacks;
 use connection::ConnectedDevice;
 pub use connection::DeviceConnection;
 pub use context::IoContext;
 pub use device::Device;
-pub use ports::{DeviceCallbacks, PortBinding, PortRange, PortRead, PortWrite};
+pub use mmio::{MmioBinding, MmioRead, MmioWrite};
+pub use ports::{PortBinding, PortRange, PortRead, PortWrite};
 
 use crate::runtime::WasmRuntimeHandle;
 use relocade_wasm_runtime::WasmBackend;
@@ -50,6 +55,7 @@ pub(crate) struct State {
     cpu_attached: Cell<bool>,
     connections: RefCell<Vec<ConnectedDevice>>,
     ports: ports::Ports,
+    mmio: mmio::Mmio,
     identity: Weak<State>,
 }
 
@@ -61,6 +67,7 @@ impl Default for IoBus {
                 cpu_attached: Cell::new(false),
                 connections: RefCell::default(),
                 ports: ports::Ports::default(),
+                mmio: mmio::Mmio::default(),
                 identity: identity.clone(),
             }),
         }
@@ -119,12 +126,12 @@ impl IoBus {
         self.with_context(|context| self.state.poll_interrupt(context, cx))
     }
 
-    /// Reads one through eight bytes, splitting only at device boundaries.
+    /// Reads one through eight bytes, splitting at mapping and handler boundaries.
     pub fn read_mmio(&self, address: u32, bytes: u8) -> u64 {
         self.with_context(|context| self.state.read_mmio(context, address, bytes))
     }
 
-    /// Writes the low `bytes` bytes, splitting only at device boundaries.
+    /// Writes the low `bytes` bytes, splitting at mapping and handler boundaries.
     pub fn write_mmio(&self, address: u32, bytes: u8, value: u64) {
         self.with_context(|context| self.state.write_mmio(context, address, bytes, value))
     }
@@ -151,6 +158,10 @@ impl IoBus {
         );
         self.state.runtime.initialize()?;
         Ok(self.state.runtime.clone())
+    }
+
+    pub(crate) fn mmio_map(&self) -> &mmio::Mmio {
+        &self.state.mmio
     }
 
     pub(crate) fn port_map(&self) -> &ports::Ports {
@@ -180,50 +191,14 @@ impl State {
         Poll::Pending
     }
 
-    pub fn read_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
+    pub fn read_mmio(&self, context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
         check_mmio_range(address, bytes);
-        let connections = self.connections.borrow();
-        let mut result = [0xff; 8];
-        let mut done = 0;
-        while done < bytes {
-            let current = address + u32::from(done);
-            let (device, count) = Self::mmio_span(&connections, current, bytes - done);
-            if let Some(device) = device {
-                let value = device
-                    .borrow_mut()
-                    .read_mmio(context.reborrow(), current, count)
-                    .to_le_bytes();
-                result[usize::from(done)..usize::from(done + count)]
-                    .copy_from_slice(&value[..usize::from(count)]);
-            }
-            done += count;
-        }
-        // Unused carrier bytes do not form part of the transfer.
-        result[usize::from(bytes)..].fill(0);
-        u64::from_le_bytes(result)
+        self.mmio.read(context, address, bytes)
     }
 
-    pub fn write_mmio(&self, mut context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
+    pub fn write_mmio(&self, context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         check_mmio_range(address, bytes);
-        let connections = self.connections.borrow();
-        let value = value.to_le_bytes();
-        let mut done = 0;
-        while done < bytes {
-            let current = address + u32::from(done);
-            let (device, count) = Self::mmio_span(&connections, current, bytes - done);
-            if let Some(device) = device {
-                let mut part = [0; 8];
-                part[..usize::from(count)]
-                    .copy_from_slice(&value[usize::from(done)..usize::from(done + count)]);
-                device.borrow_mut().write_mmio(
-                    context.reborrow(),
-                    current,
-                    count,
-                    u64::from_le_bytes(part),
-                );
-            }
-            done += count;
-        }
+        self.mmio.write(context, address, bytes, value);
     }
 
     pub fn read_port(&self, context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
@@ -239,26 +214,6 @@ impl State {
             bytes,
             value & (u32::MAX >> ((4 - bytes) * 8)),
         );
-    }
-
-    fn mmio_span(
-        connections: &[ConnectedDevice],
-        address: u32,
-        bytes: u8,
-    ) -> (Option<&RefCell<dyn Device>>, u8) {
-        let mut count = u64::from(bytes);
-        for connection in connections {
-            for range in &connection.mmio {
-                if range.contains(&address) {
-                    count = count.min(u64::from(*range.end()) - u64::from(address) + 1);
-                    return (Some(connection.device.as_ref()), count as u8);
-                }
-                if *range.start() > address {
-                    count = count.min(u64::from(*range.start()) - u64::from(address));
-                }
-            }
-        }
-        (None, count as u8)
     }
 }
 
