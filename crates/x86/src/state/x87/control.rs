@@ -176,29 +176,29 @@ impl Control {
     }
 }
 
+pub(crate) fn check_rounding(
+    x87: &mut X87Access<'_, '_>,
+    observed: &X87State,
+) -> Result<Val<I1>, BuildError> {
+    x87.state.control.matches_observed_mode(
+        x87.body,
+        cpu_location!(x87.control.rounding_control),
+        observed.control.rounding_control,
+    )
+}
+
+pub(crate) fn check_precision(
+    x87: &mut X87Access<'_, '_>,
+    observed: &X87State,
+) -> Result<Val<I1>, BuildError> {
+    x87.state.control.matches_observed_mode(
+        x87.body,
+        cpu_location!(x87.control.precision_control),
+        observed.control.precision_control,
+    )
+}
+
 impl X87Access<'_, '_> {
-    pub(crate) fn observed_rounding_condition(
-        &mut self,
-        observed: &X87State,
-    ) -> Result<Val<I1>, BuildError> {
-        self.state.control.matches_observed_mode(
-            self.body,
-            cpu_location!(x87.control.rounding_control),
-            observed.control.rounding_control,
-        )
-    }
-
-    pub(crate) fn observed_precision_condition(
-        &mut self,
-        observed: &X87State,
-    ) -> Result<Val<I1>, BuildError> {
-        self.state.control.matches_observed_mode(
-            self.body,
-            cpu_location!(x87.control.precision_control),
-            observed.control.precision_control,
-        )
-    }
-
     pub(crate) fn rounding(&mut self) -> Result<RoundingMode, BuildError> {
         self.state.control.rounding(self.body)
     }

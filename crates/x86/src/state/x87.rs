@@ -14,7 +14,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 use crate::{ssa::StateFields, x87::ExtendedValue, X87State};
 
 use super::access::cpu_location;
-pub(crate) use control::Exception;
+pub(crate) use control::{check_precision, check_rounding, Exception};
 
 #[derive(Clone)]
 pub(crate) struct X87Tracker {
@@ -91,30 +91,30 @@ pub(crate) struct X87Access<'state, 'body> {
     body: &'state mut BlockBuilder<'body>,
 }
 
-impl X87Access<'_, '_> {
-    /// Predicts PM=1 and PE=1 only when both were present in the snapshot.
-    pub(crate) fn observed_masked_precision_condition(
-        &mut self,
-        observed: &X87State,
-    ) -> Result<Val<I1>, BuildError> {
-        let precision_masked = observed.control.precision_mask & 1 != 0;
-        let precision_raised = observed.status.precision & 1 != 0;
-        if !precision_masked || !precision_raised {
-            return Ok(true.into());
-        }
-        let masked = self
-            .state
-            .control
-            .unmasked(self.body, Exception::Precision)?
-            .eq(false);
-        let raised = self
-            .state
-            .status
-            .exception_raised(self.body, Exception::Precision)?;
-        Ok(control::observed_condition(self.body, masked)?
-            .and(control::observed_condition(self.body, raised)?))
+/// Predicts PM=1 and PE=1 only when both were present in the snapshot.
+pub(crate) fn check_precision_status(
+    x87: &mut X87Access<'_, '_>,
+    observed: &X87State,
+) -> Result<Val<I1>, BuildError> {
+    let precision_masked = observed.control.precision_mask & 1 != 0;
+    let precision_raised = observed.status.precision & 1 != 0;
+    if !precision_masked || !precision_raised {
+        return Ok(true.into());
     }
+    let masked = x87
+        .state
+        .control
+        .unmasked(x87.body, Exception::Precision)?
+        .eq(false);
+    let raised = x87
+        .state
+        .status
+        .exception_raised(x87.body, Exception::Precision)?;
+    Ok(control::observed_condition(x87.body, masked)?
+        .and(control::observed_condition(x87.body, raised)?))
+}
 
+impl X87Access<'_, '_> {
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {
         self.state.control.word(self.body)
     }

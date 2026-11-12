@@ -3,6 +3,7 @@
 use super::*;
 use crate::{
     execution::{X87Operand, X87Operands},
+    state::x87::check_rounding,
     x87::LogarithmArgument,
 };
 
@@ -30,7 +31,7 @@ fn logarithm_product(
         ..
     } = execution.read_x87_operands(1.into(), X87Operand::Register(0.into()))?;
     let rounding = execution.x87().rounding()?;
-    execution.guard_observed_x87(|state, observed| state.observed_rounding_condition(observed))?;
+    execution.guard_observed_x87([check_rounding])?;
     execution.guard_x87_operands(
         &mut stack_fault,
         operands.logarithm_operands_valid(argument),

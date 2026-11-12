@@ -1,7 +1,7 @@
 //! F2XM1 uses full extended precision under RC, independently of PC.
 
 use super::*;
-use crate::x87::Operand;
+use crate::{state::x87::check_rounding, x87::Operand};
 
 instruction_families! {
     F2XM1 {
@@ -17,7 +17,7 @@ fn exponential_minus_one(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(),
     let mut empty = top.is_empty();
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
-    execution.guard_observed_x87(|state, observed| state.observed_rounding_condition(observed))?;
+    execution.guard_observed_x87([check_rounding])?;
     execution.guard_x87_operands(
         &mut empty,
         operand.normal_or_zero().and(operand.exponential_domain()),

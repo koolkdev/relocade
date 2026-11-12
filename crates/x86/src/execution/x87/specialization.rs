@@ -9,17 +9,23 @@ use crate::{
     X87State,
 };
 
+type X87Check = fn(&mut X87Access<'_, '_>, &X87State) -> Result<Val<I1>, BuildError>;
+
 impl ExecutionBuilder<'_, '_> {
-    /// Builds one observation guard; skips the callback without fallback or a snapshot.
-    pub(crate) fn guard_observed_x87(
+    /// Combines the requested checks into one guard when fallback and a snapshot exist.
+    pub(crate) fn guard_observed_x87<const N: usize>(
         &mut self,
-        build_condition: impl FnOnce(&mut X87Access<'_, '_>, &X87State) -> Result<Val<I1>, BuildError>,
+        checks: [X87Check; N],
     ) -> Result<(), BuildError> {
         self.if_can_fallback(|jit| {
             let Some(observed) = jit.observed_cpu else {
                 return Ok(());
             };
-            let condition = build_condition(&mut jit.x87(), &observed.x87)?;
+            let mut condition = Val::<I1>::from(true);
+            let mut state = jit.x87();
+            for check in checks {
+                condition = condition.and(check(&mut state, &observed.x87)?);
+            }
             jit.guard(condition)
         })?;
         Ok(())
