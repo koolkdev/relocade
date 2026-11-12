@@ -19,6 +19,8 @@ macro_rules! test_backends {
 
 #[path = "mappings/configuration.rs"]
 mod configuration;
+#[path = "mappings/transfers.rs"]
+mod transfers;
 
 async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu {
     let compiler = Compiler::new(ExecutionProfile::Real16);

@@ -8,7 +8,7 @@ use connection::ConnectedDevice;
 pub use connection::DeviceConnection;
 pub use context::IoContext;
 pub use device::Device;
-pub use ports::{PortBinding, PortRange, PortRead, PortWrite};
+pub use ports::{DeviceCallbacks, PortBinding, PortRange, PortRead, PortWrite};
 
 use crate::runtime::WasmRuntimeHandle;
 use relocade_wasm_runtime::WasmBackend;
@@ -28,6 +28,10 @@ use std::{
 /// A bus can be attached to only one CPU over its lifetime, including after
 /// that CPU is dropped or its initialization fails.
 /// Unconnected reads return FF bytes and unconnected writes are ignored.
+/// Port routing looks up only the starting address and passes the complete width
+/// to its operation. An unmapped start does not continue to a later mapped port.
+/// To continue from an unused address within a byte window, install a bounded
+/// sequence default there before installing the implemented operations.
 ///
 /// Host accesses briefly borrow the stopped runtime. Device callbacks use their
 /// supplied [`IoContext`] instead of reacquiring it through this handle.
@@ -125,14 +129,15 @@ impl IoBus {
         self.with_context(|context| self.state.write_mmio(context, address, bytes, value))
     }
 
-    /// Reads 1, 2 or 4 bytes from the device at `port` in one call. Unused result
-    /// bits are zero; the device owns the meaning of word and dword transfers.
+    /// Dispatches a complete 1-, 2- or 4-byte read to the operation at `port`.
+    /// Unused result bits are zero; the operation defines transfer behavior.
     /// Panics unless `bytes` is 1, 2 or 4.
     pub fn read_port(&self, port: u16, bytes: u8) -> u32 {
         self.with_context(|context| self.state.read_port(context, port, bytes))
     }
 
-    /// Writes the low 1, 2 or 4 bytes to the device at `port` in one call.
+    /// Dispatches a complete 1-, 2- or 4-byte write to the operation at `port`,
+    /// which defines transfer behavior. Unused upper value bits are cleared.
     /// Panics unless `bytes` is 1, 2 or 4.
     pub fn write_port(&self, port: u16, bytes: u8, value: u32) {
         self.with_context(|context| self.state.write_port(context, port, bytes, value))

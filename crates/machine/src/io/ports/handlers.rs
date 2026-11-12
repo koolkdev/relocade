@@ -61,8 +61,9 @@ impl PortRead {
         })
     }
 
-    /// The callback receives a width of 1, 2 or 4 bytes and owns wide-read
-    /// behavior. Callers consume only the low result bytes.
+    /// Delivers the original starting address and complete width of 1, 2 or 4
+    /// bytes to the callback, which defines the transfer behavior. Callers
+    /// consume only the low result bytes.
     pub fn new(read: impl Fn(IoContext<'_>, u16, u8) -> u32 + 'static) -> Self {
         let read = Rc::new(read);
         let captured = read.clone();
@@ -84,6 +85,17 @@ impl PortRead {
 
 /// A reusable write operation with the same binding and lifetime rules as
 /// [`PortRead`]. Callbacks receive values with unused upper bits cleared.
+///
+/// For a word write of 0F02 at an index port, the starting operation determines
+/// whether and how the following port is accessed:
+///
+/// | Constructor | Behavior |
+/// |---|---|
+/// | [`byte`](Self::byte) | Rejects the write without invoking the callback. |
+/// | [`low_byte`](Self::low_byte) | Invokes the callback once with 02; the next port is untouched. |
+/// | [`byte_sequence`](Self::byte_sequence) | Invokes the first callback with 02, then resolves the next port for 0F if inside the window. |
+/// | [`word`](Self::word) | Invokes one callback with the complete word 0F02. |
+/// | [`new`](Self::new) | Delivers the original address, width and value to the callback. |
 #[derive(Clone)]
 pub struct PortWrite(pub(super) Rc<Handler<abi::PortWriteSignature, Write>>);
 
@@ -101,6 +113,8 @@ impl PortWrite {
         })
     }
 
+    /// Delivers the original starting address, complete width of 1, 2 or 4 bytes,
+    /// and value to the callback, which defines the transfer behavior.
     pub fn new(write: impl Fn(IoContext<'_>, u16, u8, u32) + 'static) -> Self {
         let write = Rc::new(write);
         let captured = write.clone();
