@@ -55,6 +55,8 @@ This is a public repository. Commit messages use `component: title`.
   code size, even if the JIT already supports those cases. Keep common cases compiled.
   Justify rarity from expected or measured workloads, measure the speed or code-size
   benefit, and test precise restart and interpreter correctness for excluded cases.
+- Keep mixed-width register aliases memory-backed unless runtime measurements
+  justify a change; earlier V8 measurements favored this over extract/merge expressions.
 - Use `guard` when a failed condition should restart the current instruction
   in the interpreter. Build paths requiring fallback through `if_can_fallback`,
   or within an execution owner that already requires that capability. Guard before
@@ -127,45 +129,9 @@ This is a public repository. Commit messages use `component: title`.
 
 ## Review and validation
 
-- Before calling a part ready, review the expanded modules, not only the added lines.
-  Check for missed generalization, duplicated mechanisms, awkward APIs, misleading
-  names, stale comments and tests that preserve obsolete implementation details.
-- Run focused local Wasmtime tests for changed behavior, along with formatting and
-  relevant static checks. Run focused browser tests for web runtime changes,
-  including bindings, memory, callbacks and dispatch. Keep DOS and VFS behavior
-  tests native.
-- Leave full workspace test suites to CI by default. Once focused local
-  checks and review pass, commit, push and open or update the PR without waiting
-  for full local suites or CI to finish. Report pending CI explicitly. Run broader
-  local suites only to investigate a concrete concern or failure, to cover a gap
-  in CI, or when the user requests them.
-- Compare Wasm bytes first; do not benchmark identical output. Measure changed
-  output with meaningful workloads and matching execution boundaries, and report
-  uncertainty honestly.
-- Preserve the measured memory-backed handling of mixed-width register aliases.
-  Earlier V8 measurements favored backing reads and writes over extract/merge
-  expressions; textbook SSA shape alone is not a reason to replace that design.
-  Require relevant runtime evidence before changing the mechanism.
-- Focus performance work on frequent hot paths. Keep rare paths correct and watch
-  for material regressions, but do not chase possible 1–5% gains there.
-- For extremely rare opcodes, skip reference comparisons and performance measurements;
-  retain architectural correctness tests and relevant engine coverage.
-- When comparing instruction additions, use common generated snapshot blocks. Defer
-  interpreter performance comparisons until interpreter work, and keep split-page
-  accesses in correctness coverage rather than instruction performance workloads.
-- Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
-  a mechanism. Review design changes together with their generated-code consequences.
-- Complete implementation, comments, tests and focused local validation for the
-  current part before presenting it. Get an independent review for substantive
-  changes and inspect the exact staged diff, including every file proposed for
-  the commit.
-- Report decisions, verification and material limitations, including module-boundary
-  decisions for substantially expanded files.
-- Every completed change report includes a concise walkthrough of added or reshaped
-  types, schemas and consumer APIs, with representative code excerpts and the reasons
-  for their design. Distinguish new interfaces from existing ones reused by the change.
-  If these did not change, say so.
-- Within the agreed task scope, complete review and focused local validation,
-  then commit, push and open or update pull requests.
-- Resolve routine implementation choices while completing the current part; do not
-  leave it half-finished merely to request those choices.
+- Finish the requested change, commit, push and open or update the PR.
+- Let CI run builds, tests, formatting and static checks. Run local checks only
+  when needed to implement or debug the change, or when the user asks.
+- Do not add extra reviews, involve another reviewer or wait for CI unless asked.
+- Report the result briefly. Distinguish checks actually run from verification
+  left to CI.
