@@ -1,7 +1,7 @@
 use super::*;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Clock, Device};
-use relocade_vga::{Scanout, Vga};
+use relocade_vga::{DispiAdapter, Scanout};
 use std::{
     cell::RefCell,
     future::Future,
@@ -24,9 +24,9 @@ impl Wake for Wakes {
     }
 }
 
-fn device(clock: Clock) -> (Rc<RefCell<Vga>>, IoBus) {
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock)));
-    let io = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
+fn device(clock: Clock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
+    let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     for (register, value) in [(1, 640), (2, 480), (3, 8), (4, 1), (6, 1024)] {
         write_register(&io, register, value);
     }
@@ -46,7 +46,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     write_register(&io, 5, 7);
     io.write_mmio(0xa8020, 1, 2); // Pixel (32, 480) with pitch 1024.
     let frames = vga.borrow().frames();
-    let mut video = pin!(Vga::run(vga.clone()));
+    let mut video = pin!(DispiAdapter::run(vga.clone()));
     let mut video_cx = Context::from_waker(Waker::noop());
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
     let wakes = Arc::new(Wakes::default());

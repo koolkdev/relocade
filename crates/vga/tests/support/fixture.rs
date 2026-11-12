@@ -1,18 +1,18 @@
 //! Connected devices and guest-visible programming shared by VGA fixtures.
 #![allow(dead_code)]
 use relocade_machine::{Clock, IoBus};
-use relocade_vga::{registers::text_mode, Vga};
+use relocade_vga::{registers::text_mode, DispiAdapter};
 use std::{cell::RefCell, rc::Rc};
 
 pub struct ConnectedVga {
-    pub device: Rc<RefCell<Vga>>,
+    pub device: Rc<RefCell<DispiAdapter>>,
     pub io: IoBus,
 }
 
 impl ConnectedVga {
     pub fn new(clock: Clock) -> Self {
-        let device = Rc::new(RefCell::new(Vga::with_clock(clock)));
-        let io = IoBus::new(device.clone(), |io| Vga::configure_io(io, &device));
+        let device = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
+        let io = IoBus::new(device.clone(), |io| DispiAdapter::configure_io(io, &device));
         Self { device, io }
     }
 

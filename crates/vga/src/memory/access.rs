@@ -1,15 +1,5 @@
 //! Transfer policies supplied by the device for CPU access to video memory.
 
-use crate::registers::Registers;
-
-/// One transfer's access policy, selected by the device before borrowing memory.
-#[derive(Clone, Copy)]
-pub(crate) enum VramAccess<'a> {
-    Disabled,
-    Vga(&'a Registers),
-    Window(VramWindow),
-}
-
 /// A bounded CPU address window into contiguous physical VRAM. The device
 /// supplies a window whose entire backing range is valid.
 #[derive(Clone, Copy)]

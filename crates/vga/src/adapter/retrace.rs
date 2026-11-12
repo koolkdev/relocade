@@ -1,11 +1,11 @@
 //! Owned waits prepared from the live device's vertical retrace timing.
 
-use crate::Vga;
+use crate::DispiAdapter;
 use futures_lite::future::or;
 use relocade_machine::Timestamp;
 use std::future::Future;
 
-/// What completed a wait prepared by [`Vga::wait_for_retrace`].
+/// What completed a wait prepared by [`DispiAdapter::wait_for_retrace`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetraceEvent {
     /// Retrace occurred; its pulse may have ended before the caller resumes.
@@ -14,7 +14,7 @@ pub enum RetraceEvent {
     Reconfigured,
 }
 
-impl Vga {
+impl DispiAdapter {
     /// Prepare an owned wait without retaining a device borrow across suspension.
     /// Already being in retrace completes immediately. Suppressed sync waits
     /// for configuration changes to restore the signal; disabled VGA returns None.
@@ -23,7 +23,7 @@ impl Vga {
     /// revalidation after [`RetraceEvent::Reconfigured`]. Capture activity need
     /// not be running.
     pub fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static> {
-        if !self.setup.enabled() {
+        if !self.vga.setup.enabled() {
             return None;
         }
         self.advance_raster(self.clock.now());

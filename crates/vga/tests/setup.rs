@@ -3,7 +3,7 @@ use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, poll_video};
 use relocade_machine::Device;
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use std::{task::Context, task::Waker};
 
 #[cfg(target_arch = "wasm32")]
@@ -104,7 +104,7 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     let vga = common::text_vga(clock.clock());
     vga.io.write_mmio(0xb8000, 2, 0x0741);
     let source = vga.device.borrow().frames();
-    let mut video = std::pin::pin!(Vga::run(vga.device.clone()));
+    let mut video = std::pin::pin!(DispiAdapter::run(vga.device.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     clock.advance_to(clock.at(boundary(1)));
     poll_video(video.as_mut(), &mut cx);

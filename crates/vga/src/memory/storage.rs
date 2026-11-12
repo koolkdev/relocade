@@ -46,6 +46,10 @@ impl Default for Storage {
 }
 
 impl Storage {
+    pub fn capacity(&self) -> u32 {
+        (self.blocks.len() * BLOCK_BYTES) as u32
+    }
+
     pub fn clear(&mut self) {
         *self = Self::default();
         // Retained captures keep their old storage. Every cleared block must be

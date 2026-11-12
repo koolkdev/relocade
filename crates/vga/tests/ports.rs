@@ -5,7 +5,7 @@ mod guest;
 
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Device, IoBus, PortRead, PortWrite};
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use std::{
     cell::{Cell, RefCell},
     pin::pin,
@@ -15,9 +15,9 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn connect(clock: &ManualClock) -> (Rc<RefCell<Vga>>, IoBus) {
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
-    let io = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
+fn connect(clock: &ManualClock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     (vga, io)
 }
 
@@ -207,7 +207,7 @@ fn status_routing_and_attribute_phase_follow_writes_and_state_restore() {
 fn status_reads_service_capture_edges_and_share_updates_from_the_output_task() {
     let clock = ManualClock::new();
     let (vga, io) = connect(&clock);
-    let mut video = pin!(Vga::run(vga.clone()));
+    let mut video = pin!(DispiAdapter::run(vga.clone()));
     common::service_video(video.as_mut());
     let frames = vga.borrow().frames();
     io.write_port(0x3d4, 2, 0x230d); // Latches at the next internal retrace.

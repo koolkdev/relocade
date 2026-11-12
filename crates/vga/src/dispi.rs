@@ -10,7 +10,7 @@
 mod modes;
 pub use modes::{DispiMode, DispiResolution};
 
-use crate::{effects::Effects, memory::VramWindow, PackedLayout, Timing, VIDEO_MEMORY_BYTES};
+use crate::{memory::VramWindow, PackedLayout, Timing};
 use std::ops::RangeInclusive;
 
 pub const INDEX_PORT: u16 = 0x01ce;
@@ -62,14 +62,6 @@ struct ActiveMode {
 }
 
 impl Dispi {
-    pub(crate) fn write_effect(&self) -> Effects {
-        match self.index {
-            ENABLE => Effects::CONFIGURATION,
-            VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET if self.enabled() => Effects::CONFIGURATION,
-            _ => Effects::NONE,
-        }
-    }
-
     pub fn to_state_bytes(&self) -> [u8; 18] {
         let layout = self.display_layout();
         let [x, y] = layout.map_or([0, 0], PackedLayout::origin);
@@ -91,12 +83,12 @@ impl Dispi {
         bytes
     }
 
-    pub fn from_state_bytes(bytes: &[u8; 18]) -> Option<Self> {
+    pub fn from_state_bytes(bytes: &[u8; 18], memory_bytes: u32) -> Option<Self> {
         let words = std::array::from_fn(|index| {
             u16::from_le_bytes([bytes[index * 2], bytes[index * 2 + 1]])
         });
         let [index, width, height, bits_per_pixel, flags, bank, pitch, x, y] = words;
-        if u32::from(bank) >= VIDEO_MEMORY_BYTES / BANK_BYTES {
+        if u32::from(bank) >= memory_bytes / BANK_BYTES {
             return None;
         }
         let active = if flags == DISABLED {
@@ -110,7 +102,7 @@ impl Dispi {
                 return None;
             }
             let layout = DispiMode::from_registers(width, height, bits_per_pixel)?
-                .layout(VIDEO_MEMORY_BYTES)?
+                .layout(memory_bytes)?
                 .with_pitch(u32::from(pitch))?
                 .with_origin([u32::from(x), u32::from(y)])?;
             Some(ActiveMode { layout, flags })
@@ -182,7 +174,7 @@ impl Dispi {
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write(&mut self, value: u16) -> WriteAction {
+    pub fn write(&mut self, value: u16, memory_bytes: u32) -> WriteAction {
         match self.index {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,
@@ -196,7 +188,7 @@ impl Dispi {
                 };
                 self.active = Some(ActiveMode {
                     layout: mode
-                        .layout(VIDEO_MEMORY_BYTES)
+                        .layout(memory_bytes)
                         .expect("supported DISPI mode fits VRAM"),
                     flags: value,
                 });
@@ -207,7 +199,7 @@ impl Dispi {
                     WriteAction::None
                 };
             }
-            BANK if u32::from(value) < VIDEO_MEMORY_BYTES / BANK_BYTES => self.bank = value,
+            BANK if u32::from(value) < memory_bytes / BANK_BYTES => self.bank = value,
             VIRTUAL_WIDTH | X_OFFSET | Y_OFFSET => {
                 if let Some(active) = &mut self.active {
                     let layout = active.layout;

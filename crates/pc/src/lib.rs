@@ -17,7 +17,7 @@ use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
-use relocade_vga::{DisplaySnapshot, Vga};
+use relocade_vga::{DispiAdapter, DisplaySnapshot};
 use relocade_x86::CpuFeature;
 use std::{cell::RefCell, rc::Rc};
 
@@ -27,7 +27,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
 pub struct Pc {
     runner: Runner,
-    vga: Rc<RefCell<Vga>>,
+    vga: Rc<RefCell<DispiAdapter>>,
     speaker: Rc<RefCell<Speaker>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
@@ -39,7 +39,7 @@ impl Pc {
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and speaker emulation require no platform output.
     pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
-        let vga = Vga::initialize(&runner).await;
+        let vga = DispiAdapter::initialize(&runner).await;
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
@@ -121,7 +121,7 @@ impl Pc {
     }
 
     /// Retains the VGA device on its execution owner. End borrows before polling.
-    pub fn vga(&self) -> Rc<RefCell<Vga>> {
+    pub fn vga(&self) -> Rc<RefCell<DispiAdapter>> {
         self.vga.clone()
     }
 

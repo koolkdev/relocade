@@ -1,18 +1,21 @@
 //! Cached Input Status 1 reads with raster work only when its deadline is due.
 
-use crate::Vga;
+use crate::DispiAdapter;
 use relocade_machine::IoContext;
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},
 };
 
-pub(super) fn read(vga: &Vga, device: &Rc<RefCell<Vga>>) -> impl Fn(IoContext<'_>) -> u8 + 'static {
+pub(super) fn read(
+    card: &DispiAdapter,
+    device: &Rc<RefCell<DispiAdapter>>,
+) -> impl Fn(IoContext<'_>) -> u8 + 'static {
     // Web callbacks can outlive their bus until JavaScript collection. The raster
     // owns this clock-bearing state so retained callbacks cannot delay shutdown.
-    let status = Rc::downgrade(&vga.raster.status);
+    let status = Rc::downgrade(&card.raster.status);
     let device = Rc::downgrade(device);
-    let read_status = vga.registers.attribute.handle_read(move || {
+    let read_status = card.vga.registers.attribute.handle_read(move || {
         let status = status.upgrade().expect("connected VGA raster");
         if status.observe_now() {
             refresh_raster(&device);
@@ -25,7 +28,7 @@ pub(super) fn read(vga: &Vga, device: &Rc<RefCell<Vga>>) -> impl Fn(IoContext<'_
 // Ordinary polls never upgrade the weak device or borrow its other state.
 #[cold]
 #[inline(never)]
-fn refresh_raster(device: &Weak<RefCell<Vga>>) {
+fn refresh_raster(device: &Weak<RefCell<DispiAdapter>>) {
     device
         .upgrade()
         .expect("connected VGA")
@@ -62,7 +65,7 @@ mod tests {
     fn retained_reader_does_not_keep_the_clock_alive() {
         let released = Rc::new(Cell::new(false));
         let clock = Clock::new(ObservedClock(released.clone()));
-        let device = Rc::new(RefCell::new(Vga::with_clock(clock)));
+        let device = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
         let reader = read(&device.borrow(), &device);
         assert!(!released.get());
         drop(device);

@@ -6,12 +6,11 @@ use crate::{
         sequencer::Sequencer,
         setup::Setup,
     },
-    Vga,
+    VgaCore,
 };
 
 /// Standard VGA registers, CPU access phases/latches and adapter address decoding.
-/// Palette colors and Color Select belong to `DacState`; DISPI programming belongs
-/// to `DispiState`.
+/// Palette colors and Color Select belong to `DacState`; extended card programming is saved separately.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VgaCoreState {
     crtc: Crtc,
@@ -27,7 +26,7 @@ pub struct VgaCoreState {
 impl VgaCoreState {
     pub const BYTE_LEN: usize = 74;
 
-    pub(super) fn capture(vga: &Vga) -> Self {
+    pub(crate) fn capture(vga: &VgaCore) -> Self {
         let registers = &vga.registers;
         let mut attribute = registers.attribute.clone();
         attribute.values[attribute::COLOR_SELECT as usize] = 0;
@@ -39,7 +38,7 @@ impl VgaCoreState {
             miscellaneous: registers.miscellaneous,
             feature_control: registers.feature_control,
             setup: vga.setup.clone(),
-            latches: vga.memory.latches(),
+            latches: vga.latches,
         }
     }
 
@@ -106,7 +105,7 @@ impl VgaCoreState {
         (state.to_bytes() == *bytes).then_some(state)
     }
 
-    pub(super) fn restore(self, vga: &mut Vga) {
+    pub(crate) fn restore(self, vga: &mut VgaCore) {
         let color_select = vga.registers.attribute.values[attribute::COLOR_SELECT as usize];
         vga.registers.crtc = self.crtc;
         vga.registers.sequencer = self.sequencer;
@@ -116,6 +115,6 @@ impl VgaCoreState {
         vga.registers.miscellaneous = self.miscellaneous;
         vga.registers.feature_control = self.feature_control;
         vga.setup = self.setup;
-        vga.memory.restore_latches(self.latches);
+        vga.latches = self.latches;
     }
 }

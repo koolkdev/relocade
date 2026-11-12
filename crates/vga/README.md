@@ -1,6 +1,10 @@
 # VGA compatibility
 
-`Vga` owns 4 MiB of shared video memory, registers and programmable timing on the
+`VgaCore` owns the standard VGA registers, access protocols and CPU read latches.
+`DispiAdapter` composes that core with DISPI, one VRAM, one raster and one output
+lifetime. It owns routing, display effects and coordinated restoration.
+
+`DispiAdapter` owns 4 MiB of shared video memory, registers and programmable timing on the
 execution worker. The first 256 KiB supplies the four 64-KiB legacy VGA planes.
 BIOS and direct guest writes reach the same MMIO memory. Text decoding
 uses captured geometry, row stride, physical address mapping, 8/9-dot characters,
@@ -64,7 +68,7 @@ at about 59.94 Hz. The vertical-counter divider scales display height and split
 position independently of character height and repeated scanlines.
 
 `timing/vga` decodes programmable register fields, including the four-bit retrace
-end comparison and its wrap across the vertical counter reset. `registers/dispi/modes`
+end comparison and its wrap across the vertical counter reset. `dispi/modes`
 supplies the fixed preset. Both produce common `Timing` counts, explicit retrace
 intervals and clock rates. `Raster` retains position, fractional progress and
 the lifetime retrace count; it knows no CRTC encoding or VGA blink divider.
@@ -613,7 +617,7 @@ raster-synchronized smooth scrolling.
 `Scanout`. `Scanout::Vga(VgaDisplayState)` retains raw display register values,
 display enable, the effective start-address latch and both blink phases. CPU
 register indices, access phases and DAC transfer position remain on the live
-device; execution-owner inspection uses `Vga::registers()`. Capture creation
+device; execution-owner inspection uses `DispiAdapter::registers()`. Capture creation
 copies display values without advancing any port or memory-access state.
 Frame publication ignores known CPU-only Sequencer and Graphics controls and
 compares all other captured state in full. Comparison uses copies, leaving raw
@@ -627,7 +631,7 @@ protection and display-start latching remain on the live `Crtc`.
 and physical display origin. It carries no legacy VGA registers or blink phases.
 The scanout variant is read-only so it stays paired with its captured memory extent.
 
-Skipping captures loses no inputs required by the selected one. `Vga::snapshot()`
+Skipping captures loses no inputs required by the selected one. `DispiAdapter::snapshot()`
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
 returns common image dimensions and explicit pixel aspect ratio. VGA row
@@ -644,7 +648,7 @@ write modes and masks apply before that comparison. Subsequent writes reuse the
 device's private block until the next capture. Retaining many distinct captures
 can therefore retain many versions of a block.
 
-`Vga::frames()` returns an `async_channel::Receiver<DisplaySnapshot>` for a
+`DispiAdapter::frames()` returns an `async_channel::Receiver<DisplaySnapshot>` for a
 capacity-one queue. Sending replaces an older queued snapshot, so a slow consumer
 receives recent state without a backlog. Use one consumer; cloned receivers compete
 for the same snapshots. The consumer owns any snapshot it retains. Snapshots have
@@ -674,7 +678,7 @@ Keep the host timer service running while execution tasks have pending waits.
 
 Captured memory and display settings are renderer inputs. An embedding can
 read them directly or use the optional GPU renderer below. Device-only users do
-not need GPU dependencies. `Vga::run` services retraces and publishes synchronized
+not need GPU dependencies. `DispiAdapter::run` services retraces and publishes synchronized
 captures; the embedding owns redraw scheduling, request coalescing, dimensions and presentation.
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
@@ -727,7 +731,7 @@ pages 3-78–3-79. Eight-bit graphics bypass this attribute palette operation;
 text keeps its foreground/background blink behavior. Phase changes update the
 sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
 
-`Vga::initialize(runner).await` creates VGA on the session clock, registers its
+`DispiAdapter::initialize(runner).await` creates VGA on the session clock, registers its
 memory aperture and ports, and starts display capture. It returns the device
 handle with its mappings already installed on the runner's bus.
 
@@ -1061,7 +1065,7 @@ restoration and retained output after the device is destroyed.
 Display-start control supports immediate updates, position queries and BL=80h
 retrace synchronization. Requests validate the whole visible rectangle;
 invalid coordinates or reserved selectors leave state unchanged. The retrace
-variant uses `Vga::wait_for_retrace` on the same device passed by `Pc` to BIOS
+variant uses `DispiAdapter::wait_for_retrace` on the same device passed by `Pc` to BIOS
 interrupt registration. The method prepares an owned future from VGA's clock
 and configuration notifications; BIOS releases the device borrow before awaiting
 it. `RetraceEvent::Started` reports a retrace occurrence, while `Reconfigured`
@@ -1106,7 +1110,7 @@ accesses crossing AFFFFh do not spill into the next bank. Adapter setup and
 Miscellaneous Output memory gating still apply. The existing six-bit VGA DAC
 ports program the shared palette, with their existing byte-transfer rules.
 Embeddings register the same operations and MMIO aperture through
-`Vga::configure_io(io, &vga)`. Separate helpers bind the common VGA ports and
+`DispiAdapter::configure_io(io, &vga)`. Separate helpers bind the common VGA ports and
 the DISPI interface through that same connection. The existing I/O companion
 retains both sets of operations, with the same adapter-enable gate. Port
 operations are prepared once at connection.
@@ -1152,13 +1156,12 @@ Attribute validates its saved bytes internally, so save/restore does not replay
 the access protocol. Inactive status aliases leave that state untouched, and wide
 status reads supply FF trailing bytes.
 
-For each CPU transfer, `select_memory_access` in the device glue resolves the
-adapter gates and active interface into `VramAccess`: disabled, legacy VGA
-registers, or a `VramWindow`. Memory owns this small window value: a CPU start
-address, VRAM start offset and byte length. DISPI constructs it from its validated
-bank register. `VideoMemory` applies the supplied policy to every byte, retaining
-ownership of VGA latches, aperture bounds and shared storage without selecting
-an interface or depending on DISPI state. The device applies explicit
+For each CPU transfer, the card selects disabled access, the VGA core or a packed
+`VramWindow`. `VgaCore` implements VGA planar addressing and read/write-latch
+semantics over the supplied memory. `VideoMemory` owns physical storage and
+bounded window transfers, with no VGA register or DISPI dependency. DISPI
+constructs its bank window and validates packed layouts against that memory's
+actual capacity. The device applies explicit
 `WriteAction` results from DISPI, including `ClearVram` on mode entry. Both
 register banks remain stored on the device across addressing-mode changes.
 
@@ -1177,7 +1180,7 @@ Dirty pages are tracked throughout
 VRAM; an upload uses sparse ranges only when its prior block matches the
 capture's baseline, and uploads a complete block when that baseline is absent.
 
-`Vga::snapshot()` captures active display inputs immediately; retained captures
+`DispiAdapter::snapshot()` captures active display inputs immediately; retained captures
 render after mode changes or device destruction. Automatic publication uses the
 same shared frame source for both modes.
 

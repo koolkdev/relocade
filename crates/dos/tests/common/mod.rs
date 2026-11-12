@@ -169,7 +169,7 @@ pub async fn next_capture(dos: &Dos) -> relocade_vga::DisplaySnapshot {
     // Guest writes may have staged an older capture without publishing it. Only
     // service output after a fresh retrace can sample the final programming.
     let mut capture = std::pin::pin!(source.recv());
-    let mut video = std::pin::pin!(relocade_vga::Vga::run(vga));
+    let mut video = std::pin::pin!(relocade_vga::DispiAdapter::run(vga));
     std::future::poll_fn(|cx| {
         assert!(video.as_mut().poll(cx).is_pending());
         capture.as_mut().poll(cx)

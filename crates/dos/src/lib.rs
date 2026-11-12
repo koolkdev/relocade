@@ -178,7 +178,7 @@ use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner}
 pub use relocade_pc::configuration;
 use relocade_pc::Pc;
 use relocade_pc_speaker::Speaker;
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
@@ -437,7 +437,7 @@ impl Dos {
     /// Retains the execution-local device, including while the CPU awaits input.
     /// Give other workers the immutable captures from [`Dos::frames`].
     /// End device borrows before polling execution or dropping the session.
-    pub fn vga(&self) -> Rc<RefCell<Vga>> {
+    pub fn vga(&self) -> Rc<RefCell<DispiAdapter>> {
         self.pc.vga()
     }
 

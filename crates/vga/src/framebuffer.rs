@@ -2,7 +2,7 @@
 mod addressing;
 mod location;
 
-use crate::{memory::VideoMemory, PixelFormat, Scanout, Vga, VgaDisplayState};
+use crate::{memory::VideoMemory, PixelFormat, Scanout};
 use addressing::Addressing;
 use location::Location;
 
@@ -19,34 +19,11 @@ pub trait FramebufferAccess {
     fn framebuffer(&mut self) -> Framebuffer<'_>;
 }
 
-impl FramebufferAccess for Vga {
-    fn framebuffer(&mut self) -> Framebuffer<'_> {
-        self.capture_if_due();
-        let scanout = match self.dispi.display_layout() {
-            Some(layout) => Scanout::Packed(layout),
-            None => {
-                let mut state = VgaDisplayState::capture(&self.registers, 0);
-                // Services draw into the programmed viewport, including a page
-                // selected for the next retrace. Captures retain their latched start.
-                state.display_start = u16::from_be_bytes([
-                    state.crtc.values[crate::registers::crtc::START_ADDRESS_HIGH as usize],
-                    state.crtc.values[crate::registers::crtc::START_ADDRESS_LOW as usize],
-                ]);
-                Scanout::Vga(state)
-            }
-        };
-        Framebuffer {
-            memory: &mut self.memory,
-            scanout,
-        }
-    }
-}
-
 /// A synchronous drawing scope over physical VRAM. Writes participate in normal
 /// capture dirty tracking. Registers, CPU latches and bank selection are untouched.
 pub struct Framebuffer<'a> {
-    memory: &'a mut VideoMemory,
-    scanout: Scanout,
+    pub(crate) memory: &'a mut VideoMemory,
+    pub(crate) scanout: Scanout,
 }
 
 /// A sampled pixel and its original physical location. Retaining this value lets

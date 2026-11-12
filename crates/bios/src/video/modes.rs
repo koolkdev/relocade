@@ -6,8 +6,9 @@ use super::{
 };
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+use relocade_vga::dispi;
 use relocade_vga::{
-    registers::{dispi, sequencer, SEQUENCER_INDEX_PORT},
+    registers::{sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
 };
 

@@ -3,7 +3,7 @@ use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{boundary, crtc, dots, poll_video};
 use relocade_machine::Device;
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use std::{
     cell::RefCell,
     pin::pin,
@@ -274,8 +274,8 @@ fn deadlines_follow_the_device_origin_and_do_not_accumulate_rounding() {
     let clock = ManualClock::default();
     let origin = Duration::from_secs(12);
     clock.advance_to(clock.at(origin));
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clock())));
-    let mut video = pin!(Vga::run(vga.clone()));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let mut video = pin!(DispiAdapter::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(
@@ -303,7 +303,7 @@ fn deadlines_follow_the_device_origin_and_do_not_accumulate_rounding() {
 fn configuration_changes_replace_a_pending_deadline_and_restart_a_stopped_device() {
     let clock = ManualClock::default();
     let vga = ConnectedVga::new(clock.clock());
-    let mut video = pin!(Vga::run(vga.device.clone()));
+    let mut video = pin!(DispiAdapter::run(vga.device.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
     assert_eq!(
@@ -349,8 +349,8 @@ fn native_guest_deadlines_reach_status_edges_through_the_connected_bus() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(25_175_000).unwrap());
     let clock = driver.clock();
     let start = clock.now();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.clone())));
-    let bus = IoBus::new(vga.clone(), |io| Vga::configure_io(io, &vga));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
+    let bus = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     for (count, status) in [(639, 0), (640, 1), (800, 0), (412 * 800, 9), (414 * 800, 1)] {
         let deadline = clock.add(start, dots(count, 25_175_000));
         // Service a cold edge one native tick late. The following cached edge

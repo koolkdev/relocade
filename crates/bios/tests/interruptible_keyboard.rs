@@ -5,7 +5,7 @@ use relocade_machine::{
     real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
     Memory,
 };
-use relocade_vga::Vga;
+use relocade_vga::DispiAdapter;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
     Segment,
@@ -55,7 +55,7 @@ impl Device for Timer {
     }
 }
 
-async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>) {
+async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<DispiAdapter>>) {
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
@@ -70,9 +70,9 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Vga>>
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
-    let vga = Rc::new(RefCell::new(Vga::with_clock(clock.into())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.into())));
     let io = IoBus::default();
-    io.connect(vga.clone(), |io| Vga::configure_io(io, &vga));
+    io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(timer.clone(), |_| {});
     let mut state = CpuState {
         eip: 0x100,

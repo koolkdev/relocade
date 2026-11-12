@@ -2,7 +2,7 @@
 
 mod writes;
 
-use crate::{registers::WriteKind, PackedLayout, Timing, Vga};
+use crate::{registers::WriteKind, DispiAdapter, PackedLayout, Timing};
 use relocade_machine::IoContext;
 
 #[derive(Clone, Copy)]
@@ -41,7 +41,7 @@ impl Effects {
     };
 }
 
-impl Vga {
+impl DispiAdapter {
     pub(super) fn legacy_effect(&self, kind: WriteKind) -> Effects {
         if self.dispi.display_layout().is_some() {
             return Effects::NONE;
@@ -94,7 +94,7 @@ impl Vga {
         let layout = self.dispi.display_layout();
         let timing = match layout {
             Some(_) => self.dispi.timing().expect("active DISPI timing"),
-            None => Timing::vga(&self.registers),
+            None => Timing::vga(&self.vga.registers),
         };
         let timing_changed =
             if layout.map(|layout| layout.size()) != previous_layout.map(|layout| layout.size()) {
