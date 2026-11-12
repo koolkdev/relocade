@@ -9,6 +9,7 @@ mod effects;
 mod facts;
 mod flow;
 mod joins;
+mod memo;
 mod reads;
 mod reduce;
 #[cfg(test)]

@@ -1,9 +1,12 @@
 //! Fold and lower recipes under fixed path facts before scheduling calculations.
 use super::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 mod equivalences;
 use equivalences::Equivalences;
+mod dependencies;
+use super::memo::Memo;
+pub(super) use dependencies::ReductionGraph;
 
 #[cfg(test)]
 mod tests;
@@ -11,8 +14,9 @@ mod tests;
 #[derive(Default)]
 pub(super) struct Reducer {
     facts: ScalarFacts,
-    residuals: FxHashMap<usize, usize>,
+    reductions: Memo<usize>,
     equivalents: Equivalences,
+    visited: FxHashSet<usize>,
     pending: Vec<Work>,
 }
 
@@ -24,6 +28,19 @@ enum Work {
 }
 
 impl Reducer {
+    pub(super) fn fork(&self, facts: ScalarFacts, graph: &mut ReductionGraph) -> Self {
+        let changed = graph.changed(&self.facts, &facts);
+        let mut reductions = self.reductions.clone();
+        for value in changed {
+            reductions.remove(value);
+        }
+        Self {
+            facts,
+            reductions,
+            ..Self::default()
+        }
+    }
+
     pub(super) fn from_facts(facts: ScalarFacts) -> Self {
         Self {
             facts,
@@ -41,16 +58,29 @@ impl Reducer {
 
     /// Reduce semantic recipes without consulting execution availability.
     /// Scheduling consumes the result only after all input folds are complete.
+    #[cfg(test)]
     pub(super) fn reduce(&mut self, values: &mut ValueTable, root: usize) -> usize {
+        self.reduce_in(values, root, &mut ReductionGraph::default())
+    }
+
+    pub(super) fn reduce_in(
+        &mut self,
+        values: &mut ValueTable,
+        root: usize,
+        graph: &mut ReductionGraph,
+    ) -> usize {
         self.pending.push(Work::Visit(root));
         while let Some(task) = self.pending.pop() {
             match task {
                 Work::Visit(id) => {
-                    if self.residuals.contains_key(&id) {
+                    if let Some(residual) = self.reductions.get(&id).copied() {
+                        if self.visited.insert(id) && id != residual {
+                            self.equivalents.record(id, residual);
+                        }
                         continue;
                     }
                     if let Some(result) = self.known_constant(values, id) {
-                        self.record(id, result);
+                        self.record(values, graph, id, result);
                     } else if let Some(input) = self.facts.bitwise_identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
@@ -72,11 +102,11 @@ impl Reducer {
                                 .extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        self.residuals.insert(id, id);
+                        self.record(values, graph, id, id);
                     }
                 }
                 Work::Select(id, condition, when_true, when_false) => {
-                    let condition = self.residuals[&condition];
+                    let condition = self.reductions[&condition];
                     if let Some(bits) = values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
                         self.pending.push(Work::Alias(id, input));
@@ -88,11 +118,11 @@ impl Reducer {
                     }
                 }
                 Work::Alias(id, input) => {
-                    self.record(id, self.residuals[&input]);
+                    self.record(values, graph, id, self.reductions[&input]);
                 }
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
-                    let expression = original.expression.map(|v| self.residuals[v]);
+                    let expression = original.expression.map(|v| self.reductions[v]);
                     // Construction already canonicalized unchanged expressions.
                     // Fold changed operands directly, without interning a temporary recipe.
                     let result = if expression == original.expression {
@@ -115,12 +145,16 @@ impl Reducer {
                     if result == id {
                         // Prove only a stable recipe. Alias/Visit below handles
                         // new or already memoized results without repeating proofs.
-                        let result = self
-                            .facts
-                            .constant_across_selects(values, id)
+                        let proof = self.facts.constant_across_selects(values, id);
+                        if proof.is_some()
+                            && ScalarFacts::default().constant_across_selects(values, id) != proof
+                        {
+                            graph.case_proof(id);
+                        }
+                        let result = proof
                             .map(|bits| values.carrier_literal(crate::Type::I1, bits))
                             .unwrap_or(id);
-                        self.record(id, result);
+                        self.record(values, graph, id, result);
                     } else {
                         // Folding and lowering may introduce another recipe.
                         // Reduce it in this context before publishing a stable normal form.
@@ -130,7 +164,7 @@ impl Reducer {
                 }
             }
         }
-        self.residuals[&root]
+        self.reductions[&root]
     }
 
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
@@ -139,9 +173,20 @@ impl Reducer {
         Some(values.carrier_literal(values[value].ty, bits))
     }
 
-    fn record(&mut self, recipe: usize, residual: usize) {
-        self.residuals.insert(recipe, residual);
-        self.residuals.entry(residual).or_insert(residual);
+    fn record(
+        &mut self,
+        values: &ValueTable,
+        graph: &mut ReductionGraph,
+        recipe: usize,
+        residual: usize,
+    ) {
+        graph.record(values, recipe, residual);
+        self.reductions.insert(recipe, residual);
+        if !self.reductions.contains_key(&residual) {
+            self.reductions.insert(residual, residual);
+        }
+        self.visited.insert(recipe);
+        self.visited.insert(residual);
         if recipe != residual {
             self.equivalents.record(recipe, residual);
         }
