@@ -112,7 +112,7 @@ fn guarded_precision_keeps_native_arithmetic_across_results() {
     code.extend([0xd8, 0xc8].repeat(4)); // FMUL ST0, ST0
     let module = compiler(2, 0).compile_block(0x1000, &code, 5).unwrap();
     // Each native multiplication has a product and its normalization scale.
-    // Native candidates remain available across the sequence of joined results.
+    // Each result retains its native significand for the next multiplication.
     assert_eq!(
         operators(&module)
             .filter(|op| matches!(op, Operator::F64Mul))

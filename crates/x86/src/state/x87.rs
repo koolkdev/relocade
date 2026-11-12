@@ -110,8 +110,7 @@ pub(crate) fn check_precision_status(
         .state
         .status
         .exception_raised(x87.body, Exception::Precision)?;
-    Ok(control::observed_condition(x87.body, masked)?
-        .and(control::observed_condition(x87.body, raised)?))
+    Ok(masked.and(raised))
 }
 
 impl X87Access<'_, '_> {

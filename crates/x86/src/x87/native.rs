@@ -24,9 +24,9 @@ fn integer_significand(value: &Val<F64>) -> Val<I64> {
 pub(super) fn calculate(
     operands: &BinaryOperands,
     operation: BinaryOperation,
-) -> ArithmeticCandidate {
-    let left = &operands.left.precision53_significand();
-    let right = &operands.right.precision53_significand();
+) -> Option<ArithmeticCandidate> {
+    let left = operands.left.precision53_significand.as_ref()?;
+    let right = operands.right.precision53_significand.as_ref()?;
     let result = match operation {
         BinaryOperation::Multiply => multiply(operands, left, right),
         BinaryOperation::Divide => divide(&operands.left, &operands.right, left, right),
@@ -35,7 +35,7 @@ pub(super) fn calculate(
             add(operands, operation, left, right)
         }
     };
-    result.candidate(operands, operation)
+    Some(result.candidate(operands, operation))
 }
 
 /// A normalized native result with architectural sign and rounding evidence.
@@ -183,7 +183,7 @@ impl NativeResult {
         } = self;
         let nonzero = zero.eq(false);
         // The lowest normal x87 binade needs a pre-round tininess decision.
-        // Leave that extreme boundary to the general calculation, keeping range admission
+        // Leave that extreme boundary to the interpreter, keeping range admission
         // independent of rounding evidence on the ordinary native path.
         let native_range = zero.or(biased_exponent.sub(2).unsigned().lt(0x7ffd));
         ArithmeticCandidate {

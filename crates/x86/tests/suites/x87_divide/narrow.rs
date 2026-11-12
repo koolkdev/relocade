@@ -8,6 +8,10 @@ use wasmparser::{Operator, Parser, Payload};
 fn memory_quotients(frontend: Frontend) {
     let code = [0xdc, 0x35, 0, 0x40, 0, 0]; // FDIV m64
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 1).unwrap());
+    assert!(Parser::new(0).parse_all(block.bytes()).any(|payload| {
+        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
+            .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Div)))
+    }), "the fixture must use a native quotient estimate");
     let module = match frontend {
         Frontend::Block => &block,
         Frontend::Interpreter => TestModule::interpreter(),
@@ -119,14 +123,7 @@ fn loaded_denominators(frontend: Frontend) {
         result.x87.status.precision = u8::from(flags & PE != 0);
         result.x87.status.c1 = u8::from(flags & C1 != 0);
         write_value(&mut result, destination, quotient);
-        // Fix PC64 so F64Div identifies the narrow-divisor estimate, rather
-        // than the independently selected PC53 native arithmetic path.
-        let block = TestModule::new(
-            &crate::Compiler::new(crate::SegmentProfile::Flat32)
-                .specialize_on_cpu(&image.cpu)
-                .compile_block(0x1000, &code, 2)
-                .unwrap(),
-        );
+        let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
         let native_estimate = Parser::new(0).parse_all(block.bytes()).any(|payload| {
             matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
                 .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Div)))

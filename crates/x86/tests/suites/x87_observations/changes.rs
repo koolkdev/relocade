@@ -60,6 +60,7 @@ fn initialized_controls() {
         };
         let compiled = compiler.compile_block(0x1000, &code, 3).unwrap();
         let block = TestModule::new(&compiled);
+        let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
         let mut image = stack_image(&code, 3, 0);
         set_control(
             &mut image.cpu.x87.control,
@@ -88,10 +89,28 @@ fn initialized_controls() {
         result.x87.data_offset = 0x4008;
         // FNINIT selects PC64: the 2^-60 addend survives, unlike at PC53/PC24.
         write_value(&mut result, 7, (LEADING + 8, 0x3fff));
-        assert_eq!(
-            block.observe(&image.input(), 1),
-            expected(&image, &[dispatch(result)])
-        );
+        if pc == 3 && rc == 0 && !precision_set {
+            assert_eq!(
+                block.observe(&image.input(), 1),
+                expected(&image, &[dispatch(result)])
+            );
+        } else {
+            assert_eq!(
+                block.observe(&image.input(), 1),
+                expected(
+                    &image,
+                    &[Step {
+                        cpu: loaded,
+                        ram: &[],
+                        exit: Exit::Interpret,
+                    }]
+                )
+            );
+            assert_eq!(
+                linked.observe(&image.input(), 1),
+                step_returns(expected(&image, &[dispatch(result)]))
+            );
+        }
     }
 }
 

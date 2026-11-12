@@ -53,9 +53,7 @@ fn first_product_uses_exact_integer_load() {
             matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if
                 body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Mul)))
         });
-        // Qword inputs choose native arithmetic only when their actual low
-        // significand bits permit it. The wide cases below must remain exact.
-        assert!(native, "{source:?}");
+        assert_eq!(native, !matches!(source, Qword(_)), "{source:?}");
         for negative_factor in [false, true] {
             let mut image = initial_image(&code, source, 0xffff);
             image.cpu.x87.control = observed.x87.control;

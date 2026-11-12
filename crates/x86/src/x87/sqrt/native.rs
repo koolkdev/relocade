@@ -15,8 +15,8 @@ fn integer_significand(value: &Val<F64>) -> Val<I64> {
 }
 
 /// Requires a nonnegative normal operand or signed zero, and PC53/nearest.
-pub(super) fn calculate(operand: &Operand) -> RoundedValue {
-    let coefficient = &operand.precision53_significand();
+pub(super) fn calculate(operand: &Operand) -> Option<RoundedValue> {
+    let coefficient = operand.precision53_significand.as_ref()?;
     let exponent = operand.bits.exponent_field().sub(16383);
     let odd = exponent.and(1).ne(0);
     let class = KnownClass::zero().select(&operand.zero, &KnownClass::normal());
@@ -55,9 +55,9 @@ pub(super) fn calculate(operand: &Operand) -> RoundedValue {
         .shl(odd.select(53, 52))
         .sub(integer_significand(&root).mul(integer_significand(&root)));
     let nonzero = operand.zero.eq(false);
-    RoundedValue {
+    Some(RoundedValue {
         value: value.assume_class(class),
         inexact: nonzero.and(residual.ne(0_u64)),
         incremented: nonzero.and(residual.signed().lt(0)),
-    }
+    })
 }

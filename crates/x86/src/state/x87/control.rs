@@ -11,18 +11,6 @@ use crate::{
 
 use super::X87Access;
 
-/// A value already determined by guest execution needs no snapshot prediction.
-pub(super) fn observed_condition(
-    body: &mut BlockBuilder<'_>,
-    condition: Val<I1>,
-) -> Result<Val<I1>, BuildError> {
-    Ok(if body.constant_bits(&condition)?.is_some() {
-        true.into()
-    } else {
-        condition
-    })
-}
-
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
 #[derive(Clone, Copy)]
@@ -92,7 +80,7 @@ impl Control {
     ) -> Result<Val<I1>, BuildError> {
         let current = self.fields.read(body, location)?;
         // RC and PC use only the low two bits of their backing fields.
-        observed_condition(body, current.and(3).eq(u32::from(observed & 3)))
+        Ok(current.and(3).eq(u32::from(observed & 3)))
     }
 
     pub(super) fn unmasked(

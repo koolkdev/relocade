@@ -38,19 +38,17 @@ impl Operand {
         precision: Val<I8>,
         rounding: &RoundingMode,
     ) -> Result<RoundedValue, BuildError> {
-        let native = native_mode(&precision, rounding).and(self.is_precision53());
-        let components = body.if_value::<RoundedShape>(
-            native,
-            |body| body.yield_(native::calculate(self).components()),
-            |mut body| {
-                let rounded = self.rounded_square_root(&mut body, precision, rounding)?;
-                body.yield_(rounded.components())
-            },
-        )?;
-        Ok(RoundedValue::from_components(
-            components,
-            KnownClass::zero().select(&self.zero, &KnownClass::normal()),
-        ))
+        let native_mode = body.known_bits(native_mode(&precision, rounding))? == Some(1);
+        if native_mode {
+            if let Some(rounded) = native::calculate(self) {
+                return Ok(rounded);
+            }
+        }
+        let mut rounded = self.rounded_square_root(body, precision, rounding)?;
+        if native_mode {
+            rounded.value = rounded.value.assume_precision53();
+        }
+        Ok(rounded)
     }
 
     fn rounded_square_root(
