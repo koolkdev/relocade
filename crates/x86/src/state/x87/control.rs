@@ -83,26 +83,15 @@ impl Control {
             .read(body, cpu_location!(x87.control.precision_control))
     }
 
-    pub(super) fn matches_controls(
+    fn matches_observed_mode(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        rounding: Option<u8>,
-        precision: Option<u8>,
+        location: Location<I8>,
+        observed: u8,
     ) -> Result<Val<I1>, BuildError> {
-        let mut matches = Val::from(true);
-        for (location, expected) in [
-            (cpu_location!(x87.control.rounding_control), rounding),
-            (cpu_location!(x87.control.precision_control), precision),
-        ] {
-            if let Some(expected) = expected {
-                let current = self.fields.read(body, location)?;
-                matches = matches.and(observed_condition(
-                    body,
-                    current.and(3).eq(u32::from(expected & 3)),
-                )?);
-            }
-        }
-        Ok(matches)
+        let current = self.fields.read(body, location)?;
+        // RC and PC use only the low two bits of their backing fields.
+        observed_condition(body, current.and(3).eq(u32::from(observed & 3)))
     }
 
     pub(super) fn unmasked(
@@ -187,6 +176,28 @@ impl Control {
 }
 
 impl X87Access<'_, '_> {
+    pub(crate) fn observed_rounding_condition(
+        &mut self,
+        observed: u8,
+    ) -> Result<Val<I1>, BuildError> {
+        self.state.control.matches_observed_mode(
+            self.body,
+            cpu_location!(x87.control.rounding_control),
+            observed,
+        )
+    }
+
+    pub(crate) fn observed_precision_condition(
+        &mut self,
+        observed: u8,
+    ) -> Result<Val<I1>, BuildError> {
+        self.state.control.matches_observed_mode(
+            self.body,
+            cpu_location!(x87.control.precision_control),
+            observed,
+        )
+    }
+
     pub(crate) fn rounding(&mut self) -> Result<RoundingMode, BuildError> {
         self.state.control.rounding(self.body)
     }

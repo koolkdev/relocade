@@ -16,15 +16,11 @@ use crate::{ssa::StateFields, x87::ExtendedValue};
 use super::access::cpu_location;
 pub(crate) use control::Exception;
 
-/// Fields consumed by an instruction's observed-state specialization. Both cases
-/// use the same predicate/guard mechanism; operand and result coverage is separate.
 #[derive(Clone, Copy)]
 pub(crate) enum X87Specialization {
-    /// RC alone: memory stores that round, FRNDINT and transcendental operations.
+    /// Observe rounding control only.
     Rounding,
-    /// RC and PC for the FADD/FSUB/FMUL/FDIV families and FSQRT. Observed PM=1/PE=1
-    /// can also eliminate repeated precision-exception work without changing
-    /// rounding or C1.
+    /// Also observe precision control and masked precision-exception status.
     Arithmetic,
 }
 
@@ -104,36 +100,19 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
-    /// Conjoins the requested RC/PC comparisons and, optionally, PM=1 and PE=1.
-    /// This supplies a predicate; the execution owner decides when to guard it.
-    pub(crate) fn specialization_condition(
-        &mut self,
-        rounding: Option<u8>,
-        precision: Option<u8>,
-        masked_precision_is_set: bool,
-    ) -> Result<Val<I1>, BuildError> {
-        let mut condition = self
+    /// Predicts PM=1 and PE=1 only for fields whose current values are unknown.
+    pub(crate) fn observed_masked_precision_condition(&mut self) -> Result<Val<I1>, BuildError> {
+        let masked = self
             .state
             .control
-            .matches_controls(self.body, rounding, precision)?;
-        if masked_precision_is_set {
-            // A masked, already-set PE cannot change on another inexact result.
-            // Guard both facts so repeated exception calculations fold away while
-            // C1 and the numerical result keep their normal rounding behavior.
-            let masked = self
-                .state
-                .control
-                .unmasked(self.body, Exception::Precision)?
-                .eq(false);
-            let raised = self
-                .state
-                .status
-                .exception_raised(self.body, Exception::Precision)?;
-            condition = condition
-                .and(control::observed_condition(self.body, masked)?)
-                .and(control::observed_condition(self.body, raised)?);
-        }
-        Ok(condition)
+            .unmasked(self.body, Exception::Precision)?
+            .eq(false);
+        let raised = self
+            .state
+            .status
+            .exception_raised(self.body, Exception::Precision)?;
+        Ok(control::observed_condition(self.body, masked)?
+            .and(control::observed_condition(self.body, raised)?))
     }
 
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {

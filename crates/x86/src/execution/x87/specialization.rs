@@ -9,25 +9,7 @@ use crate::{
 };
 
 impl ExecutionBuilder<'_, '_> {
-    /// Checks the observed fields used to simplify this instruction's calculation.
-    /// The caller selects the fields because not every x87 operation consumes PC:
-    ///
-    /// - `Rounding` compares rounding control (RC & 3) with the snapshot. Memory
-    ///   stores that round, FRNDINT and transcendental operations use this; their
-    ///   precision follows the operation or destination format rather than PC.
-    /// - `Arithmetic` also compares precision control (PC & 3), for the
-    ///   FADD/FSUB/FMUL/FDIV families and FSQRT. If the snapshot has both precision
-    ///   masked (PM = 1) and the sticky precision flag set (PE = 1), it also
-    ///   checks PM and PE.
-    ///   Another inexact result then needs no PE update or precision-exception
-    ///   delivery; numerical rounding and C1 still follow the current controls.
-    ///
-    /// Only unknown values need snapshot checks. Values already determined by
-    /// guest instructions supersede the snapshot, even when they differ. A failed
-    /// check restarts the current instruction in the interpreter. Without an
-    /// observation or fallback capability, this adds no guards.
-    /// Operand and result guards separately decide which cases stay compiled;
-    /// these observation checks do not require a particular RC or PC encoding.
+    /// Guards observed state so the compiler can simplify subsequent calculations.
     pub(crate) fn guard_x87_controls(
         &mut self,
         specialization: X87Specialization,
@@ -36,15 +18,24 @@ impl ExecutionBuilder<'_, '_> {
             let Some(observed) = jit.observed_cpu else {
                 return Ok(());
             };
-            let arithmetic = matches!(specialization, X87Specialization::Arithmetic);
-            let precision = arithmetic.then_some(observed.x87.control.precision_control);
-            let masked_precision_is_set = arithmetic
-                && observed.x87.control.precision_mask & observed.x87.status.precision & 1 != 0;
-            let condition = jit.x87().specialization_condition(
-                Some(observed.x87.control.rounding_control),
-                precision,
-                masked_precision_is_set,
-            )?;
+            // All callers use rounding control (RC).
+            let mut condition = jit
+                .x87()
+                .observed_rounding_condition(observed.x87.control.rounding_control)?;
+            if matches!(specialization, X87Specialization::Arithmetic) {
+                // FADD/FSUB/FMUL/FDIV and FSQRT also use precision control (PC).
+                let precision = jit
+                    .x87()
+                    .observed_precision_condition(observed.x87.control.precision_control)?;
+                condition = condition.and(precision);
+
+                // PM=1 and PE=1 let repeated precision-exception updates fold away.
+                let precision_masked = observed.x87.control.precision_mask & 1 != 0;
+                let precision_raised = observed.x87.status.precision & 1 != 0;
+                if precision_masked && precision_raised {
+                    condition = condition.and(jit.x87().observed_masked_precision_condition()?);
+                }
+            }
             jit.guard(condition)
         })?;
         Ok(())
