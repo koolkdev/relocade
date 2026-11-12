@@ -3,7 +3,7 @@ use super::*;
 
 fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {
     IoBus::new(device.clone(), |io| {
-        io.map_ports(std::iter::once(0xffff..=0xffff));
+        RecordingDevice::bind(io, device, 0xffff);
     })
 }
 
@@ -100,7 +100,7 @@ async fn guest_carriers() {
             assert_eq!(cpu.cpu_state().al(), 0xff);
             assert!(device.borrow().transfers.is_empty());
             io.connect(device.clone(), |io| {
-                io.map_ports(std::iter::once(0xffff..=0xffff));
+                RecordingDevice::bind(io, &device, 0xffff);
             });
             assert_eq!(io.read_port(0xffff, 4), 0x7654_3210);
             device.borrow_mut().take_transfers();

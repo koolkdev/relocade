@@ -2,8 +2,7 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, IoContext, Runner,
-    Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, Runner, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -118,6 +117,20 @@ struct Deadlines {
     exit_after_waits: bool,
 }
 
+impl Deadlines {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
+        self.exit.as_ref().unwrap().request();
+    }
+}
+
 impl Device for Deadlines {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
@@ -129,10 +142,6 @@ impl Device for Deadlines {
         if device.borrow().exit_after_waits {
             device.borrow().exit.as_ref().unwrap().request();
         }
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
-        self.exit.as_ref().unwrap().request();
     }
 }
 
@@ -165,7 +174,7 @@ async fn deadlines_and_final_exit() {
                 }));
                 runner
                     .connect(device.clone(), |io| {
-                        io.map_ports(std::iter::once(0x80..=0x80));
+                        Deadlines::configure_io(io, &device);
                     })
                     .await;
                 let code = if final_exit {

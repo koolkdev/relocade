@@ -89,11 +89,11 @@ async fn check_shared_bindings() {
         device.borrow_mut().port = 0x1234_5678;
         let mut bindings = None;
         let io = IoBus::new(device.clone(), |io| {
-            io.map_ports(std::iter::once(0xfffe..=0xffff));
+            RecordingDevice::bind(io, &device, 0xfffe..=0xffff);
             bindings = Some((io.port(0xfffe..=0xffff), io.port(0xffff), io.port(0x3d5)));
         });
         let (range, port, start) = bindings.unwrap();
-        let generic = PortRead::for_device(&device);
+        let recorded = RecordingDevice::read_operation(&device);
         let mut cpu = guest(io.clone(), &[0x66, 0xed], &[0], compiled).await;
         read(&mut cpu, 0x1234_5678).await;
         let reusable = PortRead::new(|_, _, _| 17);
@@ -102,7 +102,7 @@ async fn check_shared_bindings() {
         io.with_context(|context| port.set_read(context, &PortRead::new(|_, _, _| 29)));
         read(&mut cpu, 29).await;
         assert_eq!(io.read_port(0xfffe, 4), 17);
-        io.with_context(|context| port.set_read(context, &generic));
+        io.with_context(|context| port.set_read(context, &recorded));
         read(&mut cpu, 0x1234_5678).await;
         // Selecting reads does not change writes, and a wide transfer stays one call.
         device.borrow_mut().take_transfers();
@@ -144,21 +144,21 @@ test_backends!(
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn retained_bindings_and_generic_handlers_do_not_keep_the_bus_or_device_alive() {
+fn retained_bindings_and_recorded_handlers_do_not_keep_the_bus_or_device_alive() {
     let device = RecordingDevice::new(0);
     let weak = Rc::downgrade(&device);
-    let generic = PortRead::for_device(&device);
+    let recorded = RecordingDevice::read_operation(&device);
     let mut port = None;
     let io = IoBus::new(device.clone(), |io| {
         let binding = io.port(0x80);
-        binding.set_read(io.context(), &generic);
+        binding.set_read(io.context(), &recorded);
         port = Some(binding);
     });
     drop(device);
     assert!(weak.upgrade().is_some());
     drop(io);
     assert!(weak.upgrade().is_none());
-    drop((port, generic));
+    drop((port, recorded));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -200,22 +200,14 @@ fn foreign_contexts_and_handlers_are_rejected_before_mutation() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn claims_are_fixed_even_without_handlers_and_batches_validate_before_installing() {
+fn claims_are_fixed_and_overlapping_ranges_are_rejected() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     let io = IoBus::default();
     drop(bind(&io, 0x80));
     assert!(catch_unwind(AssertUnwindSafe(|| bind(&io, 0x80))).is_err());
-    assert!(catch_unwind(AssertUnwindSafe(|| io.connect(
-        RecordingDevice::new(0),
-        |io| {
-            io.map_ports([0x70..=0x71, 0x7f..=0x80]);
-        }
-    )))
-    .is_err());
-    assert_eq!(io.read_port(0x70, 1), 0xff);
-    // No prefix claim escaped from the rejected batch.
-    io.connect(RecordingDevice::new(0), |io| {
-        io.map_ports(std::iter::once(0x70..=0x71));
+    let device = RecordingDevice::new(0);
+    io.connect(device.clone(), |io| {
+        RecordingDevice::bind(io, &device, 0x70..=0x71);
         drop(io.port(0x71));
         assert!(catch_unwind(AssertUnwindSafe(|| io.port(0x71..=0x72))).is_err());
         drop(io.port(0x72));

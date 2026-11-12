@@ -1,15 +1,25 @@
-use relocade_machine::{timer_service, CpuConfig, Device, IoContext, MachineConfig};
+use relocade_machine::{timer_service, CpuConfig, Device, MachineConfig};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 struct Started(Option<async_channel::Sender<()>>);
 
-impl Device for Started {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl Started {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         self.0.take().unwrap().try_send(()).unwrap();
     }
 }
+
+impl Device for Started {}
 
 async fn timeout<T>(future: impl Future<Output = T>) -> T {
     futures_lite::future::or(future, async {
@@ -44,9 +54,10 @@ async fn exercise_audio_device() {
     let worker = prepared.spawn(clock, async move |mut runner| {
         let pit = relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
         let speaker = Speaker::initialize(&runner, pit).await;
+        let started = Rc::new(RefCell::new(Started(Some(started))));
         runner
-            .connect(Rc::new(RefCell::new(Started(Some(started)))), |io| {
-                io.map_ports(std::iter::once(0x80..=0x80));
+            .connect(started.clone(), |io| {
+                Started::configure_io(io, &started);
             })
             .await;
         let memory = runner.memory();

@@ -8,7 +8,10 @@ mod ownership;
 mod ports;
 mod support;
 
-use relocade_machine::{Cpu, Device, DispatchEntry, FarPointer, IoBus, IoContext, Memory};
+use relocade_machine::{
+    Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, IoContext, Memory,
+    PortBinding, PortRange, PortRead, PortWrite,
+};
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister, Segments,
@@ -43,6 +46,37 @@ impl RecordingDevice {
         }))
     }
 
+    fn read_operation(device: &Rc<RefCell<Self>>) -> PortRead {
+        let device = Rc::downgrade(device);
+        PortRead::new(move |_, port, bytes| {
+            let device = device.upgrade().expect("connected recorder");
+            let mut device = device.borrow_mut();
+            device.transfers.push(Transfer::PortRead { port, bytes });
+            device.port
+        })
+    }
+
+    fn bind(
+        io: &mut DeviceConnection<'_>,
+        device: &Rc<RefCell<Self>>,
+        ports: impl Into<PortRange>,
+    ) -> PortBinding {
+        let read = Self::read_operation(device);
+        let device = Rc::downgrade(device);
+        io.bind(
+            ports,
+            &read,
+            &PortWrite::new(move |_, port, bytes, value| {
+                let device = device.upgrade().expect("connected recorder");
+                let mut device = device.borrow_mut();
+                device
+                    .transfers
+                    .push(Transfer::PortWrite { port, bytes, value });
+                device.port = value;
+            }),
+        )
+    }
+
     fn take_transfers(&mut self) -> Vec<Transfer> {
         std::mem::take(&mut self.transfers)
     }
@@ -67,17 +101,6 @@ impl Device for RecordingDevice {
         let offset = (address - self.base) as usize;
         self.memory[offset..offset + usize::from(bytes)]
             .copy_from_slice(&value.to_le_bytes()[..usize::from(bytes)]);
-    }
-
-    fn read_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8) -> u32 {
-        self.transfers.push(Transfer::PortRead { port, bytes });
-        self.port
-    }
-
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        self.transfers
-            .push(Transfer::PortWrite { port, bytes, value });
-        self.port = value;
     }
 }
 
@@ -114,7 +137,7 @@ async fn check_device_access() {
         let io = cpu.io();
         io.connect(device.clone(), |io| {
             io.map_mmio(std::iter::once(0x3000..=0x4fff));
-            io.map_ports(std::iter::once(0x3d4..=0x3d4));
+            RecordingDevice::bind(io, &device, 0x3d4);
         });
         {
             let mut view = memory.view().with_io(&io);

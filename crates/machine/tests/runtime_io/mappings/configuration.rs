@@ -86,7 +86,7 @@ async fn check_write_replacement() {
 struct ConfigurableDevice {
     ports: Option<PortBinding>,
     status: PortRead,
-    generic: Option<PortRead>,
+    idle_read: PortRead,
 }
 
 impl ConfigurableDevice {
@@ -95,20 +95,13 @@ impl ConfigurableDevice {
         let read = if enabled {
             &self.status
         } else {
-            self.generic.as_ref().unwrap()
+            &self.idle_read
         };
         ports.set_read(context, read);
     }
 }
 
 impl Device for ConfigurableDevice {
-    fn read_port(&mut self, _: IoContext<'_>, _: u16, _: u8) -> u32 {
-        0x33
-    }
-    fn write_port(&mut self, context: IoContext<'_>, port: u16, bytes: u8, value: u32) {
-        assert_eq!((port, bytes), (0x3d4, 2));
-        self.select_status(context, value & 1 != 0);
-    }
     fn write_mmio(&mut self, context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
         assert_eq!((address, bytes), (0x3000, 2));
         self.select_status(context, value & 1 != 0);
@@ -130,13 +123,24 @@ async fn check_device_methods() {
             let device = Rc::new(RefCell::new(ConfigurableDevice {
                 ports: None,
                 status: PortRead::new(|_, _, _| 0x5a),
-                generic: None,
+                idle_read: PortRead::new(|_, _, _| 0x33),
             }));
-            device.borrow_mut().generic = Some(PortRead::for_device(&device));
             let io = IoBus::new(device.clone(), |io| {
                 io.map_mmio(std::iter::once(0x3000..=0x3fff));
-                io.map_ports(std::iter::once(0x3d4..=0x3d5));
-                device.borrow_mut().ports = Some(io.port(0x3d5));
+                let callbacks = relocade_machine::DeviceCallbacks::new(&device);
+                io.bind(
+                    0x3d4,
+                    &device.borrow().idle_read,
+                    &PortWrite::word(callbacks.write(|context, device, value| {
+                        device.select_status(context, value & 1 != 0);
+                    })),
+                );
+                let status = io.bind(
+                    0x3d5,
+                    &device.borrow().idle_read,
+                    &PortWrite::new(|_, _, _, _| {}),
+                );
+                device.borrow_mut().ports = Some(status);
                 // Initial setup uses the same method as later port/MMIO callbacks.
                 device.borrow().select_status(io.context(), true);
                 io.port(0x3da)

@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Cpu, Device, ExitHandle, IoBus, IoContext, Memory};
+use relocade_machine::{Cpu, Device, ExitHandle, IoBus, Memory};
 
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
@@ -172,16 +172,26 @@ async fn exit_during_poll() {
 
 #[derive(Default)]
 struct ExitDevice(Option<ExitHandle>);
-impl Device for ExitDevice {
-    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
+impl ExitDevice {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         self.0.as_ref().unwrap().request();
     }
 }
 
+impl Device for ExitDevice {}
+
 async fn exit_during_guest() {
     let device = Rc::new(RefCell::new(ExitDevice::default()));
     let io = IoBus::new(device.clone(), |io| {
-        io.map_ports(std::iter::once(0x80..=0x80));
+        ExitDevice::configure_io(io, &device);
     });
     let mut runner = cpu(io).await;
     device.borrow_mut().0 = Some(runner.exit_handle());
