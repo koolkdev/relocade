@@ -80,7 +80,7 @@ impl Mode {
         let [width, height] = self.display.size().map(|value| value as u16);
         if !io.with_context(|context| {
             card.borrow_mut()
-                .set_packed_mode(context, self.display, preserve)
+                .enter_packed_mode(context, self.display, preserve)
         }) {
             return false;
         }

@@ -31,7 +31,7 @@ impl DispiAdapter {
 
     /// Enter a fresh packed mode, resetting its bank and viewport. Re-entering the
     /// same mode also clears VRAM unless preservation was requested.
-    pub fn set_packed_mode(
+    pub fn enter_packed_mode(
         &mut self,
         mut context: IoContext<'_>,
         mode: DispiMode,

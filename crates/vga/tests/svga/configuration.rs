@@ -10,13 +10,13 @@ fn direct_mode_entry_preserves_or_clears_memory_and_leaves_the_enable_index() {
     assert!(card.io.with_context(|context| card
         .device
         .borrow_mut()
-        .set_packed_mode(context, MODE, false)));
+        .enter_packed_mode(context, MODE, false)));
     set(&card.io, 5, 7);
     card.io.write_mmio(0xa0000, 2, 0xabcd);
     assert!(card.io.with_context(|context| card
         .device
         .borrow_mut()
-        .set_packed_mode(context, MODE, true)));
+        .enter_packed_mode(context, MODE, true)));
     assert_eq!(card.io.read_port(0x1ce, 2), 4);
     assert_eq!(get(&card.io, 4), 0x81);
     assert_eq!(get(&card.io, 5), 0);
@@ -28,7 +28,7 @@ fn direct_mode_entry_preserves_or_clears_memory_and_leaves_the_enable_index() {
     assert!(card.io.with_context(|context| card
         .device
         .borrow_mut()
-        .set_packed_mode(context, MODE, false)));
+        .enter_packed_mode(context, MODE, false)));
     set(&card.io, 5, 7);
     assert_eq!(card.io.read_mmio(0xa0000, 2), 0);
     card.io
@@ -45,7 +45,7 @@ fn direct_layout_programming_preserves_indices_and_rejects_invalid_viewports() {
     assert!(card.io.with_context(|context| card
         .device
         .borrow_mut()
-        .set_packed_mode(context, MODE, false)));
+        .enter_packed_mode(context, MODE, false)));
     assert!(card
         .io
         .with_context(|context| card.device.borrow_mut().set_packed_pitch(context, 2048))
@@ -74,7 +74,7 @@ fn disabled_decoding_blocks_direct_firmware_programming() {
     assert!(card.io.with_context(|context| card
         .device
         .borrow_mut()
-        .set_packed_mode(context, MODE, false)));
+        .enter_packed_mode(context, MODE, false)));
     card.io.write_mmio(0xa0000, 2, 0xabcd);
     card.io.write_port(0x1ce, 2, 0x104);
     card.io.write_port(0x46e8, 1, 0);
@@ -83,7 +83,7 @@ fn disabled_decoding_blocks_direct_firmware_programming() {
         let mut device = card.device.borrow_mut();
         assert!(!device.ports_enabled());
         device.prepare_legacy_mode(context.reborrow());
-        assert!(!device.set_packed_mode(context.reborrow(), MODE, false));
+        assert!(!device.enter_packed_mode(context.reborrow(), MODE, false));
         assert!(!device.set_video_bank(context.reborrow(), 7));
         assert!(device.set_packed_pitch(context.reborrow(), 2048).is_none());
         assert!(!device.set_display_origin(context, [0, 1]));
