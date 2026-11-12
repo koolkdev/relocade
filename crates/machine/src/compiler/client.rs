@@ -1,4 +1,7 @@
-use super::{connection::Request, BlockRequest, CompiledCode, Reply};
+use super::{
+    connection::{Compilation, Request},
+    BlockRequest, CompiledCode, FunctionRequest, Reply,
+};
 use crate::{
     worker::{ChannelError, Executor, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Result,
@@ -37,8 +40,27 @@ impl CompilerClient {
     /// Queues compilation for this target using the machine's shared guest memory.
     /// Keep code and mappings stable until the result arrives or the machine shuts down.
     pub fn request(&self, target: ExecutionTarget, blocks: Vec<BlockRequest>) -> Result<()> {
+        self.submit(target, Compilation::Blocks(blocks))
+    }
+
+    /// Queues bounded discovery from one clean real-mode call target. Callees are
+    /// not followed. Keep code, mappings and the entry's CS addressing stable;
+    /// candidates must have no interior host hooks or registered execution boundaries.
+    /// Results use the same ordered stream and explicit installation as block requests.
+    pub fn request_function(
+        &self,
+        target: ExecutionTarget,
+        function: FunctionRequest,
+    ) -> Result<()> {
+        self.submit(target, Compilation::Function(function))
+    }
+
+    fn submit(&self, target: ExecutionTarget, compilation: Compilation) -> Result<()> {
         self.requests
-            .unbounded_send(Request { target, blocks })
+            .unbounded_send(Request {
+                target,
+                compilation,
+            })
             .map_err(|_| ChannelError::Closed.into())
     }
 

@@ -58,19 +58,30 @@ impl Memory {
             }
         }
         let mut bytes = vec![0; len];
-        let mut output = bytes.as_mut_slice();
+        self.read_code_prefix(address, &mut bytes);
+        Ok(bytes)
+    }
+
+    /// Copies the readable RAM/ROM prefix without crossing a hole or invoking a device.
+    pub(crate) fn read_code_prefix(&self, address: u32, output: &mut [u8]) -> usize {
+        let len = (output.len() as u64).min((1_u64 << 32) - u64::from(address)) as usize;
+        let spans = Spans::new(self.config.memory_map(), address, len)
+            .expect("the prefix fits the guest address space");
+        let mut output = &mut output[..len];
         let storage = self.backing.view();
+        let mut copied = 0;
         for span in spans {
             let backing_offset = match span.mapping {
                 PhysicalMapping::Ram { backing_offset }
                 | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                _ => unreachable!("code mappings were validated before allocation"),
+                _ => break,
             };
             let (part, rest) = output.split_at_mut(span.len);
             storage.read(backing_offset, part);
             output = rest;
+            copied += span.len;
         }
-        Ok(bytes)
+        copied
     }
 
     /// Retains this memory and its execution worker's device bus together.

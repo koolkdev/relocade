@@ -8,9 +8,9 @@ pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
 pub use service::CompilerService;
 
-use crate::{worker::Transfer, Cpu, DispatchEntry, Error, Memory, Result};
+use crate::{worker::Transfer, Cpu, DispatchEntry, Error, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
-use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionTarget};
+use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
@@ -21,6 +21,15 @@ pub struct BlockRequest {
     pub start_eip: u32,
     pub byte_len: usize,
     pub instruction_limit: u32,
+}
+
+/// One clean real-mode function candidate. Its blocks are discovered by x86 on
+/// the compiler service, without reading code on the submitting CPU.
+/// Interior host hooks and mutable code require separate admission/invalidation.
+#[derive(Clone, Copy, Debug)]
+pub struct FunctionRequest {
+    pub entry: FarPointer,
+    pub limits: FunctionLimits,
 }
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
@@ -94,31 +103,62 @@ async fn compile(
     compiler: &relocade_wasm_runtime::Compiler,
     memory: &Memory,
     target: ExecutionTarget,
-    requests: &[BlockRequest],
+    request: connection::Compilation,
     jobs: &crate::worker::PoolHandle,
 ) -> Result<CompiledCode> {
-    let captured: Vec<_> = requests
-        .iter()
-        .map(|block| memory.read_code(block.address, block.byte_len))
-        .collect::<std::result::Result<_, _>>()?;
-    let snapshots: Vec<_> = requests
-        .iter()
-        .zip(&captured)
-        .map(|(block, bytes)| BlockSnapshot {
-            start_eip: block.start_eip,
-            bytes,
-            instruction_limit: block.instruction_limit,
-        })
-        .collect();
-    let blocks = relocade_x86::Compiler::new(target.profile)
+    let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
-        .with_instruction_budgets(target.instruction_budgets)
-        .compile_blocks_with(&snapshots, jobs)
-        .await?;
+        .with_instruction_budgets(target.instruction_budgets);
+    let (blocks, addresses) = match request {
+        connection::Compilation::Blocks(requests) => {
+            let captured: Vec<_> = requests
+                .iter()
+                .map(|block| memory.read_code(block.address, block.byte_len))
+                .collect::<std::result::Result<_, _>>()?;
+            let snapshots: Vec<_> = requests
+                .iter()
+                .zip(&captured)
+                .map(|(block, bytes)| BlockSnapshot {
+                    start_eip: block.start_eip,
+                    bytes,
+                    instruction_limit: block.instruction_limit,
+                })
+                .collect();
+            let blocks = x86.compile_blocks_with(&snapshots, jobs).await?;
+            let addresses = requests.iter().map(|block| block.address).collect();
+            (blocks, addresses)
+        }
+        connection::Compilation::Function(request) => {
+            if target.profile != ExecutionProfile::Real16 {
+                return Err(crate::ConfigurationError::UnsupportedMode.into());
+            }
+            let base = request.entry.segment_base();
+            let blocks = x86
+                .compile_function_with(
+                    u32::from(request.entry.offset),
+                    request.limits,
+                    |eip, buffer| {
+                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
+                        if len == 0 {
+                            return 0;
+                        }
+                        memory.read_code_prefix(base + eip, &mut buffer[..len])
+                    },
+                    jobs,
+                )
+                .await?;
+            let addresses = blocks
+                .entries
+                .iter()
+                .map(|block| base + block.start_eip)
+                .collect();
+            (blocks, addresses)
+        }
+    };
     Ok(CompiledCode {
         module: compiler.compile(&blocks.bytes).await?,
         description: Description {
-            addresses: requests.iter().map(|block| block.address).collect(),
+            addresses,
             blocks: blocks.entries,
             target: blocks.execution_target,
         },
