@@ -13,8 +13,8 @@ notifications do not consume bytes or replace the guest port interface.
 The controller connects IRQ1 and IRQ12 low until an output byte is ready. Its
 registers are already installed on `runner.io()` when connection returns.
 One connection scope installs four operations: data read/write, status read and
-command write. Each callback captures the shared controller directly; PS/2 no
-longer implements a generic `Device::read_port` or `write_port` decoder.
+command write. Each callback captures the shared controller directly and handles
+one register operation.
 Controller, keyboard and mouse firmware run as
 three async futures in the existing device activity, on the execution owner. Physical frontend key positions feed the keyboard;
 characters and host layouts do not enter the hardware protocol. BIOS or a guest

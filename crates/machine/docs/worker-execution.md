@@ -21,7 +21,7 @@ let execution = cpu.spawn(handle, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     runner.connect(device, |io| {
         io.map_mmio(memory_ranges);
-        io.map_ports(ports);
+        io.bind(ports, &read, &write);
     }).await;
     runner.run_cpu().await;
     wait_for_next_program().await;

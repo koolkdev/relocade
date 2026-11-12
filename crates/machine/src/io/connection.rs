@@ -13,15 +13,13 @@ pub(super) struct ConnectedDevice {
 /// Configuration finishes before the device's activity starts.
 ///
 /// ```
-/// use relocade_machine::{Device, IoBus, IoContext};
+/// use relocade_machine::{Device, IoBus, PortRead, PortWrite};
 /// use std::{cell::RefCell, rc::Rc};
 /// struct Registers;
-/// impl Device for Registers {
-///     fn read_port(&mut self, _: IoContext<'_>, _: u16, _: u8) -> u32 { 0x14 }
-/// }
+/// impl Device for Registers {}
 /// let io = IoBus::default();
 /// io.connect(Rc::new(RefCell::new(Registers)), |io| {
-///     io.map_ports(std::iter::once(0x64..=0x64));
+///     io.bind(0x64, &PortRead::byte(|_| 0x14), &PortWrite::byte(|_, _| {}));
 /// });
 /// assert_eq!(io.read_port(0x64, 1), 0x14);
 /// ```
@@ -61,7 +59,7 @@ impl<'a> DeviceConnection<'a> {
     /// Claims one fixed port or range for this connection. Newly claimed ports
     /// initially return open bus and ignore writes until handlers are selected.
     /// Also accepts a subrange wholly contained in one of this connection's
-    /// existing claims, including ranges mapped with [`Self::map_ports`].
+    /// existing claims.
     /// Partial overlaps and ranges spanning separate claims are rejected.
     /// The returned binding may be retained; ownership lasts for the bus's lifetime.
     pub fn port(&mut self, ports: impl Into<PortRange>) -> PortBinding {
@@ -91,22 +89,6 @@ impl<'a> DeviceConnection<'a> {
         binding.set_read(self.context(), read);
         binding.set_write(self.context(), write);
         binding
-    }
-
-    /// Maps ranges to this device's existing `read_port` and `write_port` methods.
-    /// Use [`Self::port`] to obtain a binding for a register that needs different
-    /// handling. Generic handling can be selected again with [`PortRead::for_device`]
-    /// and [`PortWrite::for_device`], just like any other reusable operations.
-    pub fn map_ports(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u16>>) {
-        let ranges: Vec<_> = ranges.into_iter().collect();
-        self.validate_ports(&ranges);
-        if !ranges.is_empty() {
-            let read = PortRead::for_device(&self.connection.device);
-            let write = PortWrite::for_device(&self.connection.device);
-            for ports in ranges {
-                self.bind(ports, &read, &write);
-            }
-        }
     }
 
     fn validate_ports(&self, ranges: &[RangeInclusive<u16>]) {
