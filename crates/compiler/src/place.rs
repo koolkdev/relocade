@@ -17,10 +17,21 @@ mod value;
 use availability::{Availability, Checkpoint};
 use dominance::Dominators;
 use effects::Effects;
-use facts::{Assumption, ScalarFacts};
+pub(super) use facts::Assumption;
+use facts::ScalarFacts;
 use flow::ReducedFlow;
 use joins::Joins;
 use reduce::Reducer;
+
+pub(super) fn known_bits(
+    table: &ValueTable,
+    assumptions: &[Assumption],
+    value: usize,
+) -> Option<u64> {
+    ScalarFacts::default()
+        .with_assumptions(table, assumptions.iter().copied())
+        .constant(table, value)
+}
 
 /// Call summaries describe authored bodies, before placement removes dead work.
 pub(super) struct Placement {

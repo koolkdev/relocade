@@ -81,7 +81,7 @@ pub(super) struct ScalarFacts {
 
 /// Observations established together before a block's facts are queried.
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum Assumption {
+pub(crate) enum Assumption {
     Truth { condition: usize, truth: bool },
     Bits { value: usize, mask: u64, bits: u64 },
 }

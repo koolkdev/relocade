@@ -57,6 +57,7 @@ impl BlockBuilder<'_> {
         build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<PendingBlock, BuildError> {
         let mut pending = PendingBlock::new(scope, block);
+        pending.assumptions.clone_from(&self.pending.assumptions);
         build(BlockBuilder {
             declarations: self.declarations,
             function: self.function,
