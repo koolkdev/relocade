@@ -4,7 +4,7 @@ use futures_util::{
     future::{join, LocalBoxFuture},
     StreamExt,
 };
-use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle, IoContext};
+use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -24,8 +24,16 @@ struct InputDevice {
     interrupt: Option<ExecutionInterrupt>,
 }
 
-impl Device for InputDevice {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl InputDevice {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         if let Some(entered) = self.entered.take() {
             // Discard startup scheduling wakes before the measured interval.
             // Only the following host notification may interrupt this dispatch.
@@ -45,7 +53,9 @@ impl Device for InputDevice {
             panic!("host did not publish its input");
         }
     }
+}
 
+impl Device for InputDevice {
     async fn run(device: Rc<RefCell<Self>>) {
         let input = device.borrow_mut().input.take().unwrap();
         let values = input.await;
@@ -100,7 +110,7 @@ async fn connected_input() {
                 }));
                 runner
                     .connect(device.clone(), |io| {
-                        io.map_ports(std::iter::once(0x80..=0x80));
+                        InputDevice::configure_io(io, &device);
                     })
                     .await;
                 // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
@@ -208,7 +218,7 @@ async fn connected_stop() {
         }));
         runner
             .connect(device.clone(), |io| {
-                io.map_ports(std::iter::once(0x80..=0x80));
+                InputDevice::configure_io(io, &device);
             })
             .await;
         prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
@@ -294,13 +304,23 @@ async fn retirement_count_does_not_control_execution() {
 }
 
 struct PublishInput(Option<oneshot::Sender<()>>);
-impl Device for PublishInput {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl PublishInput {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         if let Some(input) = self.0.take() {
             input.send(()).unwrap();
         }
     }
 }
+
+impl Device for PublishInput {}
 
 async fn notified_reentry() {
     for nested in [false, true] {
@@ -310,10 +330,9 @@ async fn notified_reentry() {
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn(clock, async move |mut runner| {
             let (send, receive) = oneshot::channel();
+            let publisher = Rc::new(RefCell::new(PublishInput(Some(send))));
             runner
-                .connect(Rc::new(RefCell::new(PublishInput(Some(send)))), |io| {
-                    io.map_ports(std::iter::once(0x80..=0x80));
-                })
+                .connect(publisher.clone(), |io| PublishInput::configure_io(io, &publisher))
                 .await;
             // OUT publishes input and exits through STEP. The following JMP
             // supplies the next guest checkpoint if input needs another poll.

@@ -3,10 +3,11 @@ use super::*;
 async fn check_retained_memory_bus() {
     let device = RecordingDevice::new(0x3000);
     let lifetime = Rc::downgrade(&device);
-    let io = IoBus::new(device, |io| {
+    let io = IoBus::new(device.clone(), |io| {
         io.map_mmio(std::iter::once(0x3000..=0x4fff));
-        io.map_ports(std::iter::once(0x3d4..=0x3d4));
+        RecordingDevice::bind(io, &device, 0x3d4);
     });
+    drop(device);
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {

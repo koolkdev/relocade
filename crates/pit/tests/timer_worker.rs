@@ -1,7 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, IoContext, MachineConfig,
-    Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, MachineConfig, Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -27,23 +26,25 @@ struct Reports {
     exit: Option<ExitHandle>,
 }
 
-impl Device for Reports {
-    fn write_port(&mut self, _context: IoContext<'_>, port: u16, _: u8, _: u32) {
-        if port == 0x81 {
-            self.ready.take().unwrap().send(()).unwrap();
-            // Do not deliver the measured interrupts before the host enters its
-            // synchronous wait; a delayed host callback must not bypass this test.
-            let deadline = self.clock.add(self.clock.now(), Duration::from_secs(2));
-            while !self.host_busy.load(Ordering::Acquire) && self.clock.now() < deadline {
-                std::hint::spin_loop();
-            }
-            assert!(self.host_busy.load(Ordering::Acquire));
-        } else {
-            self.samples.push(self.clock.now());
-            self.count.store(self.samples.len(), Ordering::Release);
-            if self.samples.len() == INTERRUPTS {
-                self.exit.as_ref().unwrap().request();
-            }
+impl Device for Reports {}
+
+impl Reports {
+    fn ready(&mut self) {
+        self.ready.take().unwrap().send(()).unwrap();
+        // Do not deliver the measured interrupts before the host enters its
+        // synchronous wait; a delayed host callback must not bypass this test.
+        let deadline = self.clock.add(self.clock.now(), Duration::from_secs(2));
+        while !self.host_busy.load(Ordering::Acquire) && self.clock.now() < deadline {
+            std::hint::spin_loop();
+        }
+        assert!(self.host_busy.load(Ordering::Acquire));
+    }
+
+    fn record(&mut self) {
+        self.samples.push(self.clock.now());
+        self.count.store(self.samples.len(), Ordering::Release);
+        if self.samples.len() == INTERRUPTS {
+            self.exit.as_ref().unwrap().request();
         }
     }
 }
@@ -89,7 +90,22 @@ async fn timer_interrupts() -> Result<(), String> {
         }));
         runner
             .connect(reports.clone(), |io| {
-                io.map_ports(std::iter::once(0x80..=0x81));
+                let callbacks = relocade_machine::DeviceCallbacks::new(&reports);
+                let read = relocade_machine::PortRead::new(|_, _, _| u32::MAX);
+                io.bind(
+                    0x80,
+                    &read,
+                    &relocade_machine::PortWrite::low_byte(
+                        callbacks.write(|_, reports, _| reports.record()),
+                    ),
+                );
+                io.bind(
+                    0x81,
+                    &read,
+                    &relocade_machine::PortWrite::low_byte(
+                        callbacks.write(|_, reports, _| reports.ready()),
+                    ),
+                );
             })
             .await;
         let memory = runner.memory();

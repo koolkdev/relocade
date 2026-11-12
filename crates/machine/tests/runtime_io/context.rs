@@ -4,14 +4,6 @@ use relocade_machine::IoContext;
 struct ForwardingDevice;
 
 impl Device for ForwardingDevice {
-    fn read_port(&mut self, mut context: IoContext<'_>, _: u16, bytes: u8) -> u32 {
-        context.read_port(0x3d4, bytes)
-    }
-
-    fn write_port(&mut self, mut context: IoContext<'_>, _: u16, bytes: u8, value: u32) {
-        context.write_port(0x3d4, bytes, value);
-    }
-
     fn read_mmio(&mut self, mut context: IoContext<'_>, _: u32, bytes: u8) -> u64 {
         context.read_port(0x3d4, bytes).into()
     }
@@ -26,11 +18,17 @@ async fn check_forwarding() {
         let target = RecordingDevice::new(0);
         let io = IoBus::default();
         io.connect(target.clone(), |io| {
-            io.map_ports(std::iter::once(0x3d4..=0x3d4));
+            RecordingDevice::bind(io, &target, 0x3d4);
         });
         io.connect(Rc::new(RefCell::new(ForwardingDevice)), |io| {
             io.map_mmio(std::iter::once(0x3000..=0x4fff));
-            io.map_ports(std::iter::once(0x3d5..=0x3d5));
+            io.bind(
+                0x3d5,
+                &PortRead::new(|mut context, _, bytes| context.read_port(0x3d4, bytes)),
+                &PortWrite::new(|mut context, _, bytes, value| {
+                    context.write_port(0x3d4, bytes, value)
+                }),
+            );
         });
         // Host calls receive a real scope before the CPU exists, too.
         io.with_context(|mut context| {

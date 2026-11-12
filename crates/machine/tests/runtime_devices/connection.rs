@@ -21,21 +21,10 @@ impl Device for Startup {
     fn read_mmio(&mut self, _: IoContext<'_>, _: u32, _: u8) -> u64 {
         self.value.into()
     }
-
-    fn read_port(&mut self, _: IoContext<'_>, _: u16, _: u8) -> u32 {
-        self.value
-    }
-
-    fn write_port(&mut self, _: IoContext<'_>, _: u16, _: u8, value: u32) {
-        self.value = value;
-    }
 }
 
 struct Adjacent;
 impl Device for Adjacent {
-    fn read_port(&mut self, _: IoContext<'_>, _: u16, _: u8) -> u32 {
-        0x44
-    }
     fn read_mmio(&mut self, _: IoContext<'_>, _: u32, _: u8) -> u64 {
         0x33
     }
@@ -58,7 +47,16 @@ async fn connected_before_startup() {
             runner
                 .connect(device.clone(), |io| {
                     io.map_mmio(std::iter::once(0x2000..=0x2000));
-                    io.map_ports(std::iter::once(0x80..=0x81));
+                    let callbacks = relocade_machine::DeviceCallbacks::new(&device);
+                    let read = callbacks.read(|_, device| device.value);
+                    let write = callbacks.write(|_, device, value| device.value = value);
+                    io.bind(
+                        0x80..=0x81,
+                        &relocade_machine::PortRead::new(move |context, _, _| read(context)),
+                        &relocade_machine::PortWrite::new(move |context, _, _, value| {
+                            write(context, value)
+                        }),
+                    );
                 })
                 .await;
             assert!(device.borrow().started);
@@ -68,7 +66,11 @@ async fn connected_before_startup() {
             runner
                 .connect(Rc::new(RefCell::new(Adjacent)), |io| {
                     io.map_mmio(std::iter::once(0x2001..=0x2001));
-                    io.map_ports(std::iter::once(0x82..=0x82));
+                    io.bind(
+                        0x82,
+                        &relocade_machine::PortRead::new(|_, _, _| 0x44),
+                        &relocade_machine::PortWrite::new(|_, _, _, _| {}),
+                    );
                 })
                 .await;
             assert_eq!(io.read_mmio(0x2000, 2), 0x3322);

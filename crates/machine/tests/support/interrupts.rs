@@ -1,5 +1,9 @@
 use relocade_machine::{Device, IoContext};
-use std::task::{Context, Poll, Waker};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+};
 
 #[derive(Default)]
 pub struct Irq {
@@ -15,13 +19,21 @@ impl Irq {
             waker.wake();
         }
     }
+    #[allow(dead_code)]
+    pub fn configure_io(
+        io: &mut relocade_machine::DeviceConnection<'_>,
+        device: &Rc<RefCell<Self>>,
+    ) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.raise())),
+        );
+    }
 }
 
 impl Device for Irq {
-    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
-        self.raise();
-    }
-
     fn poll_interrupt(&mut self, _context: IoContext<'_>, cx: &mut Context<'_>) -> Poll<u8> {
         if std::mem::take(&mut self.pending) {
             self.acknowledged += 1;

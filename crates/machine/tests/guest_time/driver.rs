@@ -33,11 +33,20 @@ impl ReprogrammedTimer {
     }
 }
 
-impl Device for ReprogrammedTimer {
-    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
-        self.reprogram();
+impl ReprogrammedTimer {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(
+                callbacks.write(|_, device, _| device.reprogram()),
+            ),
+        );
     }
+}
 
+impl Device for ReprogrammedTimer {
     fn write_mmio(&mut self, _context: IoContext<'_>, _: u32, _: u8, _: u64) {
         self.reprogram();
     }
@@ -73,7 +82,7 @@ async fn callback_target_changes() {
                 }));
                 let io = IoBus::new(device.clone(), |io| {
                     io.map_mmio(std::iter::once(0x8000..=0x8fff));
-                    io.map_ports(std::iter::once(0x80..=0x80));
+                    ReprogrammedTimer::configure_io(io, &device);
                 });
                 let config = support::configuration(
                     Compiler::new(ExecutionProfile::Real16).target(),
@@ -295,7 +304,7 @@ async fn expired_yield_deadline() {
                 memory,
                 config.cpu,
                 IoBus::new(device.clone(), |io| {
-                    io.map_ports(std::iter::once(0x80..=0x80));
+                    ReprogrammedTimer::configure_io(io, &device);
                 }),
             )
             .await

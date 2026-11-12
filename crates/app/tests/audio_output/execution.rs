@@ -1,9 +1,7 @@
 use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
-use relocade_machine::{
-    timer_service, CpuConfig, Device, ExecutionInterrupt, IoContext, MachineConfig,
-};
+use relocade_machine::{timer_service, CpuConfig, Device, ExecutionInterrupt, MachineConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
 };
@@ -14,13 +12,23 @@ struct Started {
     interrupt: Option<ExecutionInterrupt>,
 }
 
-impl Device for Started {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl Started {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         // Ignore setup wakes before the callback under test can run.
         self.interrupt.as_ref().unwrap().take();
         self.ready.take().unwrap().send(()).unwrap();
     }
 }
+
+impl Device for Started {}
 
 async fn callback_wakes_execution() {
     let (audio, config, samples) = Audio::open(|error| panic!("{error}")).unwrap();
@@ -61,7 +69,7 @@ async fn callback_wakes_execution() {
         }));
         runner
             .connect(started.clone(), |io| {
-                io.map_ports(std::iter::once(0x80..=0x80));
+                Started::configure_io(io, &started);
             })
             .await;
         let compiler = Compiler::new(ExecutionProfile::Real16);

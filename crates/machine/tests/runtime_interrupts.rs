@@ -3,7 +3,7 @@ mod irq;
 mod support;
 
 use irq::Irq;
-use relocade_machine::{Cpu, Device, Hook, IoBus, Memory};
+use relocade_machine::{Cpu, Hook, IoBus, Memory};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister,
@@ -13,7 +13,12 @@ use std::{cell::RefCell, rc::Rc};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn cpu(code: &[u8], flags: u32, irq: &Rc<RefCell<impl Device + 'static>>) -> Cpu {
+async fn cpu(code: &[u8], flags: u32, irq: &Rc<RefCell<Irq>>) -> Cpu {
+    let io = IoBus::new(irq.clone(), |io| Irq::configure_io(io, irq));
+    cpu_with_io(code, flags, io).await
+}
+
+async fn cpu_with_io(code: &[u8], flags: u32, io: IoBus) -> Cpu {
     let mut state = CpuState {
         eip: 0x100,
         ..CpuState::real_mode()
@@ -35,15 +40,7 @@ async fn cpu(code: &[u8], flags: u32, irq: &Rc<RefCell<impl Device + 'static>>) 
         .view()
         .write(0x300, &[0xff, 0x06, 0, 5, 0xcf])
         .unwrap(); // INC word [0500]; IRET.
-    Cpu::new(
-        memory,
-        config.cpu,
-        IoBus::new(irq.clone(), |io| {
-            io.map_ports(std::iter::once(0x80..=0x80));
-        }),
-    )
-    .await
-    .unwrap()
+    Cpu::new(memory, config.cpu, io).await.unwrap()
 }
 
 async fn check_frames() {

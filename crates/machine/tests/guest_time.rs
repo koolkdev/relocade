@@ -4,7 +4,7 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, IoContext, Memory, Timestamp,
+    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -117,11 +117,21 @@ struct ClockPort {
     observed: Option<Timestamp>,
 }
 
-impl Device for ClockPort {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl ClockPort {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         assert!(self.observed.replace(self.clock.now()).is_none());
     }
 }
+
+impl Device for ClockPort {}
 
 async fn callback_observation() {
     for compiled in [false, true] {
@@ -133,7 +143,7 @@ async fn callback_observation() {
             observed: None,
         }));
         let io = IoBus::new(device.clone(), |io| {
-            io.map_ports(std::iter::once(0x80..=0x80));
+            ClockPort::configure_io(io, &device);
         });
         let config = configuration(99);
         let memory = Memory::new(config.machine).unwrap();

@@ -2,7 +2,7 @@ use super::*;
 use futures_channel::oneshot;
 use relocade_machine::{
     worker::{Receiver, Thread},
-    CpuConfig, CpuStorage, Device, ExecutionInterrupt, IoContext, MachineConfig,
+    CpuConfig, CpuStorage, Device, ExecutionInterrupt, MachineConfig,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -56,17 +56,28 @@ async fn prepared_cpu_storage_preserves_notifications_across_worker_construction
     prepared_storage().await;
 }
 
-impl Device for Started {
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {
+impl Started {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         self.0.take().unwrap().send(()).unwrap();
     }
 }
 
+impl Device for Started {}
+
 async fn request_during_execution() {
     for compiled in [false, true] {
         let (entered, running) = oneshot::channel();
-        let io = IoBus::new(Rc::new(RefCell::new(Started(Some(entered)))), |io| {
-            io.map_ports(std::iter::once(0x80..=0x80));
+        let started = Rc::new(RefCell::new(Started(Some(entered))));
+        let io = IoBus::new(started.clone(), |io| {
+            Started::configure_io(io, &started);
         });
         // OUT signals entry; INC AX / JMP then stay inside guest execution.
         let code = [0xe6, 0x80, 0x40, 0xeb, 0xfd];

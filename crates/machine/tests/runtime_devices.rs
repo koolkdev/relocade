@@ -33,10 +33,6 @@ impl Drop for Active {
 }
 
 impl Device for Ticker {
-    fn read_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8) -> u32 {
-        self.ticks.get()
-    }
-
     async fn run(device: Rc<RefCell<Self>>) {
         let (clock, ticks, report, active) = {
             let device = device.borrow();
@@ -95,8 +91,14 @@ async fn check_devices() {
             }));
             let io = runner.cpu().io();
             runner
-                .connect(device, |io| {
-                    io.map_ports(std::iter::once(0x80..=0x80));
+                .connect(device.clone(), |io| {
+                    let read = relocade_machine::DeviceCallbacks::new(&device)
+                        .read(|_, device| device.ticks.get());
+                    io.bind(
+                        0x80,
+                        &relocade_machine::PortRead::new(move |context, _, _| read(context)),
+                        &relocade_machine::PortWrite::new(|_, _, _, _| {}),
+                    );
                 })
                 .await;
             assert!(
@@ -169,8 +171,14 @@ async fn check_devices() {
                 active: worker_active.clone(),
             }));
             runner
-                .connect(device, |io| {
-                    io.map_ports(std::iter::once(0x80..=0x80));
+                .connect(device.clone(), |io| {
+                    let read = relocade_machine::DeviceCallbacks::new(&device)
+                        .read(|_, device| device.ticks.get());
+                    io.bind(
+                        0x80,
+                        &relocade_machine::PortRead::new(move |context, _, _| read(context)),
+                        &relocade_machine::PortWrite::new(|_, _, _, _| {}),
+                    );
                 })
                 .await;
             ready.send(()).unwrap();

@@ -30,7 +30,8 @@ async fn exit_during_poll() {
                 ready,
                 armed: !pending_call,
             }));
-            let mut runner = cpu(&[0xeb, 0xfe], 0x202, &device).await;
+            let mut runner =
+                cpu_with_io(&[0xeb, 0xfe], 0x202, IoBus::new(device.clone(), |_| {})).await;
             device.borrow_mut().exit = Some(runner.exit_handle());
             if pending_call {
                 runner
@@ -149,16 +150,27 @@ test_backends!(
 
 struct ExitOnWrite(Option<ExitHandle>);
 
-impl Device for ExitOnWrite {
-    fn write_port(&mut self, _context: IoContext<'_>, _: u16, _: u8, _: u32) {
+impl ExitOnWrite {
+    fn configure_io(io: &mut relocade_machine::DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+        let callbacks = relocade_machine::DeviceCallbacks::new(device);
+        io.bind(
+            0x80,
+            &relocade_machine::PortRead::new(|_, _, _| u32::MAX),
+            &relocade_machine::PortWrite::low_byte(callbacks.write(|_, device, _| device.signal())),
+        );
+    }
+    fn signal(&mut self) {
         self.0.as_ref().unwrap().request();
     }
 }
 
+impl Device for ExitOnWrite {}
+
 async fn exit_during_protected_successor() {
     let device = Rc::new(RefCell::new(ExitOnWrite(None)));
     // STI; OUT 80h, AL; INC AX; JMP to self.
-    let mut runner = cpu(&[0xfb, 0xe6, 0x80, 0x40, 0xeb, 0xfe], 2, &device).await;
+    let io = IoBus::new(device.clone(), |io| ExitOnWrite::configure_io(io, &device));
+    let mut runner = cpu_with_io(&[0xfb, 0xe6, 0x80, 0x40, 0xeb, 0xfe], 2, io).await;
     device.borrow_mut().0 = Some(runner.exit_handle());
     assert_eq!(runner.run().await, ExecutionExit::Host(HostExit::Return));
     let state = runner.cpu_state();
