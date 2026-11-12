@@ -131,7 +131,7 @@ pub(super) fn set(memory: &mut MemoryView<'_>, io: &IoBus, request: u16) -> bool
         mode.activate(memory, io, preserve);
         true
     } else if number < 0x80 {
-        legacy::set_mode(memory, io, number as u8 | if preserve { 0x80 } else { 0 }).is_some()
+        super::super::set_mode(memory, io, number as u8 | if preserve { 0x80 } else { 0 }).is_some()
     } else {
         false
     }

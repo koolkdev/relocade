@@ -1,6 +1,6 @@
 #[path = "../../machine/tests/support/execution.rs"]
 mod execution;
-use relocade_bios::{KeyMode, KeyStroke, Keyboard};
+use relocade_bios::{video::VideoFirmware, KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
     real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
     Memory,
@@ -90,9 +90,15 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
             math_coprocessor: true,
             pointing_device: false,
         },
+        &VideoFirmware::Dispi(vga.clone()),
     );
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga.clone(), None);
+    relocade_bios::register_interrupts(
+        &mut interrupts,
+        keyboard.clone(),
+        VideoFirmware::Dispi(vga.clone()),
+        None,
+    );
     interrupts.install().await.unwrap();
     memory.view().write(8 * 4, &[0, 3, 0, 0]).unwrap();
     // INT 16h; save AX; INT 1Ah/AH=00h; save DX; loop.
@@ -246,7 +252,12 @@ async fn bios_timer_rollover() {
     let (mut cpu, keyboard, vga) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
-    relocade_bios::register_interrupts(&mut interrupts, keyboard.clone(), vga, None);
+    relocade_bios::register_interrupts(
+        &mut interrupts,
+        keyboard.clone(),
+        VideoFirmware::Dispi(vga),
+        None,
+    );
     interrupts.install().await.unwrap();
     let memory = cpu.memory();
     memory.view().write(0x46c, &[0xaf, 0, 0x18, 0, 1]).unwrap();

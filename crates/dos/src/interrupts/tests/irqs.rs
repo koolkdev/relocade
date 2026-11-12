@@ -1,6 +1,6 @@
 use super::*;
 use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
-use relocade_bios::KeyMode;
+use relocade_bios::{video::VideoFirmware, KeyMode};
 use relocade_machine::{Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig, Memory};
 use relocade_vga::DispiAdapter;
 use relocade_x86::{
@@ -79,10 +79,11 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
             math_coprocessor: true,
             pointing_device: false,
         },
+        &VideoFirmware::Dispi(vga.clone()),
     );
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupts::register_interrupts(&mut interrupts, dos.clone());
-    relocade_bios::register_interrupts(&mut interrupts, keyboard, vga, None);
+    relocade_bios::register_interrupts(&mut interrupts, keyboard, VideoFirmware::Dispi(vga), None);
     interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),

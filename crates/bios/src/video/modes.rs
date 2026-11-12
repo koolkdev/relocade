@@ -6,7 +6,6 @@ use super::{
 };
 use crate::screen;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
-use relocade_vga::dispi;
 use relocade_vga::{
     registers::{sequencer, SEQUENCER_INDEX_PORT},
     TEXT_MEMORY_BYTES, TEXT_MEMORY_START,
@@ -60,82 +59,101 @@ pub fn mode(memory: &MemoryView<'_>) -> ModeInfo {
     }
 }
 
-/// Returns the mode-set AL result, or leaves the device untouched if unsupported.
-#[relocade_machine::real_mode_interrupt::interrupt(context(memory, io), args(request = al),
-    returns { Some(value) => { al = value }, None => crate::interrupts::unsupported }
-)]
+/// Program standard VGA. A selected card's firmware prepares its interface first.
 pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
-    let mode = request & 0x7f;
-    let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
-    let record = presets::record_index(mode, control)?;
-    let preset = presets::TABLE[record].expect("supported BIOS mode");
-    // Read before any writes: a guest table may overlap the BIOS data or VRAM.
-    let parameters = Parameters::read(memory, record)?;
-    let text_memory = text_memory_start(mode);
-    // Leave packed addressing before font loading or legacy aperture writes.
-    io.write_port(dispi::INDEX_PORT, 2, u32::from(dispi::ENABLE));
-    io.write_port(dispi::DATA_PORT, 2, u32::from(dispi::DISABLED));
-    // Restore routing and write masks before any clear. Font loading temporarily
-    // selects plane two, then the mode record establishes guest memory access.
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::RESET,
-        sequencer::SYNCHRONOUS_RESET,
-    );
-    fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
-    let palette = palette::PaletteLoad::for_mode_set(memory);
-    parameters.program(memory, io, palette);
-    preset.load_palette(io, palette);
+    Some(ModeSet::prepare(memory, request)?.apply(memory, io))
+}
 
-    memory.write_u8(MODE, mode).expect("video mode");
-    palette::initialize_compatibility(memory, mode);
-    memory
-        .write_u16(COLUMNS, u16::from(parameters.columns))
-        .expect("video columns");
-    memory
-        .write_u16(PAGE_SIZE, parameters.page_bytes)
-        .expect("video page size");
-    memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
-    memory.write(CURSORS, &[0; 16]).expect("video cursors");
-    memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
-    screen::set_native_cursor_shape(memory, io, parameters.cursor_shape());
-    memory
-        .write_u16(CRTC_PORT, crtc_port(io))
-        .expect("CRTC port");
-    memory
-        .write(
-            LAST_ROW,
-            &[parameters.last_row, parameters.character_height, 0],
-        )
-        .expect("video font geometry");
-    let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
-    memory
-        .write_u8(VIDEO_CONTROL, (control & 0x7f) | (request & 0x80))
-        .expect("video control");
-    if request & 0x80 == 0 {
-        if let Some(base) = text_memory {
-            let blank = [b' ', 7].repeat(2048);
-            for offset in (0..TEXT_MEMORY_BYTES).step_by(blank.len()) {
-                memory.write(base + offset, &blank).expect("text page");
+/// Validated legacy programming, captured before the card changes CPU mappings.
+pub(super) struct ModeSet {
+    request: u8,
+    preset: &'static presets::Preset,
+    parameters: Parameters,
+}
+
+impl ModeSet {
+    pub(super) fn prepare(memory: &MemoryView<'_>, request: u8) -> Option<Self> {
+        let control = memory.read_u8(MODESET_CONTROL).expect("mode-set control");
+        let record = presets::record_index(request & 0x7f, control)?;
+        let preset = presets::TABLE[record].expect("supported BIOS mode");
+        let parameters = Parameters::read(memory, record)?;
+        Some(Self {
+            request,
+            preset,
+            parameters,
+        })
+    }
+
+    pub(super) fn apply(self, memory: &mut MemoryView<'_>, io: &IoBus) -> u8 {
+        let Self {
+            request,
+            preset,
+            parameters,
+        } = self;
+        let mode = request & 0x7f;
+        let text_memory = text_memory_start(mode);
+        // Restore routing and write masks before any clear. Font loading temporarily
+        // selects plane two, then the mode record establishes guest memory access.
+        write_indexed(
+            io,
+            SEQUENCER_INDEX_PORT,
+            sequencer::RESET,
+            sequencer::SYNCHRONOUS_RESET,
+        );
+        fonts::set_mode(memory, io, preset.character_height, text_memory.is_some());
+        let palette = palette::PaletteLoad::for_mode_set(memory);
+        parameters.program(memory, io, palette);
+        preset.load_palette(io, palette);
+
+        memory.write_u8(MODE, mode).expect("video mode");
+        palette::initialize_compatibility(memory, mode);
+        memory
+            .write_u16(COLUMNS, u16::from(parameters.columns))
+            .expect("video columns");
+        memory
+            .write_u16(PAGE_SIZE, parameters.page_bytes)
+            .expect("video page size");
+        memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
+        memory.write(CURSORS, &[0; 16]).expect("video cursors");
+        memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
+        screen::set_native_cursor_shape(memory, io, parameters.cursor_shape());
+        memory
+            .write_u16(CRTC_PORT, crtc_port(io))
+            .expect("CRTC port");
+        memory
+            .write(
+                LAST_ROW,
+                &[parameters.last_row, parameters.character_height, 0],
+            )
+            .expect("video font geometry");
+        let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
+        memory
+            .write_u8(VIDEO_CONTROL, (control & 0x7f) | (request & 0x80))
+            .expect("video control");
+        if request & 0x80 == 0 {
+            if let Some(base) = text_memory {
+                let blank = [b' ', 7].repeat(2048);
+                for offset in (0..TEXT_MEMORY_BYTES).step_by(blank.len()) {
+                    memory.write(base + offset, &blank).expect("text page");
+                }
+            } else {
+                graphics::clear(memory);
             }
-        } else {
-            graphics::clear(memory);
+        }
+        fonts::apply_guest_tables(memory, io);
+        palette::apply_guest_tables(memory, io);
+        write_indexed(
+            io,
+            SEQUENCER_INDEX_PORT,
+            sequencer::RESET,
+            sequencer::RESET_RELEASED,
+        );
+        match mode {
+            TEXT_40X25..=GRAPHICS_320X200_4_ALT | MONO_TEXT_80X25 => 0x30,
+            GRAPHICS_640X200_2 => 0x3f,
+            _ => 0x20,
         }
     }
-    fonts::apply_guest_tables(memory, io);
-    palette::apply_guest_tables(memory, io);
-    write_indexed(
-        io,
-        SEQUENCER_INDEX_PORT,
-        sequencer::RESET,
-        sequencer::RESET_RELEASED,
-    );
-    Some(match mode {
-        TEXT_40X25..=GRAPHICS_320X200_4_ALT | MONO_TEXT_80X25 => 0x30,
-        GRAPHICS_640X200_2 => 0x3f,
-        _ => 0x20,
-    })
 }
 
 /// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.

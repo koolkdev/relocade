@@ -1,5 +1,6 @@
 //! VBE 4F04h: complete programming state, excluding framebuffer memory.
-use super::{super::state::firmware, available};
+use super::available;
+use crate::video::state::firmware;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer, IoBus, MemoryView,

@@ -1,13 +1,13 @@
 //! BIOS interrupt registration and shared return handling.
 
+use crate::video::VideoFirmware;
 use crate::{clock, disk, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
 };
-use relocade_vga::DispiAdapter;
 use relocade_x86::Exception;
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 /// Default PC IRQ0 vector. Guest PIC remapping can select a different vector.
 pub const TIMER_IRQ: u8 = 0x08;
@@ -102,14 +102,14 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 
 /// Registers BIOS vectors and their handlers alongside an environment's interrupts.
 /// The keyboard is retained by its handler and may be shared with console input.
-/// Video retains the same VGA device connected to the CPU's I/O bus.
+/// Video retains the firmware selected for the card connected to the CPU's I/O bus.
 /// An optional mouse owns BIOS state and waits on the connected PS/2 controller.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
 pub fn register_interrupts(
     interrupts: &mut Interrupts<'_>,
     keyboard: Keyboard,
-    vga: Rc<RefCell<DispiAdapter>>,
+    video: VideoFirmware,
     mouse: Option<Mouse>,
 ) {
     for (index, exception) in [
@@ -209,7 +209,7 @@ pub fn register_interrupts(
         interrupts,
         VIDEO,
         VIDEO_ENTRY,
-        interrupt_handler!(video::dispatch(&vga)),
+        interrupt_handler!(video::dispatch(&video)),
     );
 }
 
