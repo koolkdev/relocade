@@ -16,11 +16,15 @@ use crate::{ssa::StateFields, x87::ExtendedValue};
 use super::access::cpu_location;
 pub(crate) use control::Exception;
 
+/// Fields consumed by an instruction's observed-state specialization. Both cases
+/// use the same predicate/guard mechanism; operand and result coverage is separate.
 #[derive(Clone, Copy)]
 pub(crate) enum X87Specialization {
-    /// Rounding control alone, for operations independent of PC.
+    /// RC alone: memory stores that round, FRNDINT and transcendental operations.
     Rounding,
-    /// Precision and rounding, plus PM and PE when both were observed set.
+    /// RC and PC for the FADD/FSUB/FMUL/FDIV families and FSQRT. Observed PM=1/PE=1
+    /// can also eliminate repeated precision-exception work without changing
+    /// rounding or C1.
     Arithmetic,
 }
 
@@ -100,17 +104,19 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
+    /// Conjoins the requested RC/PC comparisons and, optionally, PM=1 and PE=1.
+    /// This supplies a predicate; the execution owner decides when to guard it.
     pub(crate) fn specialization_condition(
         &mut self,
         rounding: Option<u8>,
         precision: Option<u8>,
-        masked_precision: bool,
+        masked_precision_is_set: bool,
     ) -> Result<Val<I1>, BuildError> {
         let mut condition = self
             .state
             .control
             .matches_controls(self.body, rounding, precision)?;
-        if masked_precision {
+        if masked_precision_is_set {
             // A masked, already-set PE cannot change on another inexact result.
             // Guard both facts so repeated exception calculations fold away while
             // C1 and the numerical result keep their normal rounding behavior.

@@ -9,8 +9,25 @@ use crate::{
 };
 
 impl ExecutionBuilder<'_, '_> {
-    /// Checks observed controls before using them to simplify the continuing path.
-    /// Operand and result guards separately define the compiled arithmetic domain.
+    /// Checks the observed fields used to simplify this instruction's calculation.
+    /// The caller selects the fields because not every x87 operation consumes PC:
+    ///
+    /// - `Rounding` compares rounding control (RC & 3) with the snapshot. Memory
+    ///   stores that round, FRNDINT and transcendental operations use this; their
+    ///   precision follows the operation or destination format rather than PC.
+    /// - `Arithmetic` also compares precision control (PC & 3), for the
+    ///   FADD/FSUB/FMUL/FDIV families and FSQRT. If the snapshot has both precision
+    ///   masked (PM = 1) and the sticky precision flag set (PE = 1), it also
+    ///   checks PM and PE.
+    ///   Another inexact result then needs no PE update or precision-exception
+    ///   delivery; numerical rounding and C1 still follow the current controls.
+    ///
+    /// Only unknown values need snapshot checks. Values already determined by
+    /// guest instructions supersede the snapshot, even when they differ. A failed
+    /// check restarts the current instruction in the interpreter. Without an
+    /// observation or fallback capability, this adds no guards.
+    /// Operand and result guards separately decide which cases stay compiled;
+    /// these observation checks do not require a particular RC or PC encoding.
     pub(crate) fn guard_x87_controls(
         &mut self,
         specialization: X87Specialization,
@@ -20,11 +37,13 @@ impl ExecutionBuilder<'_, '_> {
                 return Ok(());
             };
             let arithmetic = matches!(specialization, X87Specialization::Arithmetic);
+            let precision = arithmetic.then_some(observed.x87.control.precision_control);
+            let masked_precision_is_set = arithmetic
+                && observed.x87.control.precision_mask & observed.x87.status.precision & 1 != 0;
             let condition = jit.x87().specialization_condition(
                 Some(observed.x87.control.rounding_control),
-                arithmetic.then_some(observed.x87.control.precision_control),
-                arithmetic
-                    && observed.x87.control.precision_mask & observed.x87.status.precision & 1 != 0,
+                precision,
+                masked_precision_is_set,
             )?;
             jit.guard(condition)
         })?;
