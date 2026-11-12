@@ -78,6 +78,21 @@ impl<'a> DeviceConnection<'a> {
         PortBinding::new(self.context.bus, ports)
     }
 
+    /// Claims fixed addresses and installs both operations immediately. Dropping
+    /// the binding leaves the operations installed; retain it only to replace
+    /// reads or writes later. Subranges of an existing claim are also accepted.
+    pub fn bind(
+        &mut self,
+        ports: impl Into<PortRange>,
+        read: &PortRead,
+        write: &PortWrite,
+    ) -> PortBinding {
+        let binding = self.port(ports);
+        binding.set_read(self.context(), read);
+        binding.set_write(self.context(), write);
+        binding
+    }
+
     /// Maps ranges to this device's existing `read_port` and `write_port` methods.
     /// Use [`Self::port`] to obtain a binding for a register that needs different
     /// handling. Generic handling can be selected again with [`PortRead::for_device`]
@@ -89,9 +104,7 @@ impl<'a> DeviceConnection<'a> {
             let read = PortRead::for_device(&self.connection.device);
             let write = PortWrite::for_device(&self.connection.device);
             for ports in ranges {
-                let port = self.port(ports);
-                port.set_read(self.context(), &read);
-                port.set_write(self.context(), &write);
+                self.bind(ports, &read, &write);
             }
         }
     }
