@@ -1130,6 +1130,10 @@ Embeddings register the same operations and MMIO aperture through
 the DISPI interface through that same connection. The existing I/O companion
 retains both sets of operations, with the same adapter-enable gate. Port
 operations are prepared once at connection.
+The memory aperture installs prepared `MmioRead` and `MmioWrite` operations.
+Its complete pages dispatch directly to the card's memory methods. The card
+selects VGA, packed-bank or disabled access, and preserves overdue output before
+memory writes. The VGA-only fixture uses the same binding API with `VgaCore`.
 VGA byte transfers use their physical window, including holes and adjacent
 controllers; DISPI index and data ports each accept exactly one complete word.
 Setup and Input Status 1 operations use `low_byte`: a byte, word or dword access

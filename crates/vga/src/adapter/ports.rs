@@ -2,7 +2,7 @@
 
 mod status;
 
-use crate::{dispi, registers::*, DispiAdapter, MEMORY_RANGE};
+use crate::{dispi, registers::*, DispiAdapter};
 use relocade_machine::{
     DeviceCallbacks, DeviceConnection, IoContext, PortBinding, PortRange, PortRead, PortWrite,
 };
@@ -90,12 +90,7 @@ impl Mapping {
 }
 
 impl DispiAdapter {
-    /// Connects VGA's MMIO aperture and individual port operations. VGA sequences
-    /// retain their physical windows; setup/status consume the low byte, and
-    /// DISPI accepts exact word accesses.
-    pub fn configure_io(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
-        assert!(device.borrow().io.is_none(), "VGA is already connected");
-        io.map_mmio([MEMORY_RANGE]);
+    pub(super) fn bind_ports(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
         let callbacks = DeviceCallbacks::new(device);
         let common = bind_common_vga_ports(io, &callbacks);
         let dispi = bind_dispi_ports(io, &callbacks);

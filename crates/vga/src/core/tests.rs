@@ -4,7 +4,7 @@ use crate::{
     registers::{graphics, sequencer},
     MEMORY_RANGE,
 };
-use relocade_machine::{Device, IoBus, IoContext};
+use relocade_machine::{Device, DeviceCallbacks, IoBus, MmioRead, MmioWrite};
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Default)]
@@ -13,15 +13,7 @@ struct VgaOnly {
     memory: VideoMemory,
 }
 
-impl Device for VgaOnly {
-    fn read_mmio(&mut self, _: IoContext<'_>, address: u32, bytes: u8) -> u64 {
-        self.core.read_memory(&self.memory, address, bytes)
-    }
-    fn write_mmio(&mut self, _: IoContext<'_>, address: u32, bytes: u8, value: u64) {
-        self.core
-            .write_memory(&mut self.memory, address, bytes, value);
-    }
-}
+impl Device for VgaOnly {}
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -42,7 +34,19 @@ fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
         card.memory.write_physical(address as u32, value);
     }
     let device = Rc::new(RefCell::new(card));
-    let io = IoBus::new(device.clone(), |io| io.map_mmio([MEMORY_RANGE]));
+    let io = IoBus::new(device.clone(), |io| {
+        let callbacks = DeviceCallbacks::new(&device);
+        io.bind_mmio(
+            MEMORY_RANGE,
+            &MmioRead::new(callbacks.read_mmio(|_, card, address, bytes| {
+                card.core.read_memory(&card.memory, address, bytes)
+            })),
+            &MmioWrite::new(callbacks.write_mmio(|_, card, address, bytes, value| {
+                card.core
+                    .write_memory(&mut card.memory, address, bytes, value);
+            })),
+        );
+    });
     assert_eq!(io.read_mmio(0xa0000, 1), 0x12);
     let saved = device.borrow().core.core_state();
     assert_eq!(&saved.to_bytes()[11..15], &[0x12, 0x34, 0x56, 0x78]);
