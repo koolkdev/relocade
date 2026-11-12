@@ -127,21 +127,19 @@ This is a public repository. Commit messages use `component: title`.
 
 ## Review and validation
 
-- Before calling a part ready, review the expanded modules, not only the added lines.
-  Check for missed generalization, duplicated mechanisms, awkward APIs, misleading
-  names, stale comments and tests that preserve obsolete implementation details.
-- Run focused local Wasmtime tests for changed behavior, along with formatting and
-  relevant static checks. Run focused browser tests for web runtime changes,
-  including bindings, memory, callbacks and dispatch. Keep DOS and VFS behavior
-  tests native.
-- Leave full workspace test suites to CI by default. Once focused local
-  checks and review pass, commit, push and open or update the PR without waiting
-  for full local suites or CI to finish. Report pending CI explicitly. Run broader
-  local suites only to investigate a concrete concern or failure, to cover a gap
-  in CI, or when the user requests them.
-- Compare Wasm bytes first; do not benchmark identical output. Measure changed
-  output with meaningful workloads and matching execution boundaries, and report
-  uncertainty honestly.
+- Focus on completing the requested change. CI is the verification gate for builds,
+  tests, formatting and static checks; do not duplicate those checks locally as a
+  routine completion step. Continue to add or update meaningful tests when needed.
+- Run a local check only when it is needed to implement or debug the change, or
+  when the user requests it. Use the smallest relevant command and stop when it
+  answers the question. Do not repeat successful checks without a new reason.
+- Review the change once in context before publishing. Avoid repeated diff
+  inspections, separate audit passes and mandatory independent review. Seek another
+  reviewer only to resolve a concrete design or correctness question that blocks
+  completion, or when the user requests one.
+- For performance work, compare Wasm bytes first; do not benchmark identical output.
+  Measure changed output with meaningful workloads and matching execution boundaries,
+  and report uncertainty honestly.
 - Preserve the measured memory-backed handling of mixed-width register aliases.
   Earlier V8 measurements favored backing reads and writes over extract/merge
   expressions; textbook SSA shape alone is not a reason to replace that design.
@@ -155,17 +153,11 @@ This is a public repository. Commit messages use `component: title`.
   accesses in correctness coverage rather than instruction performance workloads.
 - Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
   a mechanism. Review design changes together with their generated-code consequences.
-- Complete implementation, comments, tests and focused local validation for the
-  current part before presenting it. Get an independent review for substantive
-  changes and inspect the exact staged diff, including every file proposed for
-  the commit.
-- Report decisions, verification and material limitations, including module-boundary
-  decisions for substantially expanded files.
-- Every completed change report includes a concise walkthrough of added or reshaped
-  types, schemas and consumer APIs, with representative code excerpts and the reasons
-  for their design. Distinguish new interfaces from existing ones reused by the change.
-  If these did not change, say so.
-- Within the agreed task scope, complete review and focused local validation,
-  then commit, push and open or update pull requests.
+- Once implementation and review are complete, commit, push and open or update the
+  PR. Do not wait for or repeatedly poll CI unless the user asks. State that
+  verification is left to CI rather than claiming checks passed.
+- Keep the completion report brief: describe the result, any checks actually run
+  and material limitations. Explain changed APIs or include code excerpts only
+  when they help the user understand the result.
 - Resolve routine implementation choices while completing the current part; do not
   leave it half-finished merely to request those choices.
