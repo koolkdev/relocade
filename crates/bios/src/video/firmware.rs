@@ -1,9 +1,10 @@
 //! The video firmware selected by the machine composition.
 pub mod dispi;
 
+use super::{COLOR_TEXT_80X25, modes};
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, IoBus, MemoryView,
+    real_mode_interrupt::{interrupt, interrupt_dispatch},
 };
 use relocade_vga::DispiAdapter;
 use std::{cell::RefCell, rc::Rc};
@@ -16,17 +17,24 @@ pub enum VideoFirmware {
 }
 
 impl VideoFirmware {
-    pub(crate) fn initialize(&self, memory: &mut MemoryView<'_>) {
+    pub(crate) fn initialize(&self, memory: &mut MemoryView<'_>, io: &IoBus) {
         match self {
-            Self::Vga => {}
-            Self::Dispi(_) => dispi::initialize(memory),
+            Self::Vga => {
+                // Standard VGA starts with 80×25 nine-dot cells and the 16-high font.
+                assert!(
+                    modes::select_scanlines(memory, 2),
+                    "initial scanline profile"
+                );
+                modes::set_mode(memory, io, COLOR_TEXT_80X25).expect("initial VGA text mode");
+            }
+            Self::Dispi(_) => dispi::initialize(memory, io),
         }
     }
 
     /// Prepare this card for a validated legacy mode, then program standard VGA.
     pub fn set_mode(&self, memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
         match self {
-            Self::Vga => super::modes::set_mode(memory, io, request),
+            Self::Vga => modes::set_mode(memory, io, request),
             Self::Dispi(_) => dispi::set_mode(memory, io, request),
         }
     }
@@ -50,10 +58,10 @@ pub(super) async fn vbe(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
         call,
         match firmware {
             VideoFirmware::Dispi(card) => dispi::vbe::dispatch(card),
-            VideoFirmware::Vga => unsupported,
+            VideoFirmware::Vga => vbe_unavailable,
         }
     );
 }
 
 #[interrupt(returns { () => { ax = 0x0100 } })]
-fn unsupported() {}
+fn vbe_unavailable() {}

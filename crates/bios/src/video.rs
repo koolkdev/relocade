@@ -26,16 +26,16 @@ mod tables;
 pub use firmware::VideoFirmware;
 
 pub use characters::{
-    read_character, teletype, write_characters, write_characters_preserving_attributes,
-    write_characters_with_attribute, CharacterCell, CharacterRun,
+    CharacterCell, CharacterRun, read_character, teletype, write_characters,
+    write_characters_preserving_attributes, write_characters_with_attribute,
 };
 pub use control::{set_screen_output, set_video_addressing};
-pub use cursor::{cursor, select_page, set_cursor, set_cursor_shape, CursorState};
+pub use cursor::{CursorState, cursor, select_page, set_cursor, set_cursor_shape};
 pub(super) use fonts::Glyph;
 pub use graphics::pixel::{read_pixel, write_pixel};
 pub(crate) use interrupt::dispatch_entry;
-pub use modes::{mode, set_mode, ModeInfo};
-pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
+pub(super) use modes::{COLOR_TEXT_80X25, GRAPHICS_640X480_2, text_memory_start};
+pub use modes::{ModeInfo, mode, set_mode};
 pub use scroll::{scroll, scroll_down, scroll_up};
 
 pub use crate::screen::{ScrollDirection, Window};
@@ -65,15 +65,7 @@ pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, firmware: &Vid
     fonts::initialize(memory);
     information::initialize(memory);
     tables::initialize(memory);
-    firmware.initialize(memory);
-    // VGA color startup uses 80×25 nine-dot cells and the 16-high font.
-    assert!(
-        modes::select_scanlines(memory, 2),
-        "initial scanline profile"
-    );
-    firmware
-        .set_mode(memory, io, COLOR_TEXT_80X25)
-        .expect("initial text mode");
+    firmware.initialize(memory, io);
 }
 
 fn write_indexed(io: &IoBus, port: u16, register: u8, value: u8) {

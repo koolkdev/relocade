@@ -986,6 +986,9 @@ services. A legacy mode request is validated and its guest parameter table read
 before DISPI is disabled; common VGA routines then load fonts and program the
 mode. `VideoFirmware::Vga` uses those routines directly and has no VBE interface.
 Common VGA programming never accesses DISPI ports.
+Each firmware chooses its startup mode. Both currently select 80×25 VGA text
+to preserve BIOS console output; the DISPI firmware exposes packed graphics
+through VBE for the guest to select.
 
 The DISPI firmware reports VBE 1.2. Its VBE module provides `INT 10h/4F00h`
 controller discovery and `4F01h` information for nine banked modes,

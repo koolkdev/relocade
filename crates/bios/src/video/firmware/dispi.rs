@@ -1,12 +1,21 @@
 //! Firmware for the banked DISPI adapter.
 pub(super) mod vbe;
 
-use crate::video::modes::ModeSet;
+use crate::video::{
+    COLOR_TEXT_80X25,
+    modes::{self, ModeSet},
+};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::dispi;
 
-pub(super) fn initialize(memory: &mut MemoryView<'_>) {
+pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
     vbe::initialize(memory);
+    // Keep the BIOS text console available until the guest selects a VBE mode.
+    assert!(
+        modes::select_scanlines(memory, 2),
+        "initial scanline profile"
+    );
+    set_mode(memory, io, COLOR_TEXT_80X25).expect("initial DISPI text mode");
 }
 
 /// Leave packed access before common VGA font loading and mode programming.
