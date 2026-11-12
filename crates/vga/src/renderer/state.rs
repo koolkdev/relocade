@@ -104,7 +104,7 @@ impl GpuState {
             queue.write_buffer(&self.settings, 0, &settings);
             self.previous_settings = Some(settings);
         }
-        if matches!(snapshot.scanout(), Scanout::Svga(layout)
+        if matches!(snapshot.scanout(), Scanout::Packed(layout)
             if layout.format() != PixelFormat::Indexed8)
         {
             return settings_changed;
@@ -148,7 +148,7 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
                 slot.copy_from_slice(&word.to_le_bytes());
             }
         }
-        Scanout::Svga(layout) => {
+        Scanout::Packed(layout) => {
             bytes[..4].copy_from_slice(&layout.pitch().to_le_bytes());
             bytes[4..8].copy_from_slice(&layout.display_start().to_le_bytes());
             // Decoder tags shared with packed.wgsl; separate from storage width.

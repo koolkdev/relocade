@@ -23,7 +23,7 @@ impl FramebufferAccess for Vga {
     fn framebuffer(&mut self) -> Framebuffer<'_> {
         self.capture_if_due();
         let scanout = match self.dispi.display_layout() {
-            Some(layout) => Scanout::Svga(layout),
+            Some(layout) => Scanout::Packed(layout),
             None => {
                 let mut state = VgaDisplayState::capture(&self.registers, 0);
                 // Services draw into the programmed viewport, including a page
@@ -94,7 +94,7 @@ impl Framebuffer<'_> {
     pub fn geometry(&self) -> Option<FramebufferGeometry> {
         match self.scanout {
             Scanout::Vga(state) => Some(Addressing::new(state)?.geometry()),
-            Scanout::Svga(layout) => {
+            Scanout::Packed(layout) => {
                 let [width, height] = layout.size().map(|n| n as u16);
                 Some(FramebufferGeometry::Graphics { width, height })
             }
@@ -118,7 +118,7 @@ impl Framebuffer<'_> {
                 };
                 (location, mask)
             }
-            Scanout::Svga(layout) => {
+            Scanout::Packed(layout) => {
                 let [width, height] = layout.size();
                 if u32::from(x) >= width || u32::from(y) >= height {
                     return None;

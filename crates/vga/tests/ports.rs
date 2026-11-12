@@ -245,7 +245,7 @@ fn status_reads_service_capture_edges_and_share_updates_from_the_output_task() {
     common::service_video(video.as_mut());
     assert!(matches!(
         frames.try_recv().unwrap().scanout(),
-        relocade_vga::Scanout::Svga(_)
+        relocade_vga::Scanout::Packed(_)
     ));
 
     // State restore must select the same mode-specific work as DISPI writes.
@@ -277,7 +277,7 @@ fn status_reads_service_capture_edges_and_share_updates_from_the_output_task() {
     common::service_video(video.as_mut());
     assert!(matches!(
         frames.try_recv().unwrap().scanout(),
-        relocade_vga::Scanout::Svga(_)
+        relocade_vga::Scanout::Packed(_)
     ));
 
     io.write_port(0x1cf, 2, 0);

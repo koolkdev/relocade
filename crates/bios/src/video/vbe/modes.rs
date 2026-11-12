@@ -7,7 +7,7 @@ use crate::video::{
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{
     registers::{dispi, MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
-    PixelFormat, SvgaMode, SvgaResolution, VIDEO_MEMORY_BYTES,
+    DispiMode, DispiResolution, PixelFormat, VIDEO_MEMORY_BYTES,
 };
 
 // Outside the supported legacy modes: their output/font paths reject this marker.
@@ -17,47 +17,47 @@ const VBE_MODE_MARKER: u8 = 0x7f;
 #[derive(Clone, Copy)]
 pub(super) struct Mode {
     pub(super) number: u16,
-    pub(super) display: SvgaMode,
+    pub(super) display: DispiMode,
 }
 
 impl Mode {
     pub(super) const ALL: [Self; 9] = [
         Self {
             number: 0x101,
-            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Indexed8),
+            display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Indexed8),
         },
         Self {
             number: 0x103,
-            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Indexed8),
+            display: DispiMode::new(DispiResolution::R800x600, PixelFormat::Indexed8),
         },
         Self {
             number: 0x105,
-            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Indexed8),
+            display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Indexed8),
         },
         Self {
             number: 0x111,
-            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Rgb565),
+            display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Rgb565),
         },
         Self {
             number: 0x114,
-            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Rgb565),
+            display: DispiMode::new(DispiResolution::R800x600, PixelFormat::Rgb565),
         },
         Self {
             number: 0x117,
-            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Rgb565),
+            display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Rgb565),
         },
         // Bochs OEM numbers identify 32-bit storage without reusing 24-bit modes.
         Self {
             number: 0x142,
-            display: SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Bgrx8888),
+            display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Bgrx8888),
         },
         Self {
             number: 0x143,
-            display: SvgaMode::new(SvgaResolution::R800x600, PixelFormat::Bgrx8888),
+            display: DispiMode::new(DispiResolution::R800x600, PixelFormat::Bgrx8888),
         },
         Self {
             number: 0x144,
-            display: SvgaMode::new(SvgaResolution::R1024x768, PixelFormat::Bgrx8888),
+            display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Bgrx8888),
         },
     ];
 
@@ -69,7 +69,7 @@ impl Mode {
         if read_register(io, dispi::ENABLE) & dispi::ENABLED == 0 {
             return None;
         }
-        let display = SvgaMode::from_registers(
+        let display = DispiMode::from_registers(
             read_register(io, dispi::X_RESOLUTION),
             read_register(io, dispi::Y_RESOLUTION),
             read_register(io, dispi::BITS_PER_PIXEL),

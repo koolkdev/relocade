@@ -64,7 +64,7 @@ at about 59.94 Hz. The vertical-counter divider scales display height and split
 position independently of character height and repeated scanlines.
 
 `timing/vga` decodes programmable register fields, including the four-bit retrace
-end comparison and its wrap across the vertical counter reset. `timing/svga`
+end comparison and its wrap across the vertical counter reset. `registers/dispi/modes`
 supplies the fixed preset. Both produce common `Timing` counts, explicit retrace
 intervals and clock rates. `Raster` retains position, fractional progress and
 the lifetime retrace count; it knows no CRTC encoding or VGA blink divider.
@@ -623,7 +623,7 @@ frame even when the displayed pixels are unchanged.
 `CrtcRegisters` keeps programmed CRTC bytes and field decoding together in both
 the live device and its captured VGA payload. Indexed port access, write
 protection and display-start latching remain on the live `Crtc`.
-`Scanout::Svga(SvgaLayout)` owns a validated packed layout with size, byte pitch
+`Scanout::Packed(PackedLayout)` owns a validated packed layout with size, byte pitch
 and physical display origin. It carries no legacy VGA registers or blink phases.
 The scanout variant is read-only so it stays paired with its captured memory extent.
 
@@ -958,16 +958,17 @@ including LFB combined with no-clear, are ignored as a whole. The restricted ID2
 profile supports 8-, 16- and 32-bit pixels and no-clear mode entry. The 15-/24-bit
 formats and linear aperture remain unsupported.
 
-`SvgaLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
+`PackedLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
 Pitch changes retain pixel coordinates and fail if the viewport would no longer
 fit. Only complete logical rows count toward virtual height. Layout writes do
 not clear VRAM, change the CPU bank or restart raster timing. Mode entry resets
 to the default pitch and origin. Inactive layout reads return zero and writes
 are ignored. Each retrace captures the layout in effect at that boundary.
 
-`SvgaMode` combines a `SvgaResolution` with a `PixelFormat`; its default
-`SvgaLayout` and checked layout changes keep byte strides distinct from pixel
-coordinates. The three resolutions have fixed DMT rasters, independent of pixel
+`PackedLayout` holds size, format, pitch and physical display start, checked
+against the memory capacity supplied by its owner. It has no DISPI mode or timing
+dependency. `DispiMode` and `DispiResolution` live beside the DISPI registers; they
+select this adapter's supported sizes and fixed timings. The three resolutions have fixed DMT rasters, independent of pixel
 format. DISPI accepts indexed eight-bit, little-endian RGB565 and BGRX8888 modes
 at each resolution. The packed shader selects decoding from the captured format;
 direct colors bypass the DAC palette and mask, and BGRX output is opaque.

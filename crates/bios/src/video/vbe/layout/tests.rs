@@ -61,7 +61,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
     let completed = frames.try_recv().unwrap();
-    let Scanout::Svga(old) = completed.scanout() else {
+    let Scanout::Packed(old) = completed.scanout() else {
         panic!("packed capture")
     };
     assert_eq!(old.origin(), [0, 0]);
@@ -70,7 +70,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     io.read_port(0x3ba, 1);
     assert!(video.as_mut().poll(&mut video_cx).is_pending());
     let next = frames.try_recv().unwrap();
-    let Scanout::Svga(layout) = next.scanout() else {
+    let Scanout::Packed(layout) = next.scanout() else {
         panic!("packed capture")
     };
     assert_eq!(layout.origin(), [32, 480]);

@@ -64,8 +64,14 @@ pub(super) fn mode(
     };
     let [width, height] = mode.display.size().map(|value| value as u16);
     let layout = layout::active(io)
-        .filter(|layout| layout.mode() == mode.display)
-        .unwrap_or_else(|| mode.display.layout());
+        .filter(|layout| {
+            layout.size() == mode.display.size() && layout.format() == mode.display.format()
+        })
+        .unwrap_or_else(|| {
+            mode.display
+                .layout(VIDEO_MEMORY_BYTES)
+                .expect("supported mode fits VRAM")
+        });
     let mut bytes = [0; 256];
     // Supported color graphics, extended information, no BIOS text/pixel output.
     bytes[..2].copy_from_slice(&0x001bu16.to_le_bytes());

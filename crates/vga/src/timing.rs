@@ -1,6 +1,5 @@
 //! Decoded raster counts and exact conversion between time and dot clocks.
-//! VGA decoding and fixed SVGA timing supply the same normalized counters.
-mod svga;
+//! Cards supply normalized counters for VGA or packed display output.
 mod vga;
 
 use std::time::Duration;
@@ -32,6 +31,30 @@ pub(super) struct Timing {
 }
 
 impl Timing {
+    pub(crate) fn packed(
+        clock: u64,
+        size: [u32; 2],
+        total: [u32; 2],
+        retrace: std::ops::Range<u64>,
+    ) -> Self {
+        Self {
+            oscillator_hz: clock,
+            dot_clock_divisor: 1,
+            dots_per_horizontal_count: 1,
+            horizontal_total: u64::from(total[0]),
+            horizontal_display: u64::from(size[0]),
+            horizontal_display_skew: 0,
+            vertical_total: u64::from(total[1]),
+            vertical_display: u64::from(size[1]),
+            scanlines_per_vertical_count: 1,
+            vertical_retrace_start: retrace.start,
+            vertical_retrace_end: retrace.end,
+            wrapped_retrace_end: 0,
+            reset_active: false,
+            sync_enabled: true,
+        }
+    }
+
     pub fn clock_running(self) -> bool {
         self.oscillator_hz != 0
     }

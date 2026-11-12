@@ -86,7 +86,7 @@ fn guest_draws_pans_and_restores_both_direct_color_formats() {
                     ExecutionExit::Interrupted
                 );
                 let current = dos.frames().try_recv().ok().filter(|capture| {
-                    matches!(capture.scanout(), Scanout::Svga(layout)
+                    matches!(capture.scanout(), Scanout::Packed(layout)
                         if layout.format() == expected_format && layout.origin() == origin)
                 });
                 captures.push(match current {

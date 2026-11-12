@@ -47,7 +47,7 @@ fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
                 ExecutionExit::Interrupted
             );
             let current = dos.frames().try_recv().ok().filter(|capture| {
-                matches!(capture.scanout(), relocade_vga::Scanout::Svga(layout)
+                matches!(capture.scanout(), relocade_vga::Scanout::Packed(layout)
                     if layout.pitch() == 1024 && layout.origin() == origin)
                     && capture.vram_byte(0) == Some(2)
             });

@@ -178,7 +178,7 @@ fn packed_snapshots_retain_pixels_palette_and_layout_across_mode_changes() {
     palette(&vga.io, 5, [21, 42, 63]);
     vga.io.write_port(0x3c6, 1, 0x7f);
     let before = vga.snapshot();
-    let Scanout::Svga(layout) = *before.scanout() else {
+    let Scanout::Packed(layout) = *before.scanout() else {
         panic!("expected packed scanout")
     };
     assert_eq!(layout.size(), [640, 480]);
@@ -209,5 +209,5 @@ fn packed_snapshots_retain_pixels_palette_and_layout_across_mode_changes() {
     }
     assert_eq!(before.dac.colors[5], [21, 42, 63]);
     assert_eq!(before.dac.mask, 0x7f);
-    assert_eq!(before.scanout(), &Scanout::Svga(layout));
+    assert_eq!(before.scanout(), &Scanout::Packed(layout));
 }

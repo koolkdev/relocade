@@ -1,13 +1,14 @@
 use crate::common::fixture::ConnectedVga;
 use crate::common::support::svga::{enable, get, set};
 use relocade_clock_test_support::ManualClock;
-use relocade_vga::{PixelFormat, SvgaMode, SvgaResolution};
+use relocade_vga::{DispiMode, DispiResolution, PixelFormat, VIDEO_MEMORY_BYTES};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn layout_bounds_keep_coordinates_and_full_logical_rows_in_vram() {
-    let layout = SvgaMode::new(SvgaResolution::R640x480, PixelFormat::Indexed8)
-        .layout()
+    let layout = DispiMode::new(DispiResolution::R640x480, PixelFormat::Indexed8)
+        .layout(VIDEO_MEMORY_BYTES)
+        .unwrap()
         .with_pitch(1024)
         .unwrap();
     assert_eq!(layout.virtual_height(), 4096);
@@ -44,12 +45,16 @@ fn direct_color_layouts_separate_pixel_coordinates_from_byte_offsets() {
         (PixelFormat::Rgb565, 2048, 2048, 3_212_032, 8738),
         (PixelFormat::Bgrx8888, 4096, 1024, 2_229_760, 8736),
     ] {
-        let mode = SvgaMode::new(SvgaResolution::R640x480, format);
-        let layout = mode.layout().with_virtual_width(1024).unwrap();
+        let mode = DispiMode::new(DispiResolution::R640x480, format);
+        let layout = mode
+            .layout(VIDEO_MEMORY_BYTES)
+            .unwrap()
+            .with_virtual_width(1024)
+            .unwrap();
         assert_eq!(layout.pitch(), pitch);
         assert_eq!(layout.virtual_width(), 1024);
         assert_eq!(layout.virtual_height(), rows);
-        assert_eq!(mode.max_pitch(), max_pitch);
+        assert_eq!(mode.max_pitch(VIDEO_MEMORY_BYTES), max_pitch);
         let corner = layout.with_origin([384, rows - 480]).unwrap();
         assert_eq!(corner.display_start(), start);
         assert_eq!(
