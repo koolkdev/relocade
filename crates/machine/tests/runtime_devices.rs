@@ -142,6 +142,9 @@ async fn check_devices() {
     assert!(active.load(Ordering::SeqCst));
     clock.advance_to(clock.at(Duration::from_millis(2)));
     assert_eq!(ticks.next().await, Some(1));
+    // Observe the second device tick before waking the CPU's sleeping service.
+    clock.advance_to(clock.at(Duration::from_millis(4)));
+    assert_eq!(ticks.next().await, Some(2));
     clock.advance_to(clock.at(Duration::from_millis(5)));
     assert_eq!(worker.join().await.unwrap(), Some((1, 2)));
     assert!(
