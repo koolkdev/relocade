@@ -55,6 +55,8 @@ This is a public repository. Commit messages use `component: title`.
   code size, even if the JIT already supports those cases. Keep common cases compiled.
   Justify rarity from expected or measured workloads, measure the speed or code-size
   benefit, and test precise restart and interpreter correctness for excluded cases.
+- Keep mixed-width register aliases memory-backed unless runtime measurements
+  justify a change; earlier V8 measurements favored this over extract/merge expressions.
 - Use `guard` when a failed condition should restart the current instruction
   in the interpreter. Build paths requiring fallback through `if_can_fallback`,
   or within an execution owner that already requires that capability. Guard before
@@ -127,37 +129,9 @@ This is a public repository. Commit messages use `component: title`.
 
 ## Review and validation
 
-- Focus on completing the requested change. CI is the verification gate for builds,
-  tests, formatting and static checks; do not duplicate those checks locally as a
-  routine completion step. Continue to add or update meaningful tests when needed.
-- Run a local check only when it is needed to implement or debug the change, or
-  when the user requests it. Use the smallest relevant command and stop when it
-  answers the question. Do not repeat successful checks without a new reason.
-- Review the change once in context before publishing. Avoid repeated diff
-  inspections, separate audit passes and mandatory independent review. Seek another
-  reviewer only to resolve a concrete design or correctness question that blocks
-  completion, or when the user requests one.
-- For performance work, compare Wasm bytes first; do not benchmark identical output.
-  Measure changed output with meaningful workloads and matching execution boundaries,
-  and report uncertainty honestly.
-- Preserve the measured memory-backed handling of mixed-width register aliases.
-  Earlier V8 measurements favored backing reads and writes over extract/merge
-  expressions; textbook SSA shape alone is not a reason to replace that design.
-  Require relevant runtime evidence before changing the mechanism.
-- Focus performance work on frequent hot paths. Keep rare paths correct and watch
-  for material regressions, but do not chase possible 1–5% gains there.
-- For extremely rare opcodes, skip reference comparisons and performance measurements;
-  retain architectural correctness tests and relevant engine coverage.
-- When comparing instruction additions, use common generated snapshot blocks. Defer
-  interpreter performance comparisons until interpreter work, and keep split-page
-  accesses in correctness coverage rather than instruction performance workloads.
-- Byte preservation is evidence, not a reason to retain a poor abstraction or duplicate
-  a mechanism. Review design changes together with their generated-code consequences.
-- Once implementation and review are complete, commit, push and open or update the
-  PR. Do not wait for or repeatedly poll CI unless the user asks. State that
-  verification is left to CI rather than claiming checks passed.
-- Keep the completion report brief: describe the result, any checks actually run
-  and material limitations. Explain changed APIs or include code excerpts only
-  when they help the user understand the result.
-- Resolve routine implementation choices while completing the current part; do not
-  leave it half-finished merely to request those choices.
+- Finish the requested change, commit, push and open or update the PR.
+- Let CI run builds, tests, formatting and static checks. Run local checks only
+  when needed to implement or debug the change, or when the user asks.
+- Do not add extra reviews, involve another reviewer or wait for CI unless asked.
+- Report the result briefly. Distinguish checks actually run from verification
+  left to CI.
