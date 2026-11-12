@@ -27,7 +27,7 @@ impl VideoFirmware {
                 );
                 modes::set_mode(memory, io, COLOR_TEXT_80X25).expect("initial VGA text mode");
             }
-            Self::Dispi(_) => dispi::initialize(memory, io),
+            Self::Dispi(card) => dispi::initialize(memory, io, card),
         }
     }
 
@@ -35,7 +35,7 @@ impl VideoFirmware {
     pub fn set_mode(&self, memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
         match self {
             Self::Vga => modes::set_mode(memory, io, request),
-            Self::Dispi(_) => dispi::set_mode(memory, io, request),
+            Self::Dispi(card) => dispi::set_mode(memory, io, card, request),
         }
     }
 }

@@ -1,6 +1,8 @@
 use crate::common::fixture::ConnectedVga;
 use relocade_clock_test_support::ManualClock;
 mod common;
+#[path = "svga/configuration.rs"]
+mod configuration;
 #[path = "svga/frames.rs"]
 mod frames;
 #[path = "svga/layout.rs"]

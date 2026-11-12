@@ -67,45 +67,44 @@ impl BufferLayout {
 #[interrupt(context(call), args(operation = dl))]
 pub(super) async fn dispatch(
     call: &mut CpuContext<'_>,
-    vga: &RefCell<DispiAdapter>,
+    card: &RefCell<DispiAdapter>,
     operation: u8,
 ) {
     interrupt_dispatch!(
         call,
         match operation {
-            0 => required_blocks,
-            1 => save(vga),
-            2 => restore(vga),
+            0 => required_blocks(card),
+            1 => save(card),
+            2 => restore(card),
             _ => failed,
         }
     );
 }
 
-#[interrupt(context(io), args(components = cx), returns {
+#[interrupt(args(components = cx), returns {
     Some(blocks) => { ax = 0x004f, bx = blocks }, None => { ax = 0x014f },
 })]
-fn required_blocks(io: &IoBus, components: u16) -> Option<u16> {
-    available(io).then_some(())?;
+fn required_blocks(card: &RefCell<DispiAdapter>, components: u16) -> Option<u16> {
+    available(card).then_some(())?;
     Some(BufferLayout::new(components)?.bytes.div_ceil(64))
 }
 
-#[interrupt(context(memory, io), args(components = cx, destination = ptr(es, bx)),
+#[interrupt(context(memory), args(components = cx, destination = ptr(es, bx)),
     returns { Some(()) => { ax = 0x004f }, None => { ax = 0x014f } },
 )]
 fn save(
     memory: &mut MemoryView<'_>,
-    io: &IoBus,
-    vga: &RefCell<DispiAdapter>,
+    card: &RefCell<DispiAdapter>,
     components: u16,
     destination: FarPointer,
 ) -> Option<()> {
-    available(io).then_some(())?;
+    available(card).then_some(())?;
     let layout = BufferLayout::new(components)?;
     // Capture everything before writing: the buffer may overlap BIOS data or VRAM.
-    let hardware = (components & 1 != 0).then(|| vga.borrow().core_state().to_bytes());
+    let hardware = (components & 1 != 0).then(|| card.borrow().core_state().to_bytes());
     let firmware = (components & 2 != 0).then(|| firmware::save(memory));
-    let dac = (components & 4 != 0).then(|| vga.borrow().dac_state().to_bytes());
-    let dispi = (components & 8 != 0).then(|| vga.borrow().dispi_state().to_bytes());
+    let dac = (components & 4 != 0).then(|| card.borrow().dac_state().to_bytes());
+    let dispi = (components & 8 != 0).then(|| card.borrow().dispi_state().to_bytes());
     let blocks = [
         hardware.as_ref().map(|bytes| bytes.as_slice()),
         firmware.as_ref().map(|bytes| bytes.as_slice()),
@@ -131,11 +130,11 @@ fn save(
 fn restore(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    vga: &RefCell<DispiAdapter>,
+    card: &RefCell<DispiAdapter>,
     components: u16,
     source: FarPointer,
 ) -> Option<()> {
-    available(io).then_some(())?;
+    available(card).then_some(())?;
     let layout = BufferLayout::from_header(&read_buffer(memory, source))?;
     if components == 0 || components & !layout.components != 0 {
         return None;
@@ -168,7 +167,7 @@ fn restore(
         None
     };
     io.with_context(|context| {
-        vga.borrow_mut()
+        card.borrow_mut()
             .restore_state(context, hardware, dac, dispi)
     });
     if let Some(bytes) = firmware {

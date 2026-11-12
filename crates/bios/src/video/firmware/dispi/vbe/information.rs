@@ -2,8 +2,9 @@
 //! https://mircosoft.mzf.cz/texty/VESA12sp.htm (functions 00h and 01h).
 use super::{available, layout, Mode};
 use crate::BIOS_SEGMENT;
-use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, IoBus, MemoryView};
-use relocade_vga::{dispi, PixelFormat, VIDEO_MEMORY_BYTES};
+use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+use relocade_vga::{dispi, DispiAdapter, PixelFormat};
+use std::cell::RefCell;
 
 // Follows the legacy video parameter table (F000:A700–AE3F).
 const OEM: FarPointer = FarPointer {
@@ -29,11 +30,15 @@ pub(in super::super) fn initialize(memory: &mut MemoryView<'_>) {
         .expect("VBE mode list");
 }
 
-#[interrupt(context(memory, io), args(destination = ptr(es, di)),
+#[interrupt(context(memory), args(destination = ptr(es, di)),
     returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
 )]
-pub(super) fn controller(memory: &mut MemoryView<'_>, io: &IoBus, destination: FarPointer) -> bool {
-    if !available(io) {
+pub(super) fn controller(
+    memory: &mut MemoryView<'_>,
+    card: &RefCell<DispiAdapter>,
+    destination: FarPointer,
+) -> bool {
+    if !available(card) {
         return false;
     }
     // This is the 256-byte 1.x structure, even if the caller requests "VBE2".
@@ -43,33 +48,34 @@ pub(super) fn controller(memory: &mut MemoryView<'_>, io: &IoBus, destination: F
     bytes[6..10].copy_from_slice(&OEM.packed().to_le_bytes());
     // Capabilities = 0: VGA compatible, fixed six-bit DAC.
     bytes[14..18].copy_from_slice(&MODES.packed().to_le_bytes());
-    bytes[18..20].copy_from_slice(&((VIDEO_MEMORY_BYTES / 65536) as u16).to_le_bytes());
+    bytes[18..20]
+        .copy_from_slice(&((card.borrow().video_memory_bytes() / 65536) as u16).to_le_bytes());
     memory
         .write_wrapping(destination, &bytes)
         .expect("VBE controller information buffer");
     true
 }
 
-#[interrupt(context(memory, io), args(number = cx, destination = ptr(es, di)),
+#[interrupt(context(memory), args(number = cx, destination = ptr(es, di)),
     returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
 )]
 pub(super) fn mode(
     memory: &mut MemoryView<'_>,
-    io: &IoBus,
+    card: &RefCell<DispiAdapter>,
     number: u16,
     destination: FarPointer,
 ) -> bool {
-    let Some(mode) = Mode::from_number(number).filter(|_| available(io)) else {
+    let Some(mode) = Mode::from_number(number).filter(|_| available(card)) else {
         return false;
     };
     let [width, height] = mode.display.size().map(|value| value as u16);
-    let layout = layout::active(io)
+    let layout = layout::active(card)
         .filter(|layout| {
             layout.size() == mode.display.size() && layout.format() == mode.display.format()
         })
         .unwrap_or_else(|| {
             mode.display
-                .layout(VIDEO_MEMORY_BYTES)
+                .layout(card.borrow().video_memory_bytes())
                 .expect("supported mode fits VRAM")
         });
     let mut bytes = [0; 256];

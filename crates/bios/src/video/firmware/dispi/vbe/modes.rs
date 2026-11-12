@@ -1,15 +1,12 @@
-//! Mode transitions and bank selection through guest-visible DISPI registers.
-use super::{available, read_register, write_register};
+//! VBE mode numbers and BIOS bookkeeping around card programming.
+use super::{available, layout};
 use crate::video::{
     modes as legacy, palette::PaletteLoad, presets, ACTIVE_PAGE, CHARACTER_HEIGHT, COLUMNS,
     CURSORS, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
 };
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
-use relocade_vga::dispi;
-use relocade_vga::{
-    registers::{MISC_OUTPUT_READ_PORT, MISC_OUTPUT_WRITE_PORT},
-    DispiMode, DispiResolution, PixelFormat, VIDEO_MEMORY_BYTES,
-};
+use relocade_vga::{DispiAdapter, DispiMode, DispiResolution, PixelFormat};
+use std::cell::RefCell;
 
 // Outside the supported legacy modes: their output/font paths reject this marker.
 const VBE_MODE_MARKER: u8 = 0x7f;
@@ -66,33 +63,27 @@ impl Mode {
         Self::ALL.into_iter().find(|mode| mode.number == number)
     }
 
-    pub(super) fn active(io: &IoBus) -> Option<Self> {
-        if read_register(io, dispi::ENABLE) & dispi::ENABLED == 0 {
-            return None;
-        }
-        let display = DispiMode::from_registers(
-            read_register(io, dispi::X_RESOLUTION),
-            read_register(io, dispi::Y_RESOLUTION),
-            read_register(io, dispi::BITS_PER_PIXEL),
-        )?;
-        Self::ALL.into_iter().find(|mode| mode.display == display)
+    pub(super) fn active(card: &RefCell<DispiAdapter>) -> Option<Self> {
+        let layout = layout::active(card)?;
+        Self::ALL.into_iter().find(|mode| {
+            mode.display.size() == layout.size() && mode.display.format() == layout.format()
+        })
     }
 
-    fn activate(self, memory: &mut MemoryView<'_>, io: &IoBus, preserve: bool) {
+    fn activate(
+        self,
+        memory: &mut MemoryView<'_>,
+        io: &IoBus,
+        card: &RefCell<DispiAdapter>,
+        preserve: bool,
+    ) -> bool {
         let [width, height] = self.display.size().map(|value| value as u16);
-        // A new BIOS mode set re-enters the device mode, even if its geometry is unchanged.
-        write_register(io, dispi::ENABLE, dispi::DISABLED);
-        write_register(io, dispi::X_RESOLUTION, width);
-        write_register(io, dispi::Y_RESOLUTION, height);
-        write_register(
-            io,
-            dispi::BITS_PER_PIXEL,
-            u16::from(self.display.bits_per_pixel()),
-        );
-        let flags = dispi::ENABLED | if preserve { dispi::NO_CLEAR_MEMORY } else { 0 };
-        write_register(io, dispi::ENABLE, flags);
-        let miscellaneous = io.read_port(MISC_OUTPUT_READ_PORT, 1);
-        io.write_port(MISC_OUTPUT_WRITE_PORT, 1, miscellaneous | 2); // Enable CPU VRAM access.
+        if !io.with_context(|context| {
+            card.borrow_mut()
+                .enter_packed_mode(context, self.display, preserve)
+        }) {
+            return false;
+        }
         if self.display.format() == PixelFormat::Indexed8 {
             presets::INDEXED256.load_palette(io, PaletteLoad::for_mode_set(memory));
         }
@@ -115,36 +106,47 @@ impl Mode {
                 (control & 0x7f) | if preserve { 0x80 } else { 0 },
             )
             .expect("video control");
+        true
     }
 }
 
 #[interrupt(context(memory, io), args(request = bx),
     returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
 )]
-pub(super) fn set(memory: &mut MemoryView<'_>, io: &IoBus, request: u16) -> bool {
-    if !available(io) {
+pub(super) fn set(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    card: &RefCell<DispiAdapter>,
+    request: u16,
+) -> bool {
+    if !available(card) {
         return false;
     }
     let number = request & 0x7fff;
     let preserve = request & 0x8000 != 0;
     if let Some(mode) = Mode::from_number(number) {
-        mode.activate(memory, io, preserve);
-        true
+        mode.activate(memory, io, card, preserve)
     } else if number < 0x80 {
-        super::super::set_mode(memory, io, number as u8 | if preserve { 0x80 } else { 0 }).is_some()
+        super::super::set_mode(
+            memory,
+            io,
+            card,
+            number as u8 | if preserve { 0x80 } else { 0 },
+        )
+        .is_some()
     } else {
         false
     }
 }
 
-#[interrupt(context(memory, io), returns {
+#[interrupt(context(memory), returns {
     Some(number) => { ax = 0x004f, bx = number }, None => { ax = 0x014f },
 })]
-pub(super) fn current(memory: &MemoryView<'_>, io: &IoBus) -> Option<u16> {
-    if !available(io) {
+pub(super) fn current(memory: &MemoryView<'_>, card: &RefCell<DispiAdapter>) -> Option<u16> {
+    if !available(card) {
         return None;
     }
-    if let Some(mode) = Mode::active(io) {
+    if let Some(mode) = Mode::active(card) {
         Some(mode.number)
     } else {
         // VBE 1.2 returns the mode alone, without the memory-preservation flag.
@@ -156,16 +158,18 @@ pub(super) fn current(memory: &MemoryView<'_>, io: &IoBus) -> Option<u16> {
 #[interrupt(context(io), args(operation = bx, position = dx), returns {
     Some(position) => { ax = 0x004f, dx = position }, None => { ax = 0x014f },
 })]
-pub(super) fn window(io: &IoBus, operation: u16, position: u16) -> Option<u16> {
-    if !available(io) || read_register(io, dispi::ENABLE) & dispi::ENABLED == 0 {
-        return None;
-    }
+pub(super) fn window(
+    io: &IoBus,
+    card: &RefCell<DispiAdapter>,
+    operation: u16,
+    position: u16,
+) -> Option<u16> {
+    layout::active(card)?;
     match operation {
-        0 if u32::from(position) < VIDEO_MEMORY_BYTES / dispi::BANK_BYTES => {
-            write_register(io, dispi::BANK, position);
-            Some(position)
-        }
-        0x100 => Some(read_register(io, dispi::BANK)),
+        0 => io
+            .with_context(|context| card.borrow_mut().set_video_bank(context, position))
+            .then_some(position),
+        0x100 => Some(card.borrow().video_bank()),
         _ => None,
     }
 }

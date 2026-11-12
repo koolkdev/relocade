@@ -6,22 +6,27 @@ use crate::video::{
     COLOR_TEXT_80X25,
 };
 use relocade_machine::{IoBus, MemoryView};
-use relocade_vga::dispi;
+use relocade_vga::DispiAdapter;
+use std::cell::RefCell;
 
-pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus) {
+pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, card: &RefCell<DispiAdapter>) {
     vbe::initialize(memory);
     // Keep the BIOS text console available until the guest selects a VBE mode.
     assert!(
         modes::select_scanlines(memory, 2),
         "initial scanline profile"
     );
-    set_mode(memory, io, COLOR_TEXT_80X25).expect("initial DISPI text mode");
+    set_mode(memory, io, card, COLOR_TEXT_80X25).expect("initial DISPI text mode");
 }
 
 /// Leave packed access before common VGA font loading and mode programming.
-pub fn set_mode(memory: &mut MemoryView<'_>, io: &IoBus, request: u8) -> Option<u8> {
+pub fn set_mode(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    card: &RefCell<DispiAdapter>,
+    request: u8,
+) -> Option<u8> {
     let mode = ModeSet::prepare(memory, request)?;
-    io.write_port(dispi::INDEX_PORT, 2, u32::from(dispi::ENABLE));
-    io.write_port(dispi::DATA_PORT, 2, u32::from(dispi::DISABLED));
+    io.with_context(|context| card.borrow_mut().prepare_legacy_mode(context));
     Some(mode.apply(memory, io))
 }

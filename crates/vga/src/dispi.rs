@@ -144,6 +144,10 @@ impl Dispi {
         self.index
     }
 
+    pub fn bank(&self) -> u16 {
+        self.bank
+    }
+
     pub fn select(&mut self, index: u16) {
         self.index = index;
     }
@@ -174,8 +178,8 @@ impl Dispi {
 
     /// Entering a valid mode clears shared video memory unless no-clear is set.
     /// Repeated enable writes do not clear memory or reset the bank.
-    pub fn write(&mut self, value: u16, memory_bytes: u32) -> WriteAction {
-        match self.index {
+    pub fn write_register(&mut self, index: u16, value: u16, memory_bytes: u32) -> WriteAction {
+        match index {
             X_RESOLUTION if !self.enabled() => self.width = value,
             Y_RESOLUTION if !self.enabled() => self.height = value,
             BITS_PER_PIXEL if !self.enabled() => self.bits_per_pixel = value,
@@ -204,7 +208,7 @@ impl Dispi {
                 if let Some(active) = &mut self.active {
                     let layout = active.layout;
                     let value = u32::from(value);
-                    let next = match self.index {
+                    let next = match index {
                         VIRTUAL_WIDTH => layout.with_virtual_width(value),
                         X_OFFSET => layout.with_origin([value, layout.origin()[1]]),
                         Y_OFFSET => layout.with_origin([layout.origin()[0], value]),
