@@ -1,12 +1,12 @@
 //! Reusable operations with a host call view and one lazily prepared Wasm function.
 
 use crate::io::State;
-use crate::{Device, IoContext};
+use crate::IoContext;
 use relocade_compiler::abi::FunctionSignature;
 use relocade_wasm_runtime::{FunctionRef, WasmRuntime};
 use relocade_x86::abi;
 use std::{
-    cell::{OnceCell, RefCell},
+    cell::OnceCell,
     rc::{Rc, Weak},
 };
 
@@ -47,20 +47,6 @@ impl<S: FunctionSignature, C: ?Sized> Handler<S, C> {
 pub struct PortRead(pub(super) Rc<Handler<abi::PortReadSignature, Read>>);
 
 impl PortRead {
-    /// Adapts the device's generic [`Device::read_port`] method. This is an
-    /// ordinary selectable operation, with no override or restore state.
-    /// The device must remain connected while the operation is used.
-    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
-        let device = Rc::downgrade(device);
-        Self::new(move |context, port, bytes| {
-            device
-                .upgrade()
-                .expect("connected device")
-                .borrow_mut()
-                .read_port(context, port, bytes)
-        })
-    }
-
     /// Delivers the original starting address and complete width of 1, 2 or 4
     /// bytes to the callback, which defines the transfer behavior. Callers
     /// consume only the low result bytes.
@@ -100,19 +86,6 @@ impl PortRead {
 pub struct PortWrite(pub(super) Rc<Handler<abi::PortWriteSignature, Write>>);
 
 impl PortWrite {
-    /// Adapts [`Device::write_port`] with a weak device reference, as in
-    /// [`PortRead::for_device`].
-    pub fn for_device<D: Device + ?Sized + 'static>(device: &Rc<RefCell<D>>) -> Self {
-        let device = Rc::downgrade(device);
-        Self::new(move |context, port, bytes, value| {
-            device
-                .upgrade()
-                .expect("connected device")
-                .borrow_mut()
-                .write_port(context, port, bytes, value);
-        })
-    }
-
     /// Delivers the original starting address, complete width of 1, 2 or 4 bytes,
     /// and value to the callback, which defines the transfer behavior.
     pub fn new(write: impl Fn(IoContext<'_>, u16, u8, u32) + 'static) -> Self {

@@ -6,13 +6,14 @@ use std::{
     task::{Context, Poll},
 };
 
-/// A synchronous device on the machine's memory and port buses.
-/// Addresses are physical bus addresses, after A20 translation for MMIO.
-/// Values are little endian. MMIO transfers contain one through eight bytes;
-/// port transfers retain their architectural width of one, two or four bytes.
+/// An execution-owned device with MMIO, interrupts and optional async activity.
+/// MMIO addresses are physical addresses after A20 translation. Values are
+/// little endian and transfers contain one through eight bytes.
+/// Port operations are installed separately through [`crate::DeviceConnection::bind`];
+/// [`crate::DeviceCallbacks`] can adapt methods that borrow this device.
 ///
-/// The execution worker owns device state. Reads can have side effects, so every
-/// transfer borrows the device mutably. Callbacks must not reenter guest execution
+/// The execution worker owns device state. MMIO reads can have side effects,
+/// so they borrow the device mutably. Callbacks must not reenter guest execution
 /// or access the same device recursively. Publish owned observations separately
 /// when another worker needs to display or inspect device output.
 /// Use the supplied [`IoContext`] to forward I/O;
@@ -35,15 +36,6 @@ pub trait Device {
     }
 
     fn write_mmio(&mut self, _context: IoContext<'_>, _address: u32, _bytes: u8, _value: u64) {}
-
-    /// Reads 1, 2 or 4 bytes from a port. Only the low `bytes` bytes of the
-    /// result are consumed; unused upper bits need not be cleared.
-    fn read_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8) -> u32 {
-        u32::MAX
-    }
-
-    /// Writes 1, 2 or 4 bytes to a port, with unused upper value bits cleared.
-    fn write_port(&mut self, _context: IoContext<'_>, _port: u16, _bytes: u8, _value: u32) {}
 
     /// Supplies and acknowledges one pending maskable interrupt vector.
     /// Retain requests until polled. Return Pending and register the waker when a

@@ -80,8 +80,6 @@ impl PortBinding {
     }
 
     /// Selects a reusable read operation for this binding's fixed ports.
-    /// To use generic device handling again, select a [`PortRead::for_device`]
-    /// operation through this same method.
     pub fn set_read(&self, context: IoContext<'_>, read: &PortRead) {
         self.bus(&context)
             .ports
