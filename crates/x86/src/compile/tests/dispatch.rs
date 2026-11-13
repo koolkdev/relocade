@@ -1,4 +1,4 @@
-//! Callable entries share address lookup across execution profiles.
+//! Profile-specific lookup preserves address-bound overrides.
 
 use super::*;
 use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment};
@@ -208,6 +208,10 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
         .unwrap();
     linker
         .define(&store, "relocade", "executionEntries", entries)
+        .unwrap();
+    let blocks = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+    linker
+        .define(&store, "relocade", "realModeBlocks", blocks)
         .unwrap();
     let call_profile = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
     linker

@@ -78,7 +78,7 @@ impl Profiling {
         };
         let entries: Vec<_> = self
             .hotness
-            .take_batch(|key| table.contains(FarPointer::from_packed(key).address()))
+            .take_batch(|key| table.contains(crate::runtime::EntryKey::RealMode(key)))
             .into_iter()
             .map(FarPointer::from_packed)
             .collect();
@@ -152,7 +152,7 @@ impl Cpu {
                 let _ = code.install_missing(self);
             }
             for entry in std::mem::take(&mut self.instance.profiling.pending) {
-                if self.instance.interpret_at(entry.address()).is_err() {
+                if self.instance.interpret_at(entry).is_err() {
                     self.instance.profiling.disable();
                     return;
                 }

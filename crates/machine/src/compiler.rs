@@ -8,7 +8,8 @@ pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
 pub use service::CompilerService;
 
-use crate::{worker::Transfer, Cpu, DispatchEntry, Error, FarPointer, Memory, Result};
+use crate::runtime::{EntryKey, ModuleEntry};
+use crate::{worker::Transfer, Cpu, Error, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
@@ -73,16 +74,25 @@ impl CompiledCode {
             .addresses
             .iter()
             .zip(&self.description.blocks)
-            .filter(|(address, _)| !missing_only || !cpu.has_entry(**address))
-            .map(|(&address, block)| DispatchEntry {
-                address,
-                export: &block.export,
+            .map(|(&address, block)| {
+                Ok(ModuleEntry {
+                    key: EntryKey::block(
+                        self.description.target.profile,
+                        address,
+                        block.start_eip,
+                    )?,
+                    export: &block.export,
+                })
             })
+            .collect::<Result<Vec<_>>>()?;
+        let entries: Vec<_> = entries
+            .into_iter()
+            .filter(|entry| !missing_only || !cpu.has_entry(entry.key))
             .collect();
         if entries.is_empty() {
             return Ok(());
         }
-        cpu.install_compiled_module(&self.module, &entries)
+        cpu.install_entries(&self.module, &entries)
     }
 }
 

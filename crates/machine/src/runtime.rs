@@ -41,7 +41,9 @@
 mod call;
 mod code;
 mod context;
+mod entry;
 mod error;
+pub(crate) use entry::{EntryKey, ModuleEntry};
 mod execution;
 mod execution_interrupt;
 mod guest;
@@ -133,8 +135,8 @@ impl Cpu {
         self.instance.io.clone()
     }
 
-    pub(crate) fn has_entry(&self, address: u32) -> bool {
-        self.instance.has_entry(address)
+    pub(crate) fn has_entry(&self, key: EntryKey) -> bool {
+        self.instance.has_entry(key)
     }
 
     /// Links a module to this runtime and publishes its callable exports.
@@ -177,6 +179,15 @@ impl Cpu {
         &mut self,
         module: &Module,
         entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        let entries: Vec<_> = entries.iter().map(ModuleEntry::from).collect();
+        self.install_entries(module, &entries)
+    }
+
+    pub(crate) fn install_entries(
+        &mut self,
+        module: &Module,
+        entries: &[ModuleEntry<'_>],
     ) -> Result<()> {
         assert!(
             self.suspended.is_empty(),

@@ -5,11 +5,11 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 use std::collections::BTreeMap;
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
-/// Linear execution addresses mapped to ordinary `() -> ExecutionExit` function-table slots.
+/// Execution keys mapped to ordinary `() -> ExecutionExit` function-table slots.
 /// Slot zero is reserved; slot one holds the interpreter fallback.
-/// The embedding installs functions before publishing their addresses. Keys are
-/// CS.base + EIP before paging/A20 translation, scoped to one execution target
-/// and address space. This table neither classifies entries nor validates code.
+/// The embedding chooses the key namespace and installs functions before publishing
+/// their keys. Real16 blocks use packed CS:IP; address-bound entries use linear
+/// addresses. This table neither classifies entries nor validates code.
 #[derive(Clone, Debug, Default)]
 pub struct EntryTable(BTreeMap<u32, u32>);
 
@@ -33,7 +33,7 @@ impl EntryTable {
 
     /// Serializes a mask followed by address/slot rows for open-addressed lookup.
     /// At most half the rows are occupied, including when the table is empty.
-    /// Write the complete result at offset zero in `relocade.executionEntries`.
+    /// Write the complete result at offset zero in the corresponding entry memory.
     pub fn to_bytes(&self) -> Vec<u8> {
         let capacity = (self.0.len() * 2).max(2).next_power_of_two();
         let mask = u32::try_from(capacity - 1).expect("entry table fits Wasm memory");
