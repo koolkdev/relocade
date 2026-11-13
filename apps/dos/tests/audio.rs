@@ -37,10 +37,7 @@ async fn exercise() {
             .unwrap();
         let worker = prepared.spawn(clock, async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
-            dos.speaker()
-                .borrow_mut()
-                .attach_audio(config, samples)
-                .unwrap();
+            dos.attach_audio(config, samples).await.unwrap();
             dos.launch_com(PROGRAM, Default::default()).unwrap();
             let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
             let memory = dos.cpu().memory();

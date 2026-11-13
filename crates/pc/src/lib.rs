@@ -133,7 +133,7 @@ impl Pc {
         self.vga.clone()
     }
 
-    /// Retains the speaker for attaching audio output on its execution owner.
+    /// Retains the speaker hardware on its execution owner.
     pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.speaker.clone()
     }

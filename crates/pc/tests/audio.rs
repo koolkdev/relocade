@@ -1,6 +1,5 @@
-use relocade_machine::{timer_service, CpuConfig, Device, MachineConfig};
-use relocade_pc_speaker::Speaker;
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_machine::{timer_service, Device};
+use relocade_pc::Pc;
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 struct Started(Option<async_channel::Sender<()>>);
@@ -24,7 +23,7 @@ impl Device for Started {}
 async fn timeout<T>(future: impl Future<Output = T>) -> T {
     futures_lite::future::or(future, async {
         futures_timer::Delay::new(Duration::from_secs(30)).await;
-        panic!("speaker worker fixture timed out");
+        panic!("PC audio fixture timed out");
     })
     .await
 }
@@ -33,56 +32,34 @@ async fn exercise_audio_device() {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
-    let mut machine = relocade_machine::Machine::new(
-        MachineConfig::new(
-            4096,
-            PhysicalMemoryMap::new([(0..=4095, PhysicalMapping::Ram { backing_offset: 0 })])
-                .unwrap(),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
-    .unwrap();
-    let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let worker = prepared.spawn(clock, async move |mut runner| {
-        let pit = relocade_pit::Pit::initialize(&runner, &relocade_pic::Pic::default()).await;
-        let speaker = Speaker::initialize(&runner, pit).await;
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu(), None)
+        .unwrap();
+    let worker = prepared.spawn(clock, async move |runner| {
         let started = Rc::new(RefCell::new(Started(Some(started))));
         runner
             .connect(started.clone(), |io| {
                 Started::configure_io(io, &started);
             })
             .await;
-        let memory = runner.memory();
+        let mut pc = Pc::new(runner).await.unwrap();
+        let memory = pc.cpu().memory();
         // Program ~1 kHz, notify the test through port 80, then stay in guest code.
         let code = [
             0xb0, 0xb6, 0xe6, 0x43, 0xb0, 0xa9, 0xe6, 0x42, 0xb0, 0x04, 0xe6, 0x42, 0xb0, 3, 0xe6,
             0x61, 0xe6, 0x80, 0xeb, 0xfe,
         ];
-        memory.view().write(0x100, &code).unwrap();
-
-        speaker
-            .borrow_mut()
-            .attach_audio(
-                cpal::StreamConfig {
-                    channels: 1,
-                    sample_rate: 48_000,
-                    buffer_size: cpal::BufferSize::Fixed(256),
-                },
-                samples,
-            )
-            .unwrap();
-        panic!(
-            "busy guest unexpectedly returned: {:?}",
-            runner.run_cpu().await
-        );
+        memory.view().write(0x1000, &code).unwrap();
+        pc.cpu().cpu_state().set_eip(0x1000);
+        let config = cpal::StreamConfig {
+            channels: 1,
+            sample_rate: 48_000,
+            buffer_size: cpal::BufferSize::Fixed(256),
+        };
+        pc.attach_audio(config, samples.clone()).await.unwrap();
+        assert!(pc.attach_audio(config, samples).await.is_err());
+        panic!("busy guest unexpectedly returned: {:?}", pc.run().await);
     });
     let timers = timers.spawn_with_peer(worker.wake_peer());
     timeout(ready.recv()).await.unwrap();
@@ -91,7 +68,8 @@ async fn exercise_audio_device() {
         let buffer = timeout(buffers.recv()).await.unwrap();
         assert_eq!(buffer.len(), 256);
         if index >= 2 {
-            assert!(buffer.iter().any(|&sample| sample > 0.0));
+            assert!(buffer.iter().all(|sample| (0.0..=0.2).contains(sample)));
+            assert_eq!(buffer.iter().copied().fold(0.0, f32::max), 0.2);
         }
         // A playback device consumes 256 frames in about 5.3 ms.
         futures_timer::Delay::new(Duration::from_millis(6)).await;
@@ -99,7 +77,7 @@ async fn exercise_audio_device() {
     assert!(timeout(worker.stop()).await.unwrap().is_none());
     assert!(
         buffers.is_closed(),
-        "session shutdown drops the device's sender"
+        "session shutdown drops the mixer's sender"
     );
     timeout(timers.join()).await.unwrap();
     machine.shutdown().await.unwrap();
@@ -107,7 +85,7 @@ async fn exercise_audio_device() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn speaker_activity_submits_while_guest_execution_is_busy() {
+fn pc_audio_submits_while_guest_execution_is_busy() {
     pollster::block_on(exercise_audio_device());
 }
 
@@ -116,6 +94,6 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn speaker_activity_submits_while_guest_execution_is_busy() {
+async fn pc_audio_submits_while_guest_execution_is_busy() {
     exercise_audio_device().await;
 }

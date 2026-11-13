@@ -60,11 +60,11 @@ async fn run_machine(
         },
         async move |runner| {
             let startup = async {
-                let dos = relocade_dos::Dos::new(runner)
+                let mut dos = relocade_dos::Dos::new(runner)
                     .await
                     .map_err(|error| error.to_string())?;
                 if let Some((config, samples)) = output {
-                    dos.speaker().borrow_mut().attach_audio(config, samples)?;
+                    dos.attach_audio(config, samples).await?;
                 }
                 Ok::<_, String>(dos)
             }

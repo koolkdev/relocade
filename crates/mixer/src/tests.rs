@@ -100,6 +100,36 @@ fn sources_sum_with_gains_on_the_same_sample_intervals() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
+fn sample_intervals_do_not_depend_on_batch_size() {
+    for batch in [1, 7, 128, 256] {
+        let mut playback = Playback::new(config(44_100, 1, batch));
+        let clock = playback.clock.clock();
+        let start = clock.now();
+        let intervals = Rc::new(RefCell::new(Vec::new()));
+        let recorded = intervals.clone();
+        playback.mixer.borrow_mut().add_source(1.0, move |interval| {
+            recorded.borrow_mut().push(interval);
+            0.0
+        });
+        while intervals.borrow().len() < 1024 {
+            playback.next_buffer();
+        }
+        let clock = playback.clock.clock();
+        for (index, interval) in intervals.borrow().iter().take(1024).enumerate() {
+            assert_eq!(
+                clock.duration_since(interval.start, start).as_nanos(),
+                (index as u128 * 1_000_000_000).div_ceil(44_100)
+            );
+            assert_eq!(
+                clock.duration_since(interval.end, start).as_nanos(),
+                ((index as u128 + 1) * 1_000_000_000).div_ceil(44_100)
+            );
+        }
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn full_output_keeps_recent_samples_and_advances_sources() {
     let mut playback = Playback::new(config(1_000, 1, 10));
     let samples = Rc::new(RefCell::new(0));

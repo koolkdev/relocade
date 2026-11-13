@@ -119,8 +119,8 @@
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
-//! [`Dos::speaker`] exposes its speaker for attaching audio output after startup.
-//! DOS opens no platform output; the device submits PCM on the execution worker.
+//! With the `audio` feature, `Dos::attach_audio` connects the PC's mixed output.
+//! DOS opens no platform output; the PC submits PCM on the execution worker.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
 //! the main session awaits input or another program. [`Dos::frames`] exposes
 //! captured display state across launches. The caller chooses the rendering implementation
@@ -226,11 +226,20 @@ impl Dos {
     }
 
     /// Accesses the session's speaker on its execution owner, like [`Self::vga`].
-    /// With the speaker's `audio` feature, call `attach_audio(config, samples)`
-    /// here to connect output. Hardware state persists across process launches;
-    /// ending the execution session stops synthesis, independently of playback.
+    /// Hardware state persists across process launches.
     pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.pc.speaker()
+    }
+
+    /// Attaches the PC's mixed audio output once for this execution session.
+    /// Output persists across DOS process launches and ends with the session.
+    #[cfg(feature = "audio")]
+    pub async fn attach_audio(
+        &mut self,
+        config: cpal::StreamConfig,
+        samples: async_channel::Sender<Vec<f32>>,
+    ) -> Result<(), String> {
+        self.pc.attach_audio(config, samples).await
     }
 
     /// Launches a COM image of 1..=65,278 bytes when no process is active.
