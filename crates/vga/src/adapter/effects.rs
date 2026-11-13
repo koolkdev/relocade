@@ -76,7 +76,7 @@ impl DispiAdapter {
         match effects.video {
             VideoEffect::None => {}
             VideoEffect::Image => self.capture_if_due(),
-            VideoEffect::Configuration => self.advance_raster(self.clock.now()),
+            VideoEffect::Configuration => self.advance_raster(self.output.clock.now()),
         }
         let previous_layout = matches!(effects.video, VideoEffect::Configuration)
             .then(|| self.dispi.display_layout());
@@ -109,7 +109,7 @@ impl DispiAdapter {
             }
         }
         if video_changed || decoding_changed {
-            self.configuration_changed.notify(usize::MAX);
+            self.output.configuration_changed.notify(usize::MAX);
         }
         result
     }
@@ -122,10 +122,10 @@ impl DispiAdapter {
         };
         let timing_changed =
             if layout.map(|layout| layout.size()) != previous_layout.map(|layout| layout.size()) {
-                self.raster.restart(timing);
+                self.output.raster.restart(timing);
                 true
             } else {
-                self.raster.set_timing(timing)
+                self.output.raster.set_timing(timing)
             };
         timing_changed || layout != previous_layout
     }

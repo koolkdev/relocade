@@ -1,6 +1,6 @@
 //! Device connection and asynchronous activity.
 
-use super::{DispiAdapter, mmio::MemoryMapping, output, ports::Ports};
+use super::{DispiAdapter, mmio::MemoryMapping, ports::Ports};
 use relocade_machine::{Device, DeviceConnection};
 use std::{cell::RefCell, rc::Rc};
 
@@ -24,6 +24,6 @@ impl DispiAdapter {
 
 impl Device for DispiAdapter {
     async fn run(device: Rc<RefCell<Self>>) {
-        output::run(device).await;
+        crate::output::run(device, |card| &mut card.output, Self::capture_if_due).await;
     }
 }

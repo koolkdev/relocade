@@ -1,7 +1,5 @@
 //! Connection-time wiring and changes to physical address decoding.
 
-mod status;
-
 use crate::{dispi, registers::*, DispiAdapter};
 use relocade_machine::{
     DeviceCallbacks, DeviceConnection, IoContext, PortBinding, PortRange, PortRead, PortWrite,
@@ -278,6 +276,14 @@ fn crtc(
     index: u16,
     status: u16,
 ) -> Vec<Mapping> {
+    let read_status = {
+        let card = device.borrow();
+        card.vga.registers.attribute.handle_read(crate::output::status::read(
+            &card.output.raster.status,
+            device,
+            DispiAdapter::refresh_raster,
+        ))
+    };
     let window = index..=index + 1;
     vec![
         Mapping::byte(
@@ -297,7 +303,7 @@ fn crtc(
         Mapping::bind(
             io,
             status,
-            PortRead::low_byte(status::read(&device.borrow(), device)),
+            PortRead::low_byte(move |_| read_status()),
             PortWrite::low_byte(
                 callbacks.write(|_, card, value| card.vga.registers.feature_control = value),
             ),
