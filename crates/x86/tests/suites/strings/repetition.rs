@@ -10,6 +10,36 @@ use crate::support::{
 };
 use relocade_x86::Gpr32::*;
 
+fn f2_moves() -> Vec<Case> {
+    let mut cases = vec![
+        Case::preserving_flags("zero F2 MOVSD skips unmapped operands", &[0xf2, 0xa5])
+            .stored_flags(record(0))
+            .initial_registers(&[(Ecx, 0), (Esi, u32::MAX), (Edi, u32::MAX)]),
+    ];
+    for zf in [0, 1] {
+        let mut flags = record(0);
+        flags.bytes.zf = zf;
+        for (code, width) in [
+            (&[0xf2, 0xa4][..], 1),
+            (&[0xf2, 0x66, 0xa5][..], 2),
+            (&[0xf2, 0xa5][..], 4),
+        ] {
+            let bytes = &[1, 2, 3, 4, 5, 6, 7, 8][..2 * width];
+            cases.push(
+                Case::preserving_flags(format!("F2 MOVS {width}-byte elements ignore ZF={zf}"), code)
+                    .stored_flags(flags)
+                    .register(Ecx, 2, 0)
+                    .register(Esi, 0x4000, 0x4000 + bytes.len() as u32)
+                    .register(Edi, 0x7000, 0x7000 + bytes.len() as u32)
+                    .memory(0x4000, bytes, ReadOnly)
+                    .memory(0x7000, &[0xa5; 8], ReadWrite)
+                    .expect_memory(0x7000, bytes),
+            );
+        }
+    }
+    cases
+}
+
 #[rustfmt::skip]
 fn transfers() -> Vec<Case> {
     vec![
@@ -129,6 +159,7 @@ fn successors() -> Vec<Sequence> {
 }
 
 test_cases!(repeat_counts_widths_and_direction, transfers());
+test_cases!(f2_movs_repeats_without_comparing_flags, f2_moves());
 test_cases!(sequential_overlapping_elements, overlap());
 test_cases!(faults_retain_completed_elements, partial_faults());
 test_sequences!(repeat_state_and_successors, successors());

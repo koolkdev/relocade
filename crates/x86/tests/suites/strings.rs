@@ -235,6 +235,8 @@ fn admitted_string_forms() {
     for (prefix, opcode) in [
         (0xf3, 0xa4),
         (0xf3, 0xa5),
+        (0xf2, 0xa4),
+        (0xf2, 0xa5),
         (0xf3, 0xaa),
         (0xf3, 0xab),
         (0xf3, 0xac),
@@ -259,8 +261,6 @@ fn admitted_string_forms() {
 fn unsupported_string_forms_reject_even_with_zero_count() {
     for (prefix, opcode) in [
         (0xf0, 0xa5),
-        (0xf2, 0xa4),
-        (0xf2, 0xa5),
         (0xf2, 0xaa),
         (0xf2, 0xab),
         (0xf2, 0xac),
