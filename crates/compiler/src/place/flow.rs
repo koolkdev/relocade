@@ -5,10 +5,12 @@ use rustc_hash::FxHashMap;
 #[cfg(test)]
 mod tests;
 
-/// Fixed semantic contexts and reductions, completed before placement demand.
+/// Fixed semantic contexts and reductions, shared by blocks with unchanged facts.
+/// Control-flow reduction completes before placement demand.
 /// Scheduling may request another normal form but cannot change a context.
 pub(super) struct ReducedFlow {
-    reducers: Vec<Option<Reducer>>,
+    reducers: Vec<Reducer>,
+    contexts: Vec<Option<usize>>,
     exclusions: FxHashMap<(BlockId, BlockId), bool>,
     pub(super) control_changed: bool,
 }
@@ -24,7 +26,12 @@ impl ReducedFlow {
             .iter()
             .map(|block| block.exit.clone())
             .collect();
-        let mut reducers: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+        let mut flow = Self {
+            reducers: Vec::new(),
+            contexts: vec![None; graph.blocks.len()],
+            exclusions: FxHashMap::default(),
+            control_changed: false,
+        };
         let mut order: Vec<_> = (0..graph.blocks.len()).collect();
         order.sort_by_key(|&block| dominators.rank[block]);
         // Reverse postorder is topological when every edge points forward.
@@ -35,7 +42,6 @@ impl ReducedFlow {
                 .all(|&source| dominators.rank[source] < dominators.rank[block])
         });
         let mut reachable = graph.reachable();
-        let mut control_changed = false;
         for block in order {
             if !reachable[block] {
                 continue;
@@ -55,12 +61,14 @@ impl ReducedFlow {
                 reachable[block] = false;
                 continue;
             }
-            let incoming = incoming_facts(graph, block, &sources, &reducers).unwrap_or_else(|| {
-                dominators.parent[block]
-                    .filter(|&parent| parent != block)
-                    .map(|parent| reducers[parent].as_ref().unwrap().facts().clone())
-                    .unwrap_or_default()
-            });
+            let parent = dominators.parent[block].filter(|&parent| parent != block);
+            let incoming = flow
+                .incoming_facts(graph, block, &sources)
+                .unwrap_or_else(|| {
+                    parent
+                        .map(|parent| flow.facts(BlockId(parent)).clone())
+                        .unwrap_or_default()
+                });
             let observations = if let [source] = sources.as_slice() {
                 let authored = edge_observation(&graph.values, &exits[*source], BlockId(block));
                 let reduced =
@@ -74,9 +82,21 @@ impl ReducedFlow {
             } else {
                 [None; 2]
             };
-            let mut reducer = Reducer::from_facts(
-                incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
-            );
+            let facts =
+                incoming.with_assumptions(&graph.values, observations.into_iter().flatten());
+            let inherited = match sources.as_slice() {
+                [source] => flow.contexts[*source],
+                _ => parent.and_then(|parent| flow.contexts[parent]),
+            };
+            let context = inherited
+                .filter(|&context| flow.reducers[context].facts().same_context(&facts))
+                .unwrap_or_else(|| {
+                    let context = flow.reducers.len();
+                    flow.reducers.push(Reducer::from_facts(facts));
+                    context
+                });
+            flow.contexts[block] = Some(context);
+            let reducer = &mut flow.reducers[context];
             for item in &graph.blocks[block].items {
                 let BlockItem::Effect(id) = item else {
                     unreachable!()
@@ -91,24 +111,19 @@ impl ReducedFlow {
             let mut exit = graph.blocks[block].exit.clone();
             exit.map_inputs(|value| reducer.reduce(&mut graph.values, value));
             graph.blocks[block].exit = exit;
-            reducers[block] = Some(reducer);
             if graph.blocks[block].exit.constant_edge_index(&graph.values) != before {
-                control_changed = true;
+                flow.control_changed = true;
                 if !acyclic {
                     // A disconnected cycle can still have incoming edges from itself.
                     reachable = graph.reachable();
                 }
             }
         }
-        ReducedFlow {
-            reducers,
-            exclusions: FxHashMap::default(),
-            control_changed,
-        }
+        flow
     }
 
     pub(super) fn facts(&self, block: BlockId) -> &ScalarFacts {
-        self.reducers[block.0].as_ref().unwrap().facts()
+        self.reducers[self.contexts[block.0].unwrap()].facts()
     }
 
     /// Fixed facts and existing value definitions/bounds make proofs and misses reusable.
@@ -134,43 +149,44 @@ impl ReducedFlow {
         block: BlockId,
         value: usize,
     ) -> usize {
-        self.reducers[block.0]
-            .as_mut()
-            .unwrap()
-            .reduce(values, value)
+        self.reducers[self.contexts[block.0].unwrap()].reduce(values, value)
     }
 
     pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> + '_ {
-        self.reducers[block.0].as_ref().unwrap().recipes(value)
+        self.reducers[self.contexts[block.0].unwrap()].recipes(value)
     }
-}
 
-/// An unfinished predecessor is a possible backedge and contributes no entry proof.
-fn incoming_facts(
-    graph: &FunctionGraph,
-    block: usize,
-    sources: &[usize],
-    reducers: &[Option<Reducer>],
-) -> Option<ScalarFacts> {
-    if sources.is_empty() || sources.iter().any(|&source| reducers[source].is_none()) {
-        return None;
+    /// An unfinished predecessor is a possible backedge and contributes no entry proof.
+    fn incoming_facts(
+        &self,
+        graph: &FunctionGraph,
+        block: usize,
+        sources: &[usize],
+    ) -> Option<ScalarFacts> {
+        if sources.is_empty()
+            || sources
+                .iter()
+                .any(|&source| self.contexts[source].is_none())
+        {
+            return None;
+        }
+        let incoming: Vec<_> = sources
+            .iter()
+            .flat_map(|&source| {
+                let facts = self.facts(BlockId(source));
+                graph
+                    .outgoing(BlockId(source))
+                    .into_iter()
+                    .filter(move |edge| edge.target.0 == block)
+                    .map(move |edge| (facts, edge.arguments.as_slice()))
+            })
+            .collect();
+        Some(ScalarFacts::join(
+            &graph.values,
+            &graph.blocks[block].parameters,
+            &incoming,
+        ))
     }
-    let incoming: Vec<_> = sources
-        .iter()
-        .flat_map(|&source| {
-            let facts = reducers[source].as_ref().unwrap().facts();
-            graph
-                .outgoing(BlockId(source))
-                .into_iter()
-                .filter(move |edge| edge.target.0 == block)
-                .map(move |edge| (facts, edge.arguments.as_slice()))
-        })
-        .collect();
-    Some(ScalarFacts::join(
-        &graph.values,
-        &graph.blocks[block].parameters,
-        &incoming,
-    ))
 }
 
 /// A unique outgoing alternative contributes a truth or selector observation.
