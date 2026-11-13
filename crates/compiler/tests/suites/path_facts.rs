@@ -1,5 +1,8 @@
 //! Branch facts simplify their own continuation without changing other paths.
 
+#[path = "path_facts/assumptions.rs"]
+mod assumptions;
+
 #[path = "path_facts/bitwise.rs"]
 mod bitwise;
 #[path = "path_facts/boundaries.rs"]

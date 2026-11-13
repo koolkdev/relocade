@@ -46,6 +46,17 @@ pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachabl
         if !reachable[index] {
             continue;
         }
+        for &condition in &block.assumptions {
+            update(
+                condition,
+                Demand::At {
+                    block: BlockId(index),
+                    position: 0,
+                },
+                &mut demands,
+                &mut work,
+            );
+        }
         for (position, item) in block.items.iter().enumerate() {
             let demand = Demand::At {
                 block: BlockId(index),

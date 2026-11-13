@@ -1,8 +1,9 @@
 //! Typed branches and direct construction of control-flow edges.
 use crate::{
-    body::{BlockId, Edge, Exit},
+    body::{BlockId, Edge, Exit, Layout},
     function::PendingBlock,
-    results, Arguments, BlockBuilder, BuildError, Results, Type,
+    place::Assumption,
+    results, Arguments, BlockBuilder, BuildError, Results, Type, Val, I1,
 };
 mod block;
 mod conditional;
@@ -18,6 +19,37 @@ pub(super) struct JoinTarget {
 }
 
 impl BlockBuilder<'_> {
+    /// Supplies a predicate guaranteed by the caller wherever this point is reached.
+    /// It refines only the continuing path and emits no runtime check. Use a
+    /// conditional exit when the predicate must be checked by generated code.
+    /// Execution that violates an assumption is outside this function's contract.
+    /// Facts concern these values; later loads and writes do not inherit them.
+    pub fn assume(&mut self, condition: impl Into<Val<I1>>) -> Result<(), BuildError> {
+        let condition = self.value(condition)?;
+        if condition.constant_bits()? == Some(1) {
+            return Ok(());
+        }
+        let condition = self.operand(condition)?;
+        let continuation = self.arena.block(self.pending.id, &[])?;
+        self.arena.assume(continuation, condition)?;
+        self.arena.exit(
+            self.pending.current,
+            Exit::Jump(Edge {
+                target: continuation,
+                arguments: Vec::new(),
+            }),
+        )?;
+        self.pending
+            .layout
+            .push(Layout::Block(self.pending.current));
+        self.pending.current = continuation;
+        self.pending.assumptions.push(Assumption::Truth {
+            condition,
+            truth: true,
+        });
+        Ok(())
+    }
+
     /// Supplies this result arm, block or loop's result and completes the builder.
     /// Nested ordinary branches use an enclosing typed label instead.
     pub fn yield_(self, arguments: impl Into<Arguments>) -> Result<(), BuildError> {

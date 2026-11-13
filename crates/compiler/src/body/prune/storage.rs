@@ -48,6 +48,7 @@ impl Remapping {
 pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retained: Retained) {
     for (index, block) in graph.blocks.iter_mut().enumerate() {
         if !reachable[index] {
+            block.assumptions.clear();
             block.items = Vec::new();
             block.callees = Vec::new();
             block.parameters = Vec::new();
@@ -86,6 +87,9 @@ pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retaine
     graph.effects.shrink_to_fit();
     for block in &mut graph.blocks {
         block.callees.clear();
+        for condition in &mut block.assumptions {
+            *condition = remapping.value(*condition);
+        }
         for parameter in &mut block.parameters {
             *parameter = remapping.value(*parameter);
         }
