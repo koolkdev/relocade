@@ -4,7 +4,7 @@
 DOS. Create its machine with `configuration::memory()` and its CPU with
 `configuration::cpu()` before starting execution. PC retains the CPU's runner
 and assembles local device wiring; Machine owns guest memory and CPU state.
-Individual crates implement BIOS services and PIC, PIT, PS/2 keyboard/mouse,
+Individual crates implement BIOS services and DMA, PIC, PIT, PS/2 keyboard/mouse,
 VGA, speaker and AdLib behavior.
 
 The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
@@ -12,6 +12,12 @@ identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboa
 and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. Devices run on the supplied runner and
 share its clock.
+
+The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
+PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer
+memory reads, including auto-initialize reloads. The controller is present with
+every sound-card selection and requires no audio output. It does not yet supply
+16-bit DMA, cascading, or other transfer modes.
 
 AdLib is installed by default. To select hardware explicitly, use:
 

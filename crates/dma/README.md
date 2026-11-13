@@ -29,15 +29,21 @@ no separate buffer position, timer or worker.
 
 The count encodes transfers minus one: zero transfers one byte, and `0xffff`
 transfers 65,536. The 16-bit address wraps without changing the page register.
-Terminal count sets the channel's status bit and masks it. Status reads clear
-terminal-count bits while still reporting active requests, including masked
-ones. Supply a view with I/O routing for buffers that can reach device memory.
+Terminal count sets the channel's status bit. In auto-initialize mode it reloads
+the base address and count without masking the channel; otherwise it masks the
+channel. It clears software requests but leaves the peripheral's request line
+alone. Status reads clear terminal-count bits while still reporting active
+requests, including masked ones. Supply a view with I/O routing for buffers that
+can reach device memory.
 
-Auto-initialize and PC initialization are separate changes. The secondary
-controller, cascading, demand/block transfers, device-to-memory and verify
-transfers, servicing software requests, memory-to-memory transfers and electrical
-bus timing are outside this scope. Unsupported transfer modes consume no bytes
-and leave the channel's position unchanged.
+PC initializes the controller regardless of sound-card selection and exposes
+it through `pc.dma()`. A peripheral owns its request timing; DMA does not infer
+completion interrupts or an audio sampling rate from its transfer count.
+
+The secondary controller, cascading, demand/block transfers, device-to-memory
+and verify transfers, servicing software requests, memory-to-memory transfers
+and electrical bus timing are outside this scope. Unsupported transfer modes
+consume no bytes and leave the channel's position unchanged.
 
 Register behavior follows the [Intel 8237A datasheet](https://www.pcjs.org/documents/datasheets/intel/INTEL_8237A_DMA.pdf),
 sections Register Description and Software Commands. Page wiring follows the

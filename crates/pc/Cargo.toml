@@ -14,6 +14,7 @@ async-channel = { version = "=2.5.0", default-features = false }
 cpal = { workspace = true, optional = true }
 relocade-ps2 = { path = "../ps2" }
 relocade-bios = { path = "../bios" }
+relocade-dma = { path = "../dma" }
 relocade-frontend = { path = "../frontend", features = ["keyboard", "mouse"] }
 relocade-machine = { path = "../machine" }
 relocade-mixer = { path = "../mixer", optional = true }

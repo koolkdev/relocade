@@ -38,6 +38,7 @@ impl Dma {
     /// Returns the bytes transferred, leaving the rest of `bytes` untouched.
     /// Masked, disabled and unsupported channels return zero. The peripheral
     /// chooses how many bytes are due; DMA owns address/count and completion.
+    /// Auto-initialize reloads and continues filling the buffer.
     /// Supply a memory view with device routing if the address can reach MMIO.
     pub fn read(&mut self, number: u8, memory: &MemoryView<'_>, bytes: &mut [u8]) -> usize {
         let channel = &mut self.channels[usize::from(number)];
@@ -46,7 +47,6 @@ impl Dma {
             || self.mask & bit != 0
             || channel.mode & TRANSFER_TYPE_MASK != MEMORY_READ
             || channel.mode & TRANSFER_MODE_MASK != SINGLE_TRANSFER
-            || channel.mode & AUTO_INITIALIZE != 0
         {
             return 0;
         }
@@ -81,8 +81,13 @@ impl Dma {
             if count == remaining {
                 self.terminal_count |= bit;
                 self.software_requests &= !bit;
-                self.mask |= bit;
-                break;
+                if channel.mode & AUTO_INITIALIZE != 0 {
+                    channel.address.current = channel.address.base;
+                    channel.count.current = channel.count.base;
+                } else {
+                    self.mask |= bit;
+                    break;
+                }
             }
         }
         transferred

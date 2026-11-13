@@ -2447,6 +2447,7 @@ dependencies = [
  "relocade-adlib",
  "relocade-bios",
  "relocade-clock-test-support",
+ "relocade-dma",
  "relocade-frontend",
  "relocade-machine",
  "relocade-mixer",
