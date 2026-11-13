@@ -17,7 +17,10 @@ mod registers;
 mod retrace;
 mod state;
 
-use crate::{memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore};
+use crate::{
+    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Scanout, Timing, VgaCore,
+    VgaDisplayState,
+};
 use async_channel::Receiver;
 pub use modes::{DispiMode, DispiResolution};
 use registers::Dispi;
@@ -71,7 +74,11 @@ impl DispiAdapter {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
         let vga = VgaCore::default();
-        let output = Output::new(clock, Timing::vga(&vga.registers));
+        let output = Output::new(
+            clock,
+            Timing::vga(&vga.registers),
+            Scanout::Vga(VgaDisplayState::from_registers(&vga.registers)),
+        );
         Self {
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             vga,

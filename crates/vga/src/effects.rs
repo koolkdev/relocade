@@ -15,6 +15,7 @@ pub(crate) enum VideoEffect {
 #[derive(Clone, Copy)]
 pub(crate) struct Effects {
     pub video: VideoEffect,
+    pub scanout: bool,
     pub port_decode: bool,
     pub memory_decode: bool,
 }
@@ -22,6 +23,7 @@ pub(crate) struct Effects {
 impl Effects {
     pub const NONE: Self = Self {
         video: VideoEffect::None,
+        scanout: false,
         port_decode: false,
         memory_decode: false,
     };
@@ -31,6 +33,7 @@ impl Effects {
     };
     pub const CONFIGURATION: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::NONE
     };
     pub const IO: Self = Self {
@@ -39,6 +42,7 @@ impl Effects {
     };
     pub const CONFIGURATION_AND_IO: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::IO
     };
     pub const MEMORY: Self = Self {
@@ -47,17 +51,21 @@ impl Effects {
     };
     pub const CONFIGURATION_AND_MEMORY: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::MEMORY
     };
 }
 
 impl Effects {
     pub fn vga(kind: WriteKind) -> Self {
-        match kind {
+        let mut effects = match kind {
             WriteKind::Access => Self::NONE,
             WriteKind::Display => Self::IMAGE,
             WriteKind::Timing => Self::CONFIGURATION,
-        }
+        };
+        // Keep raw VGA inspection current even for CPU-only control writes.
+        effects.scanout = true;
+        effects
     }
 }
 
@@ -70,6 +78,7 @@ pub(crate) trait CardEffects: Sized {
     fn timing(&self) -> Timing;
     fn port_decoding(&self) -> PortDecoding;
     fn memory_decoding(&self) -> MemoryDecoding;
+    fn update_scanout(&mut self, effect: VideoEffect);
 
     fn display_layout(&self) -> Option<PackedLayout> {
         None
@@ -93,6 +102,10 @@ pub(crate) trait CardEffects: Sized {
         let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
 
         let result = mutate(self);
+
+        if effects.scanout {
+            self.update_scanout(effects.video);
+        }
 
         let video_changed = previous_layout.is_some_and(|previous| {
             let layout = self.display_layout();

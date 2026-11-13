@@ -1,6 +1,6 @@
 //! Capture on the execution owner, then synchronize and publish from its task.
 
-use crate::{DacSnapshot, DispiAdapter, DisplaySnapshot, Scanout, VgaDisplayState};
+use crate::{DacSnapshot, DispiAdapter, DisplaySnapshot, Scanout};
 use relocade_machine::Timestamp;
 
 impl DispiAdapter {
@@ -13,21 +13,24 @@ impl DispiAdapter {
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`DispiAdapter::frames`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
-        let scanout = match self.dispi.display_layout() {
-            Some(layout) => Scanout::Packed(layout),
-            None => Scanout::Vga(VgaDisplayState::capture(
-                &self.vga.registers,
-                self.output.raster.retrace_count,
-            )),
-        };
         self.output.snapshot(
-            scanout,
+            self.scanout_at(self.vga.registers.crtc.display_start),
             DacSnapshot {
                 colors: self.vga.registers.dac.colors,
                 mask: self.vga.registers.dac.mask,
             },
             &self.memory,
         )
+    }
+
+    pub(super) fn scanout_at(&self, start: u16) -> Scanout {
+        match self.output.scanout {
+            Scanout::Vga(mut state) => {
+                state.display_start = start;
+                Scanout::Vga(state.with_blink_phase(self.output.raster.retrace_count))
+            }
+            packed => packed,
+        }
     }
 
     /// Service elapsed capture boundaries from the output task or before a

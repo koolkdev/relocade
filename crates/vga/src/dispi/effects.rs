@@ -2,8 +2,12 @@
 mod writes;
 
 use crate::{
-    effects::CardEffects, io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding,
-    DispiAdapter, PackedLayout, Timing,
+    effects::{CardEffects, VideoEffect},
+    io::Io,
+    mmio::MemoryDecoding,
+    output::Output,
+    ports::PortDecoding,
+    DispiAdapter, PackedLayout, Scanout, Timing, VgaDisplayState,
 };
 use relocade_machine::Timestamp;
 
@@ -21,7 +25,17 @@ impl CardEffects for DispiAdapter {
     }
 
     fn display_layout(&self) -> Option<PackedLayout> {
-        self.dispi.display_layout()
+        match self.output.scanout {
+            Scanout::Packed(layout) => Some(layout),
+            Scanout::Vga(_) => None,
+        }
+    }
+
+    fn update_scanout(&mut self, _effect: VideoEffect) {
+        self.output.scanout = match self.dispi.display_layout() {
+            Some(layout) => Scanout::Packed(layout),
+            None => Scanout::Vga(VgaDisplayState::from_registers(&self.vga.registers)),
+        };
     }
 
     fn timing(&self) -> Timing {

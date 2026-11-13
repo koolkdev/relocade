@@ -6,7 +6,7 @@ use super::{
 use crate::{
     registers::{attribute, crtc, graphics},
     snapshot::Blanking,
-    PackedLayout, PixelFormat, VgaDisplayState,
+    PackedLayout, PixelFormat, Scanout, VgaDisplayState,
 };
 
 impl Et4000Ax {
@@ -22,8 +22,7 @@ impl Et4000Ax {
     }
 
     pub(super) fn vga_display_state(&self) -> VgaDisplayState {
-        let mut state =
-            VgaDisplayState::capture(&self.vga.registers, self.output.raster.retrace_count);
+        let mut state = VgaDisplayState::from_registers(&self.vga.registers);
         // Keep VGA's serializer, row repeats, split screen and blanking in its
         // decoder. ET4000's linear-byte memory organization changes addressing.
         state.linear_addressing = state.attributes[attribute::MODE_CONTROL as usize] & 0x41 == 0x41
@@ -31,7 +30,19 @@ impl Et4000Ax {
         state
     }
 
-    pub(super) fn packed_layout(&self, start: u32) -> Option<PackedLayout> {
+    /// Combine prepared programming with the current display-address latch and
+    /// blink phase. Native drawing supplies the programmed address instead.
+    pub(super) fn scanout_at(&self, start: u32) -> Scanout {
+        match self.output.scanout {
+            Scanout::Vga(mut state) => {
+                state.display_start = start as u16;
+                Scanout::Vga(state.with_blink_phase(self.output.raster.retrace_count))
+            }
+            Scanout::Packed(layout) => Scanout::Packed(layout.with_start_offset(start * 4)),
+        }
+    }
+
+    pub(super) fn packed_layout(&self) -> Option<PackedLayout> {
         let registers = &self.vga.registers;
         let attribute = &registers.attribute.values;
         if registers.graphics.values[graphics::MODE as usize] & 0x40 == 0
@@ -57,7 +68,7 @@ impl Et4000Ax {
             [width, height],
             PixelFormat::Indexed8,
             pitch,
-            start * 4 + byte_pan + pan,
+            byte_pan + pan,
             self.memory.capacity(),
         )
     }

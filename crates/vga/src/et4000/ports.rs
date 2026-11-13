@@ -95,7 +95,7 @@ impl VgaPortAccess for Et4000Ax {
 
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
         match kind {
-            WriteKind::Access => Effects::NONE,
+            WriteKind::Access => Effects::vga(kind),
             // Display fields also describe the packed layout on this card.
             WriteKind::Display | WriteKind::Timing => Effects::CONFIGURATION,
         }

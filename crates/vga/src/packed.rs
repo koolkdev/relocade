@@ -103,6 +103,13 @@ impl PackedLayout {
             & self.address_mask
     }
 
+    /// Relocate a prepared wrapping viewport by a physical byte offset.
+    pub(crate) fn with_start_offset(mut self, offset: u32) -> Self {
+        debug_assert_ne!(self.address_mask, u32::MAX);
+        self.display_start = self.display_start.wrapping_add(offset) & self.address_mask;
+        self
+    }
+
     #[cfg(feature = "renderer")]
     pub(crate) fn address_mask(self) -> u32 {
         self.address_mask

@@ -52,13 +52,15 @@ impl DispiAdapter {
         if core.is_none() && dac.is_none() && dispi.is_none() {
             return;
         }
-        let effects = if core.is_some() {
+        let mut effects = if core.is_some() {
             Effects::CONFIGURATION_AND_IO
         } else if dispi.is_some() {
             Effects::CONFIGURATION_AND_MEMORY
         } else {
             Effects::IMAGE
         };
+        // DAC state also includes the VGA Attribute color-select register.
+        effects.scanout = true;
         self.with_effects(context, effects, |card| {
             if let Some(core) = core {
                 core.restore(&mut card.vga);
