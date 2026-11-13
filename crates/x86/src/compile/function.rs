@@ -35,7 +35,8 @@ impl Default for FunctionLimits {
 impl Compiler {
     /// Discovers and compiles a bounded region rooted at a guest function entry.
     /// Follows direct jumps, both conditional successors and near-call continuations.
-    /// Callees, indirect jumps, returns and other execution boundaries end a path.
+    /// I/O, data/stack segment loads and other known fallthroughs start another block.
+    /// Callees, indirect jumps, returns, known faults and code-context changes end a path.
     /// This does not prove source-language function boundaries or that calls return.
     ///
     /// `read` copies a contiguous readable prefix at a CS-relative EIP into the
@@ -55,7 +56,9 @@ impl Compiler {
     ///
     /// Exports, dispatch, guards and code/addressing validity have the same contract
     /// as [`Self::compile_blocks`]. The caller keeps code and mappings stable during
-    /// discovery and maintains validity for the resulting entries' lifetime.
+    /// discovery and maintains validity for the resulting entries' lifetime. After
+    /// a segment load, each continuation still requires admission to its compiled
+    /// execution profile. Discovery does not bypass dispatch or runtime exits.
     pub fn compile_function(
         &self,
         start_eip: u32,

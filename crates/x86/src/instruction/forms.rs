@@ -26,9 +26,10 @@ pub(crate) enum OpcodeMap {
     Extended,
 }
 
-/// Statically discoverable successors of near control transfers.
+/// Statically known continuations of instructions that end an execution block.
 #[derive(Clone, Copy)]
 pub(crate) enum ControlFlow {
+    Fallthrough,
     Jump,
     Branch,
     Call,
@@ -129,6 +130,7 @@ pub(crate) struct Form {
     handlers: SizedHandlers<HandlerBinding>,
     pub(super) condition: Option<Condition>,
     pub(super) ends_block: bool,
+    /// Block boundaries can still have discoverable continuations.
     pub(super) control_flow: Option<ControlFlow>,
     pub(super) requirements: Requirements,
 }
@@ -201,6 +203,7 @@ impl ResolvedForm {
             OperandSize::Dword => u32::MAX,
         };
         match self.form.control_flow {
+            Some(ControlFlow::Fallthrough) => [Some(fallthrough), None],
             Some(ControlFlow::Jump | ControlFlow::Branch) => {
                 let destination = fallthrough
                     .wrapping_add(immediates[0].expect("relative transfers have a displacement"))

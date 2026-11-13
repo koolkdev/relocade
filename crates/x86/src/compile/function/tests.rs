@@ -1,3 +1,5 @@
+mod boundaries;
+
 use super::*;
 use crate::{
     decode::snapshot, BlockSnapshot, ExecutionProfile, SegmentDefaultSize, SegmentProfile,

@@ -45,6 +45,7 @@ instruction_families! {
     MOV_TO_SEGMENT {
         execute: load_selector;
         effects: [segment_load, control_transfer];
+        flow: Fallthrough;
         forms {
             0x8E /0 => word(segment(Segment::Es), rm);
             0x8E /2 => word(segment(Segment::Ss), rm);
@@ -67,6 +68,7 @@ instruction_families! {
     POP_SEGMENT {
         execute: pop_selector::<_>;
         effects: [segment_load, control_transfer];
+        flow: Fallthrough;
         forms {
             0x07 => word_or_dword(segment(Segment::Es));
             0x17 => word_or_dword(segment(Segment::Ss));
@@ -78,6 +80,7 @@ instruction_families! {
     LOAD_FAR_POINTER {
         execute: load_pointer;
         effects: [segment_load];
+        flow: Fallthrough;
         forms {
             0xC4 => word_or_dword(modrm_reg, mem, segment(Segment::Es));
             0xC5 => word_or_dword(modrm_reg, mem, segment(Segment::Ds));
