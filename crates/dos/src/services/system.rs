@@ -1,11 +1,17 @@
 //! DOS environment queries, interrupt vectors and unavailable raw-disk access.
 
+use super::Services;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, read_vector, write_vector},
     CpuStateAccess, FarPointer, MemoryView,
 };
 
 const INVALID_DISK_UNIT: u16 = 0x0201;
+
+#[interrupt(returns { segment => { bx = segment } })]
+pub(super) fn current_psp(services: &Services<'_>) -> u16 {
+    services.process.psp_segment()
+}
 
 #[interrupt(context(cpu), returns { () => { ax = INVALID_DISK_UNIT } })]
 pub(crate) fn absolute_disk_unavailable(cpu: &CpuStateAccess) {
