@@ -8,7 +8,8 @@ mod tests;
 /// Fixed semantic contexts and reductions, completed before placement demand.
 /// Scheduling may request another normal form but cannot change a context.
 pub(super) struct ReducedFlow {
-    reducers: Vec<Option<Reducer>>,
+    reducer: Reducer,
+    scopes: Vec<Option<ScopeId>>,
     exclusions: FxHashMap<(BlockId, BlockId), bool>,
     pub(super) control_changed: bool,
 }
@@ -24,7 +25,8 @@ impl ReducedFlow {
             .iter()
             .map(|block| block.exit.clone())
             .collect();
-        let mut reducers: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+        let mut reducer = Reducer::default();
+        let mut scopes = vec![None; graph.blocks.len()];
         let mut order: Vec<_> = (0..graph.blocks.len()).collect();
         order.sort_by_key(|&block| dominators.rank[block]);
         let mut reachable = graph.reachable();
@@ -44,12 +46,13 @@ impl ReducedFlow {
                             .any(|edge| edge.target.0 == block)
                 })
                 .collect();
-            let incoming = incoming_facts(graph, block, &sources, &reducers).unwrap_or_else(|| {
-                dominators.parent[block]
-                    .filter(|&parent| parent != block)
-                    .map(|parent| reducers[parent].as_ref().unwrap().facts().clone())
-                    .unwrap_or_default()
-            });
+            let incoming = incoming_facts(graph, block, &sources, &reducer, &scopes)
+                .unwrap_or_else(|| {
+                    dominators.parent[block]
+                        .filter(|&parent| parent != block)
+                        .map(|parent| reducer.facts(scopes[parent].unwrap()).clone())
+                        .unwrap_or_default()
+                });
             let observations = if let [source] = sources.as_slice() {
                 let authored = edge_observation(&graph.values, &exits[*source], BlockId(block));
                 let reduced =
@@ -63,7 +66,7 @@ impl ReducedFlow {
             } else {
                 [None; 2]
             };
-            let mut reducer = Reducer::from_facts(
+            let scope = reducer.scope(
                 incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
             );
             for item in &graph.blocks[block].items {
@@ -73,28 +76,29 @@ impl ReducedFlow {
                 let operation = graph.effects[id.0]
                     .operation
                     .clone()
-                    .map_inputs(|value| reducer.reduce(&mut graph.values, value));
+                    .map_inputs(|value| reducer.reduce(&mut graph.values, scope, value));
                 graph.effects[id.0].operation = operation;
             }
             let before = graph.blocks[block].exit.constant_edge_index(&graph.values);
             let mut exit = graph.blocks[block].exit.clone();
-            exit.map_inputs(|value| reducer.reduce(&mut graph.values, value));
+            exit.map_inputs(|value| reducer.reduce(&mut graph.values, scope, value));
             graph.blocks[block].exit = exit;
-            reducers[block] = Some(reducer);
+            scopes[block] = Some(scope);
             if graph.blocks[block].exit.constant_edge_index(&graph.values) != before {
                 control_changed = true;
                 reachable = graph.reachable();
             }
         }
         ReducedFlow {
-            reducers,
+            reducer,
+            scopes,
             exclusions: FxHashMap::default(),
             control_changed,
         }
     }
 
     pub(super) fn facts(&self, block: BlockId) -> &ScalarFacts {
-        self.reducers[block.0].as_ref().unwrap().facts()
+        self.reducer.facts(self.scopes[block.0].unwrap())
     }
 
     /// Fixed facts and existing value definitions/bounds make proofs and misses reusable.
@@ -120,14 +124,12 @@ impl ReducedFlow {
         block: BlockId,
         value: usize,
     ) -> usize {
-        self.reducers[block.0]
-            .as_mut()
-            .unwrap()
-            .reduce(values, value)
+        self.reducer
+            .reduce(values, self.scopes[block.0].unwrap(), value)
     }
 
     pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> + '_ {
-        self.reducers[block.0].as_ref().unwrap().recipes(value)
+        self.reducer.recipes(self.scopes[block.0].unwrap(), value)
     }
 }
 
@@ -136,15 +138,16 @@ fn incoming_facts(
     graph: &FunctionGraph,
     block: usize,
     sources: &[usize],
-    reducers: &[Option<Reducer>],
+    reducer: &Reducer,
+    scopes: &[Option<ScopeId>],
 ) -> Option<ScalarFacts> {
-    if sources.is_empty() || sources.iter().any(|&source| reducers[source].is_none()) {
+    if sources.is_empty() || sources.iter().any(|&source| scopes[source].is_none()) {
         return None;
     }
     let incoming: Vec<_> = sources
         .iter()
         .flat_map(|&source| {
-            let facts = reducers[source].as_ref().unwrap().facts();
+            let facts = reducer.facts(scopes[source].unwrap());
             graph
                 .outgoing(BlockId(source))
                 .into_iter()

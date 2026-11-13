@@ -4,13 +4,18 @@ use super::*;
 use crate::bitwise::BitwiseOp;
 use crate::expression::{BinaryOp as Binary, UnaryOp as Unary};
 
-fn branch(reducer: &Reducer, values: &ValueTable, condition: usize, truth: bool) -> Reducer {
-    Reducer::from_facts(
-        reducer
-            .facts()
-            .clone()
-            .with_assumptions(values, [Assumption::Truth { condition, truth }]),
-    )
+fn branch(
+    reducer: &mut Reducer,
+    parent: ScopeId,
+    values: &ValueTable,
+    condition: usize,
+    truth: bool,
+) -> ScopeId {
+    let facts = reducer
+        .facts(parent)
+        .clone()
+        .with_assumptions(values, [Assumption::Truth { condition, truth }]);
+    reducer.scope(facts)
 }
 
 fn conditional_value() -> FunctionGraph {
@@ -56,14 +61,15 @@ fn sibling_contexts_have_independent_facts_and_residuals() {
     let mut graph = conditional_value();
     let choice = returned(&graph);
     let condition = graph.blocks[0].parameters[0];
-    let mut live = Reducer::default();
-    assert_eq!(live.reduce(&mut graph.values, choice), choice);
+    let mut reducer = Reducer::default();
+    let live = reducer.scope(ScalarFacts::default());
+    assert_eq!(reducer.reduce(&mut graph.values, live, choice), choice);
     for (truth, expected) in [(false, 11), (true, 7)] {
-        let mut sibling = branch(&live, &graph.values, condition, truth);
-        let result = sibling.reduce(&mut graph.values, choice);
+        let sibling = branch(&mut reducer, live, &graph.values, condition, truth);
+        let result = reducer.reduce(&mut graph.values, sibling, choice);
         assert!(matches!(graph.values[result].scalar_literal(), Some(bits) if bits == expected));
     }
-    assert_eq!(live.reduce(&mut graph.values, choice), choice);
+    assert_eq!(reducer.reduce(&mut graph.values, live, choice), choice);
     assert!(graph.blocks[0].items.is_empty());
 }
 
@@ -124,14 +130,15 @@ fn refolding_finishes_reduction_of_a_new_recipe_before_returning() {
             },
         ],
     );
-    let mut reducer = Reducer::from_facts(facts);
+    let mut reducer = Reducer::default();
+    let scope = reducer.scope(facts);
     // The chosen arm first refolds to x & 0x00ff00ff. Only then can path
     // knowledge absorb the combined mask and return x's entire carrier.
-    assert_eq!(reducer.reduce(&mut graph.values, root), input);
-    assert_eq!(reducer.reduce(&mut graph.values, root), input);
+    assert_eq!(reducer.reduce(&mut graph.values, scope, root), input);
+    assert_eq!(reducer.reduce(&mut graph.values, scope, root), input);
     // Both the original and the intermediate fold name the finished carrier.
-    assert!(reducer.recipes(input).any(|recipe| recipe == root));
-    assert!(reducer.recipes(input).any(|recipe| matches!(
+    assert!(reducer.recipes(scope, input).any(|recipe| recipe == root));
+    assert!(reducer.recipes(scope, input).any(|recipe| matches!(
         graph.values[recipe].definition,
         ValueDefinition::Expression(Expression::Binary {
             operator: Binary::Bitwise(BitwiseOp::And),
@@ -146,19 +153,20 @@ fn semantic_equivalences_belong_to_their_fixed_context() {
     let mut graph = conditional_value();
     let choice = returned(&graph);
     let condition = graph.blocks[0].parameters[0];
-    let mut parent = Reducer::default();
-    let mut yes = branch(&parent, &graph.values, condition, true);
-    let mut no = branch(&parent, &graph.values, condition, false);
-    let seven = yes.reduce(&mut graph.values, choice);
-    let eleven = no.reduce(&mut graph.values, choice);
+    let mut reducer = Reducer::default();
+    let parent = reducer.scope(ScalarFacts::default());
+    let yes = branch(&mut reducer, parent, &graph.values, condition, true);
+    let no = branch(&mut reducer, parent, &graph.values, condition, false);
+    let seven = reducer.reduce(&mut graph.values, yes, choice);
+    let eleven = reducer.reduce(&mut graph.values, no, choice);
     assert_eq!(graph.values[seven].scalar_literal(), Some(7));
     assert_eq!(graph.values[eleven].scalar_literal(), Some(11));
-    assert!(yes.recipes(seven).any(|recipe| recipe == choice));
-    assert!(!no.recipes(seven).any(|recipe| recipe == choice));
-    assert!(no.recipes(eleven).any(|recipe| recipe == choice));
-    assert_eq!(parent.reduce(&mut graph.values, choice), choice);
-    assert_eq!(yes.reduce(&mut graph.values, choice), seven);
-    assert_eq!(no.reduce(&mut graph.values, choice), eleven);
+    assert!(reducer.recipes(yes, seven).any(|recipe| recipe == choice));
+    assert!(!reducer.recipes(no, seven).any(|recipe| recipe == choice));
+    assert!(reducer.recipes(no, eleven).any(|recipe| recipe == choice));
+    assert_eq!(reducer.reduce(&mut graph.values, parent, choice), choice);
+    assert_eq!(reducer.reduce(&mut graph.values, yes, choice), seven);
+    assert_eq!(reducer.reduce(&mut graph.values, no, choice), eleven);
 }
 
 #[test]
@@ -192,9 +200,11 @@ fn refolding_changed_operands_preserves_wide_result_components() {
         }),
     });
     let high = graph.values.expression_result(product, 1);
-    let mut reducer = branch(&Reducer::default(), &graph.values, 0, true);
-    let high = reducer.reduce(&mut graph.values, high);
-    let low = reducer.reduce(&mut graph.values, product);
+    let mut reducer = Reducer::default();
+    let parent = reducer.scope(ScalarFacts::default());
+    let scope = branch(&mut reducer, parent, &graph.values, 0, true);
+    let high = reducer.reduce(&mut graph.values, scope, high);
+    let low = reducer.reduce(&mut graph.values, scope, product);
     let high = graph.values.expression(high).unwrap();
     let low = graph.values.expression(low).unwrap();
     assert_eq!((low.component, high.component), (0, 1));
@@ -228,11 +238,12 @@ fn equal_logical_choices_keep_distinct_physical_carriers() {
         }),
     });
     let mut reducer = Reducer::default();
-    let result = reducer.reduce(&mut graph.values, carrier);
+    let scope = reducer.scope(ScalarFacts::default());
+    let result = reducer.reduce(&mut graph.values, scope, carrier);
     assert!(graph.values[result].scalar_literal().is_none());
     for (truth, expected) in [(true, 0x100), (false, 0x200)] {
-        let mut branch = branch(&reducer, &graph.values, condition, truth);
-        let result = branch.reduce(&mut graph.values, carrier);
+        let branch = branch(&mut reducer, scope, &graph.values, condition, truth);
+        let result = reducer.reduce(&mut graph.values, branch, carrier);
         assert_eq!(graph.values[result].scalar_literal(), Some(expected));
     }
 }
@@ -249,9 +260,11 @@ fn exact_carrier_constants_survive_specialization_and_fact_inference() {
             input: literal,
         }),
     });
-    let mut reducer = branch(&Reducer::default(), &graph.values, condition, true);
-    assert_eq!(reducer.reduce(&mut graph.values, literal), literal);
-    let result = reducer.reduce(&mut graph.values, view);
+    let mut reducer = Reducer::default();
+    let parent = reducer.scope(ScalarFacts::default());
+    let scope = branch(&mut reducer, parent, &graph.values, condition, true);
+    assert_eq!(reducer.reduce(&mut graph.values, scope, literal), literal);
+    let result = reducer.reduce(&mut graph.values, scope, view);
     assert!(matches!(graph.values[result].scalar_literal(), Some(256)));
 }
 
@@ -295,27 +308,26 @@ fn bitwise_absorption_cannot_discard_unknown_carrier_bits() {
             });
             // The low bytes alone would permit absorption. Both narrow views
             // still have unknown upper i32 bits, which the operation must keep.
-            let mut reducer = Reducer {
-                facts: ScalarFacts::default().with_assumptions(
-                    &graph.values,
-                    [
-                        Assumption::Bits {
-                            value: inputs[0],
-                            mask: 3,
-                            bits: 3,
-                        },
-                        Assumption::Bits {
-                            value: inputs[1],
-                            mask: 0xfc,
-                            bits: 0,
-                        },
-                    ],
-                ),
-                ..Reducer::default()
-            };
+            let facts = ScalarFacts::default().with_assumptions(
+                &graph.values,
+                [
+                    Assumption::Bits {
+                        value: inputs[0],
+                        mask: 3,
+                        bits: 3,
+                    },
+                    Assumption::Bits {
+                        value: inputs[1],
+                        mask: 0xfc,
+                        bits: 0,
+                    },
+                ],
+            );
+            let mut reducer = Reducer::default();
+            let scope = reducer.scope(facts);
             assert_eq!(graph.values.bounds[left].unsigned, 32);
             assert_eq!(graph.values.bounds[right].unsigned, 32);
-            assert_eq!(reducer.reduce(&mut graph.values, result), result);
+            assert_eq!(reducer.reduce(&mut graph.values, scope, result), result);
         }
     }
 }
@@ -367,9 +379,10 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
             right: update,
         }),
     });
-    let mut live = Reducer::default();
-    let mut branch = branch(&live, &graph.values, bit, true);
-    branch.facts = branch.facts.clone().with_assumptions(
+    let mut reducer = Reducer::default();
+    let live = reducer.scope(ScalarFacts::default());
+    let branch = branch(&mut reducer, live, &graph.values, bit, true);
+    let facts = reducer.facts(branch).clone().with_assumptions(
         &graph.values,
         [Assumption::Bits {
             value: inputs[1],
@@ -377,11 +390,16 @@ fn absorbed_operands_are_specialized_and_aliases_stay_on_the_proven_path() {
             bits: 1,
         }],
     );
-    let absorbed = branch.reduce(&mut graph.values, result);
+    let branch = reducer.scope(facts);
+    let absorbed = reducer.reduce(&mut graph.values, branch, result);
     assert_eq!(absorbed, inputs[1]);
-    assert!(branch.recipes(absorbed).any(|recipe| recipe == choice));
-    assert!(!live.recipes(absorbed).any(|recipe| recipe == choice));
-    let unproven = live.reduce(&mut graph.values, result);
+    assert!(reducer
+        .recipes(branch, absorbed)
+        .any(|recipe| recipe == choice));
+    assert!(!reducer
+        .recipes(live, absorbed)
+        .any(|recipe| recipe == choice));
+    let unproven = reducer.reduce(&mut graph.values, live, result);
     assert!(matches!(
         graph.values[unproven].definition,
         ValueDefinition::Expression(Expression::Binary {

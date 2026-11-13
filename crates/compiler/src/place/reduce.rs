@@ -8,12 +8,21 @@ use equivalences::Equivalences;
 #[cfg(test)]
 mod tests;
 
+/// One function's path scopes and reusable reduction worklist.
 #[derive(Default)]
 pub(super) struct Reducer {
+    scopes: Vec<Scope>,
+    pending: Vec<Work>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ScopeId(usize);
+
+#[derive(Default)]
+struct Scope {
     facts: ScalarFacts,
     residuals: FxHashMap<usize, usize>,
     equivalents: Equivalences,
-    pending: Vec<Work>,
 }
 
 enum Work {
@@ -24,34 +33,48 @@ enum Work {
 }
 
 impl Reducer {
-    pub(super) fn from_facts(facts: ScalarFacts) -> Self {
-        Self {
+    /// Publish a path's facts before its first reduction. Later queries keep them fixed.
+    pub(super) fn scope(&mut self, facts: ScalarFacts) -> ScopeId {
+        let id = ScopeId(self.scopes.len());
+        self.scopes.push(Scope {
             facts,
-            ..Self::default()
-        }
+            ..Scope::default()
+        });
+        id
     }
 
-    pub(super) fn recipes(&self, residual: usize) -> impl Iterator<Item = usize> + '_ {
-        std::iter::once(residual).chain(self.equivalents.recipes(residual).iter().copied())
+    pub(super) fn recipes(
+        &self,
+        scope: ScopeId,
+        residual: usize,
+    ) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(residual).chain(
+            self.scopes[scope.0]
+                .equivalents
+                .recipes(residual)
+                .iter()
+                .copied(),
+        )
     }
 
-    pub(super) fn facts(&self) -> &ScalarFacts {
-        &self.facts
+    pub(super) fn facts(&self, scope: ScopeId) -> &ScalarFacts {
+        &self.scopes[scope.0].facts
     }
 
     /// Reduce semantic recipes without consulting execution availability.
     /// Scheduling consumes the result only after all input folds are complete.
-    pub(super) fn reduce(&mut self, values: &mut ValueTable, root: usize) -> usize {
+    pub(super) fn reduce(&mut self, values: &mut ValueTable, scope: ScopeId, root: usize) -> usize {
+        let scope = &mut self.scopes[scope.0];
         self.pending.push(Work::Visit(root));
         while let Some(task) = self.pending.pop() {
             match task {
                 Work::Visit(id) => {
-                    if self.residuals.contains_key(&id) {
+                    if scope.residuals.contains_key(&id) {
                         continue;
                     }
-                    if let Some(result) = self.known_constant(values, id) {
-                        self.record(id, result);
-                    } else if let Some(input) = self.facts.bitwise_identity(values, id) {
+                    if let Some(result) = scope.known_constant(values, id) {
+                        scope.record(id, result);
+                    } else if let Some(input) = scope.facts.bitwise_identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
                     } else if let Some(result) = values.expression(id) {
@@ -72,11 +95,11 @@ impl Reducer {
                                 .extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        self.residuals.insert(id, id);
+                        scope.residuals.insert(id, id);
                     }
                 }
                 Work::Select(id, condition, when_true, when_false) => {
-                    let condition = self.residuals[&condition];
+                    let condition = scope.residuals[&condition];
                     if let Some(bits) = values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
                         self.pending.push(Work::Alias(id, input));
@@ -88,11 +111,11 @@ impl Reducer {
                     }
                 }
                 Work::Alias(id, input) => {
-                    self.record(id, self.residuals[&input]);
+                    scope.record(id, scope.residuals[&input]);
                 }
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
-                    let expression = original.expression.map(|v| self.residuals[v]);
+                    let expression = original.expression.map(|v| scope.residuals[v]);
                     // Construction already canonicalized unchanged expressions.
                     // Fold changed operands directly, without interning a temporary recipe.
                     let result = if expression == original.expression {
@@ -115,12 +138,12 @@ impl Reducer {
                     if result == id {
                         // Prove only a stable recipe. Alias/Visit below handles
                         // new or already memoized results without repeating proofs.
-                        let result = self
+                        let result = scope
                             .facts
                             .constant_across_selects(values, id)
                             .map(|bits| values.carrier_literal(crate::Type::I1, bits))
                             .unwrap_or(id);
-                        self.record(id, result);
+                        scope.record(id, result);
                     } else {
                         // Folding and lowering may introduce another recipe.
                         // Reduce it in this context before publishing a stable normal form.
@@ -130,9 +153,11 @@ impl Reducer {
                 }
             }
         }
-        self.residuals[&root]
+        scope.residuals[&root]
     }
+}
 
+impl Scope {
     fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
         let bits = self.facts.constant(values, value)?;
         let bits = values.carrier_bits(value, bits)?;
