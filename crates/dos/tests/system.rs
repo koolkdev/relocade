@@ -3,6 +3,38 @@ mod common;
 use common::{error, service, SERVICE_PROGRAM};
 use relocade_dos::ProcessStatus;
 use relocade_x86::{ExecutionExit, HostExit, Segment, SegmentRegister};
+use std::io::Write;
+
+#[test]
+fn psp_queries_preserve_caller_state_and_pending_control_c() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+        service(&mut dos, 0x3301, 0, 0, 1); // BREAK ON.
+        dos.stdin().write_all(&[3]).unwrap();
+        for ax in [0x51ab, 0x62cd] {
+            let state = dos.cpu().cpu_state();
+            state.set_ax(ax);
+            state.set_ebx(0x89ab_cdef);
+            state.set_ecx(0x1234_5678);
+            state.set_edx(0x2345_6789);
+            state.set_esi(0x3456_789a);
+            state.set_edi(0x4567_89ab);
+            state.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1234));
+            state.set_eflags(0x0a57);
+            let before = state.snapshot();
+            let after = service(&mut dos, ax, 0xcdef, 0x5678, 0x6789);
+            let mut registers = before.registers;
+            registers.ebx = 0x89ab_1000; // The launched PSP, independent of DS.
+            assert_eq!(after.registers, registers);
+            assert_eq!(after.segments, before.segments);
+            assert_eq!(after.flags.eflags(), 0x0a57);
+            assert_eq!(dos.process().unwrap().status(), ProcessStatus::Active);
+        }
+        assert_eq!(service(&mut dos, 0x0700, 0, 0, 0).registers.eax as u8, 3);
+        assert!(common::output(dos.stdout()).is_empty());
+    });
+}
 
 async fn check_system_services() {
     let mut dos = common::dos().await;
