@@ -37,6 +37,7 @@ mod interpreter;
 mod memory;
 mod processor;
 mod profile;
+mod profiling;
 pub mod real_mode;
 mod register;
 mod runtime;
@@ -71,6 +72,7 @@ pub use interpreter::build_interpreter;
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget};
+pub use profiling::{CallCount, CallProfile};
 pub use register::Gpr32;
 pub use segment::{
     Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
