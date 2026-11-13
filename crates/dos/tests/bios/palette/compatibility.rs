@@ -1,4 +1,5 @@
-use super::{common, video, PROGRAM};
+use super::{PROGRAM, common, video};
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]
 fn legacy_color_calls_program_vga_attributes_and_preserve_memory_and_port_selection() {
@@ -32,7 +33,11 @@ fn legacy_color_calls_program_vga_attributes_and_preserve_memory_and_port_select
             expected.attribute.values[0x11] = overscan;
             assert_eq!(after_registers, expected);
             for plane in 0..4 {
-                assert_eq!(before.plane(plane), after.plane(plane));
+                assert!(
+                    before
+                        .plane_bytes(plane, 0..65536)
+                        .eq(after.plane_bytes(plane, 0..65536))
+                );
             }
         }
 

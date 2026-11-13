@@ -1,4 +1,5 @@
-use super::{common, run, Gpu};
+use super::{Gpu, common, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
 
 #[test]
 fn guest_unchains_vram_and_flips_pages_without_rewriting_pixels() {
@@ -30,9 +31,7 @@ fn guest_unchains_vram_and_flips_pages_without_rewriting_pixels() {
             ],
         )
         .await;
-        for plane in 0..4 {
-            assert!(std::ptr::eq(first.plane(plane), second.plane(plane)));
-        }
+        assert_vga_memory_eq(&first, &second);
         drop(dos);
         for (capture, colors) in [
             (
@@ -56,11 +55,13 @@ fn guest_unchains_vram_and_flips_pages_without_rewriting_pixels() {
         ] {
             let pixels = gpu.render(capture, [320, 200]).await;
             assert_eq!(&pixels[..16], colors.as_flattened());
-            assert!(pixels[16..]
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|p| *p == [0, 0, 0, 255]));
+            assert!(
+                pixels[16..]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| *p == [0, 0, 0, 255])
+            );
         }
     });
 }

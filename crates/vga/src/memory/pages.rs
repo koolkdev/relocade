@@ -30,6 +30,15 @@ impl DirtyPages {
         self.0[block] = u64::MAX;
     }
 
+    pub fn mark_range(&mut self, address: usize, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        for page in address / PAGE_BYTES..=(address + bytes - 1) / PAGE_BYTES {
+            self.0[page / 64] |= 1 << (page % 64);
+        }
+    }
+
     pub fn contains_block(&self, block: usize) -> bool {
         self.0[block] != 0
     }

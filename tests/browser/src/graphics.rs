@@ -1,17 +1,18 @@
+use crate::vga_support::planes::SnapshotPlanes;
 pub(crate) mod gpu;
 mod guest;
 pub(crate) mod target;
 
 use crate::software::{self, SoftwareFrame};
 use futures_channel::{mpsc, oneshot};
-use futures_util::{future::join, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, future::join};
 use relocade_machine::{
     timer_service,
     worker::{Receiver, Thread},
 };
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use target::Target;
 
@@ -54,7 +55,7 @@ pub async fn graphics_workers() -> Result<(), String> {
                 let capture = if cached.is_none() {
                     loop {
                         let capture = worker_source.recv().await.unwrap();
-                        if capture.plane(0)[0] == 0xdb {
+                        if capture.plane_byte(0, 0) == 0xdb {
                             break Some(capture);
                         }
                     }

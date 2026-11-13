@@ -1,4 +1,5 @@
-use super::{common, run, Gpu};
+use super::{Gpu, common, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
 
 #[test]
 fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
@@ -35,9 +36,7 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
                 0xc3, // DAC color becomes green.
             ]);
             let recolored = run(&mut dos, &program).await;
-            for plane in 0..4 {
-                assert!(std::ptr::eq(original.plane(plane), recolored.plane(plane)));
-            }
+            assert_vga_memory_eq(&original, &recolored);
             assert_eq!(&gpu.render(&recolored, size).await[..4], &[0, 255, 0, 255]);
             let masked = run(
                 &mut dos,
@@ -50,11 +49,12 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
             )
             .await;
             let blue = gpu.render(&masked, size).await;
-            assert!(blue
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|pixel| *pixel == [0, 0, 255, 255]));
+            assert!(
+                blue.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [0, 0, 255, 255])
+            );
             assert_eq!(gpu.render(&original, size).await, red);
         }
     });

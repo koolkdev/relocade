@@ -1,4 +1,5 @@
-use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
+use super::{Gpu, TEXT_WITH_RED_BLOCK, common, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
 
 #[test]
 fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures() {
@@ -44,9 +45,7 @@ fn guest_mode_13h_pixels_palette_and_text_return_render_from_retained_captures()
             ],
         )
         .await;
-        for plane in 0..4 {
-            assert!(std::ptr::eq(graphics.plane(plane), recolored.plane(plane)));
-        }
+        assert_vga_memory_eq(&graphics, &recolored);
         let green = gpu.render(&recolored, [320, 200]).await;
         assert_eq!(&green[..4], &[0, 255, 0, 255]);
         assert_eq!(&green[4..8], &[85, 85, 255, 255]);

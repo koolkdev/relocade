@@ -1,7 +1,8 @@
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{
     common,
     information::information,
-    video::{video, PROGRAM},
+    video::{PROGRAM, video},
 };
 use relocade_x86::{Segment, SegmentRegister};
 
@@ -47,7 +48,11 @@ fn palette_controls_change_only_bios_policy_and_report_invalid_selections() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
     });
 }

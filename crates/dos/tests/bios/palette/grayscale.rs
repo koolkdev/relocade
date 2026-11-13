@@ -1,6 +1,7 @@
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{
     common,
-    video::{video, PROGRAM},
+    video::{PROGRAM, video},
 };
 
 #[test]
@@ -58,7 +59,11 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
         registers.dac = before_registers.dac.clone();
         assert_eq!(registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
         // Retained captures keep the original colors after the port writes.
         assert_eq!(before.dac.colors[252], [63, 0, 0]);

@@ -1,4 +1,5 @@
-use super::{common, planar16::COLORS, run, Gpu, TEXT_WITH_RED_BLOCK};
+use super::{Gpu, TEXT_WITH_RED_BLOCK, common, planar16::COLORS, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
 
 fn colors(runs: &[(u8, usize)]) -> Vec<u8> {
     runs.iter()
@@ -103,9 +104,7 @@ fn guest_pans_chained_serializers_across_a_split() {
             ],
         )
         .await;
-        for plane in 0..4 {
-            assert!(std::ptr::eq(reset_pan.plane(plane), keep_pan.plane(plane)));
-        }
+        assert_vga_memory_eq(&reset_pan, &keep_pan);
         let expected_keep = [
             upper,
             colors(&[
@@ -180,11 +179,13 @@ fn guest_combines_shift_load_with_chain_four_then_restores_bios_modes() {
             assert_eq!(registers.crtc.values[0x17] & 8, 0);
             let image = gpu.render(&capture, size).await;
             assert_eq!(&image[..white_pixels * 4], &[255; 4].repeat(white_pixels));
-            assert!(image[white_pixels * 4..]
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|p| *p == [0, 0, 0, 255]));
+            assert!(
+                image[white_pixels * 4..]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| *p == [0, 0, 0, 255])
+            );
         }
         let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
         drop(dos);

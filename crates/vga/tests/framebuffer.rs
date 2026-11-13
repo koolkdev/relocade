@@ -1,4 +1,5 @@
 use support::fixture::ConnectedVga;
+use support::planes::SnapshotPlanes;
 mod support;
 
 use relocade_clock_test_support::ManualClock;
@@ -54,15 +55,15 @@ fn planar_drawing_preserves_cpu_access_state_neighbors_and_retained_captures() {
     };
     assert_eq!(vga.device.borrow().core_state(), core);
     for (plane, expected) in [0x5a, 0x2c, 0xe5, 0x83].into_iter().enumerate() {
-        assert_eq!(vga.snapshot().plane(plane)[address as usize], expected);
-        assert_eq!(before.plane(plane)[address as usize], originals[plane]);
+        assert_eq!(vga.snapshot().plane_byte(plane, address as usize), expected);
+        assert_eq!(before.plane_byte(plane, address as usize), originals[plane]);
     }
     vga.device
         .borrow_mut()
         .framebuffer()
         .write_pixel(&pixel, pixel.value());
     for (plane, expected) in originals.into_iter().enumerate() {
-        assert_eq!(vga.snapshot().plane(plane)[address as usize], expected);
+        assert_eq!(vga.snapshot().plane_byte(plane, address as usize), expected);
     }
     assert_eq!(vga.device.borrow().core_state(), core);
 }
@@ -130,14 +131,14 @@ fn mode_x_uses_programmed_geometry_stride_and_page_but_keeps_restore_locations()
         pixel
     };
     assert_eq!(vga.snapshot().vga().unwrap().display_start, 0);
-    assert_eq!(vga.snapshot().plane(3)[0x4000 + 200 * 96 + 1], 0xa9);
+    assert_eq!(vga.snapshot().plane_byte(3, 0x4000 + 200 * 96 + 1), 0xa9);
     indexed(&vga.io, 0x3d4, 12, 0x50);
     vga.device
         .borrow_mut()
         .framebuffer()
         .write_pixel(&pixel, pixel.value());
-    assert_eq!(vga.snapshot().plane(3)[0x4000 + 200 * 96 + 1], 0x56);
-    assert_eq!(vga.snapshot().plane(3)[0x5000 + 200 * 96 + 1], 0);
+    assert_eq!(vga.snapshot().plane_byte(3, 0x4000 + 200 * 96 + 1), 0x56);
+    assert_eq!(vga.snapshot().plane_byte(3, 0x5000 + 200 * 96 + 1), 0);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -279,9 +280,9 @@ fn serializer_rotation_is_inverted_for_native_planar_and_indexed_writes() {
     let snapshot = vga.snapshot();
     assert_eq!(
         [
-            snapshot.plane(0)[0],
-            snapshot.plane(1)[0],
-            snapshot.plane(2)[0]
+            snapshot.plane_byte(0, 0),
+            snapshot.plane_byte(1, 0),
+            snapshot.plane_byte(2, 0)
         ],
         [0, 0x80, 0x80]
     );
@@ -302,8 +303,8 @@ fn serializer_rotation_is_inverted_for_native_planar_and_indexed_writes() {
         .borrow_mut()
         .framebuffer()
         .write_pixel(&pixel, pixel.value());
-    assert_eq!(vga.snapshot().plane(0)[0], 0x80);
-    assert_eq!(vga.snapshot().plane(1)[0], 0);
+    assert_eq!(vga.snapshot().plane_byte(0, 0), 0x80);
+    assert_eq!(vga.snapshot().plane_byte(1, 0), 0);
 
     indexed256::program(&vga.io);
     vga.io.write_mmio(0xa0000, 1, 0xa5);

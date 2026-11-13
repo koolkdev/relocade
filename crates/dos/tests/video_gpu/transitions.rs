@@ -1,4 +1,5 @@
-use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
+use super::{Gpu, TEXT_WITH_RED_BLOCK, common, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
 
 fn assert_white_prefix(image: &[u8], count: usize) {
     for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
@@ -51,10 +52,8 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
         assert_white_prefix(&gpu.render(&blanked, [320, 400]).await, 0);
         let restored = run(&mut dos, &[0xba, 0xc4, 3, 0xb8, 1, 1, 0xef, 0xc3]).await;
         assert_white_prefix(&gpu.render(&restored, [320, 400]).await, 1);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(scrolled.plane(plane), blanked.plane(plane)));
-            assert!(std::ptr::eq(scrolled.plane(plane), restored.plane(plane)));
-        }
+        assert_vga_memory_eq(&scrolled, &blanked);
+        assert_vga_memory_eq(&scrolled, &restored);
 
         let mut retained = Vec::new();
         for (mode, size) in [(0x12, [640, 480]), (0x0d, [320, 200])] {

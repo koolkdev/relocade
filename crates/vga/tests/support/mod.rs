@@ -4,6 +4,7 @@ pub mod fixture;
 pub mod indexed256;
 pub mod inspection;
 pub mod planar16;
+pub mod planes;
 pub mod registers;
 pub mod software;
 pub mod svga;

@@ -1,3 +1,4 @@
+use crate::common::vga_support::planes::SnapshotPlanes;
 mod common;
 
 use relocade_x86::ExecutionExit;
@@ -79,7 +80,7 @@ fn bios_leaves_svga_only_for_a_valid_legacy_mode_request() {
                 assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0741);
                 let display = dos.vga().borrow().snapshot();
                 assert_eq!(display.geometry().size, [720, 400]);
-                assert_eq!(display.plane(2)[65 * 32 + 2], 0x38);
+                assert_eq!(display.plane_byte(2, 65 * 32 + 2), 0x38);
             } else {
                 assert_eq!(context.memory.read_u16(0xafffe).unwrap(), 0xbeef);
                 assert_eq!(context.cpu.snapshot().flags.eflags() & 1, 1);

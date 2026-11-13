@@ -1,4 +1,6 @@
-use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
+use super::{Gpu, TEXT_WITH_RED_BLOCK, common, run};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 fn assert_two_color(image: &[u8], foreground: [u8; 4]) {
     for (index, pixel) in image.as_chunks::<4>().0.iter().enumerate() {
@@ -38,7 +40,11 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
         assert_two_color(&white, [255, 255, 255, 255]);
         let preserved = run(&mut dos, &[0xb8, 0x91, 0, 0xcd, 0x10, 0xc3]).await;
         for plane in 0..4 {
-            assert_eq!(preserved.plane(plane), original.plane(plane));
+            assert!(
+                preserved
+                    .plane_bytes(plane, 0..65536)
+                    .eq(original.plane_bytes(plane, 0..65536))
+            );
         }
         assert_two_color(
             &gpu.render(&preserved, [640, 480]).await,
@@ -106,9 +112,7 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
                 break capture;
             }
         };
-        for plane in 0..4 {
-            assert!(std::ptr::eq(first.plane(plane), opposite.plane(plane)));
-        }
+        assert_vga_memory_eq(&first, &opposite);
         assert_monochrome_pattern(
             &gpu.render(&opposite, [640, 350]).await,
             opposite.vga().unwrap().attribute_blink_on,

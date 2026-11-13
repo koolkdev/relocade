@@ -5,8 +5,13 @@ fn packed_byte(packed: u32, index: u32) -> u32 {
     return (packed >> ((index & 3u) * 8u)) & 255u;
 }
 
-fn vram_byte(block: u32, address: u32) -> u32 {
-    return packed_byte(memory[block * 16384u + (address & 0xffffu) / 4u], address);
+fn physical_byte(address: u32) -> u32 {
+    return packed_byte(memory[address / 4u], address);
+}
+
+fn vga_byte(plane: u32, address: u32) -> u32 {
+    // Each word contains the four planes at one VGA plane offset.
+    return packed_byte(memory[address & 0xffffu], plane);
 }
 
 fn fullscreen_position(index: u32) -> vec4<f32> {

@@ -1,6 +1,7 @@
 use super::{
-    common, information, install, video, FarPointer, PARAMETERS, PRIMARY, PROGRAM, SECONDARY,
+    FarPointer, PARAMETERS, PRIMARY, PROGRAM, SECONDARY, common, information, install, video,
 };
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]
 fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
@@ -44,10 +45,19 @@ fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
         }
         video(&mut dos, 3, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
-        assert_eq!(&display.plane(2)[0x6820..0x682a], &glyph);
-        assert_eq!(&display.plane(2)[0x682a..0x6840], &[0; 22]);
+        assert_eq!(
+            &display.plane_bytes(2, 0x6820..0x682a).collect::<Vec<_>>(),
+            &glyph
+        );
+        assert_eq!(
+            &display.plane_bytes(2, 0x682a..0x6840).collect::<Vec<_>>(),
+            &[0; 22]
+        );
         assert_eq!(display.vga().unwrap().sequencer[3], 0x13); // Loading bank 5 did not select it.
-        assert_eq!(&display.plane(2)[0xa820..0xa82a], &[0; 10]);
+        assert_eq!(
+            &display.plane_bytes(2, 0xa820..0xa82a).collect::<Vec<_>>(),
+            &[0; 10]
+        );
         assert_eq!(display.vga().unwrap().crtc.values[9], 0x49);
         {
             let mut context = dos.cpu().context();
@@ -61,8 +71,14 @@ fn text_overrides_apply_ranges_geometry_and_the_matching_alternate_bank() {
         video(&mut dos, 3, 0, 0, 0);
         let display = dos.vga().borrow().snapshot();
         assert_eq!(display.vga().unwrap().sequencer[3], 0x3b); // Alternate A=6, normal B=7.
-        assert_eq!(&display.plane(2)[0xa820..0xa82a], &[65; 10]);
-        assert_eq!(&display.plane(2)[0xbfe0..0xbfea], &[255; 10]);
+        assert_eq!(
+            &display.plane_bytes(2, 0xa820..0xa82a).collect::<Vec<_>>(),
+            &[65; 10]
+        );
+        assert_eq!(
+            &display.plane_bytes(2, 0xbfe0..0xbfea).collect::<Vec<_>>(),
+            &[255; 10]
+        );
         assert_eq!(dos.cpu().context().memory.read_u8(0x484).unwrap(), 39);
         assert_eq!(information(&mut dos, 0x4000, 0x200, 0)[0x32], 5);
         video(&mut dos, 1, 0, 0, 0); // Neither mode list includes mode 1.
@@ -105,7 +121,11 @@ fn graphics_override_changes_the_live_font_vector_without_uploading_font_memory(
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
         assert_eq!(
             dos.cpu().context().memory.read_u32(0x10c).unwrap(),
@@ -160,7 +180,14 @@ fn invalid_or_unterminated_font_overrides_leave_the_mode_defaults() {
                 .unwrap();
         }
         video(&mut dos, 3, 0, 0, 0);
-        assert_eq!(dos.vga().borrow().snapshot().plane(2), before.plane(2));
+        assert_eq!(
+            dos.vga()
+                .borrow()
+                .snapshot()
+                .plane_bytes(2, 0..65536)
+                .collect::<Vec<_>>(),
+            before.plane_bytes(2, 0..65536).collect::<Vec<_>>()
+        );
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         dos.cpu()
             .context()

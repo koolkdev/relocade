@@ -1,15 +1,16 @@
 use super::{guest, request, target::read_first_pixel};
+use crate::vga_support::planes::SnapshotPlanes;
 use futures_channel::{mpsc, oneshot};
 use futures_util::{
-    future::{join, select, Either},
     FutureExt, StreamExt,
+    future::{Either, join, select},
 };
 use relocade_machine::{timer_service, worker::Thread};
-use relocade_renderer::{fit_image, Image, Rect, Renderer};
+use relocade_renderer::{Image, Rect, Renderer, fit_image};
 use relocade_vga::VgaRenderer;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 struct Report {
@@ -65,7 +66,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                 };
                 let size = match select(Box::pin(next), incoming.next()).await {
                     Either::Left((Some(capture), _)) => {
-                        if capture.plane(0)[0] != 0xdb {
+                        if capture.plane_byte(0, 0) != 0xdb {
                             continue;
                         }
                         needs_decode |= vga_renderer.upload(&queue, &capture);

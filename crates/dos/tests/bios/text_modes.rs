@@ -1,6 +1,7 @@
 //! BIOS color text modes program the hardware and the firmware geometry together.
-use super::video::{video, PROGRAM};
+use super::video::{PROGRAM, video};
 use crate::common;
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]
 fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choices() {
@@ -11,8 +12,12 @@ fn startup_uses_the_400_line_color_profile_without_overriding_later_guest_choice
         assert_eq!(initial.vga().unwrap().geometry().scanline_step, 1);
         assert_eq!(initial.geometry().pixel_aspect_ratio(), (20, 27));
         assert_eq!(
-            &initial.plane(2)[65 * 32..65 * 32 + 16],
-            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
+            &initial
+                .plane_bytes(2, 65 * 32..65 * 32 + 16)
+                .collect::<Vec<_>>(),
+            &[
+                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
+            ]
         );
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         assert_eq!(

@@ -1,6 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+#[path = "../../../crates/vga/tests/support/planes.rs"]
+mod planes;
 use futures_lite::future::or;
+use planes::SnapshotPlanes;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
 use std::{io::Read, time::Duration};
@@ -70,7 +73,12 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         let inspect = async {
             for _ in 0..1000 {
                 // Startup text addressing retains even physical plane addresses.
-                if video.borrow().snapshot().plane(0)[(prompt_row + 5) * 80 * 2] == b'>' {
+                if video
+                    .borrow()
+                    .snapshot()
+                    .plane_byte(0, (prompt_row + 5) * 80 * 2)
+                    == b'>'
+                {
                     return;
                 }
                 clock.sleep(Duration::from_millis(1)).await;
@@ -96,10 +104,9 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         {
             let start = (prompt_row + row) * 80 * 2;
             assert_eq!(
-                screen.plane(0)[start..start + text.len() * 2]
-                    .iter()
+                screen
+                    .plane_bytes(0, start..start + text.len() * 2)
                     .step_by(2)
-                    .copied()
                     .collect::<Vec<_>>(),
                 text
             );

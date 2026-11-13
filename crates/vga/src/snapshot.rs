@@ -2,7 +2,7 @@
 //! port access, so it leaves read latches and register access phases untouched.
 #[cfg(feature = "renderer")]
 use crate::memory::DirtyPages;
-use crate::{memory::MemorySnapshot, DisplayGeometry, Scanout, VgaDisplayState};
+use crate::{DisplayGeometry, Scanout, VgaDisplayState, memory::MemorySnapshot};
 
 /// Shared indexed-color display inputs, without CPU palette-transfer position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,14 +84,8 @@ impl DisplaySnapshot {
         }
     }
 
-    /// A physical packed-address byte, or None outside the captured memory extent.
+    /// A physical VRAM byte, or None outside the captured memory extent.
     pub fn vram_byte(&self, address: u32) -> Option<u8> {
         self.memory.read(address)
-    }
-
-    /// One complete 64-KiB physical plane, including bytes outside the display.
-    /// Panics when `plane` is outside 0–3.
-    pub fn plane(&self, plane: usize) -> &[u8] {
-        &self.memory.blocks[..4][plane]
     }
 }

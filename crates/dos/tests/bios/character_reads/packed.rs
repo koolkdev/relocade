@@ -1,7 +1,8 @@
-use super::{read_character, GLYPH};
+use super::{GLYPH, read_character};
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{
     common,
-    video::{video, PROGRAM},
+    video::{PROGRAM, video},
 };
 use relocade_bios::video::{self as bios, CharacterCell};
 
@@ -74,7 +75,11 @@ fn packed_reads_recognize_direct_pixels_and_preserve_display_state() {
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert_eq!(after.plane(plane), before.plane(plane));
+                assert!(
+                    after
+                        .plane_bytes(plane, 0..65536)
+                        .eq(before.plane_bytes(plane, 0..65536))
+                );
             }
         }
     });
@@ -156,7 +161,11 @@ fn packed_read_restores_access_before_matching_a_font_in_vram() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
     });
 }
@@ -189,7 +198,11 @@ fn packed_blank_cells_use_the_font_and_invalid_pages_leave_state_alone() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
     });
 }

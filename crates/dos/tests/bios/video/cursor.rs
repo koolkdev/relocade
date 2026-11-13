@@ -1,4 +1,5 @@
-use super::{video, PROGRAM};
+use super::{PROGRAM, video};
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{common, information::information};
 use relocade_dos::Dos;
 
@@ -42,7 +43,11 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert_eq!(after.plane(plane), before.plane(plane));
+                assert!(
+                    after
+                        .plane_bytes(plane, 0..65536)
+                        .eq(before.plane_bytes(plane, 0..65536))
+                );
             }
             assert_eq!(
                 information(&mut dos, 0x5000, 0x200, 0)[0x2d] & 0x10,

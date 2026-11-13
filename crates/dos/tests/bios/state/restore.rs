@@ -1,7 +1,8 @@
 use super::{buffer, state};
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{
     common,
-    video::{video, PROGRAM},
+    video::{PROGRAM, video},
 };
 
 #[test]
@@ -37,10 +38,15 @@ fn full_restore_returns_to_programmed_text_after_a_graphics_mode_with_a_wrapped_
         assert_eq!(dos.vga().borrow().registers().clone(), saved_registers);
         assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
         for plane in 0..4 {
-            assert_eq!(restored.plane(plane), saved.plane(plane));
-            assert_eq!(
-                &original.plane(plane)[..0xffff],
-                &saved.plane(plane)[..0xffff]
+            assert!(
+                restored
+                    .plane_bytes(plane, 0..65536)
+                    .eq(saved.plane_bytes(plane, 0..65536))
+            );
+            assert!(
+                original
+                    .plane_bytes(plane, 0..0xffff)
+                    .eq(saved.plane_bytes(plane, 0..0xffff))
             );
         }
         assert_eq!(graphics.geometry().size, [320, 200]); // Retained capture.
@@ -93,9 +99,10 @@ fn hardware_restore_unlocks_monochrome_timing_and_reloads_latches_from_hostile_a
         assert_eq!(restored_registers, expected);
         assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
         for plane in 0..4 {
-            assert_eq!(
-                &restored.plane(plane)[..0xffff],
-                &current.plane(plane)[..0xffff]
+            assert!(
+                restored
+                    .plane_bytes(plane, 0..0xffff)
+                    .eq(current.plane_bytes(plane, 0..0xffff))
             );
         }
         {
@@ -107,7 +114,7 @@ fn hardware_restore_unlocks_monochrome_timing_and_reloads_latches_from_hostile_a
         }
         let after_write = dos.vga().borrow().snapshot();
         for (plane, byte) in [0x96, 0x3c, 0xa5, 0x69].into_iter().enumerate() {
-            assert_eq!(after_write.plane(plane)[0x20], byte);
+            assert_eq!(after_write.plane_byte(plane, 0x20), byte);
         }
     });
 }
@@ -155,7 +162,11 @@ fn firmware_subset_restores_metadata_vectors_and_only_video_equipment_bits() {
         let restored_registers = dos.vga().borrow().registers().clone();
         assert_eq!(restored_registers, current_registers);
         for plane in 0..4 {
-            assert_eq!(restored.plane(plane), current.plane(plane));
+            assert!(
+                restored
+                    .plane_bytes(plane, 0..65536)
+                    .eq(current.plane_bytes(plane, 0..65536))
+            );
         }
     });
 }
@@ -190,7 +201,11 @@ fn dac_subset_restores_raw_colors_and_transfer_position_on_the_live_port_bank() 
             assert_eq!(restored.dac.colors[usize::from(index)], [7, 21, 49]);
             assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
             for plane in 0..4 {
-                assert_eq!(restored.plane(plane), current.plane(plane));
+                assert!(
+                    restored
+                        .plane_bytes(plane, 0..65536)
+                        .eq(current.plane_bytes(plane, 0..65536))
+                );
             }
             let context = dos.cpu().context();
             assert_eq!(context.io.read_port(0x3c7, 1) & 1, mode);
