@@ -492,8 +492,10 @@ with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Callable dispatch imports `executionEntries` and the `executionFunctions`
 function table, plus `callProfile` for unresolved calls. Interpreters import
-`resolveCall` and `executionFunctions` to resolve a completed near call once,
-record a miss, and enter its destination after checking execution controls.
+`resolveCall` and `executionFunctions` to resolve a completed near call or Real16
+far call once, record a miss, and enter its destination after checking execution
+controls. Far calls publish their new CS:IP before lookup and recording.
+Protected-mode far calls retain ordinary dispatch across CS context changes.
 The runtime checks profiling pressure at each return from guest execution and
 collects full batches before resuming. `CallProfile::requires_drain` also detects
 pressure when a checkpoint or single-step exit took precedence over

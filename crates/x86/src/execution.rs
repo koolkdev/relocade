@@ -54,7 +54,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
-    near_call: bool,
+    call_dispatch: bool,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -83,7 +83,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             single_step: false.into(),
             eip,
             completed: 0,
-            near_call: false,
+            call_dispatch: false,
             can_fallback: false,
             observed_cpu: None,
         })
@@ -338,7 +338,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     /// Ends a block, checks execution controls and dispatches its successor.
     pub(super) fn dispatch(mut self) -> Result<(), BuildError> {
         let runtime = self.runtime;
-        if self.near_call {
+        if self.call_dispatch {
             self.state
                 .publish(&mut self.body, &self.eip, self.completed)?;
             // Call effects have succeeded. Record before any checkpoint can lose

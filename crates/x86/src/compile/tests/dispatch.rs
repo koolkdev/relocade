@@ -11,6 +11,21 @@ use relocade_compiler::{
 };
 use relocade_test_support::Module;
 
+#[test]
+fn far_call_dispatch_respects_execution_profile() {
+    for profile in [ExecutionProfile::Real16, SegmentProfile::Segmented16.into()] {
+        let block = Compiler::new(profile)
+            .compile_block(0x100, &[0x9a, 0, 2, 0x10, 0], 1)
+            .unwrap();
+        let module = Module::new(&block.bytes);
+        let resolves_call = module
+            .wasmtime()
+            .imports()
+            .any(|import| import.module() == "relocade" && import.name() == "resolveCall");
+        assert_eq!(resolves_call, profile == ExecutionProfile::Real16);
+    }
+}
+
 struct Invocation {
     cpu: Vec<u8>,
     entries: Vec<u8>,

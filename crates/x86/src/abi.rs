@@ -33,7 +33,8 @@ pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
 pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "dispatch");
-/// Resolves a completed near call once and records an unresolved callee.
+/// Resolves a completed call once and records an unresolved callee.
+/// Published CPU state must remain compatible with the dispatcher's profile.
 /// Returns the callable slot and whether recording can continue without draining.
 pub const RESOLVE_CALL: Function<fn() -> (u32, bool)> = Function::new("relocade", "resolveCall");
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");

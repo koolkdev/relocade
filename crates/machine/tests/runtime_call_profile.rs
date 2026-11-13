@@ -2,8 +2,8 @@ mod support;
 
 use relocade_machine::{Cpu, DispatchEntry, FarPointer, Hook};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    Compiler, CpuState, ExecutionExit, ExecutionProfile, FunctionLimits, HostExit, PhysicalMapping,
+    PhysicalMemoryMap, Segment,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -102,6 +102,104 @@ async fn calls() {
     }
 }
 
+async fn far_calls() {
+    let first = FarPointer {
+        segment: 0x10,
+        offset: 0x200,
+    };
+    let second = FarPointer {
+        segment: 0x20,
+        offset: 0x210,
+    };
+    let installed = FarPointer {
+        segment: 0x20,
+        offset: 0x300,
+    };
+    let hooked = FarPointer {
+        segment: 0x30,
+        offset: 0x400,
+    };
+    for compiled_caller in [false, true] {
+        let mut cpu = cpu().await;
+        cpu.cpu_state().set_sp(0x800);
+        let caller = [
+            0x9a, 0, 2, 0x10, 0, // CALL FAR 0010:0200
+            0x66, 0xff, 0x1e, 0, 4, // CALL FAR dword [0400]
+            0x9a, 0, 3, 0x20, 0, // CALL FAR 0020:0300 (installed)
+            0x9a, 0, 4, 0x30, 0, // CALL FAR 0030:0400 (host hook)
+            0xc3,
+        ];
+        let memory = cpu.memory();
+        memory.view().write(0x100, &caller).unwrap();
+        memory.view().write(0x300, &[0x40, 0xcb]).unwrap(); // INC AX; RETF
+        memory
+            .view()
+            .write(0x400, &[0x10, 2, 0, 0, 0x20, 0])
+            .unwrap();
+        memory.view().write(0x410, &[0x42, 0x66, 0xcb]).unwrap(); // INC DX; RETFD
+        memory.view().write(0x500, &[0x43, 0xcb]).unwrap(); // INC BX; RETF
+        let exit = cpu.exit_handle();
+        cpu.install([Hook::host(0x700, async move || exit.request())])
+            .await
+            .unwrap();
+        let compiler = Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(true);
+        let callee = compiler.compile_block(0x300, &[0x43, 0xcb], 2).unwrap();
+        cpu.install_module(
+            &callee.bytes,
+            &[DispatchEntry {
+                address: 0x500,
+                export: &callee.entry,
+            }],
+        )
+        .await
+        .unwrap();
+        if compiled_caller {
+            let function = compiler
+                .compile_function(0x100, FunctionLimits::default(), |eip, output| {
+                    let Some(bytes) = caller.get(eip.wrapping_sub(0x100) as usize..) else {
+                        return 0;
+                    };
+                    let len = bytes.len().min(output.len());
+                    output[..len].copy_from_slice(&bytes[..len]);
+                    len
+                })
+                .unwrap();
+            let entries: Vec<_> = function
+                .entries
+                .iter()
+                .map(|block| DispatchEntry {
+                    address: block.start_eip,
+                    export: &block.export,
+                })
+                .collect();
+            cpu.install_module(&function.bytes, &entries).await.unwrap();
+        }
+        // The completed call is visible even when its checkpoint returns first.
+        cpu.instruction_target().set(Some(1));
+        assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
+        assert_eq!(cpu.cpu_state().segment(Segment::Cs).selector, first.segment);
+        assert_eq!(cpu.cpu_state().eip(), u32::from(first.offset));
+        assert_eq!(cpu.cpu_state().sp(), 0x7fc);
+        assert_eq!(cpu.call_count(first), 1);
+        assert_eq!(cpu.call_count(target(first.offset)), 0);
+        cpu.instruction_target().set(None);
+        assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(cpu.call_count(first), 1);
+        assert_eq!(cpu.call_count(second), 1);
+        assert_eq!(cpu.call_count(installed), 0);
+        assert_eq!(cpu.call_count(hooked), 0);
+        assert_eq!(
+            (
+                cpu.cpu_state().ax(),
+                cpu.cpu_state().dx(),
+                cpu.cpu_state().bx()
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(cpu.cpu_state().sp(), 0x7fc);
+    }
+}
+
 async fn overflow() {
     let mut cpu = cpu().await;
     cpu.cpu_state().set_sp(0x800);
@@ -138,18 +236,34 @@ async fn overflow() {
 }
 
 async fn failed_and_stepped_calls() {
-    let mut cpu = cpu().await;
-    cpu.memory().view().write(0x100, &[0xe8, 0xfd, 0]).unwrap();
-    // A wrapping push crosses the real-mode SS limit and does not complete CALL.
-    cpu.cpu_state().set_sp(1);
-    assert!(matches!(cpu.step(), ExecutionExit::Exception(_)));
-    assert_eq!(cpu.call_count(target(0x200)), 0);
-    assert_eq!(cpu.cpu_state().eip(), 0x100);
-    cpu.cpu_state().set_sp(0x800);
-    cpu.interrupt_handle().request();
-    assert_eq!(cpu.step(), ExecutionExit::Interrupted);
-    assert_eq!(cpu.call_count(target(0x200)), 1);
-    assert_eq!(cpu.cpu_state().eip(), 0x200);
+    for (code, destination) in [
+        (&[0xe8, 0xfd, 0][..], target(0x200)),
+        (
+            &[0x9a, 0, 2, 0x10, 0],
+            FarPointer {
+                segment: 0x10,
+                offset: 0x200,
+            },
+        ),
+    ] {
+        let mut cpu = cpu().await;
+        cpu.memory().view().write(0x100, code).unwrap();
+        // A wrapping push crosses the real-mode SS limit and does not complete CALL.
+        cpu.cpu_state().set_sp(1);
+        assert!(matches!(cpu.step(), ExecutionExit::Exception(_)));
+        assert_eq!(cpu.call_count(destination), 0);
+        assert_eq!(cpu.cpu_state().eip(), 0x100);
+        assert_eq!(cpu.cpu_state().segment(Segment::Cs).selector, 0);
+        cpu.cpu_state().set_sp(0x800);
+        cpu.interrupt_handle().request();
+        assert_eq!(cpu.step(), ExecutionExit::Interrupted);
+        assert_eq!(cpu.call_count(destination), 1);
+        assert_eq!(cpu.cpu_state().eip(), u32::from(destination.offset));
+        assert_eq!(
+            cpu.cpu_state().segment(Segment::Cs).selector,
+            destination.segment
+        );
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -157,6 +271,7 @@ async fn failed_and_stepped_calls() {
 fn completed_call_misses_merge_across_execution_boundaries() {
     pollster::block_on(async {
         calls().await;
+        far_calls().await;
         overflow().await;
         failed_and_stepped_calls().await;
     });
@@ -166,6 +281,7 @@ fn completed_call_misses_merge_across_execution_boundaries() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn completed_call_misses_merge_across_execution_boundaries() {
     calls().await;
+    far_calls().await;
     overflow().await;
     failed_and_stepped_calls().await;
 }

@@ -83,6 +83,12 @@ impl ExecutionBuilder<'_, '_> {
         selector.write(self, &old_cs)?;
         offset.write(self, &return_ip.truncate::<T>())?;
         frame.commit(self, 0)?;
-        target.commit(self)
+        let offset = target.commit(self)?;
+        // Real16 keeps the same execution profile after loading CS. Protected
+        // CS transitions retain ordinary dispatch across the context change.
+        if self.profile() == ExecutionProfile::Real16 {
+            self.call_dispatch = true;
+        }
+        Ok(offset)
     }
 }

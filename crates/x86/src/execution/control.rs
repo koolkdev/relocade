@@ -47,7 +47,7 @@ impl ExecutionBuilder<'_, '_> {
     {
         self.check_code_target(&target, None)?;
         self.push(return_address.truncate::<T>(), T::BYTES)?;
-        self.near_call = true;
+        self.call_dispatch = true;
         Ok(target)
     }
 
