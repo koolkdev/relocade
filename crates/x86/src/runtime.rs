@@ -3,12 +3,12 @@
 mod ports;
 mod segments;
 
-use relocade_compiler::{BlockBuilder, BuildError, Func, Program, Table, TypedFunc, Val, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Program, Table, TypedFunc, Val, I1, I32};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
-    resolve_call: TypedFunc<fn() -> u32>,
+    resolve_call: TypedFunc<fn() -> (u32, bool)>,
     functions: Table,
     interpret: Func,
     resolve_segment: Func,
@@ -39,7 +39,10 @@ impl Runtime {
         body.tail_call(self.dispatch, &[])
     }
 
-    pub(crate) fn resolve_call(self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
+    pub(crate) fn resolve_call(
+        self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<(Val<I32>, Val<I1>), BuildError> {
         self.resolve_call.call(body, ())
     }
 

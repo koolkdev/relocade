@@ -209,6 +209,10 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
     linker
         .define(&store, "relocade", "executionEntries", entries)
         .unwrap();
+    let call_profile = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+    linker
+        .define(&store, "relocade", "callProfile", call_profile)
+        .unwrap();
     let functions = Table::new(
         &mut store,
         TableType::new(RefType::FUNCREF, targets.len() as u32 + 1, None),
@@ -270,6 +274,12 @@ fn callable_dispatch_resolves_functions_and_fallback() {
         SegmentProfile::Segmented16.into(),
     ] {
         let dispatcher = Module::new(&Compiler::new(profile).compile_dispatcher().unwrap().bytes);
+        // Only the Real16 dispatcher requires storage for call observations.
+        let profiles_calls = dispatcher
+            .wasmtime()
+            .imports()
+            .any(|import| import.module() == "relocade" && import.name() == "callProfile");
+        assert_eq!(profiles_calls, profile == ExecutionProfile::Real16);
         let targets = [
             constant(crate::ExecutionExit::Host(crate::HostExit::Return)),
             constant(crate::ExecutionExit::Host(crate::HostExit::Call {

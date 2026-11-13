@@ -344,7 +344,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             self.checkpoint()?;
             // Checkpoint exits skip the resolver, so profiling here can miss a
             // completed call. Hotness counts are intentionally approximate.
-            let slot = runtime.resolve_call(&mut self.body)?;
+            let (slot, can_continue) = runtime.resolve_call(&mut self.body)?;
+            self.body.if_(can_continue.eq(false), |body| {
+                body.return_(crate::ExecutionExitValues::call_profile_full())
+            })?;
             runtime.enter(self.body, slot)
         } else {
             self.finish(true, |body, _| runtime.dispatch(body))

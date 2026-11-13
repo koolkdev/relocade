@@ -1,6 +1,7 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
 mod hooks;
+mod profiling;
 mod table;
 
 use super::{
@@ -8,6 +9,7 @@ use super::{
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
+use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
@@ -28,11 +30,12 @@ pub(super) struct CpuInstance {
     pub(super) io: IoBus,
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
-    resolve_call: Function<WasmRuntime, fn() -> u32>,
+    resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     table: DispatchTable<WasmRuntime>,
+    pub(super) profiling: Profiling,
     hooks: Hooks,
 }
 
@@ -54,8 +57,10 @@ impl CpuInstance {
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let table = DispatchTable::new(wasm)?;
+            let profiling = Profiling::new(wasm)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.extend(table.imports(wasm));
+            imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
             let instance = wasm.instantiate(&dispatcher, &imports)?;
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
             let interpret = wasm.function(&instance, abi::INTERPRET)?;
@@ -99,6 +104,7 @@ impl CpuInstance {
                 interrupt,
                 far_call,
                 table,
+                profiling,
                 hooks: Hooks::default(),
             })
         })
@@ -114,8 +120,13 @@ impl CpuInstance {
     }
 
     pub(super) fn run(&mut self) -> ExecutionExit {
-        self.runtime
-            .with_runtime(|wasm| self.dispatch.call(wasm, ()))
+        self.runtime.with_runtime(|wasm| loop {
+            let exit = self.dispatch.call(wasm, ());
+            if exit != ExecutionExit::CallProfileFull {
+                return exit;
+            }
+            self.profiling.collect(wasm);
+        })
     }
 
     pub(super) fn enter_interrupt(&mut self, vector: u8) -> ExecutionExit {
@@ -175,6 +186,7 @@ impl CpuInstance {
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.table.imports(wasm));
+            imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
                 wasm.bind(abi::DISPATCH, &self.dispatch),
                 wasm.bind(abi::INTERPRET, &self.interpret),
