@@ -50,6 +50,6 @@ fn cpuid(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
 }
 
 fn rdtsc(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-    let counter = execution.instruction_count()?;
+    let counter = execution.timestamp_counter()?;
     execution.write_register_pair::<I32>(Gpr32::Edx, Gpr32::Eax, counter)
 }

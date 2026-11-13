@@ -31,9 +31,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, SegmentReads, State};
-use crate::{
-    address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
-};
+use crate::{address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile};
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -43,7 +41,6 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     state: State<'module>,
     accesses: Accesses<'module>,
     segments: SegmentReads<'module>,
-    target: ExecutionTarget,
     cpu_features: Val<I32>,
     segment_override: SegmentOverride,
     address_size: AddressSize,
@@ -66,12 +63,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         let target = module.target;
-        Ok(Self {
+        let mut execution = Self {
             body,
             state: State::new(&module.cpu).with_instruction_budgets(target.instruction_budgets),
             accesses: module.memory.accesses(),
             segments: SegmentReads::new(&module.cpu, target.profile),
-            target,
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,
@@ -84,7 +80,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             completed: 0,
             can_fallback: false,
             observed_cpu: None,
-        })
+        };
+        execution.assume_entry_state(target.profile)?;
+        Ok(execution)
     }
 
     /// Shares runtime controls across both interpreter entry modes and target policies.
@@ -190,10 +188,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.segments.profile()
-    }
-
-    pub(crate) fn target(&self) -> ExecutionTarget {
-        self.target
     }
 
     /// Retired instructions, including this entry's unpublished progress.

@@ -26,7 +26,7 @@ pub(crate) use segments::SegmentReads;
 pub(crate) use simd::Mxcsr;
 pub(crate) use x87::X87Access;
 
-use access::{cpu_load, cpu_store, register_location};
+use access::{cpu_load, cpu_location, cpu_store, register_location};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use crate::{
@@ -41,13 +41,50 @@ use crate::{
 pub(super) struct State<'cpu> {
     cpu: &'cpu Cpu,
     instruction_budgets: bool,
-    registers: StateFields,
+    fields: StateFields,
     simd: StateFields,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
 
 impl<'cpu> State<'cpu> {
+    pub(crate) fn read_cr0(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
+        self.fields.read(body, cpu_location!(cr0))
+    }
+
+    pub(crate) fn read_cr4(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I32>, BuildError> {
+        self.fields.read(body, cpu_location!(cr4))
+    }
+
+    pub(crate) fn virtual_8086(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I1>, BuildError> {
+        Ok(self
+            .fields
+            .read(body, cpu_location!(flags.bytes.vm))?
+            .truncate())
+    }
+
+    pub(crate) fn protected_mode(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I1>, BuildError> {
+        Ok(self.read_cr0(body)?.and(1).ne(0))
+    }
+
+    pub(crate) fn privilege_level(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I8>, BuildError> {
+        let protected = self.protected_mode(body)?;
+        let virtual_8086 = self.virtual_8086(body)?;
+        let selector = self
+            .fields
+            .read(body, cpu_location!(segments.cs.selector))?;
+        Ok(protected.select(virtual_8086.select(3, selector.and(3).truncate::<I8>()), 0))
+    }
+
     pub(super) fn read_cpu_features(
         &self,
         body: &mut BlockBuilder<'_>,
@@ -63,7 +100,7 @@ impl<'cpu> State<'cpu> {
         Self {
             cpu,
             instruction_budgets: true,
-            registers: StateFields::new(cpu.memory()),
+            fields: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
@@ -91,8 +128,7 @@ impl<'cpu> State<'cpu> {
         body: &mut BlockBuilder<'_>,
         register: impl Into<Register<T>>,
     ) -> Result<Val<T>, BuildError> {
-        self.registers
-            .read(body, register_location(register.into()))
+        self.fields.read(body, register_location(register.into()))
     }
 
     pub(super) fn write_register<T: RegisterType>(
@@ -101,7 +137,7 @@ impl<'cpu> State<'cpu> {
         register: impl Into<Register<T>>,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
-        self.registers
+        self.fields
             .define(body, register_location(register.into()), value)
     }
 
@@ -228,7 +264,7 @@ impl<'cpu> State<'cpu> {
         self.flags.publish(body, self.cpu)?;
         self.x87.publish(body)?;
         self.simd.publish(body)?;
-        self.registers.publish(body)?;
+        self.fields.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
         if completed != 0 {
             let count = self.instruction_count(body, completed)?;

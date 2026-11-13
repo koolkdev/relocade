@@ -9,6 +9,48 @@ use relocade_compiler::{Program, Signature, Type, I1, I32};
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]
+fn mode_and_privilege_queries_read_architectural_state() {
+    use crate::test_step::{Argument, Event, Input, Outcome, TestModule};
+    use crate::{CompiledModule, CpuState};
+
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let function = program.function::<fn() -> (bool, u8)>(move |mut body, ()| {
+        let mut state = State::new(&cpu);
+        let protected = state.protected_mode(&mut body)?;
+        let privilege = state.privilege_level(&mut body)?;
+        body.return_((protected, privilege))
+    });
+    program.export("run", function).unwrap();
+    let module = TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "run".into(),
+        execution_target: None,
+    });
+    for (cr0, vm, selector, expected) in [
+        (0x30, 0xa5, 0xffff, (0, 0)),
+        (0x31, 0, 0x19, (1, 1)),
+        (0x31, 0xfe, 0x1b, (1, 3)),
+        (0x31, 1, 0x18, (1, 3)),
+    ] {
+        let mut cpu = CpuState {
+            cr0,
+            ..CpuState::default()
+        };
+        cpu.flags.bytes.vm = vm;
+        cpu.segments.cs.selector = selector;
+        let result = module.observe(&Input::new(&cpu.to_bytes()), 1);
+        let [Event::Return { outcome, .. }] = result.events.as_slice() else {
+            panic!("expected mode and privilege results: {result:?}");
+        };
+        assert_eq!(
+            outcome,
+            &Outcome::Returned(vec![Argument::I32(expected.0), Argument::I32(expected.1)])
+        );
+    }
+}
+
+#[test]
 fn zero_progress_exits_do_not_read_or_write_instruction_count() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);

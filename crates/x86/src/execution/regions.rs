@@ -32,7 +32,6 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let state = self.state.clone();
         let accesses = self.accesses.clone();
         let segments = self.segments.clone();
-        let target = self.target;
         let cpu_features = self.cpu_features.clone();
         let segment_override = self.segment_override.clone();
         let address_size = self.address_size;
@@ -48,7 +47,6 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             state: state.clone(),
             accesses: accesses.clone(),
             segments: segments.clone(),
-            target,
             cpu_features: cpu_features.clone(),
             segment_override: segment_override.clone(),
             address_size,
