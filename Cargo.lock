@@ -2312,6 +2312,7 @@ name = "relocade-dos"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "cpal",
  "futures-channel",
  "futures-timer",
  "pollster",
@@ -2342,7 +2343,6 @@ dependencies = [
  "relocade-dos",
  "relocade-frontend",
  "relocade-machine",
- "relocade-pc-speaker",
  "relocade-vga",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2436,10 +2436,6 @@ dependencies = [
 name = "relocade-pc-speaker"
 version = "0.0.0"
 dependencies = [
- "async-channel",
- "cpal",
- "futures-lite",
- "futures-timer",
  "pollster",
  "relocade-clock-test-support",
  "relocade-machine",

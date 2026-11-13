@@ -21,14 +21,10 @@ pub const PORT_RANGE: RangeInclusive<u16> = SPEAKER_CONTROL_PORT..=SPEAKER_CONTR
 pub struct Speaker {
     pit: Rc<RefCell<Pit>>,
     control: Rc<Cell<u8>>,
-    #[cfg(feature = "audio")]
-    audio: Option<audio::Audio>,
-    #[cfg(feature = "audio")]
-    audio_ready: (async_channel::Sender<()>, async_channel::Receiver<()>),
 }
 
 impl Speaker {
-    /// Creates the speaker and registers its control port and playback activity.
+    /// Creates the speaker and registers its control port.
     pub async fn initialize(runner: &Runner, pit: Rc<RefCell<Pit>>) -> Rc<RefCell<Self>> {
         let speaker = Rc::new(RefCell::new(Self::new(pit)));
         runner
@@ -51,10 +47,6 @@ impl Speaker {
         Self {
             pit,
             control: Rc::new(Cell::new(0)),
-            #[cfg(feature = "audio")]
-            audio: None,
-            #[cfg(feature = "audio")]
-            audio_ready: async_channel::bounded(1),
         }
     }
 
@@ -78,9 +70,4 @@ impl Speaker {
     }
 }
 
-impl Device for Speaker {
-    #[cfg(feature = "audio")]
-    async fn run(device: Rc<RefCell<Self>>) {
-        audio::run(device).await;
-    }
-}
+impl Device for Speaker {}

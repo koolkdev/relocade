@@ -1,38 +1,22 @@
-use relocade_clock_test_support::ManualClock;
 #[path = "../../tests/common/mod.rs"]
 mod common;
 
-use crate::{Speaker, SPEAKER_CONTROL_PORT};
-use async_channel::Receiver;
-
-use relocade_machine::{Device, IoBus};
+use crate::{AudioSource, Speaker, SPEAKER_CONTROL_PORT};
+use relocade_clock_test_support::ManualClock;
+use relocade_machine::{IoBus, Timestamp};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
-use std::{
-    cell::RefCell,
-    future::Future,
-    pin::Pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-    time::Duration,
-};
+use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct Playback {
-    speaker: Rc<RefCell<Speaker>>,
+    source: AudioSource,
     io: IoBus,
     clock: ManualClock,
-    output: Receiver<Vec<f32>>,
-    task: Pin<Box<dyn Future<Output = ()>>>,
-}
-
-fn config(rate: u32, channels: u16, batch: u32) -> cpal::StreamConfig {
-    cpal::StreamConfig {
-        sample_rate: rate,
-        channels,
-        buffer_size: cpal::BufferSize::Fixed(batch),
-    }
+    start: Timestamp,
+    rate: u64,
+    frames: u64,
 }
 
 fn program(io: &IoBus) {
@@ -43,42 +27,37 @@ fn program(io: &IoBus) {
 }
 
 impl Playback {
-    fn new(config: cpal::StreamConfig) -> Self {
-        let (samples, output) = async_channel::bounded(1);
-        let clock = ManualClock::default();
+    fn new(rate: u64) -> Self {
+        let clock = ManualClock::new();
         let (io, speaker) = common::hardware(clock.clock());
-        speaker.borrow_mut().attach_audio(config, samples).unwrap();
+        let source = speaker.borrow().audio_source();
         Self {
-            task: Box::pin(Speaker::run(speaker.clone())),
-            speaker,
+            start: clock.clock().now(),
+            source,
             io,
             clock,
-            output,
+            rate,
+            frames: 0,
         }
     }
 
-    fn poll(&mut self) -> Poll<()> {
-        self.task
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
+    fn at_frame(&self, frame: u64) -> Timestamp {
+        self.clock.clock().add(
+            self.start,
+            Duration::from_nanos((frame * 1_000_000_000).div_ceil(self.rate)),
+        )
     }
 
-    fn next_buffer(&mut self) -> Vec<f32> {
-        assert!(self.poll().is_pending());
-        if self.output.is_empty() {
-            self.clock.advance_to(self.clock.next_deadline().unwrap());
-            assert!(self.poll().is_pending());
-        }
-        self.output.try_recv().unwrap()
-    }
-
-    fn collect(&mut self, samples: usize) -> Vec<f32> {
-        let mut result = Vec::new();
-        while result.len() < samples {
-            result.extend(self.next_buffer());
-        }
-        result.truncate(samples);
-        result
+    fn collect(&mut self, frames: usize) -> Vec<f32> {
+        self.clock
+            .advance_to(self.at_frame(self.frames + frames as u64));
+        (0..frames)
+            .map(|_| {
+                let interval = self.at_frame(self.frames)..self.at_frame(self.frames + 1);
+                self.frames += 1;
+                self.source.sample(interval)
+            })
+            .collect()
     }
 }
 
@@ -86,68 +65,43 @@ impl Playback {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn tone_continues_without_guest_updates_at_multiple_output_rates() {
     for rate in [44_100, 48_000, 96_000] {
-        let mut playback = Playback::new(config(rate, 2, 256));
+        let mut playback = Playback::new(rate);
         program(&playback.io);
-        let output = playback.collect(rate as usize * 2);
-        let mono: Vec<_> = output
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|frame| {
-                assert_eq!(frame[0], frame[1]);
-                assert!((0.0..=0.2).contains(&frame[0]));
-                frame[0]
-            })
-            .collect();
-        let cycles = mono
+        let samples = playback.collect(rate as usize);
+        assert!(samples.iter().all(|sample| (0.0..=1.0).contains(sample)));
+        let cycles = samples
             .windows(2)
-            .filter(|pair| pair[0] < 0.1 && pair[1] >= 0.1)
+            .filter(|pair| pair[0] < 0.5 && pair[1] >= 0.5)
             .count();
         // One second of samples; PC input clock / divisor gives 1000.153 Hz.
         assert!((cycles as f64 - 1000.153).abs() < 0.5, "{rate}: {cycles}");
-        assert!(mono.iter().any(|&sample| sample > 0.0 && sample < 0.2));
+        assert!(samples.iter().any(|&sample| sample > 0.0 && sample < 1.0));
     }
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn buffer_boundaries_preserve_phase_and_fractional_clock_remainder() {
-    let mut reference = Playback::new(config(44_100, 1, 256));
-    program(&reference.io);
-    let expected = reference.collect(8000);
-    for batch in [1, 7, 128] {
-        let mut playback = Playback::new(config(44_100, 1, batch));
-        program(&playback.io);
-        assert_eq!(playback.collect(expected.len()), expected, "batch {batch}");
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-fn controls_mute_and_resume_at_buffer_boundaries() {
-    let mut playback = Playback::new(config(48_000, 1, 128));
-    assert!(playback.next_buffer().iter().all(|&sample| sample == 0.0));
+fn controls_mute_and_resume_at_sample_boundaries() {
+    let mut playback = Playback::new(48_000);
+    assert_eq!(playback.collect(128), vec![0.0; 128]);
     program(&playback.io);
-    let tone = playback.collect(512);
-    assert!(tone[384..].iter().any(|&sample| sample > 0.0));
+    assert!(playback.collect(512).iter().any(|&sample| sample > 0.0));
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 1);
-    let muted = playback.collect(512);
-    assert!(muted[384..].iter().all(|&sample| sample == 0.0));
+    assert_eq!(playback.collect(128), vec![0.0; 128]);
     // With GATE2 low and data enabled, direct drive remains high.
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    let direct = playback.collect(512);
-    assert!(direct[384..].iter().all(|&sample| sample == 0.2));
+    assert_eq!(playback.collect(128), vec![1.0; 128]);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn reads_and_latches_preserve_playback_phase() {
-    let mut reference = Playback::new(config(44_100, 1, 128));
-    let mut playback = Playback::new(config(44_100, 1, 128));
+    let mut reference = Playback::new(44_100);
+    let mut playback = Playback::new(44_100);
     program(&reference.io);
     program(&playback.io);
     for _ in 0..8 {
-        assert_eq!(playback.next_buffer(), reference.next_buffer());
+        assert_eq!(playback.collect(128), reference.collect(128));
         let io = &playback.io;
         io.read_port(SPEAKER_CONTROL_PORT, 1);
         io.write_port(PIT_CONTROL_PORT, 1, 0x80);
@@ -169,76 +123,35 @@ fn reads_and_latches_preserve_playback_phase() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn clock_bounds_production_and_output_close_ends_the_activity() {
-    for enabled in [false, true] {
-        let mut playback = Playback::new(config(48_000, 2, 4096));
-        if enabled {
-            program(&playback.io);
-        }
-        assert!(playback.poll().is_pending());
-        assert!(playback.poll().is_pending());
-        assert!(playback.output.is_empty());
-        playback
-            .clock
-            .advance_to(playback.clock.next_deadline().unwrap());
-        assert!(playback.poll().is_pending());
-        assert_eq!(playback.output.len(), 1);
-        assert_eq!(playback.output.try_recv().unwrap().len(), 256 * 2);
-        playback.output.close();
-        assert!(playback.poll().is_ready());
-    }
-
-    let playback = Playback::new(config(48_000, 1, 128));
-    drop(playback.task);
-    drop(playback.speaker);
-    drop(playback.io);
-    assert!(playback.output.is_closed());
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn timed_controls_and_pit_writes_are_retained_within_samples() {
-    let mut playback = Playback::new(config(1_000, 2, 10));
-    let start = playback.clock.clock().now();
+    let mut playback = Playback::new(1_000);
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
-    assert!(playback.poll().is_pending());
-    playback.clock.advance_to(
-        playback
-            .clock
-            .clock()
-            .add(start, Duration::from_micros(2_250)),
-    );
+    playback.clock.advance_by(Duration::from_micros(2_250));
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    playback.clock.advance_to(
-        playback
-            .clock
-            .clock()
-            .add(start, Duration::from_micros(4_750)),
-    );
+    playback.clock.advance_by(Duration::from_micros(2_500));
     // Unsupported mode 0 drives OUT2 low without changing the speaker bits.
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb0);
-    playback
-        .clock
-        .advance_to(playback.clock.clock().add(start, Duration::from_millis(8)));
+    playback.clock.advance_by(Duration::from_micros(3_250));
     playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
     // Equal-timestamp changes are applied in write order.
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 0);
     playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    assert!(playback.poll().is_pending());
-    assert!(playback.output.is_empty());
-    let buffer = playback.next_buffer();
-    let expected = [0.0, 0.0, 0.15, 0.2, 0.15, 0.0, 0.0, 0.0, 0.2, 0.2];
-    for (frame, expected) in buffer.as_chunks::<2>().0.iter().zip(expected) {
-        assert!((frame[0] - expected).abs() < 1e-6, "{frame:?}: {expected}");
-        assert_eq!(frame[0], frame[1]);
+    let expected = [0.0, 0.0, 0.75, 1.0, 0.75, 0.0, 0.0, 0.0, 1.0, 1.0];
+    for (sample, expected) in playback.collect(10).iter().zip(expected) {
+        assert!((sample - expected).abs() < 1e-6, "{sample}: {expected}");
     }
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
-    use relocade_machine::{GuestTimeDriver, Timestamp};
-    use std::{num::NonZeroU64, pin::pin};
+    use relocade_machine::GuestTimeDriver;
+    use std::{
+        future::Future,
+        num::NonZeroU64,
+        pin::pin,
+        task::{Context, Waker},
+    };
 
     let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
     let clock = driver.clock();
@@ -247,109 +160,26 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     assert!(initial.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
     let (io, speaker) = common::hardware(clock.clone());
-    let (samples, output) = async_channel::bounded(1);
-    // One-nanosecond frames expose phase errors without tolerance-based assertions.
-    speaker
-        .borrow_mut()
-        .attach_audio(config(1_000_000_000, 1, 3), samples)
-        .unwrap();
+    let start = clock.now();
+    let mut source = speaker.borrow().audio_source();
     io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
-    let mut task = pin!(Speaker::run(speaker));
-    assert!(task.as_mut().poll(&mut cx).is_pending());
 
     let mut control = pin!(clock.sleep_until(Timestamp::from_ticks(6)));
     assert!(control.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
     // PIT has consumed one nanosecond since initialization: native tick 4.
     io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(10)));
+    let mut end = pin!(clock.sleep_until(Timestamp::from_ticks(10)));
+    assert!(end.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(output.try_recv().unwrap(), vec![0.0, 0.2, 0.2]);
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-fn full_output_retains_recent_pcm_and_drains_control_changes() {
-    let mut playback = Playback::new(config(1_000, 1, 10));
-    assert!(playback.poll().is_pending());
-    playback
-        .clock
-        .advance_to(playback.clock.next_deadline().unwrap());
-    assert!(playback.poll().is_pending());
-    assert_eq!(playback.output.len(), 1); // Leave the initial silence queued.
-    playback.io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
-    playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    playback.clock.advance_by(Duration::from_millis(30));
-    assert!(playback.poll().is_pending());
-    assert_eq!(playback.output.len(), 1);
-    assert_eq!(playback.output.try_recv().unwrap(), vec![0.2; 10]);
-    playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 0);
-    assert_eq!(playback.next_buffer(), vec![0.0; 10]);
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-fn invalid_configuration_and_unbounded_output_are_rejected() {
-    for config in [
-        config(0, 1, 128),
-        config(48_000, 0, 128),
-        config(1_000_000_001, 1, 128),
-    ] {
-        let (samples, _output) = async_channel::bounded(1);
-        let (_io, speaker) = common::hardware(ManualClock::new().clock());
-        assert!(speaker.borrow_mut().attach_audio(config, samples).is_err());
-    }
-    let (samples, _output) = async_channel::unbounded();
-    let (_io, speaker) = common::hardware(ManualClock::new().clock());
-    assert!(speaker
-        .borrow_mut()
-        .attach_audio(config(48_000, 1, 128), samples)
-        .is_err());
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-fn attaching_output_wakes_an_already_running_device() {
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    };
-    struct Woken(AtomicBool);
-    impl std::task::Wake for Woken {
-        fn wake(self: Arc<Self>) {
-            self.0.store(true, Ordering::Relaxed);
-        }
-    }
-
-    let clock = ManualClock::new();
-    let (io, speaker) = common::hardware(clock.clock());
-    let mut task = std::pin::pin!(Speaker::run(speaker.clone()));
-    let woken = Arc::new(Woken(AtomicBool::new(false)));
-    let waker = Waker::from(woken.clone());
-    let mut cx = Context::from_waker(&waker);
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    program(&io);
-    let (samples, output) = async_channel::bounded(1);
-    speaker
-        .borrow_mut()
-        .attach_audio(config(48_000, 1, 128), samples.clone())
-        .unwrap();
-    assert!(woken.0.load(Ordering::Relaxed));
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert!(output.is_empty());
-    clock.advance_to(clock.next_deadline().unwrap());
-    assert!(task.as_mut().poll(&mut cx).is_pending());
-    assert!(output
-        .try_recv()
-        .unwrap()
-        .iter()
-        .any(|&sample| sample > 0.0));
-    assert!(speaker
-        .borrow_mut()
-        .attach_audio(config(48_000, 1, 128), samples)
-        .is_err());
-    output.close();
-    assert!(task.as_mut().poll(&mut cx).is_ready());
+    // One-nanosecond samples expose phase errors without tolerance assertions.
+    let samples: Vec<_> = (0..3)
+        .map(|frame| {
+            source.sample(
+                clock.add(start, Duration::from_nanos(frame))
+                    ..clock.add(start, Duration::from_nanos(frame + 1)),
+            )
+        })
+        .collect();
+    assert_eq!(samples, [0.0, 1.0, 1.0]);
 }

@@ -29,7 +29,7 @@ errors remain visible even when startup ends before the endpoints arrive.
 
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
 configuration and bounded Rust PCM sender go to the execution worker. `Dos::new`
-creates the hardware; `dos.speaker()` exposes it for `attach_audio(config, samples)`.
+creates the hardware; `dos.attach_audio(config, samples).await` connects its mixer.
 Guest writes to PIT channel 2 and port 0x61 produce sound; the console itself
 does not ring a bell yet. Speaker state persists across guest process exits.
 
@@ -85,6 +85,6 @@ speaker, waits for a DOS key, then disables the speaker and waits again. A paced
 PCM receiver checks tone and silence while execution remains active. The browser
 suite uses CPAL's actual AudioWorklet and waits for fresh analyser samples on the
 audio clock, with a bounded timeout and playback diagnostics. Output lifecycle
-and backpressure remain covered by the app audio and speaker tests. The bundled
+and backpressure remain covered by the app audio and PC mixer tests. The bundled
 application test separately checks click/key activation and console input. These
 automated checks do not establish physical speaker playback or long-term clock accuracy.

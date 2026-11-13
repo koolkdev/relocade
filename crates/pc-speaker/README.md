@@ -6,7 +6,7 @@ arithmetic and programmable channel-0 IRQ scheduler. BIOS keeps its IRQ handler 
 time-of-day data.
 
 `Speaker::initialize(runner, pit).await` connects the speaker to that PIT,
-registers port 0x61 and starts its activity. It returns the connected speaker
+registers port 0x61. It returns the connected speaker
 handle. Both devices stay on the execution worker.
 
 The speaker supports byte transfers at `SPEAKER_CONTROL_PORT` (0x61).
@@ -17,44 +17,20 @@ their writes have no effect. Bit 0 is GATE2. The speaker drive is bit 1 AND OUT2
 including direct bit-1 toggling while GATE2 is low. Other system-control and
 refresh/parity functions of this port are outside this crate's initial scope.
 
-With the `audio` feature, attach CPAL's output configuration and an ordinary
-bounded `async_channel::Sender<Vec<f32>>` when output becomes available. The app
-opens platform output on main:
+With the `audio` feature, `speaker.audio_source()` records sound-changing writes
+for an execution-local consumer. `source.sample(start..end)` averages the digital
+drive over a nonempty elapsed interval on the PIT's clock, producing a mono value
+in 0..=1. Intervals progress forward without overlap. The shared PIT counter
+integrates each sample's high time, preserving fractional input clocks and phase
+while muted or when the consumer skips time. Creating another source replaces
+the observer; dropping the source stops recording.
 
-```rust,ignore
-let (audio, config, samples) = relocade_app::audio::Audio::open(on_error)?;
-audio.play()?; // In a browser, call from the application's user activation.
-```
-
-Move `config` and `samples` into the existing execution-worker session:
-
-```rust,ignore
-let pic = Pic::initialize(runner).await;
-let pit = Pit::initialize(runner, &pic).await;
-let speaker = Speaker::initialize(runner, pit).await;
-speaker.borrow_mut().attach_audio(config, samples)?;
-// Run the guest with runner.run_cpu().await.
-```
-
-The runner drives `Speaker::run` alongside the CPU, including while the guest
-awaits input. Until output is attached, the activity waits on an ordinary Rust
-channel while hardware port access remains available. Attachment is allowed once;
-it uses the current timer and speaker state. The activity waits on the PIT's
-supplied clock until an entire sample interval has elapsed, renders interleaved
-f32 PCM, and submits it through the bounded channel. Host and guest clocks use
-the same path. Muted output submits silence while retaining the timer's phase.
-When output is stopped or its queue fills, the oldest queued buffer is replaced;
-register changes keep being consumed instead of accumulating behind a stalled sink.
-Dropping app output closes submission and ends the activity. Stopping execution
-drops the device and its activity on their owner; platform output can drain to
-silence or be dropped separately.
-
-The shared PIT counter integrates each sample's high time; fractional input
-clocks carry across buffers. Mono drive is duplicated across output channels
-with amplitude 0.2. A fixed CPAL buffer hint is clamped to 1–256 frames; the default
-is 256: one interval is about 5.33 ms at 48 kHz. The app's existing 16-buffer
-queue can hold about 85 ms at that rate, plus callback and platform buffering.
-CPAL consumes the PCM at its configured rate; buffers need no separate host wait.
+The [shared mixer](../mixer/README.md) owns the common sample timeline, gain,
+channel layout, buffering and submission. PC registers the speaker at gain 0.2
+alongside its other sources on the execution worker. Applications attach CPAL's configuration
+and bounded PCM sender through `pc.attach_audio(config, samples).await` or
+`dos.attach_audio(config, samples).await`. The speaker itself owns no output
+channel or asynchronous playback activity.
 
 Sound-changing writes append timestamped counter states and the speaker enable
 bit to a local queue. Synthesis consumes every change at its position within the
@@ -62,5 +38,3 @@ sample interval, including multiple changes in one sample. Reads, latches and
 unchanged speaker-control writes leave playback alone. The supplied clock sets
 the timing precision; this is not a CPU-cycle model.
 
-The PCM transport is independent of PIT and speaker state. A future AdLib
-synthesizer can use the same elapsed-time synthesis and ordinary PCM handoff.
