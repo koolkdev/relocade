@@ -70,7 +70,7 @@ impl DispiAdapter {
         let vga = VgaCore::default();
         let raster = Raster::new(clock.clone(), Timing::vga(&vga.registers));
         Self {
-            memory: VideoMemory::default(),
+            memory: VideoMemory::new(dispi::VIDEO_MEMORY_BYTES),
             vga,
             dispi: dispi::Dispi::default(),
             packed_window: VramWindow {

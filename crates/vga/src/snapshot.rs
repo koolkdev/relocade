@@ -49,7 +49,7 @@ impl DisplaySnapshot {
                 .as_mut()
                 .expect("later captures have a memory baseline");
             changes.baseline.clone_from(&pending.baseline);
-            changes.pages.merge(pending.pages);
+            changes.pages.merge(&pending.pages);
         }
     }
 

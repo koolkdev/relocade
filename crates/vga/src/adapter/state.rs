@@ -18,7 +18,7 @@ impl DispiState {
     }
 
     pub fn from_bytes(bytes: &[u8; Self::BYTE_LEN]) -> Option<Self> {
-        Dispi::from_state_bytes(bytes, crate::VIDEO_MEMORY_BYTES).map(Self)
+        Dispi::from_state_bytes(bytes, crate::dispi::VIDEO_MEMORY_BYTES).map(Self)
     }
 }
 

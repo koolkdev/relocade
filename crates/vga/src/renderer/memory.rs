@@ -1,11 +1,13 @@
 //! Persistent GPU storage for captured physical video memory.
 use crate::{
-    memory::{MemorySnapshot, BLOCK_BYTES},
-    DisplaySnapshot, VIDEO_MEMORY_BYTES,
+    memory::{MemorySnapshot, BLOCK_BYTES, VGA_MEMORY_BYTES},
+    DisplaySnapshot,
 };
 use std::sync::Arc;
 
-pub(super) const BUFFER_BYTES: u64 = VIDEO_MEMORY_BYTES as u64;
+// The renderer accepts every current card on devices meeting this resource limit.
+// Allocation grows with captured memory rather than reserving that limit upfront.
+pub(super) const REQUIRED_BUFFER_LIMIT: u64 = 4 * 1024 * 1024;
 
 pub(super) struct GpuMemory {
     pub buffer: wgpu::Buffer,
@@ -18,12 +20,27 @@ impl GpuMemory {
         Self {
             buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("captured video memory"),
-                size: BUFFER_BYTES,
+                size: u64::from(VGA_MEMORY_BYTES),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
             previous: None,
         }
+    }
+
+    pub fn ensure_size(&mut self, device: &wgpu::Device, snapshot: &DisplaySnapshot) -> bool {
+        let bytes = snapshot.memory.bytes() as u64;
+        if bytes <= self.buffer.size() {
+            return false;
+        }
+        self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("captured video memory"),
+            size: bytes.next_power_of_two(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.previous = None;
+        true
     }
 
     pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {

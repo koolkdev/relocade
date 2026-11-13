@@ -29,6 +29,8 @@ pub const X_OFFSET: u16 = 8;
 pub const Y_OFFSET: u16 = 9;
 
 pub const INTERFACE_ID: u16 = 0xb0c2;
+/// Physical memory installed on the emulated DISPI card.
+pub const VIDEO_MEMORY_BYTES: u32 = 4 * 1024 * 1024;
 pub const DISABLED: u16 = 0;
 pub const ENABLED: u16 = 1;
 pub const NO_CLEAR_MEMORY: u16 = 0x80;

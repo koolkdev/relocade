@@ -6,7 +6,6 @@ use crate::{
 use relocade_machine::{Device, DeviceCallbacks, IoBus, MmioRead, MmioWrite};
 use std::{cell::RefCell, rc::Rc};
 
-#[derive(Default)]
 struct VgaOnly {
     core: VgaCore,
     memory: VideoMemory,
@@ -17,7 +16,10 @@ impl Device for VgaOnly {}
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
-    let mut card = VgaOnly::default();
+    let mut card = VgaOnly {
+        core: VgaCore::default(),
+        memory: VideoMemory::new(256 * 1024),
+    };
     // The card receives raw indices before the core applies the VGA index mask.
     card.core.registers.sequencer.select(0xfa);
     assert_eq!(card.core.registers.sequencer.index(), sequencer::MAP_MASK);
