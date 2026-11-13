@@ -120,6 +120,8 @@
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
 //! [`Dos::with_configuration`] selects its hardware using the PC's [`Configuration`].
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
+//! [`Dos::initial_environment`] supplies hardware defaults for a caller-owned
+//! environment, passed through [`LoadOptions`] when launching programs.
 //! With the `audio` feature, `Dos::attach_audio` connects the PC's mixed output.
 //! Guest AdLib ports (388h/389h) and PC-speaker ports share that output and work
 //! independently of DOS services. Attach before starting the first guest program.
@@ -178,8 +180,11 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
-use relocade_pc::Pc;
 pub use relocade_pc::{configuration, Configuration, SoundCard};
+use relocade_pc::{
+    sound_card::{Settings as SoundCardSettings, SoundBlasterModel},
+    Pc,
+};
 use relocade_pc_speaker::Speaker;
 use relocade_vga::DispiAdapter;
 use state::DosState;
@@ -236,6 +241,26 @@ impl Dos {
         mouse::register(&mut interrupts, Rc::clone(&state), clock);
         interrupts.install().await?;
         Ok(Self { state, pc })
+    }
+
+    /// Creates environment defaults from the installed hardware.
+    /// Call once when preparing a launcher or shell, then keep and edit the returned
+    /// entries. Pass their byte slices through [`LoadOptions::environment`] at launch;
+    /// launches copy the supplied environment without restoring removed defaults.
+    pub fn initial_environment(&self) -> Vec<Vec<u8>> {
+        let Some(SoundCardSettings::SoundBlaster(settings)) =
+            self.pc.sound_card().map(|card| card.settings())
+        else {
+            return Vec::new();
+        };
+        let model = match settings.model {
+            SoundBlasterModel::SoundBlaster2 => 3,
+        };
+        vec![format!(
+            "BLASTER=A{:X} I{} D{} T{}",
+            settings.base_port, settings.irq, settings.dma_channel, model
+        )
+        .into_bytes()]
     }
 
     /// Accesses the session's speaker on its execution owner, like [`Self::vga`].

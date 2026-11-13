@@ -26,7 +26,7 @@ the installed sound card before startup:
 use relocade_dos::{Configuration, SoundCard};
 
 relocade_dos_app::run_with_configuration(Configuration {
-    sound_card: SoundCard::None,
+    sound_card: SoundCard::SoundBlaster2,
 })?;
 ```
 
@@ -36,9 +36,32 @@ export. Embeddings that construct DOS directly use
 `Dos::with_configuration(runner, configuration).await`; `Dos::new` keeps the
 default. This selects emulated hardware independently of host output.
 
+Select `SoundCard::SoundBlaster2` for sampled effects and OPL2 music. Its fixed
+settings are base `0x220`, IRQ 7, DMA 1 and DSP version 2.01. On DOS, the card's
+installer normally added `SET BLASTER=A220 I7 D1 T3` to `AUTOEXEC.BAT`; the shell
+supplied the variable to programs. `Dos::initial_environment()` derives these
+defaults from the installed card's typed hardware settings. An embedding can
+initialize its environment once when preparing the session, then keep and edit it:
+
+```rust,ignore
+let environment = dos.initial_environment();
+
+// For each launch, borrow the launcher's current entries.
+let entries: Vec<_> = environment.iter().map(Vec::as_slice).collect();
+dos.launch_com(&image, relocade_dos::LoadOptions {
+    environment: &entries,
+    ..Default::default()
+})?;
+```
+
+The same option applies to `launch_mz`. The launcher owns the environment after
+setup: changes and removals are preserved by passing those entries to later
+launches. DOS copies exactly what the caller supplies. `BLASTER` describes the
+installed settings, and changing its value does not reconfigure the card.
+
 The application entrypoint connects existing owners. One execution worker owns
-DOS/keyboard/VGA/speaker/AdLib and the Rust command loop. It sends the native console's
-input sender, `dos.mouse_input()` and `dos.frames()` through a startup
+DOS, keyboard, VGA, speaker, the selected sound card and the Rust command loop.
+It sends the native console's input sender, `dos.mouse_input()` and `dos.frames()` through a startup
 channel. Main attaches those endpoints to its `AppHost` while driving the
 application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution
@@ -49,14 +72,20 @@ configuration and bounded Rust PCM sender go to the execution worker.
 `Dos::with_configuration` creates the selected hardware;
 `dos.attach_audio(config, samples).await` connects its mixer.
 Guest writes to PIT channel 2 and port 0x61 drive the speaker; writes to ports
-0x388/0x389 drive AdLib OPL2 music when installed. Both feed the same output stream.
+0x388/0x389 drive OPL2 music when installed. Sound Blaster DSP/DMA effects feed
+the same output stream alongside FM and the speaker.
 Attach audio before launching a guest to retain all note changes. Hardware state
 persists across guest process exits.
 
 For a program launched through `launch_com` or `launch_mz`, select **AdLib/OPL2**
 for music in the game's configuration. If effects are configured separately,
-PC speaker can play alongside it. Sound Blaster digital audio/DMA and OPL3
-extensions are not implemented. The native prompt has no sound-device command.
+PC speaker can play alongside it. With `SoundBlaster2` selected, choose
+**Sound Blaster 2.0**, port **220**, IRQ **7**, DMA **1** for effects and
+**AdLib/OPL2** for music. Unsigned 8-bit mono PCM supports single-cycle,
+auto-initialize and high-speed playback, plus direct DAC and timed silence.
+Recording, ADPCM, MIDI, C/MS, SB Pro stereo and SB16/OPL3 are outside the
+[SB2 playback subset](../../crates/sound-blaster/README.md).
+The native prompt has no sound-device command.
 See the [AdLib compatibility and license notes](../../crates/adlib/README.md) for
 the core's limits and LGPL distribution requirements.
 
