@@ -2,7 +2,7 @@
 
 /// A bounded CPU address window into contiguous physical VRAM. The device
 /// supplies a window whose entire backing range is valid.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct VramWindow {
     pub cpu_start: u32,
     pub vram_start: u32,

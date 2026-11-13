@@ -141,6 +141,14 @@ pub(crate) struct WriteControls {
 }
 
 impl WriteControls {
+    pub fn passes_bytes_through(&self) -> bool {
+        self.mode == 0
+            && self.rotate == 0
+            && self.operation == 0
+            && self.mask == u32::MAX
+            && self.enable_set_reset == 0
+    }
+
     /// The CPU read latches supply both logical-operation input and masked bits.
     /// A write never reloads them from the destination address.
     #[inline]

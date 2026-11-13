@@ -88,7 +88,12 @@ CPU latches from one physical word. Writes apply the graphics logic to four plan
 bytes together and store them with one prepared plane mask. These controls remain
 current while packed access is active, so returning to VGA needs no register replay.
 
-`device.rs` owns guest bus dispatch. CPU memory transfers, ordinary reads, index
+`device.rs` owns guest bus dispatch. Configuration changes install disabled,
+packed or VGA MMIO operations. VGA writes that pass CPU
+bytes through unchanged use a direct operation; other writes retain the graphics
+logic. Packed bank changes update a prepared window without replacing handlers.
+
+CPU memory transfers, ordinary reads, index
 writes and CPU bank changes do not advance the raster. Display register writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally
 advance the old raster phase. Timing changes replace the pending deadline. In VGA,
