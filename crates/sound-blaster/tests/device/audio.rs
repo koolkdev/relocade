@@ -3,6 +3,39 @@ use std::{future::Future, pin::pin, task::Poll};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn timed_silence_zeros_the_dac_and_completes_without_consuming_dma() {
+    let hw = Hardware::new();
+    let mut source = hw.card.borrow().audio_source();
+    hw.program_dma(0x100, 3);
+    hw.command(&[0xd1, 0x10, 0, 0x40, 156]);
+    hw.clock.advance_by(Duration::from_micros(50));
+    hw.command(&[0x80, 2, 0]); // Three 100 us periods, completing at 350 us.
+    let mut activity = pin!(SoundBlaster::run(hw.card.clone()));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    hw.clock.advance_by(Duration::from_micros(299));
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    assert!(hw.io.poll_interrupt(&mut cx).is_pending());
+    assert_eq!(hw.dma_word(relocade_dma::ADDRESS_PORTS[1]), 0x100);
+    hw.clock.advance_by(Duration::from_micros(1));
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    hw.acknowledge_irq();
+    assert_eq!(hw.dma_word(relocade_dma::ADDRESS_PORTS[1]), 0x100);
+    assert_eq!(hw.dma_word(relocade_dma::COUNT_PORTS[1]), 3);
+    hw.clock.advance_by(Duration::from_micros(50));
+    let output: Vec<_> = (0..4)
+        .map(|index| {
+            source.sample(
+                hw.clock.at(Duration::from_micros(index * 100))
+                    ..hw.clock.at(Duration::from_micros((index + 1) * 100)),
+            )
+        })
+        .collect();
+    assert_eq!(output, [-0.5, 0.0, 0.0, 0.0]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dma_reprogramming_preserves_samples_from_the_old_buffer() {
     let hw = Hardware::new();
     let mut source = hw.card.borrow().audio_source();

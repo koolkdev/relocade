@@ -59,7 +59,18 @@ coalesce on the DSP line.
 fractional sample phase intact. `0xda` stops after the current DSP block; a
 single-cycle `0x14` command received during streaming instead queues one final
 block after that boundary. These operations work without platform audio output.
-High-speed commands and timed silence follow in the next part.
+
+`0x91` plays one high-speed block and `0x90` repeats high-speed blocks, using the
+size from `0x48` and the same transfer engine. The write-status port stays busy
+and DSP command writes are ignored during high-speed playback. Single-cycle
+completion restores command access; high-speed auto-initialize needs a reset.
+A reset pulse aborts high-speed playback while preserving rate, block size and
+DAC settings. The reset handshake still reports `0xaa` after initialization.
+Normal reset clears those settings. FM and guest DMA programming are unaffected.
+
+`0x80` takes a little-endian duration minus one in sample periods. It sets the
+DAC to silence and raises an IRQ when that duration ends, without DMA reads or
+address/count changes. It uses the existing playback clock and completion path.
 
 Recording, ADPCM, MIDI and optional C/MS chips are outside this playback subset.
 The implementation follows Creative's [Sound Blaster Hardware Programming

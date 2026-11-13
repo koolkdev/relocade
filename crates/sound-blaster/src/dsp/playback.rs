@@ -11,6 +11,21 @@ enum Mode {
     AutoInitialize,
     ExitAutoInitialize,
     SingleAfterBlock(u32),
+    HighSpeedSingle,
+    HighSpeedAutoInitialize,
+    Silence,
+}
+
+impl Mode {
+    fn auto_initialize(self) -> bool {
+        matches!(
+            self,
+            Self::AutoInitialize
+                | Self::ExitAutoInitialize
+                | Self::SingleAfterBlock(_)
+                | Self::HighSpeedAutoInitialize
+        )
+    }
 }
 
 struct Transfer {
@@ -45,9 +60,14 @@ impl Playback {
     }
 
     pub fn reset(&mut self) {
-        self.transfer = None;
+        self.stop();
         self.time_constant = 0;
         self.block_size = 65_536;
+    }
+
+    /// Aborts the transfer while retaining DSP rate and block-size programming.
+    pub fn stop(&mut self) {
+        self.transfer = None;
         self.acknowledge();
     }
 
@@ -69,7 +89,7 @@ impl Playback {
     pub fn start(&mut self, count: u16) {
         let count = u32::from(count) + 1;
         if let Some(transfer) = &mut self.transfer {
-            if !matches!(transfer.mode, Mode::Single) {
+            if transfer.mode.auto_initialize() {
                 transfer.mode = Mode::SingleAfterBlock(count);
                 return;
             }
@@ -79,6 +99,29 @@ impl Playback {
 
     pub fn start_auto_initialize(&mut self) {
         self.begin(self.block_size, Mode::AutoInitialize);
+    }
+
+    pub fn start_high_speed(&mut self, auto_initialize: bool) {
+        let mode = if auto_initialize {
+            Mode::HighSpeedAutoInitialize
+        } else {
+            Mode::HighSpeedSingle
+        };
+        self.begin(self.block_size, mode);
+    }
+
+    pub fn is_high_speed(&self) -> bool {
+        self.transfer.as_ref().is_some_and(|transfer| {
+            matches!(
+                transfer.mode,
+                Mode::HighSpeedSingle | Mode::HighSpeedAutoInitialize
+            )
+        })
+    }
+
+    pub fn silence(&mut self, count: u16, dac: &mut Dac) {
+        self.begin(u32::from(count) + 1, Mode::Silence);
+        dac.write(self.clock.now(), 0x80);
     }
 
     fn begin(&mut self, count: u32, mode: Mode) {
@@ -92,7 +135,9 @@ impl Playback {
 
     pub fn pause(&mut self) {
         if let Some(transfer) = &mut self.transfer {
-            transfer.paused_at.get_or_insert_with(|| self.clock.now());
+            if !matches!(transfer.mode, Mode::Silence) {
+                transfer.paused_at.get_or_insert_with(|| self.clock.now());
+            }
         }
     }
 
@@ -107,7 +152,7 @@ impl Playback {
 
     pub fn exit_auto_initialize(&mut self) {
         if let Some(transfer) = &mut self.transfer {
-            if !matches!(transfer.mode, Mode::Single) {
+            if transfer.mode.auto_initialize() {
                 transfer.mode = Mode::ExitAutoInitialize;
             }
         }
@@ -142,26 +187,36 @@ impl Playback {
         let memory = self.memory.view().with_io_context(context);
         while due != 0 {
             let requested = due.min(u128::from(transfer.remaining)) as usize;
-            let mut samples = vec![0; requested];
-            let consumed = self
-                .dma
-                .borrow_mut()
-                .read(DMA_CHANNEL, &memory, &mut samples);
-            let first_sample = self.clock.add(transfer.at, period);
+            let consumed = if matches!(transfer.mode, Mode::Silence) {
+                requested
+            } else {
+                let mut samples = vec![0; requested];
+                let consumed = self
+                    .dma
+                    .borrow_mut()
+                    .read(DMA_CHANNEL, &memory, &mut samples);
+                let first_sample = self.clock.add(transfer.at, period);
+                samples.truncate(consumed);
+                dac.write_samples(first_sample, period, samples);
+                consumed
+            };
             transfer.at = self.clock.add(transfer.at, period * consumed as u32);
             transfer.remaining -= consumed as u32;
             due -= consumed as u128;
-            samples.truncate(consumed);
-            dac.write_samples(first_sample, period, samples);
             if transfer.remaining == 0 {
                 // Multiple completed blocks share the DSP's latched IRQ line.
                 self.irq.set_level(true);
                 match transfer.mode {
-                    Mode::Single | Mode::ExitAutoInitialize => {
+                    Mode::Single
+                    | Mode::ExitAutoInitialize
+                    | Mode::HighSpeedSingle
+                    | Mode::Silence => {
                         self.transfer = None;
                         return;
                     }
-                    Mode::AutoInitialize => transfer.remaining = self.block_size,
+                    Mode::AutoInitialize | Mode::HighSpeedAutoInitialize => {
+                        transfer.remaining = self.block_size
+                    }
                     Mode::SingleAfterBlock(count) => {
                         transfer.remaining = count;
                         transfer.mode = Mode::Single;
@@ -181,6 +236,11 @@ impl Playback {
             .as_ref()
             .filter(|t| t.paused_at.is_none())
             .map(|transfer| {
+                if matches!(transfer.mode, Mode::Silence) {
+                    return self
+                        .clock
+                        .add(transfer.at, self.period() * transfer.remaining);
+                }
                 // Batch elapsed samples at about 1 ms, or sooner for completion.
                 let batch = (1_000 / self.period().as_micros() as u32).max(1);
                 self.clock
