@@ -5,7 +5,7 @@
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use crate::expression::BinaryOp as Binary;
-use std::{cell::RefCell, num::NonZeroUsize};
+use std::{cell::RefCell, num::NonZeroUsize, rc::Rc};
 
 use crate::{
     bitwise::BitwiseOp,
@@ -17,6 +17,7 @@ use crate::{
 mod assume;
 mod comparisons;
 mod constraints;
+mod dependencies;
 mod infer;
 mod lanes;
 mod merge;
@@ -26,6 +27,7 @@ mod shifts;
 mod storage;
 use comparisons::Comparisons;
 use constraints::Constraints;
+use dependencies::{Demand, Dependencies};
 pub(super) use infer::Inference;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
@@ -87,6 +89,7 @@ pub(super) struct ScalarFacts {
     constraints: Constraints,
     answers: RefCell<Storage<Answer>>,
     pending: RefCell<Vec<Inference>>,
+    dependencies: Rc<RefCell<Dependencies>>,
 }
 
 /// Observations established together before a block's facts are queried.
@@ -106,6 +109,7 @@ impl Clone for ScalarFacts {
             constraints: self.constraints.clone(),
             answers: RefCell::default(),
             pending: RefCell::default(),
+            dependencies: self.dependencies.clone(),
         }
     }
 }
@@ -137,6 +141,7 @@ impl ScalarFacts {
     }
 
     pub(in crate::place) fn record_reduction(&mut self, recipe: usize, residual: usize) {
+        self.dependencies.borrow_mut().alias(recipe, residual);
         let answers = self.answers.get_mut();
         let encoded = NonZeroUsize::new(residual + 1).unwrap();
         answers.get_or_insert_default(recipe).residual = Some(encoded);
@@ -182,9 +187,36 @@ impl ScalarFacts {
             observation.word.value
         } else {
             self.known.insert(id, bits);
-            id
+            self.constraints.changed(id);
+            self.invalidate_value(id);
+            return;
         };
         self.changed(source);
+    }
+
+    pub(in crate::place) fn track_reduction(&self, table: &ValueTable, id: usize) {
+        self.dependencies
+            .borrow_mut()
+            .track(table, Demand::Reduction(id));
+    }
+
+    fn invalidate_value(&mut self, id: usize) {
+        let answers = self.answers.get_mut();
+        self.dependencies.borrow_mut().invalidate(id, |demand| {
+            let (id, bits) = match demand {
+                Demand::Bits(id) => (id, true),
+                Demand::Reduction(id) => (id, false),
+            };
+            if answers.get(&id).is_none() {
+                return false;
+            }
+            let answer = answers.get_or_insert_default(id);
+            if bits {
+                answer.bits.take().is_some()
+            } else {
+                answer.residual.take().is_some()
+            }
+        });
     }
 
     fn changed(&mut self, id: usize) {

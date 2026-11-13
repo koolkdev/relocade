@@ -82,6 +82,7 @@ impl Reducer {
                     if scope.facts.reduced(id).is_some() {
                         continue;
                     }
+                    scope.facts.track_reduction(values, id);
                     if let Some(step) = scope.facts.constant_inference(values, id) {
                         self.pending.push(Work::Visit(id));
                         self.pending.push(Work::Infer(step));
