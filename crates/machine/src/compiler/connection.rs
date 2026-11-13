@@ -1,4 +1,4 @@
-use super::{compile, BlockRequest, CompilerService, Endpoint, Reply};
+use super::{compile, BlockRequest, CompilerService, Endpoint, FunctionRequest, Reply};
 use crate::{
     worker::{self, ChannelError, PoolHandle, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Memory, Result,
@@ -14,8 +14,13 @@ pub(crate) struct Connection {
 }
 
 pub struct Request {
-    pub target: ExecutionTarget,
-    pub blocks: Vec<BlockRequest>,
+    pub(super) target: ExecutionTarget,
+    pub(super) compilation: Compilation,
+}
+
+pub(super) enum Compilation {
+    Blocks(Vec<BlockRequest>),
+    Function(FunctionRequest),
 }
 
 #[derive(Transfer)]
@@ -85,7 +90,7 @@ impl Start {
                     compiler,
                     &self.memory,
                     request.target,
-                    &request.blocks,
+                    request.compilation,
                     jobs,
                 )
                 .await;
