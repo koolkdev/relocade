@@ -2434,6 +2434,7 @@ dependencies = [
  "futures-lite",
  "futures-timer",
  "pollster",
+ "relocade-adlib",
  "relocade-bios",
  "relocade-clock-test-support",
  "relocade-frontend",
