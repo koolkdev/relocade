@@ -26,8 +26,9 @@ pub(crate) struct MemoryChanges {
 /// A complete display snapshot independent of the live device and other captures.
 /// Retains physical memory covering the active scanout, including complete VGA
 /// planes and font banks. No memory is repacked into visible pixels, and no
-/// previous capture is required to interpret this snapshot. Cloning shares
-/// immutable blocks; guest writes copy a shared block before changing it.
+/// previous capture is required to interpret this snapshot. Capturing copies
+/// written blocks from live VRAM and shares untouched immutable blocks. Cloning
+/// shares those blocks; guest writes never modify captured storage.
 #[derive(Clone)]
 pub struct DisplaySnapshot {
     pub dac: DacSnapshot,

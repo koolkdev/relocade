@@ -189,7 +189,7 @@ fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
+fn refreshes_publish_writes_and_display_changes() {
     let clock = ManualClock::default();
     let vga = common::text_vga(clock.clock());
     let mut video = std::pin::pin!(DispiAdapter::run(vga.device.clone()));
@@ -243,6 +243,14 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
         panic!("changed registers must wake the consumer");
     };
     assert_eq!(latest.vga().unwrap().crtc.values[0x0f], 1);
+
+    // Rewriting identical bytes still publishes a frame without comparing VRAM.
+    vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
+    tick(&clock, video.as_mut(), boundary(6));
+    let rewritten = source.try_recv().unwrap();
+    assert!(!latest.shares_vram_with(&rewritten));
+    assert_eq!(rewritten.plane_byte(0, 0), 0xdb);
+
     // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
     // attribute phase: the cursor has completed a full cycle in between.
     for (frame, cursor_on, attribute_on) in [(8, false, true), (24, false, false)] {

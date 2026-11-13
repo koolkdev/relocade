@@ -1,9 +1,10 @@
 use super::BLOCKS;
+#[cfg(feature = "renderer")]
 use std::ops::Range;
 
 const PAGE_BYTES: usize = 1024;
 
-/// One bit for each physical 1-KiB page, independent of the display layout.
+/// Physical 1-KiB page bitmap, independent of the display layout.
 #[derive(Clone, Copy)]
 pub(crate) struct DirtyPages([u64; BLOCKS]);
 
@@ -14,6 +15,7 @@ impl Default for DirtyPages {
 }
 
 impl DirtyPages {
+    #[cfg(feature = "renderer")]
     pub fn merge(&mut self, other: Self) {
         for (pages, pending) in self.0.iter_mut().zip(other.0) {
             *pages |= pending;
@@ -28,7 +30,26 @@ impl DirtyPages {
         self.0[block] = u64::MAX;
     }
 
+    pub fn mark_range(&mut self, address: usize, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        for page in address / PAGE_BYTES..=(address + bytes - 1) / PAGE_BYTES {
+            self.0[page / 64] |= 1 << (page % 64);
+        }
+    }
+
+    pub fn take_block(&mut self, block: usize) -> u64 {
+        std::mem::take(&mut self.0[block])
+    }
+
+    #[cfg(feature = "renderer")]
+    pub fn mark_pages(&mut self, block: usize, pages: u64) {
+        self.0[block] |= pages;
+    }
+
     /// Consecutive dirty pages become one byte range within this block.
+    #[cfg(feature = "renderer")]
     pub fn ranges(self, block: usize) -> impl Iterator<Item = Range<usize>> {
         let mut pages = self.0[block];
         std::iter::from_fn(move || {

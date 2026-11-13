@@ -11,7 +11,7 @@ use std::{cell::RefCell, rc::Rc};
 impl DispiAdapter {
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable memory and copies the active display settings and DAC.
+    /// Copies written memory blocks and the active display settings and DAC.
     /// Packed SVGA captures own their layout independently of the CPU bank.
     /// The display-start latch stays at the last serviced VGA retrace; this does not
     /// force pending CRTC start-address writes to become effective.

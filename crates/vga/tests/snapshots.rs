@@ -124,7 +124,7 @@ fn newest_capture_contains_changes_from_skipped_frames() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn snapshots_share_memory_until_a_final_physical_byte_changes() {
+fn snapshots_share_memory_until_physical_bytes_are_written() {
     let vga = ConnectedVga::new(ManualClock::new().clock());
     font_access(&vga.io);
     indexed(&vga.io, 0x3c4, 2, 0x0f);
@@ -148,10 +148,17 @@ fn snapshots_share_memory_until_a_final_physical_byte_changes() {
     vga.io.read_mmio(0xa0125, 1); // Load the existing byte into the latch.
     indexed(&vga.io, 0x3ce, 8, 0); // Preserve every latched bit.
     vga.io.write_mmio(0xa0125, 1, 0xff);
+    let rewritten = vga.snapshot();
+    assert!(!changed.shares_vram_with(&rewritten));
+    for plane in 0..4 {
+        assert!(changed
+            .plane_bytes(plane, 0..65536)
+            .eq(rewritten.plane_bytes(plane, 0..65536)));
+    }
     indexed(&vga.io, 0x3c4, 2, 0); // Reject the write entirely.
     vga.io.write_mmio(0xa0125, 1, 0);
     let unchanged = vga.snapshot();
-    assert!(changed.shares_vram_with(&unchanged));
+    assert!(rewritten.shares_vram_with(&unchanged));
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

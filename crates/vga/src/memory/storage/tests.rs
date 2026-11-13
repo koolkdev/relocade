@@ -37,19 +37,21 @@ fn physical_addresses_follow_the_linear_backing_through_extended_memory() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn snapshots_share_unchanged_blocks_and_retain_previous_bytes() {
+fn snapshots_share_untouched_blocks_and_retain_previous_bytes() {
     let mut memory = Storage::default();
     memory.write(9, 0xa5);
     let before = memory.snapshot(VIDEO_MEMORY_BYTES).blocks;
     memory.write(9, 0xa5);
     memory.write(0x40000, 0x5a);
-    let unchanged = memory.snapshot(VIDEO_MEMORY_BYTES).blocks;
-    for block in 0..4 {
-        assert!(Arc::ptr_eq(&before[block], &unchanged[block]));
+    let rewritten = memory.snapshot(VIDEO_MEMORY_BYTES).blocks;
+    assert!(!Arc::ptr_eq(&before[0], &rewritten[0]));
+    assert_eq!(before[0], rewritten[0]);
+    for block in 1..4 {
+        assert!(Arc::ptr_eq(&before[block], &rewritten[block]));
     }
     assert_eq!(before[4][0], 0);
-    assert_eq!(unchanged[4][0], 0x5a);
-    assert!(!Arc::ptr_eq(&before[4], &unchanged[4]));
+    assert_eq!(rewritten[4][0], 0x5a);
+    assert!(!Arc::ptr_eq(&before[4], &rewritten[4]));
     memory.write(9, 0x5a);
     let after = memory.snapshot(VIDEO_MEMORY_BYTES).blocks;
     assert_eq!(before[0][9], 0xa5);
@@ -57,9 +59,14 @@ fn snapshots_share_unchanged_blocks_and_retain_previous_bytes() {
     for block in 1..4 {
         assert!(Arc::ptr_eq(&before[block], &after[block]));
     }
+    memory.write(9, 0xa5);
+    memory.write(9, 0x5a);
+    let restored = memory.snapshot(VIDEO_MEMORY_BYTES);
+    assert!(!Arc::ptr_eq(&after[0], &restored.blocks[0]));
+    assert_eq!(after[0], restored.blocks[0]);
     drop(memory);
     assert_eq!(before[0][9], 0xa5);
-    assert_eq!(unchanged[4][0], 0x5a);
+    assert_eq!(rewritten[4][0], 0x5a);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -91,6 +98,7 @@ fn packed_writes_track_distinct_pages_throughout_physical_memory() {
     memory.write(0x3ffff, 2);
     memory.write(0x40000, 3);
     memory.write(0x3fffff, 4);
+    memory.snapshot(VIDEO_MEMORY_BYTES);
     assert_eq!(
         memory.changed_pages().ranges(0).collect::<Vec<_>>(),
         vec![4096..5120]
@@ -111,15 +119,25 @@ fn packed_writes_track_distinct_pages_throughout_physical_memory() {
     memory.write(0x1003, 1);
     memory.write(0x40000, 3);
     memory.write(0x3fffff, 4);
-    assert_eq!(memory.changed_pages().ranges(0).count(), 0);
+    memory.snapshot(VIDEO_MEMORY_BYTES);
+    assert_eq!(
+        memory.changed_pages().ranges(0).collect::<Vec<_>>(),
+        vec![4096..5120]
+    );
     assert_eq!(memory.changed_pages().ranges(3).count(), 0);
-    assert_eq!(memory.changed_pages().ranges(4).count(), 0);
-    assert_eq!(memory.changed_pages().ranges(63).count(), 0);
+    assert_eq!(
+        memory.changed_pages().ranges(4).collect::<Vec<_>>(),
+        vec![0..1024]
+    );
+    assert_eq!(
+        memory.changed_pages().ranges(63).collect::<Vec<_>>(),
+        vec![64512..65536]
+    );
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn consecutive_writes_cross_blocks_and_copy_only_changed_storage() {
+fn consecutive_writes_copy_each_written_block() {
     let mut memory = Storage::default();
     memory.write_bytes(0xfffe, &[1, 2, 3, 4]);
     let before = memory.snapshot(VGA_MEMORY_BYTES);
@@ -130,30 +148,35 @@ fn consecutive_writes_cross_blocks_and_copy_only_changed_storage() {
     assert_eq!(&before.blocks[0][0xfffe..], &[1, 2]);
     assert_eq!(&before.blocks[1][..3], &[3, 4, 0]);
     assert_eq!(&after.blocks[1][..3], &[5, 6, 0]);
-    for block in [0, 2, 3] {
+    for block in [2, 3] {
         assert!(Arc::ptr_eq(&before.blocks[block], &after.blocks[block]));
     }
+    assert!(!Arc::ptr_eq(&before.blocks[0], &after.blocks[0]));
     assert!(!Arc::ptr_eq(&before.blocks[1], &after.blocks[1]));
     #[cfg(feature = "renderer")]
     {
-        assert_eq!(memory.changed_pages().ranges(0).count(), 0);
+        assert_eq!(
+            memory.changed_pages().ranges(0).collect::<Vec<_>>(),
+            vec![64512..65536]
+        );
         assert_eq!(
             memory.changed_pages().ranges(1).collect::<Vec<_>>(),
             vec![0..1024]
         );
         memory.clear_changes();
-        // Crossing a page with equal trailing bytes must not mark that page.
+        // Both pages are written, including the equal trailing byte.
         memory.write_bytes(0x103ff, &[7, 0]);
+        memory.snapshot(VGA_MEMORY_BYTES);
         assert_eq!(
             memory.changed_pages().ranges(1).collect::<Vec<_>>(),
-            vec![0..1024]
+            vec![0..2048]
         );
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn clearing_vram_preserves_snapshots_and_invalidates_every_physical_block() {
+fn clearing_vram_preserves_snapshots_and_marks_all_pages() {
     let mut memory = Storage::default();
     memory.write(0x3ffff, 0xa5);
     memory.write(0x3fffff, 0x5a);
@@ -161,14 +184,15 @@ fn clearing_vram_preserves_snapshots_and_invalidates_every_physical_block() {
     #[cfg(feature = "renderer")]
     memory.clear_changes();
     memory.clear();
+    memory.snapshot(VIDEO_MEMORY_BYTES);
     assert_eq!(memory.read(0x3ffff), 0);
     assert_eq!(memory.read(0x3fffff), 0);
     assert_eq!(before[3][0xffff], 0xa5);
     assert_eq!(before[63][0xffff], 0x5a);
     #[cfg(feature = "renderer")]
-    for plane in 0..BLOCKS {
+    for block in 0..BLOCKS {
         assert_eq!(
-            memory.changed_pages().ranges(plane).collect::<Vec<_>>(),
+            memory.changed_pages().ranges(block).collect::<Vec<_>>(),
             vec![0..65536]
         );
     }

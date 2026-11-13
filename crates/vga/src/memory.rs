@@ -4,9 +4,7 @@ mod storage;
 pub(crate) use storage::MemorySnapshot;
 use storage::Storage;
 
-#[cfg(feature = "renderer")]
 mod pages;
-#[cfg(feature = "renderer")]
 pub(crate) use pages::DirtyPages;
 
 pub(crate) const BLOCK_BYTES: usize = 65536;

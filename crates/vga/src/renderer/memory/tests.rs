@@ -108,8 +108,16 @@ fn packed_snapshots_preserve_skipped_extended_writes_and_clear_on_mode_entry() {
     io.write_port(0x1cf, 2, 1);
     let cleared = take(&vga, &io, video.as_mut(), &clock);
     let writes = uploads.update(&cleared);
-    assert_eq!(writes.len(), 5);
-    assert!(writes.iter().all(|(_, bytes)| *bytes == 65536));
+    assert_eq!(
+        writes,
+        [
+            (0, 65536),
+            (65536, 65536),
+            (131072, 65536),
+            (196608, 65536),
+            (262144, 65536),
+        ]
+    );
     assert_eq!(cleared.vram_byte(0x42003), Some(0));
     assert_eq!(latest.vram_byte(0x42003), Some(3));
 }
@@ -232,7 +240,7 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_memory_edge
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn routing_and_masks_mark_only_final_physical_changes() {
+fn routing_and_masks_mark_only_written_physical_pages() {
     let clock = ManualClock::default();
     let (vga, io, mut video) = start_video(&clock);
     planar(&io, 15);
@@ -249,18 +257,17 @@ fn routing_and_masks_mark_only_final_physical_changes() {
     io.write_port(0x3ce, 2, 0x0008); // Pixel mask preserves the latches.
     io.write_mmio(0xa0401, 1, 0xff);
     io.write_port(0x3c4, 2, 0x0002); // No selected write planes.
-    io.write_mmio(0xa0401, 1, 0);
+    io.write_mmio(0xa0801, 1, 0);
     io.write_port(0x3c2, 1, 0x41); // RAM disabled.
-    io.write_mmio(0xa0401, 1, 0);
+    io.write_mmio(0xa1001, 1, 0);
     io.write_port(0x3c2, 1, 0x43);
     io.write_port(0x3c4, 2, 0x0f02);
     io.write_port(0x3ce, 2, 0xff08);
-    // A real edit in another page makes false dirty bits from the no-op writes
-    // observable, even though unchanged blocks would otherwise skip uploading.
+    // Equal and latch-preserving stores mark their page; rejected writes do not.
     io.write_mmio(0xa0c01, 1, 0x33);
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(12288, 1024)]
+        [(4096, 1024), (12288, 1024)]
     );
 }
 
