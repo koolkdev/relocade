@@ -4,7 +4,7 @@ mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver};
+use crate::{runtime::ExecutionTurn, Clock, Cpu, GuestTimeDriver};
 use relocade_x86::ExecutionExit;
 use std::task::{ready, Context, Poll, Waker};
 
@@ -60,7 +60,7 @@ impl ExecutionSchedule {
         cx: &mut Context<'_>,
     ) -> Poll<Option<ExecutionExit>> {
         let result = if let Some(exit) = cpu.poll_host_work(cx) {
-            Poll::Ready(exit)
+            Poll::Ready(ExecutionTurn::Exit(exit))
         } else {
             if let Some(guest) = &self.guest {
                 if let Some(slice) = &guest.slice {
@@ -78,11 +78,15 @@ impl ExecutionSchedule {
                 .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
         }
         match result {
-            Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
-            Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
+            Poll::Ready(ExecutionTurn::Yield | ExecutionTurn::Exit(ExecutionExit::Interrupted)) => {
                 Poll::Ready(None)
             }
-            Poll::Ready(exit) => Poll::Ready(Some(exit)),
+            Poll::Ready(ExecutionTurn::Exit(ExecutionExit::BudgetExhausted))
+                if self.guest.is_some() =>
+            {
+                Poll::Ready(None)
+            }
+            Poll::Ready(ExecutionTurn::Exit(exit)) => Poll::Ready(Some(exit)),
             Poll::Pending => {
                 // Let ready activities replace their waits before advancing idle
                 // time. Neither a wake nor a replaced deadline resets the slice.

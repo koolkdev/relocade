@@ -1,13 +1,16 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
 mod hooks;
+mod profiling;
 mod table;
 
 use super::{
-    code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
+    code, hooks::Handler, CpuContext, ExecutionTurn, Hook, RuntimeMemory, WasmRuntime,
+    WasmRuntimeHandle,
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
+use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
@@ -28,10 +31,12 @@ pub(super) struct CpuInstance {
     pub(super) io: IoBus,
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
+    resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     table: DispatchTable<WasmRuntime>,
+    pub(super) profiling: Profiling,
     hooks: Hooks,
 }
 
@@ -53,15 +58,19 @@ impl CpuInstance {
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let table = DispatchTable::new(wasm)?;
+            let profiling = Profiling::new(wasm)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.extend(table.imports(wasm));
+            imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
             let instance = wasm.instantiate(&dispatcher, &imports)?;
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
             let interpret = wasm.function(&instance, abi::INTERPRET)?;
+            let resolve_call = wasm.function(&instance, abi::RESOLVE_CALL)?;
 
             imports.extend([
                 wasm.bind(abi::DISPATCH, &dispatch),
                 wasm.bind(abi::INTERPRET, &interpret),
+                wasm.bind(abi::RESOLVE_CALL, &resolve_call),
             ]);
             io.port_map().initialize(wasm, &io.downgrade())?;
             imports.extend(io.port_map().imports(wasm));
@@ -91,10 +100,12 @@ impl CpuInstance {
                 io,
                 dispatch,
                 interpret,
+                resolve_call,
                 step,
                 interrupt,
                 far_call,
                 table,
+                profiling,
                 hooks: Hooks::default(),
             })
         })
@@ -109,9 +120,11 @@ impl CpuInstance {
         }
     }
 
-    pub(super) fn run(&mut self) -> ExecutionExit {
-        self.runtime
-            .with_runtime(|wasm| self.dispatch.call(wasm, ()))
+    pub(super) fn run(&mut self) -> ExecutionTurn {
+        self.runtime.with_runtime(|wasm| {
+            let exit = self.dispatch.call(wasm, ());
+            self.profiling.finish(wasm, exit)
+        })
     }
 
     pub(super) fn enter_interrupt(&mut self, vector: u8) -> ExecutionExit {
@@ -134,7 +147,11 @@ impl CpuInstance {
 
     #[cold]
     pub(super) fn step(&mut self) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| self.step.call(wasm, ()))
+        self.runtime.with_runtime(|wasm| {
+            let exit = self.step.call(wasm, ());
+            self.profiling.collect_if_required(wasm);
+            exit
+        })
     }
 
     pub(super) async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
@@ -171,9 +188,11 @@ impl CpuInstance {
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.table.imports(wasm));
+            imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
                 wasm.bind(abi::DISPATCH, &self.dispatch),
                 wasm.bind(abi::INTERPRET, &self.interpret),
+                wasm.bind(abi::RESOLVE_CALL, &self.resolve_call),
             ]);
             imports.extend(self.io.port_map().imports(wasm));
             imports.extend(self.io.mmio_map().imports(wasm));

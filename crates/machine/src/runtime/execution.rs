@@ -17,6 +17,13 @@ use std::{
 };
 pub(super) use suspended::SuspendedCall;
 
+/// A completed CPU turn. Yield keeps the CPU runnable after internal work;
+/// an exit is returned to the execution owner. Poll::Pending denotes blocked work.
+pub(crate) enum ExecutionTurn {
+    Yield,
+    Exit(ExecutionExit),
+}
+
 /// Requests a return to the embedding after the current guest dispatch or host poll.
 /// Capture this with a service's other resources, for example when DOS terminates
 /// a program. The driver releases pending work and consumes the request before
@@ -88,11 +95,17 @@ impl Cpu {
     /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
-        poll_fn(|cx| match self.poll_host_work(cx) {
-            Some(exit) => Poll::Ready(exit),
-            None => self.poll_execution(cx),
-        })
-        .await
+        loop {
+            let turn = poll_fn(|cx| match self.poll_host_work(cx) {
+                Some(exit) => Poll::Ready(ExecutionTurn::Exit(exit)),
+                None => self.poll_execution(cx),
+            })
+            .await;
+            match turn {
+                ExecutionTurn::Yield => futures_lite::future::yield_now().await,
+                ExecutionTurn::Exit(exit) => return exit,
+            }
+        }
     }
 
     /// Polls the active host service once and observes exit requests without
@@ -110,7 +123,7 @@ impl Cpu {
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
     /// exit or pending service stops execution. New and resumed host calls are
     /// polled at their entries; existing host work is polled by `poll_host_work`.
-    pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+    pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionTurn> {
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
@@ -120,7 +133,10 @@ impl Cpu {
                 return Poll::Pending;
             }
 
-            let exit = self.run_guest();
+            let exit = match self.run_guest() {
+                ExecutionTurn::Exit(exit) => exit,
+                ExecutionTurn::Yield => return Poll::Ready(ExecutionTurn::Yield),
+            };
             if self.exit.0.get().is_some() {
                 continue;
             }
@@ -140,7 +156,7 @@ impl Cpu {
                 exit => break exit,
             };
         };
-        Poll::Ready(self.finish_exit(exit))
+        Poll::Ready(ExecutionTurn::Exit(self.finish_exit(exit)))
     }
 
     fn finish_exit(&mut self, exit: ExecutionExit) -> ExecutionExit {

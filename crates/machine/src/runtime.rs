@@ -57,6 +57,7 @@ use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
 pub use context::CpuContext;
 pub use error::{Error, Result};
+pub(crate) use execution::ExecutionTurn;
 pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
@@ -219,6 +220,12 @@ impl Cpu {
             "host call is pending; complete it before accessing the instance"
         );
         &mut self.instance
+    }
+
+    /// Collects pending observations and returns the call count for this Real16
+    /// destination. Installed entries and hooks are excluded from profiling.
+    pub fn call_count(&mut self, target: crate::FarPointer) -> u64 {
+        self.instance.call_count(target)
     }
 
     /// Retains live CPU state independently of the runner and its Wasm runtime.

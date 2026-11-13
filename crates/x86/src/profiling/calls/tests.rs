@@ -32,17 +32,16 @@ impl Recorder {
     }
 
     fn record(&mut self, target: u32) -> bool {
-        self.record.call(&mut self.store, target).unwrap() != 0
+        let recorded = self.record.call(&mut self.store, target).unwrap() != 0;
+        assert_eq!(
+            CallProfile::requires_drain(|offset| self.load(offset)),
+            !recorded
+        );
+        recorded
     }
 
     fn drain(&mut self) -> BTreeMap<u32, u64> {
-        let counts = CallProfile::read(|offset| {
-            let mut bytes = [0; 4];
-            self.memory
-                .read(&self.store, offset as usize, &mut bytes)
-                .unwrap();
-            u32::from_le_bytes(bytes)
-        });
+        let counts = CallProfile::read(|offset| self.load(offset));
         let mut result = BTreeMap::new();
         for entry in counts.iter() {
             *result.entry(entry.target).or_default() += u64::from(entry.count);
@@ -52,7 +51,16 @@ impl Recorder {
                 .write(&mut self.store, offset as usize, &value.to_le_bytes())
                 .unwrap();
         });
+        assert!(!CallProfile::requires_drain(|offset| self.load(offset)));
         result
+    }
+
+    fn load(&self, offset: u32) -> u32 {
+        let mut bytes = [0; 4];
+        self.memory
+            .read(&self.store, offset as usize, &mut bytes)
+            .unwrap();
+        u32::from_le_bytes(bytes)
     }
 }
 

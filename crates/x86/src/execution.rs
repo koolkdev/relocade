@@ -54,6 +54,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
+    near_call: bool,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -82,6 +83,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             single_step: false.into(),
             eip,
             completed: 0,
+            near_call: false,
             can_fallback: false,
             observed_cpu: None,
         })
@@ -334,9 +336,29 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Ends a block, checks execution controls and dispatches its successor.
-    pub(super) fn dispatch(self) -> Result<(), BuildError> {
+    pub(super) fn dispatch(mut self) -> Result<(), BuildError> {
         let runtime = self.runtime;
-        self.finish(true, |body, _| runtime.dispatch(body))
+        if self.near_call {
+            self.state
+                .publish(&mut self.body, &self.eip, self.completed)?;
+            // Call effects have succeeded. Record before any checkpoint can lose
+            // the call boundary, and reuse this lookup to enter the destination.
+            let (slot, can_continue) = runtime.resolve_call(&mut self.body)?;
+            self.checkpoint()?;
+            self.body.if_(can_continue.eq(false), |body| {
+                body.return_(crate::ExecutionExitValues::call_profile_full())
+            })?;
+            runtime.enter(self.body, slot)
+        } else {
+            self.finish(true, |body, _| runtime.dispatch(body))
+        }
+    }
+
+    fn checkpoint(&mut self) -> Result<(), BuildError> {
+        self.state.checkpoint(&mut self.body)?;
+        self.body.if_(&self.single_step, |body| {
+            body.return_(crate::ExecutionExitValues::step_complete())
+        })
     }
 
     /// Publishes an instruction and continues decoding within the current block.
@@ -355,10 +377,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
         if checkpoint {
-            self.state.checkpoint(&mut self.body)?;
-            self.body.if_(&self.single_step, |body| {
-                body.return_(crate::ExecutionExitValues::step_complete())
-            })?;
+            self.checkpoint()?;
         }
         continue_execution(self.body, &self.eip)
     }

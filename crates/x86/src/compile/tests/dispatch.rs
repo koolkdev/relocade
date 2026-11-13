@@ -194,6 +194,10 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
     linker
         .define(&store, "relocade", "executionEntries", entries)
         .unwrap();
+    let call_profile = Memory::new(&mut store, MemoryType::new(1, None)).unwrap();
+    linker
+        .define(&store, "relocade", "callProfile", call_profile)
+        .unwrap();
     let functions = Table::new(
         &mut store,
         TableType::new(RefType::FUNCREF, targets.len() as u32 + 1, None),
@@ -206,7 +210,7 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
     let instance = linker
         .instantiate(&mut store, dispatcher.wasmtime())
         .unwrap();
-    for name in ["dispatch", "interpret"] {
+    for name in ["dispatch", "interpret", "resolveCall"] {
         let function = instance.get_func(&mut store, name).unwrap();
         linker.define(&store, "relocade", name, function).unwrap();
     }

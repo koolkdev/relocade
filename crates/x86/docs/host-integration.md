@@ -478,6 +478,7 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
 | `physicalMap` | 1 | Real16 physical routing table at byte zero. |
 | `executionEntries` | 1 | Execution-address table. |
+| `callProfile` | 1 | Bounded CPU-local call observations, drained while execution is stopped. |
 
 Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
 `resolveSegment`, `completeSegmentLoad` and `querySegmentDescriptor`. Real16 interpreters import
@@ -490,7 +491,16 @@ require guest backing and the page table, protected-mode segment loads require
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Callable dispatch imports `executionEntries` and the `executionFunctions`
-function table. The interpreter itself requires neither import.
+function table, plus `callProfile` for unresolved calls. Interpreters import
+`resolveCall` and `executionFunctions` to resolve a completed near call once,
+record a miss, and enter its destination after checking execution controls.
+The runtime checks profiling pressure at each return from guest execution and
+collects full batches before resuming. `CallProfile::requires_drain` also detects
+pressure when a checkpoint or single-step exit took precedence over
+`CallProfileFull`. Smaller batches can be collected periodically or for an
+explicit profile query. `CallProfileFull` requests a yield after draining, with
+CPU state already at the callee; resumption must not replay the call or its
+return-address push.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

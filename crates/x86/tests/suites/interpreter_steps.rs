@@ -36,6 +36,7 @@ fn interpreter_step_exposes_host_abis() {
     Validator::new().validate_all(module.bytes()).unwrap();
     let mut types = Vec::new();
     let mut memories = Vec::new();
+    let mut tables = Vec::new();
     let mut functions = Vec::new();
     let mut imports = Vec::new();
     let mut exported = Vec::new();
@@ -61,6 +62,10 @@ fn interpreter_step_exposes_host_abis() {
                                 memory.shared,
                             ));
                         }
+                        TypeRef::Table(table) => {
+                            assert_eq!(table.element_type, wasmparser::RefType::FUNCREF);
+                            tables.push((import.name.to_owned(), table.initial, table.maximum));
+                        }
                         TypeRef::Func(signature) => {
                             imports.push((import.name.to_owned(), signature))
                         }
@@ -81,6 +86,7 @@ fn interpreter_step_exposes_host_abis() {
             _ => {}
         }
     }
+    assert_eq!(tables, [("executionFunctions".into(), 2, None)]);
     assert_eq!(
         memories,
         [
@@ -104,6 +110,7 @@ fn interpreter_step_exposes_host_abis() {
                 "querySegmentDescriptor",
                 (vec![ValType::I32], vec![ValType::I32; 6])
             ),
+            ("resolveCall", (vec![], vec![ValType::I32; 2])),
             ("completeSegmentLoad", (vec![ValType::I32], vec![])),
         ]
     );

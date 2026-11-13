@@ -1,6 +1,6 @@
 //! Synchronous guest execution, protected successors and halt transitions.
 
-use super::Cpu;
+use super::{Cpu, ExecutionTurn};
 use relocade_x86::ExecutionExit;
 
 impl Cpu {
@@ -35,9 +35,11 @@ impl Cpu {
         self.finish_guest_exit(exit)
     }
 
-    pub(super) fn run_guest(&mut self) -> ExecutionExit {
-        let exit = self.instance.run();
-        self.finish_guest_exit(exit)
+    pub(super) fn run_guest(&mut self) -> ExecutionTurn {
+        match self.instance.run() {
+            ExecutionTurn::Exit(exit) => ExecutionTurn::Exit(self.finish_guest_exit(exit)),
+            ExecutionTurn::Yield => ExecutionTurn::Yield,
+        }
     }
 
     /// Finish protected successors before polling IRQs or returning to Rust.

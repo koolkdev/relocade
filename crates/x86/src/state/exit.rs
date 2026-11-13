@@ -51,6 +51,9 @@ pub enum ExecutionExit {
     /// HLT completed. IP names its successor; retain the halt until an eligible
     /// interrupt is accepted. Ordinary host notifications do not resume the guest.
     Halted,
+    /// A completed near call exhausted the bounded observation batch. Drain it
+    /// before resuming at the published callee; the call must not be replayed.
+    CallProfileFull,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

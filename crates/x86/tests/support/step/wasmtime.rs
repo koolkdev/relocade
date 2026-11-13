@@ -124,6 +124,23 @@ impl TestModule {
             )
             .unwrap();
         linker
+            .func_wrap("relocade", "resolveCall", || (1u32, 1u32))
+            .unwrap();
+        let dispatch = linker
+            .get(&mut store, "relocade", "dispatch")
+            .unwrap()
+            .into_func()
+            .unwrap();
+        let functions = ::wasmtime::Table::new(
+            &mut store,
+            ::wasmtime::TableType::new(::wasmtime::RefType::FUNCREF, 2, None),
+            ::wasmtime::Ref::Func(Some(dispatch)),
+        )
+        .unwrap();
+        linker
+            .define(&store, "relocade", "executionFunctions", functions)
+            .unwrap();
+        linker
             .func_wrap(
                 "relocade",
                 "resolveSegment",

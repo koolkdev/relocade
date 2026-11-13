@@ -36,6 +36,12 @@ impl CallProfile {
     /// Required initialized bytes in [`crate::abi::CALL_PROFILE`].
     pub const BYTE_LEN: usize = (OCCUPIED + (CAPACITY + 1) * 4) as usize;
 
+    /// Reports overflow with one load, even when another execution exit took
+    /// precedence over the recorder's request. Drain before recording again.
+    pub fn requires_drain(mut load: impl FnMut(u32) -> u32) -> bool {
+        load(COUNTS + OVERFLOW_SLOT * 4) != 0
+    }
+
     /// Copies the occupied entries through little-endian 32-bit loads. Offsets
     /// are relative to the call-count memory, whose representation stays here.
     /// Clear this batch before resuming execution, including when it is empty.

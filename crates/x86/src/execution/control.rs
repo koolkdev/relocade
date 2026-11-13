@@ -4,9 +4,9 @@ mod far;
 
 pub(crate) use far::CodeTarget;
 
-use relocade_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{AtLeast, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, segment::Segment};
+use crate::{exception::Exception, memory::Intent, register::RegisterType, segment::Segment};
 
 use super::ExecutionBuilder;
 
@@ -33,6 +33,21 @@ impl ExecutionBuilder<'_, '_> {
 
     pub(crate) fn jump(&mut self, target: Val<I32>) -> Result<Val<I32>, BuildError> {
         self.check_code_target(&target, None)?;
+        Ok(target)
+    }
+
+    /// Completes a near call after checking its target and return-address push.
+    pub(crate) fn call<T: RegisterType>(
+        &mut self,
+        target: Val<I32>,
+        return_address: Val<I32>,
+    ) -> Result<Val<I32>, BuildError>
+    where
+        I32: AtLeast<T>,
+    {
+        self.check_code_target(&target, None)?;
+        self.push(return_address.truncate::<T>(), T::BYTES)?;
+        self.near_call = true;
         Ok(target)
     }
 
