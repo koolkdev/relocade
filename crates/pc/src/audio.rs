@@ -6,6 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 impl Pc {
     /// Attaches one mixed output on the execution worker. The PC clock drives
     /// synthesis; the bounded channel supplies interleaved PCM to playback.
+    /// Attach before executing guest code to capture the complete AdLib timeline.
     pub async fn attach_audio(
         &mut self,
         config: cpal::StreamConfig,
@@ -15,8 +16,10 @@ impl Pc {
             return Err("PC audio output is already attached".into());
         }
         let mut mixer = Mixer::new(self.clock().clone(), config, samples)?;
+        let mut adlib = self.adlib.borrow_mut().audio_source(config.sample_rate)?;
         let mut speaker = self.speaker.borrow().audio_source();
         mixer.add_source(0.2, move |interval| speaker.sample(interval));
+        mixer.add_source(0.8, move |interval| adlib.sample(interval));
         // Connection belongs to the session even if this await is cancelled.
         self.audio_attached = true;
         self.runner

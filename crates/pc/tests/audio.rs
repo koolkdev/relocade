@@ -45,11 +45,27 @@ async fn exercise_audio_device() {
             .await;
         let mut pc = Pc::new(runner).await.unwrap();
         let memory = pc.cpu().memory();
-        // Program ~1 kHz, notify the test through port 80, then stay in guest code.
-        let code = [
+        // A sustained ~309 Hz AdLib carrier, programmed through guest OUT DX,AL.
+        let mut code = vec![0xba, 0x88, 0x03]; // DX = address/status port.
+        for (register, value) in [
+            (0x20, 0x21),
+            (0x23, 0x21),
+            (0x40, 0x3f),
+            (0x43, 0),
+            (0x60, 0xf0),
+            (0x63, 0xf0),
+            (0x80, 0x0f),
+            (0x83, 0x0f),
+            (0xa0, 0x98),
+            (0xb0, 0x31),
+        ] {
+            code.extend_from_slice(&[0xb0, register, 0xee, 0x42, 0xb0, value, 0xee, 0x4a]);
+        }
+        // Add ~1 kHz speaker output, notify port 80, then stay in guest code.
+        code.extend_from_slice(&[
             0xb0, 0xb6, 0xe6, 0x43, 0xb0, 0xa9, 0xe6, 0x42, 0xb0, 0x04, 0xe6, 0x42, 0xb0, 3, 0xe6,
             0x61, 0xe6, 0x80, 0xeb, 0xfe,
-        ];
+        ]);
         memory.view().write(0x1000, &code).unwrap();
         pc.cpu().cpu_state().set_eip(0x1000);
         let config = cpal::StreamConfig {
@@ -68,8 +84,11 @@ async fn exercise_audio_device() {
         let buffer = timeout(buffers.recv()).await.unwrap();
         assert_eq!(buffer.len(), 256);
         if index >= 2 {
-            assert!(buffer.iter().all(|sample| (0.0..=0.2).contains(sample)));
-            assert_eq!(buffer.iter().copied().fold(0.0, f32::max), 0.2);
+            assert!(buffer.iter().all(|sample| (-0.8..=1.0).contains(sample)));
+            // AdLib alone peaks below 0.1; speaker alone cannot go negative.
+            // Both must contribute to the same buffer.
+            assert!(buffer.iter().any(|&sample| sample > 0.22));
+            assert!(buffer.iter().any(|&sample| sample < -0.02));
         }
         // A playback device consumes 256 frames in about 5.3 ms.
         futures_timer::Delay::new(Duration::from_millis(6)).await;
@@ -85,7 +104,7 @@ async fn exercise_audio_device() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pc_audio_submits_while_guest_execution_is_busy() {
+fn pc_mixes_adlib_and_speaker_while_guest_execution_is_busy() {
     pollster::block_on(exercise_audio_device());
 }
 
@@ -94,6 +113,6 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pc_audio_submits_while_guest_execution_is_busy() {
+async fn pc_mixes_adlib_and_speaker_while_guest_execution_is_busy() {
     exercise_audio_device().await;
 }

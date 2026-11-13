@@ -9,6 +9,7 @@ publish.workspace = true
 audio = ["dep:cpal", "dep:relocade-mixer", "relocade-pc-speaker/audio"]
 
 [dependencies]
+relocade-adlib = { path = "../adlib" }
 async-channel = { version = "=2.5.0", default-features = false }
 cpal = { workspace = true, optional = true }
 relocade-ps2 = { path = "../ps2" }

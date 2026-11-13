@@ -34,6 +34,18 @@ async fn bios_without_dos() {
                 assert_eq!(memory.view().read_u8(0xfff0).unwrap(), 0);
                 assert_eq!(memory.view().read_u32(0x46c).unwrap(), 0);
 
+                // AdLib detection works on the initialized PC without an audio sink.
+                let io = pc.cpu().context().io.clone();
+                assert_eq!(io.read_port(0x388, 1), 0x06);
+                io.write_port(0x388, 1, 2);
+                io.write_port(0x389, 1, 0xff);
+                io.write_port(0x388, 1, 4);
+                io.write_port(0x389, 1, 0x21);
+                clock.advance_by(Duration::from_micros(80));
+                assert_eq!(io.read_port(0x388, 1), 0xc6);
+                io.write_port(0x389, 1, 0x60);
+                assert_eq!(io.read_port(0x388, 1), 0x06);
+
                 // Query video, wait for a physical key through IRQ1, then read IRQ0's tick.
                 let code = [
                     0xb4, 0x0f, 0xcd, 0x10, 0xa3, 0, 7, // Video mode.
@@ -193,13 +205,13 @@ async fn absent_services() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
+fn pc_initializes_hardware_and_bios_without_dos() {
     pollster::block_on(bios_without_dos());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pc_runs_bios_video_keyboard_and_timer_without_dos() {
+async fn pc_initializes_hardware_and_bios_without_dos() {
     bios_without_dos().await;
 }
 

@@ -1,6 +1,6 @@
 //! A BIOS-initialized PC, with hardware and firmware independent of DOS.
 //!
-//! [`Pc::new`] assembles the CPU, memory, PIC, PIT, PS/2 keyboard/mouse, VGA and speaker
+//! [`Pc::new`] assembles the CPU, memory, PIC, PIT, PS/2 keyboard/mouse, VGA, speaker and AdLib
 //! on an existing execution runner. It initializes BIOS data and interrupt
 //! services. The caller supplies guest code and its entry state; this does not
 //! execute a reset ROM, POST or a disk bootstrap.
@@ -13,6 +13,7 @@
 mod audio;
 pub mod configuration;
 
+use relocade_adlib::Adlib;
 use relocade_bios::{video::VideoFirmware, Keyboard};
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
 use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
@@ -31,6 +32,7 @@ pub struct Pc {
     runner: Runner,
     vga: Rc<RefCell<DispiAdapter>>,
     speaker: Rc<RefCell<Speaker>>,
+    adlib: Rc<RefCell<Adlib>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
     #[cfg(feature = "audio")]
@@ -41,13 +43,14 @@ impl Pc {
     /// Initializes PC hardware and BIOS on the prepared runner. Create its
     /// machine and CPU using [`configuration::memory`] and [`configuration::cpu`].
     /// The CPU starts in real mode, ready for the caller to supply guest code.
-    /// Display capture and speaker emulation require no platform output.
+    /// Display capture and sound hardware emulation require no platform output.
     pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
         let vga = DispiAdapter::initialize(&runner).await;
         let video_firmware = VideoFirmware::Dispi(vga.clone());
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
+        let adlib = Adlib::initialize(&runner).await;
         let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
@@ -81,6 +84,7 @@ impl Pc {
             runner,
             vga,
             speaker,
+            adlib,
             keyboard,
             inputs,
             #[cfg(feature = "audio")]
@@ -136,5 +140,10 @@ impl Pc {
     /// Retains the speaker hardware on its execution owner.
     pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.speaker.clone()
+    }
+
+    /// Retains the AdLib hardware on its execution owner.
+    pub fn adlib(&self) -> Rc<RefCell<Adlib>> {
+        self.adlib.clone()
     }
 }
