@@ -171,3 +171,30 @@ fn fractional_phase_survives_programming_until_an_explicit_restart() {
         Some(clock.add(released, dots(640)))
     );
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn interlaced_fields_keep_horizontal_phase_across_the_half_line() {
+    let controller = ManualClock::new();
+    let timing = Timing::packed(25_175_000, [16, 2], [40, 5], 3..4).with_interlace(true);
+    let mut raster = Raster::new(controller.clock(), timing);
+    // A field lasts 100 dots: two and a half horizontal periods. The second
+    // field starts at horizontal dot 20, not at the first field's dot zero.
+    for (dot, status) in [
+        (0, 0),
+        (16, 1),
+        (60, 9),
+        (80, 1),
+        (100, 1),
+        (120, 0),
+        (136, 1),
+        (160, 9),
+        (180, 1),
+        (200, 0),
+    ] {
+        raster.update_to(controller.at(dots(dot)));
+        assert_eq!(raster.status.input_status_1(), status, "dot {dot}");
+    }
+    assert_eq!(raster.retrace_count, 2);
+    assert_eq!(raster.next_retrace_at(), Some(controller.at(dots(260))));
+}

@@ -27,6 +27,8 @@ mod registers;
 #[path = "et4000/scanout.rs"]
 mod scanout;
 mod support;
+#[path = "et4000/timing.rs"]
+mod timing;
 
 struct ConnectedEt4000 {
     card: Rc<RefCell<Et4000Ax>>,

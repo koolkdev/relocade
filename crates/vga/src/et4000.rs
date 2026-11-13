@@ -6,9 +6,10 @@ mod output;
 mod ports;
 mod registers;
 mod scanout;
+mod timing;
 
 use crate::{
-    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore, VgaCoreState,
+    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, VgaCore, VgaCoreState,
 };
 use relocade_machine::{Clock, Runner};
 use std::{cell::RefCell, rc::Rc};
@@ -26,6 +27,7 @@ const PIXEL_CLOCKS: [u64; 8] = [
 pub struct Et4000Ax {
     vga: VgaCore,
     extensions: registers::Extensions,
+    display_start_high: u8,
     memory: VideoMemory,
     output: Output,
     io: Option<crate::io::Io>,
@@ -43,10 +45,12 @@ impl Et4000Ax {
     /// Start from the common legacy preset. Firmware supplies fonts and a mode.
     pub fn with_clock(clock: Clock) -> Self {
         let vga = VgaCore::default();
-        let output = Output::new(clock, Self::vga_timing(&vga));
+        let extensions = registers::Extensions::default();
+        let output = Output::new(clock, Self::display_timing(&vga, &extensions));
         Self {
             vga,
-            extensions: registers::Extensions::default(),
+            extensions,
+            display_start_high: 0,
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             output,
             io: None,
@@ -68,10 +72,5 @@ impl Et4000Ax {
     /// The latest pending capture for one graphics consumer.
     pub fn frames(&self) -> async_channel::Receiver<DisplaySnapshot> {
         self.output.frames.clone()
-    }
-
-    fn vga_timing(vga: &VgaCore) -> Timing {
-        let clock = usize::from((vga.registers.miscellaneous >> 2) & 3);
-        Timing::vga_clocked(&vga.registers, PIXEL_CLOCKS[clock])
     }
 }

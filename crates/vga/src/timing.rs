@@ -22,6 +22,8 @@ pub(super) struct Timing {
     pub vertical_total: u64,
     pub vertical_display: u64,
     pub scanlines_per_vertical_count: u64,
+    // Interlaced fields consume half the progressive vertical period.
+    vertical_count_divisor: u64,
     vertical_retrace_start: u64,
     vertical_retrace_end: u64,
     /// End of a pulse continuing from the preceding frame, or zero.
@@ -47,6 +49,7 @@ impl Timing {
             vertical_total: u64::from(total[1]),
             vertical_display: u64::from(size[1]),
             scanlines_per_vertical_count: 1,
+            vertical_count_divisor: 1,
             vertical_retrace_start: retrace.start,
             vertical_retrace_end: retrace.end,
             wrapped_retrace_end: 0,
@@ -55,20 +58,49 @@ impl Timing {
         }
     }
 
+    /// Extend VGA's vertical counters without duplicating pulse-wrap handling.
+    pub(crate) fn with_vertical_counts(mut self, total: u64, display: u64, retrace: u64) -> Self {
+        let end_low = self.vertical_retrace_end & 15;
+        self.vertical_total = total;
+        self.vertical_display = display;
+        self.vertical_retrace_start = retrace;
+        self.vertical_retrace_end =
+            retrace + ((end_low.wrapping_sub(retrace).wrapping_sub(1) & 15) + 1);
+        self.wrapped_retrace_end = if retrace < total && self.vertical_retrace_end >= total {
+            end_low
+        } else {
+            0
+        };
+        self
+    }
+
+    pub(crate) fn divide_clock(mut self, divisor: u64) -> Self {
+        self.dot_clock_divisor *= divisor;
+        self
+    }
+
+    pub(crate) fn with_interlace(mut self, enabled: bool) -> Self {
+        self.vertical_count_divisor = if enabled { 2 } else { 1 };
+        self
+    }
+
+    pub(crate) fn vertical_count_dots(self) -> u64 {
+        self.horizontal_total * self.scanlines_per_vertical_count / self.vertical_count_divisor
+    }
+
     pub fn clock_running(self) -> bool {
         self.oscillator_hz != 0
     }
 
     pub fn frame_dots(self) -> u64 {
-        self.horizontal_total * self.vertical_total * self.scanlines_per_vertical_count
+        self.vertical_total * self.vertical_count_dots()
     }
 
     /// Internal retrace boundary used to sample display inputs. Disabling the
     /// external sync signals does not stop the counters or sampling boundaries.
     pub fn retrace_dot(self) -> Option<u64> {
-        (self.clock_running() && self.vertical_retrace_start < self.vertical_total).then_some(
-            self.vertical_retrace_start * self.scanlines_per_vertical_count * self.horizontal_total,
-        )
+        (self.clock_running() && self.vertical_retrace_start < self.vertical_total)
+            .then_some(self.vertical_retrace_start * self.vertical_count_dots())
     }
 
     /// The observable status pulse can be suppressed while internal capture continues.
@@ -126,9 +158,8 @@ impl Timing {
             || vertical_count < self.wrapped_retrace_end
     }
 
-    pub fn input_status_1(self, dot: u64) -> u8 {
-        let horizontal = dot % self.horizontal_total;
-        let vertical = dot / self.horizontal_total / self.scanlines_per_vertical_count;
+    pub fn input_status_1(self, dot: u64, horizontal: u64) -> u8 {
+        let vertical = dot / self.vertical_count_dots();
         // Bit zero is inverted display enable, independent of programmed blanking.
         let disabled = self.reset_active
             || horizontal < self.horizontal_display_skew
@@ -140,12 +171,12 @@ impl Timing {
     /// Distance to the next possible status edge. While vertically outside the
     /// display, horizontal edges cannot change display enable and are skipped.
     /// Candidates at or beyond the programmed total do not occur in that frame.
-    pub fn next_status_in_dots(self, dot: u64) -> Option<u64> {
+    pub fn next_status_in_dots(self, dot: u64, horizontal: u64) -> Option<u64> {
         if !self.clock_running() {
             return None;
         }
         let total = self.frame_dots();
-        let vertical_dots = self.horizontal_total * self.scanlines_per_vertical_count;
+        let vertical_dots = self.vertical_count_dots();
         let vertical = dot / vertical_dots;
         // Wrapping can change either signal, including a pulse spanning frames.
         let mut next = total - dot;
@@ -165,7 +196,6 @@ impl Timing {
         let start = self.horizontal_display_skew;
         let end = (start + self.horizontal_display).min(self.horizontal_total);
         if vertical < self.vertical_display && start < end {
-            let horizontal = dot % self.horizontal_total;
             if horizontal < start {
                 next = next.min(start - horizontal);
             } else if horizontal < end {
