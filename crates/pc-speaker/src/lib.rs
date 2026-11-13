@@ -2,6 +2,8 @@
 
 #[cfg(feature = "audio")]
 mod audio;
+#[cfg(feature = "audio")]
+pub use audio::AudioSource;
 
 use relocade_machine::{Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner};
 use relocade_pit::Pit;
