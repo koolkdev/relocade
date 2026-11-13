@@ -402,6 +402,7 @@ fn a_proven_component_does_not_make_its_sibling_available() {
     );
     let flow = ReducedFlow {
         reducers: vec![Some(Reducer::from_facts(facts))],
+        reductions: ReductionGraph::default(),
         exclusions: FxHashMap::default(),
         control_changed: false,
     };

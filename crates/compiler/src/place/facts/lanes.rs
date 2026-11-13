@@ -98,6 +98,15 @@ pub(super) struct LaneFacts {
 }
 
 impl LaneFacts {
+    pub(super) fn changed_values(&self, previous: Option<&Self>, changed: &mut Vec<usize>) {
+        if let Some(previous) = previous {
+            changed
+                .extend(super::changed_keys(&self.words, &previous.words).map(|word| word.value));
+        } else {
+            changed.extend(self.words.keys().map(|word| word.value));
+        }
+    }
+
     fn record(&mut self, word: VectorWord, bits: Bits) {
         if bits.mask == 0 {
             return;

@@ -68,6 +68,32 @@ fn sibling_contexts_have_independent_facts_and_residuals() {
 }
 
 #[test]
+fn inherited_normal_forms_are_invalidated_only_in_the_refined_path() {
+    let mut graph = conditional_value();
+    let choice = returned(&graph);
+    let condition = graph.blocks[0].parameters[0];
+    let mut dependencies = ReductionGraph::default();
+    let mut parent = Reducer::default();
+    assert_eq!(
+        parent.reduce_in(&mut graph.values, choice, &mut dependencies),
+        choice
+    );
+    for (truth, expected) in [(true, 7), (false, 11)] {
+        let facts = parent
+            .facts()
+            .clone()
+            .with_assumptions(&graph.values, [Assumption::Truth { condition, truth }]);
+        let mut child = parent.fork(facts, &mut dependencies);
+        let result = child.reduce_in(&mut graph.values, choice, &mut dependencies);
+        assert_eq!(graph.values[result].scalar_literal(), Some(expected));
+    }
+    assert_eq!(
+        parent.reduce_in(&mut graph.values, choice, &mut dependencies),
+        choice
+    );
+}
+
+#[test]
 fn refolding_finishes_reduction_of_a_new_recipe_before_returning() {
     use crate::Type;
 

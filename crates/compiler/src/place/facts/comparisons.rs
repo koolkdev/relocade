@@ -8,13 +8,26 @@ use crate::{body::ValueTable, integer::CompareOp};
 mod tests;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct Comparison {
+pub(in crate::place) struct Comparison {
     operator: CompareOp,
     left: usize,
     right: usize,
 }
 
 impl Comparison {
+    pub(in crate::place) fn of(table: &ValueTable, value: usize) -> Option<Self> {
+        use crate::expression::{BinaryOp, CompareOp as ComparisonOp};
+        let crate::Expression::Binary {
+            operator: BinaryOp::Compare(ComparisonOp::Integer(operator)),
+            left,
+            right,
+        } = table.expression(value)?.expression
+        else {
+            return None;
+        };
+        Some(Self::canonical(table, operator, left, right).0)
+    }
+
     fn canonical(
         table: &ValueTable,
         operator: CompareOp,
@@ -49,6 +62,13 @@ pub(super) struct Comparisons {
 }
 
 impl Comparisons {
+    pub(super) fn changed<'a>(
+        &'a self,
+        previous: &'a Self,
+    ) -> impl Iterator<Item = Comparison> + 'a {
+        super::changed_keys(&self.outcomes, &previous.outcomes).copied()
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.outcomes.is_empty()
     }

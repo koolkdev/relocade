@@ -24,6 +24,7 @@ mod merge;
 mod range;
 mod selects;
 mod shifts;
+pub(in crate::place) use comparisons::Comparison;
 use comparisons::Comparisons;
 use constraints::Constraints;
 use lanes::{LaneFacts, LaneObservation};
@@ -75,7 +76,7 @@ pub(super) struct ScalarFacts {
     ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
     constraints: Constraints,
-    computed: RefCell<FxHashMap<usize, Bits>>,
+    computed: RefCell<super::memo::Memo<Bits>>,
     pending: RefCell<Vec<(usize, bool)>>,
 }
 
@@ -94,13 +95,30 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             constraints: self.constraints.clone(),
-            computed: RefCell::default(),
+            computed: self.computed.clone(),
             pending: RefCell::default(),
         }
     }
 }
 
 impl ScalarFacts {
+    pub(in crate::place) fn changed_values(&self, previous: &Self, changed: &mut Vec<usize>) {
+        changed.extend(changed_keys(&self.known, &previous.known).copied());
+        changed.extend(changed_keys(&self.ranges, &previous.ranges).copied());
+        match (self.lanes.as_deref(), previous.lanes.as_deref()) {
+            (Some(lanes), previous) => lanes.changed_values(previous, changed),
+            (None, Some(previous)) => previous.changed_values(None, changed),
+            (None, None) => {}
+        }
+    }
+
+    pub(in crate::place) fn changed_comparisons<'a>(
+        &'a self,
+        previous: &'a Self,
+    ) -> impl Iterator<Item = Comparison> + 'a {
+        self.comparisons.changed(&previous.comparisons)
+    }
+
     pub(super) fn with_assumptions(
         mut self,
         table: &ValueTable,
@@ -161,7 +179,7 @@ impl ScalarFacts {
     fn invalidate_from(&mut self, id: usize) {
         // Calculations refer only to earlier values. Their cached inputs remain
         // valid when learning a fact about this value and its possible users.
-        self.computed.get_mut().retain(|&input, _| input < id);
+        self.computed.get_mut().invalidate_from(id);
     }
 
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
@@ -223,4 +241,14 @@ impl ScalarFacts {
             _ => None,
         }
     }
+}
+
+fn changed_keys<'a, K: Eq + std::hash::Hash, V: PartialEq>(
+    current: &'a FxHashMap<K, V>,
+    previous: &'a FxHashMap<K, V>,
+) -> impl Iterator<Item = &'a K> {
+    current
+        .iter()
+        .filter_map(|(key, value)| (previous.get(key) != Some(value)).then_some(key))
+        .chain(previous.keys().filter(|key| !current.contains_key(*key)))
 }

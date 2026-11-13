@@ -1,4 +1,5 @@
 //! Reduce semantic control flow before deciding where its calculations execute.
+use super::reduce::ReductionGraph;
 use super::*;
 use rustc_hash::FxHashMap;
 
@@ -9,6 +10,7 @@ mod tests;
 /// Scheduling may request another normal form but cannot change a context.
 pub(super) struct ReducedFlow {
     reducers: Vec<Option<Reducer>>,
+    reductions: ReductionGraph,
     exclusions: FxHashMap<(BlockId, BlockId), bool>,
     pub(super) control_changed: bool,
 }
@@ -29,6 +31,7 @@ impl ReducedFlow {
         order.sort_by_key(|&block| dominators.rank[block]);
         let mut reachable = graph.reachable();
         let mut control_changed = false;
+        let mut reductions = ReductionGraph::default();
         for block in order {
             if !reachable[block] {
                 continue;
@@ -63,22 +66,32 @@ impl ReducedFlow {
             } else {
                 [None; 2]
             };
-            let mut reducer = Reducer::from_facts(
-                incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
-            );
+            let facts =
+                incoming.with_assumptions(&graph.values, observations.into_iter().flatten());
+            let parent = match sources.as_slice() {
+                [source] if reducers[*source].is_some() => Some(*source),
+                _ => dominators.parent[block].filter(|&parent| parent != block),
+            };
+            let mut reducer = if let Some(parent) = parent {
+                reducers[parent]
+                    .as_ref()
+                    .unwrap()
+                    .fork(facts, &mut reductions)
+            } else {
+                Reducer::from_facts(facts)
+            };
             for item in &graph.blocks[block].items {
                 let BlockItem::Effect(id) = item else {
                     unreachable!()
                 };
-                let operation = graph.effects[id.0]
-                    .operation
-                    .clone()
-                    .map_inputs(|value| reducer.reduce(&mut graph.values, value));
+                let operation = graph.effects[id.0].operation.clone().map_inputs(|value| {
+                    reducer.reduce_in(&mut graph.values, value, &mut reductions)
+                });
                 graph.effects[id.0].operation = operation;
             }
             let before = graph.blocks[block].exit.constant_edge_index(&graph.values);
             let mut exit = graph.blocks[block].exit.clone();
-            exit.map_inputs(|value| reducer.reduce(&mut graph.values, value));
+            exit.map_inputs(|value| reducer.reduce_in(&mut graph.values, value, &mut reductions));
             graph.blocks[block].exit = exit;
             reducers[block] = Some(reducer);
             if graph.blocks[block].exit.constant_edge_index(&graph.values) != before {
@@ -88,6 +101,7 @@ impl ReducedFlow {
         }
         ReducedFlow {
             reducers,
+            reductions,
             exclusions: FxHashMap::default(),
             control_changed,
         }
@@ -123,7 +137,7 @@ impl ReducedFlow {
         self.reducers[block.0]
             .as_mut()
             .unwrap()
-            .reduce(values, value)
+            .reduce_in(values, value, &mut self.reductions)
     }
 
     pub(super) fn recipes(&self, block: BlockId, value: usize) -> impl Iterator<Item = usize> + '_ {
