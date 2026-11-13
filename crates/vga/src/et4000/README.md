@@ -32,8 +32,10 @@ describe the installed DRAM. SC11483 command state starts at zero (indexed mode)
 with no pending command-register access. Registers whose power-on contents are
 unspecified use zero until firmware programs them.
 
-The current profile definition supplies capacity. The ET4000 register extensions
-and firmware are added separately from the shared VGA composition.
+`Et4000Ax` composes the shared VGA core, standard port and memory bindings, and
+display activity with this board's capacity and clocks. Its CRTC index retains
+six bits, so extended indices cannot alias legacy registers. The ET4000 register
+extensions, firmware and PC configuration choice are added separately.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),

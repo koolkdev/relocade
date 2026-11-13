@@ -1,6 +1,9 @@
-//! Preparation and completion around video state changes.
-use crate::{output::Output, registers::WriteKind, PackedLayout, Timing};
-use relocade_machine::Timestamp;
+//! Effects of video state changes on display output and address decoding.
+use crate::{
+    io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding, registers::WriteKind,
+    PackedLayout, Timing,
+};
+use relocade_machine::{IoContext, Timestamp};
 
 #[derive(Clone, Copy)]
 pub(crate) enum VideoEffect {
@@ -55,6 +58,75 @@ impl Effects {
             WriteKind::Display => Self::IMAGE,
             WriteKind::Timing => Self::CONFIGURATION,
         }
+    }
+}
+
+/// Card policy used by the shared synchronous effects operation. Calls are
+/// specialized for the concrete card; installed I/O operations use no vtable.
+pub(crate) trait CardEffects: Sized {
+    fn output(&mut self) -> &mut Output;
+    fn io(&self) -> Option<&Io>;
+    fn advance_raster(&mut self, now: Timestamp);
+    fn timing(&self) -> Timing;
+    fn port_decoding(&self) -> PortDecoding;
+    fn memory_decoding(&self) -> MemoryDecoding;
+
+    fn display_layout(&self) -> Option<PackedLayout> {
+        None
+    }
+
+    /// Update prepared memory-access state before installing changed operations.
+    fn update_memory_access(&mut self, _decoding: &MemoryDecoding) {}
+
+    /// Preserve overdue output, mutate live state, then apply configuration and
+    /// decoding changes synchronously. Preparation can update hardware latches;
+    /// remember only the previous layout and routing keys after that work.
+    fn with_effects<R>(
+        &mut self,
+        mut context: IoContext<'_>,
+        effects: Effects,
+        mutate: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        if let Some(now) = self.output().prepare(effects.video) {
+            self.advance_raster(now);
+        }
+        let previous_layout =
+            matches!(effects.video, VideoEffect::Configuration).then(|| self.display_layout());
+        let previous_ports = effects.port_decode.then(|| self.port_decoding());
+        let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
+
+        let result = mutate(self);
+
+        let video_changed = previous_layout.is_some_and(|previous| {
+            let layout = self.display_layout();
+            let timing = self.timing();
+            self.output().update_configuration(previous, layout, timing)
+        });
+        let ports_changed = previous_ports.is_some_and(|previous| {
+            let decoding = self.port_decoding();
+            if previous == decoding {
+                return false;
+            }
+            if let Some(io) = self.io() {
+                io.ports
+                    .update_decoding(context.reborrow(), Some(previous), decoding);
+            }
+            true
+        });
+        if let Some(previous) = previous_memory {
+            let decoding = self.memory_decoding();
+            if previous != decoding {
+                self.update_memory_access(&decoding);
+                if let Some(io) = self.io() {
+                    io.memory
+                        .update_decoding(context.reborrow(), Some(previous), decoding);
+                }
+            }
+        }
+        if video_changed || ports_changed {
+            self.output().configuration_changed.notify(usize::MAX);
+        }
+        result
     }
 }
 

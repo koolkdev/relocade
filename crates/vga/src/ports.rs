@@ -1,6 +1,9 @@
 //! Connection-time wiring and changes to physical address decoding.
 
-use crate::{dispi, registers::*, DispiAdapter};
+mod access;
+pub(crate) use access::VgaPortAccess;
+
+use crate::registers::*;
 use relocade_machine::{
     DeviceCallbacks, DeviceConnection, IoContext, PortBinding, PortRange, PortRead, PortWrite,
 };
@@ -8,9 +11,9 @@ use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 const COMMON: RangeInclusive<u16> = ATTRIBUTE_ADDRESS_PORT..=GRAPHICS_DATA_PORT;
 
-/// Effective address routing; either active state also supports packed scanout.
+/// Physical VGA address groups enabled by setup and Miscellaneous Output.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum PortDecoding {
+pub(crate) enum PortDecoding {
     Disabled,
     Monochrome,
     Color,
@@ -19,7 +22,6 @@ pub(super) enum PortDecoding {
 #[derive(Clone, Copy)]
 enum PortGroup {
     Common,
-    Dispi,
     Monochrome,
     Color,
 }
@@ -28,37 +30,30 @@ impl PortDecoding {
     fn enables(self, group: PortGroup) -> bool {
         match self {
             Self::Disabled => false,
-            Self::Monochrome => matches!(
-                group,
-                PortGroup::Common | PortGroup::Dispi | PortGroup::Monochrome
-            ),
-            Self::Color => matches!(
-                group,
-                PortGroup::Common | PortGroup::Dispi | PortGroup::Color
-            ),
+            Self::Monochrome => matches!(group, PortGroup::Common | PortGroup::Monochrome),
+            Self::Color => matches!(group, PortGroup::Common | PortGroup::Color),
         }
     }
 }
 
 /// Retained only for decoding changes. Ordinary accesses invoke the installed
 /// operations directly, without consulting this companion or its mappings.
-pub(super) struct Ports {
+pub(crate) struct Ports {
     common: Vec<Mapping>,
-    dispi: [Mapping; 2],
     mono: Vec<Mapping>,
     color: Vec<Mapping>,
     disabled_read: PortRead,
     disabled_write: PortWrite,
 }
 
-struct Mapping {
+pub(crate) struct Mapping {
     binding: PortBinding,
     active_read: PortRead,
     active_write: PortWrite,
 }
 
 impl Mapping {
-    fn bind(
+    pub(crate) fn bind(
         io: &mut DeviceConnection<'_>,
         ports: impl Into<PortRange>,
         read: PortRead,
@@ -87,15 +82,17 @@ impl Mapping {
     }
 }
 
-impl DispiAdapter {
-    pub(super) fn bind_ports(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) -> Ports {
+impl Ports {
+    pub fn new<Card: VgaPortAccess>(
+        io: &mut DeviceConnection<'_>,
+        device: &Rc<RefCell<Card>>,
+    ) -> Self {
         let callbacks = DeviceCallbacks::new(device);
         let common = bind_common_vga_ports(io, &callbacks);
-        let dispi = bind_dispi_ports(io, &callbacks);
         // Setup remains accessible while the adapter's other addresses are off.
         io.bind(
             OPTION_SELECT_PORT,
-            &PortRead::low_byte(callbacks.read(|_, card| card.vga.setup.read_option())),
+            &PortRead::low_byte(callbacks.read(|_, card| card.vga().setup.read_option())),
             &PortWrite::low_byte(
                 callbacks.write(|context, card, value| card.write_option_select(context, value)),
             ),
@@ -121,34 +118,36 @@ impl DispiAdapter {
             CRTC_INDEX_PORT,
             COLOR_INPUT_STATUS_1_PORT,
         );
-        let ports = Ports {
+        Self {
             common,
-            dispi,
             mono,
             color,
             // These consume the entire transfer, unlike enabled-window holes.
             disabled_read: PortRead::new(|_, _, _| u32::MAX),
             disabled_write: PortWrite::new(|_, _, _, _| {}),
-        };
-        let card = device.borrow();
-        ports.update_decoding(io.context(), None, card.decoding());
-        ports
+        }
     }
 
-    pub(super) fn decoding(&self) -> PortDecoding {
-        if !self.vga.setup.enabled() {
-            PortDecoding::Disabled
-        } else if self.vga.registers.miscellaneous & 1 != 0 {
-            PortDecoding::Color
+    pub fn add_common(&mut self, mappings: impl IntoIterator<Item = Mapping>) {
+        self.common.extend(mappings);
+    }
+}
+
+impl PortDecoding {
+    pub fn vga(vga: &crate::VgaCore) -> Self {
+        if !vga.setup.enabled() {
+            Self::Disabled
+        } else if vga.registers.miscellaneous & 1 != 0 {
+            Self::Color
         } else {
-            PortDecoding::Monochrome
+            Self::Monochrome
         }
     }
 }
 
-fn bind_common_vga_ports(
+fn bind_common_vga_ports<Card: VgaPortAccess>(
     io: &mut DeviceConnection<'_>,
-    callbacks: &DeviceCallbacks<DispiAdapter>,
+    callbacks: &DeviceCallbacks<Card>,
 ) -> Vec<Mapping> {
     // Enabled holes must continue wide transfers to later implemented ports.
     vec![
@@ -157,14 +156,14 @@ fn bind_common_vga_ports(
             io,
             COMMON,
             ATTRIBUTE_ADDRESS_PORT,
-            callbacks.read(|_, card| card.vga.registers.attribute.address()),
+            callbacks.read(|_, card| card.vga().registers.attribute.address()),
             callbacks.write(|context, card, value| card.write_attribute(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             ATTRIBUTE_DATA_READ_PORT,
-            callbacks.read(|_, card| card.vga.registers.attribute.read()),
+            callbacks.read(|_, card| card.read_attribute()),
             |_, _| {},
         ),
         Mapping::byte(
@@ -178,111 +177,87 @@ fn bind_common_vga_ports(
             io,
             COMMON,
             SEQUENCER_INDEX_PORT,
-            callbacks.read(|_, card| card.vga.registers.sequencer.index()),
-            callbacks.write(|_, card, value| card.vga.registers.sequencer.select(value)),
+            callbacks.read(|_, card| card.vga().registers.sequencer.index()),
+            callbacks.write(|_, card, value| card.select_sequencer(value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             SEQUENCER_DATA_PORT,
-            callbacks.read(|_, card| card.vga.registers.sequencer.read()),
+            callbacks.read(|_, card| card.read_sequencer()),
             callbacks.write(|context, card, value| card.write_sequencer_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             GRAPHICS_INDEX_PORT,
-            callbacks.read(|_, card| card.vga.registers.graphics.index()),
-            callbacks.write(|_, card, value| card.vga.registers.graphics.select(value)),
+            callbacks.read(|_, card| card.vga().registers.graphics.index()),
+            callbacks.write(|_, card, value| card.select_graphics(value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             GRAPHICS_DATA_PORT,
-            callbacks.read(|_, card| card.vga.registers.graphics.read()),
+            callbacks.read(|_, card| card.read_graphics()),
             callbacks.write(|context, card, value| card.write_graphics_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_MASK_PORT,
-            callbacks.read(|_, card| card.vga.registers.dac.mask),
+            callbacks.read(|_, card| card.vga().registers.dac.mask),
             callbacks.write(|context, card, value| card.write_dac_mask(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_READ_ADDRESS_PORT,
-            callbacks.read(|_, card| card.vga.registers.dac.state()),
-            callbacks.write(|_, card, value| card.vga.registers.dac.select(value, true)),
+            callbacks.read(|_, card| card.vga().registers.dac.state()),
+            callbacks.write(|_, card, value| card.vga_mut().registers.dac.select(value, true)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_WRITE_ADDRESS_PORT,
-            callbacks.read(|_, card| card.vga.registers.dac.address()),
-            callbacks.write(|_, card, value| card.vga.registers.dac.select(value, false)),
+            callbacks.read(|_, card| card.vga().registers.dac.address()),
+            callbacks.write(|_, card, value| card.vga_mut().registers.dac.select(value, false)),
         ),
         Mapping::byte(
             io,
             COMMON,
             DAC_DATA_PORT,
-            callbacks.read(|_, card| card.vga.registers.dac.read()),
+            callbacks.read(|_, card| card.vga_mut().registers.dac.read()),
             callbacks.write(|context, card, value| card.write_dac_data(context, value)),
         ),
         Mapping::byte(
             io,
             COMMON,
             FEATURE_CONTROL_READ_PORT,
-            callbacks.read(|_, card| card.vga.registers.feature_control),
+            callbacks.read(|_, card| card.vga().registers.feature_control),
             |_, _| {},
         ),
         Mapping::byte(
             io,
             COMMON,
             MISC_OUTPUT_READ_PORT,
-            callbacks.read(|_, card| card.vga.registers.miscellaneous),
+            callbacks.read(|_, card| card.vga().registers.miscellaneous),
             |_, _| {},
         ),
     ]
 }
 
-fn bind_dispi_ports(
+fn crtc<Card: VgaPortAccess>(
     io: &mut DeviceConnection<'_>,
-    callbacks: &DeviceCallbacks<DispiAdapter>,
-) -> [Mapping; 2] {
-    [
-        Mapping::bind(
-            io,
-            dispi::INDEX_PORT,
-            PortRead::word(callbacks.read(|_, card| card.dispi.index())),
-            PortWrite::word(callbacks.write(|_, card, value| card.dispi.select(value))),
-        ),
-        Mapping::bind(
-            io,
-            dispi::DATA_PORT,
-            PortRead::word(callbacks.read(|_, card| card.dispi.read())),
-            PortWrite::word(
-                callbacks.write(|context, card, value| card.write_dispi_data(context, value)),
-            ),
-        ),
-    ]
-}
-
-fn crtc(
-    io: &mut DeviceConnection<'_>,
-    device: &Rc<RefCell<DispiAdapter>>,
-    callbacks: &DeviceCallbacks<DispiAdapter>,
+    device: &Rc<RefCell<Card>>,
+    callbacks: &DeviceCallbacks<Card>,
     index: u16,
     status: u16,
 ) -> Vec<Mapping> {
     let read_status = {
-        let card = device.borrow();
-        card.vga.registers.attribute.handle_read(crate::output::status::read(
-            &card.output.raster.status,
-            device,
-            DispiAdapter::refresh_raster,
-        ))
+        let mut card = device.borrow_mut();
+        let read =
+            crate::output::status::read(&card.output().raster.status, device, Card::refresh_raster);
+        card.vga().registers.attribute.handle_read(read)
     };
     let window = index..=index + 1;
     vec![
@@ -290,14 +265,14 @@ fn crtc(
             io,
             window.clone(),
             index,
-            callbacks.read(|_, card| card.vga.registers.crtc.index()),
-            callbacks.write(|_, card, value| card.vga.registers.crtc.select(value)),
+            callbacks.read(|_, card| card.vga().registers.crtc.index()),
+            callbacks.write(|_, card, value| card.select_crtc(value)),
         ),
         Mapping::byte(
             io,
             window,
             index + 1,
-            callbacks.read(|_, card| card.vga.registers.crtc.read()),
+            callbacks.read(|_, card| card.read_crtc()),
             callbacks.write(|context, card, value| card.write_crtc_data(context, value)),
         ),
         Mapping::bind(
@@ -305,7 +280,7 @@ fn crtc(
             status,
             PortRead::low_byte(move |_| read_status()),
             PortWrite::low_byte(
-                callbacks.write(|_, card, value| card.vga.registers.feature_control = value),
+                callbacks.write(|_, card, value| card.vga_mut().registers.feature_control = value),
             ),
         ),
     ]
@@ -323,7 +298,6 @@ impl Ports {
     ) {
         for (group, mappings) in [
             (PortGroup::Common, self.common.as_slice()),
-            (PortGroup::Dispi, self.dispi.as_slice()),
             (PortGroup::Monochrome, self.mono.as_slice()),
             (PortGroup::Color, self.color.as_slice()),
         ] {

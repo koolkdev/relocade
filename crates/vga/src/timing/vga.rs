@@ -5,6 +5,10 @@ use crate::registers::Registers;
 
 impl Timing {
     pub fn vga(registers: &Registers) -> Self {
+        Self::vga_clocked(registers, registers.oscillator_hz())
+    }
+
+    pub fn vga_clocked(registers: &Registers, oscillator_hz: u64) -> Self {
         let crtc = &registers.crtc.registers;
         let sequencer = &registers.sequencer;
         let reset_active = sequencer.reset_active();
@@ -16,11 +20,7 @@ impl Timing {
         let first_end =
             retrace_start + ((end_low_bits.wrapping_sub(retrace_start).wrapping_sub(1) & 0x0f) + 1);
         Self {
-            oscillator_hz: if reset_active {
-                0
-            } else {
-                registers.oscillator_hz()
-            },
+            oscillator_hz: if reset_active { 0 } else { oscillator_hz },
             dot_clock_divisor: sequencer.dot_clock_divisor(),
             dots_per_horizontal_count: sequencer.dots_per_character(),
             horizontal_total: crtc.horizontal_total() * sequencer.dots_per_character(),
