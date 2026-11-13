@@ -4,7 +4,7 @@
 
 use relocade_machine::IoContext;
 
-use crate::{adapter::effects::Effects, dispi::Dispi, DacState, DispiAdapter, VgaCoreState};
+use crate::{effects::Effects, dispi::Dispi, DacState, DispiAdapter, VgaCoreState};
 
 /// Staged DISPI mode, active layout, enable flags, CPU bank and register index.
 #[derive(Clone, Debug, PartialEq, Eq)]

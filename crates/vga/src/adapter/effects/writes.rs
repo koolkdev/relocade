@@ -1,6 +1,6 @@
 //! Concrete register writes and the effects declared by their register owners.
 
-use super::Effects;
+use crate::effects::Effects;
 use crate::{dispi::WriteAction, registers::sequencer, DispiAdapter};
 use relocade_machine::IoContext;
 

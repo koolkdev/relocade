@@ -2,65 +2,19 @@
 
 mod writes;
 
-use crate::{registers::WriteKind, DispiAdapter, PackedLayout, Timing};
+use crate::{
+    effects::{Effects, VideoEffect},
+    registers::WriteKind,
+    DispiAdapter, PackedLayout, Timing,
+};
 use relocade_machine::IoContext;
-
-#[derive(Clone, Copy)]
-pub(super) enum VideoEffect {
-    None,
-    Image,
-    Configuration,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct Effects {
-    video: VideoEffect,
-    port_decode: bool,
-    memory_decode: bool,
-}
-
-impl Effects {
-    pub const NONE: Self = Self {
-        video: VideoEffect::None,
-        port_decode: false,
-        memory_decode: false,
-    };
-    pub const IMAGE: Self = Self {
-        video: VideoEffect::Image,
-        ..Self::NONE
-    };
-    pub const CONFIGURATION: Self = Self {
-        video: VideoEffect::Configuration,
-        ..Self::NONE
-    };
-    pub const IO: Self = Self {
-        port_decode: true,
-        ..Self::MEMORY
-    };
-    pub const CONFIGURATION_AND_IO: Self = Self {
-        video: VideoEffect::Configuration,
-        ..Self::IO
-    };
-    pub const MEMORY: Self = Self {
-        memory_decode: true,
-        ..Self::NONE
-    };
-    pub const CONFIGURATION_AND_MEMORY: Self = Self {
-        video: VideoEffect::Configuration,
-        ..Self::MEMORY
-    };
-}
 
 impl DispiAdapter {
     pub(super) fn legacy_effect(&self, kind: WriteKind) -> Effects {
         if self.dispi.display_layout().is_some() {
             return Effects::NONE;
         }
-        match kind {
-            WriteKind::Access => Effects::NONE,
-            WriteKind::Display => Effects::IMAGE,
-            WriteKind::Timing => Effects::CONFIGURATION,
-        }
+        Effects::vga(kind)
     }
 
     /// Preserve overdue output, apply the state change, then update video
@@ -73,10 +27,8 @@ impl DispiAdapter {
         effects: Effects,
         mutate: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        match effects.video {
-            VideoEffect::None => {}
-            VideoEffect::Image => self.capture_if_due(),
-            VideoEffect::Configuration => self.advance_raster(self.output.clock.now()),
+        if let Some(now) = self.output.prepare(effects.video) {
+            self.advance_raster(now);
         }
         let previous_layout = matches!(effects.video, VideoEffect::Configuration)
             .then(|| self.dispi.display_layout());
@@ -120,13 +72,7 @@ impl DispiAdapter {
             Some(_) => self.dispi.timing().expect("active DISPI timing"),
             None => Timing::vga(&self.vga.registers),
         };
-        let timing_changed =
-            if layout.map(|layout| layout.size()) != previous_layout.map(|layout| layout.size()) {
-                self.output.raster.restart(timing);
-                true
-            } else {
-                self.output.raster.set_timing(timing)
-            };
-        timing_changed || layout != previous_layout
+        self.output
+            .update_configuration(previous_layout, layout, timing)
     }
 }
