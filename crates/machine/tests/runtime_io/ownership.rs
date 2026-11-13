@@ -7,6 +7,7 @@ async fn check_retained_memory_bus() {
         RecordingDevice::bind_memory(io, &device, 0x3000..=0x4fff);
         RecordingDevice::bind(io, &device, 0x3d4);
     });
+    let weak_bus = io.downgrade();
     drop(device);
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -57,6 +58,7 @@ async fn check_retained_memory_bus() {
         assert_eq!(retained.io().read_port(0x3d4, 2), 0xabcd);
     }
     assert!(lifetime.upgrade().is_some());
+    assert_eq!(weak_bus.upgrade().unwrap().read_port(0x3d4, 2), 0xabcd);
     let io = retained.io().clone();
     drop(retained);
     // The handle obtained from the CPU also works without a retained memory view.
@@ -64,6 +66,7 @@ async fn check_retained_memory_bus() {
     assert_eq!(io.read_port(0x3d4, 2), 0x1357);
     drop(io);
     assert!(lifetime.upgrade().is_none());
+    assert!(weak_bus.upgrade().is_none());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

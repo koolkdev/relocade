@@ -50,6 +50,16 @@ pub struct IoBus {
     state: Rc<State>,
 }
 
+/// A device's reference to its bus without retaining the connected devices.
+#[derive(Clone)]
+pub struct WeakIoBus(pub(crate) Weak<State>);
+
+impl WeakIoBus {
+    pub fn upgrade(&self) -> Option<IoBus> {
+        self.0.upgrade().map(|state| IoBus { state })
+    }
+}
+
 pub(crate) struct State {
     runtime: WasmRuntimeHandle,
     cpu_attached: Cell<bool>,
@@ -168,8 +178,9 @@ impl IoBus {
         &self.state.ports
     }
 
-    pub(crate) fn downgrade(&self) -> Weak<State> {
-        self.state.identity.clone()
+    /// Retains routing identity without creating a device-to-bus ownership cycle.
+    pub fn downgrade(&self) -> WeakIoBus {
+        WeakIoBus(self.state.identity.clone())
     }
 }
 

@@ -63,11 +63,11 @@ impl CpuInstance {
                 wasm.bind(abi::DISPATCH, &dispatch),
                 wasm.bind(abi::INTERPRET, &interpret),
             ]);
-            io.port_map().initialize(wasm, &io.downgrade())?;
+            io.port_map().initialize(wasm, &io.downgrade().0)?;
             imports.extend(io.port_map().imports(wasm));
             io.mmio_map().initialize(
                 wasm,
-                &io.downgrade(),
+                &io.downgrade().0,
                 &bindings.mapping,
                 bindings.guest.configuration().memory_map(),
             )?;

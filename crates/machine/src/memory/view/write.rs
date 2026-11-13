@@ -1,4 +1,4 @@
-use super::{range_fits, segment_address, MemoryError, MemoryView, Spans};
+use super::{range_fits, segment_address, MemoryError, MemoryView, Routing, Spans};
 use crate::FarPointer;
 use relocade_wasm_runtime::MemoryValue;
 use relocade_x86::{PhysicalMapping, Segment, SegmentRegister};
@@ -9,12 +9,17 @@ impl<'a> MemoryView<'a> {
     /// # Panics
     /// Panics if the access reaches MMIO without an attached local I/O bus.
     pub fn write(&mut self, address: u32, mut bytes: &[u8]) -> Result<(), MemoryError> {
-        for span in Spans::new(self.config.memory_map(), address, bytes.len())?.with_io(self.io) {
+        for span in Spans::new(self.config.memory_map(), address, bytes.len())?
+            .with_io(self.io.as_ref().map(Routing::bus))
+        {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
                 PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),
                 PhysicalMapping::Mmio { .. } => {
-                    let io = self.io.expect("MMIO access requires a local I/O bus");
+                    let io = self
+                        .io
+                        .as_ref()
+                        .expect("MMIO access requires local I/O routing");
                     for (index, chunk) in part.chunks(8).enumerate() {
                         let mut value = [0; 8];
                         value[..chunk.len()].copy_from_slice(chunk);

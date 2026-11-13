@@ -1,4 +1,4 @@
-use super::State;
+use super::{IoBus, State};
 use relocade_wasm_runtime::{Context, WasmContext};
 use std::rc::Weak;
 
@@ -18,6 +18,12 @@ impl<'a> IoContext<'a> {
     /// Borrows this context for another synchronous operation.
     pub fn reborrow(&mut self) -> IoContext<'_> {
         IoContext::new(self.runtime.reborrow(), self.bus)
+    }
+
+    pub(crate) fn io(&self) -> IoBus {
+        IoBus {
+            state: self.bus.upgrade().expect("live I/O bus"),
+        }
     }
 
     /// Reads through this bus without reacquiring its runtime.
