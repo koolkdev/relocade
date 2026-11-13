@@ -45,6 +45,13 @@ impl FunctionArena {
             _ => None,
         })
     }
+    pub(super) fn known_bits(
+        &self,
+        value: usize,
+        assumptions: &[crate::place::Assumption],
+    ) -> Result<Option<u64>, BuildError> {
+        self.with_graph(|graph| crate::place::known_bits(&graph.values, assumptions, value))
+    }
     pub(crate) fn resolve_unbound(
         &self,
         expression: &UnboundExpression,

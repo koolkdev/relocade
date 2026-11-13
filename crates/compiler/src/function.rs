@@ -43,6 +43,7 @@ pub(super) struct PendingBlock {
     pub(super) entry: BlockId,
     pub(super) current: BlockId,
     pub(super) layout: Vec<Layout>,
+    pub(super) assumptions: Vec<crate::place::Assumption>,
     ending: Ending,
 }
 
@@ -59,6 +60,7 @@ impl PendingBlock {
             entry: block,
             current: block,
             layout: Vec::new(),
+            assumptions: Vec::new(),
             ending: Ending::Fallthrough,
         }
     }
@@ -212,6 +214,22 @@ impl BlockBuilder<'_> {
         operand: impl Into<Val<T>>,
     ) -> Result<Option<u64>, BuildError> {
         self.value(operand)?.constant_bits()
+    }
+
+    /// Returns constant logical bits proved on the current construction path.
+    /// Unlike [`Self::constant_bits`], this includes enclosing branch conditions
+    /// and conditions established by earlier conditional exits. Unknown values
+    /// return `None`; facts about newly joined values are left to placement.
+    /// The query does not change the value or make its facts visible on other paths.
+    pub fn known_bits<T: IntType>(
+        &self,
+        operand: impl Into<Val<T>>,
+    ) -> Result<Option<u64>, BuildError> {
+        let value = self.operand(operand)?;
+        Ok(self
+            .arena
+            .known_bits(value, &self.pending.assumptions)?
+            .map(|bits| bits & T::TYPE.mask()))
     }
 
     /// Returns values from the function, consuming the active builder.
