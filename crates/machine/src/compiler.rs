@@ -56,6 +56,15 @@ impl CompiledCode {
     /// The caller maintains code/mapping validity for the installed code's lifetime.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
+        self.install_entries(cpu, false)
+    }
+
+    /// Automatic admission preserves entries installed while the batch was pending.
+    pub(crate) fn install_missing(&self, cpu: &mut Cpu) -> Result<()> {
+        self.install_entries(cpu, true)
+    }
+
+    fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
         }
@@ -64,11 +73,15 @@ impl CompiledCode {
             .addresses
             .iter()
             .zip(&self.description.blocks)
+            .filter(|(address, _)| !missing_only || !cpu.has_entry(**address))
             .map(|(&address, block)| DispatchEntry {
                 address,
                 export: &block.export,
             })
             .collect();
+        if entries.is_empty() {
+            return Ok(());
+        }
         cpu.install_compiled_module(&self.module, &entries)
     }
 }

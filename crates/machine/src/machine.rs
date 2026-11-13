@@ -34,6 +34,9 @@ impl Machine {
     /// Creates and initializes one CPU without starting guest execution.
     /// Pass a compiler service to enable background compilation, or `None` to
     /// use the bundled interpreter without opening a compiler connection.
+    /// A CPU with a compiler discovers and compiles hot Real16 callees in the
+    /// background. Code and mappings must stay stable, and candidates must have
+    /// no interior hooks; invalidation and boundary admission are not implemented.
     /// A compiler connection can queue requests while the service starts.
     /// Move the returned handle to its execution worker. State is appended to
     /// [`Self::cpus`] and remains available after that worker is joined.

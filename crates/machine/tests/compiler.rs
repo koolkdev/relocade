@@ -211,6 +211,10 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
             5
         );
         assert!(compiler.recv().await.is_none());
+        assert!(
+            compiler.recv().await.is_none(),
+            "closed compiler stays exhausted"
+        );
         assert!(compiler.request(target, vec![request()]).is_err());
     });
     let other_execution = other_cpu.run_until(pending::<()>(), async move |mut runner| {

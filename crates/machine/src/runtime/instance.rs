@@ -57,7 +57,7 @@ impl CpuInstance {
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let table = DispatchTable::new(wasm)?;
-            let profiling = Profiling::new(wasm)?;
+            let profiling = Profiling::new(wasm, target)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.extend(table.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
@@ -125,7 +125,7 @@ impl CpuInstance {
             if exit != ExecutionExit::CallProfileFull {
                 return exit;
             }
-            self.profiling.collect(wasm);
+            self.profiling.collect(wasm, &self.table);
         })
     }
 
@@ -199,6 +199,15 @@ impl CpuInstance {
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.address));
         Ok(())
+    }
+
+    pub(super) fn has_entry(&self, address: u32) -> bool {
+        self.table.contains(address)
+    }
+
+    pub(super) fn interpret_at(&mut self, address: u32) -> Result<()> {
+        self.runtime
+            .with_runtime(|wasm| self.table.interpret_at(wasm, address))
     }
 
     #[inline]
