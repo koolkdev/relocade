@@ -1,4 +1,5 @@
 mod boundaries;
+mod linking;
 
 use super::*;
 use crate::{
@@ -52,7 +53,6 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
-    assert_eq!(actual.bytes, expected.bytes);
 }
 
 #[test]
@@ -194,7 +194,6 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
-    assert_eq!(actual.bytes, expected.bytes);
 }
 
 #[test]

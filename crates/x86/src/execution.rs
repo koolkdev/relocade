@@ -14,6 +14,7 @@ mod segments;
 mod simd;
 mod stack;
 mod strings;
+mod transfer;
 mod x87;
 
 pub(crate) use control::CodeTarget;
@@ -23,7 +24,8 @@ pub(crate) use operands::WriteTarget;
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
-use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Func, TypedFunc, Val, I1, I16, I32, I64, I8};
+use std::collections::BTreeMap;
 
 use crate::flags::{Condition, Flag, FlagChange};
 use crate::instruction::{self, DecodedInstruction, SegmentOverride};
@@ -34,6 +36,7 @@ use crate::state::{exit, SegmentReads, State};
 use crate::{
     address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile, ExecutionTarget,
 };
+use transfer::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
 /// instructions. Instructions with partial progress, such as REP and POPA, also
@@ -54,7 +57,8 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
-    call_dispatch: bool,
+    transfer: Transfer,
+    entries: &'module BTreeMap<u32, Func>,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -83,7 +87,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             single_step: false.into(),
             eip,
             completed: 0,
-            call_dispatch: false,
+            transfer: Transfer::Jump,
+            entries: &module.entries,
             can_fallback: false,
             observed_cpu: None,
         })
@@ -114,6 +119,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         mut decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
+        self.transfer = Transfer::Jump;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
         self.address_size = decoded.instruction.address_size;
         self.segment_override = decoded.instruction.segment_override.clone();
@@ -335,25 +341,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         )
     }
 
-    /// Ends a block, checks execution controls and dispatches its successor.
-    pub(super) fn dispatch(mut self) -> Result<(), BuildError> {
-        let runtime = self.runtime;
-        if self.call_dispatch {
-            self.state
-                .publish(&mut self.body, &self.eip, self.completed)?;
-            self.checkpoint()?;
-            // Checkpoint exits skip the resolver, so profiling here can miss a
-            // completed call. Hotness counts are intentionally approximate.
-            let (slot, can_continue) = runtime.resolve_call(&mut self.body)?;
-            self.body.if_(can_continue.eq(false), |body| {
-                body.return_(crate::ExecutionExitValues::call_profile_full())
-            })?;
-            runtime.enter(self.body, slot)
-        } else {
-            self.finish(true, |body, _| runtime.dispatch(body))
-        }
-    }
-
     fn checkpoint(&mut self) -> Result<(), BuildError> {
         self.state.checkpoint(&mut self.body)?;
         self.body.if_(&self.single_step, |body| {
@@ -363,22 +350,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     /// Publishes an instruction and continues decoding within the current block.
     pub(super) fn complete(
-        self,
-        continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
-    ) -> Result<(), BuildError> {
-        self.finish(false, continue_execution)
-    }
-
-    fn finish(
         mut self,
-        checkpoint: bool,
         continue_execution: impl FnOnce(BlockBuilder<'body>, &Val<I32>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
-        if checkpoint {
-            self.checkpoint()?;
-        }
         continue_execution(self.body, &self.eip)
     }
 }

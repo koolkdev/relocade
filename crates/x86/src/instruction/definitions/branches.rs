@@ -210,7 +210,7 @@ where
     let discard_bytes = discard_bytes.read(execution)?;
     let frame = execution.pop_frame(T::BYTES, T::BYTES)?;
     let value = frame.field::<T>(execution, 0)?.read(execution)?;
-    let target = execution.jump(value.unsigned().extend::<I32>())?;
+    let target = execution.return_(value.unsigned().extend::<I32>())?;
     frame.commit(execution, discard_bytes.unsigned().extend::<I32>())?;
     Ok(target)
 }

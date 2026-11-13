@@ -43,7 +43,8 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let single_step = self.single_step.clone();
         let eip = self.eip.clone();
         let completed = self.completed;
-        let call_dispatch = self.call_dispatch;
+        let transfer = self.transfer.clone();
+        let entries = self.entries;
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
@@ -60,7 +61,8 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             single_step: single_step.clone(),
             eip: eip.clone(),
             completed,
-            call_dispatch,
+            transfer: transfer.clone(),
+            entries,
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
             can_fallback: false,
