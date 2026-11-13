@@ -1,6 +1,6 @@
 //! Fold and lower recipes under fixed path facts before scheduling calculations.
+use super::facts::Inference;
 use super::*;
-use rustc_hash::FxHashMap;
 
 mod equivalences;
 use equivalences::Equivalences;
@@ -21,11 +21,11 @@ pub(super) struct ScopeId(usize);
 #[derive(Default)]
 struct Scope {
     facts: ScalarFacts,
-    residuals: FxHashMap<usize, usize>,
     equivalents: Equivalences,
 }
 
 enum Work {
+    Infer(Inference),
     Visit(usize),
     Finish(usize),
     Select(usize, usize, usize, usize),
@@ -33,6 +33,13 @@ enum Work {
 }
 
 impl Reducer {
+    pub(super) fn new(blocks: usize) -> Self {
+        Self {
+            scopes: Vec::with_capacity(blocks),
+            ..Self::default()
+        }
+    }
+
     /// Publish a path's facts before its first reduction. Later queries keep them fixed.
     pub(super) fn scope(&mut self, facts: ScalarFacts) -> ScopeId {
         let id = ScopeId(self.scopes.len());
@@ -68,12 +75,23 @@ impl Reducer {
         self.pending.push(Work::Visit(root));
         while let Some(task) = self.pending.pop() {
             match task {
+                Work::Infer(step) => scope
+                    .facts
+                    .infer_step(values, step, |step| self.pending.push(Work::Infer(step))),
                 Work::Visit(id) => {
-                    if scope.residuals.contains_key(&id) {
+                    if scope.facts.reduced(id).is_some() {
+                        continue;
+                    }
+                    if let Some(step) = scope.facts.constant_inference(values, id) {
+                        self.pending.push(Work::Visit(id));
+                        self.pending.push(Work::Infer(step));
                         continue;
                     }
                     if let Some(result) = scope.known_constant(values, id) {
                         scope.record(id, result);
+                    } else if let Some(step) = scope.facts.identity_inference(values, id) {
+                        self.pending.push(Work::Visit(id));
+                        self.pending.push(Work::Infer(step));
                     } else if let Some(input) = scope.facts.bitwise_identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
@@ -95,11 +113,11 @@ impl Reducer {
                                 .extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        scope.residuals.insert(id, id);
+                        scope.record(id, id);
                     }
                 }
                 Work::Select(id, condition, when_true, when_false) => {
-                    let condition = scope.residuals[&condition];
+                    let condition = scope.facts.reduced(condition).unwrap();
                     if let Some(bits) = values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
                         self.pending.push(Work::Alias(id, input));
@@ -111,11 +129,13 @@ impl Reducer {
                     }
                 }
                 Work::Alias(id, input) => {
-                    scope.record(id, scope.residuals[&input]);
+                    scope.record(id, scope.facts.reduced(input).unwrap());
                 }
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
-                    let expression = original.expression.map(|v| scope.residuals[v]);
+                    let expression = original
+                        .expression
+                        .map(|v| scope.facts.reduced(*v).unwrap());
                     // Construction already canonicalized unchanged expressions.
                     // Fold changed operands directly, without interning a temporary recipe.
                     let result = if expression == original.expression {
@@ -153,7 +173,7 @@ impl Reducer {
                 }
             }
         }
-        scope.residuals[&root]
+        scope.facts.reduced(root).unwrap()
     }
 }
 
@@ -165,8 +185,7 @@ impl Scope {
     }
 
     fn record(&mut self, recipe: usize, residual: usize) {
-        self.residuals.insert(recipe, residual);
-        self.residuals.entry(residual).or_insert(residual);
+        self.facts.record_reduction(recipe, residual);
         if recipe != residual {
             self.equivalents.record(recipe, residual);
         }

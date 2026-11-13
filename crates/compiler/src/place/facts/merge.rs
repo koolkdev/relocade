@@ -82,6 +82,6 @@ impl ScalarFacts {
             self.lanes = None;
         }
         // Earlier inferences may depend on knowledge just discarded.
-        self.computed.get_mut().clear();
+        self.answers.get_mut().clear();
     }
 }

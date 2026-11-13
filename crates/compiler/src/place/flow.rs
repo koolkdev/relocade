@@ -25,7 +25,7 @@ impl ReducedFlow {
             .iter()
             .map(|block| block.exit.clone())
             .collect();
-        let mut reducer = Reducer::default();
+        let mut reducer = Reducer::new(graph.blocks.len());
         let mut scopes = vec![None; graph.blocks.len()];
         let mut order: Vec<_> = (0..graph.blocks.len()).collect();
         order.sort_by_key(|&block| dominators.rank[block]);
