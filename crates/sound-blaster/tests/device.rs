@@ -4,6 +4,8 @@ mod audio;
 mod playback;
 #[path = "device/ports.rs"]
 mod ports;
+#[path = "device/streaming.rs"]
+mod streaming;
 
 use relocade_clock_test_support::ManualClock;
 use relocade_dma::Dma;
