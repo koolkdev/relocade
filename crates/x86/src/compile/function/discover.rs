@@ -13,17 +13,17 @@ pub(super) fn blocks(
     mut limits: FunctionLimits,
     mut read: impl FnMut(u32, &mut [u8]) -> usize,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
-    if limits.instructions == 0 || limits.bytes == 0 || limits.blocks == 0 {
-        return Err(BlockError::ZeroDiscoveryLimit);
+    if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
+        return Err(BlockError::ZeroFunctionLimit);
     }
     let mut pending = VecDeque::from([start_eip]);
     let mut entries = BTreeSet::from([start_eip]);
     let mut instructions = BTreeMap::<u32, SnapshotInstruction>::new();
     let mut window = Window::default();
     while let Some(mut eip) = pending.pop_front() {
-        while limits.instructions != 0 && limits.bytes != 0 {
+        loop {
             if instructions.contains_key(&eip) {
-                enqueue(eip, limits.blocks, &mut entries, &mut pending);
+                enqueue(eip, &mut entries, &mut pending);
                 break;
             }
             // The predecessor may cross the 32-bit address wrap.
@@ -37,19 +37,15 @@ pub(super) fn blocks(
             {
                 break;
             }
-            let bytes = window.at(eip, limits.bytes, &mut read);
+            let bytes = window.at(eip, &mut read);
             if bytes.is_empty() {
                 break;
             }
-            let instruction =
-                match snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile)) {
-                    Ok((instruction, _)) => instruction,
-                    // A byte budget must not turn a valid partial candidate into an error.
-                    Err(BlockError::TruncatedInstruction { .. }) if bytes.len() == limits.bytes => {
-                        break
-                    }
-                    Err(error) => return Err(error),
-                };
+            if limits.instructions == 0 || limits.bytes == 0 {
+                return Err(BlockError::FunctionTooLarge { address: start_eip });
+            }
+            let (instruction, _) =
+                snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile))?;
             let len = instruction.fallthrough_eip.wrapping_sub(eip);
             if instructions
                 .range(eip..)
@@ -60,11 +56,14 @@ pub(super) fn blocks(
                 // This path would overlap an encoding already retained by another path.
                 break;
             }
+            if len as usize > limits.bytes {
+                return Err(BlockError::FunctionTooLarge { address: start_eip });
+            }
             let next = instruction.fallthrough_eip;
             let ends_block = instruction.ends_block(target);
             if ends_block {
                 for successor in instruction.successors(target).into_iter().flatten() {
-                    enqueue(successor, limits.blocks, &mut entries, &mut pending);
+                    enqueue(successor, &mut entries, &mut pending);
                 }
             }
             instructions.insert(eip, instruction);
@@ -90,16 +89,21 @@ pub(super) fn blocks(
             if ends_block || entries.contains(&eip) {
                 break;
             }
+            if block.instructions.len() == limits.block_instructions as usize {
+                blocks.push(block);
+                block = DecodedBlock::new(eip);
+            }
         }
         if !block.instructions.is_empty() {
             blocks.push(block);
         }
     }
+    blocks.sort_unstable_by_key(|block| block.entry.start_eip);
     Ok(blocks)
 }
 
-fn enqueue(eip: u32, limit: usize, entries: &mut BTreeSet<u32>, pending: &mut VecDeque<u32>) {
-    if entries.len() < limit && entries.insert(eip) {
+fn enqueue(eip: u32, entries: &mut BTreeSet<u32>, pending: &mut VecDeque<u32>) {
+    if entries.insert(eip) {
         pending.push_back(eip);
     }
 }
@@ -123,24 +127,19 @@ impl Default for Window {
 }
 
 impl Window {
-    fn at(
-        &mut self,
-        eip: u32,
-        budget: usize,
-        read: &mut impl FnMut(u32, &mut [u8]) -> usize,
-    ) -> &[u8] {
+    fn at(&mut self, eip: u32, read: &mut impl FnMut(u32, &mut [u8]) -> usize) -> &[u8] {
         let offset = eip.wrapping_sub(self.start) as usize;
         let available = self.len.saturating_sub(offset);
-        let needed = (MAX_INSTRUCTION_BYTES as usize).min(budget);
+        let needed = MAX_INSTRUCTION_BYTES as usize;
         if available >= needed {
-            return &self.bytes[offset..self.len.min(offset.saturating_add(budget))];
+            return &self.bytes[offset..self.len];
         }
         if available != 0 {
             self.bytes.copy_within(offset..self.len, 0);
         }
         self.start = eip;
         self.len = available;
-        let capacity = budget.min(self.bytes.len());
+        let capacity = self.bytes.len();
         while self.len < needed {
             let count = read(
                 eip.wrapping_add(self.len as u32),

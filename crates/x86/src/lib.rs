@@ -101,8 +101,12 @@ pub struct CompiledModule {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
-    /// Function discovery needs nonzero instruction, byte and block bounds.
-    ZeroDiscoveryLimit,
+    /// Function compilation needs nonzero exploration caps and a nonzero block size.
+    ZeroFunctionLimit,
+    /// The function exceeds its exploration caps; no partial module is compiled.
+    FunctionTooLarge {
+        address: u32,
+    },
     /// Two snapshots would export the same CS-relative entry.
     DuplicateBlock {
         address: u32,
@@ -135,8 +139,14 @@ impl fmt::Display for BlockError {
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
             }
-            Self::ZeroDiscoveryLimit => {
-                formatter.write_str("function discovery limits must be nonzero")
+            Self::ZeroFunctionLimit => {
+                formatter.write_str("function compilation limits must be nonzero")
+            }
+            Self::FunctionTooLarge { address } => {
+                write!(
+                    formatter,
+                    "function at {address:#x} exceeds its exploration limits"
+                )
             }
             Self::DuplicateBlock { address } => {
                 write!(formatter, "duplicate block entry at {address:#x}")

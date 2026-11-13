@@ -89,54 +89,66 @@ fn successor_metadata_obeys_operand_width_and_all_near_branch_forms() {
 }
 
 #[test]
-fn limits_apply_to_the_whole_candidate_and_leave_complete_prefixes() {
+fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
     let limits = FunctionLimits::default();
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    for (code, limits) in [
+        (
+            &[0x90, 0x90, 0xc3][..],
+            FunctionLimits {
+                instructions: 2,
+                ..limits
+            },
+        ),
+        (
+            &[0xb8, 1, 0, 0, 0, 0xc3][..],
+            FunctionLimits { bytes: 4, ..limits },
+        ),
+        (
+            &[0xb8, 1, 0, 0, 0, 0xc3][..],
+            FunctionLimits { bytes: 5, ..limits },
+        ),
+        (
+            &[0x75, 1, 0xc3, 0xc3][..],
+            FunctionLimits {
+                instructions: 2,
+                ..limits
+            },
+        ),
+        (
+            &[0x75, 1, 0xc3, 0xc3][..],
+            FunctionLimits { bytes: 3, ..limits },
+        ),
+    ] {
+        assert_eq!(
+            compiler
+                .compile_function(0x1000, limits, reader(0x1000, code))
+                .err(),
+            Some(BlockError::FunctionTooLarge { address: 0x1000 }),
+        );
+    }
     assert_eq!(
         entries(
             &[0x90, 0x90, 0xc3],
             FunctionLimits {
-                instructions: 2,
+                instructions: 3,
+                bytes: 3,
                 ..limits
             }
         ),
-        [(0x1000, 2)]
+        [(0x1000, 3)]
     );
-    assert!(entries(
-        &[0xb8, 1, 0, 0, 0, 0xc3],
-        FunctionLimits { bytes: 4, ..limits }
-    )
-    .is_empty());
+    // Reaching an already decoded loop entry does not consume more exploration budget.
     assert_eq!(
         entries(
-            &[0xb8, 1, 0, 0, 0, 0xc3],
-            FunctionLimits { bytes: 5, ..limits }
-        ),
-        [(0x1000, 5)]
-    );
-    let branching = [0x75, 1, 0xc3, 0xc3];
-    assert_eq!(
-        entries(
-            &branching,
-            FunctionLimits {
-                blocks: 1,
-                ..limits
-            }
-        ),
-        [(0x1000, 2)]
-    );
-    assert_eq!(
-        entries(
-            &branching,
+            &[0x75, 0xfe, 0xc3],
             FunctionLimits {
                 instructions: 2,
+                bytes: 3,
                 ..limits
             }
         ),
-        [(0x1000, 2), (0x1003, 1)]
-    );
-    assert_eq!(
-        entries(&branching, FunctionLimits { bytes: 3, ..limits }),
-        [(0x1000, 2), (0x1003, 1)]
+        [(0x1000, 2), (0x1002, 1)]
     );
     for limits in [
         FunctionLimits {
@@ -145,20 +157,52 @@ fn limits_apply_to_the_whole_candidate_and_leave_complete_prefixes() {
         },
         FunctionLimits { bytes: 0, ..limits },
         FunctionLimits {
-            blocks: 0,
+            block_instructions: 0,
             ..limits
         },
     ] {
-        assert!(matches!(
-            discover::blocks(
-                0,
-                Compiler::new(SegmentProfile::Flat32).target(),
-                limits,
-                |_, _| panic!("zero bounds must not read")
-            ),
-            Err(BlockError::ZeroDiscoveryLimit)
-        ));
+        let result = discover::blocks(0, compiler.target(), limits, |_, _| {
+            panic!("zero bounds must not read")
+        });
+        assert!(matches!(result, Err(BlockError::ZeroFunctionLimit)));
     }
+}
+
+#[test]
+fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries() {
+    let code = [0xb8, 1, 0, 0, 0, 0x90, 0x90, 0x90, 0xc3];
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let actual = compiler
+        .compile_function(
+            0x1000,
+            FunctionLimits {
+                block_instructions: 2,
+                ..FunctionLimits::default()
+            },
+            reader(0x1000, &code),
+        )
+        .unwrap();
+    let snapshots: Vec<_> = [(0, 6), (6, 2), (8, 1)]
+        .into_iter()
+        .map(|(offset, len)| BlockSnapshot {
+            start_eip: 0x1000 + offset as u32,
+            bytes: &code[offset..offset + len],
+            instruction_limit: 2,
+        })
+        .collect();
+    let expected = compiler.compile_blocks(&snapshots).unwrap();
+    assert_eq!(actual.entries, expected.entries);
+    assert_eq!(actual.bytes, expected.bytes);
+}
+
+#[test]
+fn defaults_discover_large_branched_functions_in_full() {
+    let mut code: Vec<_> = std::iter::repeat_n([0x75, 0], 8192).flatten().collect();
+    code.push(0xc3);
+    let blocks = entries(&code, FunctionLimits::default());
+    assert_eq!(blocks.len(), 8193);
+    assert_eq!(blocks.iter().map(|(_, len)| len).sum::<usize>(), code.len());
+    assert_eq!(blocks.last(), Some(&(0x5000, 1)));
 }
 
 #[test]
@@ -203,8 +247,19 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
         },
     )
     .unwrap();
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].entry.byte_len, code.len());
-    assert_eq!(blocks[0].instructions.len(), code.len());
+    assert_eq!(
+        blocks
+            .iter()
+            .map(|block| (block.entry.start_eip, block.entry.byte_len))
+            .collect::<Vec<_>>(),
+        [(245, 5), (u32::MAX - 10, 256)],
+    );
+    assert_eq!(
+        blocks
+            .iter()
+            .map(|block| block.instructions.len())
+            .sum::<usize>(),
+        code.len()
+    );
     assert_eq!(copied, code.len());
 }
