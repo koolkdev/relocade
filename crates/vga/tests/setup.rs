@@ -38,7 +38,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     assert_eq!(blocked.scanout(), before.scanout());
     assert_eq!(blocked.dac, before.dac);
     for plane in 0..4 {
-        assert!(std::ptr::eq(blocked.plane(plane), before.plane(plane)));
+        assert_eq!(blocked.plane(plane), before.plane(plane));
     }
 
     // Adapter control is write-only, but remains writable while disabled.

@@ -1,12 +1,7 @@
-//! Physical VRAM with immutable 64-KiB allocation blocks. Consecutive packed
-//! bytes select successive planes; the first four blocks are the VGA planes.
-#[cfg(feature = "renderer")]
-use super::DirtyPages;
-use super::{BLOCKS, BLOCK_BYTES};
+//! Mutable physical VRAM; immutable snapshot blocks are prepared at capture.
+use super::{DirtyPages, BLOCKS, BLOCK_BYTES};
 use std::sync::Arc;
 
-/// Complete immutable blocks covering a captured prefix of physical VRAM.
-/// Sharing the block list also keeps capture clones and upload baselines cheap.
 #[derive(Clone)]
 pub(crate) struct MemorySnapshot {
     pub blocks: Arc<[Arc<[u8]>]>,
@@ -29,38 +24,32 @@ impl MemorySnapshot {
 }
 
 pub(super) struct Storage {
-    blocks: [Arc<[u8]>; BLOCKS],
-    #[cfg(feature = "renderer")]
-    changed: DirtyPages,
+    bytes: Box<[u8]>,
+    dirty: DirtyPages,
 }
 
 impl Default for Storage {
     fn default() -> Self {
-        let zero: Arc<[u8]> = vec![0; BLOCK_BYTES].into();
         Self {
-            blocks: std::array::from_fn(|_| zero.clone()),
-            #[cfg(feature = "renderer")]
-            changed: DirtyPages::default(),
+            bytes: vec![0; BLOCKS * BLOCK_BYTES].into_boxed_slice(),
+            dirty: DirtyPages::default(),
         }
     }
 }
 
 impl Storage {
     pub fn capacity(&self) -> u32 {
-        (self.blocks.len() * BLOCK_BYTES) as u32
+        self.bytes.len() as u32
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
-        // Retained captures keep their old storage. Every cleared block must be
-        // visible to the next upload, including memory beyond the VGA planes.
-        #[cfg(feature = "renderer")]
+        self.bytes.fill(0);
         for block in 0..BLOCKS {
-            self.changed.mark_block(block);
+            self.dirty.mark_block(block);
         }
     }
 
-    /// Internal callers validate packed offsets against VIDEO_MEMORY_BYTES.
+    /// Translate a physical address into the existing plane storage.
     fn location(address: u32) -> (usize, usize) {
         let address = address as usize;
         let block = address / (4 * BLOCK_BYTES) * 4 + (address & 3);
@@ -69,37 +58,43 @@ impl Storage {
 
     pub fn read(&self, address: u32) -> u8 {
         let (block, offset) = Self::location(address);
-        self.blocks[block][offset]
+        self.bytes[block * BLOCK_BYTES + offset]
     }
 
     pub fn write(&mut self, address: u32, value: u8) {
         let (block, offset) = Self::location(address);
-        if self.blocks[block][offset] == value {
-            return;
-        }
-        // A retained snapshot copies at most one 64-KiB block on its first change.
-        Arc::make_mut(&mut self.blocks[block])[offset] = value;
-        #[cfg(feature = "renderer")]
-        self.changed.mark(block, offset);
+        self.bytes[block * BLOCK_BYTES + offset] = value;
+        self.dirty.mark(block, offset);
     }
 
-    /// Capture complete interleaved groups through the requested physical byte
-    /// extent. The caller supplies a layout bounded by physical VRAM.
-    pub fn snapshot(&self, bytes: u32) -> MemorySnapshot {
+    /// Reuse untouched blocks from the output owner's baseline. Inspection
+    /// snapshots leave both that baseline and the dirty interval unchanged.
+    pub fn snapshot(&self, bytes: u32, baseline: Option<&MemorySnapshot>) -> MemorySnapshot {
         let count = (bytes as usize).div_ceil(4 * BLOCK_BYTES) * 4;
+        let mut blocks = Vec::with_capacity(count);
+        for block in 0..count {
+            let previous = baseline.and_then(|memory| memory.blocks.get(block));
+            blocks.push(match previous {
+                Some(bytes) if !self.dirty.contains_block(block) => bytes.clone(),
+                _ => {
+                    let base = block * BLOCK_BYTES;
+                    Arc::from(&self.bytes[base..base + BLOCK_BYTES])
+                }
+            });
+        }
         MemorySnapshot {
-            blocks: Arc::from(&self.blocks[..count]),
+            blocks: blocks.into(),
         }
     }
 
     #[cfg(feature = "renderer")]
-    pub fn changed_pages(&self) -> DirtyPages {
-        self.changed
+    pub fn dirty_pages(&self) -> DirtyPages {
+        self.dirty
     }
 
-    #[cfg(feature = "renderer")]
-    pub fn clear_changes(&mut self) {
-        self.changed = DirtyPages::default();
+    /// The output owner starts a new interval after accepting a capture.
+    pub fn clear_dirty(&mut self) {
+        self.dirty = DirtyPages::default();
     }
 }
 

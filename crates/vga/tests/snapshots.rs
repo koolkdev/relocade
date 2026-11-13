@@ -125,12 +125,17 @@ fn newest_capture_contains_changes_from_skipped_frames() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn snapshots_share_planes_until_a_final_physical_byte_changes() {
-    let vga = ConnectedVga::new(ManualClock::new().clock());
+fn snapshots_share_planes_until_physical_bytes_are_written() {
+    let clock = ManualClock::default();
+    let (vga, mut video) = common::start_video(ConnectedVga::new(clock.clock()));
+    let source = vga.device.borrow().frames();
     font_access(&vga.io);
     indexed(&vga.io, 0x3c4, 2, 0x0f);
     indexed(&vga.io, 0x3c4, 4, 0x0e); // Chain four selects plane one below.
-    let before = vga.snapshot();
+    clock.advance_to(clock.at(boundary(1)));
+    vga.io.read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    let before = source.try_recv().unwrap();
     let cloned = before.clone();
     for plane in 0..4 {
         assert!(std::ptr::eq(before.plane(plane), cloned.plane(plane)));
@@ -145,15 +150,28 @@ fn snapshots_share_planes_until_a_final_physical_byte_changes() {
         assert!(std::ptr::eq(before.plane(plane), changed.plane(plane)));
     }
 
+    clock.advance_to(clock.at(boundary(2)));
+    vga.io.read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    let changed = source.try_recv().unwrap();
     vga.io.write_mmio(0xa0125, 1, 0x5a); // Same byte.
     vga.io.read_mmio(0xa0125, 1); // Load the existing byte into the latch.
     indexed(&vga.io, 0x3ce, 8, 0); // Preserve every latched bit.
     vga.io.write_mmio(0xa0125, 1, 0xff);
+    let rewritten = vga.snapshot();
+    assert!(!std::ptr::eq(changed.plane(1), rewritten.plane(1)));
+    for plane in 0..4 {
+        assert_eq!(changed.plane(plane), rewritten.plane(plane));
+    }
+    clock.advance_to(clock.at(boundary(3)));
+    vga.io.read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    let rewritten = source.try_recv().unwrap();
     indexed(&vga.io, 0x3c4, 2, 0); // Reject the write entirely.
     vga.io.write_mmio(0xa0125, 1, 0);
     let unchanged = vga.snapshot();
     for plane in 0..4 {
-        assert!(std::ptr::eq(changed.plane(plane), unchanged.plane(plane)));
+        assert!(std::ptr::eq(rewritten.plane(plane), unchanged.plane(plane)));
     }
 }
 

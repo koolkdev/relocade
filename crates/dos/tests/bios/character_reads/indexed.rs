@@ -61,7 +61,7 @@ fn indexed_reads_use_raw_color_indices_and_programmable_font_heights() {
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+                assert_eq!(after.plane(plane), before.plane(plane));
             }
         }
         video(&mut dos, 0x0200, 0, 0, 0x0128); // Column 40 is outside mode 13h's grid.

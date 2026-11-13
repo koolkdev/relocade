@@ -47,7 +47,7 @@ fn palette_controls_change_only_bios_policy_and_report_invalid_selections() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+            assert_eq!(after.plane(plane), before.plane(plane));
         }
     });
 }

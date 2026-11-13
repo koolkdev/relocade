@@ -7,6 +7,7 @@ use relocade_machine::Timestamp;
 pub(crate) struct Output {
     pub(crate) sender: Sender<DisplaySnapshot>,
     pub frames: Receiver<DisplaySnapshot>,
+    /// The producer's baseline for the next capture, without upload hints.
     pub(crate) captured: Option<DisplaySnapshot>,
     pub(crate) pending: Option<PendingSnapshot>,
     pub(crate) ready: Event,

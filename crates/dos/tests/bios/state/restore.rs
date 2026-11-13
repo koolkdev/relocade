@@ -155,7 +155,7 @@ fn firmware_subset_restores_metadata_vectors_and_only_video_equipment_bits() {
         let restored_registers = dos.vga().borrow().registers().clone();
         assert_eq!(restored_registers, current_registers);
         for plane in 0..4 {
-            assert!(std::ptr::eq(restored.plane(plane), current.plane(plane)));
+            assert_eq!(restored.plane(plane), current.plane(plane));
         }
     });
 }
@@ -190,7 +190,7 @@ fn dac_subset_restores_raw_colors_and_transfer_position_on_the_live_port_bank() 
             assert_eq!(restored.dac.colors[usize::from(index)], [7, 21, 49]);
             assert_eq!(buffer::<0x42>(&mut dos, 0, 0x449), firmware);
             for plane in 0..4 {
-                assert!(std::ptr::eq(restored.plane(plane), current.plane(plane)));
+                assert_eq!(restored.plane(plane), current.plane(plane));
             }
             let context = dos.cpu().context();
             assert_eq!(context.io.read_port(0x3c7, 1) & 1, mode);
