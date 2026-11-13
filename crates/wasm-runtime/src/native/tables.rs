@@ -19,6 +19,10 @@ pub(super) fn create<T: 'static>(
 impl WasmTableAccess for WasmRuntime {
     type Backend = Self;
 
+    fn table_size(&self, table: &Table) -> u64 {
+        table.size(&self.store)
+    }
+
     fn ensure_table_size(
         &mut self,
         table: &Table,
@@ -35,6 +39,10 @@ impl WasmTableAccess for WasmRuntime {
 
 impl WasmTableAccess for Context<'_> {
     type Backend = WasmRuntime;
+
+    fn table_size(&self, table: &Table) -> u64 {
+        table.size(&self.0)
+    }
 
     fn ensure_table_size(
         &mut self,

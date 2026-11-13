@@ -27,9 +27,10 @@ let value = view.read_u8(0x200)?;
 ```
 
 `Memory` owns the backing handle and an immutable copy of the configured
-physical map. Its memory views use the same RAM, ROM, A20 and hole rules as the stopped
-machine. Devices stay on the execution worker: mapped MMIO accesses require its
-local bus. Accessing MMIO without one is a programming error and panics.
+physical address policy. Its memory views use the same RAM, ROM, A20 and hole
+rules as the stopped machine. MMIO operations come from the execution worker's
+live bus, including changes made after a view was created. Accessing MMIO without
+a local bus is a programming error and panics.
 `MemoryView` supports reads through
 `&MemoryView` and writes through `&mut MemoryView`.
 Borrowing the local handle does not exclude access through other shared handles.
@@ -98,16 +99,15 @@ Worker lifetime belongs to the application.
 
 ## Devices
 
-`Device` owns synchronous MMIO, interrupts and optional asynchronous activity.
-MMIO methods take `&mut self` and an `IoContext`, including reads that can change
-hardware state. Port operations are prepared separately with `PortRead` and
-`PortWrite`; `DeviceCallbacks` can adapt methods that borrow the device. Nested
-I/O forwards the supplied context. `IoBus` retains local device connections,
-their MMIO ranges and interrupt sources. Setup installs prepared port operations:
+`Device` owns interrupts and optional asynchronous activity. Prepare register
+operations with `PortRead`/`PortWrite` and memory operations with
+`MmioRead`/`MmioWrite`. `DeviceCallbacks` adapts methods that borrow the device
+through a weak reference. Nested I/O forwards the supplied `IoContext`.
+`IoBus` retains device connections and the installed operations:
 
 ```rust
 let io = IoBus::new(device, |io| {
-    io.map_mmio([0xb8000..=0xbffff]);
+    io.bind_mmio(0xb8000..=0xbffff, &memory_read, &memory_write);
     io.bind(0x3d4, &index_read, &index_write);
     io.bind(0x3d5, &data_read, &data_write);
 });
@@ -115,7 +115,7 @@ let memory = Memory::new(machine_config)?;
 let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 ```
 
-The board's physical map must mark that memory range `PhysicalMapping::Mmio`.
+The board's physical map must mark that memory range `PhysicalMapping::MMIO`.
 The device owns its storage; it does not use guest RAM backing. CPU-context memory
 transfers and guest instructions route to the same device, after A20 translation.
 BIOS services capture a `MemoryBus` for memory and port operations. Unconnected
@@ -137,9 +137,21 @@ Use raw `Memory` for sharing backing between workers. An attached empty bus stil
 differs from a raw view without device access.
 
 MMIO callbacks receive one through eight little-endian bytes, including partial
-widths at boundaries. Port callbacks retain a complete one-, two- or four-byte
-operation; the device interprets it. Each transfer borrows its device only for the
-synchronous call. The bus can be cloned within a worker, but cannot cross threads.
+widths at boundaries. Complete MMIO pages identify a slot in separate live read
+and write function tables. Mixed pages use slot zero to resolve device boundaries
+and holes. Adjacent pages combine only when their slots match and their bus
+addresses are contiguous. Each callback finishes before the next part resolves.
+
+`bind_mmio` returns a fixed `MmioBinding`. Retain it only when operations can
+change, then call `set_read(context, &read)` or `set_write(context, &write)`.
+Replacement is synchronous and visible to existing compiled modules, the
+interpreter and retained host views. Dropping a binding leaves its operations
+installed. New bindings publish complete-page indices after both functions are
+ready; reads and writes can subsequently be replaced independently.
+
+Port callbacks retain a complete one-, two- or four-byte operation; the device
+interprets it. Device callbacks borrow state only for the synchronous call. The
+bus can be cloned within a worker, but cannot cross threads.
 The CPU and `IoBus` retain the same `WasmRuntimeHandle`. It keeps the Wasm runtime
 alive and scopes exclusive access to synchronous operations. Native `WasmRuntime`
 directly owns its Wasmtime store. Wasm callbacks capture weak bus routing references,

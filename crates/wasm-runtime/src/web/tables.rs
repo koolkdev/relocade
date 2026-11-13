@@ -1,4 +1,4 @@
-use super::{js_error, set, Context, WasmRuntime};
+use super::{Context, WasmRuntime, js_error, set};
 use crate::{Result, WasmBackend, WasmTableAccess};
 use js_sys::{Function, Object, WebAssembly::Table};
 use wasm_bindgen::JsValue;
@@ -24,6 +24,10 @@ pub(super) fn create(
 impl WasmTableAccess for WasmRuntime {
     type Backend = Self;
 
+    fn table_size(&self, table: &Table) -> u64 {
+        u64::from(table.length())
+    }
+
     fn ensure_table_size(
         &mut self,
         table: &Table,
@@ -40,6 +44,10 @@ impl WasmTableAccess for WasmRuntime {
 
 impl WasmTableAccess for Context<'_> {
     type Backend = WasmRuntime;
+
+    fn table_size(&self, table: &Table) -> u64 {
+        u64::from(table.length())
+    }
 
     fn ensure_table_size(
         &mut self,

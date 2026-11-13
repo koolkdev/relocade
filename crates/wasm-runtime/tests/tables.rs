@@ -1,4 +1,4 @@
-use relocade_compiler::{abi, Program, I32};
+use relocade_compiler::{I32, Program, abi};
 use relocade_wasm_runtime::{FunctionRef, WasmBackend, WasmCompiler, WasmRuntime};
 use std::{cell::RefCell, rc::Rc};
 
@@ -12,7 +12,7 @@ async fn check_table_defaults() {
     type Read = fn(u16) -> u32;
     const READ: abi::Table<Read> = {
         let mut table = abi::Table::new("test", "read", 2);
-        table.maximum = Some(4);
+        table.maximum = Some(5);
         table
     };
     const RUN: abi::Function<fn(u32, u16) -> u32> = abi::Function::new("test", "run");
@@ -54,17 +54,22 @@ async fn check_table_defaults() {
         assert_eq!(runtime.call(&run, (1, 7)), 18);
         let alias = table.clone();
         alias.set(&mut runtime, 1, &replacement).unwrap();
-        table.ensure_size(&mut runtime, 4, Some(&default)).unwrap();
+        table.ensure_size(&mut runtime, 3, Some(&default)).unwrap();
+        // Doubling reserves and initializes slot three as well.
+        assert_eq!(runtime.call(&run, (3, 7)), 18);
         // Growth never rewrites existing slots, including when no growth is needed.
         alias.ensure_size(&mut runtime, 2, None).unwrap();
+        alias.ensure_size(&mut runtime, 4, None).unwrap();
+        // The next doubling is capped at the declared maximum.
+        table.ensure_size(&mut runtime, 5, Some(&default)).unwrap();
         (run, alias)
     };
-    for (slot, expected) in [(0, 18), (1, 108), (2, 18), (3, 18)] {
+    for (slot, expected) in [(0, 18), (1, 108), (2, 18), (3, 18), (4, 18)] {
         assert_eq!(runtime.call(&run, (slot, 7)), expected);
     }
-    assert_eq!(&*events.borrow(), &[7, 7, 7, 7]);
-    assert!(alias.ensure_size(&mut runtime, 5, None).is_err());
-    assert_eq!(runtime.call(&run, (3, 9)), 20);
+    assert_eq!(&*events.borrow(), &[7, 7, 7, 7, 7, 7]);
+    assert!(alias.ensure_size(&mut runtime, 6, None).is_err());
+    assert_eq!(runtime.call(&run, (4, 9)), 20);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

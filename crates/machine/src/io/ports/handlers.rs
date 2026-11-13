@@ -1,44 +1,13 @@
 //! Reusable operations with a host call view and one lazily prepared Wasm function.
 
-use crate::io::State;
+use crate::io::handlers::Handler;
 use crate::IoContext;
-use relocade_compiler::abi::FunctionSignature;
-use relocade_wasm_runtime::{FunctionRef, WasmRuntime};
+use relocade_wasm_runtime::FunctionRef;
 use relocade_x86::abi;
-use std::{
-    cell::OnceCell,
-    rc::{Rc, Weak},
-};
+use std::{cell::OnceCell, rc::Rc};
 
 pub(super) type Read = dyn Fn(IoContext<'_>, u16, u8) -> u32;
 pub(super) type Write = dyn Fn(IoContext<'_>, u16, u8, u32);
-type Bind<S> = dyn Fn(&mut IoContext<'_>) -> FunctionRef<WasmRuntime, S>;
-
-pub(super) struct Handler<S: FunctionSignature, C: ?Sized> {
-    pub(super) callback: Rc<C>,
-    bind: Box<Bind<S>>,
-    function: OnceCell<(Weak<State>, FunctionRef<WasmRuntime, S>)>,
-}
-
-impl<S: FunctionSignature, C: ?Sized> Handler<S, C> {
-    pub(super) fn function(&self, context: &mut IoContext<'_>) -> &FunctionRef<WasmRuntime, S> {
-        self.check_owner(context);
-        let (_, function) = self
-            .function
-            .get_or_init(|| (context.bus.clone(), (self.bind)(context)));
-        function
-    }
-
-    pub(super) fn check_owner(&self, context: &IoContext<'_>) {
-        if let Some((owner, _)) = self.function.get() {
-            assert!(
-                Weak::ptr_eq(owner, context.bus),
-                "port handler is bound to another I/O bus"
-            );
-        }
-    }
-}
-
 /// A reusable read operation, bound to one bus on first installation.
 /// Keep mode-specific operations in the device and reuse them at state changes.
 /// Native runtimes retain prepared functions until bus teardown; captures should

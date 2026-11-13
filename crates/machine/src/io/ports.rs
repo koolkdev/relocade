@@ -1,12 +1,10 @@
 //! Fixed device port bindings backed by the shared host and guest port map.
 
-mod callbacks;
 mod handlers;
 mod map;
 mod widths;
 
 use super::{IoContext, State};
-pub use callbacks::DeviceCallbacks;
 pub use handlers::{PortRead, PortWrite};
 pub(crate) use map::Ports;
 use std::{
