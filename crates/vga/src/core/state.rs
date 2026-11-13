@@ -116,5 +116,6 @@ impl VgaCoreState {
         vga.registers.feature_control = self.feature_control;
         vga.setup = self.setup;
         vga.latches = self.latches;
+        vga.update_memory_controls();
     }
 }

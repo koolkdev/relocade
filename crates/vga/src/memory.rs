@@ -31,11 +31,20 @@ impl VideoMemory {
         self.storage.read(address)
     }
 
+    pub fn read_physical_word(&self, address: u32) -> u32 {
+        self.storage.read_word(address)
+    }
+
     pub fn write_physical(&mut self, address: u32, value: u8) {
         self.storage.write(address, value);
     }
 
+    pub fn write_physical_word(&mut self, address: u32, value: u32, mask: u32) {
+        self.storage.write_masked_word(address, value, mask);
+    }
+
     /// Reads each byte through the selected aperture; unmapped bytes return FF.
+    #[inline(always)]
     pub fn read(&mut self, address: u32, bytes: u8, window: VramWindow) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
@@ -47,6 +56,7 @@ impl VideoMemory {
         u64::from_le_bytes(value)
     }
 
+    #[inline(always)]
     pub fn write(&mut self, address: u32, bytes: u8, value: u64, window: VramWindow) {
         if bytes == 1 {
             if let Some(offset) = window.memory_offset(address) {

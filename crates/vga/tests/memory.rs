@@ -60,6 +60,31 @@ fn write_modes_use_read_latches_instead_of_destination_bytes() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn wide_writes_preserve_latches_and_plane_masks_across_address_wrapping() {
+    let vga = planar();
+    for address in [0xafffe, 0xaffff, 0xa0000, 0xa0001] {
+        seed(&vga.io, address, [0x11, 0x22, 0x33, 0x44]);
+    }
+    seed(&vga.io, 0xa0010, [0xa5, 0x5a, 0xf0, 0x0f]);
+    vga.io.read_mmio(0xa0010, 1);
+    set(&vga.io, 0x3c4, 2, 13); // Leave plane 1 unchanged.
+    set(&vga.io, 0x3ce, 6, 1); // 128-KiB aperture, 16-bit plane address.
+    set(&vga.io, 0x3ce, 0, 5);
+    set(&vga.io, 0x3ce, 1, 3);
+    set(&vga.io, 0x3ce, 3, 0x19); // Rotate once, XOR with the read latches.
+    set(&vga.io, 0x3ce, 8, 0xf0);
+    vga.io.write_mmio(0xafffe, 4, 0x4080_1020);
+    set(&vga.io, 0x3ce, 5, 1);
+    vga.io.write_mmio(0xa0030, 1, 0); // The wide write must not change the latches.
+    assert_eq!(planes(&vga.io, 0xa0030), [0xa5, 0, 0xf0, 0x0f]);
+    assert_eq!(planes(&vga.io, 0xafffe), [0x55, 0x22, 0xe0, 0x1f]);
+    assert_eq!(planes(&vga.io, 0xaffff), [0x55, 0x22, 0xf0, 0x0f]);
+    assert_eq!(planes(&vga.io, 0xa0000), [0x55, 0x22, 0xb0, 0x4f]);
+    assert_eq!(planes(&vga.io, 0xa0001), [0x55, 0x22, 0xd0, 0x2f]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn color_expansion_and_mode_three_apply_logic_and_pixel_masks() {
     let vga = planar();
     seed(&vga.io, 0xa0010, [0xa5, 0x5a, 0xf0, 0x0f]);

@@ -1,8 +1,34 @@
 //! VGA CPU access semantics over memory supplied by the complete card.
 use super::VgaCore;
-use crate::{memory::VideoMemory, Registers};
+use crate::{
+    memory::VideoMemory,
+    registers::{graphics, sequencer},
+    Registers,
+};
+use std::ops::Range;
 
 impl VgaCore {
+    pub(crate) fn write_sequencer(&mut self, value: u8) {
+        if self.registers.sequencer.write(value)
+            && matches!(
+                self.registers.sequencer.index(),
+                sequencer::MAP_MASK | sequencer::MEMORY_MODE
+            )
+        {
+            self.update_memory_controls();
+        }
+    }
+
+    pub(crate) fn write_graphics(&mut self, value: u8) {
+        if self.registers.graphics.write(value) {
+            self.update_memory_controls();
+        }
+    }
+
+    pub(super) fn update_memory_controls(&mut self) {
+        self.memory_controls = MemoryControls::new(&self.registers);
+    }
+
     pub(crate) fn read_memory(&mut self, memory: &VideoMemory, address: u32, bytes: u8) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
@@ -18,65 +44,126 @@ impl VgaCore {
         bytes: u8,
         value: u64,
     ) {
+        let controls = &self.memory_controls;
+        let latches = u32::from_le_bytes(self.latches);
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            self.write_vga_byte(memory, address + index as u32, *byte);
+            let address = address + index as u32;
+            if !controls.window.contains(&address) {
+                continue;
+            }
+            let offset = address - controls.window.start;
+            let mask = controls.write_masks[(offset & 3) as usize];
+            if mask == 0 {
+                continue;
+            }
+            let address = u32::from(controls.addressing.index(offset)) * 4;
+            let values = controls.write.apply(*byte, latches);
+            memory.write_physical_word(address, values, mask);
         }
-    }
-
-    fn index(offset: u32, registers: &Registers) -> usize {
-        let address_bits = if registers.sequencer.extended_memory() {
-            16
-        } else {
-            14
-        };
-        let offset = if registers.sequencer.chain_four() {
-            // Chain-4 uses CPU A0/A1 for plane selection. The plane address
-            // receives A14/A15 on those pins, matching CRTC doubleword output.
-            (offset & !3) | ((offset >> 14) & 3)
-        } else if registers.graphics.chain_odd_even() {
-            // Only the 128-KiB aperture exposes A16. The IBM VGA target has
-            // no programmable page-select input for the smaller apertures.
-            (offset & !1) | ((offset >> 16) & 1)
-        } else {
-            offset
-        };
-        (offset & ((1 << address_bits) - 1)) as usize
     }
 
     fn read_vga_byte(&mut self, memory: &VideoMemory, address: u32) -> u8 {
-        let registers = &self.registers;
-        let graphics = &registers.graphics;
-        let Some(offset) = graphics.memory_offset(address) else {
+        let controls = &self.memory_controls;
+        if !controls.window.contains(&address) {
             return 0xff;
-        };
-        let index = Self::index(offset, registers);
-        self.latches =
-            std::array::from_fn(|plane| memory.read_physical((index * 4 + plane) as u32));
-        if graphics.compare_reads() {
-            return graphics.compare(self.latches);
         }
-        let plane = if registers.sequencer.chain_four() {
-            (offset & 3) as usize
-        } else if graphics.odd_even_reads() {
-            (graphics.read_plane() & 2) | (offset & 1) as usize
+        let offset = address - controls.window.start;
+        let index = u32::from(controls.addressing.index(offset));
+        self.latches = memory.read_physical_word(index * 4).to_le_bytes();
+        if let Some(value) = controls.read.compare(self.latches) {
+            return value;
+        }
+        let plane = controls.read_plane_base | (offset as u8 & controls.read_plane_mask);
+        self.latches[usize::from(plane & 3)]
+    }
+}
+
+/// Prepared on relevant register changes and restoration, never on MMIO access.
+pub(super) struct MemoryControls {
+    window: Range<u32>,
+    addressing: Addressing,
+    write_masks: [u32; 4],
+    read_plane_base: u8,
+    read_plane_mask: u8,
+    read: graphics::ReadControls,
+    write: graphics::WriteControls,
+}
+
+impl MemoryControls {
+    pub(super) fn new(registers: &Registers) -> Self {
+        let chain_four = registers.sequencer.chain_four();
+        let read = registers.graphics.read_controls();
+        Self {
+            window: registers.graphics.memory_window(),
+            addressing: Addressing::new(registers),
+            write_masks: std::array::from_fn(|offset| {
+                let planes = registers.sequencer.write_plane_mask()
+                    & if chain_four {
+                        1 << offset
+                    } else if registers.sequencer.odd_even_writes() {
+                        0x05 << (offset & 1)
+                    } else {
+                        0x0f
+                    };
+                u32::from_le_bytes(std::array::from_fn(|plane| {
+                    if planes & (1 << plane) == 0 {
+                        0
+                    } else {
+                        0xff
+                    }
+                }))
+            }),
+            read_plane_base: if chain_four {
+                0
+            } else if read.odd_even {
+                read.plane & 2
+            } else {
+                read.plane
+            },
+            read_plane_mask: if chain_four {
+                3
+            } else if read.odd_even {
+                1
+            } else {
+                0
+            },
+            read,
+            write: registers.graphics.write_controls(),
+        }
+    }
+}
+
+struct Addressing {
+    low_mask: u32,
+    shift: u32,
+    mask: u16,
+}
+
+impl Addressing {
+    fn new(registers: &Registers) -> Self {
+        // Chain-4 routes A14/A15 onto the plane address's low two bits.
+        // Chained odd/even routes A16 onto its low bit; only the 128-KiB
+        // aperture exposes A16. Unchained addressing leaves all bits intact.
+        let (low_mask, shift) = if registers.sequencer.chain_four() {
+            (3, 14)
+        } else if registers.graphics.chain_odd_even() {
+            (1, 16)
         } else {
-            graphics.read_plane()
+            (0, 0)
         };
-        self.latches[plane]
+        Self {
+            low_mask,
+            shift,
+            mask: if registers.sequencer.extended_memory() {
+                0xffff
+            } else {
+                0x3fff
+            },
+        }
     }
 
-    fn write_vga_byte(&mut self, memory: &mut VideoMemory, address: u32, value: u8) {
-        let registers = &self.registers;
-        let Some(offset) = registers.graphics.memory_offset(address) else {
-            return;
-        };
-        let index = Self::index(offset, registers);
-        let planes = registers.sequencer.write_planes(offset);
-        let values = registers.graphics.write_data(value, self.latches);
-        for (plane, value) in values.into_iter().enumerate() {
-            if planes & (1 << plane) != 0 {
-                memory.write_physical((index * 4 + plane) as u32, value);
-            }
-        }
+    fn index(&self, offset: u32) -> u16 {
+        let offset = (offset & !self.low_mask) | (offset.wrapping_shr(self.shift) & self.low_mask);
+        offset as u16 & self.mask
     }
 }
