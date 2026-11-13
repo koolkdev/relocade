@@ -55,9 +55,24 @@ impl Storage {
         self.bytes[address as usize]
     }
 
+    pub fn read_word(&self, address: u32) -> u32 {
+        let address = address as usize;
+        u32::from_le_bytes(self.bytes[address..address + 4].try_into().unwrap())
+    }
+
     pub fn write(&mut self, address: u32, value: u8) {
         let address = address as usize;
         self.bytes[address] = value;
+        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+    }
+
+    /// Replace selected bits in one aligned physical word. VGA's four plane
+    /// bytes share that word; the caller has already applied its latch logic.
+    pub fn write_masked_word(&mut self, address: u32, value: u32, mask: u32) {
+        let address = address as usize;
+        let word = &mut self.bytes[address..address + 4];
+        let old = u32::from_le_bytes(word.try_into().unwrap());
+        word.copy_from_slice(&((old & !mask) | (value & mask)).to_le_bytes());
         self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
     }
 

@@ -82,6 +82,12 @@ time and partial dots. Stopped clocks consume time without advancing the beam.
 Horizontal status edges are skipped outside vertical
 display. Late observations catch up all elapsed retraces without a per-frame loop.
 
+`VgaCore` decodes memory addressing, plane selection and graphics controls when
+relevant registers change, and rebuilds them on restoration. Reads load all four
+CPU latches from one physical word. Writes apply the graphics logic to four plane
+bytes together and store them with one prepared plane mask. These controls remain
+current while packed access is active, so returning to VGA needs no register replay.
+
 `device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
 changes do not advance the raster. Display writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally

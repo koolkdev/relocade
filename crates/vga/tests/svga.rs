@@ -196,8 +196,9 @@ fn packed_accesses_share_vga_planes_without_changing_read_latches() {
     set(&vga.io, 4, 1);
     vga.io.write_mmio(0xa0000, 4, 0x8877_6655);
     assert_eq!(vga.io.read_mmio(0xa0000, 4), 0x8877_6655);
-    set(&vga.io, 4, 0);
+    // Prepare VGA controls while packed access is still installed.
     vga.io.write_port(0x3ce, 2, 0x0105); // VGA write mode 1 copies read latches.
+    set(&vga.io, 4, 0);
     vga.io.write_mmio(0xa0010, 1, 0);
     let after = vga.snapshot();
     for (plane, value) in [0x11, 0x22, 0x33, 0x44].into_iter().enumerate() {

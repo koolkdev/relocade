@@ -41,6 +41,10 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
     let saved = VgaCoreState::from_bytes(&state.to_bytes()).unwrap();
     assert_eq!(saved, state);
     vga.io.read_mmio(0xa0020, 1); // Disturb the hidden CPU latches.
+    vga.io.write_port(0x3c4, 2, 0x0e04); // Chain-4 instead of planar access.
+    vga.io.write_port(0x3c4, 2, 0x0102); // Write only plane zero.
+    vga.io.write_port(0x3ce, 2, 0x0d06); // B8000 aperture.
+    vga.io.write_port(0x3ce, 2, 0x0008); // Mask every pixel bit.
     vga.io.write_port(0x3c4, 2, 0x0300);
     crtc(&vga.io, 0x0d, 0x45);
     vga.io.read_port(0x3da, 1);
@@ -60,6 +64,15 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
                 .eq(before.plane_bytes(plane, 0..65536))
         );
     }
+    // Restored controls must take effect before any further register write.
+    vga.io.write_mmio(0xa0021, 1, 0xa5);
+    for plane in 0..4 {
+        assert_eq!(
+            vga.snapshot().plane_byte(plane, 0x21),
+            if plane == 3 { 0xa5 } else { 0 }
+        );
+    }
+    assert_eq!(vga.io.read_mmio(0xa0010, 1), 0x12);
     vga.io.write_port(0x3c0, 1, 7);
     assert_eq!(vga.device.borrow().registers().attribute.values[0x12], 7);
     vga.io.write_port(0x3c4, 2, 0x0f02);

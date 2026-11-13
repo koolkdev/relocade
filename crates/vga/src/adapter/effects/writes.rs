@@ -7,16 +7,12 @@ use relocade_machine::IoContext;
 impl DispiAdapter {
     pub(crate) fn write_sequencer_data(&mut self, context: IoContext<'_>, value: u8) {
         let effects = self.legacy_effect(self.vga.registers.sequencer.write_effect());
-        self.with_effects(context, effects, |card| {
-            card.vga.registers.sequencer.write(value)
-        });
+        self.with_effects(context, effects, |card| card.vga.write_sequencer(value));
     }
 
     pub(crate) fn write_graphics_data(&mut self, context: IoContext<'_>, value: u8) {
         let effects = self.legacy_effect(self.vga.registers.graphics.write_effect());
-        self.with_effects(context, effects, |card| {
-            card.vga.registers.graphics.write(value)
-        });
+        self.with_effects(context, effects, |card| card.vga.write_graphics(value));
     }
 
     pub(crate) fn write_crtc_data(&mut self, context: IoContext<'_>, value: u8) {
