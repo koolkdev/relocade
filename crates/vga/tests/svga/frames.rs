@@ -100,8 +100,8 @@ fn mode_switches_finish_old_boundaries_and_preserve_retained_memory() {
     common::service_video(video.as_mut());
     assert!(source.is_empty());
     clock.advance_to(clock.at(entered + svga_boundary(1)));
-    vga.io.write_mmio(0xaafff, 1, 7); // Bank 4 is already selected; this write services the boundary.
     common::service_video(video.as_mut());
+    vga.io.write_mmio(0xaafff, 1, 7); // Bank 4 is already selected; the capture retains the old byte.
     let packed = source.try_recv().unwrap();
 
     assert!(matches!(packed.scanout(), Scanout::Packed(_)));

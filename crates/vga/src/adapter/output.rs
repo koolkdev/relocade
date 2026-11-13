@@ -44,8 +44,8 @@ impl DispiAdapter {
         }
     }
 
-    /// The common write path only reads time and compares the cached boundary.
-    /// Capture before mutation if that boundary elapsed before the task ran.
+    /// Service elapsed capture boundaries from the output task or before a
+    /// display programming change. CPU VRAM transfers do not consult the clock.
     pub(super) fn capture_if_due(&mut self) {
         if let Some(deadline) = self.raster.next_retrace_at() {
             let now = self.clock.now();

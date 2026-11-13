@@ -34,7 +34,6 @@ impl Device for DispiAdapter {
         }
     }
     fn write_mmio(&mut self, _: IoContext<'_>, address: u32, bytes: u8, value: u64) {
-        self.capture_if_due();
         match self.memory_access() {
             MemoryAccess::Disabled => {}
             MemoryAccess::Vga => self

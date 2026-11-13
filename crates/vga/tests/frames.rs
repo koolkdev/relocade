@@ -37,7 +37,7 @@ impl ArcWake for WakeCount {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
+fn status_polling_captures_overdue_output_before_the_guest_timer_notifies() {
     struct DelayedTimer(ManualClock);
     impl ClockSource for DelayedTimer {
         fn now(&self) -> Timestamp {
@@ -64,18 +64,27 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     clock.advance_to(clock.at(boundary(1)));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
     vga.io.write_mmio(TEXT_MEMORY_START, 1, u64::from(b'B'));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+    vga.io.read_port(0x3da, 1);
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert!(source.is_empty());
+    let first = vga.snapshot();
 
     vga.io.write_mmio(TEXT_MEMORY_START, 1, u64::from(b'C'));
     clock.advance_to(clock.at(boundary(2)));
     vga.io.write_mmio(TEXT_MEMORY_START, 1, u64::from(b'D'));
+    vga.io.read_port(0x3da, 1);
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1, "pending work coalesces");
     assert!(source.is_empty());
     poll_video(video.as_mut(), &mut cx);
     let capture = source.try_recv().unwrap();
 
-    assert_eq!(capture.plane_byte(0, 0), b'C', "capture precedes the write");
+    assert_eq!(first.plane_byte(0, 0), b'B');
+    assert_eq!(
+        capture.plane_byte(0, 0),
+        b'D',
+        "capture observes writes before the poll"
+    );
     assert_eq!(vga.io.read_mmio(TEXT_MEMORY_START, 1), u64::from(b'D'));
 }
 
@@ -404,13 +413,14 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
+fn screen_off_preserves_overdue_output_and_blanks_only_later_frames() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(common::text_vga(clock.clock()));
     let source = vga.device.borrow().frames();
     vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     crtc(&vga.io, 0x0a, 0x20);
     clock.advance_to(clock.at(boundary(5) + Duration::from_micros(1)));
+    vga.io.write_port(0x3c4, 2, 0x2101);
     vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x2fdb);
     assert!(source.is_empty());
     common::service_video(video.as_mut());
@@ -420,7 +430,6 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
         &software::rasterize(&before).pixels[..4],
         [255, 255, 85, 255]
     );
-    vga.io.write_port(0x3c4, 2, 0x2101);
     clock.advance_to(clock.at(boundary(6)));
     vga.io.read_port(0x3da, 1);
     common::service_video(video.as_mut());

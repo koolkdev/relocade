@@ -88,8 +88,8 @@ CPU latches from one physical word. Writes apply the graphics logic to four plan
 bytes together and store them with one prepared plane mask. These controls remain
 current while packed access is active, so returning to VGA needs no register replay.
 
-`device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
-changes do not advance the raster. Display writes compare the cached retrace
+`device.rs` owns guest bus dispatch. CPU memory transfers, ordinary reads, index
+writes and CPU bank changes do not advance the raster. Display register writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally
 advance the old raster phase. Timing changes replace the pending deadline. In VGA,
 sequencer reset holds the raster, and disconnected external or reserved clock
@@ -613,8 +613,12 @@ the snapshot and its retrace timestamp.
 Its async task synchronizes with host time before sending the snapshot.
 Refreshes without either produce no new snapshot. Rewriting identical memory
 still produces a snapshot; capture does not compare VRAM contents.
-Late service coalesces missed boundaries; display mutations first service elapsed
-time using the preceding state. A write exactly at a retrace edge applies after that latch.
+Late service coalesces missed boundaries. The scheduled VGA task and due status
+polls service raster deadlines. CPU VRAM writes do not check the clock, so a
+capture includes memory writes up to the servicing checkpoint, including writes
+made after its nominal deadline. Register and mode changes still service elapsed
+time using the preceding display state before mutation. Such a change exactly
+at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
 Other registers are sampled at that same edge. In particular, a preset-row
 update made after retrace starts appears in the next capture. The snapshot
