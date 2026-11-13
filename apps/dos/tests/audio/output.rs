@@ -32,7 +32,8 @@ impl Output {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let observer = browser::observe_output();
+            // Unit-level, half-duty square wave: RMS = 1 / sqrt(2).
+            let observer = browser::observe_output(std::f64::consts::FRAC_1_SQRT_2);
             let (audio, config, samples) =
                 relocade_app::audio::Audio::open(|error| panic!("{error}")).unwrap();
             // Speaker batches hold at most 256 frames. Include the channel,
@@ -75,14 +76,14 @@ impl Output {
             } else {
                 let crossings = capture
                     .windows(2)
-                    .filter(|s| s[0] <= 0.1 && s[1] > 0.1)
+                    .filter(|s| s[0] <= 0.5 && s[1] > 0.5)
                     .count();
                 let measured = crossings as f64 * f64::from(rate) / capture.len() as f64;
                 if (measured - f64::from(frequency)).abs() >= 15.0 {
                     return Err(format!("expected {frequency} Hz, measured {measured} Hz"));
                 }
-                if capture.iter().any(|sample| !(0.0..=0.2).contains(sample)) {
-                    return Err("speaker samples exceed 0.0..=0.2".into());
+                if capture.iter().any(|sample| !(0.0..=1.0).contains(sample)) {
+                    return Err("speaker samples exceed 0.0..=1.0".into());
                 }
             }
             Ok(())
@@ -112,7 +113,7 @@ mod browser {
     extern "C" {
         pub type Observer;
         #[wasm_bindgen(js_name = observeOutput)]
-        pub fn observe_output() -> Observer;
+        pub fn observe_output(expected_rms: f64) -> Observer;
         #[wasm_bindgen(method, catch)]
         pub async fn check(
             this: &Observer,

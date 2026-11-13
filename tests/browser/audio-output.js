@@ -1,7 +1,7 @@
 // Observe the production node without changing its audible connection.
-export function observeOutput() {
+export function observeOutput(expectedRms) {
     const NativeNode = globalThis.AudioWorkletNode;
-    const observer = new Observer();
+    const observer = new Observer(expectedRms);
     nextContext(context => { observer.context = context; });
     globalThis.AudioWorkletNode = class extends NativeNode {
         constructor(...args) {
@@ -22,6 +22,10 @@ export function observeOutput() {
 }
 
 class Observer {
+    constructor(expectedRms) {
+        this.expectedRms = expectedRms;
+    }
+
     get ready() { return this.node !== undefined; }
 
     async check(sampleRate, frequency, bufferedFrames) {
@@ -37,7 +41,8 @@ class Observer {
                     measured = this.measure(sampleRate);
                     const matches = frequency === 0
                         ? measured.rms <= 0.0001
-                        : measured.rms >= 0.12 && measured.rms <= 0.16
+                        : measured.rms >= this.expectedRms * 0.85
+                            && measured.rms <= this.expectedRms * 1.15
                             && Math.abs(measured.frequency - frequency) <= 20;
                     if (matches) {
                         console.log(`audio ${sampleRate} Hz: tone=${measured.frequency.toFixed(1)} Hz RMS=${measured.rms.toFixed(4)}`);
