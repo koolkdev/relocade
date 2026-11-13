@@ -148,10 +148,15 @@ fn expression(graph: &mut FunctionGraph, ty: Type, expression: Expression<usize>
 fn joined(
     graph: &FunctionGraph,
     block: usize,
-    contexts: &[Option<Reducer>],
+    contexts: &[Option<ScalarFacts>],
 ) -> Option<ScalarFacts> {
     let sources = predecessors(graph, &graph.reachable());
-    incoming_facts(graph, block, &sources[block], contexts)
+    let mut reducer = Reducer::default();
+    let scopes: Vec<_> = contexts
+        .iter()
+        .map(|facts| facts.clone().map(|facts| reducer.scope(facts)))
+        .collect();
+    incoming_facts(graph, block, &sources[block], &reducer, &scopes)
 }
 
 fn parameter(graph: &mut FunctionGraph, block: BlockId, ty: Type) -> usize {
@@ -215,7 +220,7 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
             right: one,
         },
     );
-    let mut contexts: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+    let mut contexts: Vec<Option<ScalarFacts>> = (0..graph.blocks.len()).map(|_| None).collect();
     for (block, value) in [(arms.left, 5), (arms.right, 7)] {
         let facts = ScalarFacts::default().with_assumptions(
             &graph.values,
@@ -225,7 +230,7 @@ fn a_join_keeps_common_facts_without_any_value_candidates() {
                 bits: value,
             }],
         );
-        contexts[block.0] = Some(Reducer::from_facts(facts));
+        contexts[block.0] = Some(facts);
     }
     let facts = joined(&graph, arms.join.0, &contexts).unwrap();
     assert_eq!(facts.constant(&graph.values, low_bit), Some(1));
@@ -252,7 +257,7 @@ fn every_reachable_predecessor_must_prove_a_common_fact() {
         default: edge(bypass),
     };
     graph.blocks[bypass.0].exit = Exit::Jump(edge(arms.join));
-    let mut contexts: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+    let mut contexts: Vec<Option<ScalarFacts>> = (0..graph.blocks.len()).map(|_| None).collect();
     for source in [arms.left, arms.right] {
         let facts = ScalarFacts::default().with_assumptions(
             &graph.values,
@@ -262,9 +267,9 @@ fn every_reachable_predecessor_must_prove_a_common_fact() {
                 bits: 5,
             }],
         );
-        contexts[source.0] = Some(Reducer::from_facts(facts));
+        contexts[source.0] = Some(facts);
     }
-    contexts[bypass.0] = Some(Reducer::from_facts(ScalarFacts::default()));
+    contexts[bypass.0] = Some(ScalarFacts::default());
     let facts = joined(&graph, arms.join.0, &contexts).unwrap();
     assert_eq!(facts.constant(&graph.values, 1), None);
 }
@@ -295,7 +300,8 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
                 right: mask,
             },
         );
-        let mut contexts: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+        let mut contexts: Vec<Option<ScalarFacts>> =
+            (0..graph.blocks.len()).map(|_| None).collect();
         for (source, argument, value) in [
             (arms.left, 1, Some(0x1a5)),
             (arms.right, right_argument, right_value),
@@ -311,7 +317,7 @@ fn argument_facts_transfer_common_bits_without_value_candidates() {
                     }],
                 );
             }
-            contexts[source.0] = Some(Reducer::from_facts(facts));
+            contexts[source.0] = Some(facts);
         }
         let facts = joined(&graph, arms.join.0, &contexts).unwrap();
         assert_eq!(facts.constant(&graph.values, low), expected_low_bits);
@@ -337,9 +343,10 @@ fn two_edges_from_one_predecessor_must_agree_unless_one_is_discarded() {
             otherwise: incoming(seven),
         };
         graph.blocks[arms.right.0].exit = Exit::Jump(incoming(five));
-        let mut contexts: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
+        let mut contexts: Vec<Option<ScalarFacts>> =
+            (0..graph.blocks.len()).map(|_| None).collect();
         for source in [arms.left, arms.right] {
-            contexts[source.0] = Some(Reducer::from_facts(ScalarFacts::default()));
+            contexts[source.0] = Some(ScalarFacts::default());
         }
         if discard {
             let yes = graph.values.literal(Type::I1, 1);
@@ -373,8 +380,8 @@ fn a_loop_parameter_does_not_inherit_its_initial_constant() {
             arguments: vec![1],
         },
     };
-    let mut contexts: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
-    contexts[0] = Some(Reducer::from_facts(ScalarFacts::default()));
+    let mut contexts: Vec<Option<ScalarFacts>> = (0..graph.blocks.len()).map(|_| None).collect();
+    contexts[0] = Some(ScalarFacts::default());
     assert!(joined(&graph, header.0, &contexts).is_none());
 }
 
@@ -400,8 +407,11 @@ fn a_proven_component_does_not_make_its_sibling_available() {
             bits: 0,
         }],
     );
+    let mut reducer = Reducer::default();
+    let scope = reducer.scope(facts);
     let flow = ReducedFlow {
-        reducers: vec![Some(Reducer::from_facts(facts))],
+        reducer,
+        scopes: vec![Some(scope)],
         exclusions: FxHashMap::default(),
         control_changed: false,
     };

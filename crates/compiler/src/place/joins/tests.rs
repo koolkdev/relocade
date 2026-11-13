@@ -317,19 +317,16 @@ fn identical_incoming_carriers_can_reuse_a_value_with_a_different_logical_type()
     assert_eq!(graph.values[result].ty, Type::I32);
     assert_eq!(graph.values[byte].ty, Type::I8);
     assert!(graph.blocks[arms.join.0].parameters.is_empty());
-    let reducer = Reducer::from_facts(ScalarFacts::default().with_assumptions(
+    let facts = ScalarFacts::default().with_assumptions(
         &graph.values,
         [Assumption::Bits {
             value: result,
             mask: u32::MAX.into(),
             bits: 0x1234,
         }],
-    ));
-    assert_eq!(reducer.facts().constant(&graph.values, byte), Some(0x34));
-    assert_eq!(
-        reducer.facts().constant(&graph.values, result),
-        Some(0x1234)
     );
+    assert_eq!(facts.constant(&graph.values, byte), Some(0x34));
+    assert_eq!(facts.constant(&graph.values, result), Some(0x1234));
 }
 
 #[test]

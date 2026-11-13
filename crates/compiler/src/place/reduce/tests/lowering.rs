@@ -122,9 +122,10 @@ fn refolded_counts_consult_semantic_facts_before_lowering() {
             },
         ],
     );
-    let mut reducer = Reducer::from_facts(facts);
-    assert_eq!(reducer.reduce(&mut graph.values, root), zero);
-    assert!(reducer.recipes(zero).any(|recipe| recipe == root));
+    let mut reducer = Reducer::default();
+    let scope = reducer.scope(facts);
+    assert_eq!(reducer.reduce(&mut graph.values, scope, root), zero);
+    assert!(reducer.recipes(scope, zero).any(|recipe| recipe == root));
 }
 
 #[test]

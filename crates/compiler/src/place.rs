@@ -20,7 +20,7 @@ use effects::Effects;
 use facts::{Assumption, ScalarFacts};
 use flow::ReducedFlow;
 use joins::Joins;
-use reduce::Reducer;
+use reduce::{Reducer, ScopeId};
 
 /// Call summaries describe authored bodies, before placement removes dead work.
 pub(super) struct Placement {
