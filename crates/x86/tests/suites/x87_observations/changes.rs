@@ -49,7 +49,9 @@ fn loaded_controls() {
 }
 
 fn initialized_controls() {
-    let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8];
+    let code = [
+        0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xdc, 0x05, 8, 0x40, 0, 0,
+    ];
     for (pc, rc, precision_set) in [(3, 0, false), (2, 2, false), (3, 0, true)] {
         let compiler = if precision_set {
             masked_precision_compiler(pc, rc)
@@ -65,7 +67,8 @@ fn initialized_controls() {
             0x007f | (u16::from(pc) << 8) | (u16::from(rc) << 10),
         );
         image.map(4, 0x8000, false);
-        image.data(0x8000, &0x4000_0000_u32.to_le_bytes());
+        image.data(0x8000, &1.0_f32.to_le_bytes());
+        image.data(0x8008, &(2.0_f64.powi(-60)).to_le_bytes());
         let mut initialized = image.cpu;
         initialized.eip += 2;
         initialized.instruction_count = initialized.instruction_count.wrapping_add(1);
@@ -81,9 +84,11 @@ fn initialized_controls() {
         loaded.x87.status.top = 7;
         loaded.x87.data_offset = 0x4000;
         loaded.x87.data_selector = 0x23;
-        write_value(&mut loaded, 7, (LEADING, 0x4000));
-        let mut result = complete_x87(loaded, 2, 0x00c8);
-        write_value(&mut result, 7, (LEADING, 0x4001));
+        write_value(&mut loaded, 7, (LEADING, 0x3fff));
+        let mut result = complete_x87(loaded, 6, 0x0405);
+        result.x87.data_offset = 0x4008;
+        // FNINIT selects PC64: the 2^-60 addend survives, unlike at PC53/PC24.
+        write_value(&mut result, 7, (LEADING + 8, 0x3fff));
         if pc == 3 && rc == 0 && !precision_set {
             assert_eq!(
                 block.observe(&image.input(), 1),
@@ -97,8 +102,8 @@ fn initialized_controls() {
                     &[Step {
                         cpu: loaded,
                         ram: &[],
-                        exit: Exit::Interpret
-                    },]
+                        exit: Exit::Interpret,
+                    }]
                 )
             );
             assert_eq!(

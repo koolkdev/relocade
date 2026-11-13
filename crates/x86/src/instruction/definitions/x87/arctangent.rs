@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     execution::{X87Operand, X87Operands},
-    state::x87::X87Specialization,
+    state::x87::check_rounding,
 };
 
 instruction_families! {
@@ -22,7 +22,7 @@ fn arctangent(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError
         ..
     } = execution.read_x87_operands(1.into(), X87Operand::Register(0.into()))?;
     let rounding = execution.x87().rounding()?;
-    execution.specialize_x87(X87Specialization::Rounding)?;
+    execution.guard_observed_x87([check_rounding])?;
     execution.guard_x87_operands(&mut stack_fault, operands.normal_or_zero())?;
     let mut result = execution.calculate(|body| operands.arctangent(body, &rounding))?;
     execution.if_can_fallback(|execution| {

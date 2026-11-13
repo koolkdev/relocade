@@ -107,6 +107,23 @@ fn known_controls_need_no_mode_guard() {
 }
 
 #[test]
+fn guarded_precision_keeps_native_arithmetic_across_results() {
+    let mut code = vec![0xdd, 0x05, 0, 0x40, 0, 0]; // FLD m64
+    code.extend([0xd8, 0xc8].repeat(4)); // FMUL ST0, ST0
+    let module = compiler(2, 0).compile_block(0x1000, &code, 5).unwrap();
+    // Each native multiplication has a product and its normalization scale.
+    // Each result retains its native significand for the next multiplication.
+    assert_eq!(
+        operators(&module)
+            .filter(|op| matches!(op, Operator::F64Mul))
+            .count(),
+        8
+    );
+    let wide = compiler(3, 0).compile_block(0x1000, &code, 5).unwrap();
+    assert!(!operators(&wide).any(|op| matches!(op, Operator::F64Mul)));
+}
+
+#[test]
 fn only_masked_set_precision_adds_status_guards() {
     let code = [0xd8, 0xc9].repeat(8);
     let modes_only = compiler(3, 0).compile_block(0x1000, &code, 8).unwrap();

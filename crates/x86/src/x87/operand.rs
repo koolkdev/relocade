@@ -4,8 +4,9 @@ use crate::floating::RoundingMode;
 use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
-    result::RoundedValue, value::Precision53, ArithmeticCandidate, ArithmeticResult,
-    BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits, ExtendedValue,
+    native::native_mode, result::RoundedValue, value::Precision53, ArithmeticCandidate,
+    ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits,
+    ExtendedValue,
 };
 
 pub(crate) struct Operand {
@@ -192,29 +193,25 @@ impl BinaryOperands {
         }
     }
 
-    /// Chooses a calculation without changing JIT coverage for wider operands.
-    /// `nearest_53` is a fact established by the caller's control guard. The
-    /// returned candidate still needs admission before its rounded value is used.
+    /// Uses native arithmetic only when path facts prove its mode and the
+    /// operands retain exact native significands. The result still needs admission.
     pub(crate) fn rounding_candidate(
         &self,
         body: &mut BlockBuilder<'_>,
         operation: BinaryOperation,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<ArithmeticCandidate, BuildError> {
-        let calculation = if nearest_53 {
+        let native_mode = body.known_bits(native_mode(&precision, rounding))? == Some(1);
+        if native_mode {
             if let Some(candidate) = super::native::calculate(self, operation) {
                 return Ok(candidate);
             }
-            self.calculate(body, operation, 2.into(), &RoundingMode::new(0.into()))?
-        } else {
-            self.calculate(body, operation, precision, rounding)?
-        };
-        let mut candidate = calculation.rounding_candidate(body)?;
-        if nearest_53 {
-            // PC53 proves an exact native view for later consumers. Keeping
-            // the integer view avoids conversion work until one needs it.
+        }
+        let mut candidate = self
+            .calculate(body, operation, precision, rounding)?
+            .rounding_candidate(body)?;
+        if native_mode {
             candidate.rounded.value = candidate.rounded.value.assume_precision53();
         }
         Ok(candidate)

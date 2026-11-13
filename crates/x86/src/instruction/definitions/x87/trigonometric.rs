@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    state::x87::{ConditionCode, X87Specialization},
+    state::x87::{check_rounding, ConditionCode},
     x87::{ArithmeticResult, Operand, TrigonometricArgument, TrigonometricFunction},
 };
 use relocade_compiler::I1;
@@ -52,7 +52,7 @@ fn trigonometric(
     let mut overflow = empty.eq(false).and(full);
     let operand = Operand::new(&top.value);
     let rounding = execution.x87().rounding()?;
-    execution.specialize_x87(X87Specialization::Rounding)?;
+    execution.guard_observed_x87([check_rounding])?;
     let mut outside = operand.trigonometric_out_of_range();
     if execution.guard_x87_operands(
         &mut fault,

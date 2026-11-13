@@ -3,6 +3,7 @@ use super::JoinTarget;
 use crate::{
     body::{BlockId, Edge, Exit, Layout},
     function::PendingBlock,
+    place::Assumption,
     Arguments, BlockBuilder, BuildError, Results, Val, I1,
 };
 
@@ -42,7 +43,12 @@ impl BlockBuilder<'_> {
         })?;
         let continuation = self.arena.block(self.pending.id, &[])?;
         let otherwise = self.build_branch(None, |_| Ok(()))?;
-        self.attach_conditional(condition, taken, otherwise, continuation)
+        self.attach_conditional(condition, taken, otherwise, continuation)?;
+        self.pending.assumptions.push(Assumption::Truth {
+            condition,
+            truth: false,
+        });
+        Ok(())
     }
 
     /// Builds a branch that executes when the condition is true. A false condition
@@ -98,11 +104,20 @@ impl BlockBuilder<'_> {
         else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let condition = self.operand(condition)?;
-        let branch = self.build_branch(None, then_build)?;
-        let else_branch = self.build_branch(None, else_build)?;
         let condition = self.arena.normalize(condition)?;
+        let (branch, else_branch) =
+            self.conditional_arms(condition, None, then_build, else_build)?;
+        let continuing = match (branch.falls_through(), else_branch.falls_through()) {
+            (true, false) => Some(branch.assumptions.clone()),
+            (false, true) => Some(else_branch.assumptions.clone()),
+            _ => None,
+        };
         let continuation = self.arena.block(self.pending.id, &[])?;
-        self.attach_conditional(condition, branch, else_branch, continuation)
+        self.attach_conditional(condition, branch, else_branch, continuation)?;
+        if let Some(assumptions) = continuing {
+            self.pending.assumptions = assumptions;
+        }
+        Ok(())
     }
 
     /// Selects a typed result by executing one of two branches. Nonempty result
@@ -139,13 +154,37 @@ impl BlockBuilder<'_> {
     ) -> Result<R::Values, BuildError> {
         let condition = self.operand(condition)?;
         let target = self.result_target::<R>()?;
-        let branch = self.build_branch(Some(&target), then_build)?;
-        let else_branch = self.build_branch(Some(&target), else_build)?;
         let condition = self.arena.normalize(condition)?;
+        let (branch, else_branch) =
+            self.conditional_arms(condition, Some(&target), then_build, else_build)?;
         let outputs = self.join_outputs(&target, &[branch.entry, else_branch.entry])?;
         let values = crate::results::bind::<R>(self, &outputs);
         self.attach_conditional(condition, branch, else_branch, target.target)?;
         Ok(values)
+    }
+
+    fn conditional_arms(
+        &mut self,
+        condition: usize,
+        target: Option<&JoinTarget>,
+        then_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+        else_build: impl FnOnce(BlockBuilder<'_>) -> Result<(), BuildError>,
+    ) -> Result<(PendingBlock, PendingBlock), BuildError> {
+        let taken = self.build_branch(target, |arm| {
+            arm.pending.assumptions.push(Assumption::Truth {
+                condition,
+                truth: true,
+            });
+            then_build(arm)
+        })?;
+        let otherwise = self.build_branch(target, |arm| {
+            arm.pending.assumptions.push(Assumption::Truth {
+                condition,
+                truth: false,
+            });
+            else_build(arm)
+        })?;
+        Ok((taken, otherwise))
     }
     fn attach_conditional(
         &mut self,

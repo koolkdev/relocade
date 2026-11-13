@@ -7,6 +7,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 use crate::floating::{FiniteInput, RoundingMode};
 
 use super::{
+    native::native_mode,
     result::{RoundedShape, RoundedValue},
     value::KnownClass,
     ArithmeticResult, ExtendedValue, Operand,
@@ -36,17 +37,18 @@ impl Operand {
         body: &mut BlockBuilder<'_>,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<RoundedValue, BuildError> {
-        if nearest_53 {
+        let native_mode = body.known_bits(native_mode(&precision, rounding))? == Some(1);
+        if native_mode {
             if let Some(rounded) = native::calculate(self) {
                 return Ok(rounded);
             }
-            // The control guard proves these construction-time constants.
-            // Full-width input still needs exact refinement before rounding.
-            return self.rounded_square_root(body, 2.into(), &RoundingMode::new(0.into()));
         }
-        self.rounded_square_root(body, precision, rounding)
+        let mut rounded = self.rounded_square_root(body, precision, rounding)?;
+        if native_mode {
+            rounded.value = rounded.value.assume_precision53();
+        }
+        Ok(rounded)
     }
 
     fn rounded_square_root(

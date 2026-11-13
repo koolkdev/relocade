@@ -5,10 +5,11 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
-    state::{access::cpu_location, X87Control},
+    state::access::cpu_location,
+    X87State,
 };
 
-use super::{X87Access, X87Specialization};
+use super::X87Access;
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -71,24 +72,15 @@ impl Control {
             .read(body, cpu_location!(x87.control.precision_control))
     }
 
-    pub(super) fn matches_controls(
+    fn matches_observed_mode(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        expected: &X87Control,
-        specialization: X87Specialization,
+        location: Location<I8>,
+        observed: u8,
     ) -> Result<Val<I1>, BuildError> {
-        let rounding = self
-            .fields
-            .read(body, cpu_location!(x87.control.rounding_control))?;
-        let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
-        Ok(match specialization {
-            X87Specialization::Rounding => matches,
-            X87Specialization::Arithmetic => matches.and(
-                self.precision(body)?
-                    .and(3)
-                    .eq(u32::from(expected.precision_control & 3)),
-            ),
-        })
+        let current = self.fields.read(body, location)?;
+        // RC and PC use only the low two bits of their backing fields.
+        Ok(current.and(3).eq(u32::from(observed & 3)))
     }
 
     pub(super) fn unmasked(
@@ -170,6 +162,28 @@ impl Control {
     pub(super) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.fields.publish(body)
     }
+}
+
+pub(crate) fn check_rounding(
+    x87: &mut X87Access<'_, '_>,
+    observed: &X87State,
+) -> Result<Val<I1>, BuildError> {
+    x87.state.control.matches_observed_mode(
+        x87.body,
+        cpu_location!(x87.control.rounding_control),
+        observed.control.rounding_control,
+    )
+}
+
+pub(crate) fn check_precision(
+    x87: &mut X87Access<'_, '_>,
+    observed: &X87State,
+) -> Result<Val<I1>, BuildError> {
+    x87.state.control.matches_observed_mode(
+        x87.body,
+        cpu_location!(x87.control.precision_control),
+        observed.control.precision_control,
+    )
 }
 
 impl X87Access<'_, '_> {

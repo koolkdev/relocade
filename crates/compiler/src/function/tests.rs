@@ -41,6 +41,90 @@ fn constant_queries_report_construction_folds_without_changing_code() {
 }
 
 #[test]
+fn known_bits_follow_guards_without_changing_values() {
+    let mut program = Program::new();
+    let function = program.function::<fn(u8, u8, u32) -> u32>(|mut body, (pc, rc, input)| {
+        let mode = pc.and(3).eq(2).and(rc.and(3).eq(0));
+        assert_eq!(body.known_bits(&mode)?, None);
+        body.if_(mode.eq(false), |arm| arm.return_(0))?;
+        assert_eq!(body.known_bits(pc.and(3))?, Some(2));
+        assert_eq!(body.known_bits(rc.and(3))?, Some(0));
+        assert_eq!(body.known_bits(&pc)?, None); // The unused high bits remain unknown.
+        assert_eq!(body.constant_bits(&mode)?, None);
+        assert_eq!(mode.constant_bits()?, None);
+
+        body.if_else(
+            input.eq(17),
+            |arm| {
+                assert_eq!(arm.known_bits(&input)?, Some(17));
+                assert_eq!(arm.known_bits(&mode)?, Some(1));
+                Ok(())
+            },
+            |arm| {
+                assert_eq!(arm.known_bits(input.eq(17))?, Some(0));
+                Ok(())
+            },
+        )?;
+        assert_eq!(body.known_bits(&input)?, None);
+        assert_eq!(
+            body.if_(input.eq(17), |arm| {
+                assert_eq!(arm.known_bits(&input)?, Some(17));
+                Err(BuildError::UnknownParameter)
+            }),
+            Err(BuildError::UnknownParameter)
+        );
+        assert_eq!(body.known_bits(&input)?, None);
+
+        body.if_value::<()>(input.eq(17), |arm| arm.yield_(()), |_| Ok(()))?;
+        assert_eq!(body.known_bits(&input)?, None); // A yield also reaches the join.
+        body.loop_::<I32, ()>(17, |mut iteration, labels, current| {
+            assert_eq!(iteration.known_bits(&current)?, None);
+            assert_eq!(iteration.known_bits(&mode)?, Some(1));
+            iteration.branch_if(current.eq(19), &labels.exit, ())?;
+            assert_eq!(iteration.known_bits(current.eq(19))?, Some(0));
+            iteration.branch(&labels.again, current.add(1))
+        })?;
+        assert_eq!(body.known_bits(&input)?, None);
+        assert_eq!(body.known_bits(&mode)?, Some(1));
+        body.return_(input)
+    });
+    program.export("run", function).unwrap();
+    Validator::new()
+        .validate_all(&program.compile().unwrap())
+        .unwrap();
+}
+
+#[test]
+fn known_bits_belong_to_the_guarded_snapshot() {
+    fn compile(query: bool) -> Vec<u8> {
+        let mut program = Program::new();
+        let memory = program.import_memory(crate::MemoryImport {
+            module: "test".into(),
+            name: "memory".into(),
+            minimum: 1,
+            maximum: None,
+            shared: false,
+        });
+        let function = program.function::<fn() -> u32>(move |mut body, ()| {
+            let before = body.load::<I32>(memory, 0)?;
+            body.if_(before.ne(7), |arm| arm.return_(0))?;
+            body.store::<I32>(memory, 0, 42)?;
+            let after = body.load::<I32>(memory, 0)?;
+            if query {
+                assert_eq!(body.known_bits(&before)?, Some(7));
+                assert_eq!(body.known_bits(&after)?, None);
+            }
+            body.return_(after)
+        });
+        program.export("run", function).unwrap();
+        program.compile().unwrap()
+    }
+    let bytes = compile(true);
+    Validator::new().validate_all(&bytes).unwrap();
+    assert_eq!(bytes, compile(false));
+}
+
+#[test]
 fn unwinding_a_definition_closes_its_values() {
     let mut program = Program::new();
     let retained = std::rc::Rc::new(std::cell::RefCell::new(None));

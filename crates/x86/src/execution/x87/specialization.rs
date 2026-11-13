@@ -4,46 +4,31 @@ use relocade_compiler::{BuildError, Val, I1};
 
 use crate::{
     execution::ExecutionBuilder,
-    state::x87::X87Specialization,
+    state::x87::X87Access,
     x87::{ArithmeticCandidate, ArithmeticResult},
+    X87State,
 };
 
-/// Control facts validated by the emitted guard, never raw snapshot hints.
-#[derive(Default)]
-pub(crate) struct X87ControlFacts {
-    nearest_53: bool,
-}
-
-impl X87ControlFacts {
-    /// RC alone cannot establish this fact: both PC and RC must be guarded.
-    pub(crate) fn nearest_53(&self) -> bool {
-        self.nearest_53
-    }
-}
+type X87Check = fn(&mut X87Access<'_, '_>, &X87State) -> Result<Val<I1>, BuildError>;
 
 impl ExecutionBuilder<'_, '_> {
-    /// Guards the requested controls and returns only facts established by them.
-    /// Arithmetic also preserves the state's optional already-set PE guard.
-    pub(crate) fn specialize_x87(
+    /// Combines the requested checks into one guard when fallback and a snapshot exist.
+    pub(crate) fn guard_observed_x87<const N: usize>(
         &mut self,
-        specialization: X87Specialization,
-    ) -> Result<X87ControlFacts, BuildError> {
-        Ok(self
-            .if_can_fallback(|jit| {
-                let Some(observed) = jit.observed_cpu else {
-                    return Ok(X87ControlFacts::default());
-                };
-                let condition = jit
-                    .x87()
-                    .specialization_condition(&observed.x87, specialization)?;
-                jit.guard(condition)?;
-                Ok(X87ControlFacts {
-                    nearest_53: matches!(specialization, X87Specialization::Arithmetic)
-                        && observed.x87.control.precision_control & 3 == 2
-                        && observed.x87.control.rounding_control & 3 == 0,
-                })
-            })?
-            .unwrap_or_default())
+        checks: [X87Check; N],
+    ) -> Result<(), BuildError> {
+        self.if_can_fallback(|jit| {
+            let Some(observed) = jit.observed_cpu else {
+                return Ok(());
+            };
+            let mut condition = Val::<I1>::from(true);
+            let mut state = jit.x87();
+            for check in checks {
+                condition = condition.and(check(&mut state, &observed.x87)?);
+            }
+            jit.guard(condition)
+        })?;
+        Ok(())
     }
 
     /// Keeps the source policy with the load and owns the shared push-slot check.
