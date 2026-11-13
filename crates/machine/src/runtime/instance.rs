@@ -28,6 +28,7 @@ pub(super) struct CpuInstance {
     pub(super) io: IoBus,
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
+    resolve_call: Function<WasmRuntime, fn() -> u32>,
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
@@ -58,10 +59,12 @@ impl CpuInstance {
             let instance = wasm.instantiate(&dispatcher, &imports)?;
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
             let interpret = wasm.function(&instance, abi::INTERPRET)?;
+            let resolve_call = wasm.function(&instance, abi::RESOLVE_CALL)?;
 
             imports.extend([
                 wasm.bind(abi::DISPATCH, &dispatch),
                 wasm.bind(abi::INTERPRET, &interpret),
+                wasm.bind(abi::RESOLVE_CALL, &resolve_call),
             ]);
             io.port_map().initialize(wasm, &io.downgrade().0)?;
             imports.extend(io.port_map().imports(wasm));
@@ -91,6 +94,7 @@ impl CpuInstance {
                 io,
                 dispatch,
                 interpret,
+                resolve_call,
                 step,
                 interrupt,
                 far_call,
@@ -174,6 +178,7 @@ impl CpuInstance {
             imports.extend([
                 wasm.bind(abi::DISPATCH, &self.dispatch),
                 wasm.bind(abi::INTERPRET, &self.interpret),
+                wasm.bind(abi::RESOLVE_CALL, &self.resolve_call),
             ]);
             imports.extend(self.io.port_map().imports(wasm));
             imports.extend(self.io.mmio_map().imports(wasm));

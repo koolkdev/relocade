@@ -68,11 +68,9 @@ impl Dispatch {
         body.loop_::<I32, ()>(bucket, |mut probe, labels, bucket| {
             let row = bucket.mul(8).add(4);
             let slot = probe.load_at::<I32>(self.memory, &row, 4)?;
-            probe.if_(slot.eq(0), |miss| {
-                self.enter(miss, EntryTable::INTERPRETER_SLOT)
-            })?;
+            probe.if_(slot.eq(0), |miss| miss.return_(0u32))?;
             let candidate = probe.load_at::<I32>(self.memory, &row, 0)?;
-            probe.if_(candidate.eq(address), |hit| self.enter(hit, slot))?;
+            probe.if_(candidate.eq(address), |hit| hit.return_(slot))?;
             probe.branch(&labels.again, bucket.add(1).and(&mask))
         })?;
         body.trap()
