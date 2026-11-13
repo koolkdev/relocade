@@ -110,7 +110,7 @@ fn interpreter_step_exposes_host_abis() {
                 "querySegmentDescriptor",
                 (vec![ValType::I32], vec![ValType::I32; 6])
             ),
-            ("resolveCall", (vec![], vec![ValType::I32])),
+            ("resolveCall", (vec![], vec![ValType::I32; 2])),
             ("completeSegmentLoad", (vec![ValType::I32], vec![])),
         ]
     );

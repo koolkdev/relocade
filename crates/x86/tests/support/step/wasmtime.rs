@@ -124,7 +124,7 @@ impl TestModule {
             )
             .unwrap();
         linker
-            .func_wrap("relocade", "resolveCall", || 1u32)
+            .func_wrap("relocade", "resolveCall", || (1u32, 1u32))
             .unwrap();
         let dispatch = linker
             .get(&mut store, "relocade", "dispatch")
