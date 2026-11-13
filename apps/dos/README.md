@@ -27,6 +27,7 @@ use relocade_dos::{Configuration, SoundCard};
 
 relocade_dos_app::run_with_configuration(Configuration {
     sound_card: SoundCard::SoundBlaster2,
+    ..Default::default()
 })?;
 ```
 

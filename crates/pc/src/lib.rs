@@ -4,7 +4,7 @@
 //! VGA, speaker and AdLib on an existing execution runner. It initializes BIOS
 //! data and interrupt services. The caller supplies guest code and its entry state; this does not
 //! execute a reset ROM, POST or a disk bootstrap.
-//! [`Pc::with_configuration`] selects which sound card to install.
+//! [`Pc::with_configuration`] selects the sound and video cards to install.
 //!
 //! Devices retain their own emulation and async activities. The PC owns their
 //! wiring and exposes display, audio and input handles to the embedding.
@@ -14,9 +14,10 @@
 mod audio;
 pub mod configuration;
 pub mod sound_card;
+pub mod video_card;
 
-pub use configuration::{Configuration, SoundCard};
-use relocade_bios::{video::VideoFirmware, Keyboard};
+pub use configuration::{Configuration, SoundCard, VideoCard};
+use relocade_bios::Keyboard;
 use relocade_dma::Dma;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
 use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
@@ -34,7 +35,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 pub struct Pc {
     runner: Runner,
     dma: Rc<RefCell<Dma>>,
-    vga: Rc<RefCell<DispiAdapter>>,
+    video_card: video_card::VideoCard,
     speaker: Rc<RefCell<Speaker>>,
     sound_card: Option<Box<dyn sound_card::SoundCard>>,
     keyboard: Keyboard,
@@ -59,8 +60,8 @@ impl Pc {
         configuration: Configuration,
     ) -> relocade_machine::Result<Self> {
         let dma = Dma::initialize(&runner).await;
-        let vga = DispiAdapter::initialize(&runner).await;
-        let video_firmware = VideoFirmware::Dispi(vga.clone());
+        let video_card = configuration.video_card.initialize(&runner).await;
+        let video_firmware = video_card.firmware();
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
@@ -100,7 +101,7 @@ impl Pc {
         Ok(Self {
             runner,
             dma,
-            vga,
+            video_card,
             speaker,
             sound_card,
             keyboard,
@@ -147,12 +148,19 @@ impl Pc {
 
     /// Snapshot queue for one graphics consumer on another worker.
     pub fn frames(&self) -> async_channel::Receiver<DisplaySnapshot> {
-        self.vga.borrow().frames()
+        self.video_card.frames()
+    }
+
+    /// The installed card's frame delivery and native framebuffer access.
+    pub fn video_card(&self) -> &video_card::VideoCard {
+        &self.video_card
     }
 
     /// Retains the VGA device on its execution owner. End borrows before polling.
     pub fn vga(&self) -> Rc<RefCell<DispiAdapter>> {
-        self.vga.clone()
+        match &self.video_card {
+            video_card::VideoCard::Dispi(card) => card.clone(),
+        }
     }
 
     /// Retains the speaker hardware on its execution owner.

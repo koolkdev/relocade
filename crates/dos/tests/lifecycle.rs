@@ -34,6 +34,7 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
                     runner,
                     Configuration {
                         sound_card: SoundCard::None,
+                        ..Default::default()
                     },
                 )
                 .await

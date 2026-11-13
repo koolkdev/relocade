@@ -62,6 +62,7 @@ async fn exercise() {
                     runner,
                     Configuration {
                         sound_card: SoundCard::SoundBlaster2,
+                        ..Default::default()
                     },
                 )
                 .await
