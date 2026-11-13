@@ -24,6 +24,8 @@ pub const PAGE_TABLE: Memory = Memory::new(
     crate::memory::page_table::BYTE_LEN / 65536,
 );
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
+/// CPU-local call observations. The embedding drains these while execution is stopped.
+pub const CALL_PROFILE: Memory = Memory::new("relocade", "callProfile", 1);
 pub type ExecutionSignature = fn() -> crate::ExecutionExit;
 pub type InterruptSignature = fn(vector: u8) -> crate::ExecutionExit;
 pub type FarCallSignature = fn(segment: u16, offset: u16, stack_bytes: u16) -> crate::ExecutionExit;
