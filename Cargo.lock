@@ -2328,6 +2328,7 @@ name = "relocade-dma"
 version = "0.0.0"
 dependencies = [
  "relocade-machine",
+ "relocade-x86",
  "wasm-bindgen-test",
 ]
 

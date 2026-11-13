@@ -13,9 +13,31 @@ Master clear resets command, requests, terminal-count status and the byte
 flip-flop, and masks every channel. It preserves address/count, mode and external
 page registers. Unsupported reads return open bus. Ports accept bytes only.
 
-This crate currently supplies guest register programming. Memory transfers and
-PC initialization are separate changes. The secondary controller, cascading,
-memory-to-memory transfers and electrical bus timing are outside this scope.
+An emulated peripheral calls `read(channel, &memory_view, &mut bytes)` to consume
+a block from the guest-programmed buffer. The call requests service directly;
+the device does not need to drive a request line for each sample. It returns the
+number of bytes transferred and leaves any remaining output untouched. The
+operation honors masks, controller disable and single-transfer memory-read mode,
+reads live mapped memory in contiguous chunks, and updates address/count at
+wrap and completion boundaries. The peripheral determines how many bytes are due.
+
+For low-level request-line use, `set_request(channel, true)` and
+`read_memory(channel, &memory_view)` transfer one byte through the same mechanism.
+The peripheral lowers that line when it no longer needs service. Block reads
+preserve its state. Both APIs use the registers exposed to guest ports; there is
+no separate buffer position, timer or worker.
+
+The count encodes transfers minus one: zero transfers one byte, and `0xffff`
+transfers 65,536. The 16-bit address wraps without changing the page register.
+Terminal count sets the channel's status bit and masks it. Status reads clear
+terminal-count bits while still reporting active requests, including masked
+ones. Supply a view with I/O routing for buffers that can reach device memory.
+
+Auto-initialize and PC initialization are separate changes. The secondary
+controller, cascading, demand/block transfers, device-to-memory and verify
+transfers, servicing software requests, memory-to-memory transfers and electrical
+bus timing are outside this scope. Unsupported transfer modes consume no bytes
+and leave the channel's position unchanged.
 
 Register behavior follows the [Intel 8237A datasheet](https://www.pcjs.org/documents/datasheets/intel/INTEL_8237A_DMA.pdf),
 sections Register Description and Software Commands. Page wiring follows the
