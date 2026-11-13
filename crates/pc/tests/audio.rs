@@ -94,15 +94,15 @@ async fn exercise_audio_device(sound_card: SoundCard) {
         if index >= 2 {
             match sound_card {
                 SoundCard::AdLib | SoundCard::SoundBlaster2 => {
-                    assert!(buffer.iter().all(|sample| (-0.8..=1.0).contains(sample)));
-                    // AdLib alone peaks below 0.1; speaker alone cannot go negative.
-                    // Both must contribute to the same buffer.
-                    assert!(buffer.iter().any(|&sample| sample > 0.22));
+                    assert!(buffer.iter().all(|sample| (-1.0..=2.0).contains(sample)));
+                    // Neither source alone exceeds 1; negative samples require FM.
+                    // Both contribute, with headroom preserved before host output.
+                    assert!(buffer.iter().any(|&sample| sample > 1.02));
                     assert!(buffer.iter().any(|&sample| sample < -0.02));
                 }
                 SoundCard::None => {
-                    assert!(buffer.iter().all(|sample| (0.0..=0.2).contains(sample)));
-                    assert!(buffer.iter().any(|&sample| sample > 0.19));
+                    assert!(buffer.iter().all(|sample| (0.0..=1.0).contains(sample)));
+                    assert!(buffer.iter().any(|&sample| sample > 0.95));
                     assert!(buffer.iter().any(|&sample| sample < 0.01));
                 }
             }

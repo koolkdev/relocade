@@ -1,3 +1,4 @@
+use super::dac::Dac;
 use crate::DMA_CHANNEL;
 use relocade_dma::Dma;
 use relocade_machine::{Clock, IoContext, Memory, Timestamp};
@@ -65,7 +66,7 @@ impl Playback {
         })
     }
 
-    pub fn advance(&mut self, context: IoContext<'_>) {
+    pub fn advance(&mut self, context: IoContext<'_>, dac: &mut Dac) {
         let period = self.period();
         let Some(transfer) = &mut self.transfer else {
             return;
@@ -75,12 +76,14 @@ impl Playback {
         if due == 0 {
             return;
         }
+        let first_sample = self.clock.add(transfer.at, period);
         let mut samples = vec![0; due.min(u128::from(transfer.remaining)) as usize];
         let memory = self.memory.view().with_io_context(context);
         let consumed = self
             .dma
             .borrow_mut()
             .read(DMA_CHANNEL, &memory, &mut samples);
+        drop(memory);
         // Masked or exhausted DMA misses these slots; a later unmask starts now.
         let remainder = Duration::from_nanos((elapsed.as_nanos() % period.as_nanos()) as u64);
         transfer.at = self.clock.add(transfer.at, elapsed - remainder);
@@ -89,6 +92,8 @@ impl Playback {
             self.transfer = None;
             self.irq.set_level(true);
         }
+        samples.truncate(consumed);
+        dac.write_samples(first_sample, period, samples);
     }
 
     pub fn deadline(&self) -> Option<Timestamp> {

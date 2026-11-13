@@ -8,14 +8,17 @@ const SINGLE_CYCLE_OUTPUT: u8 = 0x14;
 const SPEAKER_ON: u8 = 0xd1;
 const SPEAKER_OFF: u8 = 0xd3;
 const SPEAKER_STATUS: u8 = 0xd8;
+const DIRECT_OUTPUT: u8 = 0x10;
 
 enum Argument {
+    DirectOutput,
     TimeConstant,
     LengthLow,
     LengthHigh(u8),
 }
 
 pub(super) enum Command {
+    DirectOutput(u8),
     TimeConstant(u8),
     Playback(u16),
     Speaker(bool),
@@ -90,6 +93,7 @@ impl Protocol {
         }
         if let Some(argument) = self.argument.take() {
             return match argument {
+                Argument::DirectOutput => Some(Command::DirectOutput(value)),
                 Argument::TimeConstant => Some(Command::TimeConstant(value)),
                 Argument::LengthLow => {
                     self.argument = Some(Argument::LengthHigh(value));
@@ -101,6 +105,7 @@ impl Protocol {
             };
         }
         match value {
+            DIRECT_OUTPUT => self.argument = Some(Argument::DirectOutput),
             GET_VERSION => self.respond([2, 1]),
             SET_TIME_CONSTANT => self.argument = Some(Argument::TimeConstant),
             SINGLE_CYCLE_OUTPUT => self.argument = Some(Argument::LengthLow),

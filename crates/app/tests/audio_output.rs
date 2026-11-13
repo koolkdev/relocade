@@ -43,7 +43,7 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
 
 async fn exercise_output() {
     #[cfg(target_arch = "wasm32")]
-    let observer = browser::observe_output();
+    let observer = browser::observe_output(0.2 * std::f64::consts::FRAC_1_SQRT_2);
     let (audio, config, samples) = Audio::open(|error| panic!("{error}")).unwrap();
     let submission = samples.clone();
     let initial_frames = (samples.capacity().unwrap() + 1) * 128;
@@ -158,7 +158,7 @@ mod browser {
     extern "C" {
         pub type Observer;
         #[wasm_bindgen(js_name = observeOutput)]
-        pub fn observe_output() -> Observer;
+        pub fn observe_output(expected_rms: f64) -> Observer;
         #[wasm_bindgen(method, getter)]
         pub fn ready(this: &Observer) -> bool;
         #[wasm_bindgen(method, catch)]

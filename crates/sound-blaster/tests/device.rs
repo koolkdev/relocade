@@ -1,3 +1,5 @@
+#[path = "device/audio.rs"]
+mod audio;
 #[path = "device/playback.rs"]
 mod playback;
 #[path = "device/ports.rs"]

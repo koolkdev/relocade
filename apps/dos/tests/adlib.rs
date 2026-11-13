@@ -147,16 +147,17 @@ async fn exercise() {
                     let high = buffer.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                     match stage {
                         1 => {
-                            assert!(low < -0.05 && high > 0.05, "AdLib: {low}..{high}");
-                            assert!(low >= -0.11 && high <= 0.11);
+                            assert!(low < -0.1 && high > 0.1, "AdLib: {low}..{high}");
+                            assert!(low >= -0.13 && high <= 0.13);
                         }
                         2 => {
-                            assert!(low < -0.02 && high > 0.22, "mixed: {low}..{high}");
-                            assert!(low >= -0.8 && high <= 1.0);
+                            // The mixer preserves summed headroom until platform output.
+                            assert!(low < -0.05 && high > 1.05, "mixed: {low}..{high}");
+                            assert!(low >= -0.13 && high <= 1.13);
                         }
                         3 => {
-                            assert!(low < 0.01 && high > 0.19, "speaker: {low}..{high}");
-                            assert!(low >= -0.001 && high <= 0.201);
+                            assert!(low < 0.01 && high > 0.99, "speaker: {low}..{high}");
+                            assert!(low >= -0.001 && high <= 1.001);
                         }
                         // Released OPL operators can retain a few PCM quantization units.
                         4 => assert!(low >= -0.001 && high <= 0.001),

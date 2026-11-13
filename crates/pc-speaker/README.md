@@ -26,7 +26,7 @@ while muted or when the consumer skips time. Creating another source replaces
 the observer; dropping the source stops recording.
 
 The [shared mixer](../mixer/README.md) owns the common sample timeline, gain,
-channel layout, buffering and submission. PC registers the speaker at gain 0.2
+channel layout, buffering and submission. PC registers the speaker at gain 1.0
 alongside its other sources on the execution worker. Applications attach CPAL's configuration
 and bounded PCM sender through `pc.attach_audio(config, samples).await` or
 `dos.attach_audio(config, samples).await`. The speaker itself owns no output
