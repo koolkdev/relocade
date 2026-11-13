@@ -1,6 +1,7 @@
 // Independent CPU rendering for tests and worker fixtures. All text settings
 // come from raw captures; literal pixel cases check both this and the GPU shader.
 #![allow(dead_code)]
+use super::planes::SnapshotPlanes;
 use super::text;
 use relocade_vga::DisplaySnapshot;
 
@@ -17,13 +18,13 @@ pub(crate) fn render(snapshot: &DisplaySnapshot) -> Box<[u8]> {
                 .counter
                 .wrapping_add((column / text.layout.count_divisor) as u16);
             let address = usize::from(text.layout.address(counter, line.glyph_row));
-            let character = snapshot.plane(0)[address];
-            let attribute = snapshot.plane(1)[address];
+            let character = snapshot.plane_byte(0, address);
+            let attribute = snapshot.plane_byte(1, address);
             let font = usize::from(text.font_address(character, attribute, line.glyph_row));
             let bits = if attribute & 0x77 == 1 && line.glyph_row == text.layout.underline & 31 {
                 255
             } else {
-                snapshot.plane(2)[font]
+                snapshot.plane_byte(2, font)
             };
             let mut lit = if dot < 8 {
                 bits & (0x80 >> dot) != 0

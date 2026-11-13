@@ -1,5 +1,6 @@
-use super::video::{video, PROGRAM};
+use super::video::{PROGRAM, video};
 use crate::common;
+use crate::common::vga_support::planes::SnapshotPlanes;
 use relocade_dos::Dos;
 use relocade_x86::{Segment, SegmentRegister};
 
@@ -74,7 +75,9 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         context.memory.read(address, &mut capabilities).unwrap();
         assert_eq!(
             capabilities,
-            [0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0x3f, 0]
+            [
+                0xff, 0xe0, 0x0f, 0, 0, 0, 0, 7, 2, 8, 0xfe, 0x0e, 0, 0, 0x3f, 0
+            ]
         );
         assert_eq!(context.memory.read_u8(0x501ff).unwrap(), 0xa5);
         assert_eq!(context.memory.read_u8(0x50240).unwrap(), 0xa5);
@@ -82,7 +85,11 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
     });
 }

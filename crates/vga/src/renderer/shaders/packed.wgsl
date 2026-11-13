@@ -12,12 +12,6 @@ const INDEXED8 = 0u;
 const RGB565 = 1u;
 const BGRX8888 = 2u;
 
-fn physical_byte(address: u32) -> u32 {
-    // Each 256-KiB group interleaves four bytes across four 64-KiB blocks.
-    let block = (address / 262144u) * 4u + (address & 3u);
-    return vram_byte(block, address / 4u);
-}
-
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     return fullscreen_position(index);

@@ -1,4 +1,5 @@
 use crate::common::fixture::ConnectedVga;
+use crate::common::support::planes::SnapshotPlanes;
 use relocade_clock_test_support::ManualClock;
 mod common;
 use common::{crtc, dots, support::svga, svga_boundary};
@@ -53,7 +54,11 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
     assert_eq!(vga.device.borrow().core_state(), state);
     assert_eq!(vga.device.borrow().registers().crtc.display_start, 0);
     for plane in 0..4 {
-        assert_eq!(vga.snapshot().plane(plane), before.plane(plane));
+        assert!(
+            vga.snapshot()
+                .plane_bytes(plane, 0..65536)
+                .eq(before.plane_bytes(plane, 0..65536))
+        );
     }
     vga.io.write_port(0x3c0, 1, 7);
     assert_eq!(vga.device.borrow().registers().attribute.values[0x12], 7);
@@ -61,8 +66,8 @@ fn vga_core_restore_preserves_vram_and_recovers_latches_reset_and_access_phases(
     vga.io.write_port(0x3ce, 2, 0x0105);
     vga.io.write_mmio(0xa0020, 1, 0);
     for (plane, value) in [0x12, 0x34, 0x56, 0x78].into_iter().enumerate() {
-        assert_eq!(vga.snapshot().plane(plane)[0x20], value);
-        assert_eq!(before.plane(plane)[0x20], 0);
+        assert_eq!(vga.snapshot().plane_byte(plane, 0x20), value);
+        assert_eq!(before.plane_byte(plane, 0x20), 0);
     }
 }
 
@@ -281,10 +286,11 @@ fn direct_color_state_keeps_byte_pitch_and_same_resolution_raster_phase() {
         assert_eq!(svga::get(&vga.io, 6), 1024);
         assert_eq!(svga::get(&vga.io, 7), u32::from(rows));
         let mut wait = pin!(vga.device.borrow_mut().wait_for_retrace().unwrap());
-        assert!(wait
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-            .is_pending());
+        assert!(
+            wait.as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
         assert_eq!(
             clock.next_deadline().map(|at| clock.elapsed(at)),
             Some(svga_boundary(1))

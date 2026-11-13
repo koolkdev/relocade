@@ -1,4 +1,6 @@
-use super::{video, PROGRAM};
+use super::{PROGRAM, video};
+use crate::common::vga_support::inspection::assert_vga_memory_eq;
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::common::{self, vga_support::software};
 
 #[test]
@@ -25,7 +27,11 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
                 expected.sequencer.values[1] = clocking;
                 assert_eq!(after_registers, expected); // Includes the final sequencer index.
                 for plane in 0..4 {
-                    assert_eq!(after.plane(plane), before.plane(plane));
+                    assert!(
+                        after
+                            .plane_bytes(plane, 0..65536)
+                            .eq(before.plane_bytes(plane, 0..65536))
+                    );
                 }
             }
             for selection in [2, 255] {
@@ -53,9 +59,7 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         let blank = common::next_capture(&dos).await;
 
         assert_eq!(blank.vga().unwrap().sequencer[1], 0x20);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(blank.plane(plane), initial.plane(plane)));
-        }
+        assert_vga_memory_eq(&blank, &initial);
         // The CPU can still read and write the text aperture while output is off.
         dos.cpu()
             .context()
@@ -68,32 +72,32 @@ fn blanked_output_keeps_capturing_memory_writes_and_reveals_them_when_enabled() 
         );
         let written = common::next_capture(&dos).await;
 
-        assert_eq!(written.plane(0)[0], b'A');
-        assert_eq!(written.plane(1)[0], 0x4f);
-        assert!(software::render(&written)
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .all(|pixel| pixel == &[0, 0, 0, 255]));
+        assert_eq!(written.plane_byte(0, 0), b'A');
+        assert_eq!(written.plane_byte(1, 0), 0x4f);
+        assert!(
+            software::render(&written)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel == &[0, 0, 0, 255])
+        );
 
         video(&mut dos, 0x1200, 0x36, 0, 0);
         let visible = common::next_capture(&dos).await;
         assert_eq!(visible.vga().unwrap().sequencer[1], 0);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(visible.plane(plane), written.plane(plane)));
-        }
+        assert_vga_memory_eq(&visible, &written);
         // A's third glyph row is 38h: column one is background, column two foreground.
         let offset = (2 * 720 + 1) * 4;
         assert_eq!(
             &software::render(&visible)[offset..offset + 8],
             &[170, 0, 0, 255, 255, 255, 255, 255]
         );
-        assert_eq!(initial.plane(0)[0], b' '); // The retained capture is immutable.
+        assert_eq!(initial.plane_byte(0, 0), b' '); // The retained capture is immutable.
 
         video(&mut dos, 0x1201, 0x36, 0, 0);
         video(&mut dos, 0x83, 0, 0, 0); // A mode set restores output while preserving cells.
         let reset = dos.vga().borrow().snapshot();
         assert_eq!(reset.vga().unwrap().sequencer[1], 0);
-        assert_eq!(reset.plane(0)[0], b'A');
+        assert_eq!(reset.plane_byte(0, 0), b'A');
     });
 }

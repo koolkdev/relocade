@@ -1,17 +1,19 @@
 use crate::common::fixture::ConnectedVga;
-use futures_util::task::{waker, ArcWake};
+use crate::common::support::inspection::assert_vga_memory_eq;
+use crate::common::support::planes::SnapshotPlanes;
+use futures_util::task::{ArcWake, waker};
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
-use relocade_vga::{DispiAdapter, CRTC_INDEX_PORT, TEXT_MEMORY_START};
+use relocade_vga::{CRTC_INDEX_PORT, DispiAdapter, TEXT_MEMORY_START};
 use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     task::{Context, Poll, Waker},
     time::Duration,
@@ -73,7 +75,7 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     poll_video(video.as_mut(), &mut cx);
     let capture = source.try_recv().unwrap();
 
-    assert_eq!(capture.plane(0)[0], b'C', "capture precedes the write");
+    assert_eq!(capture.plane_byte(0, 0), b'C', "capture precedes the write");
     assert_eq!(vga.io.read_mmio(TEXT_MEMORY_START, 1), u64::from(b'D'));
 }
 
@@ -181,7 +183,7 @@ fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
     let Poll::Ready(Ok(latest)) = slow.as_mut().poll(&mut cx) else {
         panic!("latest frame should be ready");
     };
-    assert_eq!(latest.plane(0)[0], 20);
+    assert_eq!(latest.plane_byte(0, 0), 20);
     let mut next = std::pin::pin!(source.recv());
     assert!(matches!(next.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
     assert!(source.is_empty());
@@ -229,8 +231,8 @@ fn refreshes_publish_writes_and_display_changes() {
         panic!("changed inputs must wake the consumer");
     };
 
-    assert_eq!(latest.plane(0)[0], 0xdb);
-    assert_ne!(first.plane(0)[0], 0xdb);
+    assert_eq!(latest.plane_byte(0, 0), 0xdb);
+    assert_ne!(first.plane_byte(0, 0), 0xdb);
     assert!(source.is_empty());
 
     let mut changed = std::pin::pin!(source.recv());
@@ -248,8 +250,7 @@ fn refreshes_publish_writes_and_display_changes() {
     vga.io.write_mmio(TEXT_MEMORY_START, 2, 0x1edb);
     tick(&clock, video.as_mut(), boundary(6));
     let rewritten = source.try_recv().unwrap();
-    assert!(!std::ptr::eq(latest.plane(0), rewritten.plane(0)));
-    assert_eq!(rewritten.plane(0)[0], 0xdb);
+    assert_eq!(rewritten.plane_byte(0, 0), 0xdb);
 
     // Frame 8 changes only the cursor phase. Skipping to 24 changes only the
     // attribute phase: the cursor has completed a full cycle in between.
@@ -336,9 +337,7 @@ fn mixed_register_display_bits_still_publish_new_inputs() {
         let capture = source
             .try_recv()
             .expect("display bits must publish a frame");
-        for plane in 0..4 {
-            assert!(std::ptr::eq(first.plane(plane), capture.plane(plane)));
-        }
+        assert_vga_memory_eq(&first, &capture);
     }
 }
 
@@ -377,9 +376,7 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
 
         assert_eq!(capture.vga().unwrap().cursor_blink_on, cursor_on);
         assert_eq!(capture.vga().unwrap().attribute_blink_on, attribute_on);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(on.plane(plane), capture.plane(plane)));
-        }
+        assert_vga_memory_eq(&on, &capture);
         let image = software::rasterize(&capture);
         assert_eq!(
             &image.pixels[..4],
@@ -430,12 +427,14 @@ fn writes_preserve_overdue_output_and_screen_off_blanks_only_later_frames() {
     let blank = source.try_recv().unwrap();
     assert_ne!(blank.vga().unwrap().sequencer[1] & 0x20, 0);
     assert_eq!(before.vga().unwrap().sequencer[1] & 0x20, 0);
-    assert!(software::rasterize(&blank)
-        .pixels
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .all(|p| *p == [0, 0, 0, 255]));
+    assert!(
+        software::rasterize(&blank)
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| *p == [0, 0, 0, 255])
+    );
     vga.io.write_port(0x3c4, 2, 0x0101);
     clock.advance_to(clock.at(boundary(7)));
     vga.io.read_port(0x3da, 1);

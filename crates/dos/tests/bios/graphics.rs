@@ -1,5 +1,6 @@
-use super::video::{video, PROGRAM};
+use super::video::{PROGRAM, video};
 use crate::common;
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]
 fn mode_13h_restores_memory_routing_geometry_and_default_palette() {
@@ -132,7 +133,11 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
         }
         let display = dos.vga().borrow().snapshot();
         for plane in 0..4 {
-            assert_eq!(display.plane(plane), retained.plane(plane));
+            assert!(
+                display
+                    .plane_bytes(plane, 0..65536)
+                    .eq(retained.plane_bytes(plane, 0..65536))
+            );
         }
         assert_eq!(display.vga().unwrap().crtc, retained.vga().unwrap().crtc);
         assert_eq!(display.dac.colors, retained.dac.colors);
@@ -154,11 +159,19 @@ fn preserve_memory_flag_queries_and_text_return_follow_bios_bookkeeping() {
         );
         let text = dos.vga().borrow().snapshot();
         assert_eq!(
-            &text.plane(2)[65 * 32..65 * 32 + 16],
-            &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
+            &text
+                .plane_bytes(2, 65 * 32..65 * 32 + 16)
+                .collect::<Vec<_>>(),
+            &[
+                0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,
+            ]
         );
         assert_eq!(text.geometry().size, [720, 400]);
         // Loading the text font cannot modify a retained graphics capture.
-        assert_ne!(retained.plane(2), text.plane(2));
+        assert!(
+            !retained
+                .plane_bytes(2, 0..65536)
+                .eq(text.plane_bytes(2, 0..65536))
+        );
     });
 }

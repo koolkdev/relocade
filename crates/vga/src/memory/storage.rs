@@ -9,8 +9,10 @@ pub(crate) struct MemorySnapshot {
 
 impl MemorySnapshot {
     pub fn read(&self, address: u32) -> Option<u8> {
-        let (block, offset) = Storage::location(address);
-        self.blocks.get(block).map(|bytes| bytes[offset])
+        let address = address as usize;
+        self.blocks
+            .get(address / BLOCK_BYTES)
+            .map(|bytes| bytes[address % BLOCK_BYTES])
     }
 
     pub fn same_blocks(&self, other: &Self) -> bool {
@@ -49,28 +51,26 @@ impl Storage {
         }
     }
 
-    /// Translate a physical address into the existing plane storage.
-    fn location(address: u32) -> (usize, usize) {
-        let address = address as usize;
-        let block = address / (4 * BLOCK_BYTES) * 4 + (address & 3);
-        (block, (address / 4) % BLOCK_BYTES)
-    }
-
     pub fn read(&self, address: u32) -> u8 {
-        let (block, offset) = Self::location(address);
-        self.bytes[block * BLOCK_BYTES + offset]
+        self.bytes[address as usize]
     }
 
     pub fn write(&mut self, address: u32, value: u8) {
-        let (block, offset) = Self::location(address);
-        self.bytes[block * BLOCK_BYTES + offset] = value;
-        self.dirty.mark(block, offset);
+        let address = address as usize;
+        self.bytes[address] = value;
+        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+    }
+
+    pub fn write_bytes(&mut self, address: u32, values: &[u8]) {
+        let address = address as usize;
+        self.bytes[address..address + values.len()].copy_from_slice(values);
+        self.dirty.mark_range(address, values.len());
     }
 
     /// Reuse untouched blocks from the output owner's baseline. Inspection
     /// snapshots leave both that baseline and the dirty interval unchanged.
     pub fn snapshot(&self, bytes: u32, baseline: Option<&MemorySnapshot>) -> MemorySnapshot {
-        let count = (bytes as usize).div_ceil(4 * BLOCK_BYTES) * 4;
+        let count = (bytes as usize).div_ceil(BLOCK_BYTES);
         let mut blocks = Vec::with_capacity(count);
         for block in 0..count {
             let previous = baseline.and_then(|memory| memory.blocks.get(block));

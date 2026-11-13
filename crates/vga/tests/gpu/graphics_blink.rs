@@ -1,8 +1,9 @@
 use super::{
     common,
-    graphics::{load_palette, pixels, Gpu},
+    graphics::{Gpu, load_palette, pixels},
 };
 use crate::common::fixture::ConnectedVga;
+use crate::common::support::inspection::assert_vga_memory_eq;
 use common::support::{
     planar16::{program, write_pixels},
     registers::{attribute, indexed},
@@ -49,9 +50,7 @@ async fn check_blink() {
     common::service_video(video.as_mut());
     let off = source.try_recv().unwrap();
     assert!(!off.vga().unwrap().attribute_blink_on);
-    for plane in 0..4 {
-        assert!(std::ptr::eq(on.plane(plane), off.plane(plane)));
-    }
+    assert_vga_memory_eq(&on, &off);
     let upper = pixels([8, 9, 10, 11, 12, 13, 14, 15].repeat(2));
     gpu.expect(&off, [16, 1], &upper).await;
 

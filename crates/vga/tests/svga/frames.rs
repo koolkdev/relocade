@@ -1,4 +1,5 @@
 use crate::common::fixture::ConnectedVga;
+use crate::common::support::planes::SnapshotPlanes;
 use crate::common::{self, boundary, crtc, dots, poll_video, svga_boundary};
 use common::support::{registers::palette, svga};
 use relocade_clock_test_support::ManualClock;
@@ -91,7 +92,7 @@ fn mode_switches_finish_old_boundaries_and_preserve_retained_memory() {
     let legacy = source.try_recv().unwrap();
 
     assert!(matches!(legacy.scanout(), Scanout::Vga(_)));
-    assert_eq!(legacy.plane(0)[0], b'A');
+    assert_eq!(legacy.plane_byte(0, 0), b'A');
     svga::write_byte(&vga.io, 307199, 6);
 
     clock.advance_to(clock.at(entered + svga_boundary(1) - Duration::from_nanos(1)));
@@ -126,10 +127,10 @@ fn mode_switches_finish_old_boundaries_and_preserve_retained_memory() {
     let resumed = source.try_recv().unwrap();
 
     assert!(matches!(resumed.scanout(), Scanout::Vga(_)));
-    assert_eq!(resumed.plane(0)[0], b'B');
+    assert_eq!(resumed.plane_byte(0, 0), b'B');
     drop(video);
     drop(vga);
-    assert_eq!(legacy.plane(0)[0], b'A');
+    assert_eq!(legacy.plane_byte(0, 0), b'A');
     assert_eq!(packed.vram_byte(307199), Some(6));
     assert_eq!(last_packed.vram_byte(307199), Some(7));
 }

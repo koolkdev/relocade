@@ -1,5 +1,6 @@
-use super::video::{video, PROGRAM};
+use super::video::{PROGRAM, video};
 use crate::common;
+use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]
 fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
@@ -24,7 +25,11 @@ fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert_eq!(after.plane(plane), before.plane(plane));
+                assert!(
+                    after
+                        .plane_bytes(plane, 0..65536)
+                        .eq(before.plane_bytes(plane, 0..65536))
+                );
             }
         }
         video(&mut dos, 0x1201, 0x30, 0, 0);
@@ -75,7 +80,11 @@ fn display_combination_set_uses_the_bios_table_and_equipment_active_selection() 
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(
+                after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536))
+            );
         }
         // Mode setup preserves display-combination metadata, including no-clear.
         video(&mut dos, 0x0087, 0, 0, 0);

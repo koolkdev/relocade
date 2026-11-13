@@ -1,4 +1,5 @@
 use crate::common::fixture::ConnectedVga;
+use crate::common::support::planes::SnapshotPlanes;
 use relocade_clock_test_support::ManualClock;
 mod common;
 #[path = "svga/configuration.rs"]
@@ -180,7 +181,7 @@ fn packed_accesses_share_vga_planes_without_changing_read_latches() {
     vga.io.write_mmio(0xa0000, 4, 0x4433_2211);
     let before = vga.snapshot();
     for (plane, value) in [0x11, 0x22, 0x33, 0x44].into_iter().enumerate() {
-        assert_eq!(before.plane(plane)[0], value);
+        assert_eq!(before.plane_byte(plane, 0), value);
     }
     set(&vga.io, 4, 0);
     for (port, value) in [
@@ -200,8 +201,8 @@ fn packed_accesses_share_vga_planes_without_changing_read_latches() {
     vga.io.write_mmio(0xa0010, 1, 0);
     let after = vga.snapshot();
     for (plane, value) in [0x11, 0x22, 0x33, 0x44].into_iter().enumerate() {
-        assert_eq!(after.plane(plane)[0x10], value);
-        assert_eq!(before.plane(plane)[0], value);
+        assert_eq!(after.plane_byte(plane, 0x10), value);
+        assert_eq!(before.plane_byte(plane, 0), value);
     }
 }
 

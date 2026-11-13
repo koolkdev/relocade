@@ -1,7 +1,8 @@
 use super::read_character;
+use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{
     common,
-    video::{video, PROGRAM},
+    video::{PROGRAM, video},
 };
 use relocade_x86::{Segment, SegmentRegister};
 
@@ -61,7 +62,11 @@ fn indexed_reads_use_raw_color_indices_and_programmable_font_heights() {
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert_eq!(after.plane(plane), before.plane(plane));
+                assert!(
+                    after
+                        .plane_bytes(plane, 0..65536)
+                        .eq(before.plane_bytes(plane, 0..65536))
+                );
             }
         }
         video(&mut dos, 0x0200, 0, 0, 0x0128); // Column 40 is outside mode 13h's grid.

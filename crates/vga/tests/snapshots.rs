@@ -1,4 +1,6 @@
 use crate::common::fixture::ConnectedVga;
+use crate::common::support::inspection::assert_vga_memory_eq;
+use crate::common::support::planes::SnapshotPlanes;
 use relocade_clock_test_support::ManualClock;
 mod common;
 
@@ -47,8 +49,7 @@ fn snapshots_own_fonts_palette_and_programmed_geometry_after_device_destruction(
     vga.io.write_port(0x3c9, 1, 0);
     drop(vga);
 
-    assert_eq!(snapshot.plane(2).len(), 65536);
-    assert_eq!(snapshot.plane(2)[0xe821], 0xa5);
+    assert_eq!(snapshot.plane_byte(2, 0xe821), 0xa5);
     assert_eq!(snapshot.geometry().size, [320, 400]);
     let state = snapshot.vga().unwrap();
     assert_eq!(state.sequencer[3], 0x35);
@@ -77,7 +78,7 @@ fn immediate_snapshots_preserve_cpu_latches_and_pending_port_transfers() {
     let snapshot = vga.snapshot();
     assert_eq!(vga.device.borrow().registers(), &registers);
     assert!(source.is_empty());
-    assert_eq!(snapshot.plane(2)[0x20], 0xa5);
+    assert_eq!(snapshot.plane_byte(2, 0x20), 0xa5);
     vga.io.write_port(0x3c0, 1, 0x31);
     assert_eq!(vga.io.read_port(0x3c1, 1), 0x31);
     vga.io.write_port(0x3c9, 1, 22);
@@ -115,17 +116,17 @@ fn newest_capture_contains_changes_from_skipped_frames() {
     drop(video);
     drop(vga);
 
-    assert_eq!(first.plane(2)[0x200], 0);
-    assert_eq!(second.plane(2)[0x200], 0x34);
-    assert_eq!(second.plane(2)[0x300], 0);
-    assert_eq!(newest.plane(2)[0x100], 0x12);
-    assert_eq!(newest.plane(2)[0x200], 0x34);
-    assert_eq!(newest.plane(2)[0x300], 0x56);
+    assert_eq!(first.plane_byte(2, 0x200), 0);
+    assert_eq!(second.plane_byte(2, 0x200), 0x34);
+    assert_eq!(second.plane_byte(2, 0x300), 0);
+    assert_eq!(newest.plane_byte(2, 0x100), 0x12);
+    assert_eq!(newest.plane_byte(2, 0x200), 0x34);
+    assert_eq!(newest.plane_byte(2, 0x300), 0x56);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn snapshots_share_planes_until_physical_bytes_are_written() {
+fn retained_snapshots_survive_writes_and_plane_masks() {
     let clock = ManualClock::default();
     let (vga, mut video) = common::start_video(ConnectedVga::new(clock.clock()));
     let source = vga.device.borrow().frames();
@@ -137,17 +138,19 @@ fn snapshots_share_planes_until_physical_bytes_are_written() {
     common::service_video(video.as_mut());
     let before = source.try_recv().unwrap();
     let cloned = before.clone();
-    for plane in 0..4 {
-        assert!(std::ptr::eq(before.plane(plane), cloned.plane(plane)));
-    }
+    assert_vga_memory_eq(&before, &cloned);
 
     vga.io.write_mmio(0xa0125, 1, 0x5a);
     let changed = vga.snapshot();
-    assert_eq!(before.plane(1)[0x124], 0);
-    assert_eq!(changed.plane(1)[0x124], 0x5a);
-    assert!(!std::ptr::eq(before.plane(1), changed.plane(1)));
+    assert_eq!(before.plane_byte(1, 0x124), 0);
+    assert_eq!(cloned.plane_byte(1, 0x124), 0);
+    assert_eq!(changed.plane_byte(1, 0x124), 0x5a);
     for plane in [0, 2, 3] {
-        assert!(std::ptr::eq(before.plane(plane), changed.plane(plane)));
+        assert!(
+            before
+                .plane_bytes(plane, 0..65536)
+                .eq(changed.plane_bytes(plane, 0..65536))
+        );
     }
 
     clock.advance_to(clock.at(boundary(2)));
@@ -159,9 +162,12 @@ fn snapshots_share_planes_until_physical_bytes_are_written() {
     indexed(&vga.io, 0x3ce, 8, 0); // Preserve every latched bit.
     vga.io.write_mmio(0xa0125, 1, 0xff);
     let rewritten = vga.snapshot();
-    assert!(!std::ptr::eq(changed.plane(1), rewritten.plane(1)));
     for plane in 0..4 {
-        assert_eq!(changed.plane(plane), rewritten.plane(plane));
+        assert!(
+            changed
+                .plane_bytes(plane, 0..65536)
+                .eq(rewritten.plane_bytes(plane, 0..65536))
+        );
     }
     clock.advance_to(clock.at(boundary(3)));
     vga.io.read_port(0x3da, 1);
@@ -170,9 +176,7 @@ fn snapshots_share_planes_until_physical_bytes_are_written() {
     indexed(&vga.io, 0x3c4, 2, 0); // Reject the write entirely.
     vga.io.write_mmio(0xa0125, 1, 0);
     let unchanged = vga.snapshot();
-    for plane in 0..4 {
-        assert!(std::ptr::eq(rewritten.plane(plane), unchanged.plane(plane)));
-    }
+    assert_vga_memory_eq(&rewritten, &unchanged);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

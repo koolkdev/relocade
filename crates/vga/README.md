@@ -642,13 +642,13 @@ whose `VgaGeometry` also records physical scanlines per output row.
 SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
 captured display settings and VRAM directly in the shader.
 
-Live VRAM is one mutable 4-MiB buffer using the existing plane layout. Writes
-apply VGA routing, write modes and masks, then store bytes and mark 1-KiB pages.
-They perform no snapshot ownership checks or value comparisons. Capturing copies
-each written 64-KiB block and shares untouched immutable blocks. Captures retain
-four blocks for VGA and complete four-block groups covering the packed viewport.
-Output retains the last capture as the producer's only baseline. Memory owns
-live bytes and one dirty bitmap. Inspection snapshots reuse that baseline but
+Live VRAM is one mutable 4-MiB buffer. Writes apply VGA routing, write modes and
+masks, then store physical bytes and mark 1-KiB pages. They perform no snapshot
+ownership checks or value comparisons. Capturing copies each written 64-KiB
+block and shares untouched immutable blocks, without comparing their contents.
+Captures retain four blocks for VGA and enough to cover the packed viewport's
+final byte for SVGA. Output retains the last capture as the producer's only
+baseline. Memory owns live bytes and one dirty bitmap. Inspection snapshots reuse that baseline but
 leave it and the dirty bitmap unchanged; accepting a retrace capture starts the
 next dirty interval. Cloning a snapshot copies references and register values.
 Retaining distinct captures can retain multiple versions of a block.
@@ -788,8 +788,8 @@ nine-dot text width, 13 flat inter-stage variables, two uniform buffers and one
 buffer is 128 bytes; packed scanout uses two words. The shared DAC buffer holds
 a four-byte mask and 768 palette bytes at offset 16. Captures retain written
 1-KiB pages as conservative GPU transfer hints, including equal-value writes.
-Consecutive dirty pages in each block become one upload. Pages follow plane
-storage, and packed bytes select successive planes. Hidden memory is included, so
+Consecutive dirty pages in each block become one upload. VGA plane bytes occupy
+their physical addresses in those pages. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
 Snapshots remain complete. Their private transfer hints contain dirty pages and
@@ -1188,15 +1188,17 @@ register banks remain stored on the device across addressing-mode changes.
 
 Packed byte addresses interleave physical VGA planes: addresses 0, 1, 2 and 3
 are byte zero of planes 0, 1, 2 and 3; address 4 is byte one of plane zero.
-That mapping repeats in each 256-KiB group throughout VRAM. Legacy VGA accesses
-remain within the first group, including their existing chain-4 address mapping.
-Changing addressing modes never repacks memory. Packed accesses bypass VGA
-latches and write masks. Immutable 64-KiB storage blocks preserve retained
+Storage follows physical byte addresses directly. Legacy VGA accesses translate
+plane offsets to `4 * offset + plane` within the first 256 KiB, including their
+existing chain-4 address mapping. The VGA shaders use the same translation;
+packed scanout reads bytes directly. Changing addressing modes never repacks
+memory. Packed accesses bypass VGA latches and write masks and copy consecutive
+bytes within each allocation. Immutable 64-KiB storage blocks preserve retained
 VGA snapshots and avoid allocating unused extended memory until written.
 
 Immutable memory snapshots retain the blocks covering a display's physical
-memory extent, rounded to complete groups of four interleaved blocks. Legacy
-VGA captures retain the first four blocks; 640×480 packed captures retain eight.
+memory extent, rounded to complete 64-KiB blocks. Legacy VGA captures retain the
+first four blocks; 640×480 eight-bit packed captures retain five.
 Dirty pages are tracked throughout
 VRAM; an upload uses sparse ranges only when its prior block matches the
 capture's baseline, and uploads a complete block when that baseline is absent.

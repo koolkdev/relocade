@@ -1,7 +1,19 @@
 // Immediate device inspection for tests; rendering consumes physical snapshots.
 #![allow(dead_code)]
+use super::planes::SnapshotPlanes;
 use super::text;
 use relocade_vga::DisplaySnapshot;
+
+pub fn assert_vga_memory_eq(actual: &DisplaySnapshot, expected: &DisplaySnapshot) {
+    for plane in 0..4 {
+        assert!(
+            actual
+                .plane_bytes(plane, 0..65536)
+                .eq(expected.plane_bytes(plane, 0..65536)),
+            "VGA plane {plane} differs"
+        );
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cell {
@@ -33,8 +45,8 @@ pub fn inspect(snapshot: &DisplaySnapshot) -> Inspection {
                         .address(line.counter.wrapping_add(column as u16), line.glyph_row),
                 );
                 Cell {
-                    character: snapshot.plane(0)[address],
-                    attribute: snapshot.plane(1)[address],
+                    character: snapshot.plane_byte(0, address),
+                    attribute: snapshot.plane_byte(1, address),
                 }
             })
         })
