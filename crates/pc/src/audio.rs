@@ -16,10 +16,12 @@ impl Pc {
             return Err("PC audio output is already attached".into());
         }
         let mut mixer = Mixer::new(self.clock().clone(), config, samples)?;
-        let mut adlib = self.adlib.borrow_mut().audio_source(config.sample_rate)?;
+        if let Some(adlib) = &self.adlib {
+            let mut source = adlib.borrow_mut().audio_source(config.sample_rate)?;
+            mixer.add_source(0.8, move |interval| source.sample(interval));
+        }
         let mut speaker = self.speaker.borrow().audio_source();
         mixer.add_source(0.2, move |interval| speaker.sample(interval));
-        mixer.add_source(0.8, move |interval| adlib.sample(interval));
         // Connection belongs to the session even if this await is cancelled.
         self.audio_attached = true;
         self.runner

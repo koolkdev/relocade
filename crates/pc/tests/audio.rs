@@ -1,5 +1,5 @@
 use relocade_machine::{timer_service, Device};
-use relocade_pc::Pc;
+use relocade_pc::{Configuration, Pc, SoundCard};
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 struct Started(Option<async_channel::Sender<()>>);
@@ -28,7 +28,7 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
     .await
 }
 
-async fn exercise_audio_device() {
+async fn exercise_audio_device(sound_card: SoundCard) {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
     let (clock, timers) = timer_service();
@@ -43,7 +43,15 @@ async fn exercise_audio_device() {
                 Started::configure_io(io, &started);
             })
             .await;
-        let mut pc = Pc::new(runner).await.unwrap();
+        let mut pc = Pc::with_configuration(runner, Configuration { sound_card })
+            .await
+            .unwrap();
+        let expected_status = match sound_card {
+            SoundCard::None => 0xff,
+            SoundCard::AdLib => 0x06,
+        };
+        assert_eq!(pc.cpu().context().io.read_port(0x388, 1), expected_status);
+        assert_eq!(pc.adlib().is_some(), sound_card == SoundCard::AdLib);
         let memory = pc.cpu().memory();
         // A sustained ~309 Hz AdLib carrier, programmed through guest OUT DX,AL.
         let mut code = vec![0xba, 0x88, 0x03]; // DX = address/status port.
@@ -84,11 +92,20 @@ async fn exercise_audio_device() {
         let buffer = timeout(buffers.recv()).await.unwrap();
         assert_eq!(buffer.len(), 256);
         if index >= 2 {
-            assert!(buffer.iter().all(|sample| (-0.8..=1.0).contains(sample)));
-            // AdLib alone peaks below 0.1; speaker alone cannot go negative.
-            // Both must contribute to the same buffer.
-            assert!(buffer.iter().any(|&sample| sample > 0.22));
-            assert!(buffer.iter().any(|&sample| sample < -0.02));
+            match sound_card {
+                SoundCard::AdLib => {
+                    assert!(buffer.iter().all(|sample| (-0.8..=1.0).contains(sample)));
+                    // AdLib alone peaks below 0.1; speaker alone cannot go negative.
+                    // Both must contribute to the same buffer.
+                    assert!(buffer.iter().any(|&sample| sample > 0.22));
+                    assert!(buffer.iter().any(|&sample| sample < -0.02));
+                }
+                SoundCard::None => {
+                    assert!(buffer.iter().all(|sample| (0.0..=0.2).contains(sample)));
+                    assert!(buffer.iter().any(|&sample| sample > 0.19));
+                    assert!(buffer.iter().any(|&sample| sample < 0.01));
+                }
+            }
         }
         // A playback device consumes 256 frames in about 5.3 ms.
         futures_timer::Delay::new(Duration::from_millis(6)).await;
@@ -105,7 +122,7 @@ async fn exercise_audio_device() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn pc_mixes_adlib_and_speaker_while_guest_execution_is_busy() {
-    pollster::block_on(exercise_audio_device());
+    pollster::block_on(exercise_audio_device(SoundCard::AdLib));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -114,5 +131,17 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_mixes_adlib_and_speaker_while_guest_execution_is_busy() {
-    exercise_audio_device().await;
+    exercise_audio_device(SoundCard::AdLib).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pc_without_a_sound_card_still_plays_the_speaker() {
+    pollster::block_on(exercise_audio_device(SoundCard::None));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn pc_without_a_sound_card_still_plays_the_speaker() {
+    exercise_audio_device(SoundCard::None).await;
 }

@@ -4,6 +4,7 @@
 //! on an existing execution runner. It initializes BIOS data and interrupt
 //! services. The caller supplies guest code and its entry state; this does not
 //! execute a reset ROM, POST or a disk bootstrap.
+//! [`Pc::with_configuration`] selects which sound card to install.
 //!
 //! Devices retain their own emulation and async activities. The PC owns their
 //! wiring and exposes display, audio and input handles to the embedding.
@@ -13,6 +14,7 @@
 mod audio;
 pub mod configuration;
 
+pub use configuration::{Configuration, SoundCard};
 use relocade_adlib::Adlib;
 use relocade_bios::{video::VideoFirmware, Keyboard};
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
@@ -32,7 +34,7 @@ pub struct Pc {
     runner: Runner,
     vga: Rc<RefCell<DispiAdapter>>,
     speaker: Rc<RefCell<Speaker>>,
-    adlib: Rc<RefCell<Adlib>>,
+    adlib: Option<Rc<RefCell<Adlib>>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
     #[cfg(feature = "audio")]
@@ -44,13 +46,25 @@ impl Pc {
     /// machine and CPU using [`configuration::memory`] and [`configuration::cpu`].
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and sound hardware emulation require no platform output.
-    pub async fn new(mut runner: Runner) -> relocade_machine::Result<Self> {
+    pub async fn new(runner: Runner) -> relocade_machine::Result<Self> {
+        Self::with_configuration(runner, Configuration::default()).await
+    }
+
+    /// Initializes the selected hardware and BIOS on the prepared runner.
+    /// The PC speaker remains available regardless of the installed sound card.
+    pub async fn with_configuration(
+        mut runner: Runner,
+        configuration: Configuration,
+    ) -> relocade_machine::Result<Self> {
         let vga = DispiAdapter::initialize(&runner).await;
         let video_firmware = VideoFirmware::Dispi(vga.clone());
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
-        let adlib = Adlib::initialize(&runner).await;
+        let adlib = match configuration.sound_card {
+            SoundCard::None => None,
+            SoundCard::AdLib => Some(Adlib::initialize(&runner).await),
+        };
         let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
@@ -142,8 +156,8 @@ impl Pc {
         self.speaker.clone()
     }
 
-    /// Retains the AdLib hardware on its execution owner.
-    pub fn adlib(&self) -> Rc<RefCell<Adlib>> {
+    /// Retains the AdLib hardware on its execution owner, if installed.
+    pub fn adlib(&self) -> Option<Rc<RefCell<Adlib>>> {
         self.adlib.clone()
     }
 }
