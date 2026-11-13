@@ -6,6 +6,7 @@ fn transfer(input: &Input, entry: &str) -> Observation {
         bytes: transfers().to_vec(),
         entry: entry.into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     module.observe(input, 1)
 }
@@ -210,6 +211,7 @@ fn remapping() {
         bytes: program.compile().unwrap(),
         entry: "read".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     let mut input = input();
     input.mmio_pages = vec![(8, 0x6000)];

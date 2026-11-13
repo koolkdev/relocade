@@ -3,6 +3,8 @@
 mod client;
 mod connection;
 mod service;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
@@ -10,7 +12,7 @@ pub use service::CompilerService;
 
 use crate::{worker::Transfer, Cpu, DispatchEntry, Error, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
-use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionTarget};
+use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionTarget, StateAssumption};
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
@@ -36,11 +38,17 @@ pub struct Description {
     addresses: Vec<u32>,
     blocks: Vec<BlockEntry>,
     target: ExecutionTarget,
+    state_assumptions: Vec<StateAssumption>,
 }
 
 impl CompiledCode {
     pub fn blocks(&self) -> &[BlockEntry] {
         &self.description.blocks
+    }
+
+    /// Conservative entry conditions carried from x86 compilation through the worker.
+    pub fn state_assumptions(&self) -> &[StateAssumption] {
+        &self.description.state_assumptions
     }
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
@@ -49,6 +57,13 @@ impl CompiledCode {
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
+        }
+        if !cpu
+            .cpu_state()
+            .snapshot()
+            .satisfies(self.state_assumptions())
+        {
+            return Err(Error::CompilationAssumptions);
         }
         let entries: Vec<_> = self
             .description
@@ -121,6 +136,7 @@ async fn compile(
             addresses: requests.iter().map(|block| block.address).collect(),
             blocks: blocks.entries,
             target: blocks.execution_target,
+            state_assumptions: blocks.state_assumptions,
         },
     })
 }

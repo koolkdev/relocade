@@ -1,15 +1,15 @@
 //! Reads of segment fields that remain fixed until the entry dispatches.
 
-use std::mem::size_of;
+use std::mem::{offset_of, size_of};
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
 
 use crate::{
-    segment::{Segment, SegmentAssumptions, SegmentSelection},
+    segment::{Segment, SegmentSelection},
     ExecutionProfile,
 };
 
-use super::{access::cpu_load, Cpu, SegmentRegister};
+use super::{access::cpu_load, Cpu, CpuState, SegmentRegister, StateAssumption};
 
 /// Segment loads commit at the end of an entry. Cloning these read caches keeps
 /// child-scoped loads local to their branch; inherited values remain reusable.
@@ -42,24 +42,16 @@ impl SegmentReadCache {
     ) -> Result<Self, BuildError> {
         let mut cache = Self::default();
         let mut condition = Val::<I1>::from(true);
-        let assumptions = match profile {
-            ExecutionProfile::Real16 => SegmentAssumptions {
-                limit: Some(0xffff),
-                big: Some(0),
-                ..SegmentAssumptions::default()
-            },
-            ExecutionProfile::Protected(profile) => {
-                SegmentAssumptions::for_profile(profile, segment)
-            }
-        };
+        let assumptions = StateAssumption::segment(profile, segment);
+        let displacement = segment as u32 * size_of::<SegmentRegister>() as u32;
         macro_rules! assume_field {
             ($field:ident $(, $convert:ident($argument:expr))?) => {
-                if let Some(expected) = assumptions.$field {
+                let offset = offset_of!(CpuState, segments.es.$field) as u32 + displacement;
+                if let Some(assumption) = assumptions.iter().find(|assumption| assumption.offset == offset) {
                     let value = cpu_load!(body, cpu.memory(), segments.es.$field,
-                        at: Val::<I32>::from(segment as u32 * size_of::<SegmentRegister>() as u32))?;
-                    let value = value$(.$convert($argument))?;
-                    condition = condition.and(value.eq(expected$(.$convert(&$argument))?));
-                    cache.$field = Some(value);
+                        at: displacement)?;
+                    condition = condition.and(assumption.predicate(&value));
+                    cache.$field = Some(value$(.$convert($argument))?);
                 }
             };
         }

@@ -1,4 +1,5 @@
 mod access;
+mod assumptions;
 mod context;
 mod cpu;
 pub(super) mod exit;
@@ -10,6 +11,7 @@ mod segments;
 mod simd;
 pub(crate) mod x87;
 
+pub use assumptions::StateAssumption;
 pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
 pub use exit::{

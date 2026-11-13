@@ -13,6 +13,7 @@ pub enum Error {
     Worker(crate::worker::WorkerError),
     Pool(crate::worker::PoolError),
     CompilationTarget,
+    CompilationAssumptions,
 }
 
 impl fmt::Display for Error {
@@ -27,6 +28,9 @@ impl fmt::Display for Error {
             Self::Pool(error) => error.fmt(f),
             Self::CompilationTarget => {
                 f.write_str("compiled code and CPU execution targets differ")
+            }
+            Self::CompilationAssumptions => {
+                f.write_str("CPU state does not satisfy compiled entry assumptions")
             }
         }
     }
@@ -43,6 +47,7 @@ impl std::error::Error for Error {
             Self::Worker(error) => Some(error),
             Self::Pool(error) => Some(error),
             Self::CompilationTarget => None,
+            Self::CompilationAssumptions => None,
         }
     }
 }

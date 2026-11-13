@@ -30,6 +30,7 @@ fn module(write: bool) -> TestModule {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     })
 }
 

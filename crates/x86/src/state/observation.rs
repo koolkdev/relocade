@@ -25,6 +25,7 @@ pub(crate) fn compile_flag_observer() -> Result<CompiledModule, BuildError> {
     program.export("observe_flags", observer)?;
     Ok(CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile()?,
         entry: "observe_flags".into(),
     })

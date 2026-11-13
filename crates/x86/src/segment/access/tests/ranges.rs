@@ -21,6 +21,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
         execution_target: Some(crate::Compiler::new(profile).target()),
+        state_assumptions: crate::StateAssumption::for_profile(profile),
     })
 }
 

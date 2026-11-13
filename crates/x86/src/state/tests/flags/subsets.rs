@@ -177,6 +177,7 @@ fn all_masks_reader() -> CompiledModule {
     program.export("run", function).unwrap();
     CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

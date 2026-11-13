@@ -33,8 +33,8 @@ Each CPU connection transfers a handle to its Machine's shared guest memory once
 requests carry addresses and bounds rather than memory bytes. The service
 captures requested blocks and calls x86's
 `Compiler::compile_blocks_with` with the internal pool. x86 owns decoding, program
-construction and the returned bytes, entry metadata and execution target. IR
-construction, placement and Wasm emission use pool jobs. The service compiles the
+construction and the returned bytes, entry metadata, state assumptions and execution
+target. IR construction, placement and Wasm emission use pool jobs. The service compiles the
 emitted Wasm with its backend compiler and returns the module. The pool limits
 concurrent Rust jobs; backend engine parallelism remains separate.
 
@@ -58,10 +58,19 @@ The worker uses `Memory::read_code` to copy mapped RAM/ROM directly from shared
 backing, including A20 aliases. It shares address resolution with ordinary memory
 views and requires no CPU or device bus. MMIO, holes and overflowing ranges are
 rejected before capture allocation. `CompiledCode::install` checks the full
-execution target and uses the existing CPU imports, dispatch and hook replacement
+execution target and the returned state assumptions against the stopped CPU before
+publishing any entry. It uses the existing CPU imports, dispatch and hook replacement
 rules. Each CPU gets its own instance. Pending or parked host services must finish
 before installation. Code discovery, hotness and invalidation remain separate;
 callers keep code and mappings stable through compilation and installed use.
+
+`CompiledCode::state_assumptions()` exposes the supplied masked scalar equalities
+over the CPU backing image. The same descriptions generate compiler predicates.
+The list conservatively retains unused conditions; guarded observations remain
+checks inside generated code. It travels with the compiled module through worker
+delivery without being reconstructed from its target. Installation establishes
+the conditions, and execution owners must preserve them for installed entries.
+Mode/segment transition invalidation remains separate.
 
 Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles

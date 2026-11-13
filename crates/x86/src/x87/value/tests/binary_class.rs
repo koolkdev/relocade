@@ -78,6 +78,7 @@ fn native_classes_control_expansion_and_exact_store_range() {
                 bytes,
                 entry: "views".into(),
                 execution_target: None,
+                state_assumptions: Vec::new(),
             });
             for (left, left_sig, left_exp) in [
                 (0_u64, 0_u64, 0_u16),
