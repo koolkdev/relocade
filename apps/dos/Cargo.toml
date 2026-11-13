@@ -24,6 +24,9 @@ futures-channel = "=0.3.34"
 [dev-dependencies]
 async-channel = { version = "=2.5.0", default-features = false }
 relocade-clock-test-support = { path = "../../tests/clock-support" }
+relocade-dma = { path = "../../crates/dma" }
+relocade-pic = { path = "../../crates/pic" }
+relocade-sound-blaster = { path = "../../crates/sound-blaster" }
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
