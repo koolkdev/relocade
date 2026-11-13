@@ -43,16 +43,19 @@ impl CompilerClient {
         self.submit(target, Compilation::Blocks(blocks))
     }
 
-    /// Queues bounded discovery from one clean real-mode call target. Callees are
-    /// not followed. Keep code, mappings and the entry's CS addressing stable;
+    /// Queues clean real-mode function candidates for one shared module. Callees
+    /// are not followed. Keep code, mappings and each entry's CS addressing stable;
     /// candidates must have no interior host hooks or registered execution boundaries.
+    /// Discovery failures omit individual functions. If none produce blocks, the
+    /// first discovery error is returned, or an empty module for unreadable entries.
+    /// Errors building the shared module fail the request.
     /// Results use the same ordered stream and explicit installation as block requests.
-    pub fn request_function(
+    pub fn request_functions(
         &self,
         target: ExecutionTarget,
-        function: FunctionRequest,
+        functions: Vec<FunctionRequest>,
     ) -> Result<()> {
-        self.submit(target, Compilation::Function(function))
+        self.submit(target, Compilation::Functions(functions))
     }
 
     fn submit(&self, target: ExecutionTarget, compilation: Compilation) -> Result<()> {

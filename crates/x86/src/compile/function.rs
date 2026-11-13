@@ -5,7 +5,7 @@ mod discover;
 #[cfg(test)]
 mod tests;
 
-use super::{block::module::BlockModule, BlockCompileError, CompiledBlocks, Compiler};
+use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
 use crate::BlockError;
 use relocade_compiler::CompileExecutor;
 
@@ -33,6 +33,15 @@ impl Default for FunctionLimits {
 }
 
 impl Compiler {
+    /// Starts a shared module for independently discovered function candidates.
+    /// Each function supplies its own code reader, allowing distinct CS mappings.
+    pub fn function_module(&self) -> FunctionModule<'_> {
+        FunctionModule {
+            module: BlockModule::new(self),
+            functions: 0,
+        }
+    }
+
     /// Discovers and compiles a bounded region rooted at a guest function entry.
     /// Follows direct jumps, both conditional successors, near-call continuations
     /// and Real16 far-call continuations in the caller's original CS.
@@ -67,13 +76,9 @@ impl Compiler {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<CompiledBlocks, BlockError> {
-        let decoded = discover::blocks(start_eip, self.target, limits, read)?;
-        let blocks = BlockModule::build(self, decoded)?;
-        Ok(CompiledBlocks {
-            bytes: blocks.program.compile()?,
-            entries: blocks.entries,
-            execution_target: self.target,
-        })
+        let mut module = self.function_module();
+        module.add_function(start_eip, limits, read)?;
+        module.compile()
     }
 
     /// Uses the same discovery and entry contract as [`Self::compile_function`],
@@ -85,12 +90,61 @@ impl Compiler {
         read: impl FnMut(u32, &mut [u8]) -> usize,
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
-        let decoded = discover::blocks(start_eip, self.target, limits, read)?;
-        let blocks = BlockModule::build(self, decoded)?;
+        let mut module = self.function_module();
+        module.add_function(start_eip, limits, read)?;
+        module.compile_with(executor).await
+    }
+}
+
+/// Independently discovered functions sharing one module, imports and helpers.
+/// Function readers and entry addresses remain the caller's responsibility.
+pub struct FunctionModule<'a> {
+    module: BlockModule<'a>,
+    functions: usize,
+}
+
+impl FunctionModule<'_> {
+    /// Discovers one function and adds all its blocks. Discovery errors leave
+    /// existing functions intact. An unreadable entry adds no blocks.
+    /// Returned entries belong to this function; their EIPs are CS-relative.
+    /// Exports are unique even when functions use the same EIP in different code
+    /// segments. Code validity follows [`Compiler::compile_function`].
+    pub fn add_function(
+        &mut self,
+        start_eip: u32,
+        limits: FunctionLimits,
+        read: impl FnMut(u32, &mut [u8]) -> usize,
+    ) -> Result<&[BlockEntry], BlockError> {
+        let mut decoded = discover::blocks(start_eip, self.module.compiler.target, limits, read)?;
+        if self.functions != 0 {
+            for block in &mut decoded {
+                block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);
+            }
+        }
+        let start = self.module.entries.len();
+        self.module.append(decoded)?;
+        self.functions += 1;
+        Ok(&self.module.entries[start..])
+    }
+
+    /// Compiles the accepted functions into one module.
+    pub fn compile(self) -> Result<CompiledBlocks, BlockError> {
         Ok(CompiledBlocks {
-            bytes: blocks.program.compile_with(executor).await?,
-            entries: blocks.entries,
-            execution_target: self.target,
+            bytes: self.module.program.compile()?,
+            entries: self.module.entries,
+            execution_target: self.module.compiler.target,
+        })
+    }
+
+    /// Compiles the accepted functions through the supplied job executor.
+    pub async fn compile_with<E: CompileExecutor>(
+        self,
+        executor: &E,
+    ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        Ok(CompiledBlocks {
+            bytes: self.module.program.compile_with(executor).await?,
+            entries: self.module.entries,
+            execution_target: self.module.compiler.target,
         })
     }
 }

@@ -20,7 +20,7 @@ pub struct Request {
 
 pub(super) enum Compilation {
     Blocks(Vec<BlockRequest>),
-    Function(FunctionRequest),
+    Functions(Vec<FunctionRequest>),
 }
 
 #[derive(Transfer)]
