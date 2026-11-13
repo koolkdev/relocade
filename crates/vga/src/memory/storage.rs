@@ -63,7 +63,16 @@ impl Storage {
     pub fn write(&mut self, address: u32, value: u8) {
         let address = address as usize;
         self.bytes[address] = value;
-        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+    }
+
+    /// Replace an aligned physical word without reading its previous value.
+    pub fn write_word(&mut self, address: u32, value: u32) {
+        let address = address as usize;
+        self.bytes[address..address + 4].copy_from_slice(&value.to_le_bytes());
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
     }
 
     /// Replace selected bits in one aligned physical word. VGA's four plane
@@ -73,13 +82,20 @@ impl Storage {
         let word = &mut self.bytes[address..address + 4];
         let old = u32::from_le_bytes(word.try_into().unwrap());
         word.copy_from_slice(&((old & !mask) | (value & mask)).to_le_bytes());
-        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
     }
 
     pub fn write_bytes(&mut self, address: u32, values: &[u8]) {
+        self.bytes_mut(address, values.len())
+            .copy_from_slice(values);
+    }
+
+    /// Taking mutable bytes marks the complete span as written.
+    pub fn bytes_mut(&mut self, address: u32, bytes: usize) -> &mut [u8] {
         let address = address as usize;
-        self.bytes[address..address + values.len()].copy_from_slice(values);
-        self.dirty.mark_range(address, values.len());
+        self.dirty.mark_range(address, bytes);
+        &mut self.bytes[address..address + bytes]
     }
 
     /// Reuse untouched blocks from the output owner's baseline. Inspection

@@ -10,9 +10,8 @@ pub(crate) struct VramWindow {
 }
 
 impl VramWindow {
-    /// Bytes beyond the CPU window do not spill into adjacent VRAM.
-    pub(super) fn memory_offset(self, address: u32) -> Option<u32> {
-        let offset = address.checked_sub(self.cpu_start)?;
-        (offset < self.bytes).then(|| self.vram_start + offset)
+    /// Translate an address already bounded by the card's MMIO bindings.
+    pub(super) fn memory_offset(self, address: u32) -> u32 {
+        self.vram_start + (address - self.cpu_start)
     }
 }

@@ -12,6 +12,7 @@ use crate::{
     Registers,
 };
 pub use dac::DacState;
+pub(crate) use memory::MemoryWrite;
 pub use state::VgaCoreState;
 
 pub struct VgaCore {
