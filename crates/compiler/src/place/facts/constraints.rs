@@ -1,8 +1,7 @@
 //! Revisit a bounded set of Boolean constraints after a batch of changed facts.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, KnownBits, ScalarFacts};
 use crate::{bitwise::BitwiseOp, body::ValueTable, expression::BinaryOp, Expression, Type};
-use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 #[cfg(test)]
@@ -75,13 +74,13 @@ impl Constraints {
         }
     }
 
-    pub(super) fn retain_known(&mut self, known: &FxHashMap<usize, Bits>) {
+    pub(super) fn retain_known(&mut self, known: &KnownBits) {
         let Some(roots) = &self.roots else { return };
         // A join can forget the operand that settled a constraint on either path.
         self.active = roots
             .iter()
             .enumerate()
-            .filter(|(_, id)| known.contains_key(id))
+            .filter(|(_, id)| known.get(**id).is_some())
             .fold(0, |mask, (index, _)| mask | (1 << index));
         self.revisit_from = if self.active != 0 { 0 } else { usize::MAX };
     }
@@ -109,7 +108,7 @@ impl ScalarFacts {
                 else {
                     unreachable!()
                 };
-                let truth = self.known[&id].value & 1 != 0;
+                let truth = self.known.get(id).unwrap().value & 1 != 0;
                 let a = self.constant(table, left).map(|v| v & 1 != 0);
                 let b = self.constant(table, right).map(|v| v & 1 != 0);
                 if a.is_none() && b.is_none() {
