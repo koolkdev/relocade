@@ -1,22 +1,23 @@
 //! Integrates timestamped speaker changes into complete PCM sample intervals.
 
+use crate::Speaker;
 use relocade_machine::{Clock, Timestamp};
 use relocade_pit::{Channel2State, INPUT_HZ};
-use std::{collections::VecDeque, time::Duration};
+use std::{cell::RefCell, collections::VecDeque, ops::Range, rc::Rc};
 
-pub(super) struct Signal {
-    pub(super) state: Channel2State,
-    pub(super) enabled: bool,
+struct Signal {
+    state: Channel2State,
+    enabled: bool,
 }
 
 impl Signal {
-    /// PIT snapshots and sample boundaries share the PIT's consumed nanosecond
-    /// phase, so interval conversion loses no native fractions between samples.
     /// High time in billionths of one PIT input clock. Advancing while muted
     /// preserves phase; only the audible contribution becomes zero.
+    /// Keep the cursor on the PIT's consumed nanosecond timeline so fractions
+    /// of a nanosecond remain available for the next update.
     fn advance_to(&mut self, clock: &Clock, end: Timestamp) -> u128 {
-        let span = clock.duration_since(end, self.state.at).as_nanos() * u128::from(INPUT_HZ)
-            + u128::from(self.state.fraction);
+        let elapsed = clock.consume_elapsed(&mut self.state.at, end);
+        let span = elapsed.as_nanos() * u128::from(INPUT_HZ) + u128::from(self.state.fraction);
         let before = u128::from(self.state.counter.output());
         let high = self.state.counter.advance((span / 1_000_000_000) as u64);
         let fraction = (span % 1_000_000_000) as u32;
@@ -24,7 +25,6 @@ impl Signal {
             + u128::from(fraction) * u128::from(self.state.counter.output())
             - u128::from(self.state.fraction) * before;
         self.state.fraction = fraction;
-        self.state.at = end;
         if self.enabled {
             integral
         } else {
@@ -33,63 +33,68 @@ impl Signal {
     }
 }
 
-pub(super) struct Synthesis {
+/// Clocked mono samples of the speaker's digital drive, in the range 0..=1.
+/// The consumer chooses sample intervals and playback gain.
+pub struct AudioSource {
     clock: Clock,
-    rate: u64,
-    started_at: Timestamp,
-    frames: u64,
     signal: Signal,
+    changes: Rc<RefCell<VecDeque<Signal>>>,
 }
 
-impl Synthesis {
-    pub(super) fn new(clock: Clock, rate: u32, signal: Signal) -> Self {
-        let started_at = signal.state.at;
-        Self {
-            clock,
-            rate: u64::from(rate),
-            started_at,
-            frames: 0,
-            signal,
-        }
-    }
-
-    fn frame_time(&self, frame: u64) -> Timestamp {
-        self.clock.add(
-            self.started_at,
-            Duration::new(
-                frame / self.rate,
-                ((frame % self.rate) * 1_000_000_000).div_ceil(self.rate) as u32,
-            ),
-        )
-    }
-
-    pub(super) fn deadline(&self, frames: usize) -> Timestamp {
-        self.frame_time(self.frames + frames as u64)
-    }
-
-    /// Only call once the device clock has reached the entire buffer's deadline.
-    /// Every earlier write then exists in the execution-owned change queue.
-    pub(super) fn buffer(
-        &mut self,
-        frames: usize,
-        channels: usize,
-        changes: &mut VecDeque<Signal>,
-    ) -> Vec<f32> {
-        let mut buffer = vec![0.0; frames * channels];
-        for sample in buffer.chunks_exact_mut(channels) {
-            let start = self.frame_time(self.frames);
-            let end = self.frame_time(self.frames + 1);
-            let mut integral = 0;
-            while changes.front().is_some_and(|change| change.state.at <= end) {
-                let change = changes.pop_front().unwrap();
-                integral += self.signal.advance_to(&self.clock, change.state.at);
-                self.signal = change;
+impl Speaker {
+    /// Records PIT and control writes for clocked audio rendering.
+    /// Replaces any previous source; dropping it stops recording changes.
+    pub fn audio_source(&self) -> AudioSource {
+        let mut pit = self.pit.borrow_mut();
+        let changes = Rc::new(RefCell::new(VecDeque::new()));
+        let recorded = Rc::downgrade(&changes);
+        let control = self.control.clone();
+        pit.observe_channel2(move |state| {
+            if let Some(changes) = recorded.upgrade() {
+                changes.borrow_mut().push_back(Signal {
+                    state,
+                    enabled: control.get() & 2 != 0,
+                });
             }
-            integral += self.signal.advance_to(&self.clock, end);
-            let duration = self.clock.duration_since(end, start).as_nanos();
-            sample.fill((0.2 * integral as f64 / (duration * u128::from(INPUT_HZ)) as f64) as f32);
-            self.frames += 1;
+        });
+        let signal = changes.borrow_mut().pop_front().unwrap();
+        AudioSource {
+            clock: pit.clock().clone(),
+            signal,
+            changes,
         }
-        buffer
+    }
+}
+
+impl AudioSource {
+    pub(super) fn started_at(&self) -> Timestamp {
+        self.signal.state.at
+    }
+
+    /// Averages the drive over an elapsed interval on the PIT's clock.
+    /// Intervals must progress forward from source creation without overlap.
+    /// Each interval must span at least one nanosecond. Endpoints are rounded
+    /// down on the PIT's nanosecond timeline, retaining fractions between samples.
+    /// Skipped time still advances the counter and consumes control changes.
+    pub fn sample(&mut self, interval: Range<Timestamp>) -> f32 {
+        self.advance_to(interval.start);
+        let start = self.signal.state.at;
+        let integral = self.advance_to(interval.end);
+        let duration = self
+            .clock
+            .duration_since(self.signal.state.at, start)
+            .as_nanos();
+        (integral as f64 / (duration * u128::from(INPUT_HZ)) as f64) as f32
+    }
+
+    fn advance_to(&mut self, end: Timestamp) -> u128 {
+        let mut changes = self.changes.borrow_mut();
+        let mut integral = 0;
+        while changes.front().is_some_and(|change| change.state.at <= end) {
+            let change = changes.pop_front().unwrap();
+            integral += self.signal.advance_to(&self.clock, change.state.at);
+            self.signal = change;
+        }
+        integral + self.signal.advance_to(&self.clock, end)
     }
 }
