@@ -1,5 +1,5 @@
 //! Mutable physical VRAM; immutable snapshot blocks are prepared at capture.
-use super::{DirtyPages, BLOCKS, BLOCK_BYTES};
+use super::{DirtyPages, BLOCK_BYTES};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -8,6 +8,10 @@ pub(crate) struct MemorySnapshot {
 }
 
 impl MemorySnapshot {
+    pub fn bytes(&self) -> usize {
+        self.blocks.len() * BLOCK_BYTES
+    }
+
     pub fn read(&self, address: u32) -> Option<u8> {
         let address = address as usize;
         self.blocks
@@ -16,7 +20,7 @@ impl MemorySnapshot {
     }
 
     pub fn same_blocks(&self, other: &Self) -> bool {
-        self.blocks.len() == other.blocks.len()
+        self.bytes() == other.bytes()
             && self
                 .blocks
                 .iter()
@@ -30,23 +34,23 @@ pub(super) struct Storage {
     dirty: DirtyPages,
 }
 
-impl Default for Storage {
-    fn default() -> Self {
+impl Storage {
+    pub fn new(capacity: u32) -> Self {
+        let capacity = capacity as usize;
+        assert!(capacity != 0 && capacity.is_multiple_of(BLOCK_BYTES));
         Self {
-            bytes: vec![0; BLOCKS * BLOCK_BYTES].into_boxed_slice(),
-            dirty: DirtyPages::default(),
+            bytes: vec![0; capacity].into_boxed_slice(),
+            dirty: DirtyPages::new(capacity / BLOCK_BYTES),
         }
     }
-}
 
-impl Storage {
     pub fn capacity(&self) -> u32 {
         self.bytes.len() as u32
     }
 
     pub fn clear(&mut self) {
         self.bytes.fill(0);
-        for block in 0..BLOCKS {
+        for block in 0..self.bytes.len() / BLOCK_BYTES {
             self.dirty.mark_block(block);
         }
     }
@@ -95,6 +99,7 @@ impl Storage {
     /// Reuse untouched blocks from the output owner's baseline. Inspection
     /// snapshots leave both that baseline and the dirty interval unchanged.
     pub fn snapshot(&self, bytes: u32, baseline: Option<&MemorySnapshot>) -> MemorySnapshot {
+        assert!(bytes <= self.capacity(), "capture exceeds physical VRAM");
         let count = (bytes as usize).div_ceil(BLOCK_BYTES);
         let mut blocks = Vec::with_capacity(count);
         for block in 0..count {
@@ -114,12 +119,12 @@ impl Storage {
 
     #[cfg(feature = "renderer")]
     pub fn dirty_pages(&self) -> DirtyPages {
-        self.dirty
+        self.dirty.clone()
     }
 
     /// The output owner starts a new interval after accepting a capture.
     pub fn clear_dirty(&mut self) {
-        self.dirty = DirtyPages::default();
+        self.dirty.clear();
     }
 }
 

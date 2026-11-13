@@ -8,20 +8,14 @@ use std::{cell::RefCell, future::Future, pin::Pin, rc::Rc, time::Duration};
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[derive(Default)]
 struct Uploads {
     previous: Option<MemorySnapshot>,
     bytes: Vec<u8>,
 }
-impl Default for Uploads {
-    fn default() -> Self {
-        Self {
-            previous: None,
-            bytes: vec![0; crate::VIDEO_MEMORY_BYTES as usize],
-        }
-    }
-}
 impl Uploads {
     fn update(&mut self, snapshot: &DisplaySnapshot) -> Vec<(usize, usize)> {
+        self.bytes.resize(snapshot.memory.bytes(), 0);
         let mut writes = Vec::new();
         write_blocks(self.previous.as_ref(), snapshot, |offset, bytes| {
             self.bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
@@ -42,14 +36,14 @@ impl Uploads {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
     let vga = DispiAdapter::with_clock(ManualClock::new().clock());
-    let memory = crate::memory::VideoMemory::default();
+    let memory = crate::memory::VideoMemory::new(1024 * 1024);
     let mut narrow = vga.snapshot();
     narrow.memory = memory.snapshot(0x40000, None);
     let mut wide = narrow.clone();
     wide.memory = memory.snapshot(0x80000, Some(&narrow.memory));
     wide.changes = Some(crate::snapshot::MemoryChanges {
         baseline: narrow.memory.clone(),
-        pages: Default::default(),
+        pages: memory.dirty_pages(),
     });
     let mut uploads = Uploads::default();
     uploads.update(&narrow);
@@ -67,6 +61,12 @@ fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
     Arc::make_mut(&mut wide.memory.blocks)[4] = vec![0xa5; 65536].into();
     assert_eq!(uploads.update(&wide), [(262144, 65536)]);
     assert_eq!(&uploads.bytes[262144..327680], &[0xa5; 65536]);
+
+    let mut full = wide.clone();
+    full.memory = memory.snapshot(memory.capacity(), Some(&wide.memory));
+    uploads.update(&full);
+    assert_eq!(uploads.bytes.len(), 1024 * 1024);
+    assert_eq!(full.vram_byte(1024 * 1024), None);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

@@ -38,7 +38,7 @@ impl GpuState {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(super::memory::BUFFER_BYTES),
+                        min_binding_size: wgpu::BufferSize::new(4),
                     },
                     count: None,
                 },
@@ -68,24 +68,7 @@ impl GpuState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("captured display inputs"),
-            layout: &layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: settings.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: memory.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dac.as_entire_binding(),
-                },
-            ],
-        });
+        let binding = bind(device, &layout, &settings, memory, &dac);
         Self {
             settings,
             dac,
@@ -95,6 +78,10 @@ impl GpuState {
             layout,
             binding,
         }
+    }
+
+    pub fn rebind_memory(&mut self, device: &wgpu::Device, memory: &wgpu::Buffer) {
+        self.binding = bind(device, &self.layout, &self.settings, memory, &self.dac);
     }
 
     pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {
@@ -123,6 +110,33 @@ impl GpuState {
         }
         settings_changed || mask_changed || palette_changed
     }
+}
+
+fn bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    settings: &wgpu::Buffer,
+    memory: &wgpu::Buffer,
+    dac: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("captured display inputs"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: settings.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: memory.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: dac.as_entire_binding(),
+            },
+        ],
+    })
 }
 
 fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {

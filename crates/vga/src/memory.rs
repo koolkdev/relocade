@@ -9,18 +9,20 @@ pub(crate) use pages::DirtyPages;
 
 pub(crate) const BLOCK_BYTES: usize = 65536;
 
-/// Physical video memory shared by legacy VGA planes and packed SVGA addressing.
-pub const VIDEO_MEMORY_BYTES: u32 = 4 * 1024 * 1024;
-pub(crate) const BLOCKS: usize = VIDEO_MEMORY_BYTES as usize / BLOCK_BYTES;
 pub(crate) const VGA_MEMORY_BYTES: u32 = 4 * BLOCK_BYTES as u32;
 
 /// Physical video memory, independent of register protocols and CPU read latches.
-#[derive(Default)]
 pub(super) struct VideoMemory {
     storage: Storage,
 }
 
 impl VideoMemory {
+    pub fn new(capacity: u32) -> Self {
+        Self {
+            storage: Storage::new(capacity),
+        }
+    }
+
     pub fn capacity(&self) -> u32 {
         self.storage.capacity()
     }
