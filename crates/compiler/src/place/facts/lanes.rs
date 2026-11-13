@@ -10,6 +10,7 @@ use crate::{
     Expression, Type,
 };
 use rustc_hash::FxHashMap;
+use std::rc::Rc;
 
 #[cfg(test)]
 mod tests;
@@ -94,7 +95,7 @@ impl LaneObservation {
 
 #[derive(Clone, Default)]
 pub(super) struct LaneFacts {
-    words: FxHashMap<VectorWord, Bits>,
+    words: Rc<FxHashMap<VectorWord, Bits>>,
 }
 
 impl LaneFacts {
@@ -102,9 +103,10 @@ impl LaneFacts {
         if bits.mask == 0 {
             return;
         }
-        let previous = self.words.entry(word).or_default();
-        if !previous.conflicts(bits) {
-            *previous = previous.union(bits);
+        let previous = self.words.get(&word).copied().unwrap_or_default();
+        let combined = previous.union(bits);
+        if !previous.conflicts(bits) && combined != previous {
+            Rc::make_mut(&mut self.words).insert(word, combined);
         }
     }
 
@@ -115,10 +117,12 @@ impl LaneFacts {
     }
 
     pub(super) fn retain_common(&mut self, other: &Self) -> bool {
-        self.words.retain(|word, bits| {
-            *bits = bits.common(other.words.get(word).copied().unwrap_or_default());
-            bits.mask != 0
-        });
+        if !Rc::ptr_eq(&self.words, &other.words) {
+            Rc::make_mut(&mut self.words).retain(|word, bits| {
+                *bits = bits.common(other.words.get(word).copied().unwrap_or_default());
+                bits.mask != 0
+            });
+        }
         !self.words.is_empty()
     }
 }

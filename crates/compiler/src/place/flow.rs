@@ -27,6 +27,13 @@ impl ReducedFlow {
         let mut reducers: Vec<Option<Reducer>> = (0..graph.blocks.len()).map(|_| None).collect();
         let mut order: Vec<_> = (0..graph.blocks.len()).collect();
         order.sort_by_key(|&block| dominators.rank[block]);
+        // Reverse postorder is topological when every edge points forward.
+        // Such blocks can decide reachability from already processed predecessors.
+        let acyclic = predecessors.iter().enumerate().all(|(block, sources)| {
+            sources
+                .iter()
+                .all(|&source| dominators.rank[source] < dominators.rank[block])
+        });
         let mut reachable = graph.reachable();
         let mut control_changed = false;
         for block in order {
@@ -44,6 +51,10 @@ impl ReducedFlow {
                             .any(|edge| edge.target.0 == block)
                 })
                 .collect();
+            if acyclic && block != graph.entry.0 && sources.is_empty() {
+                reachable[block] = false;
+                continue;
+            }
             let incoming = incoming_facts(graph, block, &sources, &reducers).unwrap_or_else(|| {
                 dominators.parent[block]
                     .filter(|&parent| parent != block)
@@ -83,7 +94,10 @@ impl ReducedFlow {
             reducers[block] = Some(reducer);
             if graph.blocks[block].exit.constant_edge_index(&graph.values) != before {
                 control_changed = true;
-                reachable = graph.reachable();
+                if !acyclic {
+                    // A disconnected cycle can still have incoming edges from itself.
+                    reachable = graph.reachable();
+                }
             }
         }
         ReducedFlow {

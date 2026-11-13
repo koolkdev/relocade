@@ -2,6 +2,7 @@
 
 use super::{Bits, Range, ScalarFacts};
 use crate::body::ValueTable;
+use std::rc::Rc;
 
 #[cfg(test)]
 mod tests;
@@ -55,22 +56,26 @@ impl ScalarFacts {
     }
 
     fn retain_common(&mut self, other: &Self) {
-        self.known.retain(|id, bits| {
-            let incoming = other.known.get(id).copied().unwrap_or_default();
-            *bits = bits.common(incoming);
-            bits.mask != 0
-        });
-        self.ranges.retain(|id, range| {
-            let Some(incoming) = other.ranges.get(id) else {
-                return false;
-            };
-            // Either path can reach the join, so the interval must cover both.
-            *range = Range {
-                minimum: range.minimum.min(incoming.minimum),
-                maximum: range.maximum.max(incoming.maximum),
-            };
-            true
-        });
+        if !Rc::ptr_eq(&self.known, &other.known) {
+            Rc::make_mut(&mut self.known).retain(|id, bits| {
+                let incoming = other.known.get(id).copied().unwrap_or_default();
+                *bits = bits.common(incoming);
+                bits.mask != 0
+            });
+        }
+        if !Rc::ptr_eq(&self.ranges, &other.ranges) {
+            Rc::make_mut(&mut self.ranges).retain(|id, range| {
+                let Some(incoming) = other.ranges.get(id) else {
+                    return false;
+                };
+                // Either path can reach the join, so the interval must cover both.
+                *range = Range {
+                    minimum: range.minimum.min(incoming.minimum),
+                    maximum: range.maximum.max(incoming.maximum),
+                };
+                true
+            });
+        }
         self.comparisons.retain_common(&other.comparisons);
         self.constraints.retain_known(&self.known);
         if !self
@@ -82,6 +87,6 @@ impl ScalarFacts {
             self.lanes = None;
         }
         // Earlier inferences may depend on knowledge just discarded.
-        self.computed.get_mut().clear();
+        self.computed = Rc::default();
     }
 }
