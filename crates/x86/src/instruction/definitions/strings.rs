@@ -21,6 +21,7 @@ instruction_families! {
     INS {
         execute: input_elements::<_>(Repetition::Once);
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             0x6C => byte();
@@ -30,6 +31,7 @@ instruction_families! {
     REP_INS {
         execute: input_elements::<_>(Repetition::Count);
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             F3 0x6C => byte();
@@ -39,6 +41,7 @@ instruction_families! {
     OUTS {
         execute: output_elements::<_>(Repetition::Once);
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             0x6E => byte();
@@ -48,6 +51,7 @@ instruction_families! {
     REP_OUTS {
         execute: output_elements::<_>(Repetition::Count);
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             F3 0x6E => byte();

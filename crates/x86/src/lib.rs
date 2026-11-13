@@ -64,7 +64,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CompiledBlocks, Compiler, EntryTable,
+    BlockSnapshot, CompiledBlocks, Compiler, EntryTable, FunctionLimits,
 };
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use interpreter::build_interpreter;
@@ -101,6 +101,12 @@ pub struct CompiledModule {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
+    /// Function compilation needs nonzero exploration caps and a nonzero block size.
+    ZeroFunctionLimit,
+    /// The function exceeds its exploration caps; no partial module is compiled.
+    FunctionTooLarge {
+        address: u32,
+    },
     /// Two snapshots would export the same CS-relative entry.
     DuplicateBlock {
         address: u32,
@@ -132,6 +138,15 @@ impl fmt::Display for BlockError {
         match self {
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
+            }
+            Self::ZeroFunctionLimit => {
+                formatter.write_str("function compilation limits must be nonzero")
+            }
+            Self::FunctionTooLarge { address } => {
+                write!(
+                    formatter,
+                    "function at {address:#x} exceeds its exploration limits"
+                )
             }
             Self::DuplicateBlock { address } => {
                 write!(formatter, "duplicate block entry at {address:#x}")

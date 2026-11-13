@@ -246,6 +246,7 @@ impl Declaration<'_> {
             handlers,
             condition: None,
             ends_block,
+            control_flow: None,
             requirements: Requirements {
                 availability: self.availability,
                 features: self.features,

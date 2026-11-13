@@ -7,6 +7,7 @@ instruction_families! {
     JMP_RELATIVE {
         execute: jump_relative::<_>;
         effects: [control_transfer];
+        flow: Jump;
         forms {
             0xEB => word_or_dword(rel8);
             0xE9 => word_or_dword(rel);
@@ -15,6 +16,7 @@ instruction_families! {
     JCC {
         execute: jump_relative::<_>;
         effects: [control_transfer];
+        flow: Branch;
         forms {
             0x70 +cc => word_or_dword(rel8);
             0x0F 0x80 +cc => word_or_dword(rel);
@@ -23,6 +25,7 @@ instruction_families! {
     JCXZ {
         execute: jump_if_count_zero::<_>;
         effects: [control_transfer];
+        flow: Branch;
         forms {
             0xE3 => word_or_dword(rel8);
         }
@@ -30,6 +33,7 @@ instruction_families! {
     LOOP {
         execute: loop_relative::<_>(None);
         effects: [control_transfer];
+        flow: Branch;
         forms {
             0xE2 => word_or_dword(rel8);
         }
@@ -37,6 +41,7 @@ instruction_families! {
     LOOPE {
         execute: loop_relative::<_>(Some(Condition::E));
         effects: [control_transfer];
+        flow: Branch;
         forms {
             0xE1 => word_or_dword(rel8);
         }
@@ -44,6 +49,7 @@ instruction_families! {
     LOOPNE {
         execute: loop_relative::<_>(Some(Condition::NE));
         effects: [control_transfer];
+        flow: Branch;
         forms {
             0xE0 => word_or_dword(rel8);
         }
@@ -51,6 +57,7 @@ instruction_families! {
     CALL_RELATIVE {
         execute: call_relative::<_>;
         effects: [control_transfer];
+        flow: Call;
         forms {
             0xE8 => word_or_dword(rel);
         }
@@ -58,6 +65,7 @@ instruction_families! {
     CALL_INDIRECT {
         execute: call_indirect::<_>;
         effects: [control_transfer];
+        flow: Call;
         forms {
             0xFF /2 => word_or_dword(rm);
         }

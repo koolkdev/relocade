@@ -2,12 +2,14 @@
 
 mod block;
 mod dispatch;
+mod function;
 
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
     BlockSnapshot, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
+pub use function::FunctionLimits;
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 

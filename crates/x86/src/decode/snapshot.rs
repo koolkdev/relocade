@@ -18,11 +18,16 @@ pub(crate) struct SnapshotInstruction {
     form: ResolvedForm,
     fields: DecodedFields<u32, RegisterCode, SnapshotRm>,
     segment_override: Option<Segment>,
-    eip: u32,
+    pub(crate) eip: u32,
     pub(crate) fallthrough_eip: u32,
 }
 
 impl SnapshotInstruction {
+    pub(crate) fn successors(&self, target: ExecutionTarget) -> [Option<u32>; 2] {
+        self.form
+            .successors(self.fields.immediates, self.fallthrough_eip, target)
+    }
+
     pub(crate) fn ends_block(&self, target: ExecutionTarget) -> bool {
         self.form.ends_block(target)
     }

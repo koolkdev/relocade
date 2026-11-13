@@ -7,6 +7,7 @@ instruction_families! {
     IN {
         execute: input;
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             0xE4 => byte(accumulator, imm8);
@@ -18,6 +19,7 @@ instruction_families! {
     OUT {
         execute: output;
         effects: [port_io];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             0xE6 => byte(imm8, accumulator);

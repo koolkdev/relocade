@@ -1,25 +1,21 @@
 //! Shared Wasm declarations and function emission for one snapshot batch.
 
-use super::{
-    decode::{self, DecodedBlock},
-    BlockEntry, BlockSnapshot, Compiler,
-};
+use super::{decode::DecodedBlock, BlockEntry, Compiler};
 use crate::{execution::ExecutionModule, BlockError};
 use relocade_compiler::Program;
 
-pub(super) struct BlockModule<'a> {
+pub(in crate::compile) struct BlockModule<'a> {
     compiler: &'a Compiler,
-    pub(super) program: Program,
-    pub(super) entries: Vec<BlockEntry>,
+    pub(in crate::compile) program: Program,
+    pub(in crate::compile) entries: Vec<BlockEntry>,
     execution: ExecutionModule,
 }
 
 impl<'a> BlockModule<'a> {
-    pub(super) fn build(
+    pub(in crate::compile) fn build(
         compiler: &'a Compiler,
-        snapshots: &[BlockSnapshot<'_>],
+        blocks: Vec<DecodedBlock>,
     ) -> Result<Self, BlockError> {
-        let blocks = decode::blocks(snapshots, compiler.target)?;
         let mut module = Self::new(compiler);
         module.entries.reserve(blocks.len());
         for block in blocks {

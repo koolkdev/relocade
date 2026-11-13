@@ -31,6 +31,7 @@ instruction_families! {
     STI {
         execute: enable_interrupts;
         effects: [control_transfer];
+        flow: Fallthrough;
         availability: IoPrivileged;
         forms {
             0xFB => no_operands();

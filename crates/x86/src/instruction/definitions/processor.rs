@@ -7,12 +7,14 @@ instruction_families! {
     HLT {
         execute: halt;
         effects: [control_transfer];
+        flow: Fallthrough;
         availability: Privileged;
         forms { 0xF4 => no_operands(); }
     }
     CPUID {
         execute: cpuid;
         effects: [serializing];
+        flow: Fallthrough;
         forms {
             0x0F 0xA2 => no_operands();
         }
