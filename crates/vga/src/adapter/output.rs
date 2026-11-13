@@ -52,7 +52,8 @@ impl DispiAdapter {
 
     /// Refresh due status and capture events. Timing changes then materialize
     /// any remaining phase at this observed time before remapping the counters.
-    #[inline]
+    #[cold]
+    #[inline(never)]
     pub(super) fn advance_raster(&mut self, now: Timestamp) {
         if self.raster.status.observe(now) {
             self.refresh_raster();

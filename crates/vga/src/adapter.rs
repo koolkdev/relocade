@@ -9,8 +9,11 @@ mod retrace;
 mod state;
 
 use crate::{
-    dispi, memory::VideoMemory, output::Output, raster::Raster, DisplaySnapshot, Registers, Timing,
-    VgaCore,
+    dispi,
+    memory::{VideoMemory, VramWindow},
+    output::Output,
+    raster::Raster,
+    DisplaySnapshot, Registers, Timing, VgaCore,
 };
 use async_channel::Receiver;
 use event_listener::Event;
@@ -43,7 +46,8 @@ pub struct DispiAdapter {
     vga: VgaCore,
     memory: VideoMemory,
     dispi: dispi::Dispi,
-    io: Option<ports::Io>,
+    packed_window: VramWindow,
+    io: Option<device::Io>,
     clock: Clock,
     raster: Raster,
     configuration_changed: Event,
@@ -68,6 +72,11 @@ impl DispiAdapter {
             memory: VideoMemory::default(),
             vga,
             dispi: dispi::Dispi::default(),
+            packed_window: VramWindow {
+                cpu_start: dispi::BANK_START,
+                vram_start: 0,
+                bytes: dispi::BANK_BYTES,
+            },
             io: None,
             clock,
             raster,

@@ -82,7 +82,13 @@ time and partial dots. Stopped clocks consume time without advancing the beam.
 Horizontal status edges are skipped outside vertical
 display. Late observations catch up all elapsed retraces without a per-frame loop.
 
-`device.rs` owns guest bus dispatch. Ordinary reads, index writes and CPU bank
+`device.rs` owns guest bus dispatch. Configuration changes install disabled,
+packed or VGA MMIO operations. The core prepares memory controls when relevant
+register values change and rebuilds them on restore. VGA writes that pass CPU
+bytes through unchanged use a direct operation; other writes retain the graphics
+logic. Packed bank changes update a prepared window without replacing handlers.
+
+Ordinary reads, index writes and CPU bank
 changes do not advance the raster. Display writes compare the cached retrace
 deadline and preserve overdue inputs before mutation; timing writes additionally
 advance the old raster phase. Timing changes replace the pending deadline. In VGA,

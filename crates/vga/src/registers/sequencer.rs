@@ -64,16 +64,20 @@ impl Sequencer {
         self.values[usize::from(index)]
     }
 
-    pub(crate) fn write(&mut self, value: u8) {
+    pub(crate) fn write(&mut self, value: u8) -> bool {
         let mask = match self.index {
             RESET => RESET_RELEASED,
             CLOCKING_MODE => 0x3d,
             CHARACTER_MAP_SELECT => 0x3f,
             MAP_MASK => 0x0f,
             MEMORY_MODE => 0x0e,
-            _ => return,
+            _ => return false,
         };
-        self.values[usize::from(self.index)] = value & mask;
+        let register = &mut self.values[usize::from(self.index)];
+        let value = value & mask;
+        let changed = *register != value;
+        *register = value;
+        changed
     }
 
     pub(crate) fn chain_four(&self) -> bool {
@@ -88,15 +92,8 @@ impl Sequencer {
         self.register(MEMORY_MODE) & 2 != 0
     }
 
-    pub(crate) fn write_planes(&self, offset: u32) -> u8 {
-        let addressed = if self.chain_four() {
-            1 << (offset & 3)
-        } else if self.odd_even_writes() {
-            0x05 << (offset & 1)
-        } else {
-            0x0f
-        };
-        self.register(MAP_MASK) & addressed
+    pub(crate) fn write_plane_mask(&self) -> u8 {
+        self.register(MAP_MASK)
     }
 
     pub(crate) fn reset_active(&self) -> bool {

@@ -1,4 +1,4 @@
-//! Effects of VGA state changes on display output and port decoding.
+//! Effects of VGA state changes on display output and address decoding.
 
 mod writes;
 
@@ -16,28 +16,38 @@ pub(super) enum VideoEffect {
 pub(super) struct Effects {
     video: VideoEffect,
     port_decode: bool,
+    memory_decode: bool,
 }
 
 impl Effects {
     pub const NONE: Self = Self {
         video: VideoEffect::None,
         port_decode: false,
+        memory_decode: false,
     };
     pub const IMAGE: Self = Self {
         video: VideoEffect::Image,
-        port_decode: false,
+        ..Self::NONE
     };
     pub const CONFIGURATION: Self = Self {
         video: VideoEffect::Configuration,
-        port_decode: false,
+        ..Self::NONE
     };
     pub const IO: Self = Self {
-        video: VideoEffect::None,
         port_decode: true,
+        ..Self::MEMORY
     };
     pub const CONFIGURATION_AND_IO: Self = Self {
         video: VideoEffect::Configuration,
-        port_decode: true,
+        ..Self::IO
+    };
+    pub const MEMORY: Self = Self {
+        memory_decode: true,
+        ..Self::NONE
+    };
+    pub const CONFIGURATION_AND_MEMORY: Self = Self {
+        video: VideoEffect::Configuration,
+        ..Self::MEMORY
     };
 }
 
@@ -54,7 +64,7 @@ impl DispiAdapter {
     }
 
     /// Preserve overdue output, apply the state change, then update video
-    /// configuration and port decoding before returning. Preparation can update
+    /// configuration and address decoding before returning. Preparation can update
     /// hardware latches, so the mutation must use the current live register bank.
     /// Register-only and decoding-only operations do no clock or video work.
     pub(super) fn with_effects<R>(
@@ -71,6 +81,7 @@ impl DispiAdapter {
         let previous_layout = matches!(effects.video, VideoEffect::Configuration)
             .then(|| self.dispi.display_layout());
         let previous_decoding = effects.port_decode.then(|| self.decoding());
+        let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
         let result = mutate(self);
         let video_changed =
             previous_layout.is_some_and(|previous| self.update_video_configuration(previous));
@@ -80,10 +91,23 @@ impl DispiAdapter {
                 return false;
             }
             if let Some(io) = &self.io {
-                io.update_decoding(context.reborrow(), Some(previous), decoding);
+                io.ports
+                    .update_decoding(context.reborrow(), Some(previous), decoding);
             }
             true
         });
+        if let Some(previous) = previous_memory {
+            let decoding = self.memory_decoding();
+            if previous != decoding {
+                if let super::device::MemoryDecoding::Packed(window) = decoding {
+                    self.packed_window = window;
+                }
+                if let Some(io) = &self.io {
+                    io.memory
+                        .update_decoding(context.reborrow(), Some(previous), decoding);
+                }
+            }
+        }
         if video_changed || decoding_changed {
             self.configuration_changed.notify(usize::MAX);
         }

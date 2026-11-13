@@ -14,11 +14,23 @@ use crate::{
 pub use dac::DacState;
 pub use state::VgaCoreState;
 
-#[derive(Default)]
 pub struct VgaCore {
     pub(crate) registers: Registers,
     pub(crate) setup: Setup,
     latches: [u8; 4],
+    memory_controls: memory::MemoryControls,
+}
+
+impl Default for VgaCore {
+    fn default() -> Self {
+        let registers = Registers::default();
+        Self {
+            memory_controls: memory::MemoryControls::new(&registers),
+            registers,
+            setup: Setup::default(),
+            latches: [0; 4],
+        }
+    }
 }
 
 impl VgaCore {

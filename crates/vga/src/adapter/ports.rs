@@ -44,7 +44,7 @@ impl PortDecoding {
 
 /// Retained only for decoding changes. Ordinary accesses invoke the installed
 /// operations directly, without consulting this companion or its mappings.
-pub(super) struct Io {
+pub(super) struct Ports {
     common: Vec<Mapping>,
     dispi: [Mapping; 2],
     mono: Vec<Mapping>,
@@ -90,7 +90,7 @@ impl Mapping {
 }
 
 impl DispiAdapter {
-    pub(super) fn bind_ports(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
+    pub(super) fn bind_ports(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) -> Ports {
         let callbacks = DeviceCallbacks::new(device);
         let common = bind_common_vga_ports(io, &callbacks);
         let dispi = bind_dispi_ports(io, &callbacks);
@@ -123,7 +123,7 @@ impl DispiAdapter {
             CRTC_INDEX_PORT,
             COLOR_INPUT_STATUS_1_PORT,
         );
-        let ports = Io {
+        let ports = Ports {
             common,
             dispi,
             mono,
@@ -132,9 +132,9 @@ impl DispiAdapter {
             disabled_read: PortRead::new(|_, _, _| u32::MAX),
             disabled_write: PortWrite::new(|_, _, _, _| {}),
         };
-        let mut card = device.borrow_mut();
+        let card = device.borrow();
         ports.update_decoding(io.context(), None, card.decoding());
-        card.io = Some(ports);
+        ports
     }
 
     pub(super) fn decoding(&self) -> PortDecoding {
@@ -305,7 +305,7 @@ fn crtc(
     ]
 }
 
-impl Io {
+impl Ports {
     /// Only a change to a group's decoding replaces its prepared operations.
     /// `old == None` initializes every group, including disabled addresses.
     /// Index selection never calls this method.

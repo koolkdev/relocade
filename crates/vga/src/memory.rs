@@ -38,6 +38,7 @@ impl VideoMemory {
     }
 
     /// Reads each byte through the selected aperture; unmapped bytes return FF.
+    #[inline(always)]
     pub fn read(&mut self, address: u32, bytes: u8, window: VramWindow) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
@@ -49,6 +50,7 @@ impl VideoMemory {
         u64::from_le_bytes(value)
     }
 
+    #[inline(always)]
     pub fn write(&mut self, address: u32, bytes: u8, value: u64, window: VramWindow) {
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             let address = address + index as u32;

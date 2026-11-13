@@ -7,16 +7,13 @@ use relocade_machine::IoContext;
 impl DispiAdapter {
     pub(crate) fn write_sequencer_data(&mut self, context: IoContext<'_>, value: u8) {
         let effects = self.legacy_effect(self.vga.registers.sequencer.write_effect());
-        self.with_effects(context, effects, |card| {
-            card.vga.registers.sequencer.write(value)
-        });
+        self.with_effects(context, effects, |card| card.vga.write_sequencer(value));
     }
 
     pub(crate) fn write_graphics_data(&mut self, context: IoContext<'_>, value: u8) {
-        let effects = self.legacy_effect(self.vga.registers.graphics.write_effect());
-        self.with_effects(context, effects, |card| {
-            card.vga.registers.graphics.write(value)
-        });
+        let mut effects = self.legacy_effect(self.vga.registers.graphics.write_effect());
+        effects.memory_decode = true;
+        self.with_effects(context, effects, |card| card.vga.write_graphics(value));
     }
 
     pub(crate) fn write_crtc_data(&mut self, context: IoContext<'_>, value: u8) {
@@ -69,7 +66,8 @@ impl DispiAdapter {
 
     pub(crate) fn write_dispi_register(&mut self, context: IoContext<'_>, index: u16, value: u16) {
         let effects = match index {
-            crate::dispi::ENABLE => Effects::CONFIGURATION,
+            crate::dispi::ENABLE => Effects::CONFIGURATION_AND_MEMORY,
+            crate::dispi::BANK => Effects::MEMORY,
             crate::dispi::VIRTUAL_WIDTH | crate::dispi::X_OFFSET | crate::dispi::Y_OFFSET
                 if self.dispi.display_layout().is_some() =>
             {

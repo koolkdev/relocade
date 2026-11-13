@@ -51,7 +51,7 @@ impl DispiAdapter {
         let effects = if core.is_some() {
             Effects::CONFIGURATION_AND_IO
         } else if dispi.is_some() {
-            Effects::CONFIGURATION
+            Effects::CONFIGURATION_AND_MEMORY
         } else {
             Effects::IMAGE
         };

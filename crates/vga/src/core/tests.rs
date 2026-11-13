@@ -19,17 +19,16 @@ impl Device for VgaOnly {}
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
     let mut card = VgaOnly::default();
-    let registers = &mut card.core.registers;
     // The card receives raw indices before the core applies the VGA index mask.
-    registers.sequencer.select(0xfa);
-    assert_eq!(registers.sequencer.index(), sequencer::MAP_MASK);
-    registers.sequencer.write(0xff);
-    registers.sequencer.select(sequencer::MEMORY_MODE);
-    registers.sequencer.write(6);
-    registers.graphics.select(graphics::MISCELLANEOUS);
-    registers.graphics.write(5);
-    registers.graphics.select(graphics::MODE);
-    registers.graphics.write(0);
+    card.core.registers.sequencer.select(0xfa);
+    assert_eq!(card.core.registers.sequencer.index(), sequencer::MAP_MASK);
+    card.core.write_sequencer(0xff);
+    card.core.registers.sequencer.select(sequencer::MEMORY_MODE);
+    card.core.write_sequencer(6);
+    card.core.registers.graphics.select(graphics::MISCELLANEOUS);
+    card.core.write_graphics(5);
+    card.core.registers.graphics.select(graphics::MODE);
+    card.core.write_graphics(0);
     for (address, value) in [0x12, 0x34, 0x56, 0x78].into_iter().enumerate() {
         card.memory.write_physical(address as u32, value);
     }
@@ -43,7 +42,7 @@ fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
             })),
             &MmioWrite::new(callbacks.write_mmio(|_, card, address, bytes, value| {
                 card.core
-                    .write_memory(&mut card.memory, address, bytes, value);
+                    .write_memory::<false>(&mut card.memory, address, bytes, value);
             })),
         );
     });
@@ -53,7 +52,7 @@ fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
     {
         let mut card = device.borrow_mut();
         card.memory.clear_vram();
-        card.core.registers.graphics.write(1); // Write mode one copies the core's latches.
+        card.core.write_graphics(1); // Write mode one copies the core's latches.
     }
     io.write_mmio(0xa0001, 1, 0xff);
     let card = device.borrow();
