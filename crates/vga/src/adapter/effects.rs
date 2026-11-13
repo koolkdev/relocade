@@ -4,19 +4,11 @@ mod writes;
 
 use crate::{
     effects::{Effects, VideoEffect},
-    registers::WriteKind,
     DispiAdapter, PackedLayout, Timing,
 };
 use relocade_machine::IoContext;
 
 impl DispiAdapter {
-    pub(super) fn legacy_effect(&self, kind: WriteKind) -> Effects {
-        if self.dispi.display_layout().is_some() {
-            return Effects::NONE;
-        }
-        Effects::vga(kind)
-    }
-
     /// Preserve overdue output, apply the state change, then update video
     /// configuration and address decoding before returning. Preparation can update
     /// hardware latches, so the mutation must use the current live register bank.
@@ -51,7 +43,7 @@ impl DispiAdapter {
         if let Some(previous) = previous_memory {
             let decoding = self.memory_decoding();
             if previous != decoding {
-                if let super::mmio::MemoryDecoding::Packed(window) = decoding {
+                if let crate::mmio::MemoryDecoding::Packed(window) = decoding {
                     self.packed_window = window;
                 }
                 if let Some(io) = &self.io {

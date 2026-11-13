@@ -1,4 +1,71 @@
 #![doc = include_str!("et4000/README.md")]
+mod device;
+mod effects;
+mod output;
+
+use crate::{
+    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore, VgaCoreState,
+};
+use relocade_machine::{Clock, Runner};
+use std::{cell::RefCell, rc::Rc};
 
 /// Physical DRAM installed on this ET4000AX profile.
 pub const VIDEO_MEMORY_BYTES: u32 = 1024 * 1024;
+
+// EV8913's F151A input wiring, ordered by CS2:CS1:CS0.
+const PIXEL_CLOCKS: [u64; 8] = [
+    25_175_000, 28_322_000, 32_514_000, 40_000_000, 25_175_000, 28_322_000, 32_514_000, 44_900_000,
+];
+
+/// The ET4000AX card owns one VGA core, physical memory and display lifetime.
+/// Its standard VGA interface is available independently of DISPI firmware.
+pub struct Et4000Ax {
+    vga: VgaCore,
+    memory: VideoMemory,
+    output: Output,
+    io: Option<device::Io>,
+}
+
+impl Et4000Ax {
+    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
+        let card = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
+        runner
+            .connect(card.clone(), |io| Self::configure_io(io, &card))
+            .await;
+        card
+    }
+
+    /// Start from the common legacy preset. Firmware supplies fonts and a mode.
+    pub fn with_clock(clock: Clock) -> Self {
+        let vga = VgaCore::default();
+        let output = Output::new(clock, Self::vga_timing(&vga));
+        Self {
+            vga,
+            memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
+            output,
+            io: None,
+        }
+    }
+
+    pub fn video_memory_bytes(&self) -> u32 {
+        self.memory.capacity()
+    }
+
+    pub fn registers(&self) -> &Registers {
+        self.vga.registers()
+    }
+
+    pub fn core_state(&self) -> VgaCoreState {
+        self.vga.core_state()
+    }
+
+    /// The latest pending capture for one graphics consumer.
+    pub fn frames(&self) -> async_channel::Receiver<DisplaySnapshot> {
+        self.output.frames.clone()
+    }
+
+    fn vga_timing(vga: &VgaCore) -> Timing {
+        let clock = usize::from((vga.registers.miscellaneous >> 2) & 3);
+        Timing::vga_clocked(&vga.registers, PIXEL_CLOCKS[clock])
+    }
+}

@@ -1,5 +1,6 @@
 //! Card programming shared by firmware and guest register accesses.
 
+use crate::ports::VgaPortAccess;
 use crate::{dispi, DispiAdapter, DispiMode, PackedLayout};
 use relocade_machine::IoContext;
 

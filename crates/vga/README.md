@@ -3,6 +3,11 @@
 `VgaCore` owns the standard VGA registers, access protocols and CPU read latches.
 `DispiAdapter` composes that core with DISPI, one VRAM, one raster and one output
 lifetime. It owns routing, display effects and coordinated restoration.
+`Et4000Ax` composes the same core with its own 1-MiB memory and board clocks;
+see its [hardware profile](src/et4000/README.md). Both cards use the same
+connection-time VGA wiring, cached status reader and display activity.
+The installed callbacks are specialized for each concrete card. Each card
+chooses its scanout, retrace latches and configuration effects.
 
 `DispiAdapter` owns 4 MiB of shared video memory, registers and programmable timing on the
 execution worker. The first 256 KiB supplies the four 64-KiB legacy VGA planes.

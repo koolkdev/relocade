@@ -27,6 +27,17 @@ pub struct VgaDisplayState {
 }
 
 impl VgaDisplayState {
+    /// Native drawing uses the programmed viewport, including a page selected
+    /// for the next retrace. Display captures keep their latched start instead.
+    pub(crate) fn for_drawing(registers: &Registers) -> Self {
+        let mut state = Self::capture(registers, 0);
+        state.display_start = u16::from_be_bytes([
+            state.crtc.values[crtc::START_ADDRESS_HIGH as usize],
+            state.crtc.values[crtc::START_ADDRESS_LOW as usize],
+        ]);
+        state
+    }
+
     pub(crate) fn capture(registers: &Registers, retrace_count: u64) -> Self {
         Self {
             sequencer: registers.sequencer.values,

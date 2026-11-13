@@ -89,7 +89,12 @@ impl Crtc {
     }
 
     pub(crate) fn select(&mut self, index: u8) {
-        self.index = index & 0x1f;
+        self.select_raw(index & 0x1f);
+    }
+
+    /// The complete card applies its index-width mask before selecting a bank.
+    pub(crate) fn select_raw(&mut self, index: u8) {
+        self.index = index;
     }
 
     pub(crate) fn read(&self) -> u8 {

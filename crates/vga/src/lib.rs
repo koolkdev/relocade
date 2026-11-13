@@ -9,15 +9,17 @@
 mod adapter;
 mod core;
 pub mod dispi;
-pub mod et4000;
 #[cfg(feature = "renderer")]
 mod display;
 mod effects;
+pub mod et4000;
 mod framebuffer;
 mod geometry;
 mod memory;
+mod mmio;
 mod output;
 mod packed;
+mod ports;
 mod raster;
 pub mod registers;
 #[cfg(feature = "renderer")]
@@ -31,10 +33,11 @@ pub use core::{DacState, VgaCore, VgaCoreState};
 pub use dispi::{DispiMode, DispiResolution, VIDEO_MEMORY_BYTES};
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
+pub use et4000::Et4000Ax;
 pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel, TextCell};
 pub use geometry::DisplayGeometry;
-pub use packed::{PackedLayout, PixelFormat};
 pub use output::RetraceEvent;
+pub use packed::{PackedLayout, PixelFormat};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE};
 #[cfg(feature = "renderer")]
 pub use renderer::VgaRenderer;
