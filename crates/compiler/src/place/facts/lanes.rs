@@ -163,7 +163,7 @@ impl ScalarFacts {
         // A V64 parameter receives only its logical low word; the upper carrier
         // half can differ between incoming values and stays unknown.
         if recorded {
-            self.changed(parameter);
+            self.changed(table, parameter);
         }
     }
 }

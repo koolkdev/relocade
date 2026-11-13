@@ -18,6 +18,7 @@ mod assume;
 mod comparisons;
 mod constraints;
 mod dependencies;
+mod incremental;
 mod infer;
 mod lanes;
 mod merge;
@@ -27,7 +28,7 @@ mod shifts;
 mod storage;
 use comparisons::Comparisons;
 use constraints::Constraints;
-use dependencies::{Demand, Dependencies};
+use dependencies::{Demand, Dependencies, WorkQueue};
 pub(super) use infer::Inference;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
@@ -77,6 +78,8 @@ struct Answer {
     bits: Option<Bits>,
     // Offset IDs by one to keep the optional normal form in one word.
     residual: Option<NonZeroUsize>,
+    revisit: bool,
+    aliases: Option<NonZeroUsize>,
 }
 
 #[derive(Default)]
@@ -88,7 +91,8 @@ pub(super) struct ScalarFacts {
     comparisons: Comparisons,
     constraints: Constraints,
     answers: RefCell<Storage<Answer>>,
-    pending: RefCell<Vec<Inference>>,
+    pending: Rc<RefCell<Vec<Inference>>>,
+    updates: RefCell<WorkQueue>,
     dependencies: Rc<RefCell<Dependencies>>,
 }
 
@@ -107,8 +111,9 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             constraints: self.constraints.clone(),
-            answers: RefCell::default(),
-            pending: RefCell::default(),
+            answers: self.answers.clone(),
+            pending: self.pending.clone(),
+            updates: self.updates.clone(),
             dependencies: self.dependencies.clone(),
         }
     }
@@ -130,25 +135,6 @@ impl ScalarFacts {
         }
         self.propagate_constraints(table);
         self
-    }
-
-    pub(in crate::place) fn reduced(&self, id: usize) -> Option<usize> {
-        self.answers
-            .borrow()
-            .get(&id)
-            .and_then(|answer| answer.residual)
-            .map(|id| id.get() - 1)
-    }
-
-    pub(in crate::place) fn record_reduction(&mut self, recipe: usize, residual: usize) {
-        self.dependencies.borrow_mut().alias(recipe, residual);
-        let answers = self.answers.get_mut();
-        let encoded = NonZeroUsize::new(residual + 1).unwrap();
-        answers.get_or_insert_default(recipe).residual = Some(encoded);
-        answers
-            .get_or_insert_default(residual)
-            .residual
-            .get_or_insert(encoded);
     }
 
     fn has_observations(&self) -> bool {
@@ -188,10 +174,11 @@ impl ScalarFacts {
         } else {
             self.known.insert(id, bits);
             self.constraints.changed(id);
-            self.invalidate_value(id);
+            self.queue(Demand::Bits(id));
+            self.queue(Demand::Reduction(id));
             return;
         };
-        self.changed(source);
+        self.changed(table, source);
     }
 
     pub(in crate::place) fn track_reduction(&self, table: &ValueTable, id: usize) {
@@ -200,34 +187,21 @@ impl ScalarFacts {
             .track(table, Demand::Reduction(id));
     }
 
-    fn invalidate_value(&mut self, id: usize) {
-        let answers = self.answers.get_mut();
-        self.dependencies.borrow_mut().invalidate(id, |demand| {
-            let (id, bits) = match demand {
-                Demand::Bits(id) => (id, true),
-                Demand::Reduction(id) => (id, false),
-            };
-            if answers.get(&id).is_none() {
-                return false;
-            }
-            let answer = answers.get_or_insert_default(id);
-            if bits {
-                answer.bits.take().is_some()
-            } else {
-                answer.residual.take().is_some()
-            }
-        });
-    }
-
-    fn changed(&mut self, id: usize) {
+    fn changed(&mut self, table: &ValueTable, id: usize) {
         self.constraints.changed(id);
+        self.refresh_bits(table);
         self.invalidate_from(id);
     }
 
     fn invalidate_from(&mut self, id: usize) {
-        // Calculations refer only to earlier values. Their cached inputs remain
-        // valid when learning a fact about this value and its possible users.
-        self.answers.get_mut().retain(|&input, _| input < id);
+        // These fact domains do not yet expose their precise dependencies.
+        // Aliases can point to newer recipes, so clear both directions together.
+        self.answers.get_mut().retain(|&input, answer| {
+            answer.residual = None;
+            answer.revisit = false;
+            input < id
+        });
+        *self.updates.get_mut() = WorkQueue::default();
     }
 
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
