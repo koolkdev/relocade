@@ -1,6 +1,6 @@
 //! Monochrome BIOS modes expose the existing text planes through B0000 and mono ports.
 use super::video::{PROGRAM, video};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]

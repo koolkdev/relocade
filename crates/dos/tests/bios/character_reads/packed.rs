@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{GLYPH, read_character};
 use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{

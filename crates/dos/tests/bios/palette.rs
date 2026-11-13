@@ -6,7 +6,7 @@ mod grayscale;
 mod loading;
 
 use super::video::{video, PROGRAM};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use relocade_x86::{Segment, SegmentRegister};
 
 #[test]

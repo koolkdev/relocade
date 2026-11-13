@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{common, path_service, service, success, SERVICE_PROGRAM};
 use crate::common::inspection::Cell;
 use relocade_dos::ProcessStatus;

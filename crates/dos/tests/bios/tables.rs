@@ -9,7 +9,7 @@ use super::{
     information::information,
     video::{video, PROGRAM},
 };
-use crate::common;
+use crate::common::{self, VideoInspection};
 use relocade_dos::Dos;
 use relocade_machine::FarPointer;
 

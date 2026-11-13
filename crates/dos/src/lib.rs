@@ -180,13 +180,12 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
-pub use relocade_pc::{configuration, Configuration, SoundCard};
+pub use relocade_pc::{configuration, video_card, Configuration, SoundCard, VideoCard};
 use relocade_pc::{
     sound_card::{Settings as SoundCardSettings, SoundBlasterModel},
     Pc,
 };
 use relocade_pc_speaker::Speaker;
-use relocade_vga::DispiAdapter;
 use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
@@ -224,7 +223,7 @@ impl Dos {
     pub async fn from_pc(mut pc: Pc) -> relocade_machine::Result<Self> {
         let clock = pc.clock().clone();
         let keyboard = pc.keyboard();
-        let mouse = mouse::Mouse::new(pc.vga());
+        let mouse = mouse::Mouse::new(pc.video_card().framebuffer_access());
         let cpu = pc.cpu();
         let memory = cpu.memory();
         let io = cpu.context().io.clone();
@@ -263,7 +262,7 @@ impl Dos {
         .into_bytes()]
     }
 
-    /// Accesses the session's speaker on its execution owner, like [`Self::vga`].
+    /// Accesses the session's speaker on its execution owner.
     /// Hardware state persists across process launches.
     pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.pc.speaker()
@@ -482,11 +481,9 @@ impl Dos {
         self.pc.frames()
     }
 
-    /// Retains the execution-local device, including while the CPU awaits input.
-    /// Give other workers the immutable captures from [`Dos::frames`].
-    /// End device borrows before polling execution or dropping the session.
-    pub fn vga(&self) -> Rc<RefCell<DispiAdapter>> {
-        self.pc.vga()
+    /// The installed card's frame delivery and native framebuffer access.
+    pub fn video_card(&self) -> &video_card::VideoCard {
+        self.pc.video_card()
     }
 
     /// Returns an owned reader that drains currently buffered standard output.

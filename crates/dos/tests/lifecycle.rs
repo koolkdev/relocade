@@ -6,6 +6,7 @@ use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::KeyMode;
 use relocade_dos::{
     Configuration, FileAccess, LaunchError, LoadError, ProcessStatus, ServiceError, SoundCard,
+    VideoCard,
 };
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
@@ -34,7 +35,7 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
                     runner,
                     Configuration {
                         sound_card: SoundCard::None,
-                        ..Default::default()
+                        video_card: VideoCard::Dispi,
                     },
                 )
                 .await
@@ -75,7 +76,7 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
                 futures_timer::Delay::new(std::time::Duration::from_secs(30)),
                 async |runner| {
                     let mut pc = relocade_pc::Pc::new(runner).await.unwrap();
-                    let vga = pc.vga();
+                    let video = pc.video_card().framebuffer_access();
                     let speaker = pc.speaker();
                     let mut keyboard = pc.keyboard();
                     // Preserve a full BIOS ring when attaching DOS to the PC.
@@ -94,7 +95,16 @@ fn installing_dos_preserves_the_existing_pc_and_bios() {
                     let cpu = pc.cpu().cpu_state().snapshot();
 
                     let mut dos = relocade_dos::Dos::from_pc(pc).await.unwrap();
-                    assert!(Rc::ptr_eq(&vga, &dos.vga()));
+                    assert!(Rc::ptr_eq(&video, &dos.video_card().framebuffer_access()));
+                    assert_eq!(
+                        video
+                            .borrow_mut()
+                            .framebuffer()
+                            .text_cell(0, 0)
+                            .unwrap()
+                            .value(),
+                        0x1f58
+                    );
                     assert!(Rc::ptr_eq(&speaker, &dos.speaker()));
                     assert_eq!(dos.cpu().cpu_state().snapshot(), cpu);
                     assert_eq!(memory.view().read_u32(0x46c).unwrap(), 12345);

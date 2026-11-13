@@ -1,15 +1,12 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-#[path = "../../../crates/vga/tests/support/planes.rs"]
-mod planes;
 use futures_lite::future::or;
-use planes::SnapshotPlanes;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
 use std::{io::Read, time::Duration};
 
 #[test]
-fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
+fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
     let prompt_row = 6;
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
@@ -69,14 +66,15 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
                 }))
                 .unwrap();
         }
-        let video = dos.vga();
+        let video = dos.video_card().framebuffer_access();
         let inspect = async {
             for _ in 0..1000 {
-                // Startup text addressing retains even physical plane addresses.
                 if video
-                    .borrow()
-                    .snapshot()
-                    .plane_byte(0, (prompt_row + 5) * 80 * 2)
+                    .borrow_mut()
+                    .framebuffer()
+                    .text_cell(prompt_row + 5, 0)
+                    .unwrap()
+                    .value() as u8
                     == b'>'
                 {
                     return;
@@ -90,7 +88,8 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
             inspect,
         )
         .await;
-        let screen = video.borrow().snapshot();
+        let mut video = video.borrow_mut();
+        let screen = video.framebuffer();
         for (row, text) in [
             b"> eChO hello".as_slice(),
             b"hello",
@@ -102,11 +101,14 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_vga() {
         .into_iter()
         .enumerate()
         {
-            let start = (prompt_row + row) * 80 * 2;
             assert_eq!(
-                screen
-                    .plane_bytes(0, start..start + text.len() * 2)
-                    .step_by(2)
+                (0..text.len())
+                    .map(|column| {
+                        screen
+                            .text_cell(prompt_row + row as u16, column as u16)
+                            .unwrap()
+                            .value() as u8
+                    })
                     .collect::<Vec<_>>(),
                 text
             );

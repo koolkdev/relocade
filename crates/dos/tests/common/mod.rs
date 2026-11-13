@@ -139,6 +139,19 @@ pub fn mz_image(code: &[u8]) -> Vec<u8> {
 pub mod vga_support;
 pub use vga_support::inspection;
 
+/// Register-level inspection for fixtures using the default DISPI card.
+pub trait VideoInspection {
+    fn vga(&self) -> std::rc::Rc<std::cell::RefCell<relocade_vga::DispiAdapter>>;
+}
+
+impl VideoInspection for Dos {
+    fn vga(&self) -> std::rc::Rc<std::cell::RefCell<relocade_vga::DispiAdapter>> {
+        match self.video_card() {
+            relocade_dos::video_card::VideoCard::Dispi(card) => card.clone(),
+        }
+    }
+}
+
 pub fn screen(dos: &relocade_dos::Dos) -> inspection::Inspection {
     inspection::inspect(&dos.vga().borrow().snapshot())
 }

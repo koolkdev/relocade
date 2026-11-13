@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{common, information, install, video, Dos, FarPointer, PRIMARY, PROGRAM};
 use relocade_x86::{Segment, SegmentRegister};
 

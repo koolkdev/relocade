@@ -8,7 +8,7 @@ mod palette;
 mod state;
 
 use super::video::{video, PROGRAM};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use relocade_dos::Dos;
 use relocade_machine::FarPointer;
 use relocade_x86::{Segment, SegmentRegister};

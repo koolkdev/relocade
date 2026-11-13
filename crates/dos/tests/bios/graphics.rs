@@ -1,5 +1,5 @@
 use super::video::{PROGRAM, video};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use crate::common::vga_support::planes::SnapshotPlanes;
 
 #[test]

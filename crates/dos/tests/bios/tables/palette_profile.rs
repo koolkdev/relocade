@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{
     common, information, install,
     palette_save::{install_area, saved},

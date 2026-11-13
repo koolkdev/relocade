@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{
     FarPointer, PARAMETERS, PRIMARY, PROGRAM, SECONDARY, common, information, install, video,
 };

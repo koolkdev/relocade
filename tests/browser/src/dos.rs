@@ -1,15 +1,14 @@
 use crate::software::{self, SoftwareFrame};
-use crate::vga_support::planes::SnapshotPlanes;
 use crate::{
     graphics::{request, target},
     vga::glyph_top,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_util::{
+    future::{join, select, Either},
     FutureExt, StreamExt,
-    future::{Either, join, select},
 };
-use relocade_dos::Dos;
+use relocade_dos::{Configuration, Dos, VideoCard};
 use relocade_machine::{
     timer_service,
     worker::{Receiver, Thread},
@@ -18,8 +17,8 @@ use std::{
     future::pending,
     io::Write,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
     },
 };
 
@@ -54,7 +53,15 @@ pub async fn dos_workers() -> Result<(), String> {
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let execution = prepared.spawn(clock, async move |runner| {
-        let mut dos = Dos::new(runner).await.unwrap();
+        let mut dos = Dos::with_configuration(
+            runner,
+            Configuration {
+                video_card: VideoCard::Dispi,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         video.send(dos.frames()).ok().unwrap();
         dos.launch_com(FIRST_PROGRAM, Default::default()).unwrap();
         let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
@@ -67,7 +74,16 @@ pub async fn dos_workers() -> Result<(), String> {
             input.write_all(&[key_input.await.unwrap()]).unwrap();
         };
         let (result, ()) = join(dos.run(), fixture_input).await;
-        assert_eq!(dos.vga().borrow().snapshot().plane_byte(0, 2), b'X');
+        assert_eq!(
+            dos.video_card()
+                .framebuffer_access()
+                .borrow_mut()
+                .framebuffer()
+                .text_cell(0, 1)
+                .unwrap()
+                .value() as u8,
+            b'X'
+        );
         first_done.send(result.unwrap()).unwrap();
         next_launch.await.unwrap();
         dos.launch_com(SECOND_PROGRAM, Default::default()).unwrap();

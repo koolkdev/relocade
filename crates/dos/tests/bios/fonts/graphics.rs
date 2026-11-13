@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{PROGRAM, common, video};
 use crate::common::vga_support::planes::SnapshotPlanes;
 use relocade_x86::{Segment, SegmentRegister};

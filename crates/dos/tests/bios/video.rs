@@ -8,7 +8,7 @@ mod output;
 #[path = "video/services.rs"]
 mod services;
 
-use crate::common;
+use crate::common::{self, VideoInspection};
 use crate::common::inspection::Cell;
 use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit};

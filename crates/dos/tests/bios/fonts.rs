@@ -6,7 +6,7 @@ mod graphics;
 mod layout;
 
 use super::video::{PROGRAM, video};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use relocade_x86::{Segment, SegmentRegister};
 
 const A8: &[u8] = &[0x7c, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0];

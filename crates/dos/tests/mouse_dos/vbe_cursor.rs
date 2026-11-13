@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::*;
 
 #[test]
