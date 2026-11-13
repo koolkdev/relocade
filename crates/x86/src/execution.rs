@@ -54,6 +54,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     single_step: Val<I1>,
     eip: Val<I32>,
     completed: u32,
+    call_dispatch: bool,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -82,6 +83,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             single_step: false.into(),
             eip,
             completed: 0,
+            call_dispatch: false,
             can_fallback: false,
             observed_cpu: None,
         })
@@ -334,9 +336,26 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Ends a block, checks execution controls and dispatches its successor.
-    pub(super) fn dispatch(self) -> Result<(), BuildError> {
+    pub(super) fn dispatch(mut self) -> Result<(), BuildError> {
         let runtime = self.runtime;
-        self.finish(true, |body, _| runtime.dispatch(body))
+        if self.call_dispatch {
+            self.state
+                .publish(&mut self.body, &self.eip, self.completed)?;
+            self.checkpoint()?;
+            // Checkpoint exits skip the resolver, so profiling here can miss a
+            // completed call. Hotness counts are intentionally approximate.
+            let slot = runtime.resolve_call(&mut self.body)?;
+            runtime.enter(self.body, slot)
+        } else {
+            self.finish(true, |body, _| runtime.dispatch(body))
+        }
+    }
+
+    fn checkpoint(&mut self) -> Result<(), BuildError> {
+        self.state.checkpoint(&mut self.body)?;
+        self.body.if_(&self.single_step, |body| {
+            body.return_(crate::ExecutionExitValues::step_complete())
+        })
     }
 
     /// Publishes an instruction and continues decoding within the current block.
@@ -355,10 +374,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state
             .publish(&mut self.body, &self.eip, self.completed)?;
         if checkpoint {
-            self.state.checkpoint(&mut self.body)?;
-            self.body.if_(&self.single_step, |body| {
-                body.return_(crate::ExecutionExitValues::step_complete())
-            })?;
+            self.checkpoint()?;
         }
         continue_execution(self.body, &self.eip)
     }

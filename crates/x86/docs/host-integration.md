@@ -490,7 +490,12 @@ require guest backing and the page table, protected-mode segment loads require
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Callable dispatch imports `executionEntries` and the `executionFunctions`
-function table. The interpreter itself requires neither import.
+function table. Interpreters import `resolveCall` and `executionFunctions` to
+resolve completed near calls and Real16 far calls to a callable slot. Calls
+publish their destination CS:IP and check execution controls before lookup.
+Continuing calls resolve and enter the callable slot. Protected-mode far calls retain ordinary dispatch
+across CS context changes. Host far-call entry still returns after preparing
+the frame, before guest dispatch.
 
 The page table contains 2^20 little-endian u32 entries, one per 4-KiB linear page.
 Bit 0 means present, bit 1 permits data writes, and bits 12–31 give the physical

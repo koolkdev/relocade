@@ -31,6 +31,9 @@ pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
 pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "dispatch");
+/// Resolves a completed call to its callable slot, including interpreter fallback.
+/// Published CPU state must remain compatible with the dispatcher's profile.
+pub const RESOLVE_CALL: Function<fn() -> u32> = Function::new("relocade", "resolveCall");
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
 pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");

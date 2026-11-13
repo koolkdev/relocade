@@ -168,9 +168,7 @@ where
 {
     let displacement = displacement.read(execution)?;
     let target = relative_target::<T>(&fallthrough, displacement);
-    let target = execution.jump(target)?;
-    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
-    Ok(target)
+    execution.call::<T>(target, fallthrough)
 }
 
 fn call_indirect<T: RegisterType>(
@@ -184,9 +182,7 @@ where
 {
     // The target observes entry registers and memory before the return-address push.
     let target = source.read(execution)?;
-    let target = execution.jump(target.unsigned().extend::<I32>())?;
-    execution.push(fallthrough.truncate::<T>(), T::BYTES)?;
-    Ok(target)
+    execution.call::<T>(target.unsigned().extend::<I32>(), fallthrough)
 }
 
 fn jump_indirect<T: RegisterType>(
