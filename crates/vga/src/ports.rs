@@ -42,6 +42,7 @@ pub(crate) struct Ports {
     common: Vec<Mapping>,
     mono: Vec<Mapping>,
     color: Vec<Mapping>,
+    always: Vec<Mapping>,
     disabled_read: PortRead,
     disabled_write: PortWrite,
 }
@@ -66,7 +67,7 @@ impl Mapping {
         }
     }
 
-    fn byte(
+    pub(crate) fn byte(
         io: &mut DeviceConnection<'_>,
         window: RangeInclusive<u16>,
         ports: impl Into<PortRange>,
@@ -99,7 +100,7 @@ impl Ports {
         );
         io.bind(
             ADAPTER_CONTROL_PORT,
-            &PortRead::new(|_, _, _| u32::MAX),
+            &PortRead::low_byte(callbacks.read(|_, card| card.read_adapter_control())),
             &PortWrite::low_byte(
                 callbacks.write(|context, card, value| card.write_adapter_control(context, value)),
             ),
@@ -122,6 +123,7 @@ impl Ports {
             common,
             mono,
             color,
+            always: Vec::new(),
             // These consume the entire transfer, unlike enabled-window holes.
             disabled_read: PortRead::new(|_, _, _| u32::MAX),
             disabled_write: PortWrite::new(|_, _, _, _| {}),
@@ -130,6 +132,16 @@ impl Ports {
 
     pub fn add_common(&mut self, mappings: impl IntoIterator<Item = Mapping>) {
         self.common.extend(mappings);
+    }
+
+    pub fn add_monochrome(&mut self, mapping: Mapping) {
+        self.mono.push(mapping);
+    }
+    pub fn add_color(&mut self, mapping: Mapping) {
+        self.color.push(mapping);
+    }
+    pub fn add_always(&mut self, mapping: Mapping) {
+        self.always.push(mapping);
     }
 }
 
@@ -170,7 +182,7 @@ fn bind_common_vga_ports<Card: VgaPortAccess>(
             io,
             COMMON,
             MISC_OUTPUT_WRITE_PORT,
-            |_| 0x10,
+            callbacks.read(|_, card| card.read_input_status_0()),
             callbacks.write(|context, card, value| card.write_misc_output(context, value)),
         ),
         Mapping::byte(
@@ -305,6 +317,11 @@ impl Ports {
             if old.map(|mode| mode.enables(group)) != Some(enabled) {
                 self.install_group(context.reborrow(), mappings, enabled);
             }
+        }
+        // An enable register inside the common window must survive its holes
+        // being reinstalled when the rest of the adapter is turned off.
+        if old.map(|mode| mode.enables(PortGroup::Common)) != Some(new.enables(PortGroup::Common)) {
+            self.install_group(context, &self.always, true);
         }
     }
 

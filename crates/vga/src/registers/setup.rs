@@ -38,6 +38,10 @@ impl Setup {
         self.control = value & (SETUP_MODE | ADDRESSING_ENABLE);
     }
 
+    pub(crate) fn read_control(&self) -> u8 {
+        self.control
+    }
+
     pub(crate) fn read_option(&self) -> u8 {
         if self.control & SETUP_MODE != 0 {
             self.option

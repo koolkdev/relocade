@@ -86,10 +86,23 @@ impl Attribute {
     }
 
     pub(crate) fn write(&mut self, value: u8) {
+        self.write_with(value, |_, _| false);
+    }
+
+    /// A card may consume extension data; standard writes retain VGA masks and
+    /// palette gating. There is still one address latch and one access phase.
+    pub(crate) fn write_with(&mut self, value: u8, extension: impl FnOnce(u8, u8) -> bool) {
         let values = &mut self.values;
         self.protocol.handle_write(value, |address, value| {
-            Self::write_register(values, address, value);
+            if !extension(address & 0x1f, value) {
+                Self::write_register(values, address, value);
+            }
         });
+    }
+
+    /// Selected register for a pending data write; index writes have no target.
+    pub(crate) fn data_index(&self) -> Option<u8> {
+        (self.protocol.next_write() == WritePhase::Data).then(|| self.address() & 0x1f)
     }
 
     fn write_mask(address: u8) -> Option<u8> {
