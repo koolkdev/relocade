@@ -14,6 +14,7 @@ use crate::{
 };
 
 impl ScalarFacts {
+    #[inline]
     pub(super) fn expression_bits(
         &self,
         table: &ValueTable,

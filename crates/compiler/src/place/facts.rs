@@ -6,7 +6,7 @@
 
 use crate::expression::BinaryOp as Binary;
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::{cell::RefCell, num::NonZeroUsize};
 
 use crate::{
     bitwise::BitwiseOp,
@@ -26,6 +26,7 @@ mod selects;
 mod shifts;
 use comparisons::Comparisons;
 use constraints::Constraints;
+pub(super) use infer::Inference;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
 
@@ -67,6 +68,14 @@ impl Bits {
     }
 }
 
+// Inferring bits and reducing a recipe are separate demands on the same value.
+#[derive(Clone, Copy, Default)]
+struct Answer {
+    bits: Option<Bits>,
+    // Offset IDs by one to keep the optional normal form in one word.
+    residual: Option<NonZeroUsize>,
+}
+
 #[derive(Default)]
 pub(super) struct ScalarFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
@@ -75,8 +84,8 @@ pub(super) struct ScalarFacts {
     ranges: FxHashMap<usize, Range>,
     comparisons: Comparisons,
     constraints: Constraints,
-    computed: RefCell<FxHashMap<usize, Bits>>,
-    pending: RefCell<Vec<(usize, bool)>>,
+    answers: RefCell<FxHashMap<usize, Answer>>,
+    pending: RefCell<Vec<Inference>>,
 }
 
 /// Observations established together before a block's facts are queried.
@@ -94,7 +103,7 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             constraints: self.constraints.clone(),
-            computed: RefCell::default(),
+            answers: RefCell::default(),
             pending: RefCell::default(),
         }
     }
@@ -116,6 +125,32 @@ impl ScalarFacts {
         }
         self.propagate_constraints(table);
         self
+    }
+
+    pub(in crate::place) fn reduced(&self, id: usize) -> Option<usize> {
+        self.answers
+            .borrow()
+            .get(&id)
+            .and_then(|answer| answer.residual)
+            .map(|id| id.get() - 1)
+    }
+
+    pub(in crate::place) fn record_reduction(&mut self, recipe: usize, residual: usize) {
+        let answers = self.answers.get_mut();
+        let encoded = NonZeroUsize::new(residual + 1).unwrap();
+        answers.entry(recipe).or_default().residual = Some(encoded);
+        answers
+            .entry(residual)
+            .or_default()
+            .residual
+            .get_or_insert(encoded);
+    }
+
+    fn has_observations(&self) -> bool {
+        !self.known.is_empty()
+            || self.lanes.is_some()
+            || !self.ranges.is_empty()
+            || !self.comparisons.is_empty()
     }
 
     /// Whether known logical bits prove that these paths cannot coincide.
@@ -161,7 +196,7 @@ impl ScalarFacts {
     fn invalidate_from(&mut self, id: usize) {
         // Calculations refer only to earlier values. Their cached inputs remain
         // valid when learning a fact about this value and its possible users.
-        self.computed.get_mut().retain(|&input, _| input < id);
+        self.answers.get_mut().retain(|&input, _| input < id);
     }
 
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
@@ -174,11 +209,7 @@ impl ScalarFacts {
             return Some(bits);
         }
         // Construction already folded path-independent constants.
-        if self.known.is_empty()
-            && self.lanes.is_none()
-            && self.ranges.is_empty()
-            && self.comparisons.is_empty()
-        {
+        if !self.has_observations() {
             return None;
         }
         self.inferred_constant(table, id)
@@ -194,9 +225,7 @@ impl ScalarFacts {
         (bits.mask & mask == mask).then_some(bits.value & mask)
     }
 
-    /// A scalar operand whose known bits make the other bitwise operand redundant.
-    /// Unlike a logical constant, an identity must preserve the entire carrier.
-    pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
+    fn bitwise_inputs(table: &ValueTable, id: usize) -> Option<(BitwiseOp, usize, usize)> {
         let ValueDefinition::Expression(Expression::Binary {
             operator: Binary::Bitwise(operator),
             left,
@@ -208,6 +237,13 @@ impl ScalarFacts {
         if !table[id].ty.is_scalar() || !matches!(operator, BitwiseOp::And | BitwiseOp::Or) {
             return None;
         }
+        Some((operator, left, right))
+    }
+
+    /// A scalar operand whose known bits make the other bitwise operand redundant.
+    /// Unlike a logical constant, an identity must preserve the entire carrier.
+    pub(super) fn bitwise_identity(&self, table: &ValueTable, id: usize) -> Option<usize> {
+        let (operator, left, right) = Self::bitwise_inputs(table, id)?;
         let mask = table[id].ty.carrier().mask();
         let a = self.bits(table, left);
         let b = self.bits(table, right);

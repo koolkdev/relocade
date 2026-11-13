@@ -123,6 +123,6 @@ fn comparison_refinement_preserves_unrelated_earlier_inference() {
     let mut facts = ScalarFacts::default();
     assert_eq!(facts.bits(&table, earlier).mask, 0);
     facts.assume(&table, later, true);
-    assert!(facts.computed.borrow().contains_key(&earlier));
+    assert!(facts.answers.borrow()[&earlier].bits.is_some());
     assert_eq!(facts.constant(&table, earlier), None);
 }

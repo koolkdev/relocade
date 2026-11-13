@@ -132,6 +132,8 @@ fn refolding_finishes_reduction_of_a_new_recipe_before_returning() {
     );
     let mut reducer = Reducer::default();
     let scope = reducer.scope(facts);
+    // A cached fact answer is not a completed reduction of this recipe.
+    assert_eq!(reducer.facts(scope).constant(&graph.values, root), None);
     // The chosen arm first refolds to x & 0x00ff00ff. Only then can path
     // knowledge absorb the combined mask and return x's entire carrier.
     assert_eq!(reducer.reduce(&mut graph.values, scope, root), input);
