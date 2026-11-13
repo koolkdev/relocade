@@ -35,6 +35,7 @@ instruction_families! {
     CALL_FAR_IMMEDIATE {
         execute: call_far_immediate::<_>;
         effects: [control_transfer, segment_load];
+        flow: FarCall;
         forms {
             0x9A => word_or_dword(imm, imm16);
         }
@@ -42,6 +43,7 @@ instruction_families! {
     CALL_FAR_INDIRECT {
         execute: call_far_indirect::<_>;
         effects: [control_transfer, segment_load];
+        flow: FarCall;
         forms {
             0xFF /3 => word_or_dword(mem);
         }

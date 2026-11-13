@@ -33,6 +33,7 @@ pub(crate) enum ControlFlow {
     Jump,
     Branch,
     Call,
+    FarCall,
 }
 
 impl OpcodeMap {
@@ -214,9 +215,14 @@ impl ResolvedForm {
                         .then_some(fallthrough),
                 ]
             }
-            // CALL pushes an operand-sized return address. Discovery follows the
-            // possible continuation without assuming the callee actually returns.
-            Some(ControlFlow::Call) => [Some(fallthrough & mask), None],
+            // Protected far transfers need destination-context handling before
+            // discovery follows their return continuations.
+            Some(ControlFlow::FarCall) if target.profile != crate::ExecutionProfile::Real16 => {
+                [None, None]
+            }
+            // CALL saves an operand-sized return offset. Real16 far returns also
+            // restore the caller's CS, so its continuation uses the same reader.
+            Some(ControlFlow::Call | ControlFlow::FarCall) => [Some(fallthrough & mask), None],
             None => [None, None],
         }
     }
