@@ -1,0 +1,23 @@
+[package]
+name = "relocade-mixer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-channel = { version = "=2.5.0", default-features = false }
+futures-lite = { version = "=2.6.1", default-features = false }
+relocade-machine = { path = "../machine" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { workspace = true, features = ["audioworklet"] }
+
+[dev-dependencies]
+relocade-clock-test-support = { path = "../../tests/clock-support" }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "=0.3.79"

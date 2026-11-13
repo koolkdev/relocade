@@ -32,6 +32,7 @@ the crates are not published.
 | [relocade-vga](crates/vga/README.md) | VGA text registers, fixed timing, immutable captures and programmable GPU text decoding. |
 | [relocade-dos](crates/dos/src/lib.rs) | DOS allocator, filesystems, console and process services on a PC. |
 | [relocade-renderer](crates/renderer/README.md) | Generic RGBA pixel presentation through wgpu. |
+| [relocade-mixer](crates/mixer/README.md) | Clocked audio mixing and bounded PCM submission, independent of guest hardware. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
 
 ## Generate a block

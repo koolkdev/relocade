@@ -9,6 +9,8 @@
 //! wiring and exposes display, audio and input handles to the embedding.
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "audio")]
+mod audio;
 pub mod configuration;
 
 use relocade_bios::{video::VideoFirmware, Keyboard};
@@ -31,6 +33,8 @@ pub struct Pc {
     speaker: Rc<RefCell<Speaker>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
+    #[cfg(feature = "audio")]
+    audio_attached: bool,
 }
 
 impl Pc {
@@ -79,6 +83,8 @@ impl Pc {
             speaker,
             keyboard,
             inputs,
+            #[cfg(feature = "audio")]
+            audio_attached: false,
         })
     }
 
