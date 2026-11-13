@@ -2,6 +2,7 @@
 
 use super::{Bits, ScalarFacts};
 use crate::{body::ValueTable, integer::CompareOp};
+use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct Range {
@@ -77,7 +78,8 @@ impl ScalarFacts {
         else {
             return;
         };
-        if self.ranges.insert(id, range) != Some(range) {
+        if self.ranges.get(&id) != Some(&range) {
+            Rc::make_mut(&mut self.ranges).insert(id, range);
             self.changed(id);
         }
     }

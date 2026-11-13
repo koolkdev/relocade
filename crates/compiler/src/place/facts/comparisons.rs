@@ -1,6 +1,6 @@
 //! Remember comparison outcomes independently of their result identities.
 use rustc_hash::FxHashMap;
-use std::collections::hash_map::Entry;
+use std::rc::Rc;
 
 use crate::{body::ValueTable, integer::CompareOp};
 
@@ -45,7 +45,7 @@ impl Comparison {
 
 #[derive(Clone, Default)]
 pub(super) struct Comparisons {
-    outcomes: FxHashMap<Comparison, bool>,
+    outcomes: Rc<FxHashMap<Comparison, bool>>,
 }
 
 impl Comparisons {
@@ -54,8 +54,10 @@ impl Comparisons {
     }
 
     pub(super) fn retain_common(&mut self, other: &Self) {
-        self.outcomes
-            .retain(|key, truth| other.outcomes.get(key) == Some(truth));
+        if !Rc::ptr_eq(&self.outcomes, &other.outcomes) {
+            Rc::make_mut(&mut self.outcomes)
+                .retain(|key, truth| other.outcomes.get(key) == Some(truth));
+        }
     }
 
     /// Return a lower bound for values whose cached inference may change.
@@ -68,8 +70,8 @@ impl Comparisons {
         truth: bool,
     ) -> Option<usize> {
         let (key, inverted) = Comparison::canonical(table, operator, left, right);
-        if let Entry::Vacant(entry) = self.outcomes.entry(key) {
-            entry.insert(truth ^ inverted);
+        if !self.outcomes.contains_key(&key) {
+            Rc::make_mut(&mut self.outcomes).insert(key, truth ^ inverted);
             // An equivalent or opposite predicate may precede this one, but
             // must follow both canonical operands, including through conversions.
             Some(key.left.max(key.right))

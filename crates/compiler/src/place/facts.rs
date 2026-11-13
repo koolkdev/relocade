@@ -6,7 +6,7 @@
 
 use crate::expression::BinaryOp as Binary;
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     bitwise::BitwiseOp,
@@ -70,12 +70,12 @@ impl Bits {
 #[derive(Default)]
 pub(super) struct ScalarFacts {
     // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: FxHashMap<usize, Bits>,
+    known: Rc<FxHashMap<usize, Bits>>,
     lanes: Option<Box<LaneFacts>>,
-    ranges: FxHashMap<usize, Range>,
+    ranges: Rc<FxHashMap<usize, Range>>,
     comparisons: Comparisons,
     constraints: Constraints,
-    computed: RefCell<FxHashMap<usize, Bits>>,
+    computed: Rc<RefCell<FxHashMap<usize, Bits>>>,
     pending: RefCell<Vec<(usize, bool)>>,
 }
 
@@ -86,6 +86,7 @@ pub(super) enum Assumption {
     Bits { value: usize, mask: u64, bits: u64 },
 }
 
+// Forks share observations and inference until a path changes its knowledge.
 impl Clone for ScalarFacts {
     fn clone(&self) -> Self {
         Self {
@@ -94,7 +95,7 @@ impl Clone for ScalarFacts {
             ranges: self.ranges.clone(),
             comparisons: self.comparisons.clone(),
             constraints: self.constraints.clone(),
-            computed: RefCell::default(),
+            computed: self.computed.clone(),
             pending: RefCell::default(),
         }
     }
@@ -147,7 +148,7 @@ impl ScalarFacts {
             // one. Its cached inference depends on the original vector value.
             observation.word.value
         } else {
-            self.known.insert(id, bits);
+            Rc::make_mut(&mut self.known).insert(id, bits);
             id
         };
         self.changed(source);
@@ -161,7 +162,13 @@ impl ScalarFacts {
     fn invalidate_from(&mut self, id: usize) {
         // Calculations refer only to earlier values. Their cached inputs remain
         // valid when learning a fact about this value and its possible users.
-        self.computed.get_mut().retain(|&input, _| input < id);
+        if let Some(computed) = Rc::get_mut(&mut self.computed) {
+            computed.get_mut().retain(|&input, _| input < id);
+        } else {
+            // A changed path stops sharing inference with its parent or siblings.
+            // Discarding the cache avoids copying answers only to invalidate them.
+            self.computed = Rc::default();
+        }
     }
 
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.
