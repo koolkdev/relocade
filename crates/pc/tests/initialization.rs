@@ -46,6 +46,32 @@ async fn bios_without_dos() {
                 io.write_port(0x389, 1, 0x60);
                 assert_eq!(io.read_port(0x388, 1), 0x06);
 
+                // A peripheral uses the same DMA registers the guest programs.
+                use relocade_dma::{
+                    ADDRESS_PORTS, CLEAR_FLIP_FLOP_PORT, COUNT_PORTS, MODE_PORT, PAGE_PORTS,
+                    SINGLE_MASK_PORT, STATUS_PORT,
+                };
+                memory.view().write(0x20000, &[0x80, 0xa0]).unwrap();
+                for (port, value) in [
+                    (SINGLE_MASK_PORT, 5),
+                    (CLEAR_FLIP_FLOP_PORT, 0),
+                    (ADDRESS_PORTS[1], 0),
+                    (ADDRESS_PORTS[1], 0),
+                    (COUNT_PORTS[1], 1),
+                    (COUNT_PORTS[1], 0),
+                    (PAGE_PORTS[1], 2),
+                    (MODE_PORT, 0x59), // Auto-initialize, single memory read, channel 1.
+                    (SINGLE_MASK_PORT, 1),
+                ] {
+                    io.write_port(port, 1, value);
+                }
+                let dma = pc.dma();
+                let view = memory.view().with_io(&io);
+                let mut samples = [0; 3];
+                assert_eq!(dma.borrow_mut().read(1, &view, &mut samples), 3);
+                assert_eq!(samples, [0x80, 0xa0, 0x80]);
+                assert_eq!(io.read_port(STATUS_PORT, 1), 2);
+
                 // Query video, wait for a physical key through IRQ1, then read IRQ0's tick.
                 let code = [
                     0xb4, 0x0f, 0xcd, 0x10, 0xa3, 0, 7, // Video mode.

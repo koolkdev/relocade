@@ -143,3 +143,59 @@ fn maximum_count_transfers_a_full_64_kib_buffer() {
     assert_eq!(read_word(&io, ADDRESS_PORTS[1]), 0);
     assert_eq!(dma.borrow_mut().read(1, &view, &mut bytes), 0);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn auto_initialize_reloads_address_and_count_and_reads_refilled_bytes() {
+    let (dma, io) = connected();
+    let memory = memory();
+    let mut view = memory.view();
+    view.write(0x20100, &[0x11, 0x22]).unwrap();
+    program(&io, 0x100, 1, 0x58);
+    dma.borrow_mut().set_request(1, true);
+    for first in [0x11, 0x33] {
+        view.write_u8(0x20100, first).unwrap();
+        io.write_port(REQUEST_PORT, 1, 5);
+        let mut bytes = [0; 4];
+        assert_eq!(dma.borrow_mut().read(1, &view, &mut bytes), 4);
+        assert_eq!(bytes, [first, 0x22, first, 0x22]);
+        assert_eq!(read_word(&io, ADDRESS_PORTS[1]), 0x100);
+        assert_eq!(read_word(&io, COUNT_PORTS[1]), 1);
+        dma.borrow_mut().set_request(1, false);
+        assert_eq!(
+            io.read_port(STATUS_PORT, 1),
+            2,
+            "terminal count clears software requests"
+        );
+        assert_eq!(io.read_port(STATUS_PORT, 1), 0);
+        assert_eq!(dma.borrow_mut().read_memory(1, &view), None);
+        dma.borrow_mut().set_request(1, true);
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn partial_reprogramming_preserves_each_registers_other_byte() {
+    let (dma, io) = connected();
+    let memory = memory();
+    let mut view = memory.view();
+    view.write_u8(0x200ff, 0x11).unwrap();
+    view.write_u8(0x20180, 0x22).unwrap();
+    view.write_u8(0x20080, 0x33).unwrap();
+    program(&io, 0xff, 1, 0x58);
+    dma.borrow_mut().set_request(1, true);
+    assert_eq!(dma.borrow_mut().read_memory(1, &view), Some(0x11));
+    assert_eq!(read_word(&io, ADDRESS_PORTS[1]), 0x100);
+    io.write_port(SINGLE_MASK_PORT, 1, 5);
+    io.write_port(CLEAR_FLIP_FLOP_PORT, 1, 0);
+    io.write_port(ADDRESS_PORTS[1], 1, 0x80);
+    assert_eq!(read_word(&io, ADDRESS_PORTS[1]), 0x180);
+    io.write_port(SINGLE_MASK_PORT, 1, 1);
+    assert_eq!(dma.borrow_mut().read_memory(1, &view), Some(0x22));
+    assert_eq!(
+        read_word(&io, ADDRESS_PORTS[1]),
+        0x80,
+        "reload uses the base high byte"
+    );
+    assert_eq!(dma.borrow_mut().read_memory(1, &view), Some(0x33));
+}

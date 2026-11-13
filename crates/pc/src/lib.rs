@@ -1,8 +1,8 @@
 //! A BIOS-initialized PC, with hardware and firmware independent of DOS.
 //!
-//! [`Pc::new`] assembles the CPU, memory, PIC, PIT, PS/2 keyboard/mouse, VGA, speaker and AdLib
-//! on an existing execution runner. It initializes BIOS data and interrupt
-//! services. The caller supplies guest code and its entry state; this does not
+//! [`Pc::new`] assembles the CPU, memory, DMA, PIC, PIT, PS/2 keyboard/mouse,
+//! VGA, speaker and AdLib on an existing execution runner. It initializes BIOS
+//! data and interrupt services. The caller supplies guest code and its entry state; this does not
 //! execute a reset ROM, POST or a disk bootstrap.
 //! [`Pc::with_configuration`] selects which sound card to install.
 //!
@@ -17,6 +17,7 @@ pub mod configuration;
 pub use configuration::{Configuration, SoundCard};
 use relocade_adlib::Adlib;
 use relocade_bios::{video::VideoFirmware, Keyboard};
+use relocade_dma::Dma;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
 use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
 use relocade_pc_speaker::Speaker;
@@ -32,6 +33,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
 pub struct Pc {
     runner: Runner,
+    dma: Rc<RefCell<Dma>>,
     vga: Rc<RefCell<DispiAdapter>>,
     speaker: Rc<RefCell<Speaker>>,
     adlib: Option<Rc<RefCell<Adlib>>>,
@@ -56,6 +58,7 @@ impl Pc {
         mut runner: Runner,
         configuration: Configuration,
     ) -> relocade_machine::Result<Self> {
+        let dma = Dma::initialize(&runner).await;
         let vga = DispiAdapter::initialize(&runner).await;
         let video_firmware = VideoFirmware::Dispi(vga.clone());
         let pic = Pic::initialize(&runner).await;
@@ -96,6 +99,7 @@ impl Pc {
         pic.unmask_irq(KEYBOARD_IRQ);
         Ok(Self {
             runner,
+            dma,
             vga,
             speaker,
             adlib,
@@ -154,6 +158,11 @@ impl Pc {
     /// Retains the speaker hardware on its execution owner.
     pub fn speaker(&self) -> Rc<RefCell<Speaker>> {
         self.speaker.clone()
+    }
+
+    /// Retains the primary DMA controller for 8-bit peripheral transfers.
+    pub fn dma(&self) -> Rc<RefCell<Dma>> {
+        self.dma.clone()
     }
 
     /// Retains the AdLib hardware on its execution owner, if installed.
