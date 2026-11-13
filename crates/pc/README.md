@@ -47,6 +47,13 @@ consumer; `vga()` and `speaker()`
 retain devices on the execution owner. Platform windows, rendering and audio
 outputs remain with the embedding application.
 
+With the `audio` feature, `pc.attach_audio(config, samples).await` connects one
+CPAL configuration and bounded `async_channel::Sender<Vec<f32>>` to the
+[shared mixer](../mixer/README.md). PC supplies its emulation clock and registers
+the speaker at gain 0.2; the mixer owns timing, gains, buffering and submission.
+The runner owns the activity, and the application owns platform playback.
+Attachment is allowed once per PC.
+
 `mouse_input()` accepts relative motion, three-button transitions and focus/capture
 loss through the same execution-owned PS/2 activity. `Dos::mouse_input()` forwards
 the handle from its PC. BIOS INT 15h/C2h configures the device, installs a guest

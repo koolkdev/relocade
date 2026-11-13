@@ -2398,16 +2398,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-mixer"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "cpal",
+ "futures-lite",
+ "relocade-clock-test-support",
+ "relocade-machine",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-pc"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "cpal",
+ "futures-lite",
  "futures-timer",
  "pollster",
  "relocade-bios",
  "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-mixer",
  "relocade-pc-speaker",
  "relocade-pic",
  "relocade-pit",
