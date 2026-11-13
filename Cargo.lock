@@ -2324,6 +2324,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-dma"
+version = "0.0.0"
+dependencies = [
+ "relocade-machine",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-dos"
 version = "0.0.0"
 dependencies = [
