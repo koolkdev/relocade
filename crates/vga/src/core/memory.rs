@@ -13,7 +13,6 @@ pub(crate) enum MemoryWrite {
     Graphics,
     MaskedCopy,
     Chain4,
-    AllPlanes,
     OnePlane,
 }
 
@@ -58,8 +57,6 @@ impl VgaCore {
             }
         } else if self.registers.sequencer.odd_even_writes() {
             MemoryWrite::MaskedCopy
-        } else if planes == 15 && !self.registers.graphics.chain_odd_even() {
-            MemoryWrite::AllPlanes
         } else if planes.is_power_of_two() {
             MemoryWrite::OnePlane
         } else {
@@ -76,7 +73,7 @@ impl VgaCore {
         u64::from_le_bytes(value)
     }
 
-    /// General graphics operations and copies with mixed plane selection.
+    /// General graphics operations and copies using the prepared plane masks.
     /// The complete transfer must lie within the card's active bindings.
     pub(crate) fn write_memory<const COPY: bool>(
         &mut self,
@@ -104,7 +101,7 @@ impl VgaCore {
         }
     }
 
-    /// All four planes respond, so each chain-4 byte is an ordinary byte store.
+    /// With all planes enabled, the address selects the byte for each chain-4 store.
     pub(crate) fn write_chain4(
         &self,
         memory: &mut VideoMemory,
@@ -130,43 +127,6 @@ impl VgaCore {
                 values = &values[count..];
                 offset += count as u32;
             }
-        }
-    }
-
-    pub(crate) fn write_all_planes(
-        &self,
-        memory: &mut VideoMemory,
-        address: u32,
-        bytes: u8,
-        value: u64,
-    ) {
-        let controls = &self.memory_controls;
-        let mask = u32::from(controls.addressing.mask);
-        let mut offset = (address - controls.window.start) & mask;
-        if bytes == 1 {
-            memory.write_physical_word(offset * 4, u32::from(value as u8) * 0x0101_0101);
-            return;
-        }
-        if bytes == 4 && offset + 4 <= mask + 1 {
-            let [a, b, c, d] = (value as u32).to_le_bytes();
-            let output = memory.physical_bytes_mut(offset * 4, 16);
-            output[..4].copy_from_slice(&(u32::from(a) * 0x0101_0101).to_le_bytes());
-            output[4..8].copy_from_slice(&(u32::from(b) * 0x0101_0101).to_le_bytes());
-            output[8..12].copy_from_slice(&(u32::from(c) * 0x0101_0101).to_le_bytes());
-            output[12..16].copy_from_slice(&(u32::from(d) * 0x0101_0101).to_le_bytes());
-            return;
-        }
-        // Planar addresses wrap at the configured 16- or 64-KiB plane size.
-        let values = value.to_le_bytes();
-        let mut values = &values[..usize::from(bytes)];
-        while !values.is_empty() {
-            let count = values.len().min((mask + 1 - offset) as usize);
-            let output = memory.physical_bytes_mut(offset * 4, count * 4);
-            for (word, byte) in output.chunks_exact_mut(4).zip(&values[..count]) {
-                word.copy_from_slice(&(u32::from(*byte) * 0x0101_0101).to_le_bytes());
-            }
-            values = &values[count..];
-            offset = 0;
         }
     }
 

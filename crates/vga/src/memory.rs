@@ -51,10 +51,6 @@ impl VideoMemory {
         self.storage.write_bytes(address, values);
     }
 
-    pub fn physical_bytes_mut(&mut self, address: u32, bytes: usize) -> &mut [u8] {
-        self.storage.bytes_mut(address, bytes)
-    }
-
     /// The bus bounds the complete transfer to this validated window.
     #[inline(always)]
     pub fn read(&mut self, address: u32, bytes: u8, window: VramWindow) -> u64 {

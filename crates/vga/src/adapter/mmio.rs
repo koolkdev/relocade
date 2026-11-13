@@ -29,7 +29,6 @@ pub(super) struct MemoryMapping {
     vga_write: MmioWrite,
     vga_copy_write: MmioWrite,
     chain4_write: MmioWrite,
-    all_planes_write: MmioWrite,
     one_plane_write: MmioWrite,
     packed_read: MmioRead,
     packed_write: MmioWrite,
@@ -86,12 +85,6 @@ impl MemoryMapping {
                 card.vga
                     .write_chain4(&mut card.memory, address, bytes, value)
             })),
-            all_planes_write: MmioWrite::new(callbacks.write_mmio(
-                |_, card, address, bytes, value| {
-                    card.vga
-                        .write_all_planes(&mut card.memory, address, bytes, value)
-                },
-            )),
             one_plane_write: MmioWrite::new(callbacks.write_mmio(
                 |_, card, address, bytes, value| {
                     card.vga
@@ -118,7 +111,6 @@ impl MemoryMapping {
                     MemoryWrite::Graphics => &self.vga_write,
                     MemoryWrite::MaskedCopy => &self.vga_copy_write,
                     MemoryWrite::Chain4 => &self.chain4_write,
-                    MemoryWrite::AllPlanes => &self.all_planes_write,
                     MemoryWrite::OnePlane => &self.one_plane_write,
                 };
                 (&self.vga_read, write)

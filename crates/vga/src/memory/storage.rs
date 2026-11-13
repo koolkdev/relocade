@@ -87,15 +87,9 @@ impl Storage {
     }
 
     pub fn write_bytes(&mut self, address: u32, values: &[u8]) {
-        self.bytes_mut(address, values.len())
-            .copy_from_slice(values);
-    }
-
-    /// Taking mutable bytes marks the complete span as written.
-    pub fn bytes_mut(&mut self, address: u32, bytes: usize) -> &mut [u8] {
         let address = address as usize;
-        self.dirty.mark_range(address, bytes);
-        &mut self.bytes[address..address + bytes]
+        self.bytes[address..address + values.len()].copy_from_slice(values);
+        self.dirty.mark_range(address, values.len());
     }
 
     /// Reuse untouched blocks from the output owner's baseline. Inspection
