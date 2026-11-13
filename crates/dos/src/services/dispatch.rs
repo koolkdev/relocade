@@ -14,7 +14,6 @@ pub(crate) async fn int21(call: &mut CpuContext<'_>, services: &Services<'_>) {
     interrupt_dispatch!(
         call,
         match call.cpu.ah() {
-            // PSP queries are safe during DOS callbacks and do not check BREAK.
             0x51 | 0x62 => system::current_psp(services),
             0x00..=0x6c | 0x71 => dispatch_function(services),
             _ => null_function,
