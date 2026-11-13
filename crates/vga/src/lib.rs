@@ -12,6 +12,7 @@ pub mod dispi;
 pub mod et4000;
 #[cfg(feature = "renderer")]
 mod display;
+mod effects;
 mod framebuffer;
 mod geometry;
 mod memory;
