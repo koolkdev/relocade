@@ -137,6 +137,15 @@ launching or resuming a guest.
 
 ## Audio validation
 
+`cargo test -p relocade-dos-app --test sound_blaster` runs an authored COM
+program with SB2 selected. It installs IRQ7 through DOS, streams a two-half DMA
+buffer at 8 kHz, and refills consumed halves in its guest interrupt handler
+while waiting for a DOS key. Captured PCM includes FM and the speaker and checks
+that the refilled samples replace the original data. The fixture closes output
+while streaming, then launches the program again to check continuing interrupts
+and hardware reuse. A controlled clock drives this native/browser fixture; it
+does not open CPAL or load a game binary.
+
 `cargo test -p relocade-dos-app --test adlib` executes authored COM programs through
 the production PC/DOS setup. One detects AdLib without attached output; another
 plays AdLib, combined AdLib/speaker, speaker alone and silence across DOS keyboard
