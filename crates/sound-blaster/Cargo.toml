@@ -14,7 +14,10 @@ relocade-machine = { path = "../machine" }
 relocade-pic = { path = "../pic" }
 
 [dev-dependencies]
+async-channel = { version = "=2.5.0", default-features = false }
+cpal.workspace = true
 relocade-clock-test-support = { path = "../../tests/clock-support" }
+relocade-mixer = { path = "../mixer" }
 relocade-x86 = { path = "../x86" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

@@ -39,3 +39,7 @@ wasm-bindgen-test = "=0.3.79"
 [[test]]
 name = "audio"
 required-features = ["audio"]
+
+[[test]]
+name = "sound_blaster"
+required-features = ["audio"]

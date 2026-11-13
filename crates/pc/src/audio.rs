@@ -3,6 +3,12 @@ use async_channel::Sender;
 use relocade_mixer::Mixer;
 use std::{cell::RefCell, rc::Rc};
 
+// All sources start at unity gain, independently of the other installed sources.
+// The mixer sums with headroom, and platform output clamps the final sample.
+pub(super) const FM_GAIN: f32 = 1.0;
+pub(super) const PCM_GAIN: f32 = 1.0;
+const SPEAKER_GAIN: f32 = 1.0;
+
 impl Pc {
     /// Attaches one mixed output on the execution worker. The PC clock drives
     /// synthesis; the bounded channel supplies interleaved PCM to playback.
@@ -17,10 +23,10 @@ impl Pc {
         }
         let mut mixer = Mixer::new(self.clock().clone(), config, samples)?;
         if let Some(card) = &self.sound_card {
-            card.add_audio_sources(&mut mixer, config.sample_rate, 0.8)?;
+            card.add_audio_sources(&mut mixer, config.sample_rate)?;
         }
         let mut speaker = self.speaker.borrow().audio_source();
-        mixer.add_source(0.2, move |interval| speaker.sample(interval));
+        mixer.add_source(SPEAKER_GAIN, move |interval| speaker.sample(interval));
         // Connection belongs to the session even if this await is cancelled.
         self.audio_attached = true;
         self.runner

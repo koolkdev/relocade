@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod dsp;
+pub use dsp::AudioSource;
 
 use dsp::Dsp;
 use relocade_adlib::Adlib;
@@ -64,6 +65,12 @@ impl SoundBlaster {
     /// The same FM chip responds at both 228h/229h and 388h/389h.
     pub fn adlib(&self) -> Rc<RefCell<Adlib>> {
         self.adlib.clone()
+    }
+
+    /// Captures digital output from now. Replaces any previous source; dropping
+    /// the source releases captured samples while hardware playback continues.
+    pub fn audio_source(&self) -> AudioSource {
+        Dsp::audio_source(&self.dsp)
     }
 }
 

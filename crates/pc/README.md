@@ -42,9 +42,9 @@ at base `0x220` and maps its single OPL2 chip at both `0x228` and `0x388`.
 PC holds an optional `sound_card::SoundCard` trait object; `pc.sound_card()`
 borrows that common interface. Configuration chooses and initializes the concrete
 card. The Sound Blaster card owns its shared FM chip.
-DSP reset, version detection and single-cycle DMA playback with IRQ7 are
-available; connecting digital samples to host output follows separately. The
-guest installs its handler and unmasks IRQ7. OPL3 is not implemented.
+DSP reset, version detection, single-cycle DMA playback with IRQ7 and direct DAC
+output are available. The guest installs its handler and unmasks IRQ7. OPL3 is
+not implemented; DSP streaming/high-speed modes remain subsequent work.
 
 The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
 drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,
@@ -83,8 +83,11 @@ audio outputs remain with the embedding application.
 With the `audio` feature, `pc.attach_audio(config, samples).await` connects one
 CPAL configuration and bounded `async_channel::Sender<Vec<f32>>` to the
 [shared mixer](../mixer/README.md). PC supplies its emulation clock and registers
-the speaker at gain 0.2 and, when installed, AdLib at gain 0.8. Their summed range
-fits within `-1..=1`; the mixer owns timing, gains, buffering and submission.
+the speaker, FM and digital PCM at unity gain. These independent defaults live
+in PC audio policy: installing another source does not reduce an existing
+source's volume. The mixer preserves headroom when summing; platform
+output clamps the final sample to `-1..=1`. Simultaneous peaks can therefore clip.
+The mixer owns timing, gains, buffering and submission.
 The runner owns the activity, and the application owns platform playback.
 Attachment is allowed once per PC; AdLib supports 8–192 kHz. Attach before guest
 execution to capture the complete note timeline. See the

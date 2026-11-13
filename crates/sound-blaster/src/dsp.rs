@@ -1,7 +1,10 @@
+mod dac;
 mod playback;
 mod protocol;
 
 use crate::{DMA_CHANNEL, IRQ, READ_DATA_PORT, READ_STATUS_PORT, RESET_PORT, WRITE_DATA_PORT};
+pub use dac::AudioSource;
+use dac::Dac;
 use event_listener::Event;
 use futures_lite::future::or;
 use playback::Playback;
@@ -19,7 +22,7 @@ pub(super) struct Dsp {
     io: WeakIoBus,
     protocol: Protocol,
     playback: Playback,
-    enabled: bool,
+    dac: Dac,
     changed: Event,
 }
 
@@ -30,7 +33,7 @@ impl Dsp {
             clock,
             io: io.downgrade(),
             protocol: Protocol::default(),
-            enabled: false,
+            dac: Dac::default(),
             changed: Event::new(),
         }
     }
@@ -81,7 +84,14 @@ impl Dsp {
     }
 
     fn advance(&mut self, context: IoContext<'_>) {
-        self.playback.advance(context);
+        self.playback.advance(context, &mut self.dac);
+    }
+
+    pub fn audio_source(device: &Rc<RefCell<Self>>) -> AudioSource {
+        let mut dsp = device.borrow_mut();
+        dsp.synchronize();
+        let clock = dsp.clock.clone();
+        dsp.dac.source(clock, Rc::downgrade(device))
     }
 
     fn synchronize(&mut self) {
@@ -96,7 +106,7 @@ impl Dsp {
         self.protocol.reset(&self.clock, value);
         if value & 1 != 0 {
             self.playback.reset();
-            self.enabled = false;
+            self.dac.reset(self.clock.now());
             self.changed.notify(1);
         }
     }
@@ -104,11 +114,13 @@ impl Dsp {
     fn write(&mut self, context: IoContext<'_>, value: u8) {
         self.advance(context);
         match self.protocol.write(&self.clock, value) {
+            Some(Command::DirectOutput(value)) => self.dac.write(self.clock.now(), value),
             Some(Command::TimeConstant(value)) => self.playback.set_time_constant(value),
             Some(Command::Playback(count)) => self.playback.start(count),
-            Some(Command::Speaker(enabled)) => self.enabled = enabled,
+            Some(Command::Speaker(enabled)) => self.dac.set_enabled(self.clock.now(), enabled),
             Some(Command::SpeakerStatus) => {
-                self.protocol.respond([if self.enabled { 0xff } else { 0 }])
+                self.protocol
+                    .respond([if self.dac.enabled() { 0xff } else { 0 }])
             }
             None => return,
         }
