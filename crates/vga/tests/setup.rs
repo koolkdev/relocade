@@ -37,9 +37,7 @@ fn disabled_addressing_preserves_registers_memory_and_access_phases() {
     assert_eq!(vga.device.borrow().registers(), &registers);
     assert_eq!(blocked.scanout(), before.scanout());
     assert_eq!(blocked.dac, before.dac);
-    for plane in 0..4 {
-        assert!(std::ptr::eq(blocked.plane(plane), before.plane(plane)));
-    }
+    assert!(blocked.shares_vram_with(&before));
 
     // Adapter control is write-only, but remains writable while disabled.
     assert_eq!(vga.io.read_port(0x46e8, 1), 0xff);
@@ -126,7 +124,5 @@ fn address_decoding_does_not_blank_stop_or_invalidate_display_captures() {
     );
     assert_eq!(vga.device.borrow().registers(), &registers);
     assert_eq!(blinking.dac, first.dac);
-    for plane in 0..4 {
-        assert!(std::ptr::eq(blinking.plane(plane), first.plane(plane)));
-    }
+    assert!(blinking.shares_vram_with(&first));
 }

@@ -53,7 +53,9 @@ fn monochrome_planar_palette_ports_and_no_clear_preservation() {
         );
         assert_eq!(preserved.dac.colors, initial.dac.colors);
         for plane in 0..4 {
-            assert_eq!(preserved.plane(plane), before.plane(plane));
+            assert!(preserved
+                .plane_bytes(plane, 0..65536)
+                .eq(before.plane_bytes(plane, 0..65536)));
         }
         assert_eq!(
             video(&mut dos, 0x0f00, 0, 0, 0).registers.eax as u16,
@@ -97,7 +99,7 @@ fn planar_modes_restore_routing_clear_all_planes_and_report_geometry() {
             assert_eq!(display.geometry().size, size);
             for plane in 0..4 {
                 assert!(
-                    display.plane(plane).iter().all(|&byte| byte == 0),
+                    display.plane_bytes(plane, 0..65536).all(|byte| byte == 0),
                     "mode {mode:x}, plane {plane}"
                 );
             }
@@ -207,7 +209,9 @@ fn planar_no_clear_preserves_each_plane_and_restores_mode_specific_palettes() {
             );
             let preserved = dos.vga().borrow().snapshot();
             for plane in 0..4 {
-                assert_eq!(preserved.plane(plane), before.plane(plane));
+                assert!(preserved
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536)));
             }
             assert_eq!(&preserved.vga().unwrap().attributes[..16], &palette);
             let brown = palette[6] as usize;

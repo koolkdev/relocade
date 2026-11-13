@@ -38,7 +38,9 @@ fn mode_11h_direct_writes_bios_drawing_palette_and_text_return() {
         assert_two_color(&white, [255, 255, 255, 255]);
         let preserved = run(&mut dos, &[0xb8, 0x91, 0, 0xcd, 0x10, 0xc3]).await;
         for plane in 0..4 {
-            assert_eq!(preserved.plane(plane), original.plane(plane));
+            assert!(preserved
+                .plane_bytes(plane, 0..65536)
+                .eq(original.plane_bytes(plane, 0..65536)));
         }
         assert_two_color(
             &gpu.render(&preserved, [640, 480]).await,
@@ -106,9 +108,7 @@ fn mode_0fh_monochrome_blink_pages_and_retained_captures() {
                 break capture;
             }
         };
-        for plane in 0..4 {
-            assert!(std::ptr::eq(first.plane(plane), opposite.plane(plane)));
-        }
+        assert!(first.shares_vram_with(&opposite));
         assert_monochrome_pattern(
             &gpu.render(&opposite, [640, 350]).await,
             opposite.vga().unwrap().attribute_blink_on,

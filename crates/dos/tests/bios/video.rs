@@ -161,7 +161,11 @@ fn mode_reset_restores_font_memory_access_and_palette_before_clearing_text() {
             context.io.write_port(0x3c9, 1, 0); // Leave an unfinished DAC write.
         }
         assert_eq!(
-            &dos.vga().borrow().snapshot().plane(2)[65 * 32..66 * 32],
+            &dos.vga()
+                .borrow()
+                .snapshot()
+                .plane_bytes(2, 65 * 32..66 * 32)
+                .collect::<Vec<_>>(),
             &[0xff; 32]
         );
         assert_eq!(
@@ -170,10 +174,17 @@ fn mode_reset_restores_font_memory_access_and_palette_before_clearing_text() {
         );
         let snapshot = dos.vga().borrow().snapshot();
         assert_eq!(
-            &snapshot.plane(2)[65 * 32..65 * 32 + 16],
+            &snapshot
+                .plane_bytes(2, 65 * 32..65 * 32 + 16)
+                .collect::<Vec<_>>(),
             &[0, 0, 0x38, 0x6c, 0xc6, 0xc6, 0xc6, 0xfe, 0xc6, 0xc6, 0xc6, 0xc6, 0, 0, 0, 0,]
         );
-        assert_eq!(&snapshot.plane(2)[65 * 32 + 16..66 * 32], &[0; 16]);
+        assert_eq!(
+            &snapshot
+                .plane_bytes(2, 65 * 32 + 16..66 * 32)
+                .collect::<Vec<_>>(),
+            &[0; 16]
+        );
         {
             let mut context = dos.cpu().context();
             assert_eq!(context.memory.read_u16(0xb8000).unwrap(), 0x0720);

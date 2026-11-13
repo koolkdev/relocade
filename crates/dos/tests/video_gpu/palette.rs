@@ -35,9 +35,7 @@ fn bios_palette_changes_recolor_text_and_graphics_without_vram_writes() {
                 0xc3, // DAC color becomes green.
             ]);
             let recolored = run(&mut dos, &program).await;
-            for plane in 0..4 {
-                assert!(std::ptr::eq(original.plane(plane), recolored.plane(plane)));
-            }
+            assert!(original.shares_vram_with(&recolored));
             assert_eq!(&gpu.render(&recolored, size).await[..4], &[0, 255, 0, 255]);
             let masked = run(
                 &mut dos,

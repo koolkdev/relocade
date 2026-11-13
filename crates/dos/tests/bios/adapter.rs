@@ -23,9 +23,7 @@ fn adapter_queries_report_bios_configuration_independently_of_display_mode() {
             let after = dos.vga().borrow().snapshot();
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
-            for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-            }
+            assert!(after.shares_vram_with(&before));
         }
         video(&mut dos, 0x1201, 0x30, 0, 0);
         assert_eq!(video(&mut dos, 0x1200, 0x10, 0, 0).registers.ecx as u16, 9);
@@ -74,9 +72,7 @@ fn display_combination_set_uses_the_bios_table_and_equipment_active_selection() 
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-        }
+        assert!(after.shares_vram_with(&before));
         // Mode setup preserves display-combination metadata, including no-clear.
         video(&mut dos, 0x0087, 0, 0, 0);
         assert_eq!(

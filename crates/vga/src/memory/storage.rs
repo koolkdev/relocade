@@ -1,5 +1,4 @@
-//! Physical VRAM with immutable 64-KiB allocation blocks. Consecutive packed
-//! bytes select successive planes; the first four blocks are the VGA planes.
+//! Linear physical VRAM with immutable 64-KiB allocation blocks.
 #[cfg(feature = "renderer")]
 use super::DirtyPages;
 use super::{BLOCKS, BLOCK_BYTES};
@@ -60,11 +59,10 @@ impl Storage {
         }
     }
 
-    /// Internal callers validate packed offsets against VIDEO_MEMORY_BYTES.
+    /// Internal callers validate physical offsets against VIDEO_MEMORY_BYTES.
     fn location(address: u32) -> (usize, usize) {
         let address = address as usize;
-        let block = address / (4 * BLOCK_BYTES) * 4 + (address & 3);
-        (block, (address / 4) % BLOCK_BYTES)
+        (address / BLOCK_BYTES, address % BLOCK_BYTES)
     }
 
     pub fn read(&self, address: u32) -> u8 {
@@ -83,10 +81,32 @@ impl Storage {
         self.changed.mark(block, offset);
     }
 
-    /// Capture complete interleaved groups through the requested physical byte
+    /// Copy consecutive physical bytes, sharing the ownership check within each
+    /// allocation. Equal bytes keep their snapshot storage and dirty-page state.
+    pub fn write_bytes(&mut self, mut address: u32, mut values: &[u8]) {
+        while !values.is_empty() {
+            let (block, offset) = Self::location(address);
+            let count = values.len().min(BLOCK_BYTES - offset);
+            let incoming = &values[..count];
+            if self.blocks[block][offset..offset + count] != *incoming {
+                let data = &mut Arc::make_mut(&mut self.blocks[block])[offset..offset + count];
+                #[cfg(feature = "renderer")]
+                for (index, (&old, &new)) in data.iter().zip(incoming).enumerate() {
+                    if old != new {
+                        self.changed.mark(block, offset + index);
+                    }
+                }
+                data.copy_from_slice(incoming);
+            }
+            address += count as u32;
+            values = &values[count..];
+        }
+    }
+
+    /// Capture complete allocation blocks through the requested physical byte
     /// extent. The caller supplies a layout bounded by physical VRAM.
     pub fn snapshot(&self, bytes: u32) -> MemorySnapshot {
-        let count = (bytes as usize).div_ceil(4 * BLOCK_BYTES) * 4;
+        let count = (bytes as usize).div_ceil(BLOCK_BYTES);
         MemorySnapshot {
             blocks: Arc::from(&self.blocks[..count]),
         }

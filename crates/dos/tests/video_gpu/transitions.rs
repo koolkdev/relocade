@@ -51,10 +51,8 @@ fn blanking_and_bios_mode_changes_replace_scrolled_state_without_invalidating_ca
         assert_white_prefix(&gpu.render(&blanked, [320, 400]).await, 0);
         let restored = run(&mut dos, &[0xba, 0xc4, 3, 0xb8, 1, 1, 0xef, 0xc3]).await;
         assert_white_prefix(&gpu.render(&restored, [320, 400]).await, 1);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(scrolled.plane(plane), blanked.plane(plane)));
-            assert!(std::ptr::eq(scrolled.plane(plane), restored.plane(plane)));
-        }
+        assert!(scrolled.shares_vram_with(&blanked));
+        assert!(scrolled.shares_vram_with(&restored));
 
         let mut retained = Vec::new();
         for (mode, size) in [(0x12, [640, 480]), (0x0d, [320, 200])] {

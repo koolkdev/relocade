@@ -77,9 +77,7 @@ fn guest_planar_modes_masked_pixels_palette_and_text_return() {
                 0xc3,
             ]);
             let changed = run(&mut dos, &recolor).await;
-            for plane in 0..4 {
-                assert!(std::ptr::eq(graphics.plane(plane), changed.plane(plane)));
-            }
+            assert!(graphics.shares_vram_with(&changed));
             assert_image(&gpu.render(&changed, size).await, [255, 0, 0, 255]);
             let text = run(&mut dos, TEXT_WITH_RED_BLOCK).await;
             drop(dos);

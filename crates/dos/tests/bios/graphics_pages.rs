@@ -114,13 +114,16 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
             let down_registers = dos.vga().borrow().registers().clone();
             assert_eq!(down_registers, before_registers);
             for plane in 0..4 {
-                let mut expected_up = before.plane(plane).to_vec();
+                let mut expected_up = before.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
                 let mut expected_down = expected_up.clone();
                 for y in 0..height * 3 {
                     let address = offset + y * stride + 1;
                     let source = offset + (y + height) * stride + 1;
                     let up_bytes = if y < height * 2 {
-                        [before.plane(plane)[source], before.plane(plane)[source + 1]]
+                        [
+                            before.plane_byte(plane, source),
+                            before.plane_byte(plane, source + 1),
+                        ]
                     } else {
                         [if 5 & (1 << plane) != 0 { 255 } else { 0 }; 2]
                     };
@@ -129,25 +132,34 @@ fn planar_scrolls_copy_each_latched_byte_and_fill_without_xor() {
                         [if 9 & (1 << plane) != 0 { 255 } else { 0 }; 2]
                     } else {
                         [
-                            before.plane(plane)[address],
-                            before.plane(plane)[address + 1],
+                            before.plane_byte(plane, address),
+                            before.plane_byte(plane, address + 1),
                         ]
                     };
                     expected_down[address..address + 2].copy_from_slice(&down_bytes);
                 }
-                assert_eq!(up.plane(plane), expected_up);
-                assert_eq!(down.plane(plane), expected_down);
+                assert_eq!(
+                    up.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                    expected_up
+                );
+                assert_eq!(
+                    down.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                    expected_down
+                );
             }
             // Oversized windows clip to the last cell; zero lines means clear.
             let last_cell = ((rows - 1) << 8) | (stride as u16 - 1);
             video(&mut dos, 0x0600, 0x8f00, last_cell, 0xffff);
             let clipped = dos.vga().borrow().snapshot();
             for plane in 0..4 {
-                let mut expected = down.plane(plane).to_vec();
+                let mut expected = down.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
                 for y in (rows as usize - 1) * height..rows as usize * height {
                     expected[offset + y * stride + stride - 1] = 255;
                 }
-                assert_eq!(clipped.plane(plane), expected); // Includes other pages and padding.
+                assert_eq!(
+                    clipped.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                    expected
+                ); // Includes other pages and padding.
             }
         }
     });

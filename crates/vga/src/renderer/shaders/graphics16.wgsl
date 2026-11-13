@@ -9,14 +9,14 @@ fn graphics16_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
         // supply the upper color bits even in this CGA-compatible shift mode.
         let plane = (pixel & 7u) / 4u;
         let shift = 6u - (pixel & 3u) * 2u;
-        let low = (vram_byte(plane, fetch.address) >> shift) & 3u;
-        let high = (vram_byte(plane + 2u, fetch.address) >> shift) & 3u;
+        let low = (vga_byte(plane, fetch.address) >> shift) & 3u;
+        let high = (vga_byte(plane + 2u, fetch.address) >> shift) & 3u;
         color = low | (high << 2u);
     } else {
         // Serial output takes one bit from each plane, high bit first.
         let bit = 7u - (pixel & 7u);
         for (var plane = 0u; plane < 4u; plane++) {
-            color |= ((vram_byte(plane, fetch.address) >> bit) & 1u) << plane;
+            color |= ((vga_byte(plane, fetch.address) >> bit) & 1u) << plane;
         }
     }
     return palette_color(input, serializer_output(color, fetch.clocks_since_load));

@@ -640,8 +640,8 @@ whose `VgaGeometry` also records physical scanlines per output row.
 SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
 captured display settings and VRAM directly in the shader.
 
-Snapshots share immutable 64-KiB blocks with the device: four for VGA, and enough
-blocks to cover the packed viewport's final byte for SVGA. Capturing or cloning
+Snapshots share immutable 64-KiB blocks of linear physical VRAM with the device:
+four for VGA, and enough to cover the packed viewport's final byte for SVGA. Capturing or cloning
 a snapshot copies references and register values, not VRAM bytes. A guest write
 copies a shared block only when its final physical byte changes; VGA routing,
 write modes and masks apply before that comparison. Subsequent writes reuse the
@@ -783,8 +783,8 @@ nine-dot text width, 13 flat inter-stage variables, two uniform buffers and one
 buffer is 128 bytes; packed scanout uses two words. The shared DAC buffer holds
 a four-byte mask and 768 palette bytes at offset 16. With
 the renderer feature enabled, final physical writes mark fixed 1-KiB pages.
-Consecutive dirty pages in each block become one upload. Character,
-attribute and font planes update independently. Hidden memory is included, so
+Consecutive dirty pages in each block become one upload. VGA plane bytes occupy
+their physical addresses in those pages. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
 Snapshots remain complete. Their private transfer hints contain dirty pages and
@@ -1183,15 +1183,17 @@ register banks remain stored on the device across addressing-mode changes.
 
 Packed byte addresses interleave physical VGA planes: addresses 0, 1, 2 and 3
 are byte zero of planes 0, 1, 2 and 3; address 4 is byte one of plane zero.
-That mapping repeats in each 256-KiB group throughout VRAM. Legacy VGA accesses
-remain within the first group, including their existing chain-4 address mapping.
-Changing addressing modes never repacks memory. Packed accesses bypass VGA
-latches and write masks. Immutable 64-KiB storage blocks preserve retained
+Storage follows physical byte addresses directly. Legacy VGA accesses translate
+plane offsets to `4 * offset + plane` within the first 256 KiB, including their
+existing chain-4 address mapping. The VGA shaders use the same translation;
+packed scanout reads bytes directly. Changing addressing modes never repacks
+memory. Packed accesses bypass VGA latches and write masks and copy consecutive
+bytes within each allocation. Immutable 64-KiB storage blocks preserve retained
 VGA snapshots and avoid allocating unused extended memory until written.
 
 Immutable memory snapshots retain the blocks covering a display's physical
-memory extent, rounded to complete groups of four interleaved blocks. Legacy
-VGA captures retain the first four blocks; 640×480 packed captures retain eight.
+memory extent, rounded to complete 64-KiB blocks. Legacy VGA captures retain the
+first four blocks; 640×480 eight-bit packed captures retain five.
 Dirty pages are tracked throughout
 VRAM; an upload uses sparse ranges only when its prior block matches the
 capture's baseline, and uploads a complete block when that baseline is absent.

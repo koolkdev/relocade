@@ -84,7 +84,7 @@ fn packed_snapshots_preserve_skipped_extended_writes_and_clear_on_mode_entry() {
         uploads
             .update(&take(&vga, &io, video.as_mut(), &clock))
             .len(),
-        8
+        5
     );
     io.write_port(0x1ce, 2, 5);
     io.write_port(0x1cf, 2, 4);
@@ -94,7 +94,7 @@ fn packed_snapshots_preserve_skipped_extended_writes_and_clear_on_mode_entry() {
     io.write_mmio(0xa1000, 1, 2);
     io.write_mmio(0xa2003, 1, 3);
     let latest = take(&vga, &io, video.as_mut(), &clock);
-    assert_eq!(uploads.update(&latest), [(262144, 65536), (460800, 1024)]);
+    assert_eq!(uploads.update(&latest), [(262144, 65536)]);
     assert_eq!(skipped.vram_byte(0x40000), Some(1));
     assert_eq!(skipped.vram_byte(0x41000), Some(0));
 
@@ -108,7 +108,7 @@ fn packed_snapshots_preserve_skipped_extended_writes_and_clear_on_mode_entry() {
     io.write_port(0x1cf, 2, 1);
     let cleared = take(&vga, &io, video.as_mut(), &clock);
     let writes = uploads.update(&cleared);
-    assert_eq!(writes.len(), 8);
+    assert_eq!(writes.len(), 5);
     assert!(writes.iter().all(|(_, bytes)| *bytes == 65536));
     assert_eq!(cleared.vram_byte(0x42003), Some(0));
     assert_eq!(latest.vram_byte(0x42003), Some(3));
@@ -168,7 +168,7 @@ fn text(io: &IoBus) {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() {
+fn consecutive_captures_upload_physical_pages_containing_text_and_fonts() {
     let clock = ManualClock::default();
     let (vga, io, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
@@ -190,14 +190,14 @@ fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() 
     io.write_mmio(0xb8001, 1, 7);
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(65536, 1024)]
+        [(0, 1024)]
     );
     planar(&io, 4);
     io.write_mmio(0xa0820, 1, 0x80);
     text(&io);
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(133120, 1024)]
+        [(8192, 1024)]
     );
     io.write_port(0x3c4, 2, 0x0503); // Bank selection changes settings, not font bytes.
     io.write_port(0x3d4, 2, 0x080c); // Select previously hidden text memory.
@@ -208,7 +208,7 @@ fn consecutive_captures_keep_character_attribute_and_font_uploads_independent() 
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges() {
+fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_memory_edges() {
     let clock = ManualClock::default();
     let (vga, io, mut video) = start_video(&clock);
     let mut uploads = Uploads::default();
@@ -219,23 +219,10 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges
     io.write_mmio(0xaffff, 1, 4); // Last page, all four physical planes.
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [
-            (0, 2048),
-            (6144, 1024),
-            (64512, 1024),
-            (65536, 2048),
-            (71680, 1024),
-            (130048, 1024),
-            (131072, 2048),
-            (137216, 1024),
-            (195584, 1024),
-            (196608, 2048),
-            (202752, 1024),
-            (261120, 1024),
-        ]
+        [(3072, 2048), (24576, 1024), (261120, 1024)]
     );
-    for page in 0..64 {
-        io.write_mmio(0xa0000 + page * 1024, 1, 0x55);
+    for page in 0..256 {
+        io.write_mmio(0xa0000 + page * 256, 1, 0x55);
     }
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
@@ -255,7 +242,7 @@ fn routing_and_masks_mark_only_final_physical_changes() {
     io.write_mmio(0xa0401, 1, 0x5a); // Physical plane one, offset 0x400.
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(66560, 1024)]
+        [(4096, 1024)]
     );
     io.write_mmio(0xa0401, 1, 0x5a); // Equal value.
     io.read_mmio(0xa0401, 1); // Capture the existing bytes in the latches.
@@ -269,11 +256,11 @@ fn routing_and_masks_mark_only_final_physical_changes() {
     io.write_port(0x3c4, 2, 0x0f02);
     io.write_port(0x3ce, 2, 0xff08);
     // A real edit in another page makes false dirty bits from the no-op writes
-    // observable, even though unchanged planes would otherwise skip uploading.
+    // observable, even though unchanged blocks would otherwise skip uploading.
     io.write_mmio(0xa0c01, 1, 0x33);
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(68608, 1024)]
+        [(12288, 1024)]
     );
 }
 
@@ -296,22 +283,22 @@ fn skipped_queued_snapshots_restore_blocks_with_a_different_upload_baseline() {
     let newest = take(&vga, &io, video.as_mut(), &clock);
     // The queued font and first text snapshots were replaced. Their changed
     // blocks no longer match the renderer's baseline, so restore them in full.
-    assert_eq!(uploads.update(&newest), [(0, 65536), (131072, 65536)]);
-    assert_eq!(skipped.plane(2)[0x820], 0x80);
-    assert_eq!(skipped.plane(0)[0], 0);
-    assert_eq!(skipped.plane(0)[0x800], 0);
+    assert_eq!(uploads.update(&newest), [(0, 65536)]);
+    assert_eq!(skipped.plane_byte(2, 0x820), 0x80);
+    assert_eq!(skipped.plane_byte(0, 0), 0);
+    assert_eq!(skipped.plane_byte(0, 0x800), 0);
 
     // Later writes start a fresh interval, without resending the earlier pages.
     io.write_mmio(0xb9000, 1, u64::from(b'C'));
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(4096, 1024)]
+        [(16384, 1024)]
     );
     drop(video);
     drop(io);
     drop(vga);
     assert_eq!(uploads.update(&skipped), [(0, 65536)]);
-    assert_eq!(uploads.update(&first), [(131072, 65536)]);
+    assert_eq!(uploads.update(&first), [(0, 65536)]);
     let other = DispiAdapter::with_clock(ManualClock::new().clock());
     assert_eq!(
         uploads.update(&other.snapshot()),
@@ -366,14 +353,14 @@ fn immediate_snapshots_preserve_pending_changes_and_can_be_uploaded_independentl
     let immediate = vga.borrow().snapshot();
     io.write_mmio(0xb8400, 1, u64::from(b'B'));
     let published = take(&vga, &io, video.as_mut(), &clock);
-    assert_eq!(uploads.update(&published), [(0, 2048)]);
-    assert_eq!(immediate.plane(0)[0x400], 0);
+    assert_eq!(uploads.update(&published), [(0, 1024), (4096, 1024)]);
+    assert_eq!(immediate.plane_byte(0, 0x400), 0);
     publish(&io, video.as_mut(), &clock);
     assert!(vga.borrow().frames().is_empty());
     assert!(uploads.update(&published).is_empty());
 
     io.write_mmio(0xb8800, 1, u64::from(b'C'));
-    assert_eq!(uploads.update(&vga.borrow().snapshot()), [(2048, 1024)]);
+    assert_eq!(uploads.update(&vga.borrow().snapshot()), [(8192, 1024)]);
     io.write_mmio(0xb8c00, 1, u64::from(b'D'));
     // The previous immediate snapshot differs from the published baseline.
     assert_eq!(uploads.update(&vga.borrow().snapshot()), [(0, 65536)]);

@@ -144,11 +144,11 @@ fn hardware_save_reads_monochrome_registers_and_spills_all_four_latches() {
         assert_eq!(after_registers, before_registers);
         for (plane, byte) in [0x12, 0x34, 0x56, 0x78].into_iter().enumerate() {
             assert_eq!(
-                &after.plane(plane)[..0xffff],
-                &before.plane(plane)[..0xffff]
+                &after.plane_bytes(plane, 0..0xffff).collect::<Vec<_>>(),
+                &before.plane_bytes(plane, 0..0xffff).collect::<Vec<_>>()
             );
-            assert_eq!(after.plane(plane)[0xffff], byte);
-            assert_eq!(before.plane(plane)[0xffff], 0); // Retained capture is immutable.
+            assert_eq!(after.plane_byte(plane, 0xffff), byte);
+            assert_eq!(before.plane_byte(plane, 0xffff), 0); // Retained capture is immutable.
         }
         let mut context = dos.cpu().context();
         context.io.write_port(0x3c2, 1, 0xe2);
@@ -157,7 +157,7 @@ fn hardware_save_reads_monochrome_registers_and_spills_all_four_latches() {
         context.memory.write_u8(0xa0020, 0).unwrap();
         let after_write = dos.vga().borrow().snapshot();
         for (plane, byte) in [0x12, 0x34, 0x56, 0x78].into_iter().enumerate() {
-            assert_eq!(after_write.plane(plane)[0x20], byte);
+            assert_eq!(after_write.plane_byte(plane, 0x20), byte);
         }
     });
 }

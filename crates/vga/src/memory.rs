@@ -50,12 +50,25 @@ impl VideoMemory {
     }
 
     pub fn write(&mut self, address: u32, bytes: u8, value: u64, window: VramWindow) {
-        for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
-            let address = address + index as u32;
+        if bytes == 1 {
             if let Some(offset) = window.memory_offset(address) {
-                self.storage.write(offset, *byte);
+                self.storage.write(offset, value as u8);
             }
+            return;
         }
+        let skip = window
+            .cpu_start
+            .saturating_sub(address)
+            .min(u32::from(bytes));
+        let Some(offset) = window.memory_offset(address + skip) else {
+            return;
+        };
+        let available = window.bytes - (address + skip - window.cpu_start);
+        let count = (u32::from(bytes) - skip).min(available);
+        self.storage.write_bytes(
+            offset,
+            &value.to_le_bytes()[skip as usize..(skip + count) as usize],
+        );
     }
 
     /// Clears all physical VRAM.

@@ -73,7 +73,7 @@ fn overdue_writes_wake_the_output_task_before_the_guest_timer_notifies() {
     poll_video(video.as_mut(), &mut cx);
     let capture = source.try_recv().unwrap();
 
-    assert_eq!(capture.plane(0)[0], b'C', "capture precedes the write");
+    assert_eq!(capture.plane_byte(0, 0), b'C', "capture precedes the write");
     assert_eq!(vga.io.read_mmio(TEXT_MEMORY_START, 1), u64::from(b'D'));
 }
 
@@ -181,7 +181,7 @@ fn receiver_cancels_waits_replaces_queued_frames_and_finishes_on_close() {
     let Poll::Ready(Ok(latest)) = slow.as_mut().poll(&mut cx) else {
         panic!("latest frame should be ready");
     };
-    assert_eq!(latest.plane(0)[0], 20);
+    assert_eq!(latest.plane_byte(0, 0), 20);
     let mut next = std::pin::pin!(source.recv());
     assert!(matches!(next.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
     assert!(source.is_empty());
@@ -229,8 +229,8 @@ fn unchanged_refreshes_preserve_capture_and_leave_waiters_asleep() {
         panic!("changed inputs must wake the consumer");
     };
 
-    assert_eq!(latest.plane(0)[0], 0xdb);
-    assert_ne!(first.plane(0)[0], 0xdb);
+    assert_eq!(latest.plane_byte(0, 0), 0xdb);
+    assert_ne!(first.plane_byte(0, 0), 0xdb);
     assert!(source.is_empty());
 
     let mut changed = std::pin::pin!(source.recv());
@@ -328,9 +328,7 @@ fn mixed_register_display_bits_still_publish_new_inputs() {
         let capture = source
             .try_recv()
             .expect("display bits must publish a frame");
-        for plane in 0..4 {
-            assert!(std::ptr::eq(first.plane(plane), capture.plane(plane)));
-        }
+        assert!(first.shares_vram_with(&capture));
     }
 }
 
@@ -369,9 +367,7 @@ fn cursor_and_attribute_blink_animate_independently_and_retained_pixels_stay_imm
 
         assert_eq!(capture.vga().unwrap().cursor_blink_on, cursor_on);
         assert_eq!(capture.vga().unwrap().attribute_blink_on, attribute_on);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(on.plane(plane), capture.plane(plane)));
-        }
+        assert!(on.shares_vram_with(&capture));
         let image = software::rasterize(&capture);
         assert_eq!(
             &image.pixels[..4],

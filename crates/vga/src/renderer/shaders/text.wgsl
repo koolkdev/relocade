@@ -13,15 +13,15 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let line_start = line.counter + line.byte_pan;
     let counter = (line_start + column / count_divisor) & 0xffffu;
     let address = display_address(counter, glyph_row, address_mode, underline);
-    let character = vram_byte(0u, address);
-    let cell_attribute = vram_byte(1u, address);
+    let character = vga_byte(0u, address);
+    let cell_attribute = vga_byte(1u, address);
 
     // Glyphs live in plane 2. Underline and line-graphics rules alter their dots.
     let font_a = input.fonts.x;
     let font_b = input.fonts.y;
     let dual_font = input.fonts.z != 0u;
     let font = select(font_b, font_a, dual_font && (cell_attribute & 8u) != 0u);
-    var glyph_bits = vram_byte(2u, font + character * 32u + glyph_row);
+    var glyph_bits = vga_byte(2u, font + character * 32u + glyph_row);
     if (cell_attribute & 0x77u) == 1u && glyph_row == (underline & 31u) {
         glyph_bits = 255u;
     }

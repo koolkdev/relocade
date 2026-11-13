@@ -57,9 +57,7 @@ fn grayscale_uses_ibm_rounding_and_wraps_only_the_requested_dac_range() {
         let mut registers = after_registers.clone();
         registers.dac = before_registers.dac.clone();
         assert_eq!(registers, before_registers);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-        }
+        assert!(after.shares_vram_with(&before));
         // Retained captures keep the original colors after the port writes.
         assert_eq!(before.dac.colors[252], [63, 0, 0]);
 

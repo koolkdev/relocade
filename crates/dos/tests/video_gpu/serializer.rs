@@ -103,9 +103,7 @@ fn guest_pans_chained_serializers_across_a_split() {
             ],
         )
         .await;
-        for plane in 0..4 {
-            assert!(std::ptr::eq(reset_pan.plane(plane), keep_pan.plane(plane)));
-        }
+        assert!(reset_pan.shares_vram_with(&keep_pan));
         let expected_keep = [
             upper,
             colors(&[

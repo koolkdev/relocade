@@ -60,9 +60,7 @@ fn planar_reads_use_each_modes_page_stride_and_full_font() {
             let after = dos.vga().borrow().snapshot();
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
-            for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-            }
+            assert!(after.shares_vram_with(&before));
         }
     });
 }
@@ -113,9 +111,7 @@ fn planar_reads_honor_color_comparison_and_programmable_font_height() {
             let after = dos.vga().borrow().snapshot();
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
-            for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-            }
+            assert!(after.shares_vram_with(&before));
         }
     });
 }

@@ -97,7 +97,9 @@ fn geometry_changing_font_calls_validate_before_upload_and_handle_monochrome_crt
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(before_registers, after_registers);
-        assert_eq!(before.plane(2), after.plane(2));
+        assert!(before
+            .plane_bytes(2, 0..65536)
+            .eq(after.plane_bytes(2, 0..65536)));
         video(&mut dos, 0x0500, 0, 0, 0);
         // A one-high font would need 400 BIOS rows, beyond the byte-sized row field.
         assert_eq!(

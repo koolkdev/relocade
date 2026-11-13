@@ -54,20 +54,42 @@ fn guest_font_loading_wraps_the_source_and_preserves_other_memory_and_registers(
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in [0, 1, 3] {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(after
+                .plane_bytes(plane, 0..65536)
+                .eq(before.plane_bytes(plane, 0..65536)));
         }
-        assert_eq!(&after.plane(2)[..0x6820], &before.plane(2)[..0x6820]);
-        assert_eq!(&after.plane(2)[0x6820..0x6826], &glyphs[..6]);
-        assert_eq!(&after.plane(2)[0x6826..0x6840], &[0xa5; 26]);
-        assert_eq!(&after.plane(2)[0x6840..0x6846], &glyphs[6..]);
-        assert_eq!(&after.plane(2)[0x6846..], &before.plane(2)[0x6846..]);
+        assert_eq!(
+            &after.plane_bytes(2, 0..0x6820).collect::<Vec<_>>(),
+            &before.plane_bytes(2, 0..0x6820).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            &after.plane_bytes(2, 0x6820..0x6826).collect::<Vec<_>>(),
+            &glyphs[..6]
+        );
+        assert_eq!(
+            &after.plane_bytes(2, 0x6826..0x6840).collect::<Vec<_>>(),
+            &[0xa5; 26]
+        );
+        assert_eq!(
+            &after.plane_bytes(2, 0x6840..0x6846).collect::<Vec<_>>(),
+            &glyphs[6..]
+        );
+        assert_eq!(
+            &after.plane_bytes(2, 0x6846..65536).collect::<Vec<_>>(),
+            &before.plane_bytes(2, 0x6846..65536).collect::<Vec<_>>()
+        );
         // A retained snapshot owns the old plane-two bytes.
-        assert_eq!(&before.plane(2)[0x6820..0x6840], &[0xa5; 32]);
+        assert_eq!(
+            &before.plane_bytes(2, 0x6820..0x6840).collect::<Vec<_>>(),
+            &[0xa5; 32]
+        );
         video(&mut dos, 0x1100, 0x0605, 0, 256);
         let unchanged = dos.vga().borrow().snapshot();
         let unchanged_registers = dos.vga().borrow().registers().clone();
         assert_eq!(unchanged_registers, after_registers);
-        assert_eq!(unchanged.plane(2), after.plane(2));
+        assert!(unchanged
+            .plane_bytes(2, 0..65536)
+            .eq(after.plane_bytes(2, 0..65536)));
         let context = dos.cpu().context();
         assert_eq!(context.memory.read_u16(0x485).unwrap(), 16);
         assert_eq!(context.memory.read_u8(0x484).unwrap(), 24);
@@ -88,11 +110,15 @@ fn built_in_font_uploads_leave_geometry_and_bank_selection_to_the_caller() {
             video(&mut dos, function, bank, 99, 99);
             let snapshot = dos.vga().borrow().snapshot();
             assert_eq!(
-                &snapshot.plane(2)[offset + 65 * 32..offset + 65 * 32 + glyph.len()],
+                &snapshot
+                    .plane_bytes(2, offset + 65 * 32..offset + 65 * 32 + glyph.len())
+                    .collect::<Vec<_>>(),
                 glyph
             );
             assert_eq!(
-                &snapshot.plane(2)[offset + 219 * 32..offset + 219 * 32 + glyph.len()],
+                &snapshot
+                    .plane_bytes(2, offset + 219 * 32..offset + 219 * 32 + glyph.len())
+                    .collect::<Vec<_>>(),
                 vec![255; glyph.len()]
             );
             assert_eq!(snapshot.vga().unwrap().sequencer[3], 0);
@@ -203,7 +229,9 @@ fn invalid_font_requests_leave_memory_and_display_state_untouched() {
         assert_eq!(actual, geometry);
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(after
+                .plane_bytes(plane, 0..65536)
+                .eq(before.plane_bytes(plane, 0..65536)));
         }
     });
 }

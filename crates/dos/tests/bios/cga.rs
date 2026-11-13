@@ -39,7 +39,9 @@ fn cga_modes_restore_b8000_routing_and_honor_memory_preservation() {
             video(&mut dos, 0x80 | mode, 0, 0, 0);
             let preserved = dos.vga().borrow().snapshot();
             for plane in 0..4 {
-                assert_eq!(preserved.plane(plane), retained.plane(plane));
+                assert!(preserved
+                    .plane_bytes(plane, 0..65536)
+                    .eq(retained.plane_bytes(plane, 0..65536)));
             }
             assert_eq!(preserved.geometry().size, [width, 200]);
             assert_eq!(preserved.vga().unwrap().geometry().scanline_step, 2);
@@ -70,8 +72,12 @@ fn cga_modes_restore_b8000_routing_and_honor_memory_preservation() {
             assert!(clear.iter().all(|&byte| byte == 0));
             for plane in (if mode == 6 { 1 } else { 2 })..4 {
                 assert_eq!(
-                    dos.vga().borrow().snapshot().plane(plane),
-                    seeded.plane(plane)
+                    dos.vga()
+                        .borrow()
+                        .snapshot()
+                        .plane_bytes(plane, 0..65536)
+                        .collect::<Vec<_>>(),
+                    seeded.plane_bytes(plane, 0..65536).collect::<Vec<_>>()
                 );
             }
         }
@@ -165,7 +171,7 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                 ]
             };
             for plane in 0..4 {
-                let mut expected = before.plane(plane).to_vec();
+                let mut expected = before.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
                 for (offset, byte) in bytes {
                     if mode == 4 && plane == (offset & 1) {
                         expected[offset & !1] = byte;
@@ -173,7 +179,10 @@ fn packed_pixels_preserve_neighbors_banks_and_guest_access_registers() {
                         expected[offset] = byte;
                     }
                 }
-                assert_eq!(after.plane(plane), expected);
+                assert_eq!(
+                    after.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                    expected
+                );
             }
         }
     });

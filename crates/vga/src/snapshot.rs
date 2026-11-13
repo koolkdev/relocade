@@ -3,6 +3,7 @@
 #[cfg(feature = "renderer")]
 use crate::memory::DirtyPages;
 use crate::{memory::MemorySnapshot, DisplayGeometry, Scanout, VgaDisplayState};
+use std::ops::Range;
 
 /// Shared indexed-color display inputs, without CPU palette-transfer position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,14 +84,35 @@ impl DisplaySnapshot {
         }
     }
 
-    /// A physical packed-address byte, or None outside the captured memory extent.
+    /// A physical VRAM byte, or None outside the captured memory extent.
     pub fn vram_byte(&self, address: u32) -> Option<u8> {
         self.memory.read(address)
     }
 
-    /// One complete 64-KiB physical plane, including bytes outside the display.
-    /// Panics when `plane` is outside 0–3.
-    pub fn plane(&self, plane: usize) -> &[u8] {
-        &self.memory.blocks[..4][plane]
+    /// One VGA plane byte, including bytes outside the displayed image.
+    /// Panics for an invalid plane/address or an uncaptured physical byte.
+    pub fn plane_byte(&self, plane: usize, address: usize) -> u8 {
+        assert!(plane < 4 && address < 65536, "invalid VGA plane address");
+        self.memory
+            .read((address * 4 + plane) as u32)
+            .expect("captured VGA plane byte")
+    }
+
+    /// Inspect a VGA plane without requiring a contiguous plane allocation.
+    pub fn plane_bytes(
+        &self,
+        plane: usize,
+        range: Range<usize>,
+    ) -> impl ExactSizeIterator<Item = u8> + '_ {
+        assert!(
+            plane < 4 && range.start <= range.end && range.end <= 65536,
+            "invalid VGA plane range"
+        );
+        range.map(move |address| self.plane_byte(plane, address))
+    }
+
+    /// Whether both captures retain the same complete immutable VRAM blocks.
+    pub fn shares_vram_with(&self, other: &Self) -> bool {
+        self.memory.same_blocks(&other.memory)
     }
 }

@@ -23,10 +23,10 @@ fn two_color_planar_characters_force_white_only_for_write_with_attribute() {
         let red_plane = dos.vga().borrow().snapshot();
         for plane in 0..4 {
             for y in 0..16 {
-                assert_eq!(white.plane(plane)[y * 80], 0x81);
-                assert_eq!(erased.plane(plane)[y * 80], 0);
+                assert_eq!(white.plane_byte(plane, y * 80), 0x81);
+                assert_eq!(erased.plane_byte(plane, y * 80), 0);
                 assert_eq!(
-                    red_plane.plane(plane)[y * 80],
+                    red_plane.plane_byte(plane, y * 80),
                     if plane == 2 { 0x81 } else { 0 }
                 );
             }
@@ -34,7 +34,7 @@ fn two_color_planar_characters_force_white_only_for_write_with_attribute() {
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0);
         video(&mut dos, 0x0e41, 0, 0, 0); // Teletype also respects foreground zero.
         for plane in 0..4 {
-            assert_eq!(dos.vga().borrow().snapshot().plane(plane)[0], 0);
+            assert_eq!(dos.vga().borrow().snapshot().plane_byte(plane, 0), 0);
         }
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 1);
     });
@@ -83,7 +83,7 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
         assert_eq!(restored_registers, before_registers);
         assert_eq!(dos.cpu().context().memory.read_u16(0x45e).unwrap(), 39);
         for plane in 0..4 {
-            let mut expected = before.plane(plane).to_vec();
+            let mut expected = before.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
             let mut expected_xor = expected.clone();
             let mut expected_background = expected.clone();
             for (row, column) in [(0, 39), (1, 0), (1, 1)] {
@@ -96,10 +96,24 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
                     }
                 }
             }
-            assert_eq!(replacement.plane(plane), expected);
-            assert_eq!(xor_background.plane(plane), expected_background);
-            assert_eq!(xor.plane(plane), expected_xor);
-            assert_eq!(restored.plane(plane), expected);
+            assert_eq!(
+                replacement.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                xor_background
+                    .plane_bytes(plane, 0..65536)
+                    .collect::<Vec<_>>(),
+                expected_background
+            );
+            assert_eq!(
+                xor.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected_xor
+            );
+            assert_eq!(
+                restored.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected
+            );
         }
         // Even a maximal repeat stops at the graphics page bottom, without
         // wrapping into another page or advancing the stored cursor.
@@ -107,11 +121,14 @@ fn planar_characters_replace_or_xor_glyph_bits_without_moving_the_cursor() {
         video(&mut dos, 0x0907, 0x0702, 0xffff, 0);
         let bottom = dos.vga().borrow().snapshot();
         for plane in 0..4 {
-            let mut expected = restored.plane(plane).to_vec();
+            let mut expected = restored.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
             for (scanline, &bits) in glyph.iter().enumerate() {
                 expected[0xe000 + (192 + scanline) * 40 + 39] = if plane == 1 { bits } else { 0 };
             }
-            assert_eq!(bottom.plane(plane), expected);
+            assert_eq!(
+                bottom.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected
+            );
         }
         assert_eq!(dos.cpu().context().memory.read_u16(0x45e).unwrap(), 0x1827);
     });
@@ -193,11 +210,14 @@ fn tall_graphics_fonts_use_int43_and_read_vram_before_remapping_access() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            let mut expected = before.plane(plane).to_vec();
+            let mut expected = before.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
             for (y, &byte) in glyph.iter().enumerate() {
                 expected[y * 80] = if plane == 0 || plane == 3 { byte } else { 0 };
             }
-            assert_eq!(after.plane(plane), expected);
+            assert_eq!(
+                after.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected
+            );
         }
     });
 }

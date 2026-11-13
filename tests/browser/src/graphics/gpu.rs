@@ -65,7 +65,7 @@ pub async fn gpu_workers() -> Result<(), String> {
                 };
                 let size = match select(Box::pin(next), incoming.next()).await {
                     Either::Left((Some(capture), _)) => {
-                        if capture.plane(0)[0] != 0xdb {
+                        if capture.plane_byte(0, 0) != 0xdb {
                             continue;
                         }
                         needs_decode |= vga_renderer.upload(&queue, &capture);

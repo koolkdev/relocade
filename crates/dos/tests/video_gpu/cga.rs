@@ -69,9 +69,7 @@ fn guest_cga_modes_decode_banked_writes_and_recolor_retained_captures() {
                     &[0xb8, 0, 0x0b, 0xbb, 0, 1, 0xcd, 0x10, 0xc3], // AH=0Bh, BH=1, BL=0.
                 )
                 .await;
-                for plane in 0..4 {
-                    assert!(std::ptr::eq(capture.plane(plane), recolored.plane(plane)));
-                }
+                assert!(capture.shares_vram_with(&recolored));
                 let image = gpu.render(&recolored, size).await;
                 assert_packed_image(&image, &memory, 320, &PALETTE_ZERO);
                 retained.push((recolored, size, image));

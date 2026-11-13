@@ -54,7 +54,7 @@ pub async fn graphics_workers() -> Result<(), String> {
                 let capture = if cached.is_none() {
                     loop {
                         let capture = worker_source.recv().await.unwrap();
-                        if capture.plane(0)[0] == 0xdb {
+                        if capture.plane_byte(0, 0) == 0xdb {
                             break Some(capture);
                         }
                     }

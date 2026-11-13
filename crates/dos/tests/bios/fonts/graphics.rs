@@ -56,9 +56,7 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-        }
+        assert!(after.shares_vram_with(&before));
         // Geometry-changing graphics font calls are also metadata-only in text.
         video(&mut dos, 3, 0, 0, 0);
         let text = dos.vga().borrow().snapshot();
@@ -68,7 +66,7 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         let selected = dos.vga().borrow().snapshot();
         let selected_registers = dos.vga().borrow().registers().clone();
         assert_eq!(selected_registers, text_registers);
-        assert!(std::ptr::eq(selected.plane(2), text.plane(2)));
+        assert!(selected.shares_vram_with(&text));
     });
 }
 
@@ -92,7 +90,9 @@ fn graphics_font_vectors_are_live_and_user_glyphs_wrap_the_segment_offset() {
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
-        assert_eq!(after.plane(2), before.plane(2));
+        assert!(after
+            .plane_bytes(2, 0..65536)
+            .eq(before.plane_bytes(2, 0..65536)));
         assert_eq!(dos.cpu().context().memory.read_u16(0x485).unwrap(), 16);
         video(&mut dos, 0x0d, 0, 0, 0);
         assert_eq!(
@@ -114,12 +114,15 @@ fn graphics_font_vectors_are_live_and_user_glyphs_wrap_the_segment_offset() {
         video(&mut dos, 0x0980, 4, 1, 0);
         let first = dos.vga().borrow().snapshot();
         for (y, &row) in glyph.iter().enumerate() {
-            assert_eq!(first.plane(2)[(8 + y) * 40 + 2], row);
+            assert_eq!(first.plane_byte(2, (8 + y) * 40 + 2), row);
         }
         dos.cpu().context().memory.write_u8(0x31ffc, 0x81).unwrap();
         video(&mut dos, 0x0200, 0, 0, 0x0103);
         video(&mut dos, 0x0980, 4, 1, 0);
-        assert_eq!(dos.vga().borrow().snapshot().plane(2)[8 * 40 + 3], 0x81);
+        assert_eq!(
+            dos.vga().borrow().snapshot().plane_byte(2, 8 * 40 + 3),
+            0x81
+        );
         // A custom height changes placement as well as the returned BIOS fields.
         {
             let mut context = dos.cpu().context();
@@ -134,7 +137,7 @@ fn graphics_font_vectors_are_live_and_user_glyphs_wrap_the_segment_offset() {
         video(&mut dos, 0x0941, 1, 1, 0);
         let custom = dos.vga().borrow().snapshot();
         for (y, expected) in [(5, 0), (6, 0x81), (7, 0x42), (8, 0x24), (9, 0)] {
-            assert_eq!(custom.plane(0)[y * 40 + 4], expected);
+            assert_eq!(custom.plane_byte(0, y * 40 + 4), expected);
         }
         let info = video(&mut dos, 0x1130, 0x0100, 0, 0);
         assert_eq!(info.registers.ecx as u16, 3);

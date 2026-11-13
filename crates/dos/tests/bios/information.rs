@@ -81,9 +81,7 @@ fn functionality_report_has_the_ibm_layout_and_rom_capabilities() {
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
-        for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
-        }
+        assert!(after.shares_vram_with(&before));
     });
 }
 

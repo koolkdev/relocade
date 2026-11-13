@@ -31,8 +31,11 @@ fn bios_custom_fonts_and_dual_banks_render_fifty_rows_and_preserve_old_captures(
         program.resize(0x100, 0x90);
         program.extend_from_slice(&[255; 8]);
         let solid = run(&mut dos, &program).await;
-        assert!(std::ptr::eq(diagonal.plane(0), solid.plane(0)));
-        assert!(std::ptr::eq(diagonal.plane(1), solid.plane(1)));
+        for plane in 0..2 {
+            assert!(diagonal
+                .plane_bytes(plane, 0..65536)
+                .eq(solid.plane_bytes(plane, 0..65536)));
+        }
         assert_custom_font(&gpu.render(&solid, [720, 400]).await, true);
         drop(dos);
         assert_eq!(gpu.render(&diagonal, [720, 400]).await, pixels);

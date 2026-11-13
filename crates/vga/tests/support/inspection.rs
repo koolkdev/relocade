@@ -33,8 +33,8 @@ pub fn inspect(snapshot: &DisplaySnapshot) -> Inspection {
                         .address(line.counter.wrapping_add(column as u16), line.glyph_row),
                 );
                 Cell {
-                    character: snapshot.plane(0)[address],
-                    attribute: snapshot.plane(1)[address],
+                    character: snapshot.plane_byte(0, address),
+                    attribute: snapshot.plane_byte(1, address),
                 }
             })
         })

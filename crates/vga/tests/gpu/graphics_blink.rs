@@ -49,9 +49,7 @@ async fn check_blink() {
     common::service_video(video.as_mut());
     let off = source.try_recv().unwrap();
     assert!(!off.vga().unwrap().attribute_blink_on);
-    for plane in 0..4 {
-        assert!(std::ptr::eq(on.plane(plane), off.plane(plane)));
-    }
+    assert!(on.shares_vram_with(&off));
     let upper = pixels([8, 9, 10, 11, 12, 13, 14, 15].repeat(2));
     gpu.expect(&off, [16, 1], &upper).await;
 

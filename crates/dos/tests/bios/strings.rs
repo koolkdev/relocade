@@ -145,7 +145,7 @@ fn graphics_strings_use_selected_fonts_and_scroll_the_hidden_page_with_black_fil
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
         for plane in 0..4 {
-            let mut expected = before.plane(plane).to_vec();
+            let mut expected = before.plane_bytes(plane, 0..65536).collect::<Vec<_>>();
             for y in 0..3 {
                 expected[0xe000 + y * 40 + 2] = if plane == 1 || plane == 2 {
                     0x80 >> y
@@ -159,7 +159,10 @@ fn graphics_strings_use_selected_fonts_and_scroll_the_hidden_page_with_black_fil
                     expected[0xe000 + y * 40] = [0x81, 0x42, 0x24][y - 3];
                 }
             }
-            assert_eq!(after.plane(plane), expected);
+            assert_eq!(
+                after.plane_bytes(plane, 0..65536).collect::<Vec<_>>(),
+                expected
+            );
         }
         assert_eq!(after_registers, before_registers);
         let context = dos.cpu().context();
@@ -193,8 +196,8 @@ fn mode_11_strings_force_white_and_preserve_the_xor_flag() {
         let erased = dos.vga().borrow().snapshot();
         for plane in 0..4 {
             for y in 0..16 {
-                assert_eq!(white.plane(plane)[y * 80], 0x81);
-                assert_eq!(erased.plane(plane)[y * 80], 0);
+                assert_eq!(white.plane_byte(plane, y * 80), 0x81);
+                assert_eq!(erased.plane_byte(plane, y * 80), 0);
             }
         }
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0203);
@@ -256,7 +259,9 @@ fn empty_strings_leave_cursors_untouched_and_invalid_requests_have_no_output() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert_eq!(after.plane(plane), before.plane(plane));
+            assert!(after
+                .plane_bytes(plane, 0..65536)
+                .eq(before.plane_bytes(plane, 0..65536)));
         }
         assert_eq!(dos.cpu().context().memory.read_u16(0x450).unwrap(), 0x0203);
     });

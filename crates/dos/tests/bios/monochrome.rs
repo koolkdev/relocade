@@ -49,7 +49,9 @@ fn monochrome_profiles_route_ports_and_preserve_the_shared_text_planes() {
                 assert_eq!(mono.dac.colors[index], [level; 3]);
             }
             for plane in 0..2 {
-                assert_eq!(mono.plane(plane), color.plane(plane));
+                assert!(mono
+                    .plane_bytes(plane, 0..65536)
+                    .eq(color.plane_bytes(plane, 0..65536)));
             }
             {
                 let mut context = dos.cpu().context();
@@ -160,7 +162,9 @@ fn monochrome_pages_scroll_and_font_changes_keep_the_mono_aperture_and_underline
             );
             assert_eq!(after.vga().unwrap().miscellaneous, 0xa6);
             for plane in 0..2 {
-                assert_eq!(after.plane(plane), before.plane(plane));
+                assert!(after
+                    .plane_bytes(plane, 0..65536)
+                    .eq(before.plane_bytes(plane, 0..65536)));
             }
             let context = dos.cpu().context();
             assert_eq!(context.memory.read_u8(0x484).unwrap(), rows - 1);

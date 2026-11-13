@@ -21,7 +21,7 @@ fn indexed_pixel_access_restores_hostile_guest_write_settings() {
         assert_eq!(video(&mut dos, 0x0d00, 0, 0, 0).registers.eax as u8, 0x85);
         let after = dos.vga().borrow().snapshot();
         let after_registers = dos.vga().borrow().registers().clone();
-        assert_eq!(after.plane(0)[0], 0x85);
+        assert_eq!(after.plane_byte(0, 0), 0x85);
         assert_eq!(after_registers, before_registers);
     });
 }
@@ -81,12 +81,12 @@ fn planar_pixel_calls_preserve_neighbors_and_restore_access_registers() {
             );
             let offset = if mode == 0x0d { 80 } else { 160 };
             for (plane, byte) in [3, 2, 3, 2].into_iter().enumerate() {
-                assert_eq!(after.plane(plane)[offset], byte); // Pixels 6=15, 7=5.
+                assert_eq!(after.plane_byte(plane, offset), byte); // Pixels 6=15, 7=5.
                 assert_eq!(
-                    after.plane(plane)[offset + 1],
+                    after.plane_byte(plane, offset + 1),
                     if plane < 2 { 0x40 } else { 0 }
                 );
-                assert_eq!(before.plane(plane)[offset], 0); // Retained capture.
+                assert_eq!(before.plane_byte(plane, offset), 0); // Retained capture.
             }
         }
     });
@@ -118,7 +118,7 @@ fn pixel_pages_and_256_color_high_bits_follow_the_bios_abi() {
                 );
                 for plane in 0..4 {
                     assert_eq!(
-                        snapshot.plane(plane)[usize::from(page) * page_bytes + last_byte],
+                        snapshot.plane_byte(plane, usize::from(page) * page_bytes + last_byte),
                         ((page + 1) >> plane) as u8 & 1
                     );
                 }
@@ -148,7 +148,7 @@ fn pixel_pages_and_256_color_high_bits_follow_the_bios_abi() {
             } else {
                 let display = dos.vga().borrow().snapshot();
                 for plane in 0..4 {
-                    assert_eq!(display.plane(plane)[offset as usize], 1);
+                    assert_eq!(display.plane_byte(plane, offset as usize), 1);
                 }
             }
         }
@@ -187,7 +187,9 @@ fn unsupported_pixel_calls_leave_video_memory_untouched() {
             let after = dos.vga().borrow().snapshot();
             let after_registers = dos.vga().borrow().registers().clone();
             for plane in 0..4 {
-                assert_eq!(before.plane(plane), after.plane(plane));
+                assert!(before
+                    .plane_bytes(plane, 0..65536)
+                    .eq(after.plane_bytes(plane, 0..65536)));
             }
             assert_eq!(before_registers, after_registers);
         }
