@@ -131,7 +131,7 @@ impl ScalarFacts {
     /// Recognized lane observations are stored only in their canonical word.
     /// Other scalar values continue to use the existing scalar assumption map.
     pub(super) fn known_bits(&self, table: &ValueTable, id: usize) -> Bits {
-        let bits = self.known.get(&id).copied().unwrap_or_default();
+        let bits = self.known.get(id).copied().unwrap_or_default();
         if let Some(lanes) = self.lanes.as_deref() {
             if let Some(observation) = LaneObservation::of(table, id) {
                 return bits

@@ -19,6 +19,7 @@ mod assume;
 mod comparisons;
 mod constraints;
 mod infer;
+mod known;
 mod lanes;
 mod merge;
 mod range;
@@ -26,6 +27,7 @@ mod selects;
 mod shifts;
 use comparisons::Comparisons;
 use constraints::Constraints;
+use known::KnownBits;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
 
@@ -69,8 +71,8 @@ impl Bits {
 
 #[derive(Default)]
 pub(super) struct ScalarFacts {
-    // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: Rc<FxHashMap<usize, Bits>>,
+    // Fact keys identify compiler values, never guest-provided numbers.
+    known: KnownBits,
     lanes: Option<Box<LaneFacts>>,
     ranges: Rc<FxHashMap<usize, Range>>,
     comparisons: Comparisons,
@@ -121,9 +123,7 @@ impl ScalarFacts {
 
     /// Whether known logical bits prove that these paths cannot coincide.
     pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
-        self.known
-            .iter()
-            .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
+        self.known.conflicts_with(|id| other.bits(table, id))
             || self
                 .lanes
                 .as_deref()
@@ -148,7 +148,7 @@ impl ScalarFacts {
             // one. Its cached inference depends on the original vector value.
             observation.word.value
         } else {
-            Rc::make_mut(&mut self.known).insert(id, bits);
+            self.known.insert(id, bits);
             id
         };
         self.changed(source);

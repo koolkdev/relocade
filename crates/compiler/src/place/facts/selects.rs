@@ -62,7 +62,7 @@ impl ScalarFacts {
             if matches!(table[id].definition, ValueDefinition::Literal(_))
                 || self
                     .known
-                    .get(&id)
+                    .get(id)
                     .is_some_and(|bits| bits.mask == table[id].ty.mask())
             {
                 continue;

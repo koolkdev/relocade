@@ -56,13 +56,7 @@ impl ScalarFacts {
     }
 
     fn retain_common(&mut self, other: &Self) {
-        if !Rc::ptr_eq(&self.known, &other.known) {
-            Rc::make_mut(&mut self.known).retain(|id, bits| {
-                let incoming = other.known.get(id).copied().unwrap_or_default();
-                *bits = bits.common(incoming);
-                bits.mask != 0
-            });
-        }
+        self.known.retain_common(&other.known);
         if !Rc::ptr_eq(&self.ranges, &other.ranges) {
             Rc::make_mut(&mut self.ranges).retain(|id, range| {
                 let Some(incoming) = other.ranges.get(id) else {
