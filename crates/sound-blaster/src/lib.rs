@@ -22,6 +22,21 @@ pub const READ_STATUS_PORT: u16 = BASE_PORT + 0x0e;
 pub const IRQ: u8 = 7;
 pub const DMA_CHANNEL: u8 = 1;
 
+/// Sound Blaster hardware model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Model {
+    SoundBlaster2,
+}
+
+/// Installed hardware resources, independent of the guest operating system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Settings {
+    pub model: Model,
+    pub base_port: u16,
+    pub irq: u8,
+    pub dma_channel: u8,
+}
+
 /// Execution-owned SB2 card with one DSP and one OPL2 chip.
 pub struct SoundBlaster {
     dsp: Rc<RefCell<Dsp>>,
@@ -60,6 +75,16 @@ impl SoundBlaster {
             Adlib::configure_io(io, &adlib, port);
         }
         Dsp::configure_io(io, &card.borrow().dsp);
+    }
+
+    /// Describes the card's fixed hardware configuration.
+    pub fn settings(&self) -> Settings {
+        Settings {
+            model: Model::SoundBlaster2,
+            base_port: BASE_PORT,
+            irq: IRQ,
+            dma_channel: DMA_CHANNEL,
+        }
     }
 
     /// The same FM chip responds at both 228h/229h and 388h/389h.

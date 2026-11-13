@@ -5,6 +5,7 @@ use relocade_x86::{ExecutionExit, HostExit};
 
 async fn check_environments() {
     let mut dos = common::dos().await;
+    assert!(dos.initial_environment().is_empty()); // AdLib needs no environment entry.
     let options = LoadOptions {
         environment: &[b"NAME=demo", b"PATH=C:\\BIN", b"EMPTY="],
         program_path: b"C:\\BIN\\PROG.COM",
@@ -170,4 +171,53 @@ fn com_and_mz_receive_environment_blocks() {
 #[test]
 fn invalid_environments_preserve_the_current_program() {
     pollster::block_on(check_environment_validation());
+}
+
+#[test]
+fn hardware_defaults_seed_the_launchers_environment_once() {
+    pollster::block_on(async {
+        let clock = relocade_clock_test_support::ManualClock::new();
+        let (runner, _host, machine) = common::runner(clock.clock()).await;
+        runner
+            .run(std::future::pending::<()>(), async |runner| {
+                let mut dos = relocade_dos::Dos::with_configuration(
+                    runner,
+                    relocade_dos::Configuration {
+                        sound_card: relocade_dos::SoundCard::SoundBlaster2,
+                    },
+                )
+                .await
+                .unwrap();
+                let mut environment = dos.initial_environment();
+                for expected in [
+                    b"BLASTER=A220 I7 D1 T3\0\0\x01\0\0".as_slice(),
+                    b"\0\0\x01\0\0",
+                ] {
+                    let entries: Vec<_> = environment.iter().map(Vec::as_slice).collect();
+                    dos.launch_com(
+                        &[0xc3],
+                        LoadOptions {
+                            environment: &entries,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                    let psp = u32::from(dos.process().unwrap().psp_segment()) << 4;
+                    let memory = dos.cpu().memory();
+                    let segment = memory.view().read_u16(psp + 0x2c).unwrap();
+                    let mut bytes = vec![0; expected.len()];
+                    memory
+                        .view()
+                        .read(u32::from(segment) << 4, &mut bytes)
+                        .unwrap();
+                    assert_eq!(bytes, expected);
+                    assert_eq!(dos.run().await, Ok(0));
+                    // Removing BLASTER persists even though the card remains installed.
+                    environment.clear();
+                }
+            })
+            .await
+            .unwrap();
+        machine.shutdown().await.unwrap();
+    });
 }
