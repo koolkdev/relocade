@@ -54,6 +54,11 @@ fn access_and_decode_controls_do_no_clock_work() {
     }
     assert_eq!(reads.load(Ordering::Relaxed), 0);
 
+    vga.io.write_mmio(0xb8000, 1, 0x55); // VGA writes without graphics transformations.
+    vga.io.write_port(0x3ce, 2, 0x0101); // Enable set/reset for general VGA writes.
+    vga.io.write_mmio(0xb8000, 1, 0xaa);
+    assert_eq!(reads.load(Ordering::Relaxed), 0);
+
     // Palette gating and register validity determine video preparation for data
     // writes; display addressing still permits other Attribute registers.
     for (address, prepares_video) in [(0x24, false), (0x1f, false), (0x32, true)] {
@@ -66,6 +71,8 @@ fn access_and_decode_controls_do_no_clock_work() {
 
     svga::enable(&vga.io);
     reads.store(0, Ordering::Relaxed);
+    vga.io.write_mmio(0xa0000, 4, 0x44332211);
+    assert_eq!(reads.load(Ordering::Relaxed), 0);
     // Legacy registers still mutate while packed output ignores their image
     // and timing settings. They become effective when DISPI is disabled.
     for (port, value) in [(0x3c4, 0x2101), (0x3ce, 0x0506), (0x3d4, 0x230d)] {
