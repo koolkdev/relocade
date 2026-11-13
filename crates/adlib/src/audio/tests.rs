@@ -12,7 +12,9 @@ fn dropping_output_releases_recording_but_not_timer_status() {
     let clock = ManualClock::new();
     let adlib = Rc::new(RefCell::new(Adlib::new(clock.clock())));
     let io = IoBus::default();
-    io.connect(adlib.clone(), |io| Adlib::configure_io(io, &adlib));
+    io.connect(adlib.clone(), |io| {
+        Adlib::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
+    });
     let source = adlib.borrow_mut().audio_source(48_000).unwrap();
     io.write_port(ADDRESS_STATUS_PORT, 1, 0xb0);
     io.write_port(DATA_PORT, 1, 0x31);

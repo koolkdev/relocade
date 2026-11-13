@@ -13,9 +13,9 @@
 #[cfg(feature = "audio")]
 mod audio;
 pub mod configuration;
+pub mod sound_card;
 
 pub use configuration::{Configuration, SoundCard};
-use relocade_adlib::Adlib;
 use relocade_bios::{video::VideoFirmware, Keyboard};
 use relocade_dma::Dma;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
@@ -36,7 +36,7 @@ pub struct Pc {
     dma: Rc<RefCell<Dma>>,
     vga: Rc<RefCell<DispiAdapter>>,
     speaker: Rc<RefCell<Speaker>>,
-    adlib: Option<Rc<RefCell<Adlib>>>,
+    sound_card: Option<Box<dyn sound_card::SoundCard>>,
     keyboard: Keyboard,
     inputs: relocade_ps2::Inputs,
     #[cfg(feature = "audio")]
@@ -64,10 +64,7 @@ impl Pc {
         let pic = Pic::initialize(&runner).await;
         let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
-        let adlib = match configuration.sound_card {
-            SoundCard::None => None,
-            SoundCard::AdLib => Some(Adlib::initialize(&runner).await),
-        };
+        let sound_card = configuration.sound_card.initialize(&runner).await;
         let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
@@ -102,7 +99,7 @@ impl Pc {
             dma,
             vga,
             speaker,
-            adlib,
+            sound_card,
             keyboard,
             inputs,
             #[cfg(feature = "audio")]
@@ -165,8 +162,8 @@ impl Pc {
         self.dma.clone()
     }
 
-    /// Retains the AdLib hardware on its execution owner, if installed.
-    pub fn adlib(&self) -> Option<Rc<RefCell<Adlib>>> {
-        self.adlib.clone()
+    /// The common interface of the configured sound card, if present.
+    pub fn sound_card(&self) -> Option<&dyn sound_card::SoundCard> {
+        self.sound_card.as_deref()
     }
 }

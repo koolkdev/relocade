@@ -52,20 +52,27 @@ impl Adlib {
     pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let adlib = Rc::new(RefCell::new(Self::new(runner.clock().clone())));
         runner
-            .connect(adlib.clone(), |io| Self::configure_io(io, &adlib))
+            .connect(adlib.clone(), |io| {
+                Self::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
+            })
             .await;
         adlib
     }
 
-    pub fn configure_io(io: &mut DeviceConnection<'_>, adlib: &Rc<RefCell<Self>>) {
+    /// Binds one address/status and adjacent data port pair to this chip.
+    pub fn configure_io(
+        io: &mut DeviceConnection<'_>,
+        adlib: &Rc<RefCell<Self>>,
+        address_port: u16,
+    ) {
         let callbacks = DeviceCallbacks::new(adlib);
         io.bind(
-            ADDRESS_STATUS_PORT,
+            address_port,
             &PortRead::byte(callbacks.read(|_, adlib| adlib.read_status())),
             &PortWrite::byte(callbacks.write(|_, adlib, value| adlib.address = value)),
         );
         io.bind(
-            DATA_PORT,
+            address_port + 1,
             &PortRead::byte(|_| 0xff),
             &PortWrite::byte(callbacks.write(|_, adlib, value| adlib.write_data(value))),
         );

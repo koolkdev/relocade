@@ -8,7 +8,7 @@ const directory = fileURLToPath(new URL(".", import.meta.url));
 const packages = [
     "relocade-wasm-bindings", "relocade-wasm-runtime", "relocade-workers", "relocade-machine",
     "relocade-bios", "relocade-pc", "relocade-pit", "relocade-dma", "relocade-pic", "relocade-ps2",
-    "relocade-pc-speaker", "relocade-renderer", "relocade-mixer", "relocade-adlib",
+    "relocade-pc-speaker", "relocade-renderer", "relocade-mixer", "relocade-adlib", "relocade-sound-blaster",
     "relocade-vga", "relocade-app", "relocade-browser-tests", "relocade-dos-app",
 ];
 const features = "relocade-vga/renderer,relocade-app/graphics,relocade-app/audio,relocade-pc/audio";

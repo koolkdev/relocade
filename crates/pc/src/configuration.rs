@@ -1,5 +1,5 @@
 use crate::CONVENTIONAL_MEMORY_SIZE;
-use relocade_machine::{CpuConfig, MachineConfig};
+use relocade_machine::{CpuConfig, MachineConfig, Runner};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 
 /// Hardware installed before guest execution, independently of host playback.
@@ -8,12 +8,28 @@ pub struct Configuration {
     pub sound_card: SoundCard,
 }
 
-/// The installed sound card. The PC speaker is available with either choice.
+/// The sound card to initialize. The PC speaker is available with every choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SoundCard {
     None,
     #[default]
     AdLib,
+    SoundBlaster2,
+}
+
+impl SoundCard {
+    pub(crate) async fn initialize(
+        self,
+        runner: &Runner,
+    ) -> Option<Box<dyn crate::sound_card::SoundCard>> {
+        match self {
+            Self::None => None,
+            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner).await)),
+            Self::SoundBlaster2 => Some(Box::new(
+                relocade_sound_blaster::SoundBlaster::initialize(runner).await,
+            )),
+        }
+    }
 }
 
 pub fn memory() -> MachineConfig {
