@@ -5,6 +5,11 @@ const INITIALIZATION_TIME: Duration = Duration::from_micros(100);
 const GET_VERSION: u8 = 0xe1;
 const SET_TIME_CONSTANT: u8 = 0x40;
 const SINGLE_CYCLE_OUTPUT: u8 = 0x14;
+const SET_BLOCK_SIZE: u8 = 0x48;
+const AUTO_INITIALIZE_OUTPUT: u8 = 0x1c;
+const PAUSE_DMA: u8 = 0xd0;
+const CONTINUE_DMA: u8 = 0xd4;
+const EXIT_AUTO_INITIALIZE: u8 = 0xda;
 const SPEAKER_ON: u8 = 0xd1;
 const SPEAKER_OFF: u8 = 0xd3;
 const SPEAKER_STATUS: u8 = 0xd8;
@@ -13,14 +18,22 @@ const DIRECT_OUTPUT: u8 = 0x10;
 enum Argument {
     DirectOutput,
     TimeConstant,
-    LengthLow,
-    LengthHigh(u8),
+    WordLow(fn(u16) -> Command),
+    WordHigh {
+        command: fn(u16) -> Command,
+        low: u8,
+    },
 }
 
 pub(super) enum Command {
     DirectOutput(u8),
     TimeConstant(u8),
     Playback(u16),
+    BlockSize(u16),
+    AutoInitialize,
+    Pause,
+    Continue,
+    ExitAutoInitialize,
     Speaker(bool),
     SpeakerStatus,
 }
@@ -95,12 +108,15 @@ impl Protocol {
             return match argument {
                 Argument::DirectOutput => Some(Command::DirectOutput(value)),
                 Argument::TimeConstant => Some(Command::TimeConstant(value)),
-                Argument::LengthLow => {
-                    self.argument = Some(Argument::LengthHigh(value));
+                Argument::WordLow(command) => {
+                    self.argument = Some(Argument::WordHigh {
+                        command,
+                        low: value,
+                    });
                     None
                 }
-                Argument::LengthHigh(low) => {
-                    Some(Command::Playback(u16::from_le_bytes([low, value])))
+                Argument::WordHigh { command, low } => {
+                    Some(command(u16::from_le_bytes([low, value])))
                 }
             };
         }
@@ -108,7 +124,12 @@ impl Protocol {
             DIRECT_OUTPUT => self.argument = Some(Argument::DirectOutput),
             GET_VERSION => self.respond([2, 1]),
             SET_TIME_CONSTANT => self.argument = Some(Argument::TimeConstant),
-            SINGLE_CYCLE_OUTPUT => self.argument = Some(Argument::LengthLow),
+            SINGLE_CYCLE_OUTPUT => self.argument = Some(Argument::WordLow(Command::Playback)),
+            SET_BLOCK_SIZE => self.argument = Some(Argument::WordLow(Command::BlockSize)),
+            AUTO_INITIALIZE_OUTPUT => return Some(Command::AutoInitialize),
+            PAUSE_DMA => return Some(Command::Pause),
+            CONTINUE_DMA => return Some(Command::Continue),
+            EXIT_AUTO_INITIALIZE => return Some(Command::ExitAutoInitialize),
             SPEAKER_ON => return Some(Command::Speaker(true)),
             SPEAKER_OFF => return Some(Command::Speaker(false)),
             SPEAKER_STATUS => return Some(Command::SpeakerStatus),

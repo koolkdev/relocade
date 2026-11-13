@@ -117,6 +117,11 @@ impl Dsp {
             Some(Command::DirectOutput(value)) => self.dac.write(self.clock.now(), value),
             Some(Command::TimeConstant(value)) => self.playback.set_time_constant(value),
             Some(Command::Playback(count)) => self.playback.start(count),
+            Some(Command::BlockSize(count)) => self.playback.set_block_size(count),
+            Some(Command::AutoInitialize) => self.playback.start_auto_initialize(),
+            Some(Command::Pause) => self.playback.pause(),
+            Some(Command::Continue) => self.playback.resume(),
+            Some(Command::ExitAutoInitialize) => self.playback.exit_auto_initialize(),
             Some(Command::Speaker(enabled)) => self.dac.set_enabled(self.clock.now(), enabled),
             Some(Command::SpeakerStatus) => {
                 self.protocol

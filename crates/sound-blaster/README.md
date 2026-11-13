@@ -48,9 +48,18 @@ unity gain. These independent levels belong to PC audio policy;
 device emulation supplies unscaled samples. The mixer preserves headroom, with
 clamping at platform output, and keeps its bounded, nonblocking submission.
 
-Auto-initialize DSP playback, pause/continue, high-speed commands and timed
-silence are the next playback milestone. DMA's own auto-initialize register
-behavior remains independent of these DSP commands.
+Command `0x48` sets the DSP block size minus one, and `0x1c` starts auto-initialize
+playback. Each completed DSP block raises the same latched IRQ and reloads the
+DSP count. DMA buffer length and auto-initialize mode remain independently
+guest-programmed; a typical double buffer spans two DSP blocks. The guest can
+refill the consumed half while the next half plays. Unacknowledged block IRQs
+coalesce on the DSP line.
+
+`0xd0` pauses DMA consumption and `0xd4` resumes with the remaining count and
+fractional sample phase intact. `0xda` stops after the current DSP block; a
+single-cycle `0x14` command received during streaming instead queues one final
+block after that boundary. These operations work without platform audio output.
+High-speed commands and timed silence follow in the next part.
 
 Recording, ADPCM, MIDI and optional C/MS chips are outside this playback subset.
 The implementation follows Creative's [Sound Blaster Hardware Programming
