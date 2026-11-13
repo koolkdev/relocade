@@ -34,9 +34,16 @@ let pc = Pc::with_configuration(
 available, and hardware selection does not depend on attaching host output.
 When installed, AdLib is present at address/status port `0x388` and data port
 `0x389`, including when platform output is absent. Programs select AdLib/OPL2
-for music and can use the PC speaker simultaneously. Sound Blaster DSP/DMA and
-OPL3 extensions are not implemented. AdLib detection and timer status require no
-BIOS service or PIC IRQ.
+for music and can use the PC speaker simultaneously. AdLib detection and timer
+status require no BIOS service or PIC IRQ.
+
+`SoundCard::SoundBlaster2` installs the [SB2 card](../sound-blaster/README.md)
+at base `0x220` and maps its single OPL2 chip at both `0x228` and `0x388`.
+PC holds an optional `sound_card::SoundCard` trait object; `pc.sound_card()`
+borrows that common interface. Configuration chooses and initializes the concrete
+card. The Sound Blaster card owns its shared FM chip.
+DSP reset and version detection are available; digital playback follows in a
+separate implementation part. OPL3 is not implemented.
 
 The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
 drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,
@@ -69,7 +76,7 @@ Failures during exception entry return directly to the host.
 retains the BIOS keyboard backed by guest RAM for translated/scripted input.
 `frames()` provides the capacity-one snapshot receiver for a single display
 consumer; `vga()` and `speaker()` retain devices on the execution owner, and
-`adlib()` returns the optional installed AdLib. Platform windows, rendering and
+`sound_card()` borrows the card's common interface. Platform windows, rendering and
 audio outputs remain with the embedding application.
 
 With the `audio` feature, `pc.attach_audio(config, samples).await` connects one

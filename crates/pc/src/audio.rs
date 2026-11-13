@@ -16,9 +16,8 @@ impl Pc {
             return Err("PC audio output is already attached".into());
         }
         let mut mixer = Mixer::new(self.clock().clone(), config, samples)?;
-        if let Some(adlib) = &self.adlib {
-            let mut source = adlib.borrow_mut().audio_source(config.sample_rate)?;
-            mixer.add_source(0.8, move |interval| source.sample(interval));
+        if let Some(card) = &self.sound_card {
+            card.add_audio_sources(&mut mixer, config.sample_rate, 0.8)?;
         }
         let mut speaker = self.speaker.borrow().audio_source();
         mixer.add_source(0.2, move |interval| speaker.sample(interval));

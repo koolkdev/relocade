@@ -48,10 +48,10 @@ async fn exercise_audio_device(sound_card: SoundCard) {
             .unwrap();
         let expected_status = match sound_card {
             SoundCard::None => 0xff,
-            SoundCard::AdLib => 0x06,
+            SoundCard::AdLib | SoundCard::SoundBlaster2 => 0x06,
         };
         assert_eq!(pc.cpu().context().io.read_port(0x388, 1), expected_status);
-        assert_eq!(pc.adlib().is_some(), sound_card == SoundCard::AdLib);
+        assert_eq!(pc.sound_card().is_some(), sound_card != SoundCard::None);
         let memory = pc.cpu().memory();
         // A sustained ~309 Hz AdLib carrier, programmed through guest OUT DX,AL.
         let mut code = vec![0xba, 0x88, 0x03]; // DX = address/status port.
@@ -93,7 +93,7 @@ async fn exercise_audio_device(sound_card: SoundCard) {
         assert_eq!(buffer.len(), 256);
         if index >= 2 {
             match sound_card {
-                SoundCard::AdLib => {
+                SoundCard::AdLib | SoundCard::SoundBlaster2 => {
                     assert!(buffer.iter().all(|sample| (-0.8..=1.0).contains(sample)));
                     // AdLib alone peaks below 0.1; speaker alone cannot go negative.
                     // Both must contribute to the same buffer.

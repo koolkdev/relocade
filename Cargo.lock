@@ -2455,6 +2455,7 @@ dependencies = [
  "relocade-pic",
  "relocade-pit",
  "relocade-ps2",
+ "relocade-sound-blaster",
  "relocade-vga",
  "relocade-x86",
  "wasm-bindgen-test",
@@ -2523,6 +2524,16 @@ dependencies = [
  "relocade-vga",
  "wasm-bindgen-test",
  "wgpu",
+]
+
+[[package]]
+name = "relocade-sound-blaster"
+version = "0.0.0"
+dependencies = [
+ "relocade-adlib",
+ "relocade-clock-test-support",
+ "relocade-machine",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

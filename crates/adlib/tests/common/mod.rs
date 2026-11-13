@@ -5,7 +5,9 @@ use std::{cell::RefCell, rc::Rc};
 pub fn hardware(clock: Clock) -> (IoBus, Rc<RefCell<Adlib>>) {
     let adlib = Rc::new(RefCell::new(Adlib::new(clock)));
     let io = IoBus::default();
-    io.connect(adlib.clone(), |io| Adlib::configure_io(io, &adlib));
+    io.connect(adlib.clone(), |io| {
+        Adlib::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
+    });
     (io, adlib)
 }
 
