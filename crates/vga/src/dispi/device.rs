@@ -1,16 +1,9 @@
 //! Device connection and asynchronous activity.
 
 use super::DispiAdapter;
-use crate::mmio::MemoryMapping;
-use crate::ports::Ports;
+use crate::io::Io;
 use relocade_machine::{Device, DeviceConnection};
 use std::{cell::RefCell, rc::Rc};
-
-/// Retained bindings and operations; ordinary accesses do not consult this state.
-pub(super) struct Io {
-    pub ports: Ports,
-    pub memory: MemoryMapping,
-}
 
 impl DispiAdapter {
     /// Connects the memory aperture and individual VGA/DISPI port operations.

@@ -1,7 +1,7 @@
 //! Concrete register writes and the effects declared by their register owners.
 
-use crate::effects::Effects;
-use crate::{dispi::WriteAction, DispiAdapter};
+use crate::effects::{CardEffects, Effects};
+use crate::{dispi::registers::WriteAction, DispiAdapter};
 use relocade_machine::IoContext;
 
 impl DispiAdapter {

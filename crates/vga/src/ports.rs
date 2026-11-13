@@ -254,15 +254,10 @@ fn crtc<Card: VgaPortAccess>(
     status: u16,
 ) -> Vec<Mapping> {
     let read_status = {
-        let card = device.borrow();
-        card.vga()
-            .registers
-            .attribute
-            .handle_read(crate::output::status::read(
-                &card.output().raster.status,
-                device,
-                Card::refresh_raster,
-            ))
+        let mut card = device.borrow_mut();
+        let read =
+            crate::output::status::read(&card.output().raster.status, device, Card::refresh_raster);
+        card.vga().registers.attribute.handle_read(read)
     };
     let window = index..=index + 1;
     vec![

@@ -23,7 +23,7 @@ pub struct Et4000Ax {
     vga: VgaCore,
     memory: VideoMemory,
     output: Output,
-    io: Option<device::Io>,
+    io: Option<crate::io::Io>,
 }
 
 impl Et4000Ax {

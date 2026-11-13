@@ -1,8 +1,9 @@
 # VGA compatibility
 
 `VgaCore` owns the standard VGA registers, access protocols and CPU read latches.
-`DispiAdapter` composes that core with DISPI, one VRAM, one raster and one output
-lifetime. It owns routing, display effects and coordinated restoration.
+The `dispi` module owns the complete `DispiAdapter`, with its register protocol
+in `dispi/registers`. The card composes the VGA core, one VRAM, one raster and one
+output lifetime. It supplies routing, display policy and coordinated restoration.
 `Et4000Ax` composes the same core with its own 1-MiB memory and board clocks;
 see its [hardware profile](src/et4000/README.md). Both cards use the same
 connection-time VGA wiring, cached status reader and display activity.
@@ -1164,9 +1165,12 @@ use bounded sequences, while disabled starting addresses consume the whole
 access with FF reads and ignored writes.
 
 Register selection changes only controller state. Data operations read that
-state and declare their effects when invoked. The private `with_effects` helper
-preserves overdue output, runs the mutation, then updates video configuration
-and port decoding before returning. CPU-only controls avoid clock work. VGA's
+state and declare their effects when invoked. Both cards use the same private
+`with_effects` implementation in `effects`. It preserves overdue output, remembers
+the previous layout and decoding, runs the mutation, applies configuration and
+mapping changes, then notifies affected waiters before returning. Each card
+supplies its timing/layout, retrace-latch policy and effective address decoding;
+DISPI also updates its prepared bank window. CPU-only controls avoid clock work. VGA's
 I/O companion retains fixed bindings and active/disabled operations, replacing
 only the address groups whose enable or mono/color selection actually changes.
 `PortDecoding` represents the effective address routing as `Disabled`,

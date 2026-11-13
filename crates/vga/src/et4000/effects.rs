@@ -1,53 +1,32 @@
-//! Card policy around synchronous standard VGA programming.
+//! ET4000 policy for the shared synchronous effects operation.
 use super::Et4000Ax;
 use crate::{
-    effects::{Effects, VideoEffect},
-    mmio::MemoryDecoding,
-    ports::PortDecoding,
+    effects::CardEffects, io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding, Timing,
 };
-use relocade_machine::IoContext;
+use relocade_machine::Timestamp;
 
-impl Et4000Ax {
-    pub(super) fn with_effects<R>(
-        &mut self,
-        mut context: IoContext<'_>,
-        effects: Effects,
-        mutate: impl FnOnce(&mut Self) -> R,
-    ) -> R {
-        if let Some(now) = self.output.prepare(effects.video) {
-            self.advance_raster(now);
-        }
-        let previous_ports = effects.port_decode.then(|| PortDecoding::vga(&self.vga));
-        let previous_memory = effects
-            .memory_decode
-            .then(|| MemoryDecoding::vga(&self.vga));
-        let result = mutate(self);
-        let video_changed = matches!(effects.video, VideoEffect::Configuration)
-            && self
-                .output
-                .update_configuration(None, None, Self::vga_timing(&self.vga));
-        let ports_changed = previous_ports.is_some_and(|previous| {
-            let decoding = PortDecoding::vga(&self.vga);
-            if previous == decoding {
-                return false;
-            }
-            if let Some(io) = &self.io {
-                io.ports
-                    .update_decoding(context.reborrow(), Some(previous), decoding);
-            }
-            true
-        });
-        if let Some(previous) = previous_memory {
-            let decoding = MemoryDecoding::vga(&self.vga);
-            if previous != decoding {
-                if let Some(io) = &self.io {
-                    io.memory.update_decoding(context, Some(previous), decoding);
-                }
-            }
-        }
-        if video_changed || ports_changed {
-            self.output.configuration_changed.notify(usize::MAX);
-        }
-        result
+impl CardEffects for Et4000Ax {
+    fn output(&mut self) -> &mut Output {
+        &mut self.output
+    }
+
+    fn io(&self) -> Option<&Io> {
+        self.io.as_ref()
+    }
+
+    fn advance_raster(&mut self, now: Timestamp) {
+        Et4000Ax::advance_raster(self, now);
+    }
+
+    fn timing(&self) -> Timing {
+        Self::vga_timing(&self.vga)
+    }
+
+    fn port_decoding(&self) -> PortDecoding {
+        PortDecoding::vga(&self.vga)
+    }
+
+    fn memory_decoding(&self) -> MemoryDecoding {
+        MemoryDecoding::vga(&self.vga)
     }
 }

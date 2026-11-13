@@ -1,25 +1,20 @@
 //! Additional DISPI word ports composed with the common VGA interface.
 use crate::{
     dispi,
-    effects::Effects,
-    output::Output,
-    ports::{Mapping, PortDecoding, Ports, VgaPortAccess},
+    effects::{CardEffects, Effects},
+    ports::{Mapping, Ports, VgaPortAccess},
     registers::WriteKind,
     DispiAdapter, VgaCore,
 };
-use relocade_machine::{DeviceCallbacks, DeviceConnection, IoContext, PortRead, PortWrite};
+use relocade_machine::{DeviceCallbacks, DeviceConnection, PortRead, PortWrite};
 use std::{cell::RefCell, rc::Rc};
 
 impl DispiAdapter {
     pub(super) fn bind_ports(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) -> Ports {
         let mut ports = Ports::new(io, device);
         ports.add_common(bind_dispi_ports(io, &DeviceCallbacks::new(device)));
-        ports.update_decoding(io.context(), None, device.borrow().decoding());
+        ports.update_decoding(io.context(), None, device.borrow().port_decoding());
         ports
-    }
-
-    pub(super) fn decoding(&self) -> PortDecoding {
-        PortDecoding::vga(&self.vga)
     }
 }
 
@@ -30,9 +25,6 @@ impl VgaPortAccess for DispiAdapter {
     fn vga_mut(&mut self) -> &mut VgaCore {
         &mut self.vga
     }
-    fn output(&self) -> &Output {
-        &self.output
-    }
     fn refresh_raster(&mut self) {
         DispiAdapter::refresh_raster(self);
     }
@@ -42,14 +34,6 @@ impl VgaPortAccess for DispiAdapter {
         } else {
             Effects::vga(kind)
         }
-    }
-    fn with_vga_effects<R>(
-        &mut self,
-        context: IoContext<'_>,
-        effects: Effects,
-        mutate: impl FnOnce(&mut VgaCore) -> R,
-    ) -> R {
-        self.with_effects(context, effects, |card| mutate(&mut card.vga))
     }
 }
 

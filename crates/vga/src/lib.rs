@@ -6,7 +6,6 @@
 //! scanout within a frame and CPU-cycle timing are separate fidelity milestones.
 #![forbid(unsafe_code)]
 
-mod adapter;
 mod core;
 pub mod dispi;
 #[cfg(feature = "renderer")]
@@ -15,6 +14,7 @@ mod effects;
 pub mod et4000;
 mod framebuffer;
 mod geometry;
+mod io;
 mod memory;
 mod mmio;
 mod output;
@@ -28,9 +28,10 @@ mod scanout;
 mod snapshot;
 mod timing;
 
-pub use adapter::{DispiAdapter, DispiState, PORT_RANGES};
 pub use core::{DacState, VgaCore, VgaCoreState};
-pub use dispi::{DispiMode, DispiResolution, VIDEO_MEMORY_BYTES};
+pub use dispi::{
+    DispiAdapter, DispiMode, DispiResolution, DispiState, PORT_RANGES, VIDEO_MEMORY_BYTES,
+};
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
 pub use et4000::Et4000Ax;

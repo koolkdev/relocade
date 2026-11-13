@@ -1,20 +1,14 @@
 //! One connection with concrete standard VGA port and memory operations.
 use super::Et4000Ax;
 use crate::{
-    effects::Effects,
+    io::Io,
     memory::VideoMemory,
     mmio::{MemoryDecoding, MemoryMapping, VgaMemory},
-    output::Output,
     ports::{PortDecoding, Ports, VgaPortAccess},
     VgaCore,
 };
-use relocade_machine::{Device, DeviceConnection, IoContext};
+use relocade_machine::{Device, DeviceConnection};
 use std::{cell::RefCell, rc::Rc};
-
-pub(super) struct Io {
-    pub ports: Ports,
-    pub memory: MemoryMapping,
-}
 
 impl Et4000Ax {
     pub fn configure_io(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
@@ -47,9 +41,6 @@ impl VgaPortAccess for Et4000Ax {
     fn vga_mut(&mut self) -> &mut VgaCore {
         &mut self.vga
     }
-    fn output(&self) -> &Output {
-        &self.output
-    }
     fn refresh_raster(&mut self) {
         Et4000Ax::refresh_raster(self);
     }
@@ -57,14 +48,5 @@ impl VgaPortAccess for Et4000Ax {
     fn select_crtc(&mut self, value: u8) {
         // ET4000 CRTC indices have six bits; extended indices must not alias VGA.
         self.vga.registers.crtc.select_raw(value & 0x3f);
-    }
-
-    fn with_vga_effects<R>(
-        &mut self,
-        context: IoContext<'_>,
-        effects: Effects,
-        mutate: impl FnOnce(&mut VgaCore) -> R,
-    ) -> R {
-        self.with_effects(context, effects, |card| mutate(&mut card.vga))
     }
 }

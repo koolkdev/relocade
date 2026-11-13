@@ -1,7 +1,6 @@
 //! Standard VGA operations used by concrete card port bindings.
 use crate::{
-    effects::Effects,
-    output::Output,
+    effects::{CardEffects, Effects},
     registers::{sequencer, WriteKind},
     VgaCore,
 };
@@ -9,17 +8,10 @@ use relocade_machine::IoContext;
 
 // This trait is used only by generic connection-time wiring. Every installed
 // callback is specialized for its concrete card; guest accesses use no vtable.
-pub(crate) trait VgaPortAccess: Sized + 'static {
+pub(crate) trait VgaPortAccess: CardEffects + 'static {
     fn vga(&self) -> &VgaCore;
     fn vga_mut(&mut self) -> &mut VgaCore;
-    fn output(&self) -> &Output;
     fn refresh_raster(&mut self);
-    fn with_vga_effects<R>(
-        &mut self,
-        context: IoContext<'_>,
-        effects: Effects,
-        mutate: impl FnOnce(&mut VgaCore) -> R,
-    ) -> R;
 
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
         Effects::vga(kind)
@@ -55,48 +47,60 @@ pub(crate) trait VgaPortAccess: Sized + 'static {
             self.vga().registers.sequencer.index(),
             sequencer::MAP_MASK | sequencer::MEMORY_MODE
         );
-        self.with_vga_effects(context, effects, |vga| vga.write_sequencer(value));
+        self.with_effects(context, effects, |card| {
+            card.vga_mut().write_sequencer(value)
+        });
     }
 
     fn write_graphics_data(&mut self, context: IoContext<'_>, value: u8) {
         let mut effects = self.legacy_effect(self.vga().registers.graphics.write_effect());
         effects.memory_decode = true;
-        self.with_vga_effects(context, effects, |vga| vga.write_graphics(value));
+        self.with_effects(context, effects, |card| {
+            card.vga_mut().write_graphics(value)
+        });
     }
 
     fn write_crtc_data(&mut self, context: IoContext<'_>, value: u8) {
         let effects = self.legacy_effect(self.vga().registers.crtc.write_effect());
-        self.with_vga_effects(context, effects, |vga| vga.registers.crtc.write(value));
+        self.with_effects(context, effects, |card| {
+            card.vga_mut().registers.crtc.write(value)
+        });
     }
 
     fn write_attribute(&mut self, context: IoContext<'_>, value: u8) {
         let effects = self.legacy_effect(self.vga().registers.attribute.write_effect());
-        self.with_vga_effects(context, effects, |vga| vga.registers.attribute.write(value));
+        self.with_effects(context, effects, |card| {
+            card.vga_mut().registers.attribute.write(value)
+        });
     }
 
     fn write_dac_mask(&mut self, context: IoContext<'_>, value: u8) {
-        self.with_vga_effects(context, Effects::IMAGE, |vga| {
-            vga.registers.dac.mask = value
+        self.with_effects(context, Effects::IMAGE, |card| {
+            card.vga_mut().registers.dac.mask = value
         });
     }
 
     fn write_dac_data(&mut self, context: IoContext<'_>, value: u8) {
-        self.with_vga_effects(context, Effects::IMAGE, |vga| {
-            vga.registers.dac.write(value)
+        self.with_effects(context, Effects::IMAGE, |card| {
+            card.vga_mut().registers.dac.write(value)
         });
     }
 
     fn write_misc_output(&mut self, context: IoContext<'_>, value: u8) {
-        self.with_vga_effects(context, Effects::CONFIGURATION_AND_IO, |vga| {
-            vga.registers.miscellaneous = value;
+        self.with_effects(context, Effects::CONFIGURATION_AND_IO, |card| {
+            card.vga_mut().registers.miscellaneous = value;
         });
     }
 
     fn write_adapter_control(&mut self, context: IoContext<'_>, value: u8) {
-        self.with_vga_effects(context, Effects::IO, |vga| vga.setup.write_control(value));
+        self.with_effects(context, Effects::IO, |card| {
+            card.vga_mut().setup.write_control(value)
+        });
     }
 
     fn write_option_select(&mut self, context: IoContext<'_>, value: u8) {
-        self.with_vga_effects(context, Effects::IO, |vga| vga.setup.write_option(value));
+        self.with_effects(context, Effects::IO, |card| {
+            card.vga_mut().setup.write_option(value)
+        });
     }
 }
