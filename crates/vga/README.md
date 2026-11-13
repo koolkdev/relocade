@@ -602,9 +602,11 @@ for the following active display: shared physical memory blocks, the active
 scanout settings, and DAC colors and mask. VGA first latches its display start
 and also captures sequencer/CRTC/graphics/attribute settings, font memory,
 the effective start address, and both blink phases.
-When these inputs change, the device stages the snapshot and its retrace timestamp.
+When captured memory is written or display settings change, the device stages
+the snapshot and its retrace timestamp.
 Its async task synchronizes with host time before sending the snapshot.
-Unchanged refreshes produce no new snapshot.
+Refreshes without either produce no new snapshot. Rewriting identical memory
+still produces a snapshot; capture does not compare VRAM contents.
 Late service coalesces missed boundaries; display mutations first service elapsed
 time using the preceding state. A write exactly at a retrace edge applies after that latch.
 The capture describes selected inputs, not pixels scanned earlier in the frame.
@@ -640,13 +642,16 @@ whose `VgaGeometry` also records physical scanlines per output row.
 SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
 captured display settings and VRAM directly in the shader.
 
-Snapshots share immutable 64-KiB blocks with the device: four for VGA, and enough
-blocks to cover the packed viewport's final byte for SVGA. Capturing or cloning
-a snapshot copies references and register values, not VRAM bytes. A guest write
-copies a shared block only when its final physical byte changes; VGA routing,
-write modes and masks apply before that comparison. Subsequent writes reuse the
-device's private block until the next capture. Retaining many distinct captures
-can therefore retain many versions of a block.
+Live VRAM is one mutable 4-MiB buffer using the existing plane layout. Writes
+apply VGA routing, write modes and masks, then store bytes and mark 1-KiB pages.
+They perform no snapshot ownership checks or value comparisons. Capturing copies
+each written 64-KiB block and shares untouched immutable blocks. Captures retain
+four blocks for VGA and complete four-block groups covering the packed viewport.
+Output retains the last capture as the producer's only baseline. Memory owns
+live bytes and one dirty bitmap. Inspection snapshots reuse that baseline but
+leave it and the dirty bitmap unchanged; accepting a retrace capture starts the
+next dirty interval. Cloning a snapshot copies references and register values.
+Retaining distinct captures can retain multiple versions of a block.
 
 `DispiAdapter::frames()` returns an `async_channel::Receiver<DisplaySnapshot>` for a
 capacity-one queue. Sending replaces an older queued snapshot, so a slow consumer
@@ -781,16 +786,16 @@ The renderer requires a 2D texture limit of at least 2304 pixels for the largest
 nine-dot text width, 13 flat inter-stage variables, two uniform buffers and one
 4-MiB fragment storage buffer. Uploads cover only captured blocks. The settings
 buffer is 128 bytes; packed scanout uses two words. The shared DAC buffer holds
-a four-byte mask and 768 palette bytes at offset 16. With
-the renderer feature enabled, final physical writes mark fixed 1-KiB pages.
-Consecutive dirty pages in each block become one upload. Character,
-attribute and font planes update independently. Hidden memory is included, so
+a four-byte mask and 768 palette bytes at offset 16. Captures retain written
+1-KiB pages as conservative GPU transfer hints, including equal-value writes.
+Consecutive dirty pages in each block become one upload. Pages follow plane
+storage, and packed bytes select successive planes. Hidden memory is included, so
 changing the display start or font bank requires no residency bookkeeping.
 
 Snapshots remain complete. Their private transfer hints contain dirty pages and
-the immutable memory baseline those changes describe. Sampling clears the device's
-local bitmap; immediate snapshots leave it alone. Snapshots coalesced before the
-output task takes them merge their hints. Replacing a snapshot already in the
+the immutable memory baseline those changes describe. Retrace captures clear the
+device's dirty bitmap; immediate snapshots leave it unchanged. Snapshots coalesced
+before the output task takes them merge their hints. Replacing a snapshot already in the
 queue does not merge hints. Retained snapshots stay immutable, and baseline block
 references retain no history of earlier snapshot objects. The renderer compares
 block identities and walks the bitmap without scanning VRAM or maintaining a
@@ -808,11 +813,11 @@ have different baselines. Consecutive snapshots keep sparse transfers; skipping
 queued snapshots can require larger uploads. Receiving requires no GPU-completion
 acknowledgement.
 
-The device never waits for GPU mapping or completion. Snapshot storage still
-uses shared CPU blocks with copy-on-write, so a changed retained block can copy
-64 KiB even for a one-byte guest write. Dirty pages limit GPU transfers; they do
-not change CPU copy-on-write granularity. Device-only builds omit transfer hints
-and dirty tracking along with the optional renderer.
+The device never waits for GPU mapping or completion. Capturing a written block
+copies 64 KiB even for a one-byte guest write; writes themselves never copy a
+snapshot block. Dirty pages select blocks to copy and bound GPU transfers. The
+live buffer occupies 4 MiB in addition to immutable snapshot storage. Device-only builds keep
+write tracking for captures but omit GPU transfer hints and renderer dependencies.
 
 `upload(queue, snapshot)` synchronizes persistent input resources without decoding
 or presenting, and returns whether rendering inputs or output geometry changed.

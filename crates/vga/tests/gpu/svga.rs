@@ -116,7 +116,8 @@ async fn check_packed_pixels() {
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
     let mut renderer = VgaRenderer::new(&device).unwrap();
-    let vga = ConnectedVga::new(ManualClock::new().clock());
+    let clock = ManualClock::new();
+    let vga = ConnectedVga::new(clock.clock());
     svga::enable(&vga.io);
     for (index, rgb) in [
         (0, [0, 0, 0]),
@@ -143,6 +144,9 @@ async fn check_packed_pixels() {
         svga::write_byte(&vga.io, address, index);
     }
     vga.io.write_port(0x3c6, 1, 0x7f); // High palette indices obey the shared DAC mask.
+    // Service a retrace so inspections can reuse the output's captured memory.
+    clock.advance_to(clock.at(common::svga_boundary(1)));
+    vga.io.read_port(0x3da, 1);
     let original = vga.snapshot();
     assert!(renderer.upload(&queue, &original));
 
@@ -349,7 +353,8 @@ async fn check_direct_color() {
             ],
         ),
     ] {
-        let vga = ConnectedVga::new(ManualClock::new().clock());
+        let clock = ManualClock::new();
+        let vga = ConnectedVga::new(clock.clock());
         svga::set_mode(&vga.io, 640, 480, bits);
         svga::set(&vga.io, 6, 1024);
         svga::set(&vga.io, 8, 384);
@@ -374,6 +379,9 @@ async fn check_direct_color() {
                 svga::write_byte(&vga.io, address + byte as u32, value);
             }
         }
+        // Service a retrace so inspections can reuse the output's captured memory.
+        clock.advance_to(clock.at(common::svga_boundary(1)));
+        vga.io.read_port(0x3da, 1);
         let original = vga.snapshot();
         assert_eq!(
             original.vram_byte(4 * 1024 * 1024 - 1),

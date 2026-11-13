@@ -44,9 +44,9 @@ fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
     let vga = DispiAdapter::with_clock(ManualClock::new().clock());
     let memory = crate::memory::VideoMemory::default();
     let mut narrow = vga.snapshot();
-    narrow.memory = memory.snapshot(0x40000);
+    narrow.memory = memory.snapshot(0x40000, None);
     let mut wide = narrow.clone();
-    wide.memory = memory.snapshot(0x80000);
+    wide.memory = memory.snapshot(0x80000, Some(&narrow.memory));
     wide.changes = Some(crate::snapshot::MemoryChanges {
         baseline: narrow.memory.clone(),
         pages: Default::default(),
@@ -245,7 +245,7 @@ fn planar_pixel_writes_coalesce_adjacent_pages_and_preserve_gaps_and_plane_edges
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn routing_and_masks_mark_only_final_physical_changes() {
+fn routing_and_masks_mark_only_written_physical_pages() {
     let clock = ManualClock::default();
     let (vga, io, mut video) = start_video(&clock);
     planar(&io, 15);
@@ -262,18 +262,17 @@ fn routing_and_masks_mark_only_final_physical_changes() {
     io.write_port(0x3ce, 2, 0x0008); // Pixel mask preserves the latches.
     io.write_mmio(0xa0401, 1, 0xff);
     io.write_port(0x3c4, 2, 0x0002); // No selected write planes.
-    io.write_mmio(0xa0401, 1, 0);
+    io.write_mmio(0xa0801, 1, 0);
     io.write_port(0x3c2, 1, 0x41); // RAM disabled.
-    io.write_mmio(0xa0401, 1, 0);
+    io.write_mmio(0xa1001, 1, 0);
     io.write_port(0x3c2, 1, 0x43);
     io.write_port(0x3c4, 2, 0x0f02);
     io.write_port(0x3ce, 2, 0xff08);
-    // A real edit in another page makes false dirty bits from the no-op writes
-    // observable, even though unchanged planes would otherwise skip uploading.
+    // Equal and latch-preserving stores mark their page; rejected writes do not.
     io.write_mmio(0xa0c01, 1, 0x33);
     assert_eq!(
         uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
-        [(68608, 1024)]
+        [(66560, 1024), (68608, 1024)]
     );
 }
 
@@ -377,7 +376,9 @@ fn immediate_snapshots_preserve_pending_changes_and_can_be_uploaded_independentl
     io.write_mmio(0xb8c00, 1, u64::from(b'D'));
     // The previous immediate snapshot differs from the published baseline.
     assert_eq!(uploads.update(&vga.borrow().snapshot()), [(0, 65536)]);
-    assert!(uploads
-        .update(&take(&vga, &io, video.as_mut(), &clock))
-        .is_empty());
+    // Inspection did not replace the producer baseline or consume dirty pages.
+    assert_eq!(
+        uploads.update(&take(&vga, &io, video.as_mut(), &clock)),
+        [(0, 65536)]
+    );
 }

@@ -32,7 +32,7 @@ fn legacy_color_calls_program_vga_attributes_and_preserve_memory_and_port_select
             expected.attribute.values[0x11] = overscan;
             assert_eq!(after_registers, expected);
             for plane in 0..4 {
-                assert!(std::ptr::eq(before.plane(plane), after.plane(plane)));
+                assert_eq!(before.plane(plane), after.plane(plane));
             }
         }
 

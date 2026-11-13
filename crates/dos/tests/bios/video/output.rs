@@ -25,7 +25,7 @@ fn screen_output_changes_only_the_sequencer_bit_and_acknowledges_invalid_selecti
                 expected.sequencer.values[1] = clocking;
                 assert_eq!(after_registers, expected); // Includes the final sequencer index.
                 for plane in 0..4 {
-                    assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+                    assert_eq!(after.plane(plane), before.plane(plane));
                 }
             }
             for selection in [2, 255] {

@@ -74,7 +74,7 @@ fn packed_reads_recognize_direct_pixels_and_preserve_display_state() {
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+                assert_eq!(after.plane(plane), before.plane(plane));
             }
         }
     });
@@ -156,7 +156,7 @@ fn packed_read_restores_access_before_matching_a_font_in_vram() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+            assert_eq!(after.plane(plane), before.plane(plane));
         }
     });
 }
@@ -189,7 +189,7 @@ fn packed_blank_cells_use_the_font_and_invalid_pages_leave_state_alone() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+            assert_eq!(after.plane(plane), before.plane(plane));
         }
     });
 }

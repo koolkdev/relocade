@@ -4,9 +4,7 @@ mod storage;
 pub(crate) use storage::MemorySnapshot;
 use storage::Storage;
 
-#[cfg(feature = "renderer")]
 mod pages;
-#[cfg(feature = "renderer")]
 pub(crate) use pages::DirtyPages;
 
 pub(crate) const BLOCK_BYTES: usize = 65536;
@@ -63,17 +61,16 @@ impl VideoMemory {
         self.storage.clear();
     }
 
-    pub fn snapshot(&self, bytes: u32) -> MemorySnapshot {
-        self.storage.snapshot(bytes)
+    pub fn snapshot(&self, bytes: u32, baseline: Option<&MemorySnapshot>) -> MemorySnapshot {
+        self.storage.snapshot(bytes, baseline)
     }
 
     #[cfg(feature = "renderer")]
-    pub fn changed_pages(&self) -> DirtyPages {
-        self.storage.changed_pages()
+    pub fn dirty_pages(&self) -> DirtyPages {
+        self.storage.dirty_pages()
     }
 
-    #[cfg(feature = "renderer")]
-    pub fn clear_changes(&mut self) {
-        self.storage.clear_changes();
+    pub fn clear_dirty(&mut self) {
+        self.storage.clear_dirty();
     }
 }

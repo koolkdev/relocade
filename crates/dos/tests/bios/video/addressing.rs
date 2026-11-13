@@ -65,7 +65,7 @@ fn video_addressing_gates_cpu_access_and_preserves_display_and_bios_state() {
                 let after_registers = dos.vga().borrow().registers().clone();
                 assert_eq!(after_registers, before_registers);
                 for plane in 0..4 {
-                    assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+                    assert_eq!(after.plane(plane), before.plane(plane));
                 }
             }
         }

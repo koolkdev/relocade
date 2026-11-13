@@ -57,7 +57,7 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         let after_registers = dos.vga().borrow().registers().clone();
         assert_eq!(after_registers, before_registers);
         for plane in 0..4 {
-            assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+            assert_eq!(after.plane(plane), before.plane(plane));
         }
         // Geometry-changing graphics font calls are also metadata-only in text.
         video(&mut dos, 3, 0, 0, 0);
@@ -68,7 +68,7 @@ fn graphics_font_selection_changes_bios_metadata_without_uploading_fonts() {
         let selected = dos.vga().borrow().snapshot();
         let selected_registers = dos.vga().borrow().registers().clone();
         assert_eq!(selected_registers, text_registers);
-        assert!(std::ptr::eq(selected.plane(2), text.plane(2)));
+        assert_eq!(selected.plane(2), text.plane(2));
     });
 }
 

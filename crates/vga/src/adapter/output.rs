@@ -11,7 +11,8 @@ use std::{cell::RefCell, rc::Rc};
 impl DispiAdapter {
     /// Captures current display inputs immediately on the execution owner, without
     /// advancing time, publishing a frame, or changing CPU read/access latches.
-    /// Shares immutable memory and copies the active display settings and DAC.
+    /// Copies written memory blocks and the active display settings and DAC.
+    /// Leaves the output baseline and pending dirty pages unchanged.
     /// Packed SVGA captures own their layout independently of the CPU bank.
     /// The display-start latch stays at the last serviced VGA retrace; this does not
     /// force pending CRTC start-address writes to become effective.
@@ -24,17 +25,21 @@ impl DispiAdapter {
                 self.raster.retrace_count,
             )),
         };
+        let previous = self.output.captured.as_ref();
         DisplaySnapshot {
-            memory: self.memory.snapshot(scanout.memory_bytes()),
+            memory: self.memory.snapshot(
+                scanout.memory_bytes(),
+                previous.map(|snapshot| &snapshot.memory),
+            ),
             dac: DacSnapshot {
                 colors: self.vga.registers.dac.colors,
                 mask: self.vga.registers.dac.mask,
             },
             scanout,
             #[cfg(feature = "renderer")]
-            changes: self.output.captured.as_ref().map(|previous| MemoryChanges {
+            changes: previous.map(|previous| MemoryChanges {
                 baseline: previous.memory.clone(),
-                pages: self.memory.changed_pages(),
+                pages: self.memory.dirty_pages(),
             }),
         }
     }
@@ -79,14 +84,19 @@ impl DispiAdapter {
         {
             return;
         }
-        self.output.captured = Some(display.clone());
+        self.output.captured = Some(DisplaySnapshot {
+            // Only outgoing snapshots need their upload baseline and dirty hints.
+            #[cfg(feature = "renderer")]
+            changes: None,
+            ..display.clone()
+        });
+        self.memory.clear_dirty();
         // Sampling starts a new dirty interval. Coalesced pending captures retain
         // every interval since the task last took a snapshot. A renderer that skips
         // a queued snapshot uses complete changed blocks when its baseline differs.
         #[cfg(feature = "renderer")]
         let display = {
             let mut display = display;
-            self.memory.clear_changes();
             if let Some(pending) = &self.output.pending {
                 display.merge_changes(&pending.snapshot);
             }

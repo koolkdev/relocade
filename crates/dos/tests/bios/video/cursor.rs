@@ -42,7 +42,7 @@ fn cursor_policy_preserves_raw_default_and_applies_only_to_subsequent_shape_writ
             let after_registers = dos.vga().borrow().registers().clone();
             assert_eq!(after_registers, before_registers);
             for plane in 0..4 {
-                assert!(std::ptr::eq(after.plane(plane), before.plane(plane)));
+                assert_eq!(after.plane(plane), before.plane(plane));
             }
             assert_eq!(
                 information(&mut dos, 0x5000, 0x200, 0)[0x2d] & 0x10,
