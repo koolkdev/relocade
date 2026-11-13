@@ -63,7 +63,7 @@ pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{
     Device, DeviceCallbacks, DeviceConnection, IoBus, IoContext, MmioBinding, MmioRead, MmioWrite,
-    PortBinding, PortRange, PortRead, PortWrite,
+    PortBinding, PortRange, PortRead, PortWrite, WeakIoBus,
 };
 pub use machine::{CpuHandle, Machine};
 pub use memory::{FarPointer, Memory, MemoryBus, MemoryError, MemoryView};

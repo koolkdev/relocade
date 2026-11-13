@@ -6,6 +6,18 @@ impl Device for ForwardingDevice {}
 
 async fn check_forwarding() {
     for compiled in [false, true] {
+        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let config = support::configuration(
+            compiler.target(),
+            CpuState {
+                eip: 0x100,
+                ..CpuState::real_mode()
+            },
+            0x5000,
+            map(),
+        )
+        .unwrap();
+        let memory = Memory::new(config.machine).unwrap();
         let target = RecordingDevice::new(0);
         let io = IoBus::default();
         io.connect(target.clone(), |io| {
@@ -19,11 +31,25 @@ async fn check_forwarding() {
                     context.write_port(0x3d4, bytes, value as u32);
                 }),
             );
+            let read_memory = memory.clone();
+            let write_memory = memory.clone();
             io.bind(
                 0x3d5,
-                &PortRead::new(|mut context, _, bytes| context.read_port(0x3d4, bytes)),
-                &PortWrite::new(|mut context, _, bytes, value| {
-                    context.write_port(0x3d4, bytes, value)
+                &PortRead::new(move |context, _, bytes| {
+                    let mut value = [0; 4];
+                    read_memory
+                        .view()
+                        .with_io_context(context)
+                        .read(0x3fff, &mut value[..usize::from(bytes)])
+                        .unwrap();
+                    u32::from_le_bytes(value)
+                }),
+                &PortWrite::new(move |context, _, bytes, value| {
+                    write_memory
+                        .view()
+                        .with_io_context(context)
+                        .write(0x3fff, &value.to_le_bytes()[..usize::from(bytes)])
+                        .unwrap();
                 }),
             );
         });
@@ -36,18 +62,6 @@ async fn check_forwarding() {
         });
         target.borrow_mut().take_transfers();
 
-        let compiler = Compiler::new(ExecutionProfile::Real16);
-        let config = support::configuration(
-            compiler.target(),
-            CpuState {
-                eip: 0x100,
-                ..CpuState::real_mode()
-            },
-            0x5000,
-            map(),
-        )
-        .unwrap();
-        let memory = Memory::new(config.machine).unwrap();
         let code = [
             0xba, 0xd5, 0x03, // MOV DX,03D5
             0xb8, 0x78, 0x56, // MOV AX,5678
@@ -110,12 +124,12 @@ async fn check_forwarding() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn callbacks_forward_io_through_their_supplied_context() {
+fn callbacks_forward_mapped_memory_and_io_through_their_supplied_context() {
     pollster::block_on(check_forwarding());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn callbacks_forward_io_through_their_supplied_context() {
+async fn callbacks_forward_mapped_memory_and_io_through_their_supplied_context() {
     check_forwarding().await;
 }

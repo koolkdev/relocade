@@ -1,10 +1,13 @@
+mod io;
 mod read;
 mod write;
 
 use super::{range_fits, resolve::Spans, MemoryError};
-use crate::{IoBus, MachineConfig};
+use crate::{IoBus, IoContext, MachineConfig};
+use io::Routing;
 use relocade_wasm_runtime::MemoryAccess;
 use relocade_x86::SegmentRegister;
+use std::cell::RefCell;
 
 /// Guest physical memory through the configured map, including A20 aliases.
 /// RAM/ROM use backing storage. MMIO requires a local I/O bus. Holes and
@@ -14,7 +17,7 @@ use relocade_x86::SegmentRegister;
 pub struct MemoryView<'a> {
     config: &'a MachineConfig,
     storage: MemoryAccess<'a>,
-    io: Option<&'a IoBus>,
+    io: Option<Routing<'a>>,
 }
 
 impl<'a> MemoryView<'a> {
@@ -31,7 +34,17 @@ impl<'a> MemoryView<'a> {
     /// Enables device accesses through the execution worker's bus. CPU contexts
     /// already supply it; independent RAM views need not retain any devices.
     pub fn with_io(mut self, io: &'a IoBus) -> Self {
-        self.io = Some(io);
+        self.io = Some(Routing::Bus(io));
+        self
+    }
+
+    /// Uses a device callback's existing runtime scope for mapped memory access.
+    /// MMIO forwards through this context without borrowing the runtime again.
+    pub fn with_io_context(mut self, context: IoContext<'a>) -> Self {
+        self.io = Some(Routing::Context {
+            bus: context.io(),
+            context: RefCell::new(context),
+        });
         self
     }
 
