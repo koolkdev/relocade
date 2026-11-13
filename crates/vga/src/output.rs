@@ -64,6 +64,8 @@ impl Output {
                 previous.map(|snapshot| &snapshot.memory),
             ),
             dac,
+            blanked: false,
+            blanking: Default::default(),
             scanout,
             #[cfg(feature = "renderer")]
             changes: previous.map(|previous| MemoryChanges {

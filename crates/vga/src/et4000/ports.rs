@@ -3,7 +3,7 @@ use super::{registers::*, Et4000Ax};
 use crate::{
     effects::{CardEffects, Effects},
     ports::{Mapping, Ports, VgaPortAccess},
-    registers::{crtc, sequencer},
+    registers::{crtc, sequencer, WriteKind},
     VgaCore,
 };
 use relocade_machine::{DeviceCallbacks, DeviceConnection, IoContext, PortRead, PortWrite};
@@ -93,6 +93,14 @@ impl VgaPortAccess for Et4000Ax {
         Et4000Ax::refresh_raster(self);
     }
 
+    fn legacy_effect(&self, kind: WriteKind) -> Effects {
+        match kind {
+            WriteKind::Access => Effects::NONE,
+            // Display fields also describe the packed layout on this card.
+            WriteKind::Display | WriteKind::Timing => Effects::CONFIGURATION,
+        }
+    }
+
     fn select_crtc(&mut self, value: u8) {
         self.vga.registers.crtc.select_raw(value & 0x3f);
     }
@@ -146,7 +154,7 @@ impl VgaPortAccess for Et4000Ax {
             OVERFLOW => Effects::CONFIGURATION,
             CONFIGURATION | 0x37 => Effects::CONFIGURATION_AND_MEMORY,
             0x32 => Effects::NONE,
-            _ => Effects::vga(self.vga.registers.crtc.write_effect()),
+            _ => self.legacy_effect(self.vga.registers.crtc.write_effect()),
         };
         self.with_effects(context, effects, |card| {
             if index >= 0x32 {
@@ -166,7 +174,7 @@ impl VgaPortAccess for Et4000Ax {
         let mut effects = if index >= 6 {
             Effects::CONFIGURATION
         } else {
-            Effects::vga(self.vga.registers.sequencer.write_effect())
+            self.legacy_effect(self.vga.registers.sequencer.write_effect())
         };
         effects.memory_decode = matches!(index, sequencer::MAP_MASK | sequencer::MEMORY_MODE);
         self.with_effects(context, effects, |card| {
@@ -185,7 +193,7 @@ impl VgaPortAccess for Et4000Ax {
         let effects = if self.vga.registers.attribute.data_index() == Some(ATTRIBUTE_MISC) {
             Effects::CONFIGURATION
         } else {
-            Effects::vga(self.vga.registers.attribute.write_effect())
+            self.legacy_effect(self.vga.registers.attribute.write_effect())
         };
         self.with_effects(context, effects, |card| {
             let extensions = &mut card.extensions;

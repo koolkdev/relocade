@@ -101,9 +101,7 @@ impl Framebuffer<'_> {
                     return None;
                 }
                 let format = layout.format();
-                let address = layout.display_start()
-                    + u32::from(y) * layout.pitch()
-                    + u32::from(x) * format.bytes_per_pixel();
+                let address = layout.pixel_address(u32::from(x), u32::from(y));
                 let mask = match format {
                     PixelFormat::Indexed8 => 255,
                     PixelFormat::Rgb565 => 0xffff,

@@ -148,6 +148,18 @@ impl CrtcRegisters {
         u64::from((self.register(HORIZONTAL_BLANK_END) >> 5) & 3)
     }
 
+    /// Blanking intervals in character clocks, before display-enable skew.
+    pub(crate) fn horizontal_blanking(&self) -> [Range<u32>; 2] {
+        let end = u32::from(self.register(HORIZONTAL_BLANK_END) & 31)
+            | (u32::from(self.register(HORIZONTAL_RETRACE_END) & 0x80) >> 2);
+        blanking_intervals(
+            u32::from(self.register(HORIZONTAL_BLANK_START)),
+            end,
+            63,
+            self.horizontal_total() as u32,
+        )
+    }
+
     /// CRTC 06 plus Overflow bits 0/5 form a ten-bit total-minus-two counter.
     pub(crate) fn vertical_total(&self) -> u64 {
         let overflow = self.register(OVERFLOW);
@@ -171,27 +183,18 @@ impl CrtcRegisters {
     /// Original VGA compares seven end bits; see the compatibility README for
     /// the edge convention and its limits. The shader uses the same convention.
     pub(crate) fn vertical_blanking(&self) -> [Range<u32>; 2] {
-        let start = u32::from(self.register(VERTICAL_BLANK_START))
+        blanking_intervals(
+            self.vertical_blank_start(),
+            u32::from(self.register(VERTICAL_BLANK_END) & 0x7f),
+            0x7f,
+            self.vertical_total() as u32,
+        )
+    }
+
+    pub(crate) fn vertical_blank_start(&self) -> u32 {
+        u32::from(self.register(VERTICAL_BLANK_START))
             | (u32::from(self.register(OVERFLOW) & 8) << 5)
-            | (u32::from(self.register(MAXIMUM_SCAN_LINE) & 0x20) << 4);
-        let total = self.vertical_total() as u32;
-        if start >= total {
-            return [0..0, 0..0];
-        }
-        let end_low = u32::from(self.register(VERTICAL_BLANK_END) & 0x7f);
-        let end = start + ((end_low.wrapping_sub(start + 1) & 0x7f) + 1) + 1;
-        let head_end = if end > total {
-            (end_low + 1).min(total)
-        } else {
-            0
-        };
-        // An unreachable end, or coincident comparators with set priority,
-        // leaves blanking active throughout the steady-state frame.
-        if head_end > start {
-            [0..total, 0..0]
-        } else {
-            [start + 1..end.min(total), 0..head_end]
-        }
+            | (u32::from(self.register(MAXIMUM_SCAN_LINE) & 0x20) << 4)
     }
 
     /// CRTC 10 plus Overflow bits 2/7 form the ten-bit retrace start count.
@@ -219,5 +222,31 @@ impl CrtcRegisters {
 
     pub(crate) fn sync_enabled(&self) -> bool {
         self.register(MODE_CONTROL) & (1 << 7) != 0
+    }
+}
+
+/// Counter intervals after the one-count output delay, including a pulse
+/// continuing across counter reset. Cards supply their end-comparator width.
+pub(crate) fn blanking_intervals(
+    start: u32,
+    end_low: u32,
+    mask: u32,
+    total: u32,
+) -> [Range<u32>; 2] {
+    if start >= total {
+        return [0..0, 0..0];
+    }
+    let end = start + ((end_low.wrapping_sub(start + 1) & mask) + 1) + 1;
+    let head_end = if end > total {
+        (end_low + 1).min(total)
+    } else {
+        0
+    };
+    // An unreachable end, or coincident comparators with set priority,
+    // leaves blanking active throughout the steady-state frame.
+    if head_end > start {
+        [0..total, 0..0]
+    } else {
+        [start + 1..end.min(total), 0..head_end]
     }
 }

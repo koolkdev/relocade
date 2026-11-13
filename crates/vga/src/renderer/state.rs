@@ -1,7 +1,7 @@
 //! Shared GPU bindings for mode-specific settings, physical VRAM and the DAC.
 use crate::{DisplaySnapshot, PixelFormat, Scanout};
 
-// Settings fit the VGA banks and controls; packed scanout uses only three words.
+// Settings fit the VGA banks and controls, or packed layout and blanking inputs.
 const SETTINGS_BYTES: usize = 128;
 // WGSL aligns the palette's vec4 array after the DAC mask to 16 bytes.
 const PALETTE_OFFSET: usize = 16;
@@ -153,7 +153,7 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
             }
             for (slot, word) in bytes[96..124].as_chunks_mut::<4>().0.iter_mut().zip([
                 u32::from(r.miscellaneous),
-                u32::from(r.display_enabled),
+                u32::from(r.display_enabled && !snapshot.blanked),
                 u32::from(r.attribute_blink_on),
                 u32::from(r.cursor_blink_on),
                 r.geometry().scanline_step,
@@ -173,6 +173,22 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
                 PixelFormat::Bgrx8888 => 2,
             };
             bytes[8..12].copy_from_slice(&format.to_le_bytes());
+            bytes[12..16].copy_from_slice(&layout.address_mask().to_le_bytes());
+            bytes[16..20].copy_from_slice(&u32::from(snapshot.blanked).to_le_bytes());
+            // WGSL aligns each pair of blanking intervals as a vec4.
+            for (offset, ranges) in [
+                (32, &snapshot.blanking.horizontal),
+                (48, &snapshot.blanking.vertical),
+            ] {
+                for (slot, boundary) in bytes[offset..offset + 16]
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(ranges.iter().flat_map(|range| [range.start, range.end]))
+                {
+                    slot.copy_from_slice(&boundary.to_le_bytes());
+                }
+            }
         }
     }
     bytes

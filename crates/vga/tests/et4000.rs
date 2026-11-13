@@ -14,10 +14,18 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[cfg(feature = "renderer")]
+#[path = "et4000/gpu.rs"]
+mod gpu;
 #[path = "et4000/memory.rs"]
 mod memory;
+#[cfg(feature = "renderer")]
+#[path = "gpu/readback.rs"]
+mod readback;
 #[path = "et4000/registers.rs"]
 mod registers;
+#[path = "et4000/scanout.rs"]
+mod scanout;
 mod support;
 
 struct ConnectedEt4000 {

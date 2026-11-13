@@ -2,7 +2,15 @@
 //! port access, so it leaves read latches and register access phases untouched.
 #[cfg(feature = "renderer")]
 use crate::memory::DirtyPages;
-use crate::{DisplayGeometry, Scanout, VgaDisplayState, memory::MemorySnapshot};
+use crate::{memory::MemorySnapshot, DisplayGeometry, Scanout, VgaDisplayState};
+use std::ops::Range;
+
+/// Blanked intervals in output pixels, independent of the image's memory layout.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub(crate) struct Blanking {
+    pub horizontal: [Range<u32>; 2],
+    pub vertical: [Range<u32>; 2],
+}
 
 /// Shared indexed-color display inputs, without CPU palette-transfer position.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +39,9 @@ pub(crate) struct MemoryChanges {
 #[derive(Clone)]
 pub struct DisplaySnapshot {
     pub dac: DacSnapshot,
+    /// Suppress output without changing the captured image geometry or memory.
+    pub blanked: bool,
+    pub(crate) blanking: Blanking,
     pub(crate) scanout: Scanout,
     pub(crate) memory: MemorySnapshot,
     /// Optional transfer hints; complete captured memory remains authoritative.
@@ -56,7 +67,9 @@ impl DisplaySnapshot {
     // Conservative input comparison, not pixel equivalence. Only known CPU
     // controls are excluded; block identities avoid scanning VRAM.
     pub(crate) fn same_inputs(&self, other: &Self) -> bool {
-        self.scanout.same_inputs(&other.scanout)
+        self.blanked == other.blanked
+            && self.blanking == other.blanking
+            && self.scanout.same_inputs(&other.scanout)
             && self.dac == other.dac
             && self.memory.same_blocks(&other.memory)
     }
