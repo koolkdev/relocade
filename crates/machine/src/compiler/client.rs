@@ -3,17 +3,21 @@ use super::{
     BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
-    worker::{ChannelError, Executor, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer},
+    worker::{ChannelError, Executor, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
+use futures_util::{
+    stream::{self, LocalBoxStream},
+    StreamExt,
+};
 use relocade_x86::ExecutionTarget;
 
 /// One CPU's compilation requests and ordered results.
 /// Connects directly to the shared service. Dropping it closes the request stream.
 pub struct CompilerClient {
     requests: mpsc::UnboundedSender<Request>,
-    results: Receiver<Reply>,
+    results: LocalBoxStream<'static, Result<CompiledCode>>,
 }
 
 #[derive(Transfer)]
@@ -29,9 +33,21 @@ impl Endpoint {
         executor: &Executor<ExecutionInterrupt>,
     ) -> Result<CompilerClient> {
         self.peer.send(executor.peer())?;
+        let results = self.results.bind().with_executor(executor);
+        // Retain the receive future between CPU polls so its pending browser
+        // delivery stays registered with the executor.
+        let results = stream::unfold(results, async |mut results| {
+            let result = match results.recv().await? {
+                Ok(Reply(result)) => result,
+                Err(error) => Err(error.into()),
+            };
+            Some((result, results))
+        })
+        .fuse()
+        .boxed_local();
         Ok(CompilerClient {
             requests: self.requests,
-            results: self.results.bind().with_executor(executor),
+            results,
         })
     }
 }
@@ -69,13 +85,11 @@ impl CompilerClient {
 
     /// Receives the next result in request order. Installation is explicit.
     /// Dropping this wait leaves that result available for the next receive.
+    /// The client retains any unfinished receive and its host-delivery registration.
     /// Returns `None` once the compiler has finished and all replies are consumed.
     /// Poll within the Runner session that supplied this connection.
     pub async fn recv(&mut self) -> Option<Result<CompiledCode>> {
-        self.results.recv().await.map(|reply| match reply {
-            Ok(Reply(result)) => result,
-            Err(error) => Err(error.into()),
-        })
+        self.results.next().await
     }
 }
 

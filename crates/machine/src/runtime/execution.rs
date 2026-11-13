@@ -104,7 +104,11 @@ impl Cpu {
                 self.pending = call.poll(cx);
             }
         }
-        self.exit.0.get().map(|exit| self.finish_exit(exit))
+        if let Some(exit) = self.exit.0.get() {
+            return Some(self.finish_exit(exit));
+        }
+        self.poll_compilation(cx);
+        None
     }
 
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,

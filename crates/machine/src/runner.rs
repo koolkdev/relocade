@@ -34,13 +34,14 @@ use std::{
 /// Owns a worker's execution session, including its CPU backend and device activities.
 /// [`crate::Machine`] prepares CPU state before [`ExecutionWorker`] transfers it here.
 /// Notifications interrupt guest execution so ready Rust activities can run.
+/// An optional compiler connection automatically compiles hot Real16 functions.
+/// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
     schedule: ExecutionSchedule,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     cpu: Cpu,
-    compiler: Option<crate::CompilerClient>,
 }
 
 impl Runner {
@@ -80,13 +81,13 @@ impl Runner {
         let compiler = compiler
             .map(|compiler| compiler.connect(&executor))
             .transpose()?;
+        let cpu = cpu.with_compiler(compiler);
         Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
             executor,
             cpu,
-            compiler,
         })
     }
 
@@ -107,10 +108,12 @@ impl Runner {
     }
 
     /// Takes this CPU's compiler connection once.
-    /// Returns `None` if no service was supplied at CPU creation or it was already taken.
+    /// Returns `None` if no service was supplied, the connection closed, or it was taken.
     /// The session receives ordered results through this single owner.
+    /// Take it during setup to manage requests and installation explicitly.
+    /// Panics if automatic compilation requests are still outstanding.
     pub fn take_compiler(&mut self) -> Option<crate::CompilerClient> {
-        self.compiler.take()
+        self.cpu.take_compiler()
     }
 
     pub fn clock(&self) -> &Clock {

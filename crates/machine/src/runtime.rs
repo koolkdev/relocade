@@ -133,6 +133,10 @@ impl Cpu {
         self.instance.io.clone()
     }
 
+    pub(crate) fn has_entry(&self, address: u32) -> bool {
+        self.instance.has_entry(address)
+    }
+
     /// Links a module to this runtime and publishes its callable exports.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Addresses are linear CS.base + EIP, before
