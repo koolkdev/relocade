@@ -3,12 +3,19 @@
 
 mod opl2;
 pub use opl2::Opl2;
+mod audio;
+pub use audio::AudioSource;
 mod timer;
 
+use audio::RegisterWrite;
 use relocade_machine::{
     Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    rc::{Rc, Weak},
+};
 use timer::Timer;
 
 /// Write the register address; read timer flags and the OPL2 identification bits.
@@ -27,6 +34,7 @@ pub struct Adlib {
     address: u8,
     registers: [u8; 256],
     timers: [Timer; 2],
+    writes: Weak<RefCell<VecDeque<RegisterWrite>>>,
 }
 
 impl Adlib {
@@ -36,6 +44,7 @@ impl Adlib {
             address: 0,
             registers: [0; 256],
             timers: [Timer::new(80), Timer::new(320)],
+            writes: Weak::new(),
         }
     }
 
@@ -94,7 +103,16 @@ impl Adlib {
                     self.timers[1].control(&self.clock, now, value & 2 != 0, value & 0x20 != 0);
                 }
             }
-            _ => self.registers[usize::from(self.address)] = value,
+            _ => {
+                self.registers[usize::from(self.address)] = value;
+                if let Some(writes) = self.writes.upgrade() {
+                    writes.borrow_mut().push_back(RegisterWrite {
+                        at: now,
+                        register: self.address,
+                        value,
+                    });
+                }
+            }
         }
     }
 }
