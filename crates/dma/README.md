@@ -21,6 +21,12 @@ operation honors masks, controller disable and single-transfer memory-read mode,
 reads live mapped memory in contiguous chunks, and updates address/count at
 wrap and completion boundaries. The peripheral determines how many bytes are due.
 
+Timed peripherals register a service with `attach_channel(channel, callback)`.
+DMA calls these services before register reads and writes, so elapsed transfers
+use the old settings and guest reads observe current progress. Callbacks receive
+the active I/O context and run without a controller borrow; they can use the
+same block-read API. Channel wiring survives guest controller reset.
+
 For low-level request-line use, `set_request(channel, true)` and
 `read_memory(channel, &memory_view)` transfer one byte through the same mechanism.
 The peripheral lowers that line when it no longer needs service. Block reads

@@ -8,12 +8,30 @@ the default and the built-in speaker is independent.
 The card owns one `relocade-adlib` instance. Ports `0x228`/`0x229` and
 `0x388`/`0x389` share its register latch, timer state and audio source. Resetting
 the DSP leaves FM untouched. SB2 has no programmable mixer chip or OPL3.
+The card composes that FM device with a DSP. The DSP owns its command protocol
+and timed playback; playback owns DMA progress, sample phase and completion IRQs.
 
 Named byte-only DSP ports implement reset, data, read-buffer status and
 write-buffer status. Releasing reset starts a 100 microsecond initialization
 interval on the shared clock, followed by the `0xaa` response. Command `0xe1`
 returns version 2.01. Reads with no response return `0xff`; unsupported commands
-are ignored. DMA playback and digital output are separate implementation parts.
+are ignored.
+
+Command `0x40` programs a sample period of `256 - time_constant` microseconds.
+Command `0x14` consumes its little-endian length plus one through DMA channel 1.
+The activity services elapsed samples in roughly 1 ms batches, shortening the
+last batch for completion. DSP and DMA register accesses also synchronize elapsed
+transfers. DMA applies pending transfers before a guest changes its masks or
+buffer registers, so those changes cannot affect earlier sample slots.
+Fractional sample time survives polling; changing the time constant starts a new
+period. Muting through `0xd3` leaves DMA running; `0xd1` enables the DAC and `0xd8`
+reports its state. Reset cancels playback, pending command bytes and the IRQ line.
+
+DSP completion raises IRQ7 until a read of `0x22e` acknowledges it. PIC EOI is a
+separate guest operation. DSP length and DMA count are independent: exhausted or
+masked DMA pauses consumption without completing the DSP command. Unmasking
+resumes future sample slots. Transfer progress and IRQs require no audio sink.
+Digital rendering and direct DAC output are separate implementation parts.
 
 Recording, ADPCM, MIDI and optional C/MS chips are outside this playback subset.
 The implementation follows Creative's [Sound Blaster Hardware Programming
