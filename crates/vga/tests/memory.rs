@@ -187,7 +187,68 @@ fn aperture_selection_bounds_cpu_transfers_and_planar_addresses_wrap() {
         assert_eq!(vga.io.read_mmio(base, 1), 0x5a);
         assert_eq!(vga.io.read_mmio(base - 1, 1), 0xff);
         assert_eq!(vga.io.read_mmio(base + 0x8000, 1), 0xff);
+        vga.io.write_mmio(base - 1, 2, 0xabcd);
+        assert_eq!(vga.io.read_mmio(base - 1, 2), 0xabff);
+        vga.io.write_mmio(base + 0x7fff, 2, 0x1234);
+        assert_eq!(vga.io.read_mmio(base + 0x7fff, 2), 0xff34);
+        vga.io.write_mmio(base, 1, 0x5a);
     }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn copy_writes_follow_plane_selection_without_another_graphics_write() {
+    let vga = planar();
+    for (plane, value) in [
+        0x0807_0605_0403_0201,
+        0x1817_1615_1413_1211,
+        0x2827_2625_2423_2221,
+        0x3837_3635_3433_3231,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        set(&vga.io, 0x3c4, 2, 1 << plane);
+        vga.io.write_mmio(0xa03fe, 8, value);
+    }
+    for offset in 0..8 {
+        let value = offset as u8 + 1;
+        assert_eq!(
+            planes(&vga.io, 0xa03fe + offset),
+            [value, value + 0x10, value + 0x20, value + 0x30]
+        );
+    }
+    set(&vga.io, 0x3c4, 2, 0);
+    vga.io.write_mmio(0xa03fe, 8, 0);
+    set(&vga.io, 0x3c4, 2, 5);
+    vga.io.write_mmio(0xa03fe, 2, 0x6655);
+    assert_eq!(planes(&vga.io, 0xa03fe), [0x55, 0x11, 0x55, 0x31]);
+    assert_eq!(planes(&vga.io, 0xa03ff), [0x66, 0x12, 0x66, 0x32]);
+    set(&vga.io, 0x3c4, 2, 15);
+    vga.io.write_mmio(0xa03fe, 4, 0xddcc_bbaa);
+    assert_eq!(planes(&vga.io, 0xa03fe), [0xaa; 4]);
+    assert_eq!(planes(&vga.io, 0xa0401), [0xdd; 4]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn chain_four_copy_splits_unaligned_writes_at_physical_words() {
+    let vga = planar();
+    set(&vga.io, 0x3c4, 4, 14);
+    vga.io.write_mmio(0xa3ffe, 8, 0x0807_0605_0403_0201);
+    assert_eq!(vga.io.read_mmio(0xa3ffe, 8), 0x0807_0605_0403_0201);
+    set(&vga.io, 0x3c4, 4, 6);
+    assert_eq!(planes(&vga.io, 0xa3ffc), [0, 0, 1, 2]);
+    assert_eq!(planes(&vga.io, 0xa4001), [3, 4, 5, 6]);
+    assert_eq!(planes(&vga.io, 0xa4005), [7, 8, 0, 0]);
+
+    set(&vga.io, 0x3c4, 4, 4); // Sixteen KiB per plane; ordinary copy addressing wraps.
+    vga.io.write_mmio(0xa3ffe, 4, 0xddcc_bbaa);
+    set(&vga.io, 0x3c4, 4, 6);
+    assert_eq!(planes(&vga.io, 0xa3ffe), [0xaa; 4]);
+    assert_eq!(planes(&vga.io, 0xa3fff), [0xbb; 4]);
+    assert_eq!(planes(&vga.io, 0xa0000), [0xcc; 4]);
+    assert_eq!(planes(&vga.io, 0xa0001), [0xdd; 4]);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]

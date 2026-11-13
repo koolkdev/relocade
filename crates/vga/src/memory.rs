@@ -39,44 +39,38 @@ impl VideoMemory {
         self.storage.write(address, value);
     }
 
-    pub fn write_physical_word(&mut self, address: u32, value: u32, mask: u32) {
+    pub fn write_physical_word(&mut self, address: u32, value: u32) {
+        self.storage.write_word(address, value);
+    }
+
+    pub fn write_physical_masked_word(&mut self, address: u32, value: u32, mask: u32) {
         self.storage.write_masked_word(address, value, mask);
     }
 
-    /// Reads each byte through the selected aperture; unmapped bytes return FF.
+    pub fn write_physical_bytes(&mut self, address: u32, values: &[u8]) {
+        self.storage.write_bytes(address, values);
+    }
+
+    /// The bus bounds the complete transfer to this validated window.
     #[inline(always)]
     pub fn read(&mut self, address: u32, bytes: u8, window: VramWindow) -> u64 {
         let mut value = [0; 8];
+        let offset = window.memory_offset(address);
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            let address = address + index as u32;
-            *byte = window
-                .memory_offset(address)
-                .map_or(0xff, |offset| self.storage.read(offset));
+            *byte = self.storage.read(offset + index as u32);
         }
         u64::from_le_bytes(value)
     }
 
     #[inline(always)]
     pub fn write(&mut self, address: u32, bytes: u8, value: u64, window: VramWindow) {
+        let offset = window.memory_offset(address);
         if bytes == 1 {
-            if let Some(offset) = window.memory_offset(address) {
-                self.storage.write(offset, value as u8);
-            }
-            return;
+            self.storage.write(offset, value as u8);
+        } else {
+            self.storage
+                .write_bytes(offset, &value.to_le_bytes()[..usize::from(bytes)]);
         }
-        let skip = window
-            .cpu_start
-            .saturating_sub(address)
-            .min(u32::from(bytes));
-        let Some(offset) = window.memory_offset(address + skip) else {
-            return;
-        };
-        let available = window.bytes - (address + skip - window.cpu_start);
-        let count = (u32::from(bytes) - skip).min(available);
-        self.storage.write_bytes(
-            offset,
-            &value.to_le_bytes()[skip as usize..(skip + count) as usize],
-        );
     }
 
     /// Clears all physical VRAM.

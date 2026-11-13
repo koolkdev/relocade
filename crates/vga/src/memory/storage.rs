@@ -63,7 +63,16 @@ impl Storage {
     pub fn write(&mut self, address: u32, value: u8) {
         let address = address as usize;
         self.bytes[address] = value;
-        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+    }
+
+    /// Replace an aligned physical word without reading its previous value.
+    pub fn write_word(&mut self, address: u32, value: u32) {
+        let address = address as usize;
+        self.bytes[address..address + 4].copy_from_slice(&value.to_le_bytes());
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
     }
 
     /// Replace selected bits in one aligned physical word. VGA's four plane
@@ -73,7 +82,8 @@ impl Storage {
         let word = &mut self.bytes[address..address + 4];
         let old = u32::from_le_bytes(word.try_into().unwrap());
         word.copy_from_slice(&((old & !mask) | (value & mask)).to_le_bytes());
-        self.dirty.mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
+        self.dirty
+            .mark(address / BLOCK_BYTES, address % BLOCK_BYTES);
     }
 
     pub fn write_bytes(&mut self, address: u32, values: &[u8]) {

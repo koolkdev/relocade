@@ -1,12 +1,16 @@
 //! Concrete register writes and the effects declared by their register owners.
 
 use super::Effects;
-use crate::{dispi::WriteAction, DispiAdapter};
+use crate::{dispi::WriteAction, registers::sequencer, DispiAdapter};
 use relocade_machine::IoContext;
 
 impl DispiAdapter {
     pub(crate) fn write_sequencer_data(&mut self, context: IoContext<'_>, value: u8) {
-        let effects = self.legacy_effect(self.vga.registers.sequencer.write_effect());
+        let mut effects = self.legacy_effect(self.vga.registers.sequencer.write_effect());
+        effects.memory_decode = matches!(
+            self.vga.registers.sequencer.index(),
+            sequencer::MAP_MASK | sequencer::MEMORY_MODE
+        );
         self.with_effects(context, effects, |card| card.vga.write_sequencer(value));
     }
 

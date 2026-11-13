@@ -2,7 +2,6 @@ use super::VgaCore;
 use crate::{
     memory::VideoMemory,
     registers::{graphics, sequencer},
-    MEMORY_RANGE,
 };
 use relocade_machine::{Device, DeviceCallbacks, IoBus, MmioRead, MmioWrite};
 use std::{cell::RefCell, rc::Rc};
@@ -35,8 +34,9 @@ fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
     let device = Rc::new(RefCell::new(card));
     let io = IoBus::new(device.clone(), |io| {
         let callbacks = DeviceCallbacks::new(&device);
+        let window = device.borrow().core.memory_window();
         io.bind_mmio(
-            MEMORY_RANGE,
+            window.start..=window.end - 1,
             &MmioRead::new(callbacks.read_mmio(|_, card, address, bytes| {
                 card.core.read_memory(&card.memory, address, bytes)
             })),
