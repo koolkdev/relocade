@@ -11,10 +11,16 @@ pub use console::run_console;
 /// Native execution returns after cleanup; browser startup returns immediately.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn run() -> Result<(), String> {
-    relocade_app::run_app("Relocade DOS", |app| async move {
+    run_with_configuration(relocade_dos::Configuration::default())
+}
+
+/// Opens the console with the selected PC hardware.
+/// This Rust entrypoint shares the lifecycle of [`run`], including host audio.
+pub fn run_with_configuration(configuration: relocade_dos::Configuration) -> Result<(), String> {
+    relocade_app::run_app("Relocade DOS", move |app| async move {
         let compiler =
             relocade_machine::CompilerService::start().map_err(|error| error.to_string())?;
-        let result = run_machine(app, &compiler).await;
+        let result = run_machine(app, &compiler, configuration).await;
         compiler
             .shutdown()
             .await
@@ -26,6 +32,7 @@ pub fn run() -> Result<(), String> {
 async fn run_machine(
     mut app: relocade_app::AppHost,
     compiler: &relocade_machine::CompilerService,
+    configuration: relocade_dos::Configuration,
 ) -> Result<(), String> {
     let output = app.open_audio().ok();
     let (endpoints, ready) = oneshot::channel();
@@ -60,7 +67,7 @@ async fn run_machine(
         },
         async move |runner| {
             let startup = async {
-                let mut dos = relocade_dos::Dos::new(runner)
+                let mut dos = relocade_dos::Dos::with_configuration(runner, configuration)
                     .await
                     .map_err(|error| error.to_string())?;
                 if let Some((config, samples)) = output {
