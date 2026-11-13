@@ -71,6 +71,9 @@ instruction_families! {
         forms {
             F3 0xA4 => byte();
             F3 0xA5 => word_or_dword();
+            // Legacy undocumented instruction.
+            F2 0xA4 => byte();
+            F2 0xA5 => word_or_dword();
         }
     }
     CMPS {
