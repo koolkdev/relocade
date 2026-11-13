@@ -104,6 +104,12 @@ impl Clone for ScalarFacts {
 }
 
 impl ScalarFacts {
+    /// Shared inference identifies snapshots whose facts have not diverged.
+    /// Fact changes detach shared inference; multi-path joins start fresh.
+    pub(super) fn same_context(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.computed, &other.computed)
+    }
+
     pub(super) fn with_assumptions(
         mut self,
         table: &ValueTable,
