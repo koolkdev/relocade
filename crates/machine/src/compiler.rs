@@ -74,6 +74,12 @@ impl CompiledCode {
             .addresses
             .iter()
             .zip(&self.description.blocks)
+            // Out-of-range continuations retain their internal fetch guards,
+            // but have no 16:16 identity to publish in the real-mode map.
+            .filter(|(_, block)| {
+                self.description.target.profile != ExecutionProfile::Real16
+                    || block.start_eip <= u32::from(u16::MAX)
+            })
             .map(|(&address, block)| {
                 Ok(ModuleEntry {
                     key: EntryKey::block(
