@@ -1,6 +1,9 @@
 use crate::CONVENTIONAL_MEMORY_SIZE;
+use relocade_dma::Dma;
 use relocade_machine::{CpuConfig, MachineConfig, Runner};
+use relocade_pic::Pic;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use std::{cell::RefCell, rc::Rc};
 
 /// Hardware installed before guest execution, independently of host playback.
 #[derive(Clone, Copy, Debug, Default)]
@@ -21,12 +24,14 @@ impl SoundCard {
     pub(crate) async fn initialize(
         self,
         runner: &Runner,
+        dma: &Rc<RefCell<Dma>>,
+        pic: &Pic,
     ) -> Option<Box<dyn crate::sound_card::SoundCard>> {
         match self {
             Self::None => None,
             Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner).await)),
             Self::SoundBlaster2 => Some(Box::new(
-                relocade_sound_blaster::SoundBlaster::initialize(runner).await,
+                relocade_sound_blaster::SoundBlaster::initialize(runner, dma.clone(), pic).await,
             )),
         }
     }

@@ -1,22 +1,9 @@
-use relocade_clock_test_support::ManualClock;
-use relocade_machine::IoBus;
-use relocade_sound_blaster::*;
-use std::{cell::RefCell, rc::Rc, time::Duration};
-
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-fn hardware() -> (ManualClock, IoBus) {
-    let clock = ManualClock::new();
-    let card = Rc::new(RefCell::new(SoundBlaster::new(clock.clock())));
-    let io = IoBus::new(card.clone(), |io| SoundBlaster::configure_io(io, &card));
-    (clock, io)
-}
+use super::*;
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn reset_readiness_and_version_use_the_dsp_ports() {
-    let (clock, io) = hardware();
+    let Hardware { clock, io, .. } = Hardware::new();
     io.write_port(RESET_PORT, 1, 1);
     assert_eq!(io.read_port(WRITE_STATUS_PORT, 1) & 0x80, 0x80);
     io.write_port(WRITE_DATA_PORT, 1, 0xe1); // Ignored while reset is held.
@@ -50,7 +37,7 @@ fn reset_readiness_and_version_use_the_dsp_ports() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn fm_aliases_share_the_register_latch_and_timer() {
-    let (clock, io) = hardware();
+    let Hardware { clock, io, .. } = Hardware::new();
     io.write_port(FM_ADDRESS_STATUS_PORT, 1, 2);
     io.write_port(relocade_adlib::DATA_PORT, 1, 0xff);
     io.write_port(relocade_adlib::ADDRESS_STATUS_PORT, 1, 4);

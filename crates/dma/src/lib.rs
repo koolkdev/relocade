@@ -1,9 +1,10 @@
 //! Primary 8237A DMA registers and the PC/AT's 8-bit channel page registers.
 #![forbid(unsafe_code)]
 
+mod ports;
 mod transfer;
 
-use relocade_machine::{Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner};
+use relocade_machine::{Device, Runner};
 use std::{cell::RefCell, rc::Rc};
 
 pub const ADDRESS_PORTS: [u16; 4] = [0x00, 0x02, 0x04, 0x06];
@@ -52,6 +53,7 @@ pub struct Dma {
     hardware_requests: u8,
     terminal_count: u8,
     high_byte: bool,
+    services: [Option<Rc<ports::Service>>; 4],
 }
 
 impl Default for Dma {
@@ -64,6 +66,7 @@ impl Default for Dma {
             hardware_requests: 0,
             terminal_count: 0,
             high_byte: false,
+            services: std::array::from_fn(|_| None),
         }
     }
 }
@@ -75,78 +78,6 @@ impl Dma {
             .connect(dma.clone(), |io| Self::configure_io(io, &dma))
             .await;
         dma
-    }
-
-    pub fn configure_io(io: &mut DeviceConnection<'_>, dma: &Rc<RefCell<Self>>) {
-        let callbacks = DeviceCallbacks::new(dma);
-        let unreadable = PortRead::byte(|_| 0xff);
-        for channel in 0..4 {
-            for (register, port) in [
-                (channel * 2, ADDRESS_PORTS[channel]),
-                (channel * 2 + 1, COUNT_PORTS[channel]),
-            ] {
-                io.bind(
-                    port,
-                    &PortRead::byte(callbacks.read(move |_, dma| dma.read_word(register))),
-                    &PortWrite::byte(
-                        callbacks.write(move |_, dma, value| dma.write_word(register, value)),
-                    ),
-                );
-            }
-            io.bind(
-                PAGE_PORTS[channel],
-                &PortRead::byte(callbacks.read(move |_, dma| dma.channels[channel].page)),
-                &PortWrite::byte(
-                    callbacks.write(move |_, dma, value| dma.channels[channel].page = value),
-                ),
-            );
-        }
-        io.bind(
-            STATUS_PORT,
-            &PortRead::byte(callbacks.read(|_, dma| dma.read_status())),
-            &PortWrite::byte(callbacks.write(|_, dma, value| dma.command = value)),
-        );
-        io.bind(
-            REQUEST_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, value| {
-                set_bit(&mut dma.software_requests, value & 3, value & 4 != 0);
-            })),
-        );
-        io.bind(
-            SINGLE_MASK_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, value| {
-                set_bit(&mut dma.mask, value & 3, value & 4 != 0);
-            })),
-        );
-        io.bind(
-            MODE_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, value| {
-                dma.channels[usize::from(value & 3)].mode = value & 0xfc;
-            })),
-        );
-        io.bind(
-            CLEAR_FLIP_FLOP_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, _| dma.high_byte = false)),
-        );
-        io.bind(
-            MASTER_CLEAR_PORT,
-            &PortRead::byte(|_| 0), // No memory-to-memory transfers use the temporary register.
-            &PortWrite::byte(callbacks.write(|_, dma, _| dma.master_clear())),
-        );
-        io.bind(
-            CLEAR_MASK_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, _| dma.mask = 0)),
-        );
-        io.bind(
-            MASK_PORT,
-            &unreadable,
-            &PortWrite::byte(callbacks.write(|_, dma, value| dma.mask = value & 0x0f)),
-        );
     }
 
     fn word(&mut self, register: usize) -> &mut Register {

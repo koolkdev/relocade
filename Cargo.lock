@@ -2530,9 +2530,14 @@ dependencies = [
 name = "relocade-sound-blaster"
 version = "0.0.0"
 dependencies = [
+ "event-listener",
+ "futures-lite",
  "relocade-adlib",
  "relocade-clock-test-support",
+ "relocade-dma",
  "relocade-machine",
+ "relocade-pic",
+ "relocade-x86",
  "wasm-bindgen-test",
 ]
 
