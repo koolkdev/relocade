@@ -106,35 +106,9 @@ impl<'a> DeviceConnection<'a> {
         );
     }
 
-    /// Maps physical ranges to this device's MMIO methods. The machine's physical
-    /// map must also mark these addresses as [`relocade_x86::PhysicalMapping::MMIO`].
-    pub fn map_mmio(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u32>>) {
-        let ranges: Vec<_> = ranges.into_iter().collect();
-        self.validate_mmio(&ranges);
-        let device = Rc::downgrade(&self.connection.device);
-        let read = MmioRead::new(move |context, address, bytes| {
-            device
-                .upgrade()
-                .expect("connected device")
-                .borrow_mut()
-                .read_mmio(context, address, bytes)
-        });
-        let device = Rc::downgrade(&self.connection.device);
-        let write = MmioWrite::new(move |context, address, bytes, value| {
-            device
-                .upgrade()
-                .expect("connected device")
-                .borrow_mut()
-                .write_mmio(context, address, bytes, value);
-        });
-        for range in ranges {
-            self.bind_mmio(range, &read, &write);
-        }
-    }
-
     /// Claims a fixed physical window and installs its prepared operations.
-    /// The physical map must mark these addresses as MMIO. Transfers split at
-    /// window boundaries; complete pages call the installed operations directly.
+    /// The physical map must mark these addresses as [`relocade_x86::PhysicalMapping::MMIO`].
+    /// Transfers split at window boundaries; complete pages call the installed operations directly.
     /// Retain the binding only to replace reads or writes later.
     pub fn bind_mmio(
         &mut self,

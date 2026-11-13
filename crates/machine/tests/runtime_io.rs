@@ -9,8 +9,8 @@ mod ports;
 mod support;
 
 use relocade_machine::{
-    Cpu, Device, DeviceConnection, DispatchEntry, FarPointer, IoBus, IoContext, Memory,
-    PortBinding, PortRange, PortRead, PortWrite,
+    Cpu, Device, DeviceCallbacks, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory,
+    MmioRead, MmioWrite, PortBinding, PortRange, PortRead, PortWrite,
 };
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
@@ -80,10 +80,25 @@ impl RecordingDevice {
     fn take_transfers(&mut self) -> Vec<Transfer> {
         std::mem::take(&mut self.transfers)
     }
-}
 
-impl Device for RecordingDevice {
-    fn read_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8) -> u64 {
+    fn bind_memory(
+        io: &mut DeviceConnection<'_>,
+        device: &Rc<RefCell<Self>>,
+        addresses: std::ops::RangeInclusive<u32>,
+    ) {
+        let callbacks = DeviceCallbacks::new(device);
+        io.bind_mmio(
+            addresses,
+            &MmioRead::new(
+                callbacks.read_mmio(|_, device, address, bytes| device.read_memory(address, bytes)),
+            ),
+            &MmioWrite::new(callbacks.write_mmio(|_, device, address, bytes, value| {
+                device.write_memory(address, bytes, value);
+            })),
+        );
+    }
+
+    fn read_memory(&mut self, address: u32, bytes: u8) -> u64 {
         self.transfers.push(Transfer::MemoryRead { address, bytes });
         let offset = (address - self.base) as usize;
         let mut result = [0; 8];
@@ -92,7 +107,7 @@ impl Device for RecordingDevice {
         u64::from_le_bytes(result)
     }
 
-    fn write_mmio(&mut self, _context: IoContext<'_>, address: u32, bytes: u8, value: u64) {
+    fn write_memory(&mut self, address: u32, bytes: u8, value: u64) {
         self.transfers.push(Transfer::MemoryWrite {
             address,
             bytes,
@@ -103,6 +118,8 @@ impl Device for RecordingDevice {
             .copy_from_slice(&value.to_le_bytes()[..usize::from(bytes)]);
     }
 }
+
+impl Device for RecordingDevice {}
 
 fn map() -> PhysicalMemoryMap {
     PhysicalMemoryMap::new([
@@ -136,7 +153,7 @@ async fn check_device_access() {
             .unwrap();
         let io = cpu.io();
         io.connect(device.clone(), |io| {
-            io.map_mmio(std::iter::once(0x3000..=0x4fff));
+            RecordingDevice::bind_memory(io, &device, 0x3000..=0x4fff);
             RecordingDevice::bind(io, &device, 0x3d4);
         });
         {
@@ -253,10 +270,10 @@ fn mmio_crosses_device_boundaries_and_open_bus() {
     let second = RecordingDevice::new(0x3000);
     let io = IoBus::default();
     io.connect(first.clone(), |io| {
-        io.map_mmio(std::iter::once(0x3000..=0x3002));
+        RecordingDevice::bind_memory(io, &first, 0x3000..=0x3002);
     });
     io.connect(second.clone(), |io| {
-        io.map_mmio(std::iter::once(0x3004..=0x3fff));
+        RecordingDevice::bind_memory(io, &second, 0x3004..=0x3fff);
     });
     let memory = Memory::new(relocade_machine::MachineConfig::new(0x2000, map()).unwrap()).unwrap();
     let mut view = memory.view().with_io(&io);
@@ -299,10 +316,10 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
     let high = RecordingDevice::new(0xff000);
     let io = IoBus::default();
     io.connect(low.clone(), |io| {
-        io.map_mmio(std::iter::once(0..=0xfff));
+        RecordingDevice::bind_memory(io, &low, 0..=0xfff);
     });
     io.connect(high.clone(), |io| {
-        io.map_mmio(std::iter::once(0xff000..=0xfffff));
+        RecordingDevice::bind_memory(io, &high, 0xff000..=0xfffff);
     });
     let map = PhysicalMemoryMap::new([
         (0..=0xfff, PhysicalMapping::MMIO),
@@ -349,7 +366,7 @@ fn far_buffers_wrap_offsets_independently_of_a20_and_mapping_policy() {
     for a20_enabled in [false, true] {
         let device = RecordingDevice::new(0xf0000);
         let io = IoBus::new(device.clone(), |io| {
-            io.map_mmio(std::iter::once(0xf0000..=0xf0fff));
+            RecordingDevice::bind_memory(io, &device, 0xf0000..=0xf0fff);
         });
         let mut map = PhysicalMemoryMap::new([
             (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),

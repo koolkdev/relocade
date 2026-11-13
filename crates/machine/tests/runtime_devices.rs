@@ -4,7 +4,7 @@ mod connection;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, Hook, IoContext};
+use relocade_machine::{Clock, Device, Hook};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
 };

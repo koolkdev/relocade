@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{Device, ExitHandle, IoContext};
+use relocade_machine::{Device, DeviceCallbacks, ExitHandle, IoContext, MmioRead, MmioWrite};
 use std::task::{Context, Poll};
 
 struct ExitPollingDevice {
@@ -63,12 +63,7 @@ struct StackDevice {
     writes: usize,
 }
 
-impl Device for StackDevice {
-    fn write_mmio(&mut self, _context: IoContext<'_>, _: u32, _: u8, _: u64) {
-        self.writes += 1;
-        self.exit.as_ref().unwrap().request();
-    }
-}
+impl Device for StackDevice {}
 
 async fn exit_during_entry() {
     for pending_call in [false, true] {
@@ -95,7 +90,15 @@ async fn exit_during_entry() {
             let io = IoBus::default();
             io.connect(irq.clone(), |_| {});
             io.connect(stack.clone(), |io| {
-                io.map_mmio(std::iter::once(0x7000..=0x7fff));
+                let callbacks = DeviceCallbacks::new(&stack);
+                io.bind_mmio(
+                    0x7000..=0x7fff,
+                    &MmioRead::new(|_, _, _| u64::MAX),
+                    &MmioWrite::new(callbacks.write_mmio(|_, device, _, _, _| {
+                        device.writes += 1;
+                        device.exit.as_ref().unwrap().request();
+                    })),
+                );
             });
             io
         })
