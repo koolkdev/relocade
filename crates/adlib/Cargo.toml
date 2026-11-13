@@ -7,6 +7,10 @@ publish.workspace = true
 
 [dependencies]
 nuked-opl3 = { version = "=0.1.0", default-features = false }
+relocade-machine = { path = "../machine" }
+
+[dev-dependencies]
+relocade-clock-test-support = { path = "../../tests/clock-support" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "=0.3.79"
