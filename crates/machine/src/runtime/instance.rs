@@ -1,6 +1,7 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
 mod hooks;
+mod modules;
 mod profiling;
 mod table;
 
@@ -9,10 +10,11 @@ use super::{
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
+use modules::{InstalledModule, Modules};
 use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
-use std::{collections::BTreeMap, rc::Rc};
+use std::rc::Rc;
 use table::DispatchTable;
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
@@ -35,6 +37,7 @@ pub(super) struct CpuInstance {
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     table: DispatchTable<WasmRuntime>,
+    modules: Modules<WasmRuntime>,
     pub(super) profiling: Profiling,
     hooks: Hooks,
 }
@@ -104,6 +107,7 @@ impl CpuInstance {
                 interrupt,
                 far_call,
                 table,
+                modules: Modules::default(),
                 profiling,
                 hooks: Hooks::default(),
             })
@@ -175,14 +179,23 @@ impl CpuInstance {
         module: &Module,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let entries: BTreeMap<_, _> = entries
-            .iter()
-            .map(|entry| (entry.key, entry.export))
-            .collect();
-        let entries: Vec<_> = entries
-            .into_iter()
-            .map(|(key, export)| DispatchEntry { key, export })
-            .collect();
+        self.install_instance(module, entries, None)
+    }
+
+    pub(super) fn install_compilation(
+        &mut self,
+        code: &crate::CompiledCode,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        self.install_instance(code.module(), entries, Some(code))
+    }
+
+    fn install_instance(
+        &mut self,
+        module: &Module,
+        entries: &[DispatchEntry<'_>],
+        code: Option<&crate::CompiledCode>,
+    ) -> Result<()> {
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.table.imports(wasm));
@@ -195,7 +208,10 @@ impl CpuInstance {
             imports.extend(self.io.port_map().imports(wasm));
             imports.extend(self.io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(module, &imports)?;
-            self.table.install(wasm, &instance, &entries)
+            let module = InstalledModule::new(instance, entries, code.cloned());
+            module.publish(wasm, &mut self.table)?;
+            self.modules.insert(module);
+            Ok::<(), crate::Error>(())
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.key));
         Ok(())
@@ -203,6 +219,15 @@ impl CpuInstance {
 
     pub(super) fn has_entry(&self, key: u32) -> bool {
         self.table.contains(key)
+    }
+
+    pub(super) fn compiled_modules_at(
+        &self,
+        address: u32,
+    ) -> impl Iterator<Item = &crate::CompiledCode> {
+        self.modules
+            .covering(address)
+            .filter_map(|module| module.code())
     }
 
     pub(super) fn interpret_at(&mut self, entry: FarPointer) -> Result<()> {
