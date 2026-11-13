@@ -27,7 +27,7 @@ pub(super) fn define_call_resolver(
     program: &mut Program,
     cpu: Arc<Cpu>,
     lookup: TypedFunc<fn() -> u32>,
-) -> Result<(), BuildError> {
+) -> Result<TypedFunc<fn() -> (u32, bool)>, BuildError> {
     let recorder = CallProfile::declare_recorder(program);
     abi::RESOLVE_CALL.define(program, move |mut body, ()| {
         let slot = lookup.call(&mut body, ())?;
@@ -41,6 +41,5 @@ pub(super) fn define_call_resolver(
         let key = cs.unsigned().extend::<I32>().shl(16).or(eip);
         let can_continue = recorder.call(&mut body, (key,))?;
         body.return_((EntryTable::INTERPRETER_SLOT, can_continue))
-    })?;
-    Ok(())
+    })
 }

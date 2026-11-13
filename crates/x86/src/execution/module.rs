@@ -1,6 +1,6 @@
 //! Shared CPU declarations and architectural entry helpers for generated modules.
 
-use super::ExecutionBuilder;
+use super::{calls::CallLinks, ExecutionBuilder};
 use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
@@ -10,6 +10,7 @@ pub(crate) struct ExecutionModule {
     pub(crate) cpu: Arc<Cpu>,
     pub(crate) memory: Arc<Memory>,
     pub(super) entries: Arc<BTreeMap<u32, Func>>,
+    pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
@@ -21,6 +22,7 @@ impl ExecutionModule {
             cpu: Arc::new(Cpu::declare(program)),
             memory: Arc::new(Memory::declare(program, target.profile)),
             entries: Arc::default(),
+            call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
             target,
             interrupt: None,
@@ -39,9 +41,14 @@ impl ExecutionModule {
         module
     }
 
-    pub(crate) fn with_entries(&self, entries: Arc<BTreeMap<u32, Func>>) -> Self {
+    pub(crate) fn with_function(
+        &self,
+        entries: BTreeMap<u32, Func>,
+        call_sites: BTreeMap<u32, u32>,
+    ) -> Self {
         Self {
-            entries,
+            entries: Arc::new(entries),
+            call_links: Arc::new(self.call_links.for_function(call_sites)),
             ..self.clone()
         }
     }

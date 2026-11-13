@@ -1,5 +1,7 @@
 //! CPU-local module instances, callable exports and decoded guest-code coverage.
 
+mod calls;
+pub(super) use calls::Calls;
 mod table;
 
 use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
@@ -12,6 +14,7 @@ pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
     entries: BTreeMap<u32, String>,
     code: Option<CompiledCode>,
+    calls: Option<Calls<B>>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
@@ -19,6 +22,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         instance: B::Instance,
         entries: &[DispatchEntry<'_>],
         code: Option<CompiledCode>,
+        calls: Option<Calls<B>>,
     ) -> Self {
         Self {
             instance,
@@ -27,6 +31,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
                 .map(|entry| (entry.key, entry.export.to_owned()))
                 .collect(),
             code,
+            calls,
         }
     }
 
@@ -48,6 +53,12 @@ pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
     table: DispatchTable<B>,
     modules: Vec<InstalledModule<B>>,
     pages: BTreeMap<u32, Vec<usize>>,
+    callers: BTreeMap<u32, Vec<CallSite>>,
+}
+
+struct CallSite {
+    module: usize,
+    index: u32,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
@@ -56,6 +67,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             table: DispatchTable::new(backend)?,
             modules: Vec::new(),
             pages: BTreeMap::new(),
+            callers: BTreeMap::new(),
         })
     }
 
@@ -83,12 +95,37 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         backend: &mut B,
         entry: FarPointer,
     ) -> Result<()> {
-        self.table.install_interpreter_fallback(backend, entry)
+        self.table.install_interpreter_fallback(backend, entry)?;
+        self.relink(backend, [entry.packed()])
     }
 
     pub(super) fn install(&mut self, backend: &mut B, module: InstalledModule<B>) -> Result<()> {
         module.publish(backend, &mut self.table)?;
+        let keys: Vec<_> = module.entries.keys().copied().collect();
+        let id = self.modules.len();
+        if let Some(calls) = &module.calls {
+            for (index, &target) in calls.targets.iter().enumerate() {
+                calls.bind(backend, &self.table, index as u32)?;
+                self.callers.entry(target).or_default().push(CallSite {
+                    module: id,
+                    index: index as u32,
+                });
+            }
+        }
         self.insert(module);
+        self.relink(backend, keys)
+    }
+
+    fn relink(&self, backend: &mut B, keys: impl IntoIterator<Item = u32>) -> Result<()> {
+        for key in keys {
+            for site in self.callers.get(&key).into_iter().flatten() {
+                self.modules[site.module]
+                    .calls
+                    .as_ref()
+                    .expect("registered caller")
+                    .bind(backend, &self.table, site.index)?;
+            }
+        }
         Ok(())
     }
 

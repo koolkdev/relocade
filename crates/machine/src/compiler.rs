@@ -125,13 +125,9 @@ async fn compile(
             (module.compile_with(jobs).await?, addresses)
         }
     };
-    Ok(CompiledCode {
-        module: compiler.compile(&blocks.bytes).await?,
-        description: Description {
-            ranges: code::ranges(&addresses, &blocks.entries),
-            addresses,
-            blocks: blocks.entries,
-            target: blocks.execution_target,
-        },
-    })
+    Ok(CompiledCode::new(
+        compiler.compile(&blocks.bytes).await?,
+        addresses,
+        blocks,
+    ))
 }

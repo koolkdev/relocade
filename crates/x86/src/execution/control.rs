@@ -54,7 +54,7 @@ impl ExecutionBuilder<'_, '_> {
     {
         self.check_code_target(&target, None)?;
         self.push(return_address.truncate::<T>(), T::BYTES)?;
-        self.transfer = Transfer::Call;
+        self.transfer = Transfer::Call(self.call_link()?);
         Ok(target)
     }
 

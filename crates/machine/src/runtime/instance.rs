@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
-use modules::{InstalledModule, Modules};
+use modules::{Calls, InstalledModule, Modules};
 use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
@@ -31,6 +31,7 @@ pub(super) struct CpuInstance {
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
     resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
+    resolve_and_jump: Function<WasmRuntime, abi::ExecutionSignature>,
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
@@ -65,6 +66,7 @@ impl CpuInstance {
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
             let interpret = wasm.function(&instance, abi::INTERPRET)?;
             let resolve_call = wasm.function(&instance, abi::RESOLVE_CALL)?;
+            let resolve_and_jump = wasm.function(&instance, abi::RESOLVE_AND_JUMP)?;
 
             imports.extend([
                 wasm.bind(abi::DISPATCH, &dispatch),
@@ -100,6 +102,7 @@ impl CpuInstance {
                 dispatch,
                 interpret,
                 resolve_call,
+                resolve_and_jump,
                 step,
                 interrupt,
                 far_call,
@@ -193,6 +196,7 @@ impl CpuInstance {
         code: Option<&crate::CompiledCode>,
     ) -> Result<()> {
         self.runtime.with_runtime(|wasm| {
+            let calls = Calls::new(wasm, code, &self.resolve_and_jump)?;
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
@@ -203,8 +207,11 @@ impl CpuInstance {
             ]);
             imports.extend(self.io.port_map().imports(wasm));
             imports.extend(self.io.mmio_map().imports(wasm));
+            if let Some(calls) = &calls {
+                imports.push(calls.import(wasm));
+            }
             let instance = wasm.instantiate(module, &imports)?;
-            let module = InstalledModule::new(instance, entries, code.cloned());
+            let module = InstalledModule::new(instance, entries, code.cloned(), calls);
             self.modules.install(wasm, module)
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.key));

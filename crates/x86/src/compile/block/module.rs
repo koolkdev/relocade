@@ -1,14 +1,17 @@
 //! Shared Wasm declarations and function emission for one snapshot batch.
 
 use super::{decode::DecodedBlock, BlockEntry, Compiler};
-use crate::{execution::ExecutionModule, BlockError};
+use crate::{
+    execution::ExecutionModule, instruction::CallTarget, BlockError, CallLink, ExecutionProfile,
+};
 use relocade_compiler::{Func, Program};
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 pub(in crate::compile) struct BlockModule<'a> {
     pub(in crate::compile) compiler: &'a Compiler,
     pub(in crate::compile) program: Program,
     pub(in crate::compile) entries: Vec<BlockEntry>,
+    pub(in crate::compile) calls: Vec<CallLink>,
     execution: ExecutionModule,
 }
 
@@ -30,6 +33,7 @@ impl<'a> BlockModule<'a> {
             compiler,
             program,
             entries: Vec::new(),
+            calls: Vec::new(),
             execution,
         }
     }
@@ -45,7 +49,30 @@ impl<'a> BlockModule<'a> {
             .iter()
             .map(|(block, function)| (block.entry.start_eip, *function))
             .collect();
-        let module = self.execution.with_entries(Arc::new(entries));
+        let mut call_sites = BTreeMap::new();
+        if self.compiler.target.profile == ExecutionProfile::Real16 {
+            for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
+                let link = match instruction.call_target() {
+                    Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
+                        CallLink::Near {
+                            caller_entry: self.entries.len(),
+                            eip,
+                        }
+                    }
+                    Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
+                        CallLink::Far {
+                            selector,
+                            offset: offset as u16,
+                        }
+                    }
+                    _ => continue,
+                };
+                let index = u32::try_from(self.calls.len()).expect("call table fits u32");
+                call_sites.insert(instruction.eip, index);
+                self.calls.push(link);
+            }
+        }
+        let module = self.execution.with_function(entries, call_sites);
         self.define_blocks(blocks, module)
     }
 

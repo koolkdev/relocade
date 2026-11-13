@@ -189,7 +189,34 @@ pub(crate) struct ResolvedForm {
     locked: bool,
 }
 
+pub(crate) enum CallTarget {
+    Near(u32),
+    Far { selector: u16, offset: u32 },
+}
+
 impl ResolvedForm {
+    pub(crate) fn call_target(
+        &self,
+        immediates: [Option<u32>; 2],
+        fallthrough: u32,
+    ) -> Option<CallTarget> {
+        let immediate = immediates[0]?;
+        let mask = match self.operand_size {
+            OperandSize::Word => 0xffff,
+            OperandSize::Dword => u32::MAX,
+        };
+        match self.form.control_flow {
+            Some(ControlFlow::Call) => {
+                Some(CallTarget::Near(fallthrough.wrapping_add(immediate) & mask))
+            }
+            Some(ControlFlow::FarCall) => Some(CallTarget::Far {
+                selector: immediates[1]? as u16,
+                offset: immediate & mask,
+            }),
+            _ => None,
+        }
+    }
+
     pub(crate) fn successors(
         &self,
         immediates: [Option<u32>; 2],

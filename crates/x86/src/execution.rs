@@ -1,4 +1,5 @@
 mod address;
+mod calls;
 mod control;
 mod entry;
 mod interrupt;
@@ -59,6 +60,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     completed: u32,
     transfer: Transfer,
     entries: &'module BTreeMap<u32, Func>,
+    call_links: &'module calls::CallLinks,
     can_fallback: bool,
     observed_cpu: Option<&'module CpuState>,
 }
@@ -89,6 +91,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             completed: 0,
             transfer: Transfer::Jump,
             entries: &module.entries,
+            call_links: &module.call_links,
             can_fallback: false,
             observed_cpu: None,
         })

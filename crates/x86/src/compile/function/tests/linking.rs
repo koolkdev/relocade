@@ -225,3 +225,50 @@ fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
         ),
     );
 }
+
+#[test]
+fn call_tables_describe_external_near_and_far_targets_in_each_function() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let mut module = compiler.function_module();
+    let code = [
+        0xe8, 0xfd, 0, // CALL 0200
+        0x9a, 0, 2, 0x10, 0, // CALL FAR 0010:0200
+        0xff, 0xd0, // CALL AX has no constant destination
+        0xc3,
+    ];
+    for _ in 0..2 {
+        module
+            .add_function(0x100, FunctionLimits::default(), reader(0x100, &code))
+            .unwrap();
+    }
+    let blocks = module.compile().unwrap();
+    assert_eq!(
+        blocks.calls,
+        [
+            crate::CallLink::Near {
+                caller_entry: 0,
+                eip: 0x200
+            },
+            crate::CallLink::Far {
+                selector: 0x10,
+                offset: 0x200
+            },
+            crate::CallLink::Near {
+                caller_entry: 4,
+                eip: 0x200
+            },
+            crate::CallLink::Far {
+                selector: 0x10,
+                offset: 0x200
+            },
+        ]
+    );
+    let local = compiler
+        .compile_function(
+            0x100,
+            FunctionLimits::default(),
+            reader(0x100, &[0xe8, 0, 0, 0xc3]),
+        )
+        .unwrap();
+    assert!(local.calls.is_empty(), "a local call uses its direct entry");
+}

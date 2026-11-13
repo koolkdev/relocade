@@ -90,7 +90,7 @@ impl ExecutionBuilder<'_, '_> {
         // Real16 keeps the same execution profile after loading CS. Protected
         // CS transitions retain ordinary dispatch across the context change.
         if self.profile() == ExecutionProfile::Real16 {
-            self.transfer = Transfer::FarCall;
+            self.transfer = Transfer::FarCall(self.call_link()?);
         }
         Ok(offset)
     }

@@ -23,6 +23,11 @@ pub const PAGE_TABLE: Memory = Memory::new(
     "machine",
     crate::memory::page_table::BYTE_LEN / 65536,
 );
+/// Private to one module instance; the embedding binds and updates destinations.
+pub const CALL_TARGETS: Table<ExecutionSignature> = Table::new("relocade", "callTargets", 0);
+pub const RESOLVE_AND_JUMP: Function<ExecutionSignature> =
+    Function::new("relocade", "resolveAndJump");
+
 /// Real-mode hooks and compiled blocks, keyed by packed 16:16 CS:IP.
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 /// CPU-local call observations. The embedding drains these while execution is stopped.

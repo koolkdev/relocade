@@ -4,11 +4,27 @@ use crate::{DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
 use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table};
 use relocade_x86::{abi, EntryTable};
+use std::collections::BTreeMap;
+
+struct Entry<B: ExportFunction<abi::ExecutionSignature>> {
+    slot: u32,
+    function: FunctionRef<B, abi::ExecutionSignature>,
+}
+
+impl<B: ExportFunction<abi::ExecutionSignature>> Clone for Entry<B> {
+    fn clone(&self) -> Self {
+        Self {
+            slot: self.slot,
+            function: self.function.clone(),
+        }
+    }
+}
 
 pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     memory: B::Memory,
     functions: Table<B, abi::ExecutionSignature>,
-    entries: EntryTable,
+    entries: BTreeMap<u32, Entry<B>>,
+    interpreter: Option<FunctionRef<B, abi::ExecutionSignature>>,
     next_slot: u32,
     capacity: u32,
 }
@@ -22,7 +38,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         Ok(Self {
             memory,
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS, None)?,
-            entries: EntryTable::default(),
+            entries: BTreeMap::new(),
+            interpreter: None,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
@@ -38,8 +55,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         ]
     }
 
+    pub(super) fn resolve(&self, key: u32) -> Option<&FunctionRef<B, abi::ExecutionSignature>> {
+        self.entries.get(&key).map(|entry| &entry.function)
+    }
+
     pub(super) fn contains(&self, key: u32) -> bool {
-        self.entries.get(key).is_some()
+        self.resolve(key).is_some()
     }
 
     /// Failed Real16 candidates suppress profiling only for their own CS:IP.
@@ -53,12 +74,22 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             return Ok(());
         }
         let mut entries = self.entries.clone();
-        entries.insert(key, EntryTable::INTERPRETER_SLOT);
+        entries.insert(
+            key,
+            Entry {
+                slot: EntryTable::INTERPRETER_SLOT,
+                function: self
+                    .interpreter
+                    .as_ref()
+                    .expect("interpreter is installed before execution")
+                    .clone(),
+            },
+        );
         self.publish(backend, entries, Vec::new())
     }
 
     pub(super) fn install_interpreter(
-        &self,
+        &mut self,
         backend: &mut B,
         instance: &B::Instance,
     ) -> Result<()> {
@@ -66,6 +97,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         let function = backend.import_function(&function);
         self.functions
             .set(backend, EntryTable::INTERPRETER_SLOT, &function)?;
+        self.interpreter = Some(function);
         Ok(())
     }
 
@@ -84,7 +116,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
             let slot = entries
-                .get(entry.key)
+                .get(&entry.key)
+                .map(|entry| entry.slot)
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
                 .unwrap_or_else(|| {
                     let slot = next_slot;
@@ -93,8 +126,15 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                         .expect("Wasm function table capacity");
                     slot
                 });
-            entries.insert(entry.key, slot);
-            functions.push((slot, backend.import_function(&function)));
+            let function = backend.import_function(&function);
+            entries.insert(
+                entry.key,
+                Entry {
+                    slot,
+                    function: function.clone(),
+                },
+            );
+            functions.push((slot, function));
         }
         self.publish(backend, entries, functions)
     }
@@ -102,10 +142,14 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     fn publish(
         &mut self,
         backend: &mut B,
-        entries: EntryTable,
+        entries: BTreeMap<u32, Entry<B>>,
         functions: Vec<(u32, FunctionRef<B, abi::ExecutionSignature>)>,
     ) -> Result<()> {
-        let bytes = entries.to_bytes();
+        let mut slots = EntryTable::default();
+        for (&key, entry) in &entries {
+            slots.insert(key, entry.slot);
+        }
+        let bytes = slots.to_bytes();
         let next_slot = functions
             .iter()
             .map(|(slot, _)| slot + 1)

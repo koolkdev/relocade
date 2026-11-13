@@ -1,3 +1,5 @@
+use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
+
 use super::{collected_count, merged_count};
 use crate::{Cpu, CpuConfig, DispatchEntry, FarPointer, Hook, MachineConfig, Memory};
 use futures_lite::future::poll_once;
@@ -170,15 +172,16 @@ async fn far_calls() {
                     len
                 })
                 .unwrap();
-            let entries: Vec<_> = function
+            let addresses = function
                 .entries
                 .iter()
-                .map(|block| DispatchEntry {
-                    key: block.start_eip,
-                    export: &block.export,
-                })
+                .map(|block| block.start_eip)
                 .collect();
-            cpu.install_module(&function.bytes, &entries).await.unwrap();
+            let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
+            let module = wasm.compile(&function.bytes).await.unwrap();
+            crate::CompiledCode::new(module, addresses, function)
+                .install(&mut cpu)
+                .unwrap();
         }
         // A stopped call publishes the new CS:IP without recording its target.
         cpu.instruction_target().set(Some(1));

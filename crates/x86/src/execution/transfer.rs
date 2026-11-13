@@ -1,6 +1,6 @@
 //! Completed x86 transfers choose local entries or the shared runtime path.
 
-use super::ExecutionBuilder;
+use super::{calls::CallLink, ExecutionBuilder};
 use crate::runtime::Runtime;
 use relocade_compiler::{BlockBuilder, BuildError, Func, Val, I1, I32};
 use std::collections::BTreeMap;
@@ -13,8 +13,8 @@ pub(super) enum Transfer {
         taken: Val<I32>,
         fallthrough: Val<I32>,
     },
-    Call,
-    FarCall,
+    Call(Option<CallLink>),
+    FarCall(Option<CallLink>),
     Return,
     Dispatch,
 }
@@ -41,11 +41,14 @@ impl ExecutionBuilder<'_, '_> {
                     .if_(condition, |body| enter(body, taken, self.runtime))?;
                 enter(self.body, fallthrough, self.runtime)
             }
-            Transfer::Call | Transfer::FarCall => {
-                if matches!(self.transfer, Transfer::Call) {
+            Transfer::Call(link) | Transfer::FarCall(link) => {
+                if matches!(self.transfer, Transfer::Call(_)) {
                     if let Some(function) = local_entry(&self.body, &self.eip, self.entries)? {
                         return self.body.tail_call(function, &[]);
                     }
+                }
+                if let Some(link) = link {
+                    return link.enter(self.body);
                 }
                 // Checkpoint exits skip the resolver, so profiling here can miss
                 // a completed call. Hotness counts are intentionally approximate.

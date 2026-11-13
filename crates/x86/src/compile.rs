@@ -6,7 +6,7 @@ mod function;
 
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CompiledBlocks,
+    BlockSnapshot, CallLink, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
 pub use function::{FunctionLimits, FunctionModule};

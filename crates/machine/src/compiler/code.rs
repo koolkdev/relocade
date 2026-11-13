@@ -2,7 +2,7 @@
 
 use crate::{ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, ExecutionTarget};
+use relocade_x86::{BlockEntry, CallLink, CompiledBlocks, ExecutionTarget};
 use std::ops::Range;
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
@@ -18,10 +18,24 @@ pub struct Description {
     pub(super) addresses: Vec<u32>,
     pub(super) ranges: Vec<Range<u64>>,
     pub(super) blocks: Vec<BlockEntry>,
+    pub(super) calls: Vec<CallLink>,
     pub(super) target: ExecutionTarget,
 }
 
 impl CompiledCode {
+    pub(crate) fn new(module: Module, addresses: Vec<u32>, blocks: CompiledBlocks) -> Self {
+        Self {
+            module,
+            description: Description {
+                ranges: ranges(&addresses, &blocks.entries),
+                addresses,
+                blocks: blocks.entries,
+                calls: blocks.calls,
+                target: blocks.execution_target,
+            },
+        }
+    }
+
     /// All decoded guest-byte ranges used by this module, excluding read-ahead
     /// and gaps between blocks. Addresses are linear, before paging and A20.
     /// A u64 end represents the exclusive end of the 32-bit address space.
@@ -31,6 +45,24 @@ impl CompiledCode {
 
     pub fn blocks(&self) -> &[BlockEntry] {
         &self.description.blocks
+    }
+
+    pub(crate) fn call_targets(&self) -> Result<Vec<u32>> {
+        self.description
+            .calls
+            .iter()
+            .map(|call| {
+                let key = match *call {
+                    CallLink::Near { caller_entry, eip } => {
+                        (self.entry_key(caller_entry)? & 0xffff_0000) | eip
+                    }
+                    CallLink::Far { selector, offset } => {
+                        (u32::from(selector) << 16) | u32::from(offset)
+                    }
+                };
+                Ok(key)
+            })
+            .collect()
     }
 
     pub(crate) fn module(&self) -> &Module {
@@ -93,7 +125,7 @@ impl CompiledCode {
     }
 }
 
-pub(super) fn ranges(addresses: &[u32], blocks: &[BlockEntry]) -> Vec<Range<u64>> {
+fn ranges(addresses: &[u32], blocks: &[BlockEntry]) -> Vec<Range<u64>> {
     const END: u64 = 1 << 32;
     let mut ranges = Vec::new();
     for (&address, block) in addresses.iter().zip(blocks) {

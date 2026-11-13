@@ -48,7 +48,14 @@ impl Compiler {
         let cpu = Arc::new(Cpu::declare(&mut program));
         let dispatch = Dispatch::declare(&mut program);
         let lookup = real_mode::lookup(&mut program, cpu.clone(), dispatch);
-        real_mode::define_call_resolver(&mut program, cpu, lookup)?;
+        let resolve_call = real_mode::define_call_resolver(&mut program, cpu, lookup)?;
+        crate::abi::RESOLVE_AND_JUMP.define(&mut program, move |mut body, ()| {
+            let (slot, can_continue) = resolve_call.call(&mut body, ())?;
+            body.if_(can_continue.eq(false), |body| {
+                body.return_(crate::ExecutionExitValues::call_profile_full())
+            })?;
+            dispatch.enter(body, slot)
+        })?;
         crate::abi::DISPATCH.define(&mut program, move |mut body, ()| {
             let slot = lookup.call(&mut body, ())?;
             let slot = slot.ne(0).select(slot, EntryTable::INTERPRETER_SLOT);

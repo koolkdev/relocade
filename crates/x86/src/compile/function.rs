@@ -138,6 +138,7 @@ impl FunctionModule<'_> {
         Ok(CompiledBlocks {
             bytes: self.module.program.compile()?,
             entries: self.module.entries,
+            calls: self.module.calls,
             execution_target: self.module.compiler.target,
         })
     }
@@ -150,6 +151,7 @@ impl FunctionModule<'_> {
         Ok(CompiledBlocks {
             bytes: self.module.program.compile_with(executor).await?,
             entries: self.module.entries,
+            calls: self.module.calls,
             execution_target: self.module.compiler.target,
         })
     }
