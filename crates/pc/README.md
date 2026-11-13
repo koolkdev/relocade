@@ -13,10 +13,24 @@ and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. Devices run on the supplied runner and
 share its clock.
 
-AdLib is present at address/status port `0x388` and data port `0x389`, including
-when platform output is absent. Programs select AdLib/OPL2 for music and can use
-the PC speaker simultaneously. Sound Blaster DSP/DMA and OPL3 extensions are not
-implemented. AdLib detection and timer status require no BIOS service or PIC IRQ.
+AdLib is installed by default. To select hardware explicitly, use:
+
+```rust,ignore
+use relocade_pc::{Configuration, Pc, SoundCard};
+
+let pc = Pc::with_configuration(
+    runner,
+    Configuration { sound_card: SoundCard::None },
+).await?;
+```
+
+`SoundCard::None` leaves the AdLib ports unbound. The built-in PC speaker remains
+available, and hardware selection does not depend on attaching host output.
+When installed, AdLib is present at address/status port `0x388` and data port
+`0x389`, including when platform output is absent. Programs select AdLib/OPL2
+for music and can use the PC speaker simultaneously. Sound Blaster DSP/DMA and
+OPL3 extensions are not implemented. AdLib detection and timer status require no
+BIOS service or PIC IRQ.
 
 The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
 drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,
@@ -48,19 +62,20 @@ Failures during exception entry return directly to the host.
 `keyboard_input()` feeds physical key events through the controller. `keyboard()`
 retains the BIOS keyboard backed by guest RAM for translated/scripted input.
 `frames()` provides the capacity-one snapshot receiver for a single display
-consumer; `vga()`, `speaker()` and `adlib()`
-retain devices on the execution owner. Platform windows, rendering and audio
-outputs remain with the embedding application.
+consumer; `vga()` and `speaker()` retain devices on the execution owner, and
+`adlib()` returns the optional installed AdLib. Platform windows, rendering and
+audio outputs remain with the embedding application.
 
 With the `audio` feature, `pc.attach_audio(config, samples).await` connects one
 CPAL configuration and bounded `async_channel::Sender<Vec<f32>>` to the
 [shared mixer](../mixer/README.md). PC supplies its emulation clock and registers
-the speaker at gain 0.2 and AdLib at gain 0.8. Their summed range fits within
-`-1..=1`; the mixer owns timing, gains, buffering and submission.
+the speaker at gain 0.2 and, when installed, AdLib at gain 0.8. Their summed range
+fits within `-1..=1`; the mixer owns timing, gains, buffering and submission.
 The runner owns the activity, and the application owns platform playback.
-Attachment is allowed once per PC, at 8–192 kHz. Attach before guest execution to
-capture the complete note timeline. See the [AdLib core and license notes](../adlib/README.md)
-for compatibility limits and the dependency's distribution requirements.
+Attachment is allowed once per PC; AdLib supports 8–192 kHz. Attach before guest
+execution to capture the complete note timeline. See the
+[AdLib core and license notes](../adlib/README.md) for compatibility limits and
+the dependency's distribution requirements.
 
 `mouse_input()` accepts relative motion, three-button transitions and focus/capture
 loss through the same execution-owned PS/2 activity. `Dos::mouse_input()` forwards

@@ -2,6 +2,20 @@ use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_machine::{CpuConfig, MachineConfig};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 
+/// Hardware installed before guest execution, independently of host playback.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Configuration {
+    pub sound_card: SoundCard,
+}
+
+/// The installed sound card. The PC speaker is available with either choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SoundCard {
+    None,
+    #[default]
+    AdLib,
+}
+
 pub fn memory() -> MachineConfig {
     const MEMORY_SIZE: u32 = 1024 * 1024;
     const BIOS_ROM_START: u32 = 0xf0000;
