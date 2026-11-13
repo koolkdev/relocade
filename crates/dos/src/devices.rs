@@ -6,12 +6,14 @@
 //! automatically forward requests through other devices. Guest headers and the
 //! .SYS request ABI are not implemented yet.
 
+mod ansi;
 mod builtin;
 mod chain;
 mod input;
 pub(crate) use input::{dos_bytes, ConsoleInput, CONTROL_C};
 
 use crate::DosError;
+pub use ansi::AnsiConsole;
 pub(crate) use builtin::{BiosConsole, NullDevice, Unavailable};
 pub use chain::CharacterDevice;
 pub(crate) use chain::DeviceChain;
