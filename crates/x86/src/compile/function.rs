@@ -34,9 +34,11 @@ impl Default for FunctionLimits {
 
 impl Compiler {
     /// Discovers and compiles a bounded region rooted at a guest function entry.
-    /// Follows direct jumps, both conditional successors and near-call continuations.
+    /// Follows direct jumps, both conditional successors, near-call continuations
+    /// and Real16 far-call continuations in the caller's original CS.
     /// I/O, data/stack segment loads and other known fallthroughs start another block.
-    /// Callees, indirect jumps, returns, known faults and code-context changes end a path.
+    /// Callees, indirect jumps, returns, known faults and other code-context changes
+    /// end a path. Protected-mode far calls remain exploration boundaries.
     /// This does not prove source-language function boundaries or that calls return.
     ///
     /// `read` copies a contiguous readable prefix at a CS-relative EIP into the
