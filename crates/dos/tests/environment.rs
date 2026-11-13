@@ -184,6 +184,7 @@ fn hardware_defaults_seed_the_launchers_environment_once() {
                     runner,
                     relocade_dos::Configuration {
                         sound_card: relocade_dos::SoundCard::SoundBlaster2,
+                        ..Default::default()
                     },
                 )
                 .await

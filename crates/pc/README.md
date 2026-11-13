@@ -22,13 +22,21 @@ every sound-card selection and requires no audio output. It does not yet supply
 AdLib is installed by default. To select hardware explicitly, use:
 
 ```rust,ignore
-use relocade_pc::{Configuration, Pc, SoundCard};
+use relocade_pc::{Configuration, Pc, SoundCard, VideoCard};
 
 let pc = Pc::with_configuration(
     runner,
-    Configuration { sound_card: SoundCard::None },
+    Configuration {
+        sound_card: SoundCard::None,
+        video_card: VideoCard::Dispi,
+    },
 ).await?;
 ```
+
+`VideoCard::Dispi` is the default and currently the only video-card choice.
+Selection connects the device and supplies its matching BIOS firmware.
+`pc.video_card()` exposes frame delivery and execution-local framebuffer access;
+guest I/O remains connected directly to the card's concrete handlers.
 
 `SoundCard::None` leaves the AdLib ports unbound. The built-in PC speaker remains
 available, and hardware selection does not depend on attaching host output.

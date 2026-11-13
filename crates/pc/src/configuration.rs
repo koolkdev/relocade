@@ -9,6 +9,24 @@ use std::{cell::RefCell, rc::Rc};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Configuration {
     pub sound_card: SoundCard,
+    pub video_card: VideoCard,
+}
+
+/// The video card and matching firmware to initialize before guest execution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoCard {
+    #[default]
+    Dispi,
+}
+
+impl VideoCard {
+    pub(crate) async fn initialize(self, runner: &Runner) -> crate::video_card::VideoCard {
+        match self {
+            Self::Dispi => crate::video_card::VideoCard::Dispi(
+                relocade_vga::DispiAdapter::initialize(runner).await,
+            ),
+        }
+    }
 }
 
 /// The sound card to initialize. The PC speaker is available with every choice.

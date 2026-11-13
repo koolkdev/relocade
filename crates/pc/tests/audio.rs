@@ -43,9 +43,15 @@ async fn exercise_audio_device(sound_card: SoundCard) {
                 Started::configure_io(io, &started);
             })
             .await;
-        let mut pc = Pc::with_configuration(runner, Configuration { sound_card })
-            .await
-            .unwrap();
+        let mut pc = Pc::with_configuration(
+            runner,
+            Configuration {
+                sound_card,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         let expected_status = match sound_card {
             SoundCard::None => 0xff,
             SoundCard::AdLib | SoundCard::SoundBlaster2 => 0x06,
