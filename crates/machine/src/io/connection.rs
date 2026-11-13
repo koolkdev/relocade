@@ -104,7 +104,7 @@ impl<'a> DeviceConnection<'a> {
     }
 
     /// Maps physical ranges to this device's MMIO methods. The machine's physical
-    /// map must also mark these addresses as [`relocade_x86::PhysicalMapping::Mmio`].
+    /// map must also mark these addresses as [`relocade_x86::PhysicalMapping::MMIO`].
     pub fn map_mmio(&mut self, ranges: impl IntoIterator<Item = RangeInclusive<u32>>) {
         let ranges: Vec<_> = ranges.into_iter().collect();
         let bus = self.context.bus.upgrade().expect("live I/O bus");

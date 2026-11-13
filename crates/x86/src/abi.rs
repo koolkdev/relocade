@@ -56,8 +56,11 @@ pub const PORT_WRITES: Table<PortWriteSignature> = {
     table.maximum = Some(65536);
     table
 };
-pub const READ_MMIO: Function<fn(I32, I32) -> I64> = Function::new("relocade", "readMmio");
-pub const WRITE_MMIO: Function<fn(I32, I32, I64)> = Function::new("relocade", "writeMmio");
+/// A physical-bus transfer of one through eight bytes, including partial widths.
+pub type MmioReadSignature = fn(I32, I32) -> I64;
+pub type MmioWriteSignature = fn(I32, I32, I64);
+pub const MMIO_READS: Table<MmioReadSignature> = Table::new("relocade", "mmioReads", 1);
+pub const MMIO_WRITES: Table<MmioWriteSignature> = Table::new("relocade", "mmioWrites", 1);
 
 /// Status, error code, cache fields, and whether the load needs completion.
 pub type ResolveSegmentResults = (I32, I32, I32, I32, I16, I1, I1, I1, I1, I1, I1, I1);

@@ -93,7 +93,7 @@ async fn callback_target_changes() {
                     0x10000,
                     PhysicalMemoryMap::new([
                         (0..=0x7fff, PhysicalMapping::Ram { backing_offset: 0 }),
-                        (0x8000..=0x8fff, PhysicalMapping::Mmio),
+                        (0x8000..=0x8fff, PhysicalMapping::MMIO),
                         (
                             0x9000..=0xffff,
                             PhysicalMapping::Ram {

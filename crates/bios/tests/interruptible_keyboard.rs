@@ -58,7 +58,7 @@ impl Device for Timer {
 async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<DispiAdapter>>) {
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
-        (relocade_vga::MEMORY_RANGE, PhysicalMapping::Mmio),
+        (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
         (
             0xf0000..=0xfffff,
             PhysicalMapping::Rom {

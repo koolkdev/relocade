@@ -16,7 +16,7 @@ pub(super) struct Entry {
     pub(super) kind: Val<I32>,
     /// Bus address after the A20 gate, also used for MMIO callbacks.
     pub(super) address: Val<I32>,
-    backing: Val<I32>,
+    pub(super) payload: Val<I32>,
 }
 
 impl Entry {
@@ -25,7 +25,7 @@ impl Entry {
     }
 
     pub(super) fn backing_address(&self) -> Val<I32> {
-        self.backing.add(self.address.and(PAGE_MASK))
+        self.payload.add(self.address.and(PAGE_MASK))
     }
 }
 
@@ -47,10 +47,10 @@ impl PhysicalTable {
         let address = address.and(mask);
         let offset = address.unsigned().shr(PAGE_SHIFT).shl(3);
         let kind = body.load_at::<I32>(self.entries, &offset, 0)?;
-        let backing = body.load_at::<I32>(self.entries, &offset, 4)?;
+        let payload = body.load_at::<I32>(self.entries, &offset, 4)?;
         Ok(Entry {
             kind,
-            backing,
+            payload,
             address,
         })
     }
@@ -82,7 +82,7 @@ impl PhysicalTable {
         })
     }
 
-    /// MMIO requests retain their span across adjacent MMIO pages. Ordinary
+    /// MMIO requests retain their span across pages using the same handler. Ordinary
     /// backing uses single bytes in the slow loop. Every iteration observes
     /// routing after any preceding callback.
     pub(super) fn transfer_bytes(
@@ -105,6 +105,7 @@ impl PhysicalTable {
                         mmio.yield_(
                             next.kind
                                 .eq(MMIO)
+                                .and(next.payload.eq(&entry.payload))
                                 .and(next.address.eq(&next_address))
                                 .select(remaining, &in_page),
                         )

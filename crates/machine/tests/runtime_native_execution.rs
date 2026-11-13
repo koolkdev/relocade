@@ -163,7 +163,7 @@ fn guest_access_uses_the_map_and_open_bus() {
                 backing_offset: 0x1000,
             },
         ),
-        (0x9000..=0x9fff, PhysicalMapping::Mmio),
+        (0x9000..=0x9fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     let initial = configuration();

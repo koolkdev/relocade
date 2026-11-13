@@ -22,6 +22,7 @@ pub(crate) struct Input {
     pub(crate) physical_pages: Vec<(u32, u32, bool)>,
     pub(crate) a20_enabled: bool,
     pub(crate) mmio_pages: Vec<(u32, u32)>,
+    pub(crate) mmio_handlers: Vec<(u32, u32)>,
     pub(crate) mmio_updates: Vec<MmioUpdate>,
     pub(crate) observe_mmio: bool,
     pub(crate) port_reads: Vec<u32>,
@@ -43,6 +44,7 @@ impl Input {
             // Most execution fixtures exercise unwrapped physical addressing.
             a20_enabled: true,
             mmio_pages: Vec::new(),
+            mmio_handlers: Vec::new(),
             mmio_updates: Vec::new(),
             observe_mmio: false,
             port_reads: Vec::new(),

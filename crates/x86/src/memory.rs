@@ -13,7 +13,7 @@ mod virtual_memory;
 pub(crate) use access::Access;
 pub(crate) use accesses::Accesses;
 pub(crate) use page_table::{PageCache, PageCacheInputs};
-pub use physical_map::{PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
+pub use physical_map::{MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub(crate) use value::TransferType;
 
 use crate::{alu::OperandUpdate, ExecutionProfile};

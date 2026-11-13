@@ -13,7 +13,7 @@ impl<'a> MemoryView<'a> {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
                 PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),
-                PhysicalMapping::Mmio => {
+                PhysicalMapping::Mmio { .. } => {
                     let io = self.io.expect("MMIO access requires a local I/O bus");
                     for (index, chunk) in part.chunks(8).enumerate() {
                         let mut value = [0; 8];

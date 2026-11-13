@@ -107,7 +107,7 @@ impl Device for RecordingDevice {
 fn map() -> PhysicalMemoryMap {
     PhysicalMemoryMap::new([
         (0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 }),
-        (0x3000..=0x4fff, PhysicalMapping::Mmio),
+        (0x3000..=0x4fff, PhysicalMapping::MMIO),
     ])
     .unwrap()
 }
@@ -305,8 +305,8 @@ fn a20_wrap_splits_mmio_at_the_bus_address_discontinuity() {
         io.map_mmio(std::iter::once(0xff000..=0xfffff));
     });
     let map = PhysicalMemoryMap::new([
-        (0..=0xfff, PhysicalMapping::Mmio),
-        (0xff000..=0xfffff, PhysicalMapping::Mmio),
+        (0..=0xfff, PhysicalMapping::MMIO),
+        (0xff000..=0xfffff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     let memory = Memory::new(relocade_machine::MachineConfig::new(0, map).unwrap()).unwrap();
@@ -353,7 +353,7 @@ fn far_buffers_wrap_offsets_independently_of_a20_and_mapping_policy() {
         });
         let mut map = PhysicalMemoryMap::new([
             (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (0xf0000..=0xf0fff, PhysicalMapping::Mmio),
+            (0xf0000..=0xf0fff, PhysicalMapping::MMIO),
             (
                 0x100000..=0x100fff,
                 PhysicalMapping::Rom {
