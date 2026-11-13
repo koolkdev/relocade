@@ -10,6 +10,9 @@ const AUTO_INITIALIZE_OUTPUT: u8 = 0x1c;
 const PAUSE_DMA: u8 = 0xd0;
 const CONTINUE_DMA: u8 = 0xd4;
 const EXIT_AUTO_INITIALIZE: u8 = 0xda;
+const HIGH_SPEED_SINGLE_OUTPUT: u8 = 0x91;
+const HIGH_SPEED_AUTO_INITIALIZE_OUTPUT: u8 = 0x90;
+const TIMED_SILENCE: u8 = 0x80;
 const SPEAKER_ON: u8 = 0xd1;
 const SPEAKER_OFF: u8 = 0xd3;
 const SPEAKER_STATUS: u8 = 0xd8;
@@ -34,6 +37,8 @@ pub(super) enum Command {
     Pause,
     Continue,
     ExitAutoInitialize,
+    HighSpeed { auto_initialize: bool },
+    Silence(u16),
     Speaker(bool),
     SpeakerStatus,
 }
@@ -47,16 +52,22 @@ pub(super) struct Protocol {
 }
 
 impl Protocol {
-    pub fn reset(&mut self, clock: &Clock, value: u8) {
+    /// Returns true once when a reset pulse begins.
+    pub fn reset(&mut self, clock: &Clock, value: u8) -> bool {
         if value & 1 != 0 {
+            if self.reset_high {
+                return false;
+            }
             *self = Self {
                 reset_high: true,
                 ..Self::default()
             };
+            return true;
         } else if self.reset_high {
             self.reset_high = false;
             self.ready_at = Some(clock.add(clock.now(), INITIALIZATION_TIME));
         }
+        false
     }
 
     fn ready(&mut self, clock: &Clock) -> bool {
@@ -130,6 +141,17 @@ impl Protocol {
             PAUSE_DMA => return Some(Command::Pause),
             CONTINUE_DMA => return Some(Command::Continue),
             EXIT_AUTO_INITIALIZE => return Some(Command::ExitAutoInitialize),
+            HIGH_SPEED_SINGLE_OUTPUT => {
+                return Some(Command::HighSpeed {
+                    auto_initialize: false,
+                })
+            }
+            HIGH_SPEED_AUTO_INITIALIZE_OUTPUT => {
+                return Some(Command::HighSpeed {
+                    auto_initialize: true,
+                });
+            }
+            TIMED_SILENCE => self.argument = Some(Argument::WordLow(Command::Silence)),
             SPEAKER_ON => return Some(Command::Speaker(true)),
             SPEAKER_OFF => return Some(Command::Speaker(false)),
             SPEAKER_STATUS => return Some(Command::SpeakerStatus),

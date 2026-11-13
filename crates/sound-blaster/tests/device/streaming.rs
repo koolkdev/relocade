@@ -1,13 +1,6 @@
 use super::*;
 use relocade_dma::{ADDRESS_PORTS, MODE_PORT};
-use std::{future::Future, pin::pin, task::Poll};
-
-fn acknowledge(hw: &Hardware) {
-    let mut cx = Context::from_waker(Waker::noop());
-    assert_eq!(hw.io.poll_interrupt(&mut cx), Poll::Ready(0x0f));
-    hw.io.read_port(READ_STATUS_PORT, 1);
-    relocade_pic::end_of_interrupt(&hw.io, IRQ);
-}
+use std::{future::Future, pin::pin};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -25,19 +18,19 @@ fn streaming_refills_dma_halves_and_exits_after_the_current_block() {
     hw.clock.advance_by(Duration::from_micros(200));
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x102);
-    acknowledge(&hw);
+    hw.acknowledge_irq();
     hw.memory.view().write(0x100, &[64, 192]).unwrap();
 
     hw.clock.advance_by(Duration::from_micros(200));
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x100);
-    acknowledge(&hw);
+    hw.acknowledge_irq();
     hw.clock.advance_by(Duration::from_micros(50));
     hw.command(&[0xda]);
     hw.clock.advance_by(Duration::from_micros(250));
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x102);
-    acknowledge(&hw);
+    hw.acknowledge_irq();
 
     let output: Vec<_> = (0..7)
         .map(|index| {
@@ -78,7 +71,7 @@ fn pause_and_continue_preserve_the_position_and_fractional_sample_phase() {
         assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x101);
         hw.clock.advance_by(Duration::from_micros(1));
         assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x102);
-        acknowledge(&hw);
+        hw.acknowledge_irq();
         // Muting is the reset default, and has not prevented DMA or completion.
         hw.command(&[0xd8]);
         assert_eq!(hw.io.read_port(READ_DATA_PORT, 1), 0);
@@ -102,10 +95,10 @@ fn switching_to_single_cycle_waits_for_the_auto_initialize_block_boundary() {
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x101);
     hw.clock.advance_by(Duration::from_micros(50));
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x102);
-    acknowledge(&hw);
+    hw.acknowledge_irq();
     hw.clock.advance_by(Duration::from_micros(100));
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x103);
-    acknowledge(&hw);
+    hw.acknowledge_irq();
     hw.clock.advance_by(Duration::from_micros(500));
     assert_eq!(hw.dma_word(ADDRESS_PORTS[1]), 0x103);
 }

@@ -1,5 +1,7 @@
 #[path = "device/audio.rs"]
 mod audio;
+#[path = "device/high_speed.rs"]
+mod high_speed;
 #[path = "device/playback.rs"]
 mod playback;
 #[path = "device/ports.rs"]
@@ -86,5 +88,15 @@ impl Hardware {
     fn dma_word(&self, port: u16) -> u16 {
         self.io.write_port(relocade_dma::CLEAR_FLIP_FLOP_PORT, 1, 0);
         self.io.read_port(port, 1) as u16 | ((self.io.read_port(port, 1) as u16) << 8)
+    }
+
+    fn acknowledge_irq(&self) {
+        let mut cx = Context::from_waker(Waker::noop());
+        assert_eq!(
+            self.io.poll_interrupt(&mut cx),
+            std::task::Poll::Ready(0x0f)
+        );
+        self.io.read_port(READ_STATUS_PORT, 1);
+        relocade_pic::end_of_interrupt(&self.io, IRQ);
     }
 }

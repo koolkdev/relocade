@@ -42,9 +42,9 @@ at base `0x220` and maps its single OPL2 chip at both `0x228` and `0x388`.
 PC holds an optional `sound_card::SoundCard` trait object; `pc.sound_card()`
 borrows that common interface. Configuration chooses and initializes the concrete
 card. The Sound Blaster card owns its shared FM chip.
-DSP reset, version detection, single-cycle DMA playback with IRQ7 and direct DAC
-output are available. The guest installs its handler and unmasks IRQ7. OPL3 is
-not implemented; DSP streaming/high-speed modes remain subsequent work.
+DSP detection, single-cycle and auto-initialize DMA playback with IRQ7, direct
+DAC output, high-speed playback and timed silence are available. The guest
+installs its handler and unmasks IRQ7. OPL3, recording and ADPCM are not implemented.
 
 The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
 drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,

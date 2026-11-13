@@ -68,7 +68,11 @@ impl Dsp {
             WRITE_DATA_PORT,
             &PortRead::byte(callbacks.read(|context, dsp| {
                 dsp.advance(context);
-                dsp.protocol.write_status(&dsp.clock)
+                if dsp.playback.is_high_speed() {
+                    0x80
+                } else {
+                    dsp.protocol.write_status(&dsp.clock)
+                }
             })),
             &PortWrite::byte(callbacks.write(|context, dsp, value| dsp.write(context, value))),
         );
@@ -103,16 +107,23 @@ impl Dsp {
 
     fn reset(&mut self, context: IoContext<'_>, value: u8) {
         self.advance(context);
-        self.protocol.reset(&self.clock, value);
-        if value & 1 != 0 {
-            self.playback.reset();
-            self.dac.reset(self.clock.now());
+        if self.protocol.reset(&self.clock, value) {
+            if self.playback.is_high_speed() {
+                // High-speed abort preserves rate, block size and DAC settings.
+                self.playback.stop();
+            } else {
+                self.playback.reset();
+                self.dac.reset(self.clock.now());
+            }
             self.changed.notify(1);
         }
     }
 
     fn write(&mut self, context: IoContext<'_>, value: u8) {
         self.advance(context);
+        if self.playback.is_high_speed() {
+            return;
+        }
         match self.protocol.write(&self.clock, value) {
             Some(Command::DirectOutput(value)) => self.dac.write(self.clock.now(), value),
             Some(Command::TimeConstant(value)) => self.playback.set_time_constant(value),
@@ -122,6 +133,10 @@ impl Dsp {
             Some(Command::Pause) => self.playback.pause(),
             Some(Command::Continue) => self.playback.resume(),
             Some(Command::ExitAutoInitialize) => self.playback.exit_auto_initialize(),
+            Some(Command::HighSpeed { auto_initialize }) => {
+                self.playback.start_high_speed(auto_initialize)
+            }
+            Some(Command::Silence(count)) => self.playback.silence(count, &mut self.dac),
             Some(Command::Speaker(enabled)) => self.dac.set_enabled(self.clock.now(), enabled),
             Some(Command::SpeakerStatus) => {
                 self.protocol
