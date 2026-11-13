@@ -75,23 +75,23 @@ impl ScalarFacts {
         }
         let value = table[id];
         if !value.ty.is_scalar() {
-            cache.entry(id).or_default().bits = Some(Bits::default());
+            cache.get_or_insert_default(id).bits = Some(Bits::default());
             return;
         }
         let known = self.known_bits(table, id);
         if let Some(bits) = value.scalar_literal() {
-            cache.entry(id).or_default().bits = Some(Bits {
+            cache.get_or_insert_default(id).bits = Some(Bits {
                 mask: value.ty.mask(),
                 value: value.ty.normalize(bits),
             });
             return;
         }
         if known.mask == value.ty.mask() {
-            cache.entry(id).or_default().bits = Some(known);
+            cache.get_or_insert_default(id).bits = Some(known);
             return;
         }
         let Some(result) = table.expression(id) else {
-            cache.entry(id).or_default().bits = Some(known);
+            cache.get_or_insert_default(id).bits = Some(known);
             return;
         };
         let expression = result.expression;
@@ -102,7 +102,7 @@ impl ScalarFacts {
         } = expression
         {
             if let Some(truth) = self.comparisons.get(table, operator, left, right) {
-                cache.entry(id).or_default().bits = Some(Bits {
+                cache.get_or_insert_default(id).bits = Some(Bits {
                     mask: 1,
                     value: u64::from(truth),
                 });
@@ -130,7 +130,7 @@ impl ScalarFacts {
                     when_false
                 };
                 if let Some(bits) = cache.get(&input).and_then(|answer| answer.bits) {
-                    cache.entry(id).or_default().bits =
+                    cache.get_or_insert_default(id).bits =
                         Some(bits.union(known).restrict(value.ty.mask()));
                 } else {
                     schedule(Inference::Visit(id));
@@ -147,6 +147,6 @@ impl ScalarFacts {
             return;
         }
         let bits = self.expression_bits(table, id, |input| cache[&input].bits.unwrap());
-        cache.entry(id).or_default().bits = Some(bits.union(known).restrict(value.ty.mask()));
+        cache.get_or_insert_default(id).bits = Some(bits.union(known).restrict(value.ty.mask()));
     }
 }
