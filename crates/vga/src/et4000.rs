@@ -1,9 +1,11 @@
 #![doc = include_str!("et4000/README.md")]
 mod device;
 mod effects;
+mod mmio;
 mod output;
 mod ports;
 mod registers;
+mod scanout;
 
 use crate::{
     memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore, VgaCoreState,

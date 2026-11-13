@@ -1,9 +1,6 @@
 //! Standard VGA display interpretation and retrace-latch policy for this card.
 use super::Et4000Ax;
-use crate::{
-    DacSnapshot, DisplaySnapshot, Framebuffer, FramebufferAccess, RetraceEvent, Scanout,
-    VgaDisplayState,
-};
+use crate::{DacSnapshot, DisplaySnapshot, Framebuffer, FramebufferAccess, RetraceEvent, Scanout};
 use relocade_machine::Timestamp;
 use std::future::Future;
 
@@ -11,10 +8,7 @@ impl Et4000Ax {
     /// Inspect current display inputs without advancing the raster or CPU latches.
     pub fn snapshot(&self) -> DisplaySnapshot {
         self.output.snapshot(
-            Scanout::Vga(VgaDisplayState::capture(
-                &self.vga.registers,
-                self.output.raster.retrace_count,
-            )),
+            Scanout::Vga(self.vga_display_state()),
             DacSnapshot {
                 colors: self.vga.registers.dac.colors,
                 mask: self.vga.registers.dac.mask,
@@ -59,8 +53,11 @@ impl Et4000Ax {
 impl FramebufferAccess for Et4000Ax {
     fn framebuffer(&mut self) -> Framebuffer<'_> {
         self.capture_if_due();
+        let mut state = self.vga_display_state();
+        let crtc = &self.vga.registers.crtc.registers.values;
+        state.display_start = u16::from_be_bytes([crtc[0x0c], crtc[0x0d]]);
         Framebuffer {
-            scanout: Scanout::Vga(VgaDisplayState::for_drawing(&self.vga.registers)),
+            scanout: Scanout::Vga(state),
             memory: &mut self.memory,
         }
     }

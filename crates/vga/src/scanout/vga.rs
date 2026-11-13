@@ -20,6 +20,9 @@ pub struct VgaDisplayState {
     pub display_enabled: bool,
     /// Start address latched at the last serviced VGA retrace.
     pub display_start: u16,
+    /// The CRTC counter addresses consecutive four-byte groups instead of
+    /// rotating byte/word/doubleword pins into IBM's plane layout.
+    pub linear_addressing: bool,
     /// Cursor phase toggles every eight retraces.
     pub cursor_blink_on: bool,
     /// Text and graphics attribute phase toggles every sixteen retraces.
@@ -47,6 +50,7 @@ impl VgaDisplayState {
             miscellaneous: registers.miscellaneous,
             display_enabled: registers.attribute.display_enabled(),
             display_start: registers.crtc.display_start,
+            linear_addressing: false,
             // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
             cursor_blink_on: (retrace_count / 8).is_multiple_of(2),
             attribute_blink_on: (retrace_count / 16).is_multiple_of(2),

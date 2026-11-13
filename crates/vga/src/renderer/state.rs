@@ -151,13 +151,14 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
             ] {
                 bytes[offset..offset + bank.len()].copy_from_slice(bank);
             }
-            for (slot, word) in bytes[96..120].as_chunks_mut::<4>().0.iter_mut().zip([
+            for (slot, word) in bytes[96..124].as_chunks_mut::<4>().0.iter_mut().zip([
                 u32::from(r.miscellaneous),
                 u32::from(r.display_enabled),
                 u32::from(r.attribute_blink_on),
                 u32::from(r.cursor_blink_on),
                 r.geometry().scanline_step,
                 u32::from(r.display_start),
+                u32::from(r.linear_addressing),
             ]) {
                 slot.copy_from_slice(&word.to_le_bytes());
             }

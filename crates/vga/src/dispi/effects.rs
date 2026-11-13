@@ -38,10 +38,4 @@ impl CardEffects for DispiAdapter {
     fn memory_decoding(&self) -> MemoryDecoding {
         DispiAdapter::memory_decoding(self)
     }
-
-    fn update_memory_access(&mut self, decoding: &MemoryDecoding) {
-        if let MemoryDecoding::Packed(window) = decoding {
-            self.packed_window = *window;
-        }
-    }
 }
