@@ -1,6 +1,8 @@
 //! Primary 8237A DMA registers and the PC/AT's 8-bit channel page registers.
 #![forbid(unsafe_code)]
 
+mod transfer;
+
 use relocade_machine::{Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner};
 use std::{cell::RefCell, rc::Rc};
 
@@ -47,6 +49,7 @@ pub struct Dma {
     command: u8,
     mask: u8,
     software_requests: u8,
+    hardware_requests: u8,
     terminal_count: u8,
     high_byte: bool,
 }
@@ -58,6 +61,7 @@ impl Default for Dma {
             command: 0,
             mask: 0x0f,
             software_requests: 0,
+            hardware_requests: 0,
             terminal_count: 0,
             high_byte: false,
         }
@@ -171,7 +175,7 @@ impl Dma {
     }
 
     fn read_status(&mut self) -> u8 {
-        let status = (self.software_requests << 4) | self.terminal_count;
+        let status = ((self.software_requests | self.hardware_requests) << 4) | self.terminal_count;
         self.terminal_count = 0;
         status
     }
