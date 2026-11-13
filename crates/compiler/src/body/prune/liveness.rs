@@ -22,6 +22,7 @@ pub(super) fn prune(
         if !reachable[id] {
             continue;
         }
+        pending.extend(&block.assumptions);
         match &block.exit {
             Exit::Return(values)
             | Exit::TailCall {

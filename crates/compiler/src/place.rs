@@ -48,6 +48,9 @@ impl Placement {
     pub(super) fn place(&self, mut graph: FunctionGraph) -> FunctionGraph {
         // Release facts and bindings before compacting the finished graph.
         place_calculations(&mut graph, &self.summaries);
+        for block in &mut graph.blocks {
+            block.assumptions.clear();
+        }
         graph.compact(|operation| effects::observable(operation, &self.summaries));
         graph
     }
