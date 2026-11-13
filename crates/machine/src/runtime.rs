@@ -134,6 +134,30 @@ impl Cpu {
         self.instance.io.clone()
     }
 
+    pub(crate) fn can_install_code(&self) -> bool {
+        self.pending.is_none() && self.suspended.is_empty()
+    }
+
+    pub(crate) fn has_entry(&self, address: u32) -> bool {
+        self.instance.has_entry(address)
+    }
+
+    pub(crate) fn interpret_at(&mut self, address: u32) -> crate::Result<()> {
+        assert!(
+            self.can_install_code(),
+            "install at an idle host-call boundary"
+        );
+        self.instance.interpret_at(address)
+    }
+
+    pub(crate) fn poll_profiling(&mut self, clock: &crate::Clock, cx: &mut std::task::Context<'_>) {
+        self.instance.poll_profiling(clock, cx);
+    }
+
+    pub(crate) fn next_hot_function(&mut self) -> Option<crate::FarPointer> {
+        self.instance.profiling.next_candidate()
+    }
+
     /// Links a module to this runtime and publishes its callable exports.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Addresses are linear CS.base + EIP, before

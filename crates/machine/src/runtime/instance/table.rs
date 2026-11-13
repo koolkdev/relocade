@@ -37,6 +37,25 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         ]
     }
 
+    pub(super) fn contains(&self, address: u32) -> bool {
+        self.addresses.get(address).is_some()
+    }
+
+    /// A rejected candidate resolves normally to the existing interpreter slot.
+    /// Preserve any entry installed while the compilation request was pending.
+    pub(super) fn interpret_at(&mut self, backend: &mut B, address: u32) -> Result<()> {
+        if self.contains(address) {
+            return Ok(());
+        }
+        let mut addresses = self.addresses.clone();
+        addresses.insert(address, EntryTable::INTERPRETER_SLOT);
+        let bytes = addresses.to_bytes();
+        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
+        backend.memory(&self.memory).write(0, &bytes);
+        self.addresses = addresses;
+        Ok(())
+    }
+
     pub(super) fn install_interpreter(
         &self,
         backend: &mut B,
@@ -64,13 +83,16 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 instance,
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
-            let slot = addresses.get(entry.address).unwrap_or_else(|| {
-                let slot = next_slot;
-                next_slot = next_slot
-                    .checked_add(1)
-                    .expect("Wasm function table capacity");
-                slot
-            });
+            let slot = addresses
+                .get(entry.address)
+                .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
+                .unwrap_or_else(|| {
+                    let slot = next_slot;
+                    next_slot = next_slot
+                        .checked_add(1)
+                        .expect("Wasm function table capacity");
+                    slot
+                });
             addresses.insert(entry.address, slot);
             functions.push((slot, backend.import_function(&function)));
         }

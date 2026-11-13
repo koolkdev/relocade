@@ -8,6 +8,9 @@ use relocade_x86::{
 };
 use std::{future::pending, pin::pin};
 
+#[path = "compiler/automatic.rs"]
+mod automatic;
+
 #[path = "compiler/delivery.rs"]
 mod delivery;
 

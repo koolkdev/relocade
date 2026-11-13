@@ -1,6 +1,8 @@
 //! CPU execution and registered device activities on one owner.
 
+mod compilation;
 mod guest_time;
+use compilation::Compilation;
 mod schedule;
 pub use guest_time::GuestTimeConfig;
 mod worker;
@@ -40,7 +42,7 @@ pub struct Runner {
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     cpu: Cpu,
-    compiler: Option<crate::CompilerClient>,
+    compiler: Option<Compilation>,
 }
 
 impl Runner {
@@ -79,7 +81,8 @@ impl Runner {
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
         let compiler = compiler
             .map(|compiler| compiler.connect(&executor))
-            .transpose()?;
+            .transpose()?
+            .map(|client| Compilation::new(client, schedule.clock().clone()));
         Ok(Self {
             schedule,
             activities,
@@ -109,8 +112,10 @@ impl Runner {
     /// Takes this CPU's compiler connection once.
     /// Returns `None` if no service was supplied at CPU creation or it was already taken.
     /// The session receives ordered results through this single owner.
+    /// Take it during setup to manage requests and installation explicitly.
+    /// Panics if automatic compilation requests are still outstanding.
     pub fn take_compiler(&mut self) -> Option<crate::CompilerClient> {
-        self.compiler.take()
+        self.compiler.take().map(Compilation::into_client)
     }
 
     pub fn clock(&self) -> &Clock {
@@ -185,7 +190,15 @@ impl Runner {
         let interrupt = cpu.interrupt_handle();
         self.executor.yield_now().await;
         loop {
-            let exit = poll_fn(|cx| self.schedule.poll_cpu(cpu, cx)).await;
+            let exit = poll_fn(|cx| {
+                if let Some(compiler) = &mut self.compiler {
+                    if !compiler.poll(cpu, cx) {
+                        self.compiler = None;
+                    }
+                }
+                self.schedule.poll_cpu(cpu, cx)
+            })
+            .await;
             if exit.is_none() || interrupt.is_requested() {
                 self.executor.yield_now().await;
             }

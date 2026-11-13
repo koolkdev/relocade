@@ -203,6 +203,15 @@ impl CpuInstance {
         Ok(())
     }
 
+    pub(super) fn has_entry(&self, address: u32) -> bool {
+        self.table.contains(address)
+    }
+
+    pub(super) fn interpret_at(&mut self, address: u32) -> Result<()> {
+        self.runtime
+            .with_runtime(|wasm| self.table.interpret_at(wasm, address))
+    }
+
     #[inline]
     pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
         self.hooks.handler(id)
