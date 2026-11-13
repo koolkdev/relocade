@@ -3,13 +3,12 @@
 //! Vector operations remain opaque. The path's ordinary scalar inference cache
 //! queries this sparse storage; it has no separate worklist or cache lifecycle.
 
-use super::{Bits, ScalarFacts};
+use super::{storage::Storage, Bits, ScalarFacts, Source};
 use crate::{
     body::{ValueDefinition, ValueTable},
     expression::UnaryOp as Unary,
     Expression, Type,
 };
-use rustc_hash::FxHashMap;
 
 #[cfg(test)]
 mod tests;
@@ -36,7 +35,12 @@ impl VectorWord {
             };
         }
         facts
-            .and_then(|facts| facts.words.get(&self).copied())
+            .and_then(|facts| {
+                facts
+                    .words
+                    .get(&self.value)
+                    .map(|words| words[self.half as usize])
+            })
             .unwrap_or_default()
     }
 }
@@ -94,7 +98,7 @@ impl LaneObservation {
 
 #[derive(Clone, Default)]
 pub(super) struct LaneFacts {
-    words: FxHashMap<VectorWord, Bits>,
+    words: Storage<[Bits; 2]>,
 }
 
 impl LaneFacts {
@@ -102,22 +106,27 @@ impl LaneFacts {
         if bits.mask == 0 {
             return;
         }
-        let previous = self.words.entry(word).or_default();
+        let previous = &mut self.words.get_or_insert_default(word.value)[word.half as usize];
         if !previous.conflicts(bits) {
             *previous = previous.union(bits);
         }
     }
 
     pub(super) fn conflicts_with(&self, table: &ValueTable, other: Option<&Self>) -> bool {
-        self.words
-            .iter()
-            .any(|(&word, &bits)| bits.conflicts(word.bits(table, other)))
+        self.words.any(|value, words| {
+            words.iter().enumerate().any(|(half, bits)| {
+                bits.conflicts(VectorWord::new(table, value, half as u8).bits(table, other))
+            })
+        })
     }
 
     pub(super) fn retain_common(&mut self, other: &Self) -> bool {
-        self.words.retain(|word, bits| {
-            *bits = bits.common(other.words.get(word).copied().unwrap_or_default());
-            bits.mask != 0
+        self.words.retain(|value, words| {
+            let incoming = other.words.get(value).copied().unwrap_or_default();
+            for (bits, other) in words.iter_mut().zip(incoming) {
+                *bits = bits.common(other);
+            }
+            words.iter().any(|bits| bits.mask != 0)
         });
         !self.words.is_empty()
     }
@@ -144,7 +153,6 @@ impl ScalarFacts {
         parameter: usize,
         incoming: impl Iterator<Item = (&'a Self, usize)> + Clone,
     ) {
-        let mut recorded = false;
         for half in 0..table[parameter].ty.bits() / 64 {
             let bits = incoming
                 .clone()
@@ -154,16 +162,14 @@ impl ScalarFacts {
                 .reduce(Bits::common)
                 .unwrap_or_default();
             if bits.mask != 0 {
+                let word = VectorWord::new(table, parameter, half);
                 self.lanes
                     .get_or_insert_with(Default::default)
-                    .record(VectorWord::new(table, parameter, half), bits);
-                recorded = true;
+                    .record(word, bits);
+                self.changed_fact(Source::Word(word));
             }
         }
         // A V64 parameter receives only its logical low word; the upper carrier
         // half can differ between incoming values and stays unknown.
-        if recorded {
-            self.changed(table, parameter);
-        }
     }
 }

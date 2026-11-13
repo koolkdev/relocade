@@ -1,6 +1,6 @@
 //! Learn facts implied by choosing one edge of a conditional branch.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, Demand, ScalarFacts, Source};
 use crate::expression::{
     BinaryOp as Binary, CompareOp as Compare, TernaryOp as Ternary, UnaryOp as Unary,
 };
@@ -40,7 +40,11 @@ impl ScalarFacts {
             }
             let bits = previous.union(bits);
             self.record(table, id, bits);
-            self.constraints.track(table, id, bits);
+            if self.constraints.track(table, id, bits) {
+                self.dependencies
+                    .borrow_mut()
+                    .track(table, Demand::Constraint(id));
+            }
             let ValueDefinition::Expression(expression) = value.definition else {
                 continue;
             };
@@ -82,11 +86,11 @@ impl ScalarFacts {
                     right,
                 } => match operator {
                     Binary::Compare(Compare::Integer(operator)) => {
-                        if let Some(first) =
+                        if let Some(key) =
                             self.comparisons
                                 .assume(table, operator, left, right, bits.value != 0)
                         {
-                            self.changed(table, first);
+                            self.changed_fact(Source::Comparison(key));
                         }
                         self.assume_comparison(table, operator, left, right, bits.value != 0);
                         if matches!(operator, CompareOp::Eq | CompareOp::Ne)

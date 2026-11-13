@@ -3,7 +3,7 @@
 use super::storage::Storage;
 use super::{Bits, ScalarFacts};
 use crate::{bitwise::BitwiseOp, body::ValueTable, expression::BinaryOp, Expression, Type};
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 #[cfg(test)]
 mod tests;
@@ -17,9 +17,7 @@ pub(super) struct Constraints {
     // allocate nothing; adding a root copies only this short list.
     roots: Option<Rc<Vec<usize>>>,
     active: u64,
-    // The earliest root that may need another visit; usize::MAX means none.
-    // Inputs precede their results, so later facts cannot affect earlier roots.
-    revisit_from: usize,
+    pending: Cell<u64>,
 }
 
 impl Default for Constraints {
@@ -27,38 +25,38 @@ impl Default for Constraints {
         Self {
             roots: None,
             active: 0,
-            revisit_from: usize::MAX,
+            pending: Cell::new(0),
         }
     }
 }
 
 impl Constraints {
-    pub(super) fn track(&mut self, table: &ValueTable, id: usize, bits: Bits) {
+    pub(super) fn track(&mut self, table: &ValueTable, id: usize, bits: Bits) -> bool {
         if table[id].ty != Type::I1 || bits.mask & 1 == 0 {
-            return;
+            return false;
         }
         let Some(result) = table.expression(id) else {
-            return;
+            return false;
         };
         let Expression::Binary {
             operator: BinaryOp::Bitwise(operator),
             ..
         } = result.expression
         else {
-            return;
+            return false;
         };
         // True conjunctions and false disjunctions already constrain both inputs.
         if matches!(operator, BitwiseOp::And) && bits.value & 1 != 0
             || matches!(operator, BitwiseOp::Or) && bits.value & 1 == 0
         {
-            return;
+            return false;
         }
         let roots = self.roots.as_deref();
         let index = if let Some(index) = roots.and_then(|r| r.iter().position(|&root| root == id)) {
             index
         } else {
             if roots.is_some_and(|r| r.len() == MAX_CONSTRAINTS) {
-                return;
+                return false;
             }
             let roots = Rc::make_mut(self.roots.get_or_insert_default());
             let index = roots.len();
@@ -66,12 +64,18 @@ impl Constraints {
             index
         };
         self.active |= 1 << index;
-        self.revisit_from = self.revisit_from.min(id);
+        self.pending.set(self.pending.get() | (1 << index));
+        true
     }
 
-    pub(super) fn changed(&mut self, id: usize) {
-        if self.active != 0 {
-            self.revisit_from = self.revisit_from.min(id);
+    pub(super) fn changed(&self, id: usize) {
+        if let Some(index) = self
+            .roots
+            .as_ref()
+            .and_then(|roots| roots.iter().position(|&root| root == id))
+        {
+            self.pending
+                .set(self.pending.get() | (self.active & (1 << index)));
         }
     }
 
@@ -83,24 +87,24 @@ impl Constraints {
             .enumerate()
             .filter(|(_, id)| known.contains_key(id))
             .fold(0, |mask, (index, _)| mask | (1 << index));
-        self.revisit_from = if self.active != 0 { 0 } else { usize::MAX };
+        self.pending.set(self.active);
     }
 }
 
 impl ScalarFacts {
     pub(super) fn propagate_constraints(&mut self, table: &ValueTable) {
         let mut remaining = MAX_CONSTRAINT_CHECKS;
-        while self.constraints.revisit_from != usize::MAX && remaining != 0 {
-            let revisit_from = std::mem::replace(&mut self.constraints.revisit_from, usize::MAX);
-            let mut pending = self.constraints.active;
+        while remaining != 0 {
+            self.refresh_bits(table);
+            let mut pending = self.constraints.pending.replace(0) & self.constraints.active;
+            if pending == 0 {
+                break;
+            }
             while pending != 0 && remaining != 0 {
                 let index = pending.trailing_zeros() as usize;
                 pending &= pending - 1;
                 remaining -= 1;
                 let id = self.constraints.roots.as_ref().unwrap()[index];
-                if id < revisit_from {
-                    continue;
-                }
                 let Expression::Binary {
                     operator: BinaryOp::Bitwise(operator),
                     left,
@@ -136,7 +140,9 @@ impl ScalarFacts {
             }
             // Exhaustion postpones any remaining deductions until a later update.
             if pending != 0 {
-                self.constraints.revisit_from = 0;
+                self.constraints
+                    .pending
+                    .set(self.constraints.pending.get() | pending);
             }
         }
     }

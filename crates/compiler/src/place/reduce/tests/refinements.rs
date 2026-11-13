@@ -65,3 +65,88 @@ fn refinements_reuse_unrelated_answers_and_stop_at_an_unchanged_mask() {
     assert_ne!(reducer.reduce(&mut values, constant, root), root);
     assert_eq!(reducer.reduce(&mut values, parent, root), root);
 }
+
+fn assert_refinement(values: &mut ValueTable, root: usize, observation: Assumption, expected: u64) {
+    let mut reducer = Reducer::default();
+    let parent = reducer.scope(ScalarFacts::default());
+    assert_eq!(reducer.reduce(values, parent, root), root);
+    let child = reducer.scope(
+        reducer
+            .facts(parent)
+            .clone()
+            .with_assumptions(values, [observation]),
+    );
+    let result = reducer.reduce(values, child, root);
+    assert_eq!(values[result].scalar_literal(), Some(expected));
+    assert_eq!(reducer.reduce(values, parent, root), root);
+}
+
+#[test]
+fn range_and_comparison_changes_revisit_reductions_that_skipped_inference() {
+    use crate::{expression::CompareOp, integer::CompareOp as Integer};
+    for (root_op, guard_op, root_limit, guard_limit, expected) in [
+        (Integer::LtUnsigned, Integer::LtUnsigned, 20, 10, 1),
+        (Integer::Eq, Integer::Ne, 20, 20, 0),
+    ] {
+        let mut values = ValueTable::default();
+        let input = values.push(Value {
+            ty: Type::I32,
+            definition: ValueDefinition::Parameter {
+                block: BlockId(0),
+                component: 0,
+            },
+        });
+        let [root, guard] =
+            [(root_op, root_limit), (guard_op, guard_limit)].map(|(operator, limit)| {
+                let limit = values.literal(Type::I32, limit as u64);
+                values.intern(Value {
+                    ty: Type::I1,
+                    definition: ValueDefinition::Expression(Expression::Binary {
+                        operator: Binary::Compare(CompareOp::Integer(operator)),
+                        left: input,
+                        right: limit,
+                    }),
+                })
+            });
+        assert_refinement(
+            &mut values,
+            root,
+            Assumption::Truth {
+                condition: guard,
+                truth: true,
+            },
+            expected,
+        );
+    }
+}
+
+#[test]
+fn overlapping_lane_changes_revisit_reductions_that_skipped_inference() {
+    let mut values = ValueTable::default();
+    let vector = values.push(Value {
+        ty: Type::V128,
+        definition: ValueDefinition::Parameter {
+            block: BlockId(0),
+            component: 0,
+        },
+    });
+    let [root, word] = [(Type::I16, 1), (Type::I32, 0)].map(|(ty, lane)| {
+        values.intern(Value {
+            ty,
+            definition: ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::ExtractLane { lane },
+                input: vector,
+            }),
+        })
+    });
+    assert_refinement(
+        &mut values,
+        root,
+        Assumption::Bits {
+            value: word,
+            mask: u32::MAX.into(),
+            bits: 0x12345678,
+        },
+        0x1234,
+    );
+}
