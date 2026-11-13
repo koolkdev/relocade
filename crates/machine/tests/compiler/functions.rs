@@ -31,15 +31,15 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
             let target = runner.cpu().cpu_state().execution_target();
             let mut compiler = runner.take_compiler().unwrap();
             compiler
-                .request_function(
+                .request_functions(
                     target,
-                    FunctionRequest {
+                    vec![FunctionRequest {
                         entry: FarPointer {
                             segment: 0x10,
                             offset: 0,
                         },
                         limits: FunctionLimits::default(),
-                    },
+                    }],
                 )
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
@@ -73,6 +73,80 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
     assert_eq!(result.unwrap(), Some(()));
 }
 
+async fn execute_batch(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    let mut state = *config.cpu();
+    state.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x10);
+    state.eip = 0;
+    state.registers.esp = 0x800;
+    state.registers.ebx = 0x20;
+    let config = CpuConfig::new(config.execution_target(), state).unwrap();
+    machine
+        .memory()
+        .view()
+        .write(
+            0x100,
+            &[
+                0xb8, 42, 0, // MOV AX,42
+                0x9a, 0, 0, 0x20, 0, // CALL FAR 0020:0000
+                0xff, 0xe3, // JMP BX to the host exit
+            ],
+        )
+        .unwrap();
+    machine.memory().view().write(0x200, &[0x42, 0xcb]).unwrap(); // INC DX; RETF
+    machine.memory().view().write(0x300, &[0xf1]).unwrap(); // Unsupported candidate
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    let result = cpu
+        .run_until(pending::<()>(), async move |mut runner| {
+            let target = runner.cpu().cpu_state().execution_target();
+            let mut compiler = runner.take_compiler().unwrap();
+            let request = |segment| FunctionRequest {
+                entry: FarPointer { segment, offset: 0 },
+                limits: FunctionLimits::default(),
+            };
+            // The failed candidate between the valid functions must not discard either.
+            compiler
+                .request_functions(target, vec![request(0x10), request(0x30), request(0x20)])
+                .unwrap();
+            let code = compiler.recv().await.unwrap().unwrap();
+            assert_eq!(
+                code.blocks()
+                    .iter()
+                    .map(|block| (block.start_eip, block.byte_len))
+                    .collect::<Vec<_>>(),
+                [(0, 8), (8, 2), (0, 2)]
+            );
+            compiler
+                .request_functions(target, vec![request(0x30)])
+                .unwrap();
+            assert!(matches!(
+                compiler.recv().await.unwrap(),
+                Err(relocade_machine::Error::Compile(_))
+            ));
+            let exit = runner.cpu().exit_handle();
+            runner
+                .cpu()
+                .install([
+                    Hook::host(0x100, async || panic!("caller was not installed")),
+                    Hook::host(0x200, async || panic!("callee was not installed")),
+                    Hook::host(0x120, async move || exit.request()),
+                ])
+                .await
+                .unwrap();
+            code.install(runner.cpu()).unwrap();
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            let state = runner.cpu().cpu_state();
+            assert_eq!((state.ax(), state.dx(), state.sp()), (42, 1, 0x800));
+            assert_eq!(state.instruction_count(), 5);
+        })
+        .await;
+    machine.shutdown().await.unwrap();
+    assert_eq!(result.unwrap(), Some(()));
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn discovered_function_runs_branches_and_an_interpreted_callee() {
@@ -83,4 +157,16 @@ fn discovered_function_runs_branches_and_an_interpreted_callee() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn discovered_function_runs_branches_and_an_interpreted_callee() {
     compilation::run(execute_function).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
+    pollster::block_on(compilation::run(execute_batch));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
+    compilation::run(execute_batch).await;
 }

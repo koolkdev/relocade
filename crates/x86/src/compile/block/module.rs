@@ -5,7 +5,7 @@ use crate::{execution::ExecutionModule, BlockError};
 use relocade_compiler::Program;
 
 pub(in crate::compile) struct BlockModule<'a> {
-    compiler: &'a Compiler,
+    pub(in crate::compile) compiler: &'a Compiler,
     pub(in crate::compile) program: Program,
     pub(in crate::compile) entries: Vec<BlockEntry>,
     execution: ExecutionModule,
@@ -17,15 +17,11 @@ impl<'a> BlockModule<'a> {
         blocks: Vec<DecodedBlock>,
     ) -> Result<Self, BlockError> {
         let mut module = Self::new(compiler);
-        module.entries.reserve(blocks.len());
-        for block in blocks {
-            let entry = module.define_block(block)?;
-            module.entries.push(entry);
-        }
+        module.append(blocks)?;
         Ok(module)
     }
 
-    fn new(compiler: &'a Compiler) -> Self {
+    pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
         let mut program = Program::new();
         let execution = ExecutionModule::declare(&mut program, compiler.target);
         Self {
@@ -34,6 +30,18 @@ impl<'a> BlockModule<'a> {
             entries: Vec::new(),
             execution,
         }
+    }
+
+    pub(in crate::compile) fn append(
+        &mut self,
+        blocks: Vec<DecodedBlock>,
+    ) -> Result<(), BlockError> {
+        self.entries.reserve(blocks.len());
+        for block in blocks {
+            let entry = self.define_block(block)?;
+            self.entries.push(entry);
+        }
+        Ok(())
     }
 
     fn define_block(&mut self, block: DecodedBlock) -> Result<BlockEntry, BlockError> {

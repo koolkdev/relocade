@@ -128,13 +128,16 @@ async fn compile(
             let addresses = requests.iter().map(|block| block.address).collect();
             (blocks, addresses)
         }
-        connection::Compilation::Function(request) => {
+        connection::Compilation::Functions(requests) => {
             if target.profile != ExecutionProfile::Real16 {
                 return Err(crate::ConfigurationError::UnsupportedMode.into());
             }
-            let base = request.entry.segment_base();
-            let blocks = x86
-                .compile_function_with(
+            let mut module = x86.function_module();
+            let mut addresses = Vec::new();
+            let mut first_error = None;
+            for request in requests {
+                let base = request.entry.segment_base();
+                match module.add_function(
                     u32::from(request.entry.offset),
                     request.limits,
                     |eip, buffer| {
@@ -144,15 +147,21 @@ async fn compile(
                         }
                         memory.read_code_prefix(base + eip, &mut buffer[..len])
                     },
-                    jobs,
-                )
-                .await?;
-            let addresses = blocks
-                .entries
-                .iter()
-                .map(|block| base + block.start_eip)
-                .collect();
-            (blocks, addresses)
+                ) {
+                    Ok(entries) => {
+                        addresses.extend(entries.iter().map(|block| base + block.start_eip));
+                    }
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            if addresses.is_empty() {
+                if let Some(error) = first_error {
+                    return Err(error.into());
+                }
+            }
+            (module.compile_with(jobs).await?, addresses)
         }
     };
     Ok(CompiledCode {
