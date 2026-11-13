@@ -19,6 +19,23 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
+The default PC includes AdLib and the built-in speaker. Rust callers can choose
+the installed sound card before startup:
+
+```rust,ignore
+use relocade_dos::{Configuration, SoundCard};
+
+relocade_dos_app::run_with_configuration(Configuration {
+    sound_card: SoundCard::None,
+})?;
+```
+
+`SoundCard::None` keeps the speaker available and leaves AdLib's ports unbound.
+`SoundCard::AdLib` is the default for both the native binary and browser `run()`
+export. Embeddings that construct DOS directly use
+`Dos::with_configuration(runner, configuration).await`; `Dos::new` keeps the
+default. This selects emulated hardware independently of host output.
+
 The application entrypoint connects existing owners. One execution worker owns
 DOS/keyboard/VGA/speaker/AdLib and the Rust command loop. It sends the native console's
 input sender, `dos.mouse_input()` and `dos.frames()` through a startup
@@ -28,12 +45,13 @@ a pending console read, and waits for execution and graphics cleanup. Execution
 errors remain visible even when startup ends before the endpoints arrive.
 
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
-configuration and bounded Rust PCM sender go to the execution worker. `Dos::new`
-creates the hardware; `dos.attach_audio(config, samples).await` connects its mixer.
+configuration and bounded Rust PCM sender go to the execution worker.
+`Dos::with_configuration` creates the selected hardware;
+`dos.attach_audio(config, samples).await` connects its mixer.
 Guest writes to PIT channel 2 and port 0x61 drive the speaker; writes to ports
-0x388/0x389 drive AdLib OPL2 music. Both feed the same output stream. Attach audio
-before launching a guest to retain all note changes. Hardware state persists
-across guest process exits.
+0x388/0x389 drive AdLib OPL2 music when installed. Both feed the same output stream.
+Attach audio before launching a guest to retain all note changes. Hardware state
+persists across guest process exits.
 
 For a program launched through `launch_com` or `launch_mz`, select **AdLib/OPL2**
 for music in the game's configuration. If effects are configured separately,
@@ -45,9 +63,10 @@ the core's limits and LGPL distribution requirements.
 Native playback starts immediately. The browser console appears immediately;
 the app's browser platform code requests playback once the document has user
 activation. CPAL retains that request through worklet setup. If opening or
-starting output fails, the console still runs and sound-device ports remain available.
-Closing the window drops output before waiting for execution
-cleanup, closing any pending PCM submission. No extra synthesis worker is created.
+starting output fails, the console still runs and the installed sound-device
+ports remain available. Closing the window drops output before waiting for
+execution cleanup, closing any pending PCM submission. No extra synthesis worker
+is created.
 
 Click the window or canvas to capture the mouse; press Escape to release it.
 The capture click is consumed. Focus loss releases held buttons and restores host

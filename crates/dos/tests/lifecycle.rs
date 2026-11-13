@@ -4,7 +4,9 @@ mod vectors;
 
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::KeyMode;
-use relocade_dos::{FileAccess, LaunchError, LoadError, ProcessStatus, ServiceError};
+use relocade_dos::{
+    Configuration, FileAccess, LaunchError, LoadError, ProcessStatus, ServiceError, SoundCard,
+};
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
     future::Future,
@@ -15,7 +17,7 @@ use std::{
 };
 
 #[test]
-fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
+fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
     use std::num::NonZeroU64;
 
     pollster::block_on(async {
@@ -28,8 +30,16 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
             || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
             async |runner| {
                 let clock = runner.clock().clone();
-                let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
-                let program = [0xb8, 7, 0x4c, 0xcd, 0x21];
+                let mut dos = relocade_dos::Dos::with_configuration(
+                    runner,
+                    Configuration {
+                        sound_card: SoundCard::None,
+                    },
+                )
+                .await
+                .unwrap();
+                // Return the AdLib status port, which is absent in this configuration.
+                let program = [0xba, 0x88, 0x03, 0xec, 0xb4, 0x4c, 0xcd, 0x21];
                 for mz in [false, true, false] {
                     let count = dos.cpu().cpu_state().instruction_count();
                     let time = clock.now();
@@ -41,7 +51,7 @@ fn successive_com_and_mz_launches_preserve_session_retirement_and_time() {
                     }
                     assert_eq!(dos.cpu().cpu_state().instruction_count(), count);
                     assert_eq!(clock.now(), time);
-                    assert_eq!(dos.run().await, Ok(7));
+                    assert_eq!(dos.run().await, Ok(0xff));
                     assert!(dos.cpu().cpu_state().instruction_count() > count);
                     assert!(clock.now() > time);
                 }

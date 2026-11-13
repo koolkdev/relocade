@@ -118,6 +118,7 @@
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
+//! [`Dos::with_configuration`] selects its hardware using the PC's [`Configuration`].
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
 //! With the `audio` feature, `Dos::attach_audio` connects the PC's mixed output.
 //! Guest AdLib ports (388h/389h) and PC-speaker ports share that output and work
@@ -177,8 +178,8 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
-pub use relocade_pc::configuration;
 use relocade_pc::Pc;
+pub use relocade_pc::{configuration, Configuration, SoundCard};
 use relocade_pc_speaker::Speaker;
 use relocade_vga::DispiAdapter;
 use state::DosState;
@@ -195,7 +196,17 @@ impl Dos {
     /// Creates a BIOS-initialized PC and installs DOS services on it.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: Runner) -> relocade_machine::Result<Self> {
-        Self::from_pc(Pc::new(runner).await?).await
+        Self::with_configuration(runner, Configuration::default()).await
+    }
+
+    /// Creates a PC with the selected hardware and installs DOS services on it.
+    /// Hardware selection persists across process launches and does not depend
+    /// on attaching host audio output.
+    pub async fn with_configuration(
+        runner: Runner,
+        configuration: Configuration,
+    ) -> relocade_machine::Result<Self> {
+        Self::from_pc(Pc::with_configuration(runner, configuration).await?).await
     }
 
     /// Installs the DOS allocator, console devices, filesystem and interrupt
