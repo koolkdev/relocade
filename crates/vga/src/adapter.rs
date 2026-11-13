@@ -13,13 +13,10 @@ use crate::{
     dispi,
     memory::{VideoMemory, VramWindow},
     output::Output,
-    raster::Raster,
     DisplaySnapshot, Registers, Timing, VgaCore,
 };
 use async_channel::Receiver;
-use event_listener::Event;
 use relocade_machine::{Clock, Runner};
-pub use retrace::RetraceEvent;
 pub use state::DispiState;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -49,9 +46,6 @@ pub struct DispiAdapter {
     dispi: dispi::Dispi,
     packed_window: VramWindow,
     io: Option<device::Io>,
-    clock: Clock,
-    raster: Raster,
-    configuration_changed: Event,
     output: Output,
 }
 
@@ -68,7 +62,7 @@ impl DispiAdapter {
     /// Uses the same timebase for guest status reads and asynchronous scanout.
     pub fn with_clock(clock: Clock) -> Self {
         let vga = VgaCore::default();
-        let raster = Raster::new(clock.clone(), Timing::vga(&vga.registers));
+        let output = Output::new(clock, Timing::vga(&vga.registers));
         Self {
             memory: VideoMemory::new(dispi::VIDEO_MEMORY_BYTES),
             vga,
@@ -79,10 +73,7 @@ impl DispiAdapter {
                 bytes: dispi::BANK_BYTES,
             },
             io: None,
-            clock,
-            raster,
-            configuration_changed: Event::new(),
-            output: Output::new(),
+            output,
         }
     }
 
@@ -97,11 +88,5 @@ impl DispiAdapter {
     /// port access state. Display captures retain only display inputs.
     pub fn registers(&self) -> &Registers {
         &self.vga.registers
-    }
-}
-
-impl Drop for DispiAdapter {
-    fn drop(&mut self) {
-        self.configuration_changed.notify(usize::MAX);
     }
 }

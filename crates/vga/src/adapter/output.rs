@@ -1,12 +1,7 @@
 //! Capture on the execution owner, then synchronize and publish from its task.
 
-use crate::output::PendingSnapshot;
-#[cfg(feature = "renderer")]
-use crate::snapshot::MemoryChanges;
 use crate::{DacSnapshot, DispiAdapter, DisplaySnapshot, Scanout, VgaDisplayState};
-use futures_lite::future::or;
 use relocade_machine::Timestamp;
-use std::{cell::RefCell, rc::Rc};
 
 impl DispiAdapter {
     /// Captures current display inputs immediately on the execution owner, without
@@ -22,36 +17,24 @@ impl DispiAdapter {
             Some(layout) => Scanout::Packed(layout),
             None => Scanout::Vga(VgaDisplayState::capture(
                 &self.vga.registers,
-                self.raster.retrace_count,
+                self.output.raster.retrace_count,
             )),
         };
-        let previous = self.output.captured.as_ref();
-        DisplaySnapshot {
-            memory: self.memory.snapshot(
-                scanout.memory_bytes(),
-                previous.map(|snapshot| &snapshot.memory),
-            ),
-            dac: DacSnapshot {
+        self.output.snapshot(
+            scanout,
+            DacSnapshot {
                 colors: self.vga.registers.dac.colors,
                 mask: self.vga.registers.dac.mask,
             },
-            scanout,
-            #[cfg(feature = "renderer")]
-            changes: previous.map(|previous| MemoryChanges {
-                baseline: previous.memory.clone(),
-                pages: self.memory.dirty_pages(),
-            }),
-        }
+            &self.memory,
+        )
     }
 
     /// Service elapsed capture boundaries from the output task or before a
     /// display programming change. CPU VRAM transfers do not consult the clock.
     pub(super) fn capture_if_due(&mut self) {
-        if let Some(deadline) = self.raster.next_retrace_at() {
-            let now = self.clock.now();
-            if now >= deadline {
-                self.advance_raster(now);
-            }
+        if let Some(now) = self.output.capture_due() {
+            self.advance_raster(now);
         }
     }
 
@@ -59,7 +42,7 @@ impl DispiAdapter {
     /// any remaining phase at this observed time before remapping the counters.
     #[inline]
     pub(super) fn advance_raster(&mut self, now: Timestamp) {
-        if self.raster.status.observe(now) {
+        if self.output.raster.status.observe(now) {
             self.refresh_raster();
         }
     }
@@ -69,84 +52,13 @@ impl DispiAdapter {
     #[cold]
     #[inline(never)]
     pub(super) fn refresh_raster(&mut self) {
-        let Some(time) = self.raster.update_observed() else {
+        let Some(time) = self.output.raster.update_observed() else {
             return;
         };
         if self.dispi.display_layout().is_none() {
             self.vga.registers.crtc.latch_display_start();
         }
         let display = self.snapshot();
-        if self
-            .output
-            .captured
-            .as_ref()
-            .is_some_and(|previous| display.same_inputs(previous))
-        {
-            return;
-        }
-        self.output.captured = Some(DisplaySnapshot {
-            // Only outgoing snapshots need their upload baseline and dirty hints.
-            #[cfg(feature = "renderer")]
-            changes: None,
-            ..display.clone()
-        });
-        self.memory.clear_dirty();
-        // Sampling starts a new dirty interval. Coalesced pending captures retain
-        // every interval since the task last took a snapshot. A renderer that skips
-        // a queued snapshot uses complete changed blocks when its baseline differs.
-        #[cfg(feature = "renderer")]
-        let display = {
-            let mut display = display;
-            if let Some(pending) = &self.output.pending {
-                display.merge_changes(&pending.snapshot);
-            }
-            display
-        };
-        let pending = PendingSnapshot {
-            snapshot: display,
-            time,
-        };
-        if self.output.pending.replace(pending).is_none() {
-            // The task's normal waker requests an execution interrupt. Replacing
-            // work already waiting for the task does not need another notification.
-            self.output.ready.notify(1);
-        }
-    }
-}
-
-/// The task maps each taken timestamp to host time before waiting. New captures
-/// replace pending work without extending a wait already in progress.
-pub(super) async fn run(device: Rc<RefCell<DispiAdapter>>) {
-    let (clock, sender) = {
-        let device = device.borrow();
-        (device.clock.clone(), device.output.sender.clone())
-    };
-    loop {
-        let pending = {
-            let mut device = device.borrow_mut();
-            device.capture_if_due();
-            device.output.pending.take()
-        };
-        if let Some(pending) = pending {
-            clock.sync_to_host(pending.time).await;
-            if sender.force_send(pending.snapshot).is_err() {
-                return;
-            }
-        } else {
-            // All producers are on this owner. No await separates the pending
-            // check from installing both wake paths, and no borrow spans a wait.
-            let wait = {
-                let device = device.borrow();
-                let captured = device.output.ready.listen();
-                let retrace = device.retrace_wait(device.raster.next_retrace_at());
-                async move {
-                    or(captured, async {
-                        retrace.await;
-                    })
-                    .await;
-                }
-            };
-            wait.await;
-        }
+        self.output.capture(display, &mut self.memory, time);
     }
 }

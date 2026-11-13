@@ -25,7 +25,7 @@ mod scanout;
 mod snapshot;
 mod timing;
 
-pub use adapter::{DispiAdapter, DispiState, RetraceEvent, PORT_RANGES};
+pub use adapter::{DispiAdapter, DispiState, PORT_RANGES};
 pub use core::{DacState, VgaCore, VgaCoreState};
 pub use dispi::{DispiMode, DispiResolution, VIDEO_MEMORY_BYTES};
 #[cfg(feature = "renderer")]
@@ -33,6 +33,7 @@ pub use display::VgaDisplay;
 pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel, TextCell};
 pub use geometry::DisplayGeometry;
 pub use packed::{PackedLayout, PixelFormat};
+pub use output::RetraceEvent;
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE};
 #[cfg(feature = "renderer")]
 pub use renderer::VgaRenderer;
