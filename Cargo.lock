@@ -2215,6 +2215,8 @@ name = "relocade-adlib"
 version = "0.0.0"
 dependencies = [
  "nuked-opl3",
+ "relocade-clock-test-support",
+ "relocade-machine",
  "wasm-bindgen-test",
 ]
 

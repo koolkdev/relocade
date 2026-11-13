@@ -5,6 +5,17 @@ AdLib OPL2 synthesis, independent of CPAL and the application's playback lifetim
 output rate (8–192 kHz). It uses the existing core's resampler, keeps the second
 OPL3 register bank inaccessible, and implements the YM3812 waveform-enable bit.
 
+`Adlib::initialize` connects byte-only address/status port `0x388` and data port
+`0x389` to a runner. Timer 1 ticks every 80 microseconds, timer 2 every 320. Both
+reload on overflow, latch their status flags until cleared, and retain their
+counting phase while masked. Reads return the OPL2 identification bits (`0x06`).
+The data port is write-only; neighboring OPL3 ports remain unmapped.
+
+Timers follow the shared emulation clock and update on register accesses, even
+without an audio source. There is no timer task, host sleep, PIC connection or
+BIOS service. Yamaha's application manual sections 3-1-2 and 3-5 describe the
+timer controls and status flags.
+
 The synthesis dependency is [nuked-opl3 0.1.0](https://github.com/tgies/nuked-opl3-rs),
 a pure Rust port of Nuked-OPL3 1.8. Default features are disabled; no C compiler,
 platform audio backend or additional thread is needed. Both native and browser
