@@ -24,7 +24,7 @@ use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
 use relocade_pit::Pit;
-use relocade_vga::{DispiAdapter, DisplaySnapshot};
+use relocade_vga::DisplaySnapshot;
 use relocade_x86::CpuFeature;
 use std::{cell::RefCell, rc::Rc};
 
@@ -154,13 +154,6 @@ impl Pc {
     /// The installed card's frame delivery and native framebuffer access.
     pub fn video_card(&self) -> &video_card::VideoCard {
         &self.video_card
-    }
-
-    /// Retains the VGA device on its execution owner. End borrows before polling.
-    pub fn vga(&self) -> Rc<RefCell<DispiAdapter>> {
-        match &self.video_card {
-            video_card::VideoCard::Dispi(card) => card.clone(),
-        }
     }
 
     /// Retains the speaker hardware on its execution owner.

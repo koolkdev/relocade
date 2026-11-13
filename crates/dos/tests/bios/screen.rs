@@ -1,4 +1,4 @@
-use crate::common;
+use crate::common::{self, VideoInspection};
 use crate::common::inspection::{Cell, Cursor};
 
 #[test]

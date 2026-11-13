@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::*;
 use relocade_bios::video;
 use relocade_machine::IoBus;

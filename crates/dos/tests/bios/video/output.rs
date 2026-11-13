@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{PROGRAM, video};
 use crate::common::vga_support::inspection::assert_vga_memory_eq;
 use crate::common::vga_support::planes::SnapshotPlanes;

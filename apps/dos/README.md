@@ -19,15 +19,15 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
-The default PC includes AdLib and the built-in speaker. Rust callers can choose
-the installed sound card before startup:
+The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
+select the installed cards before startup:
 
 ```rust,ignore
-use relocade_dos::{Configuration, SoundCard};
+use relocade_dos::{Configuration, SoundCard, VideoCard};
 
 relocade_dos_app::run_with_configuration(Configuration {
     sound_card: SoundCard::SoundBlaster2,
-    ..Default::default()
+    video_card: VideoCard::Dispi,
 })?;
 ```
 
@@ -59,6 +59,11 @@ The same option applies to `launch_mz`. The launcher owns the environment after
 setup: changes and removals are preserved by passing those entries to later
 launches. DOS copies exactly what the caller supplies. `BLASTER` describes the
 installed settings, and changing its value does not reconfigure the card.
+
+`VideoCard::Dispi` is currently the only video choice. The same configuration
+route is available to native and browser Rust callers. `dos.video_card()` exposes
+the card's frame delivery and native framebuffer access, which the DOS mouse
+driver uses to draw its cursor and restore the pixels underneath it.
 
 The application entrypoint connects existing owners. One execution worker owns
 DOS, keyboard, VGA, speaker, the selected sound card and the Rust command loop.

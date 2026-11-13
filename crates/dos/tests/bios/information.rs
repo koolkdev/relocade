@@ -1,5 +1,5 @@
 use super::video::{PROGRAM, video};
-use crate::common;
+use crate::common::{self, VideoInspection};
 use crate::common::vga_support::planes::SnapshotPlanes;
 use relocade_dos::Dos;
 use relocade_x86::{Segment, SegmentRegister};

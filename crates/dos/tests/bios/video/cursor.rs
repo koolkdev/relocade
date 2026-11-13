@@ -1,3 +1,4 @@
+use crate::common::VideoInspection;
 use super::{PROGRAM, video};
 use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{common, information::information};
