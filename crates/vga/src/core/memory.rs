@@ -37,7 +37,13 @@ impl VgaCore {
         u64::from_le_bytes(value)
     }
 
-    pub(crate) fn write_memory(
+    pub(crate) fn direct_memory_writes(&self) -> bool {
+        self.memory_controls.write.passes_bytes_through()
+    }
+
+    /// The card may install the direct variant while the controls pass host
+    /// bytes through unchanged. Both variants apply addressing and plane masks.
+    pub(crate) fn write_memory<const DIRECT: bool>(
         &mut self,
         memory: &mut VideoMemory,
         address: u32,
@@ -57,7 +63,11 @@ impl VgaCore {
                 continue;
             }
             let address = u32::from(controls.addressing.index(offset)) * 4;
-            let values = controls.write.apply(*byte, latches);
+            let values = if DIRECT {
+                u32::from(*byte) * 0x0101_0101
+            } else {
+                controls.write.apply(*byte, latches)
+            };
             memory.write_physical_word(address, values, mask);
         }
     }
