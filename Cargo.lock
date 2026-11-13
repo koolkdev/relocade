@@ -2356,6 +2356,7 @@ dependencies = [
  "futures-timer",
  "pollster",
  "relocade-app",
+ "relocade-clock-test-support",
  "relocade-dos",
  "relocade-frontend",
  "relocade-machine",

@@ -120,6 +120,8 @@
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
 //! With the `audio` feature, `Dos::attach_audio` connects the PC's mixed output.
+//! Guest AdLib ports (388h/389h) and PC-speaker ports share that output and work
+//! independently of DOS services. Attach before starting the first guest program.
 //! DOS opens no platform output; the PC submits PCM on the execution worker.
 //! [`Dos::run`] returns the current program's exit code; devices keep running while
 //! the main session awaits input or another program. [`Dos::frames`] exposes
@@ -233,6 +235,7 @@ impl Dos {
 
     /// Attaches the PC's mixed audio output once for this execution session.
     /// Output persists across DOS process launches and ends with the session.
+    /// Attach before guest execution to retain the full AdLib note timeline.
     #[cfg(feature = "audio")]
     pub async fn attach_audio(
         &mut self,

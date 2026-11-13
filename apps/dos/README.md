@@ -20,7 +20,7 @@ headers. Use a host that honors `_headers`, or configure those headers explicitl
 The shared host owns the canvas.
 
 The application entrypoint connects existing owners. One execution worker owns
-DOS/keyboard/VGA/speaker and the Rust command loop. It sends the native console's
+DOS/keyboard/VGA/speaker/AdLib and the Rust command loop. It sends the native console's
 input sender, `dos.mouse_input()` and `dos.frames()` through a startup
 channel. Main attaches those endpoints to its `AppHost` while driving the
 application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
@@ -30,13 +30,22 @@ errors remain visible even when startup ends before the endpoints arrive.
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
 configuration and bounded Rust PCM sender go to the execution worker. `Dos::new`
 creates the hardware; `dos.attach_audio(config, samples).await` connects its mixer.
-Guest writes to PIT channel 2 and port 0x61 produce sound; the console itself
-does not ring a bell yet. Speaker state persists across guest process exits.
+Guest writes to PIT channel 2 and port 0x61 drive the speaker; writes to ports
+0x388/0x389 drive AdLib OPL2 music. Both feed the same output stream. Attach audio
+before launching a guest to retain all note changes. Hardware state persists
+across guest process exits.
+
+For a program launched through `launch_com` or `launch_mz`, select **AdLib/OPL2**
+for music in the game's configuration. If effects are configured separately,
+PC speaker can play alongside it. Sound Blaster digital audio/DMA and OPL3
+extensions are not implemented. The native prompt has no sound-device command.
+See the [AdLib compatibility and license notes](../../crates/adlib/README.md) for
+the core's limits and LGPL distribution requirements.
 
 Native playback starts immediately. The browser console appears immediately;
 the app's browser platform code requests playback once the document has user
 activation. CPAL retains that request through worklet setup. If opening or
-starting output fails, the console still runs with silent speaker ports.
+starting output fails, the console still runs and sound-device ports remain available.
 Closing the window drops output before waiting for execution
 cleanup, closing any pending PCM submission. No extra synthesis worker is created.
 
@@ -80,6 +89,12 @@ launching or resuming a guest.
 
 ## Audio validation
 
+`cargo test -p relocade-dos-app --test adlib` executes authored COM programs through
+the production PC/DOS setup. One detects AdLib without attached output; another
+plays AdLib, combined AdLib/speaker, speaker alone and silence across DOS keyboard
+waits. A controlled emulation clock drives captured mixer PCM. This fixture also
+runs in browser CI without using CPAL playback.
+
 `cargo test -p relocade-dos-app --test audio` runs a COM program that enables the
 speaker, waits for a DOS key, then disables the speaker and waits again. A paced
 PCM receiver checks tone and silence while execution remains active. The browser
@@ -88,3 +103,8 @@ audio clock, with a bounded timeout and playback diagnostics. Output lifecycle
 and backpressure remain covered by the app audio and PC mixer tests. The bundled
 application test separately checks click/key activation and console input. These
 automated checks do not establish physical speaker playback or long-term clock accuracy.
+
+Representative game listening remains pending. Browser playback acceptance also
+depends on the shared [AudioWorklet initialization](https://github.com/koolkdev/relocade/issues/970)
+and [CPAL memory-growth](https://github.com/koolkdev/relocade/issues/971) fixes; the
+affected platform-output tests remain ignored until those issues are resolved.
