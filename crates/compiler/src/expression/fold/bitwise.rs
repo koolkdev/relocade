@@ -1,7 +1,7 @@
 //! Bitwise identities and mask rewrites that preserve every carrier bit.
 
 use super::Folder;
-use crate::expression::BinaryOp as Binary;
+use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary};
 use crate::{bitwise::BitwiseOp, body::ValueDefinition, integer, Expression, Type};
 
 impl Folder<'_> {
@@ -94,9 +94,6 @@ impl Folder<'_> {
             if a == other {
                 return Some(inner_right);
             }
-            let Some(outer_mask) = self.values[other].scalar_literal() else {
-                continue;
-            };
             let (base, inner_mask) = match (
                 self.values[a].scalar_literal(),
                 self.values[b].scalar_literal(),
@@ -105,7 +102,35 @@ impl Folder<'_> {
                 (Some(mask), _) => (inner_right, mask),
                 _ => continue,
             };
-            let mask = self.values.carrier_literal(ty, inner_mask ^ outer_mask);
+            let mask = if let Some(outer_mask) = self.values[other].scalar_literal() {
+                self.values.carrier_literal(ty, inner_mask ^ outer_mask)
+            } else if let ValueDefinition::Expression(Expression::Ternary {
+                operator: Ternary::Select,
+                first,
+                second,
+                third,
+            }) = self.values[other].definition
+            {
+                let (Some(first), Some(second)) = (
+                    self.values[first].scalar_literal(),
+                    self.values[second].scalar_literal(),
+                ) else {
+                    continue;
+                };
+                let first = self.values.carrier_literal(ty, inner_mask ^ first);
+                let second = self.values.carrier_literal(ty, inner_mask ^ second);
+                self.fold(
+                    ty,
+                    Expression::Ternary {
+                        operator: Ternary::Select,
+                        first,
+                        second,
+                        third,
+                    },
+                )
+            } else {
+                continue;
+            };
             return Some(self.fold(
                 ty,
                 Expression::Binary {

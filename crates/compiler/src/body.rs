@@ -41,6 +41,11 @@ impl Value {
 pub(super) enum ValueDefinition {
     Literal(Literal),
     Expression(Expression<usize>),
+    /// The same runtime value, with a proof valid from this block onward.
+    Refine {
+        input: usize,
+        block: BlockId,
+    },
     Parameter {
         block: BlockId,
         component: usize,

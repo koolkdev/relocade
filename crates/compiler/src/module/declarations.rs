@@ -6,7 +6,7 @@ use wasm_encoder::{
     RefType, TableType, TypeSection, ValType,
 };
 
-use super::functions::PlacedFunction;
+use super::functions::OptimizedFunction;
 use crate::{emit, FunctionKind, ModuleDeclarations, Signature};
 
 /// Owns section declarations and their matching function, memory and table indices.
@@ -23,7 +23,7 @@ impl<'a> Declarations<'a> {
     pub(super) fn new(
         program: &'a ModuleDeclarations,
         used_functions: &[bool],
-        defined: &[PlacedFunction],
+        defined: &[OptimizedFunction],
     ) -> Self {
         let mut declarations = Self {
             program,
@@ -42,7 +42,7 @@ impl<'a> Declarations<'a> {
         declarations
     }
 
-    fn declare_functions(&mut self, used: &[bool], defined: &[PlacedFunction]) {
+    fn declare_functions(&mut self, used: &[bool], defined: &[OptimizedFunction]) {
         let imported: Vec<_> = self
             .program
             .functions
@@ -85,7 +85,7 @@ impl<'a> Declarations<'a> {
         }
     }
 
-    fn import_resources(&mut self, defined: &[PlacedFunction]) {
+    fn import_resources(&mut self, defined: &[OptimizedFunction]) {
         let mut memories = vec![false; self.program.memories.len()];
         let mut tables = vec![false; self.program.tables.len()];
         for function in defined {

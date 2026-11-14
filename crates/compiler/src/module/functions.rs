@@ -1,31 +1,31 @@
-//! Retention follows calls that survive each function's placement.
+//! Retention follows calls that survive each function's optimization.
 
 use super::emission::Emission;
-use crate::{body::FunctionGraph, place::Placement, BuiltProgram, FunctionKind};
+use crate::{body::FunctionGraph, ssa::Optimizer, BuiltProgram, FunctionKind};
 use std::sync::Arc;
 
 pub(super) struct Definitions {
     program: BuiltProgram,
-    placement: Arc<Placement>,
+    optimizer: Arc<Optimizer>,
     pending: Vec<usize>,
     used: Vec<bool>,
-    defined: Vec<PlacedFunction>,
+    defined: Vec<OptimizedFunction>,
 }
 
-pub(super) struct FunctionPlacement {
+pub(super) struct FunctionOptimization {
     id: usize,
     body: FunctionGraph,
-    placement: Arc<Placement>,
+    optimizer: Arc<Optimizer>,
 }
 
-pub(super) struct PlacedFunction {
+pub(super) struct OptimizedFunction {
     pub(super) id: usize,
     pub(super) body: FunctionGraph,
 }
 
 impl Definitions {
     pub(super) fn new(program: BuiltProgram) -> Self {
-        let placement = Arc::new(Placement::new(&program));
+        let optimizer = Arc::new(Optimizer::new(&program));
         let pending = program
             .declarations
             .exports
@@ -35,14 +35,14 @@ impl Definitions {
         let used = vec![false; program.declarations.functions.len()];
         Self {
             program,
-            placement,
+            optimizer,
             pending,
             used,
             defined: Vec::new(),
         }
     }
 
-    pub(super) fn next(&mut self) -> Option<FunctionPlacement> {
+    pub(super) fn next(&mut self) -> Option<FunctionOptimization> {
         while let Some(id) = self.pending.pop() {
             // Mark before submission, including imports, so shared callees and
             // recursive cycles are visited only once regardless of completion order.
@@ -57,16 +57,16 @@ impl Definitions {
             let body = self.program.bodies[id]
                 .take()
                 .expect("reachable definitions completed construction");
-            return Some(FunctionPlacement {
+            return Some(FunctionOptimization {
                 id,
                 body,
-                placement: Arc::clone(&self.placement),
+                optimizer: Arc::clone(&self.optimizer),
             });
         }
         None
     }
 
-    pub(super) fn include(&mut self, function: PlacedFunction) {
+    pub(super) fn include(&mut self, function: OptimizedFunction) {
         function
             .body
             .visit_call_targets(|callee| self.pending.push(callee.0), |_| {});
@@ -78,11 +78,11 @@ impl Definitions {
     }
 }
 
-impl FunctionPlacement {
-    pub(super) fn place(self) -> PlacedFunction {
-        PlacedFunction {
+impl FunctionOptimization {
+    pub(super) fn optimize(self) -> OptimizedFunction {
+        OptimizedFunction {
             id: self.id,
-            body: self.placement.place(self.body),
+            body: self.optimizer.optimize(self.body),
         }
     }
 }

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use wasm_encoder::{CodeSection, Module};
 
-use super::{declarations::Declarations, functions::PlacedFunction};
+use super::{declarations::Declarations, functions::OptimizedFunction};
 use crate::{body::FunctionGraph, emit, ModuleDeclarations};
 
 pub(super) struct Emission {
@@ -27,7 +27,7 @@ impl Emission {
     pub(super) fn new(
         program: Arc<ModuleDeclarations>,
         used_functions: Vec<bool>,
-        mut defined: Vec<PlacedFunction>,
+        mut defined: Vec<OptimizedFunction>,
     ) -> Self {
         // Completion order must not change indices or signature interning.
         defined.sort_unstable_by_key(|function| function.id);

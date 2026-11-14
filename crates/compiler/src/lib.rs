@@ -35,8 +35,8 @@ mod integer;
 mod literal;
 mod memory;
 mod module;
-mod place;
 mod results;
+mod ssa;
 mod types;
 mod value;
 
@@ -244,9 +244,9 @@ impl Program {
     }
 
     /// Compiles using caller-provided execution resources for IR construction,
-    /// function placement and Wasm emission. Each construction job creates and closes
+    /// function optimization and Wasm emission. Each construction job creates and closes
     /// its own arena; values and scoped block callbacks stay on that worker. Effect
-    /// analysis runs after all reachable bodies finish, before placement starts.
+    /// analysis runs after all reachable bodies finish, before optimization starts.
     ///
     /// Independent body builders may run concurrently and in any order. Retention,
     /// function indices and module bytes follow the same rules as [`Self::compile`].

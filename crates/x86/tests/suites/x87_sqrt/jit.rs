@@ -208,3 +208,51 @@ fn native_views_and_full_precision_restart() {
     extended_native_range();
     restart();
 }
+
+#[test]
+fn pending_precision_preserves_the_root_across_following_arithmetic() {
+    let code = [
+        0xdd, 0x05, 0, 0x40, 0, 0, // FLD m64
+        0xd8, 0xc8, // FMUL ST0, ST0
+        0xd8, 0xc0, // FADD ST0, ST0
+        0xd9, 0xfa, // FSQRT
+        0xd8, 0xf0, // FDIV ST0, ST0
+        0xd8, 0xc8, 0xd8, 0xc0, 0xd9, 0xfa, 0xd8, 0xf0,
+    ];
+    let mut observed = CpuState::default();
+    set_control(&mut observed.x87.control, 0x027f);
+    let compiled = Compiler::new(SegmentProfile::Flat32)
+        .specialize_on_cpu(&observed)
+        .compile_block(0x1000, &code, 9)
+        .unwrap();
+    let mut image = stack_image(&code, 0, 0xffff);
+    set_control(&mut image.cpu.x87.control, 0x025f);
+    image.cpu.x87.status.precision = 0;
+    image.map(4, 0x8000, false);
+    image.data(0x8000, &1.0_f64.to_le_bytes());
+    let mut result = complete_x87(image.cpu, 6, 0x0505);
+    result = complete_x87(result, 2, 0x00c8);
+    result = complete_x87(result, 2, 0x00c0);
+    result = complete_x87(result, 2, 0x01fa);
+    result.x87.status.top = 7;
+    result.x87.status.precision = 1;
+    result.x87.status.error_summary = 1;
+    result.x87.status.busy = 1;
+    result.x87.status.c1 = 1;
+    result.x87.data_offset = 0x4000;
+    result.x87.data_selector = 0x23;
+    // The PC53 root of two rounds upward. The following waiting instruction
+    // reports the pending exception before changing that result or its exponent.
+    write_value(&mut result, 7, (0xb504_f333_f9de_6800, 0x3fff));
+    assert_eq!(
+        TestModule::new(&compiled).observe(&image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: result,
+                ram: &[],
+                exit: Exit::FloatingPoint
+            }]
+        )
+    );
+}
