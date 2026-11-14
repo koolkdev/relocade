@@ -66,6 +66,13 @@ impl VgaCoreState {
     }
 
     pub fn from_bytes(bytes: &[u8; Self::BYTE_LEN]) -> Option<Self> {
+        Self::from_bytes_with_crtc_mask(bytes, 0x1f)
+    }
+
+    pub(crate) fn from_bytes_with_crtc_mask(
+        bytes: &[u8; Self::BYTE_LEN],
+        mask: u8,
+    ) -> Option<Self> {
         // Reuse each bank's write masks; a noncanonical encoding is rejected.
         let mut sequencer = Sequencer::default();
         for (index, &value) in bytes[15..20].iter().enumerate() {
@@ -86,7 +93,7 @@ impl VgaCoreState {
             crtc.select(index as u8);
             crtc.write(value);
         }
-        crtc.select(bytes[6]);
+        crtc.select_raw(bytes[6] & mask);
         crtc.display_start = u16::from_le_bytes(bytes[9..11].try_into().unwrap());
         // Color Select is encoded separately in DacState.
         let mut attribute = [0; 23];

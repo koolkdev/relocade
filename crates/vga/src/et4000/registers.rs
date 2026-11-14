@@ -11,6 +11,7 @@ pub(super) const CONFIGURATION: u8 = 0x36;
 pub(super) const AUXILIARY: u8 = 7;
 pub(super) const ATTRIBUTE_MISC: u8 = 0x16;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Extensions {
     crtc: [u8; 6],
     sequencer: [u8; 2],
@@ -130,5 +131,41 @@ impl Extensions {
 
     pub fn uses_46e8(&self) -> bool {
         self.crtc[usize::from(COMPATIBILITY - 0x32)] & 8 != 0
+    }
+}
+
+impl Extensions {
+    pub(super) fn to_state_bytes(&self) -> [u8; 13] {
+        let mut bytes = [0; 13];
+        bytes[..6].copy_from_slice(&self.crtc);
+        bytes[6..8].copy_from_slice(&self.sequencer);
+        bytes[8..].copy_from_slice(&[
+            self.attribute,
+            self.hercules,
+            self.mode,
+            self.segments,
+            u8::from(self.segment_access),
+        ]);
+        bytes
+    }
+
+    pub(super) fn from_state_bytes(bytes: &[u8; 13]) -> Option<Self> {
+        if bytes[1] & !0x0f != 0
+            || bytes[6] & !6 != 0
+            || bytes[8] & !0xf0 != 0
+            || bytes[9] & !3 != 0
+            || bytes[12] > 1
+        {
+            return None;
+        }
+        Some(Self {
+            crtc: bytes[..6].try_into().unwrap(),
+            sequencer: bytes[6..8].try_into().unwrap(),
+            attribute: bytes[8],
+            hercules: bytes[9],
+            mode: bytes[10],
+            segments: bytes[11],
+            segment_access: bytes[12] != 0,
+        })
     }
 }
