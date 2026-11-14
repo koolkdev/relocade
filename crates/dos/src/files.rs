@@ -195,7 +195,10 @@ impl Files {
             ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
             _ => DosError::AccessDenied,
         })?;
-        self.insert_file(FileHandle::new(file, path, access, sharing)?)
+        let timestamp = filesystem
+            .entry_metadata(&path, &filesystem.metadata(&path)?)
+            .modified;
+        self.insert_file(FileHandle::new(file, path, access, sharing, timestamp)?)
     }
 }
 

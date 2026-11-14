@@ -65,6 +65,7 @@ impl Files {
             path.clone(),
             AccessMode::ReadWrite,
             COMPATIBILITY_SHARING,
+            modified,
         )?;
         let handle = self.insert_file(file_handle.clone())?;
         file_handle

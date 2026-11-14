@@ -1,6 +1,6 @@
 //! DOS character devices and the state shared by duplicated device handles.
 
-use super::{handles::Handle, AccessMode, FileSystem, Files};
+use super::{handles::Handle, AccessMode, FileSystem, FileTimestamp, Files};
 use crate::{devices::CharacterDevice, error::DosError, path, stdio::Output};
 use std::{cell::Cell, rc::Rc};
 
@@ -15,6 +15,7 @@ pub(crate) struct DeviceHandle {
     output_capture: Output,
     pub(super) access: AccessMode,
     flags: Cell<u8>,
+    pub(super) timestamp: Cell<FileTimestamp>,
 }
 
 impl DeviceHandle {
@@ -29,6 +30,7 @@ impl DeviceHandle {
             output_capture,
             access,
             flags: Cell::new(flags),
+            timestamp: Cell::default(),
         }
     }
 
