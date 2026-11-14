@@ -7,7 +7,7 @@ use crate::{
     registers::{attribute, crtc, graphics},
     scanout::{DisplayConfiguration, PreparedScanout},
     snapshot::Blanking,
-    PackedLayout, PixelFormat,
+    PackedLayout,
 };
 
 pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
@@ -60,8 +60,11 @@ impl Et4000Ax {
         }
         let crtc = &registers.crtc.registers;
         let values = &crtc.values;
-        let width =
-            crtc.horizontal_display() as u32 * registers.sequencer.dots_per_character() as u32;
+        // The DAC consumes one clock per pixel with dual-edge word output, or
+        // two clocks per pixel with consecutive byte output (SC11483 modes 1/2).
+        let width = crtc.horizontal_display() as u32
+            * registers.sequencer.dots_per_character() as u32
+            / self.ramdac.clocks_per_pixel();
         let repeat = (u32::from(values[crtc::MAXIMUM_SCAN_LINE as usize] & 31) + 1)
             << (values[crtc::MAXIMUM_SCAN_LINE as usize] >> 7);
         let vertical_display = crtc.vertical_display() as u32
@@ -70,11 +73,13 @@ impl Et4000Ax {
         // The linear counter addresses four adjacent physical bytes. Row
         // Offset advances it by twice the programmed value (data book p.123).
         let pitch = u32::from(values[crtc::OFFSET as usize]) * 8;
-        let pan = u32::from(attribute[attribute::HORIZONTAL_PANNING as usize] & 7);
+        let format = self.ramdac.format();
+        let pan = u32::from(attribute[attribute::HORIZONTAL_PANNING as usize] & 7)
+            * format.bytes_per_pixel();
         let byte_pan = u32::from((values[crtc::PRESET_ROW_SCAN as usize] >> 5) & 3) * 4;
         PackedLayout::wrapping(
             [width, height],
-            PixelFormat::Indexed8,
+            format,
             pitch,
             byte_pan + pan,
             self.memory.capacity(),
@@ -86,6 +91,7 @@ impl Et4000Ax {
         let crtc = &registers.crtc.registers;
         let skew = crtc.horizontal_display_skew() as u32;
         let dots = registers.sequencer.dots_per_character() as u32;
+        let clocks = self.ramdac.clocks_per_pixel();
         let overflow = self.extensions.crtc(OVERFLOW).unwrap();
         // ET4000 extends the start and total to eleven bits and compares all
         // eight end bits (data book pp.124–125, 135).
@@ -100,7 +106,8 @@ impl Et4000Ax {
         let scanlines = crtc.scanlines_per_vertical_count() as u32;
         Blanking {
             horizontal: crtc.horizontal_blanking().map(|range| {
-                range.start.saturating_sub(skew) * dots..range.end.saturating_sub(skew) * dots
+                (range.start.saturating_sub(skew) * dots).div_ceil(clocks)
+                    ..(range.end.saturating_sub(skew) * dots).div_ceil(clocks)
             }),
             vertical: vertical.map(|range| {
                 (range.start * scanlines).div_ceil(repeat)..(range.end * scanlines).div_ceil(repeat)

@@ -3,7 +3,7 @@ use super::{registers::*, Et4000Ax};
 use crate::{
     effects::{CardEffects, Effects},
     ports::{Mapping, Ports, VgaPortAccess},
-    registers::{crtc, sequencer, WriteKind},
+    registers::{crtc, dac::Dac, sequencer, WriteKind},
     VgaCore,
 };
 use relocade_machine::{DeviceCallbacks, DeviceConnection, IoContext, PortRead, PortWrite};
@@ -127,6 +127,20 @@ impl VgaPortAccess for Et4000Ax {
     fn input_status_1(raster_status: u8) -> u8 {
         // Data book p. 103: bit 7 is the complement of vertical retrace (bit 3).
         raster_status | ((!raster_status & 8) << 4)
+    }
+
+    fn read_dac_mask(&mut self) -> u8 {
+        self.ramdac.read_mask(&self.vga.registers.dac)
+    }
+
+    fn access_dac_palette(&mut self) -> &mut Dac {
+        self.ramdac.access_palette(&mut self.vga.registers.dac)
+    }
+
+    fn write_dac_mask(&mut self, context: IoContext<'_>, value: u8) {
+        self.with_effects(context, self.ramdac.write_effect(), |card| {
+            card.ramdac.write_mask(&mut card.vga.registers.dac, value);
+        });
     }
 
     fn read_adapter_control(&self) -> u8 {

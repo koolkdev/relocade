@@ -67,7 +67,7 @@ impl Et4000Ax {
             card.extensions
                 .write_crtc(EXTENDED_START, (high & !3) | (counter >> 16) as u8, false);
             card.vga.registers.attribute.values[usize::from(attribute::HORIZONTAL_PANNING)] =
-                (start & 3) as u8;
+                ((start & 3) / layout.format().bytes_per_pixel()) as u8;
         });
     }
 }

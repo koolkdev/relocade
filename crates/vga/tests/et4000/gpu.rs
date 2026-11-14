@@ -150,3 +150,69 @@ fn packed_scanout_preserves_crtc_blanking_and_retained_captures() {
 async fn packed_scanout_preserves_crtc_blanking_and_retained_captures() {
     check_full_pixel_blanking().await;
 }
+
+async fn check_high_color_scanout() {
+    let clock = ManualClock::default();
+    let card = ConnectedEt4000::new(&clock);
+    ramdac::rgb555_640(&card.io);
+    // The palette and mask are bypassed, and the top bit is not a color bit.
+    card.io.write_port(0x3c6, 1, 0);
+    card.io.write_port(0x3c8, 1, 0);
+    for _ in 0..3 {
+        card.io.write_port(0x3c9, 1, 0);
+    }
+    card.io.write_mmio(0xa04fe, 2, 0x001f); // Last pixel of row zero.
+    card.io.write_mmio(0xa0500, 2, 0x7fff); // First pixel of row one.
+    card.io.write_mmio(0xafffe, 2, 0xfc00);
+    card.io.write_port(0x3cd, 1, 1);
+    card.io.write_mmio(0xa0000, 2, 0x03e0); // Next pixel, across the CPU bank.
+    clock.advance_to(clock.at(Duration::from_millis(40)));
+    card.io.read_port(0x3da, 1);
+    let high_color = card.card.borrow().snapshot();
+    ramdac::command(&card.io, 0);
+    let indexed = card.card.borrow().snapshot();
+
+    let adapter = wgpu::Instance::default()
+        .request_adapter(&Default::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    for (snapshot, high_color) in [
+        (high_color.clone(), true),
+        (indexed, false),
+        (high_color, true),
+    ] {
+        let mut encoder = device.create_command_encoder(&Default::default());
+        renderer.upload(&queue, &snapshot);
+        let frame = renderer.encode(&mut encoder).unwrap();
+        assert_eq!(frame.size(), [640, 480]);
+        queue.submit([encoder.finish()]);
+        let pixels = readback::read_pixels(&device, &queue, frame.texture()).await;
+        for (x, y, color) in [
+            (639, 0, [0, 0, 255, 255]),
+            (0, 1, [255; 4]),
+            (127, 51, [255, 0, 0, 255]),
+            (128, 51, [0, 255, 0, 255]),
+        ] {
+            let offset = (y * 640 + x) * 4;
+            assert_eq!(
+                &pixels[offset..offset + 4],
+                if high_color { &color } else { &[0, 0, 0, 255] },
+                "pixel ({x}, {y}), high color: {high_color}"
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn rgb555_bypasses_the_palette_and_survives_mode_changes_in_retained_captures() {
+    pollster::block_on(check_high_color_scanout());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn rgb555_bypasses_the_palette_and_survives_mode_changes_in_retained_captures() {
+    check_high_color_scanout().await;
+}

@@ -14,7 +14,8 @@ const HEADER_SIZE: usize = 16;
 #[repr(u8)]
 enum Profile {
     Dispi = 0,
-    Et4000AxEv8913 = 1,
+    // Version 2 adds the SC11483 command and access sequence to extension state.
+    Et4000AxEv8913 = 2,
 }
 
 impl Profile {

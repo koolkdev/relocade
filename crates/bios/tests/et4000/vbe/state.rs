@@ -27,21 +27,21 @@ async fn state_services() {
     let dac = machine.card.borrow().dac_state();
     let extensions = machine.card.borrow().et4000_state();
     assert_eq!(call(&mut cpu, 0x4f04, BUFFER.offset, 15, 0).await, 0x004f);
-    assert_eq!(state.bx(), 15); // 935 bytes, rounded to 64-byte blocks.
+    assert_eq!(state.bx(), 15); // 937 bytes, rounded to 64-byte blocks.
     machine
         .memory
         .view()
-        .write_wrapping(BUFFER.wrapping_add(935), &[0xa5])
+        .write_wrapping(BUFFER.wrapping_add(937), &[0xa5])
         .unwrap();
     assert_eq!(call(&mut cpu, 0x4f04, BUFFER.offset, 15, 1).await, 0x004f);
-    let mut saved = [0; 936];
+    let mut saved = [0; 938];
     machine
         .memory
         .view()
         .read_wrapping(BUFFER, &mut saved)
         .unwrap();
-    assert_eq!(&saved[..6], b"RVBE\x01\x01");
-    assert_eq!(saved[935], 0xa5);
+    assert_eq!(&saved[..6], b"RVBE\x01\x02");
+    assert_eq!(saved[937], 0xa5);
 
     for mask in [1, 2, 4, 8, 15] {
         assert_eq!(call(&mut cpu, 0x4f02, 0x8103, 0, 0).await, 0x004f);
@@ -82,10 +82,11 @@ async fn state_services() {
     let extension_offset = usize::from(u16::from_le_bytes(saved[14..16].try_into().unwrap()));
     for (offset, value) in [
         (5, 0),
-        (5, 2),
+        (5, 1), // Older ET4000 buffers have no RAMDAC command state.
         (6, 0x1f),
         (8, 17),
         (extension_offset + 13, 4),
+        (extension_offset + 15, 5),
     ] {
         let mut corrupt = saved;
         corrupt[offset] = value;
