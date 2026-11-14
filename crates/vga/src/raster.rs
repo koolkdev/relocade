@@ -1,5 +1,5 @@
 use crate::timing::Timing;
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, ClockDeadline, Timestamp};
 use std::{cell::Cell, rc::Rc};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
@@ -22,17 +22,21 @@ pub(super) struct Raster {
 }
 
 /// Authoritative polling state shared with status-port readers. Only the raster
-/// publishes status and deadlines; readers record time and service due edges.
+/// publishes status and deadlines; polling readers service due edges, while
+/// programming observations also retain time between edges.
 pub(super) struct RasterStatus {
-    clock: Clock,
     observed: Cell<Timestamp>,
     value: Cell<u8>,
-    next_update: Cell<Option<Timestamp>>,
+    next_update: Box<dyn ClockDeadline>,
 }
 
 impl RasterStatus {
     pub fn observe_now(&self) -> bool {
-        self.observe(self.clock.now())
+        let Some(now) = self.next_update.now_if_due() else {
+            return false;
+        };
+        self.observed.set(now);
+        true
     }
 
     /// Record observed time even between events, so a programming change can
@@ -64,10 +68,9 @@ impl Raster {
             retrace_count: 0,
             next_retrace: None,
             status: Rc::new(RasterStatus {
-                clock,
                 observed: Cell::new(now),
                 value: Cell::new(0),
-                next_update: Cell::new(None),
+                next_update: clock.deadline(),
             }),
         };
         raster.refresh_deadline();

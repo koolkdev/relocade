@@ -6,6 +6,7 @@ mod tests;
 mod host;
 use host::HostTime;
 
+mod deadline;
 mod wait;
 use wait::{Source, Wait};
 
@@ -29,6 +30,9 @@ struct State {
     // One retired instruction contributes 1e9 ticks; one nanosecond contributes
     // the instruction rate. Reading progress requires no time conversion.
     now: Timestamp,
+    // Idle advancement and CPU binding changes invalidate prepared instruction
+    // targets. Observing ordinary retirement preserves their correspondence.
+    timeline_revision: u64,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
     host: Option<HostTime>,
@@ -47,6 +51,7 @@ impl GuestTimeDriver {
         Self(Rc::new(RefCell::new(State {
             timebase: Timebase(instructions_per_second),
             now: Timestamp(0),
+            timeline_revision: 0,
             cpu: None,
             waits: Vec::new(),
             host: None,
@@ -88,6 +93,7 @@ impl GuestTimeDriver {
             yield_deadline: None,
             changed: changed.clone(),
         });
+        state.timeline_revision = state.timeline_revision.wrapping_add(1);
         state.refresh_target();
         BindingGuard(self)
     }
@@ -152,6 +158,7 @@ impl GuestTimeDriver {
             let mut state = self.0.borrow_mut();
             let now = state.observe();
             state.now = now.max(deadline);
+            state.timeline_revision = state.timeline_revision.wrapping_add(1);
         }
         self.notify_due();
     }
@@ -167,6 +174,7 @@ impl Drop for BindingGuard<'_> {
             host.pause();
         }
         state.cpu.take().unwrap().target.set(None);
+        state.timeline_revision = state.timeline_revision.wrapping_add(1);
     }
 }
 
@@ -187,7 +195,7 @@ impl State {
     }
 
     fn refresh_target(&mut self) {
-        let now = self.observe();
+        self.observe();
         let Some(cpu) = &self.cpu else { return };
         let deadline = self
             .waits
@@ -195,12 +203,16 @@ impl State {
             .map(|wait| wait.deadline)
             .chain(cpu.yield_deadline)
             .min();
-        let target = deadline.map(|deadline| {
-            // Round up in native units so execution never stops before a deadline.
-            let remaining = deadline.0.saturating_sub(now.0);
-            let allowance = remaining.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
-            cpu.last_instruction_count.wrapping_add(allowance)
-        });
+        let target = deadline.and_then(|deadline| self.instruction_target(deadline));
         cpu.target.set(target);
+    }
+
+    fn instruction_target(&self, deadline: Timestamp) -> Option<u64> {
+        let cpu = self.cpu.as_ref()?;
+        // Round up so execution and synchronous polls cannot fire early. Bound
+        // the distance for wrapping signed comparisons against published counts.
+        let remaining = deadline.0.saturating_sub(self.now.0);
+        let allowance = remaining.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
+        Some(cpu.last_instruction_count.wrapping_add(allowance))
     }
 }

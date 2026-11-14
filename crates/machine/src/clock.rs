@@ -1,10 +1,12 @@
 //! Clonable timebases and owned deadline waits.
 
+mod deadline;
 mod driver;
 mod guest;
 mod host;
 mod timebase;
 mod timestamp;
+pub use deadline::ClockDeadline;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
@@ -33,10 +35,19 @@ pub struct Clock {
 /// Supplies monotonic readings and cancellable waits in one timebase.
 /// Implementations register waits on first poll and release them on drop.
 /// Clocks and their waits stay on their execution owner.
-pub trait ClockSource {
+pub trait ClockSource: 'static {
     fn now(&self) -> Timestamp;
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep;
+
+    /// Creates a reusable synchronous deadline. Sources can prepare a native
+    /// comparison when it changes instead of constructing a timestamp per poll.
+    fn deadline(self: Rc<Self>) -> Box<dyn ClockDeadline> {
+        Box::new(deadline::Source {
+            clock: self,
+            deadline: Default::default(),
+        })
+    }
 
     /// Fixed scale of this source's coordinates. Nanosecond sources use the
     /// default; instruction clocks retain fractional nanoseconds with finer ticks.
@@ -78,6 +89,13 @@ impl Clock {
     /// Reads native progress on this clock's timeline.
     pub fn now(&self) -> Timestamp {
         self.source.now()
+    }
+
+    /// Creates an initially disabled deadline for repeated synchronous polling.
+    /// Guest clocks compare published retirement against a prepared instruction
+    /// target and materialize time only when that target is reached.
+    pub fn deadline(&self) -> Box<dyn ClockDeadline> {
+        self.source.clone().deadline()
     }
 
     /// Adds an exact duration without discarding fractional clock progress.
