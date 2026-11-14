@@ -162,7 +162,8 @@ impl VgaPortAccess for Et4000Ax {
     fn write_crtc_data(&mut self, context: IoContext<'_>, value: u8) {
         let index = self.vga.registers.crtc.index();
         let effects = match index {
-            EXTENDED_START => Effects::IMAGE,
+            // Start bits remain pending until retrace; cursor bits take effect now.
+            EXTENDED_START => Effects::vga(WriteKind::Display),
             COMPATIBILITY => Effects::CONFIGURATION_AND_IO,
             OVERFLOW => Effects::CONFIGURATION,
             CONFIGURATION | 0x37 => Effects::CONFIGURATION_AND_MEMORY,

@@ -33,6 +33,8 @@ mod scanout;
 #[path = "et4000/state.rs"]
 mod state;
 mod support;
+#[path = "et4000/text.rs"]
+mod text;
 #[path = "et4000/timing.rs"]
 mod timing;
 
@@ -165,7 +167,8 @@ fn display_task_latches_the_viewport_and_keeps_retained_frames_immutable() {
     assert_eq!(first.vga().unwrap().display_start, 1);
     assert_eq!(first.vram_byte(0), Some(b'A'));
     assert_eq!(first.vram_byte(8), Some(b'C'));
-    assert_eq!(first.vram_byte(256 * 1024), None); // Capture only the VGA extent.
+    assert_eq!(first.vram_byte(256 * 1024), Some(0));
+    assert_eq!(first.vram_byte(1024 * 1024), None);
 
     device.io.write_mmio(0xb8000, 1, u64::from(b'Z'));
     device.io.write_port(0x3d4, 2, 0x000d);

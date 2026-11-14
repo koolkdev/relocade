@@ -59,7 +59,7 @@ impl Et4000Ax {
             Self::display_timing(&vga, &extensions),
             DisplayConfiguration::vga(&vga.registers),
         );
-        Self {
+        let mut card = Self {
             vga,
             extensions,
             ramdac: ramdac::Sc11483::default(),
@@ -67,7 +67,9 @@ impl Et4000Ax {
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             output,
             io: None,
-        }
+        };
+        card.output.display = scanout::configuration(&card);
+        card
     }
 
     pub fn video_memory_bytes(&self) -> u32 {
