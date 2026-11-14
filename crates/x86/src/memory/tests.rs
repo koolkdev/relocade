@@ -14,6 +14,7 @@ mod helpers;
 mod probes;
 mod ranges;
 mod spans;
+mod vectors;
 
 fn define_read<T: MemoryInt + crate::memory::TransferType>(
     program: &mut Program,

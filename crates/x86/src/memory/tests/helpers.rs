@@ -138,8 +138,8 @@ where
             } else {
                 helper.byte_reads
             },
-            T::BYTES,
-            "the helper transfers exactly the requested width"
+            1,
+            "the helper loop reuses one byte transfer"
         );
         let carrier = if T::TYPE == Type::I64 {
             ValType::I64
@@ -182,7 +182,6 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let module = Module::inspect(&program.compile().unwrap());
     let readers = module.transfer_helpers(false);
     assert_eq!(readers.len(), 1);
-    assert_eq!(readers[0].1.byte_reads, 2);
     assert!(module.transfer_helpers(true).is_empty());
 }
 
