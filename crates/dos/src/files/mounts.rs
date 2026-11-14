@@ -14,6 +14,7 @@ impl FileSystem {
         self.drives.mount(letter, filesystem)?;
         let letter = letter.to_ascii_uppercase();
         self.current_directories.remove(&letter);
+        self.drive_capacities.remove(&letter);
         self.entries.retain(|path, _| path.drive != letter);
         self.mount_timestamps.insert(letter, self.timestamp());
         Ok(())
@@ -68,6 +69,17 @@ impl FileSystem {
 
     pub(crate) fn current_drive(&self) -> u8 {
         self.current_drive as u8 - b'A'
+    }
+
+    /// DOS drive queries use 0 for the default and 1-based explicit drive numbers.
+    pub(super) fn query_drive(&self, number: u8) -> Result<char, DosError> {
+        let letter = match number {
+            0 => self.current_drive,
+            1..=26 => char::from(b'A' + number - 1),
+            _ => return Err(DosError::InvalidDrive),
+        };
+        self.drives.get(letter).ok_or(DosError::InvalidDrive)?;
+        Ok(letter)
     }
 
     fn path_context(&self, path: &[u8]) -> Result<(char, &str), DosError> {
