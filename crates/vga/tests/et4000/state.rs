@@ -77,7 +77,7 @@ fn restoring_card_state_preserves_protocols_banks_and_pending_display_start() {
 fn extension_state_rejects_noncanonical_bits_before_restoration() {
     let device = ConnectedEt4000::new(&ManualClock::default());
     let saved = device.card.borrow().et4000_state().to_bytes();
-    for (offset, value) in [(1, 0x10), (6, 1), (8, 1), (9, 4), (12, 2), (13, 4)] {
+    for (offset, value) in [(1, 0x10), (6, 1), (8, 1), (9, 4), (12, 2), (13, 4), (15, 5)] {
         let mut bytes = saved;
         bytes[offset] = value;
         assert!(Et4000State::from_bytes(&bytes).is_none());

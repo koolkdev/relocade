@@ -5,6 +5,7 @@ mod effects;
 mod mmio;
 mod output;
 mod ports;
+mod ramdac;
 mod registers;
 mod scanout;
 mod state;
@@ -33,6 +34,7 @@ const PIXEL_CLOCKS: [u64; 8] = [
 pub struct Et4000Ax {
     vga: VgaCore,
     extensions: registers::Extensions,
+    ramdac: ramdac::Sc11483,
     display_start_high: u8,
     memory: VideoMemory,
     output: Output,
@@ -60,6 +62,7 @@ impl Et4000Ax {
         Self {
             vga,
             extensions,
+            ramdac: ramdac::Sc11483::default(),
             display_start_high: 0,
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             output,

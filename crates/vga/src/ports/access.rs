@@ -1,7 +1,7 @@
 //! Standard VGA operations used by concrete card port bindings.
 use crate::{
     effects::{CardEffects, Effects},
-    registers::{sequencer, WriteKind},
+    registers::{dac::Dac, sequencer, WriteKind},
     VgaCore,
 };
 use relocade_machine::IoContext;
@@ -21,6 +21,16 @@ pub(crate) trait VgaPortAccess: CardEffects + 'static {
     }
     fn read_adapter_control(&self) -> u8 {
         0xff
+    }
+
+    fn read_dac_mask(&mut self) -> u8 {
+        self.vga().registers.dac.mask
+    }
+
+    /// Begin a palette address, state or data access. A card's RAMDAC can end
+    /// command-register access before the ordinary VGA palette operation.
+    fn access_dac_palette(&mut self) -> &mut Dac {
+        &mut self.vga_mut().registers.dac
     }
 
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
@@ -92,7 +102,7 @@ pub(crate) trait VgaPortAccess: CardEffects + 'static {
 
     fn write_dac_data(&mut self, context: IoContext<'_>, value: u8) {
         self.with_effects(context, Effects::IMAGE, |card| {
-            card.vga_mut().registers.dac.write(value)
+            card.access_dac_palette().write(value)
         });
     }
 

@@ -13,7 +13,7 @@ impl Et4000Ax {
         self.vga.setup.enabled()
     }
 
-    /// Prepared indexed image with the currently programmed CRTC start address.
+    /// Prepared packed image with the currently programmed CRTC start address.
     pub fn packed_layout(&self) -> Option<PackedLayout> {
         self.output
             .display
@@ -79,6 +79,7 @@ impl Et4000Ax {
         }
         self.with_effects(context.reborrow(), Effects::CONFIGURATION, |card| {
             card.extensions.write_attribute(ATTRIBUTE_MISC, 0);
+            card.ramdac = Default::default();
         });
         self.write_segments(context, 0);
     }

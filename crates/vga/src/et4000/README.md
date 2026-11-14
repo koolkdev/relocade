@@ -3,7 +3,7 @@
 The card uses an ET4000AX Revision E, 1 MiB of DRAM and a Sierra SC11483 RAMDAC.
 Its reference is Tseng's EV8913 Revision A AT-bus design, with all eight
 256K×4 DRAMs fitted. The SC11483 is an explicit RAMDAC substitution for this
-emulated profile. It starts in indexed VGA operation; RGB555 support is separate.
+emulated profile. It starts in indexed VGA operation and also supports RGB555.
 
 The clock multiplexer follows the EV8913 schematic. Its three-bit selection is
 CRTC 34h bit 1 followed by Miscellaneous Output bits 3–2:
@@ -52,7 +52,7 @@ and graphics writes. Both address the same DRAM, with no conversion on writes.
 The board exposes the segmented host aperture; CR36h's optional relocated linear
 host aperture is not connected.
 
-Full-pixel indexed scanout derives its size, pitch and 18-bit start counter from VGA and
+Full-pixel scanout derives its size, pitch and 18-bit start counter from VGA and
 extension registers. It uses the shared packed renderer and native drawing view,
 including panning across the physical DRAM boundary. Packed output captures CRTC
 blanking as pixel intervals, including blanking across counter reset. CPU banking never selects
@@ -71,8 +71,19 @@ historical odd/even lines or simulate changes within a displayed scanline.
 
 The full 18-bit display start is sampled together at the shared retrace capture
 boundary, representing the page for the following visible frame. Native drawing
-uses the programmed page immediately. Extended text/planar scanout and the
-optional high-color RAMDAC protocol are not yet implemented.
+uses the programmed page immediately. Extended text/planar scanout is not yet
+implemented.
+
+Four consecutive reads of the DAC mask port (3C6h) expose the SC11483 command
+register. Any write or access to another DAC port ends command access. Command
+bit 7 selects RGB555: two little-endian bytes hold red, green and blue in bits
+14–10, 9–5 and 4–0; bit 15 is unused. Palette contents and the pixel mask do not
+affect high-color output. Mode 1 (80h) latches both clock edges with ET4000 word
+output; mode 2 (A0h) pairs successive byte clocks. ET4000 word output requires
+Sequencer 07h's MCLK/2 selection. These controls change prepared scanout, leaving
+CPU transfers as physical byte accesses. Restoration includes the command and
+partial access sequence with the card's extended state. Legacy mode preparation
+returns the RAMDAC to indexed operation without clearing the palette or VRAM.
 
 Selected ET4000 firmware boots in 80×25 text. Its named indexed mode presets live
 in the BIOS crate and program these same registers: 640×480 (BIOS 2Eh/VBE 101h),
@@ -83,4 +94,5 @@ same frame queue and native drawing access as DISPI, including the DOS cursor.
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),
 configuration registers (pp. 136–138) and Revision E addendum (pp. 184–185);
-[SC11483 application documentation](https://vgamuseum.info/images/doc/chips/64200.pdf#page=104).
+[Sierra SC11482/SC11483/SC11484 data sheet](https://www.dosdays.co.uk/media/sierra_semi/SC11482CV.pdf),
+high-color formats and command protocol (pp. 5–6).

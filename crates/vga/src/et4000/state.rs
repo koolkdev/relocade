@@ -1,25 +1,27 @@
 //! Validated card programming, independent of firmware buffer layout and VRAM.
-use super::{registers::Extensions, Et4000Ax};
+use super::{ramdac::Sc11483, registers::Extensions, Et4000Ax};
 use crate::{
     effects::{CardEffects, Effects},
     DacState, VgaCoreState,
 };
 use relocade_machine::IoContext;
 
-/// ET4000AX extension registers, unlock/bank protocol and the high start latch.
+/// ET4000AX extensions, high start latch and SC11483 command/access state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Et4000State {
     extensions: Extensions,
     display_start_high: u8,
+    ramdac: Sc11483,
 }
 
 impl Et4000State {
-    pub const BYTE_LEN: usize = 14;
+    pub const BYTE_LEN: usize = 16;
 
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];
         bytes[..13].copy_from_slice(&self.extensions.to_state_bytes());
         bytes[13] = self.display_start_high;
+        bytes[14..].copy_from_slice(&self.ramdac.to_state_bytes());
         bytes
     }
 
@@ -30,6 +32,7 @@ impl Et4000State {
         Some(Self {
             extensions: Extensions::from_state_bytes(bytes[..13].try_into().unwrap())?,
             display_start_high: bytes[13],
+            ramdac: Sc11483::from_state_bytes(bytes[14..].try_into().unwrap())?,
         })
     }
 }
@@ -48,6 +51,7 @@ impl Et4000Ax {
         Et4000State {
             extensions: self.extensions.clone(),
             display_start_high: self.display_start_high,
+            ramdac: self.ramdac.clone(),
         }
     }
 
@@ -78,6 +82,7 @@ impl Et4000Ax {
             if let Some(state) = extensions {
                 card.extensions = state.extensions;
                 card.display_start_high = state.display_start_high;
+                card.ramdac = state.ramdac;
             }
         });
     }
