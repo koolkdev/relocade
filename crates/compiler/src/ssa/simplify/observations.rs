@@ -43,7 +43,10 @@ impl Analysis<'_> {
                 for user in self.users.of(self.roots[id]) {
                     if !self.graph.values[user].ty.is_integer()
                         || self.queued[user]
-                        || !self.definitions[user]
+                        || !self
+                            .graph
+                            .values
+                            .definition_block(user)
                             .is_some_and(|owner| self.dominators.dominates(owner.0, block.0))
                     {
                         continue;
@@ -212,7 +215,6 @@ impl Analysis<'_> {
             definition: ValueDefinition::RefinedAlias { source: id, block },
         });
         self.extend();
-        self.definitions[refined] = Some(block);
         let root = self.roots[id];
         self.roots[refined] = root;
         let previous = self.renamed[root].replace(refined);
@@ -220,7 +222,10 @@ impl Analysis<'_> {
         self.current = self.versions.set(self.current, block.0, root << 1, refined);
         for &join in &self.frontiers[block.0] {
             if !self.complete[join]
-                && self.definitions[root]
+                && self
+                    .graph
+                    .values
+                    .definition_block(root)
                     .is_some_and(|owner| self.dominators.dominates(owner.0, join))
             {
                 self.merges[join].push(root << 1);
@@ -248,7 +253,9 @@ impl Analysis<'_> {
                     .inputs()
                     .into_iter()
                     .all(|input| {
-                        self.definitions[input]
+                        self.graph
+                            .values
+                            .definition_block(input)
                             .is_none_or(|owner| self.dominators.dominates(owner.0, join))
                     })
             {

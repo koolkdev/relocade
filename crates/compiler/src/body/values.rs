@@ -3,19 +3,23 @@ use crate::expression::UnaryOp as Unary;
 use crate::literal::Literal;
 use hashbrown::HashTable;
 use rustc_hash::FxBuildHasher;
-use std::{hash::BuildHasher, marker::PhantomData};
+use std::hash::BuildHasher;
 
 use super::{BlockItem, Value, ValueDefinition};
 use crate::{Expression, Type};
 
 mod bounds;
+mod definitions;
 pub(crate) use bounds::BitBounds;
+pub(crate) use definitions::Definitions;
 #[cfg(test)]
 mod tests;
 
 /// Construction shares immutable recipes; SSA gives each calculation its own definition.
 pub(crate) trait Phase: Default {
     const INTERN_EXPRESSIONS: bool;
+    fn record(&mut self, _value: Value) {}
+    fn compact(&mut self, _retained: &[Option<usize>]) {}
 }
 
 #[derive(Default)]
@@ -25,18 +29,12 @@ impl Phase for Recipes {
 }
 
 #[derive(Default)]
-pub(crate) struct Definitions;
-impl Phase for Definitions {
-    const INTERN_EXPRESSIONS: bool = false;
-}
-
-#[derive(Default)]
 pub(crate) struct ValueTable<P: Phase = Recipes> {
     pub(crate) values: Vec<Value>,
     pub(crate) bounds: Vec<BitBounds>,
     interned: HashTable<usize>,
     hash_builder: FxBuildHasher,
-    phase: PhantomData<P>,
+    phase: P,
 }
 
 /// One component of a pure expression, whether stored inline or as a projection.
@@ -81,6 +79,7 @@ impl<P: Phase> ValueTable<P> {
         });
         let mut retained = remapping.values.iter();
         self.bounds.retain(|_| retained.next().unwrap().is_some());
+        self.phase.compact(&remapping.values);
         self.values.shrink_to_fit();
         self.bounds.shrink_to_fit();
     }
@@ -166,6 +165,7 @@ impl<P: Phase> ValueTable<P> {
     pub(crate) fn push_with_bounds(&mut self, value: Value, bounds: BitBounds) -> usize {
         let index = self.values.len();
         self.bounds.push(bounds);
+        self.phase.record(value);
         self.values.push(value);
         if let ValueDefinition::Expression(expression) = value.definition {
             for (component, ty) in expression.result_types(value.ty).enumerate().skip(1) {
