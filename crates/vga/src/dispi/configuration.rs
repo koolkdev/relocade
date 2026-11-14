@@ -1,7 +1,6 @@
 //! Card programming shared by firmware and guest register accesses.
 
-use crate::ports::VgaPortAccess;
-use crate::{dispi, DispiAdapter, DispiMode, PackedLayout};
+use crate::{dispi, ports::VgaPortAccess, DispiAdapter, DispiMode};
 use relocade_machine::IoContext;
 
 impl DispiAdapter {
@@ -12,11 +11,6 @@ impl DispiAdapter {
 
     pub fn video_memory_bytes(&self) -> u32 {
         self.memory.capacity()
-    }
-
-    /// The active packed image, including its pitch and viewport.
-    pub fn packed_layout(&self) -> Option<PackedLayout> {
-        self.dispi.display_layout()
     }
 
     pub fn video_bank(&self) -> u16 {
@@ -74,33 +68,12 @@ impl DispiAdapter {
         true
     }
 
-    /// Change byte pitch while preserving the viewport's pixel coordinates.
-    pub fn set_packed_pitch(&mut self, context: IoContext<'_>, pitch: u32) -> Option<PackedLayout> {
-        if !self.ports_enabled() {
-            return None;
-        }
-        let next = self.packed_layout()?.with_pitch(pitch)?;
-        self.program_dispi_register(context, dispi::VIRTUAL_WIDTH, next.virtual_width() as u16);
-        Some(next)
-    }
-
-    /// Move a checked viewport. Each mutation preserves overdue output before
-    /// changing display inputs, just like the corresponding guest register write.
-    pub fn set_display_origin(&mut self, mut context: IoContext<'_>, origin: [u16; 2]) -> bool {
-        if !self.ports_enabled()
-            || self
-                .packed_layout()
-                .and_then(|layout| layout.with_origin(origin.map(u32::from)))
-                .is_none()
-        {
-            return false;
-        }
-        self.program_dispi_register(context.reborrow(), dispi::X_OFFSET, origin[0]);
-        self.program_dispi_register(context, dispi::Y_OFFSET, origin[1]);
-        true
-    }
-
-    fn program_dispi_register(&mut self, context: IoContext<'_>, index: u16, value: u16) {
+    pub(super) fn program_dispi_register(
+        &mut self,
+        context: IoContext<'_>,
+        index: u16,
+        value: u16,
+    ) {
         // Firmware leaves the guest-visible index on its last write.
         self.dispi.select(index);
         self.write_dispi_register(context, index, value);

@@ -79,7 +79,7 @@ fn high_color_uses_physical_words_and_restores_a_partly_completed_command_sequen
     assert_eq!(io.read_mmio(0xafffe, 2), 0xffe0);
     io.with_context(|mut context| {
         let mut card = device.card.borrow_mut();
-        assert!(card.set_packed_pitch(context.reborrow(), 1288).is_some());
+        assert!(card.set_display_pitch(context.reborrow(), 1288).is_some());
         assert!(card.set_display_origin(context, [1, 0]));
     });
     assert_eq!(

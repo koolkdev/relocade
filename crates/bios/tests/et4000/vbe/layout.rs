@@ -1,9 +1,10 @@
 use super::{call, Firmware};
+#[path = "layout/legacy.rs"]
+mod legacy;
 
 async fn viewport_services() {
     let machine = Firmware::new();
     let mut cpu = machine.cpu().await;
-    assert_eq!(call(&mut cpu, 0x4f06, 1, 0, 0).await, 0x014f);
     assert_eq!(call(&mut cpu, 0x4f02, 0x101, 0, 0).await, 0x004f);
     let state = cpu.cpu_state();
     assert_eq!(call(&mut cpu, 0x4f06, 0, 1021, 0).await, 0x004f);

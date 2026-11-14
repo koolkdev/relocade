@@ -1099,6 +1099,26 @@ calls return byte pitch in BX, pixel width in CX and complete rows in VRAM in DX
 DISPI's virtual-width register likewise uses pixels. `4F01h`
 reports the active mode's current pitch and other modes' default pitches.
 
+Firmware uses one `Viewport` model for logical bounds, pitch rounding and pixel
+origins in text, planar and packed modes. Each card supplies its addressing and
+capacity limits and applies changes through its own registers. `PackedLayout`
+describes physical scanout, where native CRTC programming may wrap addresses.
+
+On both DISPI and ET4000, `4F06h` also supports standard VGA text, planar
+EGA/VGA and chained mode 13h layouts. Queries use the same effective geometry
+and addressing as scanout, including ET4000's extended counters and full
+18-bit programmed start. Pitch changes preserve that origin and the separate
+cursor-address bits.
+Widths round up to the CRTC Offset granularity; planar byte pitches count bytes
+in one plane, and text pixel dimensions use the current character cell size.
+Text capacity is the 32-KiB aperture; ET4000's text windows leave holes between
+banks. DISPI's planar/mode-13h capacity is its unbanked 64-KiB CPU aperture.
+ET4000 graphics can use its banked backing: 256 KiB per plane, or one MiB in
+mode 13h. CPU bank selection remains independent of the viewport. CGA
+interleaved rows, split screens and custom address/serializer configurations are not supported
+by these logical-image services. The visible mode and BIOS character grid stay
+unchanged when the logical stride changes.
+
 DAC-format service `4F08h` reports the device's fixed six-bit color components
 in legacy and indexed modes. Direct-color modes return AX=034Fh for this service.
 Set requests of six bits or more select six, following VBE's next-lower-width
