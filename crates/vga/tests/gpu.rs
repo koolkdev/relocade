@@ -32,15 +32,12 @@ mod svga;
 mod unchained256;
 use common::support::software;
 
-use relocade_vga::{DisplaySnapshot, VgaRenderer};
+use relocade_vga::VgaRenderer;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use common::fixture::{set_cell, text_device};
-fn capture() -> DisplaySnapshot {
-    text_device().snapshot()
-}
 
 fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
     let offset = (y * 640 + x) * 4;
