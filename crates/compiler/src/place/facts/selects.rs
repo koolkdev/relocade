@@ -59,7 +59,7 @@ impl ScalarFacts {
                 return None;
             }
             visited.push(id);
-            self.dependencies.borrow_mut().proof_input(root, id);
+            self.dependencies.borrow_mut().proof_input(table, root, id);
             if matches!(table[id].definition, ValueDefinition::Literal(_))
                 || self
                     .known

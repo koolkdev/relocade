@@ -1,6 +1,6 @@
 //! Unsigned intervals for comparisons on normalized logical values.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, ScalarFacts, Source};
 use crate::{body::ValueTable, integer::CompareOp};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,7 +78,7 @@ impl ScalarFacts {
             return;
         };
         if self.ranges.insert(id, range) != Some(range) {
-            self.changed(table, id);
+            self.changed_fact(Source::Range(id));
         }
     }
 

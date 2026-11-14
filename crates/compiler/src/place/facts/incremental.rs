@@ -1,35 +1,55 @@
 //! Refresh demanded answers after refinement, stopping at unchanged results.
 
-use super::{Demand, ScalarFacts};
+use super::{Demand, ScalarFacts, Source};
 use crate::body::ValueTable;
 use std::num::NonZeroUsize;
 
 impl ScalarFacts {
     pub(super) fn queue(&self, demand: Demand) {
+        if let Demand::Constraint(id) = demand {
+            self.constraints.changed(id);
+            return;
+        }
         let mut answers = self.answers.borrow_mut();
-        match demand {
-            Demand::Bits(id) => {
-                if answers.get(&id).is_none_or(|answer| answer.bits.is_none()) {
-                    return;
-                }
+        let demand = match demand {
+            Demand::Bits(id) if answers.get(&id).is_some_and(|answer| answer.bits.is_some()) => {
+                demand
             }
-            Demand::Reduction(id) => {
+            Demand::Bits(id) | Demand::Reduction(id)
                 if answers
                     .get(&id)
-                    .is_none_or(|answer| answer.residual.is_none())
-                {
-                    return;
-                }
+                    .is_some_and(|answer| answer.residual.is_some()) =>
+            {
+                Demand::Reduction(id)
+            }
+            _ => return,
+        };
+        if self.updates.borrow_mut().push(demand) {
+            if let Demand::Reduction(id) = demand {
                 answers.get_or_insert_default(id).revisit = true;
             }
         }
-        self.updates.borrow_mut().push(demand);
     }
 
-    fn changed_answer(&self, demand: Demand) {
+    pub(super) fn changed_fact(&self, source: Source) {
         self.dependencies
             .borrow()
-            .users(demand, |user| self.queue(user));
+            .users(source, |user| self.queue(user));
+    }
+
+    pub(super) fn refined_value(&self, id: usize) {
+        if self
+            .answers
+            .borrow()
+            .get(&id)
+            .is_some_and(|answer| answer.bits.is_some())
+        {
+            self.queue(Demand::Bits(id));
+        } else {
+            // Reduction can have skipped inference before the first assumption.
+            self.changed_fact(Source::Bits(id));
+        }
+        self.queue(Demand::Reduction(id));
     }
 
     pub(in crate::place) fn refresh_bits(&self, table: &ValueTable) {
@@ -45,7 +65,7 @@ impl ScalarFacts {
                 .take();
             let after = self.infer_bits(table, id);
             if before != Some(after) {
-                self.changed_answer(Demand::Bits(id));
+                self.changed_fact(Source::Bits(id));
             }
         }
     }
@@ -66,7 +86,7 @@ impl ScalarFacts {
                 let mut consumed = false;
                 self.dependencies
                     .borrow()
-                    .users(Demand::Reduction(id), |user| {
+                    .users(Source::Reduction(id), |user| {
                         let Demand::Reduction(user) = user else {
                             unreachable!()
                         };
@@ -105,7 +125,7 @@ impl ScalarFacts {
             .residual
             .get_or_insert(encoded);
         if previous.is_some() && previous != Some(encoded) {
-            self.changed_answer(Demand::Reduction(recipe));
+            self.changed_fact(Source::Reduction(recipe));
         }
         previous != Some(encoded)
     }

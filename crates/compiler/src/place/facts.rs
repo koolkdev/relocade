@@ -28,7 +28,7 @@ mod shifts;
 mod storage;
 use comparisons::Comparisons;
 use constraints::Constraints;
-use dependencies::{Demand, Dependencies, WorkQueue};
+use dependencies::{Demand, Dependencies, Source, WorkQueue};
 pub(super) use infer::Inference;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
@@ -166,42 +166,19 @@ impl ScalarFacts {
     }
 
     fn record(&mut self, table: &ValueTable, id: usize, bits: Bits) {
-        let source = if let Some(observation) = LaneObservation::of(table, id) {
+        if let Some(observation) = LaneObservation::of(table, id) {
             observation.record(self.lanes.get_or_insert_with(Default::default), bits);
-            // Another overlapping extraction may have been created before this
-            // one. Its cached inference depends on the original vector value.
-            observation.word.value
+            self.changed_fact(Source::Word(observation.word));
         } else {
             self.known.insert(id, bits);
-            self.constraints.changed(id);
-            self.queue(Demand::Bits(id));
-            self.queue(Demand::Reduction(id));
-            return;
-        };
-        self.changed(table, source);
+            self.refined_value(id);
+        }
     }
 
     pub(in crate::place) fn track_reduction(&self, table: &ValueTable, id: usize) {
         self.dependencies
             .borrow_mut()
             .track(table, Demand::Reduction(id));
-    }
-
-    fn changed(&mut self, table: &ValueTable, id: usize) {
-        self.constraints.changed(id);
-        self.refresh_bits(table);
-        self.invalidate_from(id);
-    }
-
-    fn invalidate_from(&mut self, id: usize) {
-        // These fact domains do not yet expose their precise dependencies.
-        // Aliases can point to newer recipes, so clear both directions together.
-        self.answers.get_mut().retain(|&input, answer| {
-            answer.residual = None;
-            answer.revisit = false;
-            input < id
-        });
-        *self.updates.get_mut() = WorkQueue::default();
     }
 
     /// Scalar literals keep their carrier bits; inferred constants contain logical bits.

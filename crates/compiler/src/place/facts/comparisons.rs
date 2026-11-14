@@ -1,6 +1,7 @@
 //! Remember comparison outcomes independently of their result identities.
+use super::storage::Storage;
 use rustc_hash::FxHashMap;
-use std::collections::hash_map::Entry;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{body::ValueTable, integer::CompareOp};
 
@@ -8,14 +9,14 @@ use crate::{body::ValueTable, integer::CompareOp};
 mod tests;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct Comparison {
+pub(super) struct Comparison {
     operator: CompareOp,
     left: usize,
     right: usize,
 }
 
 impl Comparison {
-    fn canonical(
+    pub(super) fn canonical(
         table: &ValueTable,
         operator: CompareOp,
         left: usize,
@@ -43,9 +44,16 @@ impl Comparison {
     }
 }
 
+#[derive(Default)]
+struct Keys {
+    ids: FxHashMap<Comparison, usize>,
+    values: Vec<Comparison>,
+}
+
 #[derive(Clone, Default)]
 pub(super) struct Comparisons {
-    outcomes: FxHashMap<Comparison, bool>,
+    keys: Rc<RefCell<Keys>>,
+    outcomes: Storage<bool>,
 }
 
 impl Comparisons {
@@ -54,11 +62,12 @@ impl Comparisons {
     }
 
     pub(super) fn retain_common(&mut self, other: &Self) {
+        let keys = self.keys.borrow();
         self.outcomes
-            .retain(|key, truth| other.outcomes.get(key) == Some(truth));
+            .retain(|id, truth| other.outcome(keys.values[*id]) == Some(*truth));
     }
 
-    /// Return a lower bound for values whose cached inference may change.
+    /// Return the canonical predicate when this path learns a new outcome.
     pub(super) fn assume(
         &mut self,
         table: &ValueTable,
@@ -66,16 +75,27 @@ impl Comparisons {
         left: usize,
         right: usize,
         truth: bool,
-    ) -> Option<usize> {
+    ) -> Option<Comparison> {
         let (key, inverted) = Comparison::canonical(table, operator, left, right);
-        if let Entry::Vacant(entry) = self.outcomes.entry(key) {
-            entry.insert(truth ^ inverted);
-            // An equivalent or opposite predicate may precede this one, but
-            // must follow both canonical operands, including through conversions.
-            Some(key.left.max(key.right))
+        let mut keys = self.keys.borrow_mut();
+        let id = if let Some(&id) = keys.ids.get(&key) {
+            id
         } else {
-            None
+            let id = keys.values.len();
+            keys.values.push(key);
+            keys.ids.insert(key, id);
+            id
+        };
+        if self.outcomes.contains_key(&id) {
+            return None;
         }
+        self.outcomes.insert(id, truth ^ inverted);
+        Some(key)
+    }
+
+    fn outcome(&self, key: Comparison) -> Option<bool> {
+        let id = *self.keys.borrow().ids.get(&key)?;
+        self.outcomes.get(&id).copied()
     }
 
     pub(super) fn get(
@@ -86,6 +106,6 @@ impl Comparisons {
         right: usize,
     ) -> Option<bool> {
         let (key, inverted) = Comparison::canonical(table, operator, left, right);
-        self.outcomes.get(&key).map(|truth| truth ^ inverted)
+        self.outcome(key).map(|truth| truth ^ inverted)
     }
 }
