@@ -47,6 +47,12 @@ pub(super) fn register(
     linker
         .define(&*store, "relocade", "physicalMap", table)
         .unwrap();
+    let code_backing = guest.clone();
+    linker
+        .func_wrap("relocade", "writeCode", move |offset: i32, value: i32| {
+            code_backing.write(offset as u32, &[value as u8]);
+        })
+        .unwrap();
     let devices: Arc<BTreeMap<u32, u32>> = Arc::new(input.mmio_pages.iter().copied().collect());
     let observe = input.observe_mmio;
     let count = input

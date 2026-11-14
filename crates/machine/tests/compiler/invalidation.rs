@@ -224,3 +224,154 @@ fn installation_rejects_changed_instruction_bytes() {
 async fn installation_rejects_changed_instruction_bytes() {
     compilation::run(reject_changed_source).await;
 }
+
+async fn self_modifying_blocks(compiler: &relocade_machine::CompilerService) {
+    for (program, expected_ax, expected_bx) in [
+        // MOV byte [0106],42; MOV AX,7; JMP 1000.
+        (vec![0xc6, 6, 6, 1, 42, 0xb8, 7, 0, 0xe9, 0xf5, 0x0e], 42, 0),
+        // MOV AL,42; MOV DI,010B; MOV CX,1; REP STOSB; MOV BX,7; JMP 1000.
+        (
+            vec![
+                0xb0, 42, 0xbf, 0x0b, 1, 0xb9, 1, 0, 0xf3, 0xaa, 0xbb, 7, 0, 0xe9, 0xf0, 0x0e,
+            ],
+            42,
+            42,
+        ),
+    ] {
+        let (mut machine, config) = setup();
+        machine.memory().view().write(0x100, &program).unwrap();
+        let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+        cpu.run_until(pending::<()>(), async move |mut runner| {
+            let target = runner.cpu().cpu_state().execution_target();
+            let mut compiler = runner.take_compiler().unwrap();
+            compiler
+                .request_functions(
+                    target,
+                    vec![FunctionRequest {
+                        entry: FarPointer {
+                            segment: 0,
+                            offset: 0x100,
+                        },
+                        limits: FunctionLimits::default(),
+                    }],
+                )
+                .unwrap();
+            let code = compiler.recv().await.unwrap().unwrap();
+            code.install(runner.cpu()).unwrap();
+            let exit = runner.cpu().exit_handle();
+            runner
+                .cpu()
+                .install([Hook::host(0x1000, async move || exit.request())])
+                .await
+                .unwrap();
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            assert_eq!(runner.cpu().cpu_state().ax(), expected_ax);
+            assert_eq!(runner.cpu().cpu_state().bx(), expected_bx);
+            assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 0);
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        machine.shutdown().await.unwrap();
+    }
+}
+
+async fn tracked_writes_repair_links(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    memory
+        .view()
+        .write(0x100, &[0xe8, 0xfd, 0, 0xe9, 0xfa, 0x0e])
+        .unwrap();
+    memory
+        .view()
+        .write(0x200, &[0xb8, 7, 0, 0xe9, 0x0a, 0])
+        .unwrap();
+    memory.view().write(0x210, &[0x83, 0xc0, 1, 0xc3]).unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        let request = |offset| FunctionRequest {
+            entry: FarPointer { segment: 0, offset },
+            limits: FunctionLimits::default(),
+        };
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x1000, async move || exit.request())])
+            .await
+            .unwrap();
+        for entry in [0x100, 0x200] {
+            compiler
+                .request_functions(target, vec![request(entry)])
+                .unwrap();
+            compiler
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .install(runner.cpu())
+                .unwrap();
+        }
+        run_caller(&mut runner, 8).await;
+        // Unrelated data and identical instruction writes do not retire a version.
+        runner.cpu().memory().view().write(0x208, &[99]).unwrap();
+        runner.cpu().memory().view().write(0x212, &[1]).unwrap();
+        run_caller(&mut runner, 8).await;
+        assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
+        // The source is at backing 1212, reached here through an A20 alias.
+        runner.cpu().memory().view().write(0x100212, &[2]).unwrap();
+        run_caller(&mut runner, 9).await;
+        assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
+        assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
+        compiler
+            .request_functions(target, vec![request(0x200)])
+            .unwrap();
+        compiler
+            .recv()
+            .await
+            .unwrap()
+            .unwrap()
+            .install(runner.cpu())
+            .unwrap();
+        run_caller(&mut runner, 9).await;
+        // Direct backing writes, including firmware/device initialization, are tracked too.
+        runner
+            .cpu()
+            .memory()
+            .view()
+            .write_backing(0x1212, &[3])
+            .unwrap();
+        run_caller(&mut runner, 10).await;
+        assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn stores_to_live_code_restart_before_current_instruction_effects() {
+    pollster::block_on(compilation::run(self_modifying_blocks));
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn stores_to_live_code_restart_before_current_instruction_effects() {
+    compilation::run(self_modifying_blocks).await;
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn host_writes_retire_source_owners_and_repair_incoming_links() {
+    pollster::block_on(compilation::run(tracked_writes_repair_links));
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn host_writes_retire_source_owners_and_repair_incoming_links() {
+    compilation::run(tracked_writes_repair_links).await;
+}

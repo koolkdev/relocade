@@ -122,37 +122,71 @@ impl CpuInstance {
         }
     }
 
+    fn refresh_code(&mut self, wasm: &mut WasmRuntime) {
+        let retired = self
+            .modules
+            .retire_changed(wasm)
+            .expect("retire installed compilation");
+        self.profiling.forget(retired);
+        self.bindings.guest.code_state.atomic_store(0, 0_u8);
+        self.bindings.refresh_code_pages(wasm);
+    }
+
     pub(super) fn run(&mut self) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| loop {
+        let runtime = self.runtime.clone();
+        runtime.with_runtime(|wasm| loop {
+            self.refresh_code(wasm);
             let exit = self.dispatch.call(wasm, ());
-            if exit != ExecutionExit::CallProfileFull {
-                return exit;
+            self.refresh_code(wasm);
+            match exit {
+                ExecutionExit::CodeInvalidated => continue,
+                ExecutionExit::CallProfileFull => self.profiling.collect(wasm, &self.modules),
+                _ => return exit,
             }
-            self.profiling.collect(wasm, &self.modules);
         })
     }
 
     pub(super) fn enter_interrupt(&mut self, vector: u8) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| {
-            self.interrupt
+        let runtime = self.runtime.clone();
+        runtime.with_runtime(|wasm| {
+            self.refresh_code(wasm);
+            let exit = self
+                .interrupt
                 .as_ref()
                 .expect("real-mode interrupt entry")
-                .call(wasm, (vector,))
+                .call(wasm, (vector,));
+            self.refresh_code(wasm);
+            exit
         })
     }
 
     pub(super) fn enter_far_call(&mut self, target: FarPointer, stack_bytes: u16) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| {
-            self.far_call
+        let runtime = self.runtime.clone();
+        runtime.with_runtime(|wasm| {
+            self.refresh_code(wasm);
+            let exit = self
+                .far_call
                 .as_ref()
                 .expect("real-mode far-call entry")
-                .call(wasm, (target.segment, target.offset, stack_bytes))
+                .call(wasm, (target.segment, target.offset, stack_bytes));
+            self.refresh_code(wasm);
+            exit
         })
     }
 
     #[cold]
     pub(super) fn step(&mut self) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| self.step.call(wasm, ()))
+        let runtime = self.runtime.clone();
+        runtime.with_runtime(|wasm| {
+            self.refresh_code(wasm);
+            let exit = self.step.call(wasm, ());
+            self.refresh_code(wasm);
+            if exit == ExecutionExit::CodeInvalidated {
+                ExecutionExit::StepComplete
+            } else {
+                exit
+            }
+        })
     }
 
     pub(super) async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
@@ -195,7 +229,9 @@ impl CpuInstance {
         entries: &[DispatchEntry<'_>],
         code: Option<&crate::CompiledCode>,
     ) -> Result<()> {
-        self.runtime.with_runtime(|wasm| {
+        let runtime = self.runtime.clone();
+        runtime.with_runtime(|wasm| {
+            self.refresh_code(wasm);
             let calls = Calls::new(wasm, code, &self.resolve_and_jump)?;
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.modules.imports(wasm));
@@ -211,7 +247,8 @@ impl CpuInstance {
                 imports.push(calls.import(wasm));
             }
             let instance = wasm.instantiate(module, &imports)?;
-            let module = InstalledModule::new(instance, entries, code.cloned(), calls);
+            let watch = code.map(|code| self.bindings.guest.watch_code(&code.description.sources));
+            let module = InstalledModule::new(instance, entries, code.cloned(), calls, watch);
             self.modules.install(wasm, module)
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.key));

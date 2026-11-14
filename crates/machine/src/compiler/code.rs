@@ -4,14 +4,14 @@ use crate::memory::code::CodeSource;
 use crate::{ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
 use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget};
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
 /// Clones share the engine module. Each installation creates CPU-local bindings.
 #[derive(Clone)]
 pub struct CompiledCode {
     pub(super) module: Module,
-    pub(super) description: Description,
+    pub(crate) description: Description,
 }
 
 #[derive(Clone)]
@@ -21,7 +21,7 @@ pub struct Description {
     pub(super) blocks: Vec<BlockEntry>,
     pub(super) call_targets: Vec<u32>,
     pub(super) target: ExecutionTarget,
-    pub(crate) sources: Vec<CodeSource>,
+    pub(crate) sources: Arc<[CodeSource]>,
 }
 
 impl CompiledCode {
@@ -35,7 +35,7 @@ impl CompiledCode {
             module,
             description: Description {
                 ranges: ranges(&addresses, &blocks.entries),
-                sources,
+                sources: sources.into(),
                 addresses,
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
@@ -65,7 +65,7 @@ impl CompiledCode {
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
     /// Rejects results whose source bytes or backing mappings have changed.
-    /// The caller maintains validity after installation until write tracking is enabled.
+    /// Tracked writes retire installed versions before subsequent guest execution.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         self.install_entries(cpu, false)

@@ -332,6 +332,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         bytes: u32,
         intent: Intent,
     ) -> Result<Access, BuildError> {
+        let memory = self.accesses.memory();
+        if self.can_fallback && !memory.has_stable_mappings() {
+            let direct =
+                memory.check_direct_access(&mut self.body, linear, bytes, intent, None, None)?;
+            self.guard(direct.unavailable.eq(false))?;
+            return memory.direct_access(&mut self.body, linear, bytes, intent, direct.physical);
+        }
         self.accesses.resolve(
             &mut self.body,
             linear,

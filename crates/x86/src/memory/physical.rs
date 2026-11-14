@@ -54,6 +54,9 @@ impl PhysicalMemory {
         offset: u32,
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
+        if body.constant_bits(&access.unavailable)? == Some(0) {
+            return self.load::<T>(body, &access.physical, offset);
+        }
         let address = access.linear.add(offset);
         let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Read)?;
         body.if_value::<T>(
@@ -80,6 +83,9 @@ impl PhysicalMemory {
     ) -> Result<(), BuildError> {
         assert!(matches!(access.intent, Intent::Write));
         access.check_field::<T>(offset);
+        if body.constant_bits(&access.unavailable)? == Some(0) {
+            return body.store_at::<T>(self.backing, &access.physical, offset, value);
+        }
         let address = access.linear.add(offset);
         let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Write)?;
         body.if_else(

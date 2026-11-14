@@ -135,6 +135,38 @@ impl StackPointer {
             .write_register(&mut execution.body, Gpr32::Esp, self.esp)
     }
 
+    pub(crate) fn guard_range(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        adjustment: i32,
+        bytes: u32,
+        intent: Intent,
+    ) -> Result<(), BuildError> {
+        execution.if_can_fallback(|jit| {
+            if jit.accesses.memory().has_stable_mappings() {
+                return Ok(());
+            }
+            let offset = self.advance(adjustment).offset();
+            let segment = jit.segments.check(
+                &mut jit.body,
+                &Segment::Ss.into(),
+                &offset,
+                &bytes.into(),
+                intent,
+            )?;
+            let direct = jit.accesses.memory().check_direct_access(
+                &mut jit.body,
+                &segment.linear,
+                bytes,
+                intent,
+                segment.denied,
+                None,
+            )?;
+            jit.guard(direct.unavailable.eq(false))
+        })?;
+        Ok(())
+    }
+
     /// Reserves bytes below this pointer and checks capacity at the new SP.
     pub(crate) fn push_frame(
         self,

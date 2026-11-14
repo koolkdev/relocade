@@ -12,6 +12,7 @@ use super::access::cpu_load;
 
 pub(crate) struct Cpu {
     memory: Mem,
+    pub(super) code_state: Mem,
     condition_resolvers: [Func; Condition::CANONICAL.len()],
     flag_resolvers: [Func; (1 << StatusFlag::ALL.len()) - 1],
 }
@@ -21,6 +22,7 @@ impl Cpu {
         let memory = program.import_memory(crate::abi::EXECUTION_CONTEXT);
         Self {
             memory,
+            code_state: program.import_memory(crate::abi::CODE_STATE),
             condition_resolvers: Condition::CANONICAL
                 .map(|condition| FlagQuery::Condition(condition).declare(program, memory)),
             flag_resolvers: std::array::from_fn(|index| {

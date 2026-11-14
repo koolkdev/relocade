@@ -309,6 +309,7 @@ fn shared_memory_helpers() {
         assert_eq!(
             super::memory::imports(&blocks.bytes),
             vec![
+                ("relocade", "codeState"),
                 ("relocade", "executionContext"),
                 ("relocade", "guest"),
                 ("relocade", mapping),

@@ -109,6 +109,12 @@ where
             crate::Exception::GeneralProtection { error_code: 0 },
         )?;
     }
+    pointer.guard_range(
+        execution,
+        -(8 * T::BYTES as i32),
+        8 * T::BYTES,
+        crate::memory::Intent::Write,
+    )?;
     for register in Gpr32::ALL {
         // ESP stays at its entry value until all eight pushes succeed.
         let value = TypedLocation::<T>::register(register).read(execution)?;
@@ -123,6 +129,7 @@ fn pop_all_registers<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
     let mut pointer = execution.stack_pointer()?;
+    pointer.guard_range(execution, 0, 8 * T::BYTES, crate::memory::Intent::Read)?;
     for register in Gpr32::ALL.into_iter().rev() {
         let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;
         // The discarded SP/ESP slot still requires segment and page checks.

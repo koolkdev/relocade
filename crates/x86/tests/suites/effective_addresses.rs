@@ -84,7 +84,10 @@ fn snapshot_lea_imports_no_guest_data_or_page_table_memory() {
                 }
             }
         }
-        assert_eq!(memories, [("relocade", "executionContext")]);
+        assert_eq!(
+            memories,
+            [("relocade", "codeState"), ("relocade", "executionContext")]
+        );
     }
 }
 

@@ -94,6 +94,10 @@ impl TestModule {
         linker
             .define(&store, "relocade", "guest", guest.memory().clone())
             .unwrap();
+        let code_state = wasmtime::SharedMemory::new(&engine, MemoryType::shared(1, 1)).unwrap();
+        linker
+            .define(&store, "relocade", "codeState", code_state)
+            .unwrap();
         let cpu_len = input.cpu.len();
         let observe_guest = input.observe_guest;
         let dispatch_return = Layout::<crate::ExecutionExit>::into_tuple(

@@ -34,6 +34,8 @@ fn interrupt(
             Ok(fallthrough)
         }
         ExecutionProfile::Real16 => {
+            // Entry reads the IVT after writing its frame, so use the interpreter.
+            execution.if_can_fallback(|jit| jit.guard(false))?;
             let vector = vector.read(execution)?;
             execution.enter_interrupt(vector, fallthrough)
         }
@@ -49,6 +51,7 @@ fn overflow_interrupt(
         ExecutionProfile::Protected(_) => execution.unsupported(0xce)?,
         ExecutionProfile::Real16 => {
             let overflow = execution.read_flag(Flag::OF)?;
+            execution.if_can_fallback(|jit| jit.guard(overflow.eq(false)))?;
             execution.dispatch_if(overflow, |taken| {
                 taken.enter_interrupt(
                     (ExceptionVector::Overflow as u32).into(),

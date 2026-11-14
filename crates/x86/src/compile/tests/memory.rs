@@ -31,7 +31,7 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
             let block = compiler.compile_block(0x1000, code, 1).unwrap();
             assert_eq!(
                 imports(&block.bytes),
-                [("relocade", "executionContext")],
+                [("relocade", "codeState"), ("relocade", "executionContext")],
                 "{profile:?}, {code:02x?}",
             );
         }
@@ -45,6 +45,7 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
             assert_eq!(
                 imports(&block.bytes),
                 [
+                    ("relocade", "codeState"),
                     ("relocade", "executionContext"),
                     ("relocade", "guest"),
                     ("relocade", map),

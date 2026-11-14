@@ -111,8 +111,8 @@ Segment checks establish physical table bounds before lookup, including for
 speculative fetch windows. A small inline check handles direct accesses within
 one RAM/ROM page. Routing,
 splitting and partial transfer assembly share one reader and one writer per
-module, created only when used. Helpers are Wasm functions; host calls occur only
-in their MMIO branches. Separate snapshot modules each contain their own helpers.
+module, created only when used. Helpers are Wasm functions; host calls occur in their MMIO and watched-code
+write branches. Separate snapshot modules each contain their own helpers.
 
 The interpreter checks CS and probes RAM/ROM for a direct fetch window without
 calling a device. Windows stop at page boundaries; unavailable windows use exact
@@ -122,6 +122,27 @@ contract, not a model of a particular CPU's prefetch bus transactions. Physical
 routing is rechecked after each instruction and is not held in the protected
 interpreter's page cache.
 
-Snapshot blocks use compiled bytes under the ordinary host validity contract.
-Code, mapping and A20 changes must preserve that contract throughout execution; the
-interpreter can observe code remapping at the next instruction.
+Snapshot blocks use compiled bytes. The machine retains each emitted block's
+source bytes and backing offsets, validates them before installation, and watches
+live source through every RAM/ROM alias. Unused read-ahead bytes are not dependencies.
+
+The host ORs `PhysicalMemoryMap::CODE_PAGE` into a page's kind word while its backing
+contains live compiled code. Reads preserve RAM/ROM routing. A JIT operand guard
+rejects watched writes before current-instruction effects and restarts in the
+interpreter. The interpreter's slow writer calls `writeCode(backing_offset, byte)`;
+ordinary RAM writes remain direct. REP preflights its whole span before a compiled
+loop. Nested ENTER and software interrupt entry use the interpreter because their
+accesses interleave with partial effects.
+
+Tracked guest and host writes set byte zero of shared `codeState` only when emitted
+instruction bytes differ. At the next execution checkpoint, `CodeInvalidated`
+returns published state to the runtime. Before any subsequent guest entry, the
+runtime retires affected linked module versions, removes their dispatch entries,
+and repairs incoming call tables. An unrelated write on a watched page does not
+retire code. The code notification and retirement are internal to the CPU runtime.
+
+Host writers must use `Memory::view()` (including `write_backing` for ROM updates)
+after JIT admission. Raw storage and raw mapping/A20 edits retain the embedding's
+validity obligation. The one-writer execution contract above also governs module
+installation and tracked writes; this is not a barrier for concurrent guest CPUs
+or writing DMA masters.
