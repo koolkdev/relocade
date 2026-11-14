@@ -1028,11 +1028,11 @@ controller discovery and `4F01h` information for nine banked modes,
 register and 256-byte buffer layouts with selected VBE 2.0 extensions. It reports
 the 4 MiB adapter, a terminated ROM mode list, one readable and writable 64 KiB
 window at A000h, and the number of additional complete display pages at the
-reported pitch. No callable bank function or BIOS output functions
-are advertised for these modes. Unimplemented functions return AL != 4Fh, while
-failed supported requests return AX=014Fh, AX=024Fh for an excessively wide
-scanline, or AX=034Fh for DAC-format control in direct color. All VBE results
-preserve flags.
+reported pitch. Mode information supplies a callable bank function; BIOS output
+functions are not advertised for these modes. Unimplemented functions return
+AL != 4Fh, while failed supported requests return AX=014Fh, AX=024Fh for an
+excessively wide scanline, or AX=034Fh for DAC-format control in direct color.
+All VBE results preserve flags.
 
 | VBE mode | Resolution | Pixel format | Default pitch | Additional image pages |
 | --- | --- | --- | --- | --- |
@@ -1055,12 +1055,18 @@ bit masks, and a fixed color ramp. The 32-bit mode numbers follow
 the common 24-bit numbers 0112h, 0115h and 0118h remain unsupported. Guests should
 enumerate the mode list and inspect mode information to choose a pixel format.
 
-The OEM string and mode list reside in ROM and remain valid across mode changes,
-query-buffer reuse and guest exit. A null `WinFuncPtr` selects INT 10h/4F05h bank
-control. Controller information remains the 256-byte 1.x structure even when
-the caller supplies a `VBE2` signature. Capability bits advertise VGA compatibility
-and a fixed six-bit DAC. The 15-/24-bit formats, eight-bit DAC components, linear
-framebuffer access and protected-mode VBE entry points are not advertised.
+The OEM string, mode list and `WinFuncPtr` bank entry reside in ROM and remain
+valid across mode changes, query-buffer reuse and guest exit. Both DISPI and
+ET4000 firmware expose the same hooked real-mode far-call entry. It accepts BH/BL
+and DX without requiring AX, calls the shared Rust bank service directly, and
+uses the runtime's far-procedure return. Replacing the INT 10h vector does not
+redirect this entry. As specified by VBE 1.2 function 05h, callers must allow
+AX/DX to change and must not depend on an AX status result from the far call.
+The entry preserves the other registers and flags. Controller information
+remains the 256-byte 1.x structure even when the caller supplies a `VBE2` signature.
+Capability bits advertise VGA compatibility and a fixed six-bit DAC. The
+15-/24-bit formats, eight-bit DAC components, linear framebuffer access and
+protected-mode VBE entry points are not advertised.
 
 State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
 0–3. DL=0 reports the required allocation in 64-byte blocks; DL=1 saves to ES:BX

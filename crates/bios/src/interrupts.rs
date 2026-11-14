@@ -205,6 +205,7 @@ pub fn register_interrupts(
         KEYBOARD_ENTRY,
         interrupt_handler!(keyboard::dispatch(&keyboard)),
     );
+    video.register_procedures(interrupts);
     register_service(
         interrupts,
         VIDEO,

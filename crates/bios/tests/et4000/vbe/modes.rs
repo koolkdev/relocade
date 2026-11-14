@@ -1,5 +1,7 @@
-use super::{call, Firmware};
+use super::{call, execution, information, Firmware};
+use relocade_machine::{real_mode_interrupt::Interrupts, FarPointer};
 use relocade_vga::{FramebufferAccess, FramebufferGeometry, PixelFormat};
+use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 
 async fn banked_modes() {
     let machine = Firmware::new();
@@ -144,4 +146,80 @@ fn vbe_modes_and_independent_windows_program_the_connected_card() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn vbe_modes_and_independent_windows_program_the_connected_card() {
     banked_modes().await;
+}
+
+async fn far_call_windows() {
+    let machine = Firmware::new();
+    let mut cpu = machine.cpu().await;
+    assert_eq!(call(&mut cpu, 0x4f02, 0x101, 0, 0).await, 0x004f);
+    let (status, bytes) = information(&machine, &mut cpu, 0x4f01, 0x101).await;
+    assert_eq!(status, 0x004f);
+    let window = FarPointer::from_packed(u32::from_le_bytes(bytes[12..16].try_into().unwrap()));
+    let mut program = vec![0x9a]; // CALL FAR WinFuncPtr; JMP $
+    program.extend_from_slice(&window.packed().to_le_bytes());
+    program.extend_from_slice(&[0xeb, 0xfe]);
+    machine.memory.view().write(0x110, &program).unwrap();
+
+    // A direct BIOS procedure must remain callable after a guest replaces INT 10h.
+    let mut interrupts = Interrupts::new(&mut cpu);
+    interrupts.register_interrupt(
+        0x10,
+        FarPointer {
+            segment: 0,
+            offset: 0x300,
+        },
+        async |_| panic!("WinFuncPtr must bypass the INT 10h vector"),
+    );
+    interrupts.install().await.unwrap();
+
+    let state = cpu.cpu_state();
+    state.set_cx(0x1234);
+    state.set_si(0x5678);
+    state.set_di(0x9abc);
+    state.set_bp(0xdef0);
+    state.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0x1234));
+    state.set_segment(Segment::Es, SegmentRegister::real_mode(Segment::Es, 0x5678));
+    for (operation, position, banks) in [
+        (0, 3, 0x03),
+        (1, 5, 0x53),
+        (0x100, 0xffff, 0x53),
+        (0x101, 0xffff, 0x53),
+    ] {
+        state.set_eip(0x110);
+        state.set_ax(0xdead); // Far callers need not supply AX=4F05h.
+        state.set_bx(operation);
+        state.set_dx(position);
+        state.set_eflags(0x443); // Preserve arithmetic flags, DF and cleared IF.
+        let before = state.snapshot();
+        assert_eq!(
+            execution::run_until(&mut cpu, 0x115).await,
+            ExecutionExit::Interrupted
+        );
+        let after = state.snapshot();
+        assert_eq!(machine.io.read_port(0x3cd, 1), banks);
+        if operation == 0x100 {
+            assert_eq!(state.dx(), 3);
+        } else if operation == 0x101 {
+            assert_eq!(state.dx(), 5);
+        }
+        // AX/DX may change; all other registers, the stack and flags survive RETF.
+        let mut expected = before.registers;
+        expected.eax = after.registers.eax;
+        expected.edx = after.registers.edx;
+        assert_eq!(after.registers, expected);
+        assert_eq!(after.segments, before.segments);
+        assert_eq!(after.flags.eflags(), before.flags.eflags());
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn vbe_window_pointer_accepts_far_calls_without_an_ax_function_number() {
+    pollster::block_on(far_call_windows());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn vbe_window_pointer_accepts_far_calls_without_an_ax_function_number() {
+    far_call_windows().await;
 }
