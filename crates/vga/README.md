@@ -1087,6 +1087,16 @@ calls return byte pitch in BX, pixel width in CX and complete rows in VRAM in DX
 DISPI's virtual-width register likewise uses pixels. `4F01h`
 reports the active mode's current pitch and other modes' default pitches.
 
+On both DISPI and ET4000, `4F06h` also supports standard VGA text, planar
+EGA/VGA and chained mode 13h layouts. Queries read the live CRTC registers.
+Widths round up to the CRTC Offset granularity; planar byte pitches count bytes
+in one plane, and text pixel dimensions use the current character cell size.
+Text capacity is the 32-KiB aperture, and planar/mode-13h capacity is the 64-KiB
+CPU aperture, independent of the card's SVGA memory size. CGA interleaved rows,
+split screens and custom address/serializer configurations are not supported
+by these logical-image services. The visible mode and BIOS character grid stay
+unchanged when the logical stride changes.
+
 DAC-format service `4F08h` reports the device's fixed six-bit color components
 in legacy and indexed modes. Direct-color modes return AX=034Fh for this service.
 Set requests of six bits or more select six, following VBE's next-lower-width

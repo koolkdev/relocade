@@ -3,7 +3,29 @@ use super::{call, Firmware};
 async fn viewport_services() {
     let machine = Firmware::new();
     let mut cpu = machine.cpu().await;
-    assert_eq!(call(&mut cpu, 0x4f06, 1, 0, 0).await, 0x014f);
+    assert_eq!(call(&mut cpu, 0x4f06, 1, 0, 0).await, 0x004f);
+    let state = cpu.cpu_state();
+    assert_eq!((state.bx(), state.cx(), state.dx()), (160, 720, 3264));
+    assert_eq!(call(&mut cpu, 0x4f06, 0, 721, 0).await, 0x004f);
+    assert_eq!((state.bx(), state.cx(), state.dx()), (164, 738, 3184));
+    machine.io.write_mmio(0xb8000 + 164, 2, 0x0741);
+    assert_eq!(
+        relocade_vga::FramebufferAccess::framebuffer(&mut *machine.card.borrow_mut())
+            .text_cell(1, 0)
+            .unwrap()
+            .value(),
+        0x0741
+    );
+    machine.set_mode(0x0f).unwrap(); // Monochrome CRTC routing.
+    assert_eq!(call(&mut cpu, 0x4f06, 0, 800, 0).await, 0x004f);
+    assert_eq!((state.bx(), state.cx(), state.dx()), (100, 800, 655));
+    assert_eq!(
+        machine.card.borrow().registers().crtc.registers.values[0x13],
+        50
+    );
+    machine.set_mode(0x13).unwrap();
+    assert_eq!(call(&mut cpu, 0x4f06, 1, 0, 0).await, 0x004f);
+    assert_eq!((state.bx(), state.cx(), state.dx()), (320, 320, 204));
     assert_eq!(call(&mut cpu, 0x4f02, 0x101, 0, 0).await, 0x004f);
     let state = cpu.cpu_state();
     assert_eq!(call(&mut cpu, 0x4f06, 0, 1021, 0).await, 0x004f);
