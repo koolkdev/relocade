@@ -1,5 +1,5 @@
 mod access;
-pub(crate) use access::VramWindow;
+pub(crate) use access::{VramView, VramWindow};
 mod storage;
 pub(crate) use storage::MemorySnapshot;
 use storage::Storage;
@@ -33,46 +33,8 @@ impl VideoMemory {
         self.storage.read(address)
     }
 
-    pub fn read_physical_word(&self, address: u32) -> u32 {
-        self.storage.read_word(address)
-    }
-
     pub fn write_physical(&mut self, address: u32, value: u8) {
         self.storage.write(address, value);
-    }
-
-    pub fn write_physical_word(&mut self, address: u32, value: u32) {
-        self.storage.write_word(address, value);
-    }
-
-    pub fn write_physical_masked_word(&mut self, address: u32, value: u32, mask: u32) {
-        self.storage.write_masked_word(address, value, mask);
-    }
-
-    pub fn write_physical_bytes(&mut self, address: u32, values: &[u8]) {
-        self.storage.write_bytes(address, values);
-    }
-
-    /// The bus bounds the complete transfer to this validated window.
-    #[inline(always)]
-    pub fn read(&mut self, address: u32, bytes: u8, window: VramWindow) -> u64 {
-        let mut value = [0; 8];
-        let offset = window.memory_offset(address);
-        for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = self.storage.read(offset + index as u32);
-        }
-        u64::from_le_bytes(value)
-    }
-
-    #[inline(always)]
-    pub fn write(&mut self, address: u32, bytes: u8, value: u64, window: VramWindow) {
-        let offset = window.memory_offset(address);
-        if bytes == 1 {
-            self.storage.write(offset, value as u8);
-        } else {
-            self.storage
-                .write_bytes(offset, &value.to_le_bytes()[..usize::from(bytes)]);
-        }
     }
 
     /// Clears all physical VRAM.

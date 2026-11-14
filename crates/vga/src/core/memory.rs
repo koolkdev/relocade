@@ -1,7 +1,7 @@
 //! VGA CPU access semantics over memory supplied by the complete card.
 use super::VgaCore;
 use crate::{
-    memory::VideoMemory,
+    memory::VramView,
     registers::{graphics, sequencer},
     Registers,
 };
@@ -64,11 +64,11 @@ impl VgaCore {
         }
     }
 
-    /// The card's bindings restrict the complete transfer to the active window.
-    pub(crate) fn read_memory(&mut self, memory: &VideoMemory, address: u32, bytes: u8) -> u64 {
+    /// Read at an offset within the card's bound CPU aperture, using its backing.
+    pub(crate) fn read_memory(&mut self, memory: VramView<'_>, offset: u32, bytes: u8) -> u64 {
         let mut value = [0; 8];
         for (index, byte) in value[..usize::from(bytes)].iter_mut().enumerate() {
-            *byte = self.read_vga_byte(memory, address + index as u32);
+            *byte = self.read_vga_byte(&memory, offset + index as u32);
         }
         u64::from_le_bytes(value)
     }
@@ -76,15 +76,14 @@ impl VgaCore {
     /// General graphics operations and copies using the prepared plane masks.
     /// The complete transfer must lie within the card's active bindings.
     pub(crate) fn write_memory<const COPY: bool>(
-        &mut self,
-        memory: &mut VideoMemory,
-        address: u32,
+        &self,
+        mut memory: VramView<'_>,
+        offset: u32,
         bytes: u8,
         value: u64,
     ) {
         let controls = &self.memory_controls;
         let latches = u32::from_le_bytes(self.latches);
-        let offset = address - controls.window.start;
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             let offset = offset + index as u32;
             let mask = controls.write_masks[(offset & 3) as usize];
@@ -97,25 +96,24 @@ impl VgaCore {
             } else {
                 controls.write.apply(*byte, latches)
             };
-            memory.write_physical_masked_word(address, values, mask);
+            memory.write_masked_word(address, values, mask);
         }
     }
 
     /// With all planes enabled, the address selects the byte for each chain-4 store.
     pub(crate) fn write_chain4(
         &self,
-        memory: &mut VideoMemory,
-        address: u32,
+        mut memory: VramView<'_>,
+        mut offset: u32,
         bytes: u8,
         value: u64,
     ) {
         let controls = &self.memory_controls;
-        let mut offset = address - controls.window.start;
         let physical = u32::from(controls.addressing.index(offset)) * 4;
         if bytes == 1 {
-            memory.write_physical(physical + (offset & 3), value as u8);
+            memory.write_byte(physical + (offset & 3), value as u8);
         } else if bytes == 4 && offset & 3 == 0 {
-            memory.write_physical_word(physical, value as u32);
+            memory.write_word(physical, value as u32);
         } else {
             let values = value.to_le_bytes();
             let mut values = &values[..usize::from(bytes)];
@@ -123,7 +121,7 @@ impl VgaCore {
                 let plane = offset & 3;
                 let count = values.len().min((4 - plane) as usize);
                 let physical = u32::from(controls.addressing.index(offset)) * 4 + plane;
-                memory.write_physical_bytes(physical, &values[..count]);
+                memory.write_bytes(physical, &values[..count]);
                 values = &values[count..];
                 offset += count as u32;
             }
@@ -132,30 +130,28 @@ impl VgaCore {
 
     pub(crate) fn write_one_plane(
         &self,
-        memory: &mut VideoMemory,
-        address: u32,
+        mut memory: VramView<'_>,
+        offset: u32,
         bytes: u8,
         value: u64,
     ) {
         let controls = &self.memory_controls;
-        let offset = address - controls.window.start;
         if bytes == 1 {
             let physical = u32::from(controls.addressing.index(offset)) * 4 + controls.write_plane;
-            memory.write_physical(physical, value as u8);
+            memory.write_byte(physical, value as u8);
             return;
         }
         for (index, byte) in value.to_le_bytes()[..usize::from(bytes)].iter().enumerate() {
             let physical = u32::from(controls.addressing.index(offset + index as u32)) * 4
                 + controls.write_plane;
-            memory.write_physical(physical, *byte);
+            memory.write_byte(physical, *byte);
         }
     }
 
-    fn read_vga_byte(&mut self, memory: &VideoMemory, address: u32) -> u8 {
+    fn read_vga_byte(&mut self, memory: &VramView<'_>, offset: u32) -> u8 {
         let controls = &self.memory_controls;
-        let offset = address - controls.window.start;
         let index = u32::from(controls.addressing.index(offset));
-        self.latches = memory.read_physical_word(index * 4).to_le_bytes();
+        self.latches = memory.read_word(index * 4).to_le_bytes();
         if let Some(value) = controls.read.compare(self.latches) {
             return value;
         }

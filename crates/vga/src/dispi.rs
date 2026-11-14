@@ -17,11 +17,7 @@ mod registers;
 mod retrace;
 mod state;
 
-use crate::{
-    memory::{VideoMemory, VramWindow},
-    output::Output,
-    DisplaySnapshot, Registers, Timing, VgaCore,
-};
+use crate::{memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore};
 use async_channel::Receiver;
 pub use modes::{DispiMode, DispiResolution};
 use registers::Dispi;
@@ -58,7 +54,6 @@ pub struct DispiAdapter {
     vga: VgaCore,
     memory: VideoMemory,
     dispi: Dispi,
-    packed_window: VramWindow,
     io: Option<crate::io::Io>,
     output: Output,
 }
@@ -81,11 +76,6 @@ impl DispiAdapter {
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             vga,
             dispi: Dispi::default(),
-            packed_window: VramWindow {
-                cpu_start: BANK_START,
-                vram_start: 0,
-                bytes: BANK_BYTES,
-            },
             io: None,
             output,
         }

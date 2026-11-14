@@ -27,6 +27,6 @@ impl CardEffects for Et4000Ax {
     }
 
     fn memory_decoding(&self) -> MemoryDecoding {
-        MemoryDecoding::vga(&self.vga)
+        Et4000Ax::memory_decoding(self)
     }
 }

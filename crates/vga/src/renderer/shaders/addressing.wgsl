@@ -1,7 +1,9 @@
 // CRTC counter pins: byte/word/doubleword rotation and row-scan substitution.
 fn display_address(counter: u32, row_scan: u32, address_mode: u32, underline: u32) -> u32 {
     var address = counter;
-    if (underline & 0x40u) != 0u {
+    if state.linear_addressing != 0u {
+        address = counter;
+    } else if (underline & 0x40u) != 0u {
         address = (counter << 2u) | ((counter >> 12u) & 3u);
     } else if (address_mode & 0x40u) == 0u {
         let wrap = select(13u, 15u, (address_mode & 0x20u) != 0u);

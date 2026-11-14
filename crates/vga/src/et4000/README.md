@@ -44,7 +44,11 @@ Attribute address/phase latch for both standard and extension registers.
 The selected adapter-enable address is 3C3h or 46E8h; Rev E aliases 46E8h on
 its low twelve address bits. Extension configuration registers retain their
 documented bits. Translation-ROM, external genlock and 6845 compatibility
-behavior are outside this profile. Firmware and PC selection are separate.
+behavior are outside this profile. CPU access uses independent read/write segments
+in 3CDh. Chain-4 selects linear bytes; the plane system retains VGA read latches
+and graphics writes. Both address the same DRAM, with no conversion on writes.
+The board exposes the segmented host aperture; CR36h's optional relocated linear
+host aperture is not connected. Firmware and PC selection are separate.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),

@@ -106,7 +106,9 @@ impl Addressing {
     fn address(&self, counter: u32, row_scan: u32) -> u32 {
         let counter = counter & 0xffff;
         let mode = self.crtc(crtc::MODE_CONTROL);
-        let mut address = if self.crtc(crtc::UNDERLINE_LOCATION) & 0x40 != 0 {
+        let mut address = if self.state.linear_addressing {
+            counter
+        } else if self.crtc(crtc::UNDERLINE_LOCATION) & 0x40 != 0 {
             (counter << 2) | ((counter >> 12) & 3)
         } else if mode & 0x40 == 0 {
             (counter << 1) | ((counter >> if mode & 0x20 != 0 { 15 } else { 13 }) & 1)

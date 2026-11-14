@@ -1,6 +1,6 @@
 use super::VgaCore;
 use crate::{
-    memory::VideoMemory,
+    memory::{VideoMemory, VramWindow, VGA_MEMORY_BYTES},
     registers::{graphics, sequencer},
 };
 use relocade_machine::{Device, DeviceCallbacks, IoBus, MmioRead, MmioWrite};
@@ -37,14 +37,27 @@ fn vga_only_composition_uses_the_core_latches_and_access_protocols() {
     let io = IoBus::new(device.clone(), |io| {
         let callbacks = DeviceCallbacks::new(&device);
         let window = device.borrow().core.memory_window();
+        let backing = VramWindow {
+            cpu_start: window.start,
+            vram_start: 0,
+            bytes: VGA_MEMORY_BYTES,
+        };
         io.bind_mmio(
             window.start..=window.end - 1,
-            &MmioRead::new(callbacks.read_mmio(|_, card, address, bytes| {
-                card.core.read_memory(&card.memory, address, bytes)
+            &MmioRead::new(callbacks.read_mmio(move |_, card, address, bytes| {
+                card.core.read_memory(
+                    backing.view(&mut card.memory),
+                    backing.offset(address),
+                    bytes,
+                )
             })),
-            &MmioWrite::new(callbacks.write_mmio(|_, card, address, bytes, value| {
-                card.core
-                    .write_memory::<false>(&mut card.memory, address, bytes, value);
+            &MmioWrite::new(callbacks.write_mmio(move |_, card, address, bytes, value| {
+                card.core.write_memory::<false>(
+                    backing.view(&mut card.memory),
+                    backing.offset(address),
+                    bytes,
+                    value,
+                );
             })),
         );
     });

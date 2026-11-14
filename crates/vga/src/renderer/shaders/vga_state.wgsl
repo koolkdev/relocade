@@ -11,6 +11,7 @@ struct VgaState {
     cursor_blink_on: u32,
     scanline_step: u32,
     display_start: u32,
+    linear_addressing: u32,
 }
 
 @group(0) @binding(0) var<uniform> state: VgaState;

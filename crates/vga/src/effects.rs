@@ -75,9 +75,6 @@ pub(crate) trait CardEffects: Sized {
         None
     }
 
-    /// Update prepared memory-access state before installing changed operations.
-    fn update_memory_access(&mut self, _decoding: &MemoryDecoding) {}
-
     /// Preserve overdue output, mutate live state, then apply configuration and
     /// decoding changes synchronously. Preparation can update hardware latches;
     /// remember only the previous layout and routing keys after that work.
@@ -116,7 +113,6 @@ pub(crate) trait CardEffects: Sized {
         if let Some(previous) = previous_memory {
             let decoding = self.memory_decoding();
             if previous != decoding {
-                self.update_memory_access(&decoding);
                 if let Some(io) = self.io() {
                     io.memory
                         .update_decoding(context.reborrow(), Some(previous), decoding);
