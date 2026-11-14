@@ -167,3 +167,60 @@ fn retirement_repairs_links_and_preserves_newer_entries() {
 async fn retirement_repairs_links_and_preserves_newer_entries() {
     compilation::run(retire_linked_compilations).await;
 }
+
+async fn reject_changed_source(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    machine
+        .memory()
+        .view()
+        .write(0x100, &[0xb8, 42, 0, 0xeb, 0])
+        .unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        compiler.request(target, vec![request()]).unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        // The reader may copy a page, but unused bytes are not dependencies.
+        runner.cpu().memory().view().write(0x108, &[0x90]).unwrap();
+        code.install(runner.cpu()).unwrap();
+        runner.cpu().invalidate_code(0x100..0x105).unwrap();
+        // A20's high alias writes the same instruction backing.
+        runner.cpu().memory().view().write(0x100101, &[73]).unwrap();
+        assert!(matches!(
+            code.install(runner.cpu()),
+            Err(relocade_machine::Error::StaleCompilation)
+        ));
+        assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 0);
+        compiler.request(target, vec![request()]).unwrap();
+        let fresh = compiler.recv().await.unwrap().unwrap();
+        fresh.install(runner.cpu()).unwrap();
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x105, async move || exit.request())])
+            .await
+            .unwrap();
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(runner.cpu().cpu_state().ax(), 73);
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installation_rejects_changed_instruction_bytes() {
+    pollster::block_on(compilation::run(reject_changed_source));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn installation_rejects_changed_instruction_bytes() {
+    compilation::run(reject_changed_source).await;
+}

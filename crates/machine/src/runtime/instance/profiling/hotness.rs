@@ -26,6 +26,11 @@ impl Hotness {
         }
     }
 
+    pub(super) fn forget(&mut self, key: u32) {
+        self.counts.remove(&key);
+        self.candidates.retain(|&candidate| candidate != key);
+    }
+
     #[cfg(test)]
     pub(super) fn count(&self, key: u32) -> u64 {
         self.counts.get(&key).copied().unwrap_or(0)

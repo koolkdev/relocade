@@ -16,7 +16,7 @@ use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
-/// Keep bytes and mappings stable until its result arrives or the machine shuts down.
+/// Installation validates the instruction bytes retained by compilation.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockRequest {
     pub address: u32,
@@ -70,11 +70,12 @@ async fn compile(
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
+    let mut reader = memory.code_reader();
     let (blocks, addresses) = match request {
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
                 .iter()
-                .map(|block| memory.read_code(block.address, block.byte_len))
+                .map(|block| reader.read(block.address, block.byte_len))
                 .collect::<std::result::Result<_, _>>()?;
             let snapshots: Vec<_> = requests
                 .iter()
@@ -106,7 +107,7 @@ async fn compile(
                         if len == 0 {
                             return 0;
                         }
-                        memory.read_code_prefix(base + eip, &mut buffer[..len])
+                        reader.read_prefix(base + eip, &mut buffer[..len])
                     },
                 ) {
                     Ok(entries) => {
@@ -125,9 +126,15 @@ async fn compile(
             (module.compile_with(jobs).await?, addresses)
         }
     };
+    let sources = addresses
+        .iter()
+        .zip(&blocks.entries)
+        .map(|(&address, block)| reader.source(address, block.byte_len))
+        .collect();
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
         addresses,
         blocks,
+        sources,
     ))
 }

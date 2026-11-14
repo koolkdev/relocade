@@ -147,9 +147,13 @@ impl Cpu {
                     return;
                 }
             };
-            if let Ok(code) = reply {
-                // Missing roots fall back below if module installation fails.
-                let _ = code.install_missing(self);
+            let installed = reply.and_then(|code| code.install_missing(self));
+            if matches!(installed, Err(crate::Error::StaleCompilation)) {
+                let profiling = &mut self.instance.profiling;
+                for entry in std::mem::take(&mut profiling.pending) {
+                    profiling.hotness.forget(entry.packed());
+                }
+                continue;
             }
             for entry in std::mem::take(&mut self.instance.profiling.pending) {
                 if self.instance.install_interpreter_fallback(entry).is_err() {
