@@ -53,7 +53,7 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
             .entries
             .iter()
             .map(|entry| DispatchEntry {
-                address: entry.start_eip,
+                key: entry.start_eip,
                 export: &entry.export,
             })
             .collect();

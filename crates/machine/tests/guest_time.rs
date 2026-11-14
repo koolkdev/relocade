@@ -159,7 +159,7 @@ async fn callback_observation() {
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {
-                    address: 0x101,
+                    key: 0x101,
                     export: &block.entry,
                 }],
             )

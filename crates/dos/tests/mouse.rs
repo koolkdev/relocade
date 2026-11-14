@@ -96,18 +96,21 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
             let ready = RefCell::new(Some(ready));
             let resumed = RefCell::new(Some(resumed));
             dos.cpu()
-                .install([Hook::host(base + rendezvous, async move || {
-                    let ready = ready.borrow_mut().take().unwrap();
-                    let resumed = resumed.borrow_mut().take().unwrap();
-                    state.set_eip(continuation);
-                    ready.send((mouse.clone(), keyboard.clone())).unwrap();
-                    resumed.await.unwrap();
-                    // Drain the finite input burst before the guest requests its snapshot.
-                    // IF stays clear while this raw host hook is suspended.
-                    for _ in 0..4 {
-                        relocade_machine::yield_now().await;
-                    }
-                })])
+                .install([Hook::host(
+                    (u32::from(segment) << 16) | rendezvous,
+                    async move || {
+                        let ready = ready.borrow_mut().take().unwrap();
+                        let resumed = resumed.borrow_mut().take().unwrap();
+                        state.set_eip(continuation);
+                        ready.send((mouse.clone(), keyboard.clone())).unwrap();
+                        resumed.await.unwrap();
+                        // Drain the finite input burst before the guest requests its snapshot.
+                        // IF stays clear while this raw host hook is suspended.
+                        for _ in 0..4 {
+                            relocade_machine::yield_now().await;
+                        }
+                    },
+                )])
                 .await
                 .unwrap();
             assert_eq!(dos.run().await, Ok(0));

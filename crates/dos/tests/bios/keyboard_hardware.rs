@@ -350,7 +350,7 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
         let exit = dos.cpu().exit_handle();
         dos.cpu()
             .install([Hook::host(
-                base + 0x100 + program.len() as u32,
+                (u32::from(segment) << 16) | (0x100 + program.len() as u32),
                 async move || {
                     exit.request();
                 },

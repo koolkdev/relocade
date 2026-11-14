@@ -85,11 +85,10 @@ async fn automatic() {
                     let retired = runner.cpu().cpu_state().instruction_count();
                     slice(&mut runner).await;
                     assert!(runner.cpu().cpu_state().instruction_count() > retired);
-                    if targets.iter().all(|entry| {
-                        runner
-                            .cpu()
-                            .has_entry(crate::runtime::EntryKey::RealMode(entry.packed()))
-                    }) {
+                    if targets
+                        .iter()
+                        .all(|entry| runner.cpu().has_entry(entry.packed()))
+                    {
                         // Wait for installation before inspecting counts, so this test
                         // cannot drive hotness by collecting the buffer itself.
                         let counts: Vec<_> = targets
@@ -169,8 +168,7 @@ async fn full_collection(compiler: &CompilerService) {
             let cpu = runner.cpu();
             assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
             assert!(
-                cpu.instance.profiling.pending.contains(&target)
-                    || cpu.has_entry(crate::runtime::EntryKey::RealMode(target.packed())),
+                cpu.instance.profiling.pending.contains(&target) || cpu.has_entry(target.packed()),
                 "full-buffer collection must submit before guest execution returns"
             );
         })

@@ -1,4 +1,4 @@
-//! Address resolution shared by every kind of callable execution entry.
+//! Real-mode dispatch and call resolution use packed CS:IP entries.
 
 mod real_mode;
 mod table;
@@ -6,10 +6,7 @@ pub use table::EntryTable;
 
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
 
-use crate::{
-    state::{Cpu, SegmentReads},
-    CompiledModule, ExecutionProfile, Segment,
-};
+use crate::{state::Cpu, CompiledModule, ExecutionProfile};
 
 use super::Compiler;
 use std::sync::Arc;
@@ -39,39 +36,19 @@ impl Dispatch {
 }
 
 impl Compiler {
-    /// Compiles profile-specific lookup through `relocade.executionFunctions`.
-    /// A hit tail-calls its slot; a miss tail-calls slot one. The generated code
-    /// has no host-call import or instruction decoder. Real16 first checks
-    /// address-bound overrides, then looks up compiled blocks by packed CS:IP.
-    /// The embedding maintains the execution profile. Each destination owns its
-    /// entry checks; lookup does not check instruction bytes or CS permissions.
-    /// Only Real16 records unresolved calls, using packed 16:16 CS:IP keys.
-    /// Protected-mode dispatch does not collect call profiles.
+    /// Compiles lookup of packed Real16 CS:IP entries. Hooks, compiled blocks and
+    /// rejected candidates share one map. Misses enter the interpreter; unresolved
+    /// calls also contribute to profiling. Destinations own their entry checks.
+    ///
+    /// # Panics
+    /// Panics for a target other than Real16. Protected-mode dispatch is not yet supported.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
+        assert_eq!(self.target.profile, ExecutionProfile::Real16);
         let mut program = Program::new();
         let cpu = Arc::new(Cpu::declare(&mut program));
         let dispatch = Dispatch::declare(&mut program);
-        let profile = self.target.profile;
-        let lookup = match profile {
-            ExecutionProfile::Real16 => {
-                let lookup = real_mode::lookup(&mut program, cpu.clone(), dispatch);
-                real_mode::define_call_resolver(&mut program, cpu, lookup)?;
-                lookup
-            }
-            ExecutionProfile::Protected(_) => {
-                let lookup = program.function::<fn() -> u32>(move |mut body, ()| {
-                    let eip = cpu.read_eip(&mut body)?;
-                    let mut segments = SegmentReads::new(&cpu, profile);
-                    let base = segments.base(&mut body, &Segment::Cs.into())?;
-                    dispatch.lookup(body, &base.add(eip))
-                });
-                crate::abi::RESOLVE_CALL.define(&mut program, move |mut body, ()| {
-                    let slot = lookup.call(&mut body, ())?;
-                    body.return_((slot.ne(0).select(slot, EntryTable::INTERPRETER_SLOT), true))
-                })?;
-                lookup
-            }
-        };
+        let lookup = real_mode::lookup(&mut program, cpu.clone(), dispatch);
+        real_mode::define_call_resolver(&mut program, cpu, lookup)?;
         crate::abi::DISPATCH.define(&mut program, move |mut body, ()| {
             let slot = lookup.call(&mut body, ())?;
             let slot = slot.ne(0).select(slot, EntryTable::INTERPRETER_SLOT);

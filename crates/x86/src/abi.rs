@@ -23,10 +23,8 @@ pub const PAGE_TABLE: Memory = Memory::new(
     "machine",
     crate::memory::page_table::BYTE_LEN / 65536,
 );
-/// Address-bound hooks and the current protected-mode entry map.
+/// Real-mode hooks and compiled blocks, keyed by packed 16:16 CS:IP.
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
-/// Real16 compiled block identities, keyed by packed 16:16 CS:IP.
-pub const REAL_MODE_BLOCKS: Memory = Memory::new("relocade", "realModeBlocks", 1);
 /// CPU-local call observations. The embedding drains these while execution is stopped.
 pub const CALL_PROFILE: Memory = Memory::new("relocade", "callProfile", 1);
 pub type ExecutionSignature = fn() -> crate::ExecutionExit;

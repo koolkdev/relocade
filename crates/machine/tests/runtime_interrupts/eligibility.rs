@@ -33,7 +33,7 @@ async fn queued_irq() {
                     .install_module(
                         &module.bytes,
                         &[DispatchEntry {
-                            address: 0x100,
+                            key: 0x100,
                             export: &module.entry,
                         }],
                     )

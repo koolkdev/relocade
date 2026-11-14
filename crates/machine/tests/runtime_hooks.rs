@@ -330,11 +330,11 @@ async fn check_hook_replacement() {
             &bytes,
             &[
                 DispatchEntry {
-                    address: 0x401,
+                    key: 0x401,
                     export: "entry"
                 },
                 DispatchEntry {
-                    address: 0x402,
+                    key: 0x402,
                     export: "missing"
                 },
             ]
@@ -352,7 +352,7 @@ async fn check_hook_replacement() {
         .install_module(
             &bytes,
             &[DispatchEntry {
-                address: 0x401,
+                key: 0x401,
                 export: "entry",
             }],
         )

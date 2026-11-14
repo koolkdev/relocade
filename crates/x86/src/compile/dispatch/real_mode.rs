@@ -14,21 +14,12 @@ pub(super) fn lookup(
     cpu: Arc<Cpu>,
     dispatch: Dispatch,
 ) -> TypedFunc<fn() -> u32> {
-    let addresses =
-        program.function::<fn(u32) -> u32>(move |body, (address,)| dispatch.lookup(body, &address));
-    let blocks = Dispatch {
-        memory: program.import_memory(abi::REAL_MODE_BLOCKS),
-        ..dispatch
-    };
     program.function::<fn() -> u32>(move |mut body, ()| {
         let eip = cpu.read_eip(&mut body)?;
         let mut segments = SegmentReads::new(&cpu, ExecutionProfile::Real16);
-        let base = segments.base(&mut body, &Segment::Cs.into())?;
-        let slot = addresses.call(&mut body, (base.add(&eip),))?;
-        body.if_(slot.ne(0), |body| body.return_(slot))?;
         body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
         let cs = segments.read_selector(&mut body, &Segment::Cs.into())?;
-        blocks.lookup(body, &cs.unsigned().extend::<I32>().shl(16).or(eip))
+        dispatch.lookup(body, &cs.unsigned().extend::<I32>().shl(16).or(eip))
     })
 }
 

@@ -25,14 +25,14 @@ where
     }
 }
 
-/// Behavior installed at a guest execution address. Each hook is independently
+/// Behavior installed at a packed real-mode CS:IP key. Each hook is independently
 /// replaceable. [`Hook::host`] supplies an ordinary async Rust handler;
 /// [`Hook::block`] builds or imports a Wasm execution block.
 ///
 /// ```
 /// use relocade_machine::{CpuStateAccess, Hook, Memory, ExitHandle};
 /// fn service(cpu: CpuStateAccess, memory: Memory, exit: ExitHandle) -> Hook {
-///     Hook::host(0xf0100, async move || {
+///     Hook::host(0xf000_0100, async move || {
 ///         let value = std::future::ready(42).await;
 ///         cpu.set_ax(value);
 ///         memory.view().write_u16(0x200, value).unwrap();
@@ -42,7 +42,7 @@ where
 /// ```
 ///
 pub struct Hook {
-    pub(super) address: u32,
+    pub(super) key: u32,
     pub(super) implementation: Implementation,
 }
 
@@ -70,12 +70,12 @@ impl Hook {
     /// A captured [`super::ExitHandle`] can request that the current run end.
     /// Handlers run in Rust after guest Wasm returns. Captures and environment
     /// data stay on the CPU's thread and do not need Send or Sync.
-    pub fn host<F>(address: u32, handler: F) -> Self
+    pub fn host<F>(key: u32, handler: F) -> Self
     where
         F: AsyncFn() + 'static,
     {
         Self {
-            address,
+            key,
             implementation: Implementation::Host(Rc::new(handler)),
         }
     }
@@ -83,10 +83,10 @@ impl Hook {
     /// Builds or imports a `() -> ExecutionExit` function during installation.
     /// Builders share one compiler Program for the batch. Function signatures
     /// are checked before publication. Use guest dispatch to observe replacement
-    /// at another address. Callers must replace directly linked dependent code too.
-    pub fn block(address: u32, build: impl FnOnce(&mut Program) -> Func + 'static) -> Self {
+    /// at another key. Callers must replace directly linked dependent code too.
+    pub fn block(key: u32, build: impl FnOnce(&mut Program) -> Func + 'static) -> Self {
         Self {
-            address,
+            key,
             implementation: Implementation::Block(Box::new(build)),
         }
     }

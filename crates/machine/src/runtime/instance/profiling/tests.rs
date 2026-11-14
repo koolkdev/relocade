@@ -30,7 +30,7 @@ impl Recorder {
         let mut wasm = WasmRuntime::new().unwrap();
         let target = relocade_x86::Compiler::new(ExecutionProfile::Real16).target();
         let profiling = Profiling::new(&mut wasm, target).unwrap();
-        let table = DispatchTable::new(&mut wasm, target.profile).unwrap();
+        let table = DispatchTable::new(&mut wasm).unwrap();
         let mut program = Program::new();
         let record = CallProfile::declare_recorder(&mut program);
         let declaration = FunctionDeclaration::<fn(u32) -> bool>::new("", "record");

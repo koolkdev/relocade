@@ -53,7 +53,7 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
             let exit = runner.cpu().exit_handle();
             runner
                 .cpu()
-                .install([Hook::host(0x120, async move || exit.request())])
+                .install([Hook::host(0x0010_0020, async move || exit.request())])
                 .await
                 .unwrap();
             code.install(runner.cpu()).unwrap();
@@ -127,9 +127,9 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             runner
                 .cpu()
                 .install([
-                    Hook::host(0x100, async || panic!("caller was not installed")),
-                    Hook::host(0x200, async || panic!("callee was not installed")),
-                    Hook::host(0x120, async move || exit.request()),
+                    Hook::host(0x0010_0000, async || panic!("caller was not installed")),
+                    Hook::host(0x0020_0000, async || panic!("callee was not installed")),
+                    Hook::host(0x0010_0020, async move || exit.request()),
                 ])
                 .await
                 .unwrap();
@@ -157,7 +157,7 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
             &[
                 0xe8, 0, 0,    // CALL next: push the CS-relative return IP
                 0x58, // POP AX
-                0xff, 0xe3, // JMP BX to the address-bound exit hook
+                0xff, 0xe3, // JMP BX to the CS:IP exit hook
             ],
         )
         .unwrap();
@@ -188,15 +188,19 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
         let exit = runner.cpu().exit_handle();
+        let alias_exit = exit.clone();
         runner
             .cpu()
-            .install([Hook::host(0x120, async move || exit.request())])
+            .install([
+                Hook::host(0x120, async move || exit.request()),
+                Hook::host(0x0001_0110, async move || alias_exit.request()),
+            ])
             .await
             .unwrap();
         code.install(runner.cpu()).unwrap();
         for phase in 0..3 {
             if phase == 1 {
-                // An address hook overrides both segmented identities.
+                // Replacing one CS:IP must leave its alias unchanged.
                 let exit = runner.cpu().exit_handle();
                 runner
                     .cpu()
@@ -221,7 +225,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                     ExecutionExit::Host(HostExit::Return)
                 );
                 let state = runner.cpu().cpu_state();
-                assert_eq!(state.ax(), if phase == 1 { 0 } else { return_ip });
+                assert_eq!(
+                    state.ax(),
+                    if phase == 1 && segment == 0 {
+                        0
+                    } else {
+                        return_ip
+                    }
+                );
                 assert_eq!(state.sp(), 0x800);
             }
         }
@@ -234,13 +245,13 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn real_mode_aliases_keep_their_own_entries_and_share_address_hooks() {
+fn real_mode_aliases_keep_separate_entries_and_hooks() {
     pollster::block_on(compilation::run(execute_aliases));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn real_mode_aliases_keep_their_own_entries_and_share_address_hooks() {
+async fn real_mode_aliases_keep_separate_entries_and_hooks() {
     compilation::run(execute_aliases).await;
 }
 

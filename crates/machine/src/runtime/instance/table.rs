@@ -1,70 +1,50 @@
-//! Publishes block identities and address-bound overrides into one callable table.
+//! Publishes real-mode CS:IP entries into one callable table.
 
-use crate::{
-    runtime::{EntryKey, ModuleEntry},
-    FarPointer, Result,
-};
+use crate::{DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
 use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table};
-use relocade_x86::{abi, EntryTable, ExecutionProfile};
-use std::collections::BTreeMap;
+use relocade_x86::{abi, EntryTable};
 
 pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     memory: B::Memory,
-    real_mode: Option<B::Memory>,
     functions: Table<B, abi::ExecutionSignature>,
-    entries: BTreeMap<EntryKey, u32>,
+    entries: EntryTable,
     next_slot: u32,
     capacity: u32,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
-    pub(super) fn new(backend: &mut B, profile: ExecutionProfile) -> Result<Self> {
+    pub(super) fn new(backend: &mut B) -> Result<Self> {
         let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
         backend
             .memory(&memory)
             .write(0, &EntryTable::default().to_bytes());
-        let real_mode = if profile == ExecutionProfile::Real16 {
-            let memory = backend.create_memory(abi::REAL_MODE_BLOCKS)?;
-            backend
-                .memory(&memory)
-                .write(0, &EntryTable::default().to_bytes());
-            Some(memory)
-        } else {
-            None
-        };
         Ok(Self {
             memory,
-            real_mode,
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS, None)?,
-            entries: BTreeMap::new(),
+            entries: EntryTable::default(),
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
     }
 
-    pub(super) fn imports<'a>(&'a self, backend: &B) -> Vec<Import<'a, B>>
+    pub(super) fn imports<'a>(&'a self, backend: &B) -> [Import<'a, B>; 2]
     where
         B: 'a,
     {
-        let mut imports = vec![
+        [
             backend.bind(abi::EXECUTION_ENTRIES, &self.memory),
             backend.bind(abi::EXECUTION_FUNCTIONS, &self.functions),
-        ];
-        if let Some(memory) = &self.real_mode {
-            imports.push(backend.bind(abi::REAL_MODE_BLOCKS, memory));
-        }
-        imports
+        ]
     }
 
-    pub(super) fn contains(&self, key: EntryKey) -> bool {
-        self.entries.contains_key(&EntryKey::Address(key.address()))
-            || self.entries.contains_key(&key)
+    pub(super) fn contains(&self, key: u32) -> bool {
+        self.entries.get(key).is_some()
     }
 
     /// Failed Real16 candidates suppress profiling only for their own CS:IP.
     pub(super) fn interpret_at(&mut self, backend: &mut B, entry: FarPointer) -> Result<()> {
-        let key = EntryKey::RealMode(entry.packed());
+        let key = entry.packed();
         if self.contains(key) {
             return Ok(());
         }
@@ -89,7 +69,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         &mut self,
         backend: &mut B,
         instance: &B::Instance,
-        exports: &[ModuleEntry<'_>],
+        exports: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let mut entries = self.entries.clone();
         let mut next_slot = self.next_slot;
@@ -100,8 +80,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
             let slot = entries
-                .get(&entry.key)
-                .copied()
+                .get(entry.key)
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
                 .unwrap_or_else(|| {
                     let slot = next_slot;
@@ -110,11 +89,6 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                         .expect("Wasm function table capacity");
                     slot
                 });
-            if let EntryKey::RealMode(_) = entry.key {
-                // Explicit compilation replaces an address hook. Other CS:IP
-                // aliases keep their own compiled entries when it is removed.
-                entries.remove(&EntryKey::Address(entry.key.address()));
-            }
             entries.insert(entry.key, slot);
             functions.push((slot, backend.import_function(&function)));
         }
@@ -124,23 +98,10 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     fn publish(
         &mut self,
         backend: &mut B,
-        entries: BTreeMap<EntryKey, u32>,
+        entries: EntryTable,
         functions: Vec<(u32, FunctionRef<B, abi::ExecutionSignature>)>,
     ) -> Result<()> {
-        let mut addresses = EntryTable::default();
-        let mut blocks = EntryTable::default();
-        for (&key, &slot) in &entries {
-            match key {
-                EntryKey::Address(address) => {
-                    addresses.insert(address, slot);
-                }
-                EntryKey::RealMode(key) => {
-                    blocks.insert(key, slot);
-                }
-            }
-        }
-        let addresses = addresses.to_bytes();
-        let blocks = blocks.to_bytes();
+        let bytes = entries.to_bytes();
         let next_slot = functions
             .iter()
             .map(|(slot, _)| slot + 1)
@@ -152,17 +113,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             self.functions.ensure_size(backend, capacity, None)?;
             self.capacity = capacity;
         }
-        backend.ensure_memory_size(&self.memory, addresses.len() as u64)?;
-        if let Some(memory) = &self.real_mode {
-            backend.ensure_memory_size(memory, blocks.len() as u64)?;
-        }
+        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
         for (slot, function) in functions {
             self.functions.set(backend, slot, &function)?;
         }
-        backend.memory(&self.memory).write(0, &addresses);
-        if let Some(memory) = &self.real_mode {
-            backend.memory(memory).write(0, &blocks);
-        }
+        backend.memory(&self.memory).write(0, &bytes);
         self.entries = entries;
         self.next_slot = next_slot;
         Ok(())

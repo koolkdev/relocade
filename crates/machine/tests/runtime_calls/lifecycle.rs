@@ -330,7 +330,7 @@ async fn guest_return() {
         .install_module(
             &program.compile().unwrap(),
             &[DispatchEntry {
-                address: 0x300,
+                key: 0x300,
                 export: "return",
             }],
         )

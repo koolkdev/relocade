@@ -72,7 +72,7 @@ async fn unpaced_slice_overshoot() {
                 cpu.install_module(
                     &block.bytes,
                     &[DispatchEntry {
-                        address: 0x100,
+                        key: 0x100,
                         export: &block.entry,
                     }],
                 )

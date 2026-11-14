@@ -5,8 +5,7 @@ mod profiling;
 mod table;
 
 use super::{
-    code, hooks::Handler, CpuContext, EntryKey, Hook, ModuleEntry, RuntimeMemory, WasmRuntime,
-    WasmRuntimeHandle,
+    code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
 use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
 use hooks::Hooks;
@@ -16,9 +15,9 @@ use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
 
-/// An ordinary `() -> ExecutionExit` export to install at a guest linear address.
+/// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
 pub struct DispatchEntry<'a> {
-    pub address: u32,
+    pub key: u32,
     pub export: &'a str,
 }
 
@@ -57,7 +56,7 @@ impl CpuInstance {
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
-            let table = DispatchTable::new(wasm, target.profile)?;
+            let table = DispatchTable::new(wasm)?;
             let profiling = Profiling::new(wasm, target)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.extend(table.imports(wasm));
@@ -168,14 +167,13 @@ impl CpuInstance {
     ) -> Result<()> {
         let compiler = self.runtime.with_runtime(|wasm| wasm.compiler());
         let module = compiler.compile(bytes).await?;
-        let entries: Vec<_> = entries.iter().map(ModuleEntry::from).collect();
-        self.install_compiled_module(&module, &entries)
+        self.install_compiled_module(&module, entries)
     }
 
     pub(super) fn install_compiled_module(
         &mut self,
         module: &Module,
-        entries: &[ModuleEntry<'_>],
+        entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let entries: BTreeMap<_, _> = entries
             .iter()
@@ -183,7 +181,7 @@ impl CpuInstance {
             .collect();
         let entries: Vec<_> = entries
             .into_iter()
-            .map(|(key, export)| ModuleEntry { key, export })
+            .map(|(key, export)| DispatchEntry { key, export })
             .collect();
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
@@ -199,12 +197,11 @@ impl CpuInstance {
             let instance = wasm.instantiate(module, &imports)?;
             self.table.install(wasm, &instance, &entries)
         })?;
-        self.hooks
-            .remove(entries.iter().map(|entry| entry.key.address()));
+        self.hooks.remove(entries.iter().map(|entry| entry.key));
         Ok(())
     }
 
-    pub(super) fn has_entry(&self, key: EntryKey) -> bool {
+    pub(super) fn has_entry(&self, key: u32) -> bool {
         self.table.contains(key)
     }
 

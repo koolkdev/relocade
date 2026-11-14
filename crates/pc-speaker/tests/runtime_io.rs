@@ -59,7 +59,7 @@ async fn guest_port_io() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    address: entry.start_eip,
+                    key: entry.start_eip,
                     export: &entry.export,
                 })
                 .collect();

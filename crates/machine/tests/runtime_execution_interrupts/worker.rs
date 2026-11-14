@@ -89,7 +89,7 @@ async fn request_during_execution() {
             cpu.install_module(
                 &module.bytes,
                 &[DispatchEntry {
-                    address: 0x102,
+                    key: 0x102,
                     export: &module.entry,
                 }],
             )

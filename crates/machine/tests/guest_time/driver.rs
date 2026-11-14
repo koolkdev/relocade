@@ -122,7 +122,7 @@ async fn callback_target_changes() {
                     cpu.install_module(
                         &block.bytes,
                         &[DispatchEntry {
-                            address: 0x100,
+                            key: 0x100,
                             export: &block.entry,
                         }],
                     )
@@ -315,7 +315,7 @@ async fn expired_yield_deadline() {
                 cpu.install_module(
                     &block.bytes,
                     &[DispatchEntry {
-                        address: 0x100,
+                        key: 0x100,
                         export: &block.entry,
                     }],
                 )

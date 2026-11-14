@@ -50,7 +50,7 @@ async fn pit_interrupts() {
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {
-                    address: 0x1012,
+                    key: 0x1012,
                     export: &block.entry,
                 }],
             )

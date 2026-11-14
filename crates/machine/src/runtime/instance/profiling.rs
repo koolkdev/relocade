@@ -78,7 +78,7 @@ impl Profiling {
         };
         let entries: Vec<_> = self
             .hotness
-            .take_batch(|key| table.contains(crate::runtime::EntryKey::RealMode(key)))
+            .take_batch(|key| table.contains(key))
             .into_iter()
             .map(FarPointer::from_packed)
             .collect();

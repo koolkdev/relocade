@@ -50,7 +50,7 @@ async fn check_frames() {
     state.set_segment(Segment::Cs, SegmentRegister::real_mode(Segment::Cs, 0x10));
     state.set_eip(0);
     state.set_segment(Segment::Ss, SegmentRegister::real_mode(Segment::Ss, 0x20));
-    cpu.install([Hook::host(0x100, {
+    cpu.install([Hook::host(0x0010_0000, {
         let exit = cpu.exit_handle();
         async move || exit.request()
     })])
