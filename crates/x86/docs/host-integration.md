@@ -422,6 +422,16 @@ bytes are written. A register destination and LOCK use the shared unsupported
 encoding exit. The instruction reads the retained GDTR even in real mode, where
 that register does not participate in segment addressing.
 
+SMSW reads the low 16 bits of `CpuState::cr0` without changing flags. A word
+register destination preserves its upper word; a dword register destination
+zero-extends the result, choosing zero for the upper bits left undefined by the
+[P4-era Intel SMSW reference](https://www.scs.stanford.edu/nyu/04fa/lab/ia32/IA32-2B.pdf#page=212).
+A memory destination always receives two bytes, independently of operand size.
+The initialized real-mode and protected-mode status words are 0030h and 0031h,
+respectively. Both instructions read CPU backing state during execution and use
+the current profile's ordinary memory checks; neither requires ring 0. LOCK uses
+the shared unsupported encoding exit.
+
 ## Port I/O
 
 Real16 IN/OUT and INS/OUTS call entries in two synchronous `relocade` function tables:

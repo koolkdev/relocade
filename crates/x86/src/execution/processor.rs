@@ -6,9 +6,13 @@ use crate::{
     state::DescriptorTableValues,
     CpuFeature, ExecutionExitValues,
 };
-use relocade_compiler::{BuildError, Val, I1, I32};
+use relocade_compiler::{BuildError, Val, I1, I16, I32};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn machine_status_word(&mut self) -> Result<Val<I16>, BuildError> {
+        self.state.machine_status_word(&mut self.body)
+    }
+
     pub(crate) fn global_descriptor_table(&mut self) -> Result<DescriptorTableValues, BuildError> {
         self.state.global_descriptor_table(&mut self.body)
     }
