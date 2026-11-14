@@ -3,8 +3,9 @@ mod information;
 mod layout;
 mod modes;
 mod palette;
+mod state;
 
-use super::{dispi, VideoFirmware};
+use super::VideoFirmware;
 pub(super) use information::{initialize, ModeInformation, WindowAccess};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -26,22 +27,11 @@ pub(in crate::video) async fn dispatch(
             0x01 => information::mode(firmware),
             0x02 => modes::set(firmware),
             0x03 => modes::current(firmware),
-            0x04 => state(firmware),
+            0x04 => state::dispatch(firmware),
             0x05 => modes::window(firmware),
             0x06 => layout::scanline(firmware),
             0x07 => layout::display_start(firmware),
             0x08 => palette::format(firmware),
-            _ => unsupported,
-        }
-    );
-}
-
-#[interrupt(context(call))]
-async fn state(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
-    interrupt_dispatch!(
-        call,
-        match firmware {
-            VideoFirmware::Dispi(card) => dispi::vbe::state::dispatch(card),
             _ => unsupported,
         }
     );

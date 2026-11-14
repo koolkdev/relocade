@@ -3,6 +3,8 @@ use super::{execution, Firmware};
 mod layout;
 #[path = "vbe/modes.rs"]
 mod modes;
+#[path = "vbe/state.rs"]
+mod state;
 use relocade_bios::Keyboard;
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuConfig, FarPointer};
 use relocade_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, Segment, SegmentRegister};
