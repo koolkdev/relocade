@@ -8,6 +8,7 @@ mod ports;
 mod registers;
 mod scanout;
 mod timing;
+mod viewport;
 
 use crate::{
     memory::VideoMemory, output::Output, scanout::DisplayConfiguration, DisplaySnapshot, Registers,

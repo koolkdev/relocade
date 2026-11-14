@@ -1,13 +1,10 @@
 //! The video firmware selected by the machine composition.
 pub mod dispi;
 pub mod et4000;
-mod vbe;
+pub(super) mod vbe;
 
 use super::{modes, COLOR_TEXT_80X25};
-use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, IoBus, MemoryView,
-};
+use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
 use relocade_vga::{DispiAdapter, Et4000Ax};
 use std::{cell::RefCell, rc::Rc};
 
@@ -56,18 +53,3 @@ pub(super) fn set_mode(
 ) -> Option<u8> {
     firmware.set_mode(memory, io, request)
 }
-
-#[interrupt(context(call))]
-pub(super) async fn vbe(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
-    interrupt_dispatch!(
-        call,
-        match firmware {
-            VideoFirmware::Dispi(card) => dispi::vbe::dispatch(card),
-            VideoFirmware::Et4000Ax(card) => et4000::vbe::dispatch(card),
-            VideoFirmware::Vga => vbe_unavailable,
-        }
-    );
-}
-
-#[interrupt(returns { () => { ax = 0x0100 } })]
-fn vbe_unavailable() {}

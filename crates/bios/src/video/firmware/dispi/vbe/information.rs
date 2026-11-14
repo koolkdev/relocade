@@ -1,7 +1,7 @@
 //! DISPI capabilities supplied to the shared VBE information buffers.
-use super::{available, layout, Mode};
-use crate::video::firmware::vbe::{self, WindowAccess};
-use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
+use super::{active_layout, available, Mode};
+use crate::video::firmware::vbe::{self, ModeInformation, WindowAccess};
+use relocade_machine::MemoryView;
 use relocade_vga::DispiAdapter;
 use std::cell::RefCell;
 
@@ -13,35 +13,12 @@ pub(in super::super) fn initialize(memory: &mut MemoryView<'_>) {
     );
 }
 
-#[interrupt(context(memory), args(destination = ptr(es, di)),
-    returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
-)]
-pub(super) fn controller(
-    memory: &mut MemoryView<'_>,
-    card: &RefCell<DispiAdapter>,
-    destination: FarPointer,
-) -> bool {
-    if !available(card) {
-        return false;
-    }
-    let memory_bytes = card.borrow().video_memory_bytes();
-    vbe::controller(memory, destination, memory_bytes);
-    true
-}
-
-#[interrupt(context(memory), args(number = cx, destination = ptr(es, di)),
-    returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
-)]
-pub(super) fn mode(
-    memory: &mut MemoryView<'_>,
+pub(in crate::video::firmware) fn mode(
     card: &RefCell<DispiAdapter>,
     number: u16,
-    destination: FarPointer,
-) -> bool {
-    let Some(mode) = Mode::from_number(number).filter(|_| available(card)) else {
-        return false;
-    };
-    let layout = layout::active(card)
+) -> Option<ModeInformation> {
+    let mode = Mode::from_number(number).filter(|_| available(card))?;
+    let layout = active_layout(card)
         .filter(|layout| {
             layout.size() == mode.display.size() && layout.format() == mode.display.format()
         })
@@ -50,11 +27,8 @@ pub(super) fn mode(
                 .layout(card.borrow().video_memory_bytes())
                 .expect("supported mode fits VRAM")
         });
-    vbe::banked_mode(
-        memory,
-        destination,
+    Some(ModeInformation {
         layout,
-        [WindowAccess::ReadWrite, WindowAccess::Absent],
-    );
-    true
+        windows: [WindowAccess::ReadWrite, WindowAccess::Absent],
+    })
 }

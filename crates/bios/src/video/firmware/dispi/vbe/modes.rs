@@ -1,10 +1,10 @@
 //! VBE mode numbers and BIOS bookkeeping around card programming.
-use super::{available, layout};
+use super::{active_layout, available};
 use crate::video::{
     fonts, modes as legacy, palette::PaletteLoad, presets, ACTIVE_PAGE, CHARACTER_HEIGHT, COLUMNS,
     CURSORS, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
 };
-use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{DispiAdapter, DispiMode, DispiResolution, PixelFormat};
 use std::cell::RefCell;
 
@@ -64,7 +64,7 @@ impl Mode {
     }
 
     pub(super) fn active(card: &RefCell<DispiAdapter>) -> Option<Self> {
-        let layout = layout::active(card)?;
+        let layout = active_layout(card)?;
         Self::ALL.into_iter().find(|mode| {
             mode.display.size() == layout.size() && mode.display.format() == layout.format()
         })
@@ -110,39 +110,20 @@ impl Mode {
     }
 }
 
-#[interrupt(context(memory, io), args(request = bx),
-    returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
-)]
-pub(super) fn set(
+pub(in crate::video::firmware) fn set(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
     card: &RefCell<DispiAdapter>,
-    request: u16,
+    number: u16,
+    preserve: bool,
 ) -> bool {
-    if !available(card) {
-        return false;
-    }
-    let number = request & 0x7fff;
-    let preserve = request & 0x8000 != 0;
-    if let Some(mode) = Mode::from_number(number) {
-        mode.activate(memory, io, card, preserve)
-    } else if number < 0x80 {
-        super::super::set_mode(
-            memory,
-            io,
-            card,
-            number as u8 | if preserve { 0x80 } else { 0 },
-        )
-        .is_some()
-    } else {
-        false
-    }
+    Mode::from_number(number).is_some_and(|mode| mode.activate(memory, io, card, preserve))
 }
 
-#[interrupt(context(memory), returns {
-    Some(number) => { ax = 0x004f, bx = number }, None => { ax = 0x014f },
-})]
-pub(super) fn current(memory: &MemoryView<'_>, card: &RefCell<DispiAdapter>) -> Option<u16> {
+pub(in crate::video::firmware) fn current(
+    memory: &MemoryView<'_>,
+    card: &RefCell<DispiAdapter>,
+) -> Option<u16> {
     if !available(card) {
         return None;
     }
@@ -155,16 +136,13 @@ pub(super) fn current(memory: &MemoryView<'_>, card: &RefCell<DispiAdapter>) -> 
     }
 }
 
-#[interrupt(context(io), args(operation = bx, position = dx), returns {
-    Some(position) => { ax = 0x004f, dx = position }, None => { ax = 0x014f },
-})]
-pub(super) fn window(
+pub(in crate::video::firmware) fn window(
     io: &IoBus,
     card: &RefCell<DispiAdapter>,
     operation: u16,
     position: u16,
 ) -> Option<u16> {
-    layout::active(card)?;
+    active_layout(card)?;
     match operation {
         0 => io
             .with_context(|context| card.borrow_mut().set_video_bank(context, position))

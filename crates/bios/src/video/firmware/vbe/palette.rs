@@ -1,10 +1,9 @@
 //! DAC format control; color transfers use the existing VGA palette services.
-use super::{available, Mode};
+use super::super::VideoFirmware;
 use relocade_machine::real_mode_interrupt::interrupt;
-use relocade_vga::{registers::dac::Dac, DispiAdapter, PixelFormat};
-use std::cell::RefCell;
+use relocade_vga::{registers::dac::Dac, PixelFormat};
 
-pub(super) enum FormatError {
+pub(in crate::video::firmware) enum FormatError {
     Failed,
     DirectColor,
 }
@@ -14,16 +13,19 @@ pub(super) enum FormatError {
     Err(FormatError::Failed) => { ax = 0x014f },
     Err(FormatError::DirectColor) => { ax = 0x034f },
 })]
-pub(super) fn format(
-    card: &RefCell<DispiAdapter>,
+pub(in crate::video::firmware) fn format(
+    firmware: &VideoFirmware,
     operation: u8,
     bits: u8,
 ) -> Result<u8, FormatError> {
-    if !available(card) {
+    if !firmware.ports_enabled() {
         return Err(FormatError::Failed);
     }
     // VBE 2.0 section 4.11 makes DAC-format control invalid in direct-color modes.
-    if Mode::active(card).is_some_and(|mode| mode.display.format() != PixelFormat::Indexed8) {
+    if firmware
+        .packed_layout()
+        .is_some_and(|layout| layout.format() != PixelFormat::Indexed8)
+    {
         return Err(FormatError::DirectColor);
     }
     // VBE 2.0 section 4.11 specifies the next lower supported width when the

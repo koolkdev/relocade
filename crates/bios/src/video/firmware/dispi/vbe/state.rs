@@ -65,7 +65,7 @@ impl BufferLayout {
 }
 
 #[interrupt(context(call), args(operation = dl))]
-pub(super) async fn dispatch(
+pub(in crate::video::firmware) async fn dispatch(
     call: &mut CpuContext<'_>,
     card: &RefCell<DispiAdapter>,
     operation: u8,

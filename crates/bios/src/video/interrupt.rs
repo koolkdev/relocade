@@ -37,7 +37,7 @@ pub(crate) async fn dispatch(call: &mut CpuContext<'_>, video: &VideoFirmware, f
             0x1a => display_combination,
             0x1b => information::write_report,
             0x1c => state_services,
-            0x4f => firmware::vbe(video),
+            0x4f => firmware::vbe::dispatch(video),
             _ => crate::interrupts::unsupported,
         }
     );
