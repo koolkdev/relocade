@@ -1,10 +1,12 @@
 //! CPU-local module instances, callable exports and decoded guest-code coverage.
 
-use super::table::DispatchTable;
-use crate::{CompiledCode, DispatchEntry, Result};
-use relocade_wasm_runtime::ExportFunction;
+mod table;
+
+use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
+use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
 use std::collections::{BTreeMap, BTreeSet};
+use table::DispatchTable;
 
 pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
@@ -32,7 +34,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         self.code.as_ref()
     }
 
-    pub(super) fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>) -> Result<()> {
+    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>) -> Result<()> {
         let entries: Vec<_> = self
             .entries
             .iter()
@@ -43,21 +45,54 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
 }
 
 pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
+    table: DispatchTable<B>,
     modules: Vec<InstalledModule<B>>,
     pages: BTreeMap<u32, Vec<usize>>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Default for Modules<B> {
-    fn default() -> Self {
-        Self {
+impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
+    pub(super) fn new(backend: &mut B) -> Result<Self> {
+        Ok(Self {
+            table: DispatchTable::new(backend)?,
             modules: Vec::new(),
             pages: BTreeMap::new(),
-        }
+        })
     }
-}
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
-    pub(super) fn insert(&mut self, module: InstalledModule<B>) {
+    pub(super) fn imports<'a>(&'a self, backend: &B) -> [Import<'a, B>; 2]
+    where
+        B: 'a,
+    {
+        self.table.imports(backend)
+    }
+
+    pub(super) fn has_entry(&self, key: u32) -> bool {
+        self.table.contains(key)
+    }
+
+    pub(super) fn install_interpreter(
+        &mut self,
+        backend: &mut B,
+        instance: &B::Instance,
+    ) -> Result<()> {
+        self.table.install_interpreter(backend, instance)
+    }
+
+    pub(super) fn install_interpreter_fallback(
+        &mut self,
+        backend: &mut B,
+        entry: FarPointer,
+    ) -> Result<()> {
+        self.table.install_interpreter_fallback(backend, entry)
+    }
+
+    pub(super) fn install(&mut self, backend: &mut B, module: InstalledModule<B>) -> Result<()> {
+        module.publish(backend, &mut self.table)?;
+        self.insert(module);
+        Ok(())
+    }
+
+    fn insert(&mut self, module: InstalledModule<B>) {
         let id = self.modules.len();
         if let Some(code) = module.code() {
             let pages: BTreeSet<_> = code

@@ -3,7 +3,6 @@
 mod hooks;
 mod modules;
 mod profiling;
-mod table;
 
 use super::{
     code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
@@ -15,7 +14,6 @@ use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::rc::Rc;
-use table::DispatchTable;
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
 pub struct DispatchEntry<'a> {
@@ -36,7 +34,6 @@ pub(super) struct CpuInstance {
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
-    table: DispatchTable<WasmRuntime>,
     modules: Modules<WasmRuntime>,
     pub(super) profiling: Profiling,
     hooks: Hooks,
@@ -59,10 +56,10 @@ impl CpuInstance {
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
-            let table = DispatchTable::new(wasm)?;
+            let mut modules = Modules::new(wasm)?;
             let profiling = Profiling::new(wasm, target)?;
             let mut imports = bindings.imports(wasm).to_vec();
-            imports.extend(table.imports(wasm));
+            imports.extend(modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
             let instance = wasm.instantiate(&dispatcher, &imports)?;
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
@@ -84,7 +81,7 @@ impl CpuInstance {
             )?;
             imports.extend(io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(&interpreter, &imports)?;
-            table.install_interpreter(wasm, &instance)?;
+            modules.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
             let interrupt = if bindings.cpu.mode() == CpuMode::Real {
                 Some(wasm.function(&instance, abi::INTERRUPT)?)
@@ -106,8 +103,7 @@ impl CpuInstance {
                 step,
                 interrupt,
                 far_call,
-                table,
-                modules: Modules::default(),
+                modules,
                 profiling,
                 hooks: Hooks::default(),
             })
@@ -129,7 +125,7 @@ impl CpuInstance {
             if exit != ExecutionExit::CallProfileFull {
                 return exit;
             }
-            self.profiling.collect(wasm, &self.table);
+            self.profiling.collect(wasm, &self.modules);
         })
     }
 
@@ -198,7 +194,7 @@ impl CpuInstance {
     ) -> Result<()> {
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
-            imports.extend(self.table.imports(wasm));
+            imports.extend(self.modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
                 wasm.bind(abi::DISPATCH, &self.dispatch),
@@ -209,16 +205,14 @@ impl CpuInstance {
             imports.extend(self.io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(module, &imports)?;
             let module = InstalledModule::new(instance, entries, code.cloned());
-            module.publish(wasm, &mut self.table)?;
-            self.modules.insert(module);
-            Ok::<(), crate::Error>(())
+            self.modules.install(wasm, module)
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.key));
         Ok(())
     }
 
     pub(super) fn has_entry(&self, key: u32) -> bool {
-        self.table.contains(key)
+        self.modules.has_entry(key)
     }
 
     pub(super) fn compiled_modules_at(
@@ -230,9 +224,9 @@ impl CpuInstance {
             .filter_map(|module| module.code())
     }
 
-    pub(super) fn interpret_at(&mut self, entry: FarPointer) -> Result<()> {
+    pub(super) fn install_interpreter_fallback(&mut self, entry: FarPointer) -> Result<()> {
         self.runtime
-            .with_runtime(|wasm| self.table.interpret_at(wasm, entry))
+            .with_runtime(|wasm| self.modules.install_interpreter_fallback(wasm, entry))
     }
 
     #[inline]

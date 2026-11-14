@@ -124,13 +124,13 @@ async fn replace_fallback() {
         .await
         .unwrap();
     cpu.instance
-        .interpret_at(crate::FarPointer {
+        .install_interpreter_fallback(crate::FarPointer {
             segment: 0,
             offset: 0x200,
         })
         .unwrap();
     cpu.instance
-        .interpret_at(crate::FarPointer {
+        .install_interpreter_fallback(crate::FarPointer {
             segment: 0,
             offset: 0x300,
         })

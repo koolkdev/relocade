@@ -1,7 +1,7 @@
 //! Collects Real16 call observations and submits hot batches on this CPU's client.
 //! Keys are packed 16:16 CS:IP values. Protected-mode dispatch does not record.
 
-use super::{table::DispatchTable, WasmRuntime};
+use super::{modules::Modules, WasmRuntime};
 use crate::{CompilerClient, Cpu, FarPointer, FunctionRequest, Instant, Result};
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, CallProfile, ExecutionProfile, ExecutionTarget, FunctionLimits};
@@ -41,18 +41,18 @@ impl Profiling {
     fn collect_if_due(
         &mut self,
         wasm: &mut WasmRuntime,
-        table: &DispatchTable<WasmRuntime>,
+        modules: &Modules<WasmRuntime>,
         now: Instant,
     ) {
         let deadline = *self.next_collection.get_or_insert(now + SAMPLE_INTERVAL);
         if now < deadline {
             return;
         }
-        self.collect(wasm, table);
+        self.collect(wasm, modules);
         self.next_collection = Some(now + SAMPLE_INTERVAL);
     }
 
-    pub(super) fn collect(&mut self, wasm: &mut WasmRuntime, table: &DispatchTable<WasmRuntime>) {
+    pub(super) fn collect(&mut self, wasm: &mut WasmRuntime, modules: &Modules<WasmRuntime>) {
         {
             let mut memory = wasm.memory(&self.memory);
             let batch = CallProfile::read(|offset| memory.load(offset));
@@ -61,7 +61,7 @@ impl Profiling {
             }
             batch.clear(|offset, value| memory.store(offset, value));
         }
-        self.submit(table);
+        self.submit(modules);
     }
 
     fn disable(&mut self) {
@@ -69,7 +69,7 @@ impl Profiling {
         self.pending.clear();
     }
 
-    fn submit(&mut self, table: &DispatchTable<WasmRuntime>) {
+    fn submit(&mut self, modules: &Modules<WasmRuntime>) {
         if self.target.profile != ExecutionProfile::Real16 || !self.pending.is_empty() {
             return;
         }
@@ -78,7 +78,7 @@ impl Profiling {
         };
         let entries: Vec<_> = self
             .hotness
-            .take_batch(|key| table.contains(key))
+            .take_batch(|key| modules.has_entry(key))
             .into_iter()
             .map(FarPointer::from_packed)
             .collect();
@@ -125,7 +125,7 @@ impl Cpu {
         instance.runtime.with_runtime(|wasm| {
             instance
                 .profiling
-                .collect_if_due(wasm, &instance.table, Instant::now());
+                .collect_if_due(wasm, &instance.modules, Instant::now());
         });
         // Host services may retain dispatch entries. Keep replies queued until
         // installation can use the ordinary CPU API.
@@ -152,14 +152,14 @@ impl Cpu {
                 let _ = code.install_missing(self);
             }
             for entry in std::mem::take(&mut self.instance.profiling.pending) {
-                if self.instance.interpret_at(entry).is_err() {
+                if self.instance.install_interpreter_fallback(entry).is_err() {
                     self.instance.profiling.disable();
                     return;
                 }
             }
             // Observations may have accumulated while the previous batch ran.
             let instance = &mut self.instance;
-            instance.profiling.submit(&instance.table);
+            instance.profiling.submit(&instance.modules);
         }
     }
 }
