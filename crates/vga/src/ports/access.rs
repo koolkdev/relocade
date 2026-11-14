@@ -15,6 +15,10 @@ pub(crate) trait VgaPortAccess: CardEffects + 'static {
     fn read_input_status_0(&self) -> u8 {
         0x10
     }
+    /// Card-specific status bits derived from the cached raster value.
+    fn input_status_1(raster_status: u8) -> u8 {
+        raster_status
+    }
     fn read_adapter_control(&self) -> u8 {
         0xff
     }

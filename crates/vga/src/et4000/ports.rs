@@ -124,6 +124,11 @@ impl VgaPortAccess for Et4000Ax {
         0x10 | if self.extensions.unlocked() { 0x60 } else { 0 }
     }
 
+    fn input_status_1(raster_status: u8) -> u8 {
+        // Data book p. 103: bit 7 is the complement of vertical retrace (bit 3).
+        raster_status | ((!raster_status & 8) << 4)
+    }
+
     fn read_adapter_control(&self) -> u8 {
         if self.extensions.uses_46e8() {
             self.vga.setup.read_control() & 8

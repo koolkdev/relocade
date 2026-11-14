@@ -39,7 +39,9 @@ six bits, so extended indices cannot alias legacy registers. Extension access fo
 3B8h/3D8h=A0h). CRTC 33h is not KEY-protected; 35h follows the VGA timing
 protection bit, except its line-compare and interlace bits. Segment-register
 access remains enabled after relocking, until synchronous reset. There is one
-Attribute address/phase latch for both standard and extension registers.
+Attribute address/phase latch for both standard and extension registers. Input
+Status 1 bit 7 is the complement of vertical retrace, including cached polls;
+native Tseng detection uses it before probing CRTC 33h.
 
 The selected adapter-enable address is 3C3h or 46E8h; Rev E aliases 46E8h on
 its low twelve address bits. Extension configuration registers retain their
