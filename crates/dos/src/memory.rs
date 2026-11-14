@@ -3,28 +3,9 @@
 use crate::error::DosError;
 use relocade_machine::MemoryView;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum AllocationStrategy {
-    #[default]
-    First = 0,
-    Best = 1,
-    Last = 2,
-}
-
-impl AllocationStrategy {
-    pub(crate) fn from_code(code: u16) -> Result<Self, DosError> {
-        match code {
-            0 => Ok(Self::First),
-            1 => Ok(Self::Best),
-            2 => Ok(Self::Last),
-            _ => Err(DosError::InvalidFunction),
-        }
-    }
-
-    pub(crate) fn code(self) -> u16 {
-        self as u16
-    }
-}
+mod strategy;
+pub(crate) use strategy::AllocationStrategy;
+use strategy::Fit;
 
 pub(crate) const PARAGRAPH_BYTES: u32 = 16;
 // Keep the IVT and DOS workspace below the single root process.
@@ -63,10 +44,12 @@ pub(crate) fn allocate(
         .iter()
         .enumerate()
         .filter(|(_, block)| block.owner == 0 && block.paragraphs >= paragraphs);
-    let candidate = match strategy {
-        AllocationStrategy::First => candidates.next(),
-        AllocationStrategy::Best => candidates.min_by_key(|(_, block)| block.paragraphs),
-        AllocationStrategy::Last => candidates.next_back(),
+    // MS-DOS 5 searches conventional memory for every strategy while UMBs are
+    // unlinked (Programmer's Reference, Function 5801h). This arena has no UMBs.
+    let candidate = match strategy.fit {
+        Fit::First => candidates.next(),
+        Fit::Best => candidates.min_by_key(|(_, block)| block.paragraphs),
+        Fit::Last => candidates.next_back(),
     };
     let Some((mut index, _)) = candidate else {
         let available = blocks
@@ -77,7 +60,7 @@ pub(crate) fn allocate(
             .unwrap_or(0);
         return Err(DosError::InsufficientMemory { available });
     };
-    if strategy == AllocationStrategy::Last && paragraphs < blocks[index].paragraphs {
+    if strategy.fit == Fit::Last && paragraphs < blocks[index].paragraphs {
         // Last fit takes the high end of the last suitable block. The low
         // remainder retains the original MCB, including for a zero-sized request.
         let remainder = blocks[index].paragraphs - paragraphs - 1;

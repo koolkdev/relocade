@@ -36,14 +36,14 @@ pub(crate) fn allocate(
         memory,
         paragraphs,
         memory::FIRST_SEGMENT,
-        memory::AllocationStrategy::First,
+        memory::AllocationStrategy::default(),
     )
     .expect("validated root-process allocation");
     let environment_segment = memory::allocate(
         memory,
         environment_paragraphs,
         segment,
-        memory::AllocationStrategy::First,
+        memory::AllocationStrategy::default(),
     )
     .expect("validated environment allocation");
     memory

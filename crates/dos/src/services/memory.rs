@@ -53,6 +53,8 @@ pub(super) async fn strategy(call: &mut CpuContext<'_>, services: &Services<'_>,
         match function {
             0x00 => get_strategy(services),
             0x01 => set_strategy(services),
+            0x02 => get_umb_link,
+            // With no UMB provider, AX=5803h fails for both link and unlink.
             _ => invalid_function,
         }
     );
@@ -72,6 +74,9 @@ fn set_strategy(services: &Services<'_>, code: u16) -> Result<(), DosError> {
     services.dos.allocation_strategy.set(strategy);
     Ok(())
 }
+
+#[interrupt(returns { () => { al = 0u8, cf = false } })]
+fn get_umb_link() {}
 
 #[interrupt(returns { error => crate::interrupts::return_error(error) })]
 fn invalid_function() -> DosError {
