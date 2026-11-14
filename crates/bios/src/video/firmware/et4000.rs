@@ -1,5 +1,6 @@
 //! Firmware for the 1-MiB ET4000AX board, initially in six-bit indexed DAC mode.
 mod modes;
+pub(super) mod vbe;
 
 use crate::video::{modes as legacy, COLOR_TEXT_80X25};
 use relocade_machine::{IoBus, MemoryView};
@@ -7,6 +8,11 @@ use relocade_vga::Et4000Ax;
 use std::cell::RefCell;
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, card: &RefCell<Et4000Ax>) {
+    super::vbe::initialize(
+        memory,
+        b"Relocade ET4000AX\0",
+        modes::Mode::ALL.iter().map(|mode| mode.vbe_number),
+    );
     assert!(
         legacy::select_scanlines(memory, 2),
         "initial scanline profile"

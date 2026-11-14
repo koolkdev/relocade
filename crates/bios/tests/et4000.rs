@@ -6,8 +6,12 @@ use relocade_vga::{Et4000Ax, FramebufferAccess, FramebufferGeometry};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, rc::Rc};
 
+#[path = "../../machine/tests/support/execution.rs"]
+mod execution;
 #[path = "et4000/tables.rs"]
 mod tables;
+#[path = "et4000/vbe.rs"]
+mod vbe;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

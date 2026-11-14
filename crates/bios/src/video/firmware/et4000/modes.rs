@@ -4,12 +4,13 @@ use crate::video::{fonts, modes::complete_mode, palette::PaletteLoad, presets, w
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::{
     registers::{attribute, SEQUENCER_INDEX_PORT},
-    Et4000Ax,
+    Et4000Ax, PackedLayout, PixelFormat,
 };
 use std::cell::RefCell;
 
 pub(super) struct Mode {
     pub bios_number: u8,
+    pub vbe_number: u16,
     pub size: [u16; 2],
     miscellaneous: u8,
     compatibility: u8,
@@ -19,6 +20,7 @@ pub(super) struct Mode {
 
 const INDEXED_640X480: Mode = Mode {
     bios_number: 0x2e,
+    vbe_number: 0x101,
     size: [640, 480],
     miscellaneous: 0xe3,
     compatibility: 8,
@@ -31,6 +33,7 @@ const INDEXED_640X480: Mode = Mode {
 
 const INDEXED_800X600: Mode = Mode {
     bios_number: 0x30,
+    vbe_number: 0x103,
     size: [800, 600],
     miscellaneous: 0xef,
     compatibility: 8,
@@ -43,6 +46,7 @@ const INDEXED_800X600: Mode = Mode {
 
 const INDEXED_1024X768_INTERLACED: Mode = Mode {
     bios_number: 0x38,
+    vbe_number: 0x105,
     size: [1024, 768],
     miscellaneous: 0x2f,
     compatibility: 0x0a,
@@ -62,6 +66,20 @@ impl Mode {
 
     pub fn from_bios_number(number: u8) -> Option<&'static Self> {
         Self::ALL.iter().find(|mode| mode.bios_number == number)
+    }
+
+    pub fn from_vbe_number(number: u16) -> Option<&'static Self> {
+        Self::ALL.iter().find(|mode| mode.vbe_number == number)
+    }
+
+    pub fn layout(&self, memory_bytes: u32) -> Option<PackedLayout> {
+        PackedLayout::new(
+            self.size.map(u32::from),
+            PixelFormat::Indexed8,
+            u32::from(self.size[0]),
+            0,
+            memory_bytes,
+        )
     }
 
     pub fn activate(

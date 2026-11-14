@@ -1,7 +1,7 @@
 //! VBE mode numbers and BIOS bookkeeping around card programming.
 use super::{available, layout};
 use crate::video::{
-    modes as legacy, palette::PaletteLoad, presets, ACTIVE_PAGE, CHARACTER_HEIGHT, COLUMNS,
+    fonts, modes as legacy, palette::PaletteLoad, presets, ACTIVE_PAGE, CHARACTER_HEIGHT, COLUMNS,
     CURSORS, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
 };
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
@@ -77,7 +77,6 @@ impl Mode {
         card: &RefCell<DispiAdapter>,
         preserve: bool,
     ) -> bool {
-        let [width, height] = self.display.size().map(|value| value as u16);
         if !io.with_context(|context| {
             card.borrow_mut()
                 .enter_packed_mode(context, self.display, preserve)
@@ -88,13 +87,14 @@ impl Mode {
             presets::INDEXED256.load_palette(io, PaletteLoad::for_mode_set(memory));
         }
 
+        let [width, height] = self.display.size().map(|value| value as u16);
+        fonts::set_mode(memory, io, 16, false);
         memory.write_u8(MODE, VBE_MODE_MARKER).expect("video mode");
         memory.write_u16(COLUMNS, width / 8).expect("video columns");
         memory
             .write_u8(LAST_ROW, (height / 16 - 1) as u8)
             .expect("video rows");
         memory.write_u16(CHARACTER_HEIGHT, 16).expect("font height");
-        // The packed frame exceeds a 16-bit legacy page size; no legacy pages exist.
         memory.write_u16(PAGE_SIZE, 0).expect("video page size");
         memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
         memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");

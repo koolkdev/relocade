@@ -97,6 +97,25 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
 }
 
 #[test]
+fn vbe_information_can_be_written_into_the_cards_own_memory() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        {
+            let state = dos.cpu().cpu_state();
+            state.set_segment(Segment::Es, SegmentRegister::real_mode(Segment::Es, 0xb800));
+            state.set_di(0);
+        }
+        let result = video(&mut dos, 0x4f00, 0, 0, 0);
+        assert_eq!(result.registers.eax as u16, 0x004f);
+        assert_eq!(
+            dos.cpu().context().memory.read_u32(0xb8000).unwrap(),
+            u32::from_le_bytes(*b"VESA")
+        );
+    });
+}
+
+#[test]
 fn vbe_mode_information_describes_only_the_supported_banked_layout() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

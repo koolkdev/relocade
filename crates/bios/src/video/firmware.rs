@@ -1,6 +1,7 @@
 //! The video firmware selected by the machine composition.
 pub mod dispi;
 pub mod et4000;
+mod vbe;
 
 use super::{modes, COLOR_TEXT_80X25};
 use relocade_machine::{
@@ -62,7 +63,8 @@ pub(super) async fn vbe(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
         call,
         match firmware {
             VideoFirmware::Dispi(card) => dispi::vbe::dispatch(card),
-            VideoFirmware::Vga | VideoFirmware::Et4000Ax(_) => vbe_unavailable,
+            VideoFirmware::Et4000Ax(card) => et4000::vbe::dispatch(card),
+            VideoFirmware::Vga => vbe_unavailable,
         }
     );
 }
