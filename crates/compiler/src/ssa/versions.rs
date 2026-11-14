@@ -1,5 +1,10 @@
 //! Share block-end renamings without copying the set of live definitions.
 //! A block may update its own nodes; descendants copy only the changed radix path.
+use crate::body::BlockId;
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Snapshot(u32);
+
 #[derive(Clone)]
 struct Node {
     owner: usize,
@@ -24,7 +29,36 @@ impl Versions {
         }
     }
 
-    pub(super) fn get(&self, mut root: u32, key: usize) -> Option<usize> {
+    pub(super) fn value(&self, snapshot: Snapshot, value: usize) -> Option<usize> {
+        self.get(snapshot.0, value << 1)
+    }
+
+    pub(super) fn truth(&self, snapshot: Snapshot, predicate: usize) -> Option<bool> {
+        self.get(snapshot.0, predicate << 1 | 1)
+            .map(|truth| truth != 0)
+    }
+
+    pub(super) fn with_value(
+        &mut self,
+        snapshot: Snapshot,
+        block: BlockId,
+        value: usize,
+        replacement: usize,
+    ) -> Snapshot {
+        Snapshot(self.set(snapshot.0, block.0, value << 1, replacement))
+    }
+
+    pub(super) fn with_truth(
+        &mut self,
+        snapshot: Snapshot,
+        block: BlockId,
+        predicate: usize,
+        truth: bool,
+    ) -> Snapshot {
+        Snapshot(self.set(snapshot.0, block.0, predicate << 1 | 1, usize::from(truth)))
+    }
+
+    fn get(&self, mut root: u32, key: usize) -> Option<usize> {
         let key = u64::try_from(key).unwrap();
         let depth = self.nodes[root as usize].depth;
         if key >> ((depth + 1) * 4) != 0 {
@@ -39,7 +73,7 @@ impl Versions {
         (root != 0).then(|| root as usize - 1)
     }
 
-    pub(super) fn set(&mut self, mut root: u32, owner: usize, key: usize, value: usize) -> u32 {
+    fn set(&mut self, mut root: u32, owner: usize, key: usize, value: usize) -> u32 {
         let key = u64::try_from(key).unwrap();
         assert!(key < 1 << 36, "function keys fit 36 bits");
         let depth = (63 - key.max(1).leading_zeros()) / 4;
@@ -85,8 +119,8 @@ impl Versions {
         root
     }
 
-    pub(super) fn contradict(&self, left: u32, right: u32) -> bool {
-        let mut pending = vec![(left, right)];
+    pub(super) fn contradict(&self, left: Snapshot, right: Snapshot) -> bool {
+        let mut pending = vec![(left.0, right.0)];
         while let Some((left, right)) = pending.pop() {
             if left == right || left == 0 || right == 0 {
                 continue;
@@ -127,30 +161,32 @@ mod tests {
     #[test]
     fn sibling_updates_and_growth_preserve_prior_snapshots() {
         let mut versions = Versions::new();
-        let parent = versions.set(0, 0, 2, 7);
-        let a = versions.set(parent, 1, 2, 11);
-        let a = versions.set(a, 1, 0x100000, 19);
-        let b = versions.set(parent, 2, 4, 23);
-        assert_eq!(versions.get(parent, 2), Some(7));
-        assert_eq!(versions.get(parent, 0x100000), None);
-        assert_eq!(versions.get(a, 2), Some(11));
-        assert_eq!(versions.get(a, 0x100000), Some(19));
-        assert_eq!(versions.get(a, 4), None);
-        assert_eq!(versions.get(b, 2), Some(7));
-        assert_eq!(versions.get(b, 4), Some(23));
+        let parent = versions.with_value(Snapshot::default(), BlockId(0), 1, 7);
+        let a = versions.with_value(parent, BlockId(1), 1, 11);
+        let a = versions.with_value(a, BlockId(1), 0x80000, 19);
+        let b = versions.with_value(parent, BlockId(2), 2, 23);
+        assert_eq!(versions.value(parent, 1), Some(7));
+        assert_eq!(versions.value(parent, 0x80000), None);
+        assert_eq!(versions.value(a, 1), Some(11));
+        assert_eq!(versions.value(a, 0x80000), Some(19));
+        assert_eq!(versions.value(a, 2), None);
+        assert_eq!(versions.value(b, 1), Some(7));
+        assert_eq!(versions.value(b, 2), Some(23));
     }
 
     #[test]
     fn only_opposing_propositions_exclude_paths() {
         let mut versions = Versions::new();
-        let parent = versions.set(0, 0, 3, 1);
-        let a = versions.set(parent, 1, 2, 11);
-        let b = versions.set(parent, 2, 2, 23);
-        let b = versions.set(b, 2, 0x100001, 0);
+        let parent = versions.with_truth(Snapshot::default(), BlockId(0), 1, true);
+        let a = versions.with_value(parent, BlockId(1), 1, 11);
+        let b = versions.with_value(parent, BlockId(2), 1, 23);
+        let b = versions.with_truth(b, BlockId(2), 0x80000, false);
+        assert_eq!(versions.truth(a, 1), Some(true));
+        assert_eq!(versions.value(a, 1), Some(11));
         assert!(!versions.contradict(a, b));
-        let c = versions.set(b, 3, 3, 0);
+        let c = versions.with_truth(b, BlockId(3), 1, false);
         assert!(versions.contradict(a, c));
         assert!(versions.contradict(c, a));
-        assert!(!versions.contradict(a, 0));
+        assert!(!versions.contradict(a, Snapshot::default()));
     }
 }

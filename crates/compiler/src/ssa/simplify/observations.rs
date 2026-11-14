@@ -40,7 +40,7 @@ impl Analysis<'_> {
             if previous != known {
                 let refined = self.refine(id, block);
                 self.summaries[refined] = known;
-                for user in self.users.of(self.roots[id]) {
+                for user in self.users.of(self.scopes.root(id)) {
                     if !self.graph.values[user].ty.is_integer()
                         || self.queued[user]
                         || !self
@@ -210,57 +210,14 @@ impl Analysis<'_> {
     }
 
     pub(super) fn refine(&mut self, id: usize, block: BlockId) -> usize {
-        let refined = self.graph.values.push(Value {
-            ty: self.graph.values[id].ty,
-            definition: ValueDefinition::RefinedAlias { source: id, block },
-        });
+        debug_assert_eq!(self.scopes.block(), block);
+        let refined = self.scopes.refine(self.graph, id);
         self.extend();
-        let root = self.roots[id];
-        self.roots[refined] = root;
-        let previous = self.renamed[root].replace(refined);
-        self.bindings.push((root << 1, previous));
-        self.current = self.versions.set(self.current, block.0, root << 1, refined);
-        for &join in &self.frontiers[block.0] {
-            if !self.complete[join]
-                && self
-                    .graph
-                    .values
-                    .definition_block(root)
-                    .is_some_and(|owner| self.dominators.dominates(owner.0, join))
-            {
-                self.merges[join].push(root << 1);
-            }
-        }
         refined
     }
 
-    pub(super) fn observe_predicate(&mut self, index: usize, truth: bool, block: BlockId) {
-        if self.predicates[index] == Some(truth) {
-            return;
-        }
-        if self.predicates[index].is_some() {
-            return;
-        }
-        let previous = self.predicates[index].replace(truth);
-        let key = index << 1 | 1;
-        self.bindings.push((key, previous.map(usize::from)));
-        self.current = self
-            .versions
-            .set(self.current, block.0, key, usize::from(truth));
-        for &join in &self.frontiers[block.0] {
-            if !self.complete[join]
-                && self.predicate_keys[index]
-                    .inputs()
-                    .into_iter()
-                    .all(|input| {
-                        self.graph
-                            .values
-                            .definition_block(input)
-                            .is_none_or(|owner| self.dominators.dominates(owner.0, join))
-                    })
-            {
-                self.merges[join].push(key);
-            }
-        }
+    pub(super) fn observe_predicate(&mut self, id: PredicateId, truth: bool, block: BlockId) {
+        debug_assert_eq!(self.scopes.block(), block);
+        self.scopes.assume_predicate(self.graph, id, truth);
     }
 }
