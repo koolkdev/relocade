@@ -38,6 +38,43 @@ fn compile(start: u32, code: &[u8]) -> TestModule {
 }
 
 #[test]
+fn links_keep_valid_paths_and_dispatch_undecodable_destinations() {
+    let code = [
+        0xb8, 1, 0, // MOV AX,1
+        0xe3, 5,    // JCXZ 100A
+        0xbb, 42, 0, // MOV BX,42
+        0xeb, 0x76, // JMP 1080
+        0xf1,       // Unsupported destination
+    ];
+    let module = compile(0x1000, &code);
+    for count in [0, 1] {
+        let mut image = image(0x1000, &code);
+        image.cpu.registers.ecx = count;
+        let mut after = image.cpu;
+        after.registers.eax = 1;
+        if count == 0 {
+            after.eip = 0x100a;
+            after.instruction_count = 2;
+        } else {
+            after.registers.ebx = 42;
+            after.eip = 0x1080;
+            after.instruction_count = 4;
+        }
+        assert_eq!(
+            module.observe(&image.input(), 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu: after,
+                    ram: &[],
+                    exit: Exit::Dispatch(after.eip),
+                }],
+            ),
+        );
+    }
+}
+
+#[test]
 fn local_branches_and_linear_splits_retain_every_checkpoint() {
     let code = [
         0xb9, 3, 0, // MOV CX,3

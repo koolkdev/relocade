@@ -1,6 +1,60 @@
 use super::*;
 
 #[test]
+fn decode_failures_preserve_valid_prefixes_and_other_branches() {
+    let limits = FunctionLimits::default();
+    for suffix in [
+        &[0xb8][..],         // Incomplete MOV EAX,imm32
+        &[0xf1, 0x90, 0xc3], // Unsupported opcode followed by valid instructions
+        &[0x66; 16],         // Overlong instruction
+    ] {
+        let mut prefix = vec![0x90];
+        prefix.extend(suffix);
+        assert_eq!(entries(&prefix, limits), [(0x1000, 1)]);
+
+        let mut branch = vec![
+            0x75, 3,    // JNZ 1005, explored before the fallthrough
+            0x40,       // INC EAX
+            0xff, 0xe0, // JMP EAX
+        ];
+        branch.extend(suffix);
+        assert_eq!(entries(&branch, limits), [(0x1000, 2), (0x1002, 3)]);
+    }
+}
+
+#[test]
+fn undecodable_entries_still_report_the_decode_error() {
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    for (code, expected) in [
+        (
+            &[0xb8][..],
+            BlockError::TruncatedInstruction {
+                address: 0x1000,
+                available: 1,
+            },
+        ),
+        (
+            &[0xf1],
+            BlockError::UnsupportedInstruction {
+                address: 0x1000,
+                opcode: 0xf1,
+            },
+        ),
+        (
+            &[0x66; 16],
+            BlockError::InstructionTooLong { address: 0x1000 },
+        ),
+    ] {
+        assert_eq!(
+            compiler
+                .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, code))
+                .err(),
+            Some(expected),
+        );
+    }
+}
+
+#[test]
 fn block_boundaries_with_known_fallthrough_continue_discovery() {
     let target = Compiler::new(ExecutionProfile::Real16).target();
     for code in [
@@ -51,7 +105,7 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         &[0x66, 0xff, 0x1e, 0, 0x20],          // Indirect dword far call
     ] {
         let mut bytes = call.to_vec();
-        bytes.extend([0x40, 0xcb, 0x0f]); // INC AX; RETF; incomplete suffix
+        bytes.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
         let mut read = reader(0x1000, &bytes);
         let blocks = discover::blocks(0x1000, target, FunctionLimits::default(), |eip, output| {
             assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
@@ -100,7 +154,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
         (SegmentProfile::Flat32.into(), &[0xf4]),            // HLT requires CPL0
     ] {
         let mut bytes = code.to_vec();
-        bytes.push(0x0f); // An incomplete suffix detects accidental exploration.
+        bytes.extend([0x90, 0xc3]); // A valid suffix exposes accidental exploration.
         let blocks = discover::blocks(
             0x1000,
             Compiler::new(profile).target(),

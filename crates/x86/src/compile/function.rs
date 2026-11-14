@@ -78,9 +78,11 @@ impl Compiler {
     /// Entries are returned in increasing EIP order. Each instruction is decoded
     /// once and retained through block splitting and IR construction. Straight-line
     /// code is also split at `limits.block_instructions`, without ending exploration.
-    /// An incomplete or unsupported instruction fails this request. Exceeding the
-    /// whole-function instruction or byte cap returns [`BlockError::FunctionTooLarge`]
-    /// before building IR; it never produces a partially explored module.
+    /// An incomplete, overlong or unsupported instruction ends only its path;
+    /// valid prefixes and other discovered branches remain compiled. Transfers
+    /// into omitted code use runtime dispatch. An undecodable entry still returns
+    /// its decoding error. Exceeding a whole-function instruction or byte cap
+    /// returns [`BlockError::FunctionTooLarge`] before building any IR.
     /// An unreadable successor ends its path; an unreadable entry produces no blocks.
     ///
     /// Known jumps, fallthroughs and near calls to entries in this function use

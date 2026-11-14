@@ -37,7 +37,7 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         0x90, 0x90, 0x75, 0xfd, // NOP; loop at second NOP
         0xe8, 0xf7, 0x0f, 0, 0, // CALL 2000, outside this readable range
         0xff, 0xd0, // CALL EAX
-        0xc3, 0x0f, // RET; incomplete suffix must not be decoded
+        0xc3, 0x90, // RET; unused NOP must not be decoded
     ];
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let actual = compiler
@@ -223,11 +223,6 @@ fn unknown_targets_and_overlapping_encodings_end_only_the_affected_path() {
         entries(&[0x75, 1, 0xb8, 0x90, 0x90, 0x90, 0xc3], limits),
         [(0x1000, 2), (0x1003, 4)]
     );
-    for code in [&[0x90, 0xb8][..], &[0x90, 0x0f, 0xff]] {
-        assert!(Compiler::new(SegmentProfile::Flat32)
-            .compile_function(0x1000, limits, reader(0x1000, code))
-            .is_err());
-    }
 }
 
 #[test]
