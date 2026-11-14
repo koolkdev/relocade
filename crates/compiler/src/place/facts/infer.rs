@@ -1,6 +1,6 @@
 //! Derive facts through expressions without changing the current path.
 
-use super::{Bits, ScalarFacts};
+use super::{Bits, Demand, ScalarFacts};
 use crate::expression::{BinaryOp as Binary, CompareOp as Compare, TernaryOp as Ternary};
 use crate::{body::ValueTable, Expression};
 
@@ -73,6 +73,9 @@ impl ScalarFacts {
         if cache.get(&id).is_some_and(|answer| answer.bits.is_some()) {
             return;
         }
+        self.dependencies
+            .borrow_mut()
+            .track(table, Demand::Bits(id));
         let value = table[id];
         if !value.ty.is_scalar() {
             cache.get_or_insert_default(id).bits = Some(Bits::default());
