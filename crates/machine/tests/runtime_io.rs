@@ -200,7 +200,7 @@ async fn check_device_access() {
                     .entries
                     .iter()
                     .map(|entry| DispatchEntry {
-                        address: entry.start_eip,
+                        key: entry.start_eip,
                         export: &entry.export,
                     })
                     .collect();

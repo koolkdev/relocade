@@ -115,7 +115,7 @@ impl<'cpu> Interrupts<'cpu> {
         let memory = memory.with_io(self.cpu.instance.io.clone());
         let guest_calls = self.cpu.guest_calls.clone();
         self.hooks
-            .extend(hook(entry.address(), cpu.clone(), async move || {
+            .extend(hook(entry.packed(), cpu.clone(), async move || {
                 handler(&mut CpuContext {
                     cpu: &cpu,
                     memory: memory.view(),

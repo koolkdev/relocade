@@ -44,7 +44,7 @@ async fn check_dispatch_table() {
         .unwrap(); // INC AX; JMP 0100
     let module = callable(10);
     let entries = [DispatchEntry {
-        address: 0x200,
+        key: 0x200,
         export: "entry",
     }];
     // Compilation is independent of the CPU's Wasm runtime. Reuse this module for both batches.
@@ -59,12 +59,12 @@ async fn check_dispatch_table() {
     // A later batch grows both tables while preserving the first callable.
     let mut entries: Vec<_> = (0..4094)
         .map(|offset| DispatchEntry {
-            address: 0x10000 + offset,
+            key: 0x10000 + offset,
             export: "entry",
         })
         .collect();
     entries.push(DispatchEntry {
-        address: 0x250,
+        key: 0x250,
         export: "entry",
     });
     runtime.install_compiled_module(&module, &entries).unwrap();
@@ -90,11 +90,11 @@ async fn check_dispatch_table() {
             &compiled,
             &[
                 DispatchEntry {
-                    address: 0x200,
+                    key: 0x200,
                     export: "entry"
                 },
                 DispatchEntry {
-                    address: 0x300,
+                    key: 0x300,
                     export: "missing"
                 },
             ]
@@ -110,7 +110,7 @@ async fn check_dispatch_table() {
         .install_module(
             &module,
             &[DispatchEntry {
-                address: 0x200,
+                key: 0x200,
                 export: "entry",
             }],
         )

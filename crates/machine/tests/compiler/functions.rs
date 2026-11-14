@@ -53,7 +53,7 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
             let exit = runner.cpu().exit_handle();
             runner
                 .cpu()
-                .install([Hook::host(0x120, async move || exit.request())])
+                .install([Hook::host(0x0010_0020, async move || exit.request())])
                 .await
                 .unwrap();
             code.install(runner.cpu()).unwrap();
@@ -127,9 +127,9 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             runner
                 .cpu()
                 .install([
-                    Hook::host(0x100, async || panic!("caller was not installed")),
-                    Hook::host(0x200, async || panic!("callee was not installed")),
-                    Hook::host(0x120, async move || exit.request()),
+                    Hook::host(0x0010_0000, async || panic!("caller was not installed")),
+                    Hook::host(0x0020_0000, async || panic!("callee was not installed")),
+                    Hook::host(0x0010_0020, async move || exit.request()),
                 ])
                 .await
                 .unwrap();
@@ -145,6 +145,114 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
         .await;
     machine.shutdown().await.unwrap();
     assert_eq!(result.unwrap(), Some(()));
+}
+
+async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    machine
+        .memory()
+        .view()
+        .write(
+            0x100,
+            &[
+                0xe8, 0, 0,    // CALL next: push the CS-relative return IP
+                0x58, // POP AX
+                0xff, 0xe3, // JMP BX to the CS:IP exit hook
+            ],
+        )
+        .unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        compiler
+            .request_functions(
+                target,
+                vec![
+                    FunctionRequest {
+                        entry: FarPointer {
+                            segment: 0,
+                            offset: 0x100,
+                        },
+                        limits: FunctionLimits::default(),
+                    },
+                    FunctionRequest {
+                        entry: FarPointer {
+                            segment: 1,
+                            offset: 0xf0,
+                        },
+                        limits: FunctionLimits::default(),
+                    },
+                ],
+            )
+            .unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        let exit = runner.cpu().exit_handle();
+        let alias_exit = exit.clone();
+        runner
+            .cpu()
+            .install([
+                Hook::host(0x120, async move || exit.request()),
+                Hook::host(0x0001_0110, async move || alias_exit.request()),
+            ])
+            .await
+            .unwrap();
+        code.install(runner.cpu()).unwrap();
+        for phase in 0..3 {
+            if phase == 1 {
+                // Replacing one CS:IP must leave its alias unchanged.
+                let exit = runner.cpu().exit_handle();
+                runner
+                    .cpu()
+                    .install([Hook::host(0x100, async move || exit.request())])
+                    .await
+                    .unwrap();
+            } else if phase == 2 {
+                code.install(runner.cpu()).unwrap();
+            }
+            for (segment, offset, return_ip) in [(0, 0x100, 0x103), (1, 0xf0, 0xf3)] {
+                let state = runner.cpu().cpu_state();
+                state.set_segment(
+                    Segment::Cs,
+                    SegmentRegister::real_mode(Segment::Cs, segment),
+                );
+                state.set_eip(offset);
+                state.set_sp(0x800);
+                state.set_ax(0);
+                state.set_bx(0x120 - (segment << 4));
+                assert_eq!(
+                    runner.run_cpu().await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+                let state = runner.cpu().cpu_state();
+                assert_eq!(
+                    state.ax(),
+                    if phase == 1 && segment == 0 {
+                        0
+                    } else {
+                        return_ip
+                    }
+                );
+                assert_eq!(state.sp(), 0x800);
+            }
+        }
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn real_mode_aliases_keep_separate_entries_and_hooks() {
+    pollster::block_on(compilation::run(execute_aliases));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn real_mode_aliases_keep_separate_entries_and_hooks() {
+    compilation::run(execute_aliases).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -59,7 +59,7 @@ async fn calls() {
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {
-                    address: 0x100,
+                    key: 0x100,
                     export: &block.entry,
                 }],
             )
@@ -71,7 +71,7 @@ async fn calls() {
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {
-                    address: 0x200,
+                    key: 0x200,
                     export: &block.entry,
                 }],
             )
@@ -86,7 +86,10 @@ async fn calls() {
         cpu.instruction_target().set(None);
         assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
         // Ordinary execution returns leave small batches buffered.
-        assert_eq!(merged_count(&cpu.instance.profiling, target(0x210).packed()), 0);
+        assert_eq!(
+            merged_count(&cpu.instance.profiling, target(0x210).packed()),
+            0
+        );
         assert_eq!(
             collected_count(&mut cpu, target(0x200)),
             if compiled_callee { 0 } else { 2 }
@@ -142,7 +145,7 @@ async fn far_calls() {
         memory.view().write(0x410, &[0x42, 0x66, 0xcb]).unwrap(); // INC DX; RETFD
         memory.view().write(0x500, &[0x43, 0xcb]).unwrap(); // INC BX; RETF
         let exit = cpu.exit_handle();
-        cpu.install([Hook::host(0x700, async move || exit.request())])
+        cpu.install([Hook::host(0x0030_0400, async move || exit.request())])
             .await
             .unwrap();
         let compiler = Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(true);
@@ -150,7 +153,7 @@ async fn far_calls() {
         cpu.install_module(
             &callee.bytes,
             &[DispatchEntry {
-                address: 0x500,
+                key: 0x0020_0300,
                 export: &callee.entry,
             }],
         )
@@ -171,7 +174,7 @@ async fn far_calls() {
                 .entries
                 .iter()
                 .map(|block| DispatchEntry {
-                    address: block.start_eip,
+                    key: block.start_eip,
                     export: &block.export,
                 })
                 .collect();
@@ -236,7 +239,10 @@ async fn overflow() {
         Some(ExecutionExit::Host(HostExit::Return))
     );
     for callee in targets {
-        assert_eq!(merged_count(&cpu.instance.profiling, target(callee).packed()), 1);
+        assert_eq!(
+            merged_count(&cpu.instance.profiling, target(callee).packed()),
+            1
+        );
     }
     assert_eq!(cpu.cpu_state().sp(), 0x800);
     assert_eq!(cpu.cpu_state().instruction_count(), 19);

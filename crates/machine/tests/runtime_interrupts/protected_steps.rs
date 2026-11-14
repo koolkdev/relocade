@@ -11,7 +11,7 @@ pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) 
         cpu.install_module(
             &module.bytes,
             &[DispatchEntry {
-                address: 0x100,
+                key: 0x100,
                 export: &module.entry,
             }],
         )
@@ -21,7 +21,7 @@ pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) 
         cpu.install_module(
             relocade_interpreter::module(ExecutionProfile::Real16),
             &[DispatchEntry {
-                address: 0x100,
+                key: 0x100,
                 export: "step",
             }],
         )

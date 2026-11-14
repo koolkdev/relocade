@@ -131,11 +131,11 @@ async fn module_publication() {
             &bytes,
             &[
                 DispatchEntry {
-                    address: 0x200,
+                    key: 0x200,
                     export: "exit"
                 },
                 DispatchEntry {
-                    address: 0x220,
+                    key: 0x220,
                     export: "missing"
                 },
             ],
@@ -164,15 +164,15 @@ async fn module_publication() {
             &[
                 // A superseded export is not resolved, even if it is missing.
                 DispatchEntry {
-                    address: 0x200,
+                    key: 0x200,
                     export: "missing",
                 },
                 DispatchEntry {
-                    address: 0x200,
+                    key: 0x200,
                     export: "exit",
                 },
                 DispatchEntry {
-                    address: 0x210,
+                    key: 0x210,
                     export: "exit",
                 },
             ],

@@ -8,7 +8,9 @@ pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
 pub use service::CompilerService;
 
-use crate::{worker::Transfer, Cpu, DispatchEntry, Error, FarPointer, Memory, Result};
+use crate::{
+    worker::Transfer, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Memory, Result,
+};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
@@ -64,20 +66,42 @@ impl CompiledCode {
         self.install_entries(cpu, true)
     }
 
+    fn entry_key(&self, index: usize) -> Result<u32> {
+        let eip = self.description.blocks[index].start_eip;
+        let offset = u16::try_from(eip).map_err(|_| ConfigurationError::IncompatibleCpu)?;
+        let base = self.description.addresses[index]
+            .checked_sub(eip)
+            .filter(|base| base & 15 == 0 && *base <= 0xffff0)
+            .ok_or(ConfigurationError::IncompatibleCpu)?;
+        Ok(FarPointer {
+            segment: (base >> 4) as u16,
+            offset,
+        }
+        .packed())
+    }
+
     fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
         }
         let entries: Vec<_> = self
             .description
-            .addresses
+            .blocks
             .iter()
-            .zip(&self.description.blocks)
-            .filter(|(address, _)| !missing_only || !cpu.has_entry(**address))
-            .map(|(&address, block)| DispatchEntry {
-                address,
-                export: &block.export,
+            .enumerate()
+            // Out-of-range continuations retain their internal fetch guards,
+            // but have no 16:16 identity to publish in the real-mode map.
+            .filter(|(_, block)| block.start_eip <= u32::from(u16::MAX))
+            .map(|(index, block)| {
+                Ok(DispatchEntry {
+                    key: self.entry_key(index)?,
+                    export: &block.export,
+                })
             })
+            .collect::<Result<Vec<_>>>()?;
+        let entries: Vec<_> = entries
+            .into_iter()
+            .filter(|entry| !missing_only || !cpu.has_entry(entry.key))
             .collect();
         if entries.is_empty() {
             return Ok(());

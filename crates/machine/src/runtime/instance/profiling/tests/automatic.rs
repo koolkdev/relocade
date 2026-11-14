@@ -1,5 +1,7 @@
 use super::collected_count;
-use crate::{CompilerService, CpuConfig, FarPointer, Hook, Instant, Machine, MachineConfig, Runner};
+use crate::{
+    CompilerService, CpuConfig, FarPointer, Hook, Instant, Machine, MachineConfig, Runner,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
@@ -85,7 +87,7 @@ async fn automatic() {
                     assert!(runner.cpu().cpu_state().instruction_count() > retired);
                     if targets
                         .iter()
-                        .all(|entry| runner.cpu().has_entry(entry.address()))
+                        .all(|entry| runner.cpu().has_entry(entry.packed()))
                     {
                         // Wait for installation before inspecting counts, so this test
                         // cannot drive hotness by collecting the buffer itself.
@@ -159,12 +161,14 @@ async fn full_collection(compiler: &CompilerService) {
                 .install([Hook::host(0xf00, async move || exit.request())])
                 .await
                 .unwrap();
-            assert_eq!(runner.run_cpu().await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
             let cpu = runner.cpu();
             assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
             assert!(
-                cpu.instance.profiling.pending.contains(&target)
-                    || cpu.has_entry(target.address()),
+                cpu.instance.profiling.pending.contains(&target) || cpu.has_entry(target.packed()),
                 "full-buffer collection must submit before guest execution returns"
             );
         })

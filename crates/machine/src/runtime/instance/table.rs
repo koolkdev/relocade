@@ -1,14 +1,14 @@
-use super::DispatchEntry;
-use crate::Result;
+//! Publishes real-mode CS:IP entries into one callable table.
+
+use crate::{DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::{ExportFunction, Import, Table};
+use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table};
 use relocade_x86::{abi, EntryTable};
 
-/// Owns the guest-address map and Wasm function table for one CPU.
 pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     memory: B::Memory,
     functions: Table<B, abi::ExecutionSignature>,
-    addresses: EntryTable,
+    entries: EntryTable,
     next_slot: u32,
     capacity: u32,
 }
@@ -16,12 +16,13 @@ pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
 impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     pub(super) fn new(backend: &mut B) -> Result<Self> {
         let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
-        let addresses = EntryTable::default();
-        backend.memory(&memory).write(0, &addresses.to_bytes());
+        backend
+            .memory(&memory)
+            .write(0, &EntryTable::default().to_bytes());
         Ok(Self {
             memory,
             functions: backend.create_table(abi::EXECUTION_FUNCTIONS, None)?,
-            addresses,
+            entries: EntryTable::default(),
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
@@ -37,23 +38,19 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         ]
     }
 
-    pub(super) fn contains(&self, address: u32) -> bool {
-        self.addresses.get(address).is_some()
+    pub(super) fn contains(&self, key: u32) -> bool {
+        self.entries.get(key).is_some()
     }
 
-    /// A rejected candidate resolves normally to the existing interpreter slot.
-    /// Preserve any entry installed while the compilation request was pending.
-    pub(super) fn interpret_at(&mut self, backend: &mut B, address: u32) -> Result<()> {
-        if self.contains(address) {
+    /// Failed Real16 candidates suppress profiling only for their own CS:IP.
+    pub(super) fn interpret_at(&mut self, backend: &mut B, entry: FarPointer) -> Result<()> {
+        let key = entry.packed();
+        if self.contains(key) {
             return Ok(());
         }
-        let mut addresses = self.addresses.clone();
-        addresses.insert(address, EntryTable::INTERPRETER_SLOT);
-        let bytes = addresses.to_bytes();
-        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
-        backend.memory(&self.memory).write(0, &bytes);
-        self.addresses = addresses;
-        Ok(())
+        let mut entries = self.entries.clone();
+        entries.insert(key, EntryTable::INTERPRETER_SLOT);
+        self.publish(backend, entries, Vec::new())
     }
 
     pub(super) fn install_interpreter(
@@ -72,19 +69,18 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         &mut self,
         backend: &mut B,
         instance: &B::Instance,
-        entries: &[DispatchEntry<'_>],
+        exports: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        // Resolve every export before changing existing callable slots.
-        let mut addresses = self.addresses.clone();
+        let mut entries = self.entries.clone();
         let mut next_slot = self.next_slot;
-        let mut functions = Vec::with_capacity(entries.len());
-        for entry in entries {
+        let mut functions = Vec::with_capacity(exports.len());
+        for entry in exports {
             let function = backend.function(
                 instance,
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
-            let slot = addresses
-                .get(entry.address)
+            let slot = entries
+                .get(entry.key)
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
                 .unwrap_or_else(|| {
                     let slot = next_slot;
@@ -93,11 +89,25 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                         .expect("Wasm function table capacity");
                     slot
                 });
-            addresses.insert(entry.address, slot);
+            entries.insert(entry.key, slot);
             functions.push((slot, backend.import_function(&function)));
         }
-        let bytes = addresses.to_bytes();
-        // Reserve both resources before replacing any live function slots.
+        self.publish(backend, entries, functions)
+    }
+
+    fn publish(
+        &mut self,
+        backend: &mut B,
+        entries: EntryTable,
+        functions: Vec<(u32, FunctionRef<B, abi::ExecutionSignature>)>,
+    ) -> Result<()> {
+        let bytes = entries.to_bytes();
+        let next_slot = functions
+            .iter()
+            .map(|(slot, _)| slot + 1)
+            .max()
+            .unwrap_or(self.next_slot)
+            .max(self.next_slot);
         if next_slot > self.capacity {
             let capacity = next_slot.max(self.capacity.saturating_mul(2));
             self.functions.ensure_size(backend, capacity, None)?;
@@ -107,9 +117,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         for (slot, function) in functions {
             self.functions.set(backend, slot, &function)?;
         }
-        // All functions exist before their addresses become visible to dispatch.
         backend.memory(&self.memory).write(0, &bytes);
-        self.addresses = addresses;
+        self.entries = entries;
         self.next_slot = next_slot;
         Ok(())
     }

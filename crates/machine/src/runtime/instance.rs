@@ -15,9 +15,9 @@ use relocade_x86::{abi, CpuMode, ExecutionExit};
 use std::{collections::BTreeMap, rc::Rc};
 use table::DispatchTable;
 
-/// An ordinary `() -> ExecutionExit` export to install at a guest linear address.
+/// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
 pub struct DispatchEntry<'a> {
-    pub address: u32,
+    pub key: u32,
     pub export: &'a str,
 }
 
@@ -177,11 +177,11 @@ impl CpuInstance {
     ) -> Result<()> {
         let entries: BTreeMap<_, _> = entries
             .iter()
-            .map(|entry| (entry.address, entry.export))
+            .map(|entry| (entry.key, entry.export))
             .collect();
         let entries: Vec<_> = entries
             .into_iter()
-            .map(|(address, export)| DispatchEntry { address, export })
+            .map(|(key, export)| DispatchEntry { key, export })
             .collect();
         self.runtime.with_runtime(|wasm| {
             let mut imports = self.bindings.imports(wasm).to_vec();
@@ -197,17 +197,17 @@ impl CpuInstance {
             let instance = wasm.instantiate(module, &imports)?;
             self.table.install(wasm, &instance, &entries)
         })?;
-        self.hooks.remove(entries.iter().map(|entry| entry.address));
+        self.hooks.remove(entries.iter().map(|entry| entry.key));
         Ok(())
     }
 
-    pub(super) fn has_entry(&self, address: u32) -> bool {
-        self.table.contains(address)
+    pub(super) fn has_entry(&self, key: u32) -> bool {
+        self.table.contains(key)
     }
 
-    pub(super) fn interpret_at(&mut self, address: u32) -> Result<()> {
+    pub(super) fn interpret_at(&mut self, entry: FarPointer) -> Result<()> {
         self.runtime
-            .with_runtime(|wasm| self.table.interpret_at(wasm, address))
+            .with_runtime(|wasm| self.table.interpret_at(wasm, entry))
     }
 
     #[inline]

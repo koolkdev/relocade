@@ -123,13 +123,33 @@ async fn replace_fallback() {
     cpu.install([Hook::host(0x400, async move || exit.request())])
         .await
         .unwrap();
-    cpu.instance.interpret_at(0x200).unwrap();
-    cpu.instance.interpret_at(0x300).unwrap();
+    cpu.instance
+        .interpret_at(crate::FarPointer {
+            segment: 0,
+            offset: 0x200,
+        })
+        .unwrap();
+    cpu.instance
+        .interpret_at(crate::FarPointer {
+            segment: 0,
+            offset: 0x300,
+        })
+        .unwrap();
+    assert!(
+        !cpu.has_entry(
+            crate::FarPointer {
+                segment: 1,
+                offset: 0x1f0
+            }
+            .packed()
+        ),
+        "rejecting 0000:0200 must not suppress its 0001:01f0 alias"
+    );
     let block = compiler.compile_block(0x200, &[0x40, 0xc3], 2).unwrap();
     cpu.install_module(
         &block.bytes,
         &[DispatchEntry {
-            address: 0x200,
+            key: 0x200,
             export: &block.entry,
         }],
     )

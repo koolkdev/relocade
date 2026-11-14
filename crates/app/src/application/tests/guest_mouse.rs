@@ -90,10 +90,13 @@ pub(super) async fn run(
             let memory = dos.cpu().memory();
             let ready = RefCell::new(Some(ready));
             dos.cpu()
-                .install([Hook::host(base + ready_offset, async move || {
-                    state.set_eip(ready_offset + 2);
-                    ready.borrow_mut().take().unwrap().send(()).unwrap();
-                })])
+                .install([Hook::host(
+                    (u32::from(segment) << 16) | ready_offset,
+                    async move || {
+                        state.set_eip(ready_offset + 2);
+                        ready.borrow_mut().take().unwrap().send(()).unwrap();
+                    },
+                )])
                 .await
                 .unwrap();
             let idle = RefCell::new(Some(idle));

@@ -80,7 +80,7 @@ async fn callback_wakes_execution() {
         cpu.install_module(
             &module.bytes,
             &[relocade_machine::DispatchEntry {
-                address: 0x102,
+                key: 0x102,
                 export: &module.entry,
             }],
         )

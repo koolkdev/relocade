@@ -135,7 +135,7 @@ async fn timer_interrupts() -> Result<(), String> {
         cpu.install_module(
             &busy.bytes,
             &[DispatchEntry {
-                address: 0x113,
+                key: 0x113,
                 export: &busy.entry,
             }],
         )

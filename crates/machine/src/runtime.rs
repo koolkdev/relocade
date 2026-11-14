@@ -123,7 +123,7 @@ impl Cpu {
     /// fn status_service(cpu: &Cpu) -> Hook {
     ///     let state = cpu.cpu_state();
     ///     let io = cpu.io();
-    ///     Hook::host(0xf0100, async move || {
+    ///     Hook::host(0xf000_0100, async move || {
     ///         io.write_port(0x3d4, 1, 0x0a);
     ///         state.set_al(io.read_port(0x3d5, 1) as u8);
     ///     })
@@ -133,16 +133,16 @@ impl Cpu {
         self.instance.io.clone()
     }
 
-    pub(crate) fn has_entry(&self, address: u32) -> bool {
-        self.instance.has_entry(address)
+    pub(crate) fn has_entry(&self, key: u32) -> bool {
+        self.instance.has_entry(key)
     }
 
     /// Links a module to this runtime and publishes its callable exports.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
-    /// publication and continuation. Addresses are linear CS.base + EIP, before
-    /// paging/A20. Installing an existing address replaces its function.
+    /// publication and continuation. Keys are packed real-mode CS:IP. Installing an
+    /// existing key replaces its function.
     /// Exports are independently replaceable; a batch does not tie their lifetimes.
-    /// The last export supplied at a repeated address wins.
+    /// The last export supplied at a repeated key wins.
     ///
     /// The caller must maintain the module's execution assumptions and invalidate
     /// or replace captured code when guest bytes or mappings change.
@@ -185,10 +185,10 @@ impl Cpu {
         self.instance_mut().install_compiled_module(module, entries)
     }
 
-    /// Installs host and Wasm hooks in one batch. Each address is independently
-    /// replaceable; the last hook at a repeated address wins. Replacing a host hook
+    /// Installs host and Wasm hooks in one batch. Each CS:IP entry is independently
+    /// replaceable; the last hook at a repeated key wins. Replacing a host hook
     /// releases its old handler captures. Environment adapters supply all their hooks
-    /// when replacing a service; a low-level overwrite changes only its address.
+    /// when replacing a service; a low-level overwrite changes only its entry.
     ///
     /// The driver polls ordinary async handlers after guest Wasm returns. Ready
     /// awaits complete in one poll; pending calls survive waiter replacement.

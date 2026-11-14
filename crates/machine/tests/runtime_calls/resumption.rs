@@ -12,7 +12,7 @@ async fn guest_effects() {
     let state = runner.cpu_state();
     let memory = runner.memory();
     // The ISR returns through a CS alias that can represent the resume and IRET
-    // positions, but not the original hook entry. No saved position is needed.
+    // positions, but not the original hook entry. Register that continuation explicitly.
     memory.view().write(0x84, &[0x0f, 2, 0, 0]).unwrap();
     memory
         .view()
@@ -34,26 +34,41 @@ async fn guest_effects() {
         .unwrap();
     let input = Rc::new(Input::default());
     runner
-        .install(real_mode_interrupt::hook(0x20f, runner.cpu_state(), {
-            let cpu = state.clone();
-            let memory = memory.clone();
-            let source = input.clone();
-            let exit = runner.exit_handle();
-            async move || {
-                cpu.set_interrupts_enabled(true);
-                assert_eq!(source.read().await, 7);
-                assert_eq!(cpu.segment(Segment::Cs).selector, 0x21);
-                assert_eq!(cpu.eip(), 0, "keep the live resume position and CS alias");
-                assert_eq!(cpu.ax(), 0x30);
-                assert_eq!(cpu.bx(), 0x4567);
-                assert_eq!(cpu.segment(Segment::Ds).selector, 0x30);
-                assert_eq!(cpu.segment(Segment::Ss).selector, 0x20);
-                assert_eq!(cpu.sp(), 0x6000);
-                assert_eq!(cpu.eflags(), 0x646);
-                assert_eq!(memory.view().read_u16(0x500).unwrap(), 0xcafe);
-                exit.request();
-            }
-        }))
+        .install(
+            real_mode_interrupt::hook(0x20f, runner.cpu_state(), {
+                let cpu = state.clone();
+                let memory = memory.clone();
+                let source = input.clone();
+                let exit = runner.exit_handle();
+                async move || {
+                    cpu.set_interrupts_enabled(true);
+                    assert_eq!(source.read().await, 7);
+                    assert_eq!(cpu.segment(Segment::Cs).selector, 0x21);
+                    assert_eq!(cpu.eip(), 0, "keep the live resume position and CS alias");
+                    assert_eq!(cpu.ax(), 0x30);
+                    assert_eq!(cpu.bx(), 0x4567);
+                    assert_eq!(cpu.segment(Segment::Ds).selector, 0x30);
+                    assert_eq!(cpu.segment(Segment::Ss).selector, 0x20);
+                    assert_eq!(cpu.sp(), 0x6000);
+                    assert_eq!(cpu.eflags(), 0x646);
+                    assert_eq!(memory.view().read_u16(0x500).unwrap(), 0xcafe);
+                    exit.request();
+                }
+            })
+            .into_iter()
+            .chain([
+                Hook::block(0x0021_0000, |program| {
+                    program
+                        .function::<abi::ExecutionSignature>(|body, ()| {
+                            body.return_(ExecutionExitValues::host(HostExit::Resume))
+                        })
+                        .into()
+                }),
+                Hook::block(0x0021_0001, |program| {
+                    program.import_function(abi::INTERPRET)
+                }),
+            ]),
+        )
         .await
         .unwrap();
     pending(runner.run());

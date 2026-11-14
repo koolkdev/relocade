@@ -23,6 +23,7 @@ pub const PAGE_TABLE: Memory = Memory::new(
     "machine",
     crate::memory::page_table::BYTE_LEN / 65536,
 );
+/// Real-mode hooks and compiled blocks, keyed by packed 16:16 CS:IP.
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 /// CPU-local call observations. The embedding drains these while execution is stopped.
 pub const CALL_PROFILE: Memory = Memory::new("relocade", "callProfile", 1);

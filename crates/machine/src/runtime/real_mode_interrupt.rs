@@ -32,7 +32,7 @@ use std::future::Future;
 /// entry uses the existing interpreter to execute the live guest IRET byte.
 pub const HOOK_STUB: [u8; 3] = [0x90, 0x90, 0xcf];
 
-/// Adapts an ordinary async handler to a real-mode service entry.
+/// Adapts an ordinary async handler to a packed real-mode CS:IP service entry.
 /// Entry advances IP to the resume position before polling the handler. The
 /// handler must preserve that continuation and the return frame, apart from
 /// intended frame edits. Completion advances the live IP to the return instruction;
@@ -41,14 +41,15 @@ pub const HOOK_STUB: [u8; 3] = [0x90, 0x90, 0xcf];
 /// the live resume position; completion follows that position through the live CS.
 /// IRQ entry saves the live resume position; the driver resumes the retained
 /// future without restoring any CPU state.
-pub fn hook<F>(address: u32, cpu: CpuStateAccess, handler: F) -> [Hook; 3]
+pub fn hook<F>(key: u32, cpu: CpuStateAccess, handler: F) -> [Hook; 3]
 where
     F: AsyncFn() + 'static,
 {
-    let resume = address.checked_add(1).expect("service stub address");
-    let return_entry = resume.checked_add(1).expect("service stub address");
+    let entry = FarPointer::from_packed(key);
+    let resume = entry.wrapping_add(1).packed();
+    let return_entry = entry.wrapping_add(2).packed();
     [
-        Hook::host(address, async move || {
+        Hook::host(key, async move || {
             let resume_ip = (cpu.eip() as u16).wrapping_add(1);
             cpu.set_eip(u32::from(resume_ip));
             handler().await;

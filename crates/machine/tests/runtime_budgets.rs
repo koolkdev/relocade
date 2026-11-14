@@ -34,7 +34,7 @@ async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cp
         cpu.install_module(
             &module.bytes,
             &[DispatchEntry {
-                address: 0x100,
+                key: 0x100,
                 export: &module.entry,
             }],
         )
