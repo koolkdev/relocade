@@ -11,7 +11,7 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, IoContext,
 };
-use relocade_vga::{PackedLayout, RetraceEvent};
+use relocade_vga::{LegacyLayout, PackedLayout, RetraceEvent};
 
 #[interrupt(context(call), args(function = al))]
 pub(in crate::video) async fn dispatch(
@@ -66,6 +66,17 @@ impl VideoFirmware {
             Self::Vga => None,
             Self::Dispi(card) => Some(card.borrow().video_memory_bytes()),
             Self::Et4000Ax(card) => Some(card.borrow().video_memory_bytes()),
+        }
+    }
+
+    fn legacy_layout(&self) -> Option<LegacyLayout> {
+        if !self.ports_enabled() || self.packed_layout().is_some() {
+            return None;
+        }
+        match self {
+            Self::Vga => None,
+            Self::Dispi(card) => LegacyLayout::from_registers(card.borrow().registers()),
+            Self::Et4000Ax(card) => LegacyLayout::from_registers(card.borrow().registers()),
         }
     }
 

@@ -3,6 +3,9 @@ use crate::common;
 use relocade_dos::Dos;
 use relocade_x86::CpuState;
 
+#[path = "layout/legacy.rs"]
+mod legacy;
+
 fn request(dos: &mut Dos, function: u8, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let context = dos.cpu().context();
@@ -30,7 +33,7 @@ fn logical_scanlines_report_actual_pitch_and_mode_information() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        scanline(&mut dos, 1, 0, [0x14f, 1, 0, 0xabcd]); // Legacy mode is unsupported.
+        scanline(&mut dos, 1, 0, [0x4f, 160, 720, 3264]);
         video(&mut dos, 0x4f02, 0x101, 0, 0);
         scanline(&mut dos, 1, 0, [0x4f, 640, 640, 6553]);
         scanline(&mut dos, 0x5500, 1024, [0x4f, 1024, 1024, 4096]); // Only BL selects.
