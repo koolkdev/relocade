@@ -17,6 +17,7 @@ pub struct Configuration {
 pub enum VideoCard {
     #[default]
     Dispi,
+    Et4000Ax,
 }
 
 impl VideoCard {
@@ -24,6 +25,9 @@ impl VideoCard {
         match self {
             Self::Dispi => crate::video_card::VideoCard::Dispi(
                 relocade_vga::DispiAdapter::initialize(runner).await,
+            ),
+            Self::Et4000Ax => crate::video_card::VideoCard::Et4000Ax(
+                relocade_vga::Et4000Ax::initialize(runner).await,
             ),
         }
     }

@@ -148,6 +148,7 @@ impl VideoInspection for Dos {
     fn vga(&self) -> std::rc::Rc<std::cell::RefCell<relocade_vga::DispiAdapter>> {
         match self.video_card() {
             relocade_dos::video_card::VideoCard::Dispi(card) => card.clone(),
+            relocade_dos::video_card::VideoCard::Et4000Ax(_) => panic!("fixture requires DISPI"),
         }
     }
 }

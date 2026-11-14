@@ -37,6 +37,13 @@ export. Embeddings that construct DOS directly use
 `Dos::with_configuration(runner, configuration).await`; `Dos::new` keeps the
 default. This selects emulated hardware independently of host output.
 
+Select `VideoCard::Et4000Ax` for the 1-MiB ET4000AX board. It starts in 80×25 text
+and supports banked indexed VBE modes 101h (640×480), 103h (800×600), and 105h
+(1024×768 interlaced), also available as BIOS modes 2Eh, 30h, and 38h. VBE window A
+selects the write bank and window B selects the read bank. DISPI remains the
+default. Card selection works through the same configuration on native and web
+hosts, independently of sound selection.
+
 Select `SoundCard::SoundBlaster2` for sampled effects and OPL2 music. Its fixed
 settings are base `0x220`, IRQ 7, DMA 1 and DSP version 2.01. On DOS, the card's
 installer normally added `SET BLASTER=A220 I7 D1 T3` to `AUTOEXEC.BAT`; the shell

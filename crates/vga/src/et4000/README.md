@@ -70,7 +70,13 @@ historical odd/even lines or simulate changes within a displayed scanline.
 The full 18-bit display start is sampled together at the shared retrace capture
 boundary, representing the page for the following visible frame. Native drawing
 uses the programmed page immediately. Extended text/planar scanout and the
-optional high-color RAMDAC protocol are not yet implemented. Firmware and PC selection are separate.
+optional high-color RAMDAC protocol are not yet implemented.
+
+Selected ET4000 firmware boots in 80×25 text. Its named indexed mode presets live
+in the BIOS crate and program these same registers: 640×480 (BIOS 2Eh/VBE 101h),
+800×600 (30h/103h), and interlaced 1024×768 (38h/105h). VBE reports the installed
+1 MiB and exposes separate write/read windows at A000h. The card supplies the
+same frame queue and native drawing access as DISPI, including the DOS cursor.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),
