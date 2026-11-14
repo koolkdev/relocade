@@ -132,7 +132,8 @@ rejects watched writes before current-instruction effects and restarts in the
 interpreter. The interpreter's slow writer calls `writeCode(backing_offset, byte)`;
 ordinary RAM writes remain direct. REP preflights its whole span before a compiled
 loop. Nested ENTER and software interrupt entry use the interpreter because their
-accesses interleave with partial effects.
+accesses interleave with partial effects. Port strings also use the interpreter
+to keep routing live across device callbacks.
 
 Tracked guest and host writes set byte zero of shared `codeState` only when emitted
 instruction bytes differ. At the next execution checkpoint, `CodeInvalidated`

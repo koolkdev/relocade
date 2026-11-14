@@ -306,15 +306,15 @@ fn shared_memory_helpers() {
         } else {
             "machine"
         };
-        assert_eq!(
-            super::memory::imports(&blocks.bytes),
-            vec![
-                ("relocade", "codeState"),
-                ("relocade", "executionContext"),
-                ("relocade", "guest"),
-                ("relocade", mapping),
-            ]
-        );
+        let mut memories = vec![
+            ("relocade", "executionContext"),
+            ("relocade", "guest"),
+            ("relocade", mapping),
+        ];
+        if profile == ExecutionProfile::Real16 {
+            memories.insert(0, ("relocade", "codeState"));
+        }
+        assert_eq!(super::memory::imports(&blocks.bytes), memories);
         // A second body reuses every memory helper already needed by the first.
         assert_eq!(
             function_count(&blocks.bytes),
