@@ -119,6 +119,10 @@
 //! AH=43h queries or changes read-only, hidden, system and archive attributes.
 //! Closing a written file handle restores the archive attribute.
 //! AH=68h/6Ah commits that metadata while preserving the open handle and its cursor.
+//! Creation and modified-file commit/close use DOS's session clock at two-second
+//! precision.
+//! Directory searches return the committed timestamps. Supplied files start with
+//! the mount time, and timestamps persist across program launches with the files.
 //! AH=41h deletes files after read-only and open-handle checks.
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
@@ -334,7 +338,8 @@ impl Dos {
     /// Entries with other spellings are not assigned short-name aliases.
     /// Files larger than u32::MAX bytes cannot be opened or listed by DOS.
     /// Resets that drive's current directory to its root and discards its DOS
-    /// attributes and searches. Open handles continue to access their original files.
+    /// attributes and searches; entries start with the current DOS timestamp.
+    /// Open handles continue to access their original files.
     pub fn mount(
         &mut self,
         letter: char,
@@ -357,6 +362,7 @@ impl Dos {
     /// relative paths start at the drive root.
     /// An omitted drive defaults to C:, independently of the guest's current drive.
     /// Files persist across program loads.
+    /// The file starts with the current DOS timestamp.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
     pub fn mount_file(
         &mut self,

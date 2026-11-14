@@ -1,6 +1,6 @@
 //! Drive mounts, host file access and the DOS paths that select them.
 
-use super::{FileAccess, FileSystem, ARCHIVE_ATTRIBUTE};
+use super::{EntryMetadata, FileAccess, FileSystem, ARCHIVE_ATTRIBUTE};
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
@@ -14,7 +14,8 @@ impl FileSystem {
         self.drives.mount(letter, filesystem)?;
         let letter = letter.to_ascii_uppercase();
         self.current_directories.remove(&letter);
-        self.attributes.retain(|path, _| path.drive != letter);
+        self.entries.retain(|path, _| path.drive != letter);
+        self.mount_timestamps.insert(letter, self.timestamp());
         Ok(())
     }
 
@@ -36,7 +37,13 @@ impl FileSystem {
             .replace_file(&path.relative, contents)
             .map_err(|_| MountError::InvalidPath)?;
         file.set_read_only(access == FileAccess::ReadOnly);
-        self.attributes.insert(path, ARCHIVE_ATTRIBUTE as u8);
+        self.entries.insert(
+            path,
+            EntryMetadata {
+                attributes: ARCHIVE_ATTRIBUTE as u8,
+                modified: self.timestamp(),
+            },
+        );
         Ok(())
     }
 

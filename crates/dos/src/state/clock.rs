@@ -1,6 +1,6 @@
 //! A session-local offset from the host's local wall clock.
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
+use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use std::cell::Cell;
 
 #[derive(Default)]
@@ -9,8 +9,12 @@ pub(crate) struct Clock {
 }
 
 impl Clock {
-    /// Each service supplies one host sample for its whole operation.
-    pub(crate) fn read(&self, host: NaiveDateTime) -> NaiveDateTime {
+    pub(crate) fn now(&self) -> NaiveDateTime {
+        self.read(Local::now().naive_local())
+    }
+
+    /// Apply the session offset to one host sample.
+    fn read(&self, host: NaiveDateTime) -> NaiveDateTime {
         host + self.offset.get()
     }
 

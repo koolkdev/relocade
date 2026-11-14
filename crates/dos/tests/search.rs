@@ -194,7 +194,8 @@ async fn check_attributes() {
     );
     success(&path_service(&mut dos, b"NORMAL.DAT", 0x4e00, 0));
     let data = dta(&mut dos, 0x10080);
-    assert_eq!(&data[21..30], &[0x21, 0, 0, 0x21, 0, 3, 0, 0, 0]);
+    assert_eq!(data[21], 0x21);
+    assert_eq!(&data[26..30], &[3, 0, 0, 0]);
     assert_eq!(&data[30..], b"NORMAL.DAT\0\0\0");
     success(&path_service(&mut dos, b"BOTH.DAT", 0x4e00, 6));
     assert_eq!(dta(&mut dos, 0x10080)[21], 0x26);

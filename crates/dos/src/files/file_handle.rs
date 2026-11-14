@@ -1,6 +1,8 @@
 //! An open file's shared cursor, access rights and pending metadata.
 
-use super::{AccessMode, FileSystem, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING};
+use super::{
+    AccessMode, EntryMetadata, FileSystem, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
+};
 use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::File;
 use std::{cell::RefCell, rc::Rc};
@@ -131,17 +133,28 @@ impl FileHandle {
 
     pub(super) fn commit(&self, filesystem: &mut FileSystem) {
         let open = self.0.borrow();
-        // VFS writes are immediate; commit and close publish DOS archive metadata.
-        // A replaced mounted path must not receive the old open file's attributes.
-        if open.written
-            && filesystem
-                .drives
-                .get(open.path.drive)
-                .unwrap()
-                .open(&open.path.relative)
-                .is_ok_and(|file| file.same_file(&open.file))
+        if !open.written {
+            return;
+        }
+        let modified = filesystem.timestamp();
+        // VFS writes are immediate; commit and close publish DOS directory metadata.
+        // A replaced mounted path must not receive the old open file's metadata.
+        if filesystem
+            .drives
+            .get(open.path.drive)
+            .unwrap()
+            .open(&open.path.relative)
+            .is_ok_and(|file| file.same_file(&open.file))
         {
-            *filesystem.attributes.entry(open.path.clone()).or_default() |= ARCHIVE_ATTRIBUTE as u8;
+            let entry = filesystem
+                .entries
+                .entry(open.path.clone())
+                .or_insert(EntryMetadata {
+                    attributes: 0,
+                    modified,
+                });
+            entry.attributes |= ARCHIVE_ATTRIBUTE as u8;
+            entry.modified = modified;
         }
     }
 

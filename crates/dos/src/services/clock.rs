@@ -13,7 +13,7 @@ use relocade_machine::real_mode_interrupt::interrupt;
     },
 })]
 pub(super) fn get_date(services: &Services<'_>) -> NaiveDateTime {
-    services.dos.clock.read(Local::now().naive_local())
+    services.dos.clock.now()
 }
 
 #[interrupt(returns {
@@ -25,7 +25,7 @@ pub(super) fn get_date(services: &Services<'_>) -> NaiveDateTime {
     },
 })]
 pub(super) fn get_time(services: &Services<'_>) -> NaiveDateTime {
-    services.dos.clock.read(Local::now().naive_local())
+    services.dos.clock.now()
 }
 
 #[interrupt(args(year = cx, month = dh, day = dl), returns {

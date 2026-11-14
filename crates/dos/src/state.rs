@@ -1,6 +1,7 @@
 //! Resources shared by successive DOS processes.
 
 mod clock;
+pub(crate) use clock::Clock;
 pub(crate) mod indos;
 
 use crate::{
@@ -18,7 +19,7 @@ use std::{
 
 pub(crate) struct DosState {
     pub(crate) mouse: crate::mouse::Mouse,
-    pub(crate) clock: clock::Clock,
+    pub(crate) clock: Rc<Clock>,
     indos: indos::InDos,
     pub(crate) check_break: Cell<bool>,
     pub(crate) allocation_strategy: Cell<AllocationStrategy>,
@@ -43,14 +44,16 @@ impl DosState {
         devices.install(Unavailable(*b"AUX     "));
         devices.install(BiosConsole::new(memory.clone(), console_input.clone()));
         devices.install(NullDevice);
+        let clock = Rc::new(Clock::default());
+        let filesystem = RefCell::new(FileSystem::new(clock.clone()));
         Self {
             mouse,
-            clock: clock::Clock::default(),
+            clock,
             indos: indos::InDos::new(memory),
             check_break: Cell::new(false),
             allocation_strategy: Cell::default(),
             console_input,
-            filesystem: RefCell::default(),
+            filesystem,
             stdio: Stdio::new(keyboard),
             devices,
             process: RefCell::default(),
