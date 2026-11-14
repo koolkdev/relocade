@@ -27,7 +27,7 @@ struct State {
     compatibility: bool,
     written: bool,
     modified: FileTimestamp,
-    explicit_timestamp: bool,
+    preserve_timestamp: bool,
 }
 
 impl FileHandle {
@@ -51,7 +51,7 @@ impl FileHandle {
             compatibility: sharing == COMPATIBILITY_SHARING,
             written: false,
             modified,
-            explicit_timestamp: false,
+            preserve_timestamp: false,
         }))))
     }
 
@@ -106,7 +106,7 @@ impl FileHandle {
                 .set_len(u64::from(open.position))
                 .map_err(|_| DosError::AccessDenied)?;
             open.written = true;
-            open.explicit_timestamp = false;
+            open.preserve_timestamp = false;
             return Ok(0);
         }
         // DOS cursors and file sizes remain 32-bit even though VFS offsets are u64.
@@ -120,7 +120,7 @@ impl FileHandle {
             .map_err(|_| DosError::AccessDenied)?;
         open.position += count as u32;
         open.written = true;
-        open.explicit_timestamp = false;
+        open.preserve_timestamp = false;
         Ok(count)
     }
 
@@ -143,7 +143,7 @@ impl FileHandle {
         if !open.written {
             return;
         }
-        if !open.explicit_timestamp {
+        if !open.preserve_timestamp {
             open.modified = filesystem.timestamp();
         }
         // VFS writes are immediate; commit and close publish DOS directory metadata.
@@ -174,7 +174,7 @@ impl FileHandle {
     pub(super) fn set_timestamp(&self, timestamp: FileTimestamp) {
         let mut open = self.0.borrow_mut();
         open.modified = timestamp;
-        open.explicit_timestamp = true;
+        open.preserve_timestamp = true;
         open.written = true;
     }
 
