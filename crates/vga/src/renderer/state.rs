@@ -2,7 +2,7 @@
 use crate::{DisplaySnapshot, PixelFormat, Scanout};
 
 // Settings fit the VGA banks and controls, or packed layout and blanking inputs.
-const SETTINGS_BYTES: usize = 128;
+const SETTINGS_BYTES: usize = 160;
 // WGSL aligns the palette's vec4 array after the DAC mask to 16 bytes.
 const PALETTE_OFFSET: usize = 16;
 const PALETTE_BYTES: usize = 256 * 3;
@@ -151,14 +151,23 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
             ] {
                 bytes[offset..offset + bank.len()].copy_from_slice(bank);
             }
-            for (slot, word) in bytes[96..124].as_chunks_mut::<4>().0.iter_mut().zip([
+            for (slot, word) in bytes[96..160].as_chunks_mut::<4>().0.iter_mut().zip([
                 u32::from(r.miscellaneous),
                 u32::from(r.display_enabled && !snapshot.blanked),
                 u32::from(r.attribute_blink_on),
                 u32::from(r.cursor_blink_on),
                 r.geometry().scanline_step,
-                u32::from(r.display_start),
-                u32::from(r.linear_addressing),
+                r.display_start,
+                u32::from(r.layout.linear_addressing),
+                r.layout.plane_address_mask(),
+                r.layout.cursor_address,
+                r.layout.line_compare,
+                0, // Align the two blanking intervals to a vec4.
+                0,
+                r.layout.vertical_blanking[0][0],
+                r.layout.vertical_blanking[0][1],
+                r.layout.vertical_blanking[1][0],
+                r.layout.vertical_blanking[1][1],
             ]) {
                 slot.copy_from_slice(&word.to_le_bytes());
             }

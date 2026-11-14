@@ -42,7 +42,7 @@ pub use packed::{PackedLayout, PixelFormat};
 pub use registers::{Registers, CRTC_DATA_PORT, CRTC_INDEX_PORT, CRTC_PORT_RANGE};
 #[cfg(feature = "renderer")]
 pub use renderer::VgaRenderer;
-pub use scanout::{Scanout, VgaDisplayState, VgaGeometry};
+pub use scanout::{Scanout, VgaDisplayLayout, VgaDisplayState, VgaGeometry};
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 use std::ops::RangeInclusive;
 use timing::Timing;

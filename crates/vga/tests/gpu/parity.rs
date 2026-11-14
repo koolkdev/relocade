@@ -71,9 +71,7 @@ async fn check_parity() {
     ] {
         let mut input = capture();
         input.vga_mut().unwrap().display_start = display_start;
-        let [high, low] = (address as u16).to_be_bytes();
-        input.vga_mut().unwrap().crtc.values[14] = high;
-        input.vga_mut().unwrap().crtc.values[15] = low;
+        input.vga_mut().unwrap().layout.cursor_address = address;
         input.vga_mut().unwrap().crtc.values[10] = start_row;
         input.vga_mut().unwrap().crtc.values[11] = end_row;
         let pixels = compare(&mut renderer, &device, &queue, input).await;

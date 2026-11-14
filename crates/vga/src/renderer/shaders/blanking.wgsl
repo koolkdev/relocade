@@ -1,6 +1,6 @@
 // CRTC blanking uses raster coordinates, independently of memory addressing.
-// Boundaries follow the original-VGA convention documented in README.md:
-// one-count output delay, six horizontal end bits and seven vertical end bits.
+// Horizontal boundaries follow the original-VGA convention in README.md.
+// The card supplies vertical intervals, including its counter/comparator widths.
 
 // Return a tail interval [x,y) and a head interval [0,z). The head accounts
 // for the counter resetting before the end comparator matches. Equal start/end
@@ -26,10 +26,7 @@ fn horizontal_blanking() -> vec3<u32> {
 }
 
 fn vertical_blanking() -> vec3<u32> {
-    let overflow = crtc(7u);
-    let start = crtc(0x15u) | ((overflow & 8u) << 5u) | ((crtc(9u) & 0x20u) << 4u);
-    let total = crtc(6u) | ((overflow & 1u) << 8u) | ((overflow & 0x20u) << 4u);
-    return blanking_intervals(start, crtc(0x16u) & 127u, 127u, total + 2u);
+    return vec3(state.vertical_blanking.x, state.vertical_blanking.y, state.vertical_blanking.w);
 }
 
 fn in_blanking(count: u32, intervals: vec3<u32>) -> bool {

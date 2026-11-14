@@ -9,11 +9,6 @@ fn physical_byte(address: u32) -> u32 {
     return packed_byte(memory[address / 4u], address);
 }
 
-fn vga_byte(plane: u32, address: u32) -> u32 {
-    // Each word contains the four planes at one VGA plane offset.
-    return packed_byte(memory[address & 0xffffu], plane);
-}
-
 fn fullscreen_position(index: u32) -> vec4<f32> {
     let positions = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
     return vec4(positions[index], 0.0, 1.0);
