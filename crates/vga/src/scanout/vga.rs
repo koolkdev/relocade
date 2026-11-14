@@ -1,17 +1,15 @@
-//! VGA display inputs and geometry decoded from captured register values.
-use super::VgaDisplayLayout;
+//! Captured VGA registers, prepared display parameters and live latches.
+use super::{VgaDisplayLayout, VgaParameters};
 use crate::{
-    registers::{
-        attribute,
-        crtc::{self, CrtcRegisters},
-        graphics, sequencer,
-    },
+    registers::{crtc::CrtcRegisters, graphics, sequencer},
     DisplayGeometry, Registers,
 };
+use std::sync::Arc;
 
-/// VGA display registers and latched state. CPU register indices, transfer phases
-/// and the shared DAC are not part of this payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Captured VGA programming, prepared display parameters and live latches.
+/// Raw banks support inspection; drawing uses the parameters prepared by the card.
+/// CPU register indices, transfer phases and the shared DAC are separate.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VgaDisplayState {
     pub sequencer: [u8; 5],
     pub crtc: CrtcRegisters,
@@ -22,6 +20,7 @@ pub struct VgaDisplayState {
     /// Start address latched at the last serviced VGA retrace.
     pub display_start: u32,
     pub layout: VgaDisplayLayout,
+    pub(crate) parameters: Arc<VgaParameters>,
     /// Cursor phase toggles every eight retraces.
     pub cursor_blink_on: bool,
     /// Text and graphics attribute phase toggles every sixteen retraces.
@@ -32,6 +31,7 @@ impl VgaDisplayState {
     pub(crate) fn from_registers(
         registers: &Registers,
         layout: VgaDisplayLayout,
+        parameters: Arc<VgaParameters>,
         display_start: u32,
     ) -> Self {
         Self {
@@ -43,6 +43,7 @@ impl VgaDisplayState {
             display_enabled: registers.attribute.display_enabled(),
             display_start,
             layout,
+            parameters,
             cursor_blink_on: true,
             attribute_blink_on: true,
         }
@@ -59,7 +60,7 @@ impl VgaDisplayState {
     /// Compare all captured state except known CPU-only controls. Normalizing
     /// copies preserves the raw snapshots and their public equality.
     pub(super) fn same_inputs(&self, other: &Self) -> bool {
-        self.display_inputs() == other.display_inputs()
+        self.clone().display_inputs() == other.clone().display_inputs()
     }
 
     fn display_inputs(mut self) -> Self {
@@ -92,79 +93,7 @@ pub struct VgaGeometry {
 }
 
 impl VgaDisplayState {
-    /// Output geometry for text, four-bit and eight-bit graphics layouts.
     pub fn geometry(&self) -> VgaGeometry {
-        let clocking_mode = self.sequencer[sequencer::CLOCKING_MODE as usize];
-        let dots_per_character = if clocking_mode & 1 != 0 { 8 } else { 9 };
-        let attribute_mode = self.attributes[attribute::MODE_CONTROL as usize];
-        let graphics_mode = self.graphics[graphics::MODE as usize];
-        let indexed256 = attribute_mode & 0x41 == 0x41 && graphics_mode & 0x40 != 0;
-        let graphics16 = attribute_mode & 0x41 == 1 && graphics_mode & 0x40 == 0;
-        let dots_per_pixel = if indexed256 { 2 } else { 1 };
-        let columns = self.crtc.horizontal_display() as u32;
-        let physical_height =
-            self.layout.vertical_display * self.crtc.scanlines_per_vertical_count() as u32;
-        let scanline_step = self.scanline_step(physical_height, indexed256 || graphics16);
-        let size = [
-            (columns * dots_per_character).div_ceil(dots_per_pixel),
-            physical_height / scanline_step,
-        ];
-        VgaGeometry {
-            output: DisplayGeometry {
-                size,
-                pixel_aspect_ratio: nominal_aspect(size),
-            },
-            scanline_step,
-        }
+        self.parameters.geometry
     }
-
-    /// Collapse repeated rows only when every visible boundary falls between them.
-    fn scanline_step(&self, physical_height: u32, graphics: bool) -> u32 {
-        let c = &self.crtc.values;
-        let maximum_scan_line = c[crtc::MAXIMUM_SCAN_LINE as usize];
-        let row_height = u32::from(maximum_scan_line & 31) + 1;
-        let mut repeat = 1 << (maximum_scan_line >> 7);
-        // Graphics repeats a memory row while the row-scan counter advances.
-        // Collapse it only when row-scan bits cannot change the memory address
-        // and the preset does not begin partway through that row.
-        if graphics
-            && c[crtc::MODE_CONTROL as usize] & 3 == 3
-            && u32::from(c[crtc::PRESET_ROW_SCAN as usize] & 31) % row_height == 0
-        {
-            repeat *= row_height;
-        }
-
-        let scanlines_per_count = self.crtc.scanlines_per_vertical_count() as u32;
-        let split_line = (self.layout.line_compare + 1) * scanlines_per_count;
-        let blanking_edges = self
-            .layout
-            .vertical_blanking
-            .into_iter()
-            .filter(|[start, end]| start < end)
-            .flatten()
-            .map(|count| count * scanlines_per_count);
-
-        // The image end, split and blanking edges must not cut a repeated row.
-        // Use exclusive boundaries throughout, measured in physical scanlines.
-        if [physical_height, split_line]
-            .into_iter()
-            .chain(blanking_edges)
-            .filter(|&line| line <= physical_height)
-            .all(|line| line.is_multiple_of(repeat))
-        {
-            repeat
-        } else {
-            1
-        }
-    }
-}
-
-// VGA targets nominal 4:3 proportions under the frame-snapshot approximation.
-fn nominal_aspect(size: [u32; 2]) -> (u32, u32) {
-    let (width, height) = (size[1] * 4, size[0] * 3);
-    let (mut a, mut b) = (width, height);
-    while b != 0 {
-        (a, b) = (b, a % b);
-    }
-    (width / a, height / a)
 }

@@ -1,8 +1,8 @@
 //! Shared GPU bindings for mode-specific settings, physical VRAM and the DAC.
 use crate::{DisplaySnapshot, PixelFormat, Scanout};
 
-// Settings fit the VGA banks and controls, or packed layout and blanking inputs.
-const SETTINGS_BYTES: usize = 160;
+// Settings hold prepared VGA parameters or packed layout and blanking inputs.
+const SETTINGS_BYTES: usize = 208;
 // WGSL aligns the palette's vec4 array after the DAC mask to 16 bytes.
 const PALETTE_OFFSET: usize = 16;
 const PALETTE_BYTES: usize = 256 * 3;
@@ -143,33 +143,55 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
     let mut bytes = [0; SETTINGS_BYTES];
     match snapshot.scanout() {
         Scanout::Vga(r) => {
-            for (offset, bank) in [
-                (0, r.sequencer.as_slice()),
-                (16, r.crtc.values.as_slice()),
-                (48, r.graphics.as_slice()),
-                (64, r.attributes.as_slice()),
-            ] {
-                bytes[offset..offset + bank.len()].copy_from_slice(bank);
-            }
-            for (slot, word) in bytes[96..160].as_chunks_mut::<4>().0.iter_mut().zip([
-                u32::from(r.miscellaneous),
-                u32::from(r.display_enabled && !snapshot.blanked),
+            let p = &r.parameters;
+            for (slot, word) in bytes[..144].as_chunks_mut::<4>().0.iter_mut().zip([
+                r.display_start,
+                u32::from(p.blanked || snapshot.blanked),
                 u32::from(r.attribute_blink_on),
                 u32::from(r.cursor_blink_on),
-                r.geometry().scanline_step,
-                r.display_start,
-                u32::from(r.layout.linear_addressing),
-                r.layout.plane_address_mask(),
+                p.columns,
+                p.glyph_width,
+                p.row_height,
+                p.count_divisor,
+                p.stride,
+                p.scan_repeat,
+                p.geometry.scanline_step,
+                p.split_scanline,
+                p.preset_row,
+                p.byte_pan,
+                p.pel_pan,
+                u32::from(p.reset_panning),
+                p.pins.plane_mask,
+                p.pins.shift,
+                p.pins.wrap_shift,
+                p.pins.wrap_mask,
+                p.pins.row_scan_mask,
+                p.mode as u32,
+                p.load_interval,
+                p.pixels_per_clock,
+                p.text.font_a,
+                p.text.font_b,
+                p.text.font_select_mask,
+                p.text.foreground_mask,
+                p.text.background_mask,
+                p.text.blink_mask,
+                u32::from(p.text.line_graphics),
+                p.text.underline_row,
                 r.layout.cursor_address,
-                r.layout.line_compare,
-                0, // Align the two blanking intervals to a vec4.
-                0,
-                r.layout.vertical_blanking[0][0],
-                r.layout.vertical_blanking[0][1],
-                r.layout.vertical_blanking[1][0],
-                r.layout.vertical_blanking[1][1],
+                p.text.cursor_rows[0],
+                p.text.cursor_rows[1],
+                p.text.cursor_skew,
             ]) {
                 slot.copy_from_slice(&word.to_le_bytes());
+            }
+            bytes[144..176].copy_from_slice(p.palette.as_flattened());
+            for (slot, edge) in bytes[176..208].as_chunks_mut::<4>().0.iter_mut().zip(
+                p.horizontal_blank
+                    .into_iter()
+                    .chain(p.vertical_blank)
+                    .flatten(),
+            ) {
+                slot.copy_from_slice(&edge.to_le_bytes());
             }
         }
         Scanout::Packed(layout) => {

@@ -1,5 +1,5 @@
 use super::software;
-use super::{capture, common, pixel, read_pixels, set_cell, text_device};
+use super::{common, pixel, read_pixels, set_cell, text_device};
 use relocade_clock_test_support::ManualClock;
 use relocade_renderer::{fit_image, Image, Rect, Renderer};
 use relocade_vga::{
@@ -69,11 +69,10 @@ async fn check_parity() {
         (0, 82, 8, 31, None),                // Below the glyph.
         (0, 2000, 6, 7, None),               // Below the screen.
     ] {
-        let mut input = capture();
+        let vga = text_device();
+        common::support::registers::cursor(&vga.io, address, start_row, end_row);
+        let mut input = vga.snapshot();
         input.vga_mut().unwrap().display_start = display_start;
-        input.vga_mut().unwrap().layout.cursor_address = address;
-        input.vga_mut().unwrap().crtc.values[10] = start_row;
-        input.vga_mut().unwrap().crtc.values[11] = end_row;
         let pixels = compare(&mut renderer, &device, &queue, input).await;
         if let Some((x, y)) = lit_pixel {
             assert_eq!(pixel(&pixels, x, y), [170, 170, 170, 255]);
@@ -86,9 +85,10 @@ async fn check_parity() {
                 .all(|p| *p == [0, 0, 0, 255]));
         }
     }
-    let mut cursor_off = capture();
+    let vga = text_device();
+    common::support::registers::cursor(&vga.io, 0, 6, 7);
+    let mut cursor_off = vga.snapshot();
     cursor_off.vga_mut().unwrap().cursor_blink_on = false;
-    cursor_off.vga_mut().unwrap().crtc.values[10] = 6;
     let pixels = compare(&mut renderer, &device, &queue, cursor_off).await;
     assert!(pixels
         .as_chunks::<4>()

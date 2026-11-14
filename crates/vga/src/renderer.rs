@@ -23,13 +23,13 @@ pub struct VgaRenderer {
 
 impl VgaRenderer {
     /// Requires a 2D texture limit of at least 2304 pixels, covering every VGA
-    /// text width, 13 flat inter-stage variables for VGA, two uniform buffers,
+    /// text width, four flat inter-stage variables for VGA, two uniform buffers,
     /// and a 4-MiB fragment storage limit. Memory grows with captured blocks.
     pub fn new(device: &wgpu::Device) -> Result<Self, FrameError> {
         // The CRTC can select 256 nine-dot columns and 2048 physical scanlines.
         let limits = device.limits();
         if limits.max_texture_dimension_2d < 256 * 9
-            || limits.max_inter_stage_shader_variables < 13
+            || limits.max_inter_stage_shader_variables < 4
             || limits.max_uniform_buffers_per_shader_stage < 2
             || limits.max_storage_buffers_per_shader_stage < 1
             || limits.max_storage_buffer_binding_size < memory::REQUIRED_BUFFER_LIMIT
@@ -58,8 +58,8 @@ impl VgaRenderer {
     /// Complete retained captures can also restore older input state.
     /// Returns whether rendering inputs or output geometry changed.
     pub fn upload(&mut self, queue: &wgpu::Queue, snapshot: &DisplaySnapshot) -> bool {
-        let scanout = *snapshot.scanout();
-        let scanout_changed = self.scanout != Some(scanout);
+        let scanout = snapshot.scanout();
+        let scanout_changed = self.scanout.as_ref() != Some(scanout);
         let geometry = snapshot.geometry();
         let aspect = geometry.pixel_aspect_ratio();
         let geometry_changed =
@@ -73,7 +73,7 @@ impl VgaRenderer {
         }
         let memory_changed = self.memory.upload(queue, snapshot);
         let state_changed = self.state.upload(queue, snapshot);
-        self.scanout = Some(scanout);
+        self.scanout = Some(scanout.clone());
         scanout_changed || geometry_changed || memory_changed || state_changed
     }
 
@@ -86,7 +86,7 @@ impl VgaRenderer {
     /// Encodes with the same geometry reuse image storage; retaining that image
     /// does not retain pixel history. A geometry change allocates a new image.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Option<Image> {
-        let scanout = self.scanout?;
+        let scanout = self.scanout.as_ref()?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("display decoding"),

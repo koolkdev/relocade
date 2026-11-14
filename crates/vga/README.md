@@ -658,8 +658,9 @@ Skipping captures loses no inputs required by the selected one. `DispiAdapter::s
 captures those same inputs immediately without publishing a frame, forcing a
 display-start latch, or changing CPU access phases. `DisplaySnapshot::geometry()`
 returns common image dimensions and explicit pixel aspect ratio. VGA row
-collapsing and nominal 4:3 proportions belong to `VgaDisplayState::geometry()`,
-whose `VgaGeometry` also records physical scanlines per output row.
+collapsing and nominal 4:3 proportions are prepared when display programming
+changes. `VgaDisplayState::geometry()` returns that prepared `VgaGeometry`,
+including physical scanlines per output row.
 SVGA owns its square pixel aspect explicitly. All pixel interpretation uses
 captured display settings and VRAM directly in the shader.
 
@@ -709,9 +710,13 @@ captures; the embedding owns redraw scheduling, request coalescing, dimensions a
 Closing the source ends capture production without invalidating retained captures
 or requiring the embedding's GPU resources to close.
 
-`geometry` defines common output dimensions and aspect; `scanout/vga` owns VGA
-register interpretation and row collapsing. `VgaRenderer` owns the common VRAM buffer
-separately from captured registers and palette.
+`geometry` defines common output dimensions and aspect. `scanout/parameters`
+decodes fixed VGA addressing, font, cursor, palette-selection and blanking controls;
+`scanout/geometry` prepares row collapsing and output dimensions. The card rebuilds
+these parameters when display programming changes. Captures share the immutable
+parameters and resolve live display-start latches and blink phases. Native drawing
+and the GPU apply the same prepared rules to coordinates and VRAM data.
+`VgaRenderer` owns the common VRAM buffer separately from captured settings and palette.
 `memory/pages` tracks physical writes across 64 blocks in a fixed 512-byte bitmap.
 `renderer/memory` uploads those pages when their captured baseline matches the
 queued GPU contents, otherwise it restores the affected block.
@@ -721,14 +726,15 @@ the uploaded scanout selects which decoder `encode` records, even when geometry
 stays the same. The packed pipeline selects pixel decoding
 from the captured format.
 Both shaders share physical VRAM reads, DAC lookup and fullscreen drawing.
-VGA alone owns raw register decoding, blink, blanking, fonts and row interpretation.
+VGA parameters describe blink, blanking, fonts and row interpretation without
+making the shader decode raw register fields.
 Of the Attribute Controller's address byte, only display enable is captured.
 `shaders/vga` dispatches pixels to `text`, `indexed256` or `graphics16`. All use
 the scanline and physical-address logic in `addressing`. Graphics layouts also
 share load alignment and chained output in
-`serializer`, independently of CRTC address counting. The vertex stage decodes
-frame-constant settings and the 16 attribute
-colors, passing them flat to fragments in the same draw. There is no preparation
+`serializer`, independently of CRTC address counting. The vertex stage selects
+the prepared attribute palette for the captured blink phase, looks up its 16 DAC
+colors and passes them flat to fragments in the same draw. There is no preparation
 pass or intermediate GPU buffer. Further graphics decoders can read the same physical
 buffer without mode-specific upload tracking or application changes.
 `shaders/packed` reads pixels using byte pitch, display origin and pixel format.
@@ -755,7 +761,7 @@ three index bits, attribute palette, Color Select and DAC mask work normally.
 This follows the [V7 VGA Technical Reference](https://oummg.com/manual/700-0242_V7_VGA_Technical_Reference_Manual_Jun88.pdf),
 pages 3-78–3-79. Eight-bit graphics bypass this attribute palette operation;
 text keeps its foreground/background blink behavior. Phase changes update the
-sixteen vertex-decoded colors without copying VRAM or changing pixel addressing.
+sixteen vertex-resolved colors without copying VRAM or changing pixel addressing.
 
 `DispiAdapter::initialize(runner).await` creates VGA on the session clock, registers its
 memory aperture and ports, and starts display capture. It returns the device
@@ -804,9 +810,9 @@ preset produces 640×200; standard mode-13h registers produce 320×200 with a 5:
 pixel aspect ratio.
 
 The renderer requires a 2D texture limit of at least 2304 pixels for the largest
-nine-dot text width, 13 flat inter-stage variables, two uniform buffers and one
+nine-dot text width, four flat inter-stage variables, two uniform buffers and one
 4-MiB fragment storage buffer. Uploads cover only captured blocks. The settings
-buffer is 128 bytes; packed scanout uses two words. The shared DAC buffer holds
+buffer is 208 bytes; packed scanout uses its first 64 bytes. The shared DAC buffer holds
 a four-byte mask and 768 palette bytes at offset 16. Captures retain written
 1-KiB pages as conservative GPU transfer hints, including equal-value writes.
 Consecutive dirty pages in each block become one upload. VGA plane bytes occupy

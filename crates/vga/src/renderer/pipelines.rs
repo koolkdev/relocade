@@ -48,7 +48,7 @@ impl DecodePipelines {
         }
     }
 
-    pub fn for_scanout(&self, scanout: Scanout) -> &wgpu::RenderPipeline {
+    pub fn for_scanout(&self, scanout: &Scanout) -> &wgpu::RenderPipeline {
         match scanout {
             Scanout::Vga(_) => &self.vga,
             Scanout::Packed(_) => &self.svga,

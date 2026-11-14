@@ -26,7 +26,7 @@ pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
             blanking: card.packed_blanking(),
         },
         None => DisplayConfiguration {
-            scanout: PreparedScanout::Vga(card.prepare_vga_layout()),
+            scanout: PreparedScanout::vga(registers, card.prepare_vga_layout()),
             blanked,
             blanking: Default::default(),
         },

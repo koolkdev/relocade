@@ -1,10 +1,9 @@
 // Serial and interleaved shifters share eight-dot clocks and attribute colors.
 fn graphics16_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
-    let shift_mode = input.display.w;
     let pixel = x + line.pel_pan;
-    let fetch = graphics_fetch(input, line, pixel, 8u);
+    let fetch = graphics_fetch(line, pixel);
     var color = 0u;
-    if (shift_mode & 0x20u) != 0u {
+    if state.mode == INTERLEAVED {
         // Four pairs from maps 0/2, then four from maps 1/3. Maps 2/3
         // supply the upper color bits even in this CGA-compatible shift mode.
         let plane = (pixel & 7u) / 4u;

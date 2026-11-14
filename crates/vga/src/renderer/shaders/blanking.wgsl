@@ -1,48 +1,10 @@
-// CRTC blanking uses raster coordinates, independently of memory addressing.
-// Horizontal boundaries follow the original-VGA convention in README.md.
-// The card supplies vertical intervals, including its counter/comparator widths.
-
-// Return a tail interval [x,y) and a head interval [0,z). The head accounts
-// for the counter resetting before the end comparator matches. Equal start/end
-// gives set priority; an unreachable end stays blank in steady state.
-fn blanking_intervals(start: u32, end_low: u32, mask: u32, total: u32) -> vec3<u32> {
-    if start >= total {
-        return vec3(0u);
-    }
-    let end = start + (((end_low - start - 1u) & mask) + 1u) + 1u;
-    let head_end = select(0u, min(end_low + 1u, total), end > total);
-    if head_end > start {
-        return vec3(0u, total, 0u);
-    }
-    return vec3(start + 1u, min(end, total), head_end);
+// Blanking boundaries are prepared in output pixel coordinates.
+fn in_blanking(count: u32, intervals: vec4<u32>) -> bool {
+    return (count >= intervals.x && count < intervals.y)
+        || (count >= intervals.z && count < intervals.w);
 }
 
-fn horizontal_blanking() -> vec3<u32> {
-    let end_low = (crtc(3u) & 31u) | ((crtc(5u) & 0x80u) >> 2u);
-    let intervals = blanking_intervals(crtc(2u), end_low, 63u, crtc(0u) + 5u);
-    // The cropped image starts at display enable, including its character skew.
-    let skew = vec3((crtc(3u) >> 5u) & 3u);
-    return intervals - min(intervals, skew);
-}
-
-fn vertical_blanking() -> vec3<u32> {
-    return vec3(state.vertical_blanking.x, state.vertical_blanking.y, state.vertical_blanking.w);
-}
-
-fn in_blanking(count: u32, intervals: vec3<u32>) -> bool {
-    return count < intervals.z || (count >= intervals.x && count < intervals.y);
-}
-
-fn pixel_blanked(input: DisplayVertex, pixel: vec2<u32>) -> bool {
-    let attribute_mode = input.display.x;
-    let shift_mode = input.display.w;
-    let clock_width = input.grid.y;
-    let address_mode = input.addressing.z;
-    let scanline_step = input.scanlines.y;
-    let indexed256 = (attribute_mode & 0x41u) == 0x41u && (shift_mode & 0x40u) != 0u;
-    let horizontal_count = pixel.x * select(1u, 2u, indexed256) / clock_width;
-    let vertical_divisor = 1u << ((address_mode >> 2u) & 1u);
-    let vertical_count = pixel.y * scanline_step / vertical_divisor;
-    return in_blanking(horizontal_count, input.horizontal_blank)
-        || in_blanking(vertical_count, input.vertical_blank);
+fn pixel_blanked(pixel: vec2<u32>) -> bool {
+    return in_blanking(pixel.x, state.horizontal_blank)
+        || in_blanking(pixel.y, state.vertical_blank);
 }
