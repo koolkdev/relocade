@@ -2,7 +2,7 @@
 
 use crate::{ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, CallLink, CompiledBlocks, ExecutionTarget};
+use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget};
 use std::ops::Range;
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
@@ -18,7 +18,7 @@ pub struct Description {
     pub(super) addresses: Vec<u32>,
     pub(super) ranges: Vec<Range<u64>>,
     pub(super) blocks: Vec<BlockEntry>,
-    pub(super) calls: Vec<CallLink>,
+    pub(super) call_targets: Vec<u32>,
     pub(super) target: ExecutionTarget,
 }
 
@@ -30,7 +30,7 @@ impl CompiledCode {
                 ranges: ranges(&addresses, &blocks.entries),
                 addresses,
                 blocks: blocks.entries,
-                calls: blocks.calls,
+                call_targets: blocks.call_targets,
                 target: blocks.execution_target,
             },
         }
@@ -47,22 +47,8 @@ impl CompiledCode {
         &self.description.blocks
     }
 
-    pub(crate) fn call_targets(&self) -> Result<Vec<u32>> {
-        self.description
-            .calls
-            .iter()
-            .map(|call| {
-                let key = match *call {
-                    CallLink::Near { caller_entry, eip } => {
-                        (self.entry_key(caller_entry)? & 0xffff_0000) | eip
-                    }
-                    CallLink::Far { selector, offset } => {
-                        (u32::from(selector) << 16) | u32::from(offset)
-                    }
-                };
-                Ok(key)
-            })
-            .collect()
+    pub(crate) fn call_targets(&self) -> &[u32] {
+        &self.description.call_targets
     }
 
     pub(crate) fn module(&self) -> &Module {

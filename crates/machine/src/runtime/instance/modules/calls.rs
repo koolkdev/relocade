@@ -18,7 +18,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
         resolver: &Function<B, abi::ExecutionSignature>,
     ) -> Result<Option<Self>> {
         let Some(code) = code else { return Ok(None) };
-        let targets = code.call_targets()?;
+        let targets = code.call_targets();
         if targets.is_empty() {
             return Ok(None);
         }
@@ -31,7 +31,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
         )?;
         Ok(Some(Self {
             table,
-            targets,
+            targets: targets.to_vec(),
             unresolved,
         }))
     }

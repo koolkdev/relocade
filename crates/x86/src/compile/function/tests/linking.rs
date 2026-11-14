@@ -129,7 +129,7 @@ fn function_namespaces_do_not_alias_equal_offsets() {
     for code in &codes {
         roots.push(
             module
-                .add_function(0x1000, limits(), reader(0x1000, code))
+                .add_function(0x1000, None, limits(), reader(0x1000, code))
                 .unwrap()[0]
                 .export
                 .clone(),
@@ -227,48 +227,50 @@ fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
 }
 
 #[test]
-fn call_tables_describe_external_near_and_far_targets_in_each_function() {
+fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let mut module = compiler.function_module();
     let code = [
         0xe8, 0xfd, 0, // CALL 0200
+        0xe8, 0xfa, 0, // CALL 0200 again
         0x9a, 0, 2, 0x10, 0, // CALL FAR 0010:0200
         0xff, 0xd0, // CALL AX has no constant destination
         0xc3,
     ];
-    for _ in 0..2 {
+    for (cs, start, bytes) in [
+        (0x10, 0x100, code.as_slice()),
+        (0x10, 0x180, &[0xe8, 0x7d, 0, 0xc3][..]), // CALL 0200; RET
+        (0x20, 0x100, code.as_slice()),
+    ] {
         module
-            .add_function(0x100, FunctionLimits::default(), reader(0x100, &code))
+            .add_function(
+                start,
+                Some(cs),
+                FunctionLimits::default(),
+                reader(start, bytes),
+            )
             .unwrap();
     }
     let blocks = module.compile().unwrap();
-    assert_eq!(
-        blocks.calls,
-        [
-            crate::CallLink::Near {
-                caller_entry: 0,
-                eip: 0x200
-            },
-            crate::CallLink::Far {
-                selector: 0x10,
-                offset: 0x200
-            },
-            crate::CallLink::Near {
-                caller_entry: 4,
-                eip: 0x200
-            },
-            crate::CallLink::Far {
-                selector: 0x10,
-                offset: 0x200
-            },
-        ]
-    );
-    let local = compiler
-        .compile_function(
+    assert_eq!(blocks.call_targets, [0x0010_0200, 0x0020_0200]);
+
+    // Without a known CS, only the explicit far target has a table entry.
+    let unknown_cs = compiler
+        .compile_function(0x100, FunctionLimits::default(), reader(0x100, &code))
+        .unwrap();
+    assert_eq!(unknown_cs.call_targets, [0x0010_0200]);
+
+    let mut local = compiler.function_module();
+    local
+        .add_function(
             0x100,
+            Some(0x10),
             FunctionLimits::default(),
             reader(0x100, &[0xe8, 0, 0, 0xc3]),
         )
         .unwrap();
-    assert!(local.calls.is_empty(), "a local call uses its direct entry");
+    assert!(
+        local.compile().unwrap().call_targets.is_empty(),
+        "a local call uses its direct entry"
+    );
 }

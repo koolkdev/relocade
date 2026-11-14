@@ -33,23 +33,15 @@ pub struct BlockEntry {
     pub export: String,
 }
 
-/// One constant-index destination in the module's `relocade.callTargets` table.
-/// Near destinations inherit CS from `entries[caller_entry]`; far destinations
-/// supply it explicitly. Only discovered Real16 functions currently emit links.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CallLink {
-    Near { caller_entry: usize, eip: u32 },
-    Far { selector: u16, offset: u16 },
-}
-
 /// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
 /// Entry metadata follows the supplied snapshot order.
 pub struct CompiledBlocks {
     pub bytes: Vec<u8>,
     pub entries: Vec<BlockEntry>,
-    /// Ordered destinations for a private function table on each installation.
+    /// Unique packed Real16 CS:IP targets, in call-table slot order.
+    /// Calls from every function in this module share slots for equal targets.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
-    pub calls: Vec<CallLink>,
+    pub call_targets: Vec<u32>,
     /// Required target for every entry and its interpreter fallback.
     /// The host also maintains each entry's code bytes and mapping validity.
     pub execution_target: ExecutionTarget,
@@ -195,7 +187,7 @@ impl Compiler {
         Ok(CompiledBlocks {
             bytes: blocks.program.compile()?,
             entries: blocks.entries,
-            calls: blocks.calls,
+            call_targets: blocks.call_targets,
             execution_target: self.target,
         })
     }
@@ -214,7 +206,7 @@ impl Compiler {
         Ok(CompiledBlocks {
             bytes: blocks.program.compile_with(executor).await?,
             entries: blocks.entries,
-            calls: blocks.calls,
+            call_targets: blocks.call_targets,
             execution_target: self.target,
         })
     }

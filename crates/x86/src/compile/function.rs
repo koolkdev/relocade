@@ -83,7 +83,7 @@ impl Compiler {
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<CompiledBlocks, BlockError> {
         let mut module = self.function_module();
-        module.add_function(start_eip, limits, read)?;
+        module.add_function(start_eip, None, limits, read)?;
         module.compile()
     }
 
@@ -97,7 +97,7 @@ impl Compiler {
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
         let mut module = self.function_module();
-        module.add_function(start_eip, limits, read)?;
+        module.add_function(start_eip, None, limits, read)?;
         module.compile_with(executor).await
     }
 }
@@ -115,9 +115,14 @@ impl FunctionModule<'_> {
     /// Returned entries belong to this function; their EIPs are CS-relative.
     /// Exports are unique even when functions use the same EIP in different code
     /// segments. Code validity follows [`Compiler::compile_function`].
+    ///
+    /// A known real-mode `cs` lets external near calls share table slots with
+    /// other calls to the same CS:IP. The embedding must enter these blocks with
+    /// that CS. With `None`, external near calls retain runtime resolution.
     pub fn add_function(
         &mut self,
         start_eip: u32,
+        cs: Option<u16>,
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
@@ -128,7 +133,7 @@ impl FunctionModule<'_> {
             }
         }
         let start = self.module.entries.len();
-        self.module.append(decoded)?;
+        self.module.append(decoded, cs)?;
         self.functions += 1;
         Ok(&self.module.entries[start..])
     }
@@ -138,7 +143,7 @@ impl FunctionModule<'_> {
         Ok(CompiledBlocks {
             bytes: self.module.program.compile()?,
             entries: self.module.entries,
-            calls: self.module.calls,
+            call_targets: self.module.call_targets,
             execution_target: self.module.compiler.target,
         })
     }
@@ -151,7 +156,7 @@ impl FunctionModule<'_> {
         Ok(CompiledBlocks {
             bytes: self.module.program.compile_with(executor).await?,
             entries: self.module.entries,
-            calls: self.module.calls,
+            call_targets: self.module.call_targets,
             execution_target: self.module.compiler.target,
         })
     }

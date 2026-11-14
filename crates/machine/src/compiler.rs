@@ -100,6 +100,7 @@ async fn compile(
                 let base = request.entry.segment_base();
                 match module.add_function(
                     u32::from(request.entry.offset),
+                    Some(request.entry.segment),
                     request.limits,
                     |eip, buffer| {
                         let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);

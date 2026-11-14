@@ -14,14 +14,27 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
             0x100,
             &[
                 0xe8, 0xfd, 0, // CALL 0200
-                0xe9, 0xfa, 0x0e, // JMP 1000, outside readable code
+                0xe8, 0xfa, 0, // CALL 0200 again
+                0xe9, 0xf7, 0x0e, // JMP 1000, outside readable code
             ],
         )
         .unwrap();
     machine
         .memory()
         .view()
-        .write(0x200, &[0xb8, 7, 0, 0xc3])
+        .write(
+            0x180,
+            &[
+                0xe8, 0x7d, 0, // CALL 0200 from another function
+                0xe8, 0x7a, 0, // CALL 0200 again
+                0xe9, 0x77, 0x0e, // JMP 1000, outside readable code
+            ],
+        )
+        .unwrap();
+    machine
+        .memory()
+        .view()
+        .write(0x200, &[0x83, 0xc0, 7, 0xc3]) // ADD AX,7; RET
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = cpu
@@ -33,7 +46,7 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
                 limits: FunctionLimits::default(),
             };
             compiler
-                .request_functions(target, vec![request(0x100)])
+                .request_functions(target, vec![request(0x100), request(0x180)])
                 .unwrap();
             let caller = compiler.recv().await.unwrap().unwrap();
             let exit = runner.cpu().exit_handle();
@@ -51,7 +64,7 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
                             .cpu()
                             .memory()
                             .view()
-                            .write(0x200, &[0xb8, 9, 0, 0xc3])
+                            .write(0x200, &[0x83, 0xc0, 9, 0xc3]) // ADD AX,9; RET
                             .unwrap();
                     }
                     compiler
@@ -65,14 +78,18 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
                         .install(runner.cpu())
                         .unwrap();
                 }
-                runner.cpu().cpu_state().set_eip(0x100);
-                assert_eq!(
-                    runner.run_cpu().await,
-                    ExecutionExit::Host(HostExit::Return)
-                );
-                let state = runner.cpu().cpu_state();
-                assert_eq!(state.ax(), if stage == 3 { 9 } else { 7 });
-                assert_eq!(state.sp(), 0x800);
+                for entry in [0x100, 0x180] {
+                    let state = runner.cpu().cpu_state();
+                    state.set_eip(entry);
+                    state.set_ax(0);
+                    assert_eq!(
+                        runner.run_cpu().await,
+                        ExecutionExit::Host(HostExit::Return)
+                    );
+                    let state = runner.cpu().cpu_state();
+                    assert_eq!(state.ax(), if stage == 3 { 18 } else { 14 });
+                    assert_eq!(state.sp(), 0x800);
+                }
             }
             // Installing a hook also updates existing callers.
             let exit = runner.cpu().exit_handle();
@@ -81,14 +98,18 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
                 .install([Hook::host(0x200, async move || exit.request())])
                 .await
                 .unwrap();
-            runner.cpu().cpu_state().set_eip(0x100);
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
-            );
-            let state = runner.cpu().cpu_state();
-            assert_eq!(state.eip(), 0x200);
-            assert_eq!(state.sp(), 0x7fe);
+            for entry in [0x100, 0x180] {
+                let state = runner.cpu().cpu_state();
+                state.set_eip(entry);
+                state.set_sp(0x800);
+                assert_eq!(
+                    runner.run_cpu().await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+                let state = runner.cpu().cpu_state();
+                assert_eq!(state.eip(), 0x200);
+                assert_eq!(state.sp(), 0x7fe);
+            }
         })
         .await;
     machine.shutdown().await.unwrap();
