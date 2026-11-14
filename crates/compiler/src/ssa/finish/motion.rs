@@ -42,6 +42,10 @@ impl Reuse<'_> {
             }
             let owner = self.definitions[value]?;
             let common = self.dominators.common(owner.0, block.0)?;
+            if common == owner.0 {
+                // Keep a dominating definition before its existing users.
+                return Some(value);
+            }
             if !expression.inputs().all(|&input| {
                 matches!(
                     self.graph.values[input].definition,
