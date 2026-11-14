@@ -2,6 +2,7 @@
 
 use relocade_machine::{real_mode_interrupt::interrupt, MemoryView};
 
+mod clock;
 pub(crate) mod console;
 mod control;
 mod directories;
