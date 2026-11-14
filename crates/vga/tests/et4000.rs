@@ -26,6 +26,8 @@ mod readback;
 mod registers;
 #[path = "et4000/scanout.rs"]
 mod scanout;
+#[path = "et4000/state.rs"]
+mod state;
 mod support;
 #[path = "et4000/timing.rs"]
 mod timing;

@@ -34,7 +34,7 @@ pub use dispi::{
 };
 #[cfg(feature = "renderer")]
 pub use display::VgaDisplay;
-pub use et4000::Et4000Ax;
+pub use et4000::{Et4000Ax, Et4000State};
 pub use framebuffer::{Framebuffer, FramebufferAccess, FramebufferGeometry, Pixel, TextCell};
 pub use geometry::DisplayGeometry;
 pub use output::RetraceEvent;

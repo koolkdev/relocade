@@ -7,8 +7,11 @@ mod output;
 mod ports;
 mod registers;
 mod scanout;
+mod state;
 mod timing;
 mod viewport;
+
+pub use state::Et4000State;
 
 use crate::{
     memory::VideoMemory, output::Output, scanout::DisplayConfiguration, DisplaySnapshot, Registers,
