@@ -1,16 +1,28 @@
 //! Drive mounts, host file access and the DOS paths that select them.
 
-use super::{EntryMetadata, FileAccess, FileSystem, ARCHIVE_ATTRIBUTE};
+use super::{EntryMetadata, FileAccess, FileSystem, ARCHIVE_ATTRIBUTE, BYTES_PER_SECTOR};
 use crate::{
     error::DosError,
     path::{self, ResolvedPath},
     MountError,
 };
 use relocade_vfs::MemoryFileSystem;
-use std::io;
+use std::io::{self, ErrorKind};
 
 impl FileSystem {
     pub(crate) fn mount(&mut self, letter: char, filesystem: MemoryFileSystem) -> io::Result<()> {
+        let space = filesystem.space();
+        // Virtual DOS volumes use 512-byte sectors and clusters up to 32 KiB. Counts
+        // must fit AH=36h's words; reject unrepresentable mounts before replacing a drive.
+        if !space.allocation_unit.is_power_of_two()
+            || !(u32::from(BYTES_PER_SECTOR)..=32 * 1024).contains(&space.allocation_unit)
+            || space.total_units > u64::from(u16::MAX)
+        {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "unsupported DOS volume geometry",
+            ));
+        }
         self.drives.mount(letter, filesystem)?;
         let letter = letter.to_ascii_uppercase();
         self.current_directories.remove(&letter);
@@ -33,9 +45,13 @@ impl FileSystem {
         filesystem
             .create_dir_all(path::parent(&path.relative))
             .map_err(|_| MountError::InvalidPath)?;
-        let file = filesystem
-            .replace_file(&path.relative, contents)
-            .map_err(|_| MountError::InvalidPath)?;
+        let file =
+            filesystem
+                .replace_file(&path.relative, contents)
+                .map_err(|error| match error.kind() {
+                    ErrorKind::StorageFull => MountError::DiskFull,
+                    _ => MountError::InvalidPath,
+                })?;
         file.set_read_only(access == FileAccess::ReadOnly);
         self.entries.insert(
             path,

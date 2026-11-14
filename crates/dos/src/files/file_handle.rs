@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::File;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, io::ErrorKind, rc::Rc};
 
 /// Duplicated DOS handles and in-progress operations retain the same record.
 #[derive(Clone)]
@@ -100,24 +100,31 @@ impl FileHandle {
         if !open.access.can_write() {
             return Err(DosError::AccessDenied);
         }
-        if bytes.is_empty() {
-            // DOS AH=40h with CX=0 sets the file length at the current position.
-            open.file
-                .set_len(u64::from(open.position))
-                .map_err(|_| DosError::AccessDenied)?;
-            open.written = true;
-            open.preserve_timestamp = false;
-            return Ok(0);
-        }
         // DOS cursors and file sizes remain 32-bit even though VFS offsets are u64.
         let count = u32::try_from(bytes.len()).map_err(|_| DosError::AccessDenied)?;
         open.position
             .checked_add(count)
             .ok_or(DosError::AccessDenied)?;
-        let count = open
-            .file
-            .write_at(bytes, u64::from(open.position))
-            .map_err(|_| DosError::AccessDenied)?;
+        let result = if bytes.is_empty() {
+            // DOS AH=40h with CX=0 sets the file length at the current position.
+            open.file.set_len(u64::from(open.position)).map(|()| 0)
+        } else {
+            open.file.write_at(bytes, u64::from(open.position))
+        };
+        let count = match result {
+            Ok(count) => count,
+            // A full disk returns a short count, including DOS 5's CX=0 growth case.
+            // DOS volumes fit below 2 GiB, so host length overflow also exceeds capacity.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::StorageFull | ErrorKind::FileTooLarge
+                ) =>
+            {
+                return Ok(0);
+            }
+            Err(_) => return Err(DosError::AccessDenied),
+        };
         open.position += count as u32;
         open.written = true;
         open.preserve_timestamp = false;

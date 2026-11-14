@@ -92,6 +92,7 @@ impl std::error::Error for DosError {}
 pub enum MountError {
     InvalidPath,
     FileTooLarge,
+    DiskFull,
 }
 
 impl fmt::Display for MountError {
@@ -101,6 +102,7 @@ impl fmt::Display for MountError {
                 "expected a nonempty ASCII file path on a mounted drive shorter than 128 bytes"
             }
             Self::FileTooLarge => "mounted file exceeds the 32-bit DOS file size",
+            Self::DiskFull => "mounted volume has insufficient free space",
         })
     }
 }

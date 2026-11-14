@@ -36,6 +36,7 @@ const SYSTEM_ATTRIBUTE: u16 = 0x04;
 const ARCHIVE_ATTRIBUTE: u16 = 0x20;
 const DIRECTORY_ATTRIBUTE: u8 = 0x10;
 const COMPATIBILITY_SHARING: u8 = 0;
+pub(crate) const BYTES_PER_SECTOR: u16 = 512;
 
 /// Initial read-only attribute of a mounted file; DOS AH=43h can change it later.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

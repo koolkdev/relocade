@@ -93,6 +93,10 @@
 //! [`Dos::mount`] supplies a filesystem at a drive letter; C: starts empty.
 //! [`Dos::mount_file`] supplies files for AH=3Dh/3Eh/3Fh/40h open/close/read/write.
 //! AH=3Ch creates or truncates files in existing directories.
+//! Drives default to 512 MiB with 16 KiB allocation units. File data consumes
+//! whole units, including files retained by old handles after host replacement.
+//! AH=40h returns a short count with carry clear when the volume is full. DOS 5
+//! also returns zero for a failed CX=0 extension, leaving the old length intact.
 //! AH=5Bh creates a file only if its name is unused, preserving existing files.
 //! AH=5Ah creates a uniquely named temporary file; the caller owns its deletion.
 //! AH=56h renames or moves closed files on the same drive without replacing a destination.
@@ -339,6 +343,8 @@ impl Dos {
     /// Filesystem paths must use uppercase, unpadded ASCII 8.3 names and '/' separators.
     /// Entries with other spellings are not assigned short-name aliases.
     /// Files larger than u32::MAX bytes cannot be opened or listed by DOS.
+    /// Capacity comes from the VFS volume. DOS accepts power-of-two allocation
+    /// units of 512 bytes through 32 KiB and at most 65,535 units per volume.
     /// Resets that drive's current directory to its root and discards its DOS
     /// attributes and searches; entries start with the current DOS timestamp.
     /// Open handles continue to access their original files.
@@ -366,6 +372,8 @@ impl Dos {
     /// Files persist across program loads.
     /// The file starts with the current DOS timestamp.
     /// Replacing a mounted path leaves existing open handles on the previous bytes.
+    /// Returns [`MountError::DiskFull`] when the volume cannot hold the file;
+    /// a failed replacement keeps the previous file. Old open versions retain capacity.
     pub fn mount_file(
         &mut self,
         path: &str,
