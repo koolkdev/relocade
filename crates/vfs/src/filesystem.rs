@@ -42,6 +42,20 @@ impl MemoryFileSystem {
         Self::default()
     }
 
+    /// Total logical length of files currently in this filesystem, in bytes.
+    /// Reads current lengths, including writes through open handles. Directories
+    /// and files retained only by handles after removal or replacement do not count.
+    /// This is not a measurement of host memory or disk-block allocation.
+    pub fn used_bytes(&self) -> u64 {
+        self.entries
+            .values()
+            .map(|node| match node {
+                Node::Directory => 0,
+                Node::File(file) => file.len(),
+            })
+            .sum()
+    }
+
     /// Opens an existing file for reading.
     pub fn open(&self, path: &str) -> io::Result<File> {
         self.open_file(path, false)
