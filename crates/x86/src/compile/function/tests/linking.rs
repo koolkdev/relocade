@@ -129,7 +129,11 @@ fn function_namespaces_do_not_alias_equal_offsets() {
     for code in &codes {
         roots.push(
             module
-                .add_function(0x1000, None, limits(), reader(0x1000, code))
+                .add_function(
+                    CodeAddress::CsRelative(0x1000),
+                    limits(),
+                    reader(0x1000, code),
+                )
                 .unwrap()[0]
                 .export
                 .clone(),
@@ -244,10 +248,12 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     ] {
         module
             .add_function(
-                start,
-                Some(cs),
+                CodeAddress::RealMode(FarPointer {
+                    segment: cs,
+                    offset: start,
+                }),
                 FunctionLimits::default(),
-                reader(start, bytes),
+                reader(u32::from(start), bytes),
             )
             .unwrap();
     }
@@ -263,8 +269,10 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     let mut local = compiler.function_module();
     local
         .add_function(
-            0x100,
-            Some(0x10),
+            CodeAddress::RealMode(FarPointer {
+                segment: 0x10,
+                offset: 0x100,
+            }),
             FunctionLimits::default(),
             reader(0x100, &[0xe8, 0, 0, 0xc3]),
         )

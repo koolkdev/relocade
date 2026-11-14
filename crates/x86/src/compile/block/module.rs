@@ -1,6 +1,7 @@
 //! Shared Wasm declarations and function emission for one snapshot batch.
 
 use super::{decode::DecodedBlock, BlockEntry, Compiler};
+use crate::compile::CodeAddress;
 use crate::{execution::ExecutionModule, instruction::CallTarget, BlockError, ExecutionProfile};
 use relocade_compiler::{Func, Program};
 use std::collections::BTreeMap;
@@ -41,7 +42,7 @@ impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn append(
         &mut self,
         blocks: Vec<DecodedBlock>,
-        cs: Option<u16>,
+        entry: CodeAddress,
     ) -> Result<(), BlockError> {
         let blocks = self.declare_blocks(blocks);
         // Each discovered function has its own CS-relative namespace. Separate
@@ -55,8 +56,10 @@ impl<'a> BlockModule<'a> {
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
-                        let Some(cs) = cs else { continue };
-                        (u32::from(cs) << 16) | eip
+                        let CodeAddress::RealMode(address) = entry else {
+                            continue;
+                        };
+                        (u32::from(address.segment) << 16) | eip
                     }
                     Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
                         (u32::from(selector) << 16) | offset

@@ -12,7 +12,7 @@ pub use service::CompilerService;
 
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
-use relocade_x86::{BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
+use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
@@ -99,8 +99,7 @@ async fn compile(
             for request in requests {
                 let base = request.entry.segment_base();
                 match module.add_function(
-                    u32::from(request.entry.offset),
-                    Some(request.entry.segment),
+                    CodeAddress::RealMode(request.entry),
                     request.limits,
                     |eip, buffer| {
                         let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);

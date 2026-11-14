@@ -6,8 +6,26 @@ mod discover;
 mod tests;
 
 use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::BlockError;
+use crate::{real_mode::FarPointer, BlockError};
 use relocade_compiler::CompileExecutor;
+
+/// The identity of a guest function entry during compilation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CodeAddress {
+    /// A CS-relative EIP whose segment is determined at execution time.
+    CsRelative(u32),
+    /// A fixed real-mode CS:IP, used to identify shared call-table targets.
+    RealMode(FarPointer),
+}
+
+impl CodeAddress {
+    fn eip(self) -> u32 {
+        match self {
+            Self::CsRelative(eip) => eip,
+            Self::RealMode(address) => u32::from(address.offset),
+        }
+    }
+}
 
 /// Whole-function exploration caps and the size of each emitted block.
 /// Exceeding an exploration cap rejects the candidate before IR construction;
@@ -83,7 +101,7 @@ impl Compiler {
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<CompiledBlocks, BlockError> {
         let mut module = self.function_module();
-        module.add_function(start_eip, None, limits, read)?;
+        module.add_function(CodeAddress::CsRelative(start_eip), limits, read)?;
         module.compile()
     }
 
@@ -97,7 +115,7 @@ impl Compiler {
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
         let mut module = self.function_module();
-        module.add_function(start_eip, None, limits, read)?;
+        module.add_function(CodeAddress::CsRelative(start_eip), limits, read)?;
         module.compile_with(executor).await
     }
 }
@@ -116,24 +134,23 @@ impl FunctionModule<'_> {
     /// Exports are unique even when functions use the same EIP in different code
     /// segments. Code validity follows [`Compiler::compile_function`].
     ///
-    /// A known real-mode `cs` lets external near calls share table slots with
+    /// [`CodeAddress::RealMode`] lets external near calls share table slots with
     /// other calls to the same CS:IP. The embedding must enter these blocks with
-    /// that CS. With `None`, external near calls retain runtime resolution.
+    /// that CS. [`CodeAddress::CsRelative`] keeps external near calls resolved at runtime.
     pub fn add_function(
         &mut self,
-        start_eip: u32,
-        cs: Option<u16>,
+        entry: CodeAddress,
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(start_eip, self.module.compiler.target, limits, read)?;
+        let mut decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
         if self.functions != 0 {
             for block in &mut decoded {
                 block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);
             }
         }
         let start = self.module.entries.len();
-        self.module.append(decoded, cs)?;
+        self.module.append(decoded, entry)?;
         self.functions += 1;
         Ok(&self.module.entries[start..])
     }
