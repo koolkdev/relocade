@@ -1,5 +1,6 @@
 use super::reference::render;
 use crate::common::fixture::{set_cell, text_device};
+use crate::common::support::registers;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -70,7 +71,7 @@ fn blinking_uses_the_captured_frame_phase() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_shape_visibility_and_blink() {
     let vga = text_device();
-    super::registers::cursor(&vga.io, 82, 6, 7);
+    registers::cursor(&vga.io, 82, 6, 7);
     let mut snapshot = vga.snapshot();
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 16, 13), [0, 0, 0, 255]);
@@ -79,7 +80,7 @@ fn cursor_shape_visibility_and_blink() {
     snapshot.vga_mut().unwrap().cursor_blink_on = false;
     assert_eq!(pixel(&render(&snapshot), 16, 14), [0, 0, 0, 255]);
     for (address, start, end) in [(82u16, 0x26, 7), (82, 7, 6), (82, 8, 31), (2002, 6, 7)] {
-        super::registers::cursor(&vga.io, address, start, end);
+        registers::cursor(&vga.io, address, start, end);
         let snapshot = vga.snapshot();
         assert!(render(&snapshot)
             .as_chunks::<4>()
@@ -93,20 +94,20 @@ fn cursor_shape_visibility_and_blink() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn cursor_follows_display_start_address_wrap_and_skew() {
     let vga = text_device();
-    super::registers::cursor(&vga.io, 0, 6, 7);
+    registers::cursor(&vga.io, 0, 6, 7);
     let mut snapshot = vga.snapshot();
     snapshot.vga_mut().unwrap().display_start = 0xffff;
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 0, 6), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 8, 6), [170, 170, 170, 255]);
-    super::registers::cursor(&vga.io, 0, 6, 0x27);
+    registers::cursor(&vga.io, 0, 6, 0x27);
     let mut snapshot = vga.snapshot();
     snapshot.vga_mut().unwrap().display_start = 0xffff;
     let pixels = render(&snapshot);
     assert_eq!(pixel(&pixels, 8, 6), [0, 0, 0, 255]);
     assert_eq!(pixel(&pixels, 16, 6), [170, 170, 170, 255]);
     for address in [79u16, 0xffff] {
-        super::registers::cursor(&vga.io, address, 6, 0x27);
+        registers::cursor(&vga.io, address, 6, 0x27);
         let snapshot = vga.snapshot();
         assert!(render(&snapshot)
             .as_chunks::<4>()
