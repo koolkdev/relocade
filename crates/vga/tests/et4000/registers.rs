@@ -105,3 +105,26 @@ fn active_address_group_and_enable_port_remain_accessible() {
     io.write_port(0xf6e8, 1, 8);
     assert_eq!(io.read_port(0x3b4, 2), 0x0834);
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn status_retrace_complement_supports_native_tseng_detection() {
+    let clock = ManualClock::default();
+    let device = ConnectedEt4000::new(&clock);
+    // Fractint 19.6 checks these complementary bits before probing CRTC 33h.
+    assert_eq!(device.io.read_port(0x3da, 1) & 0x88, 0x80);
+    let mut wait = pin!(device.card.borrow_mut().wait_for_retrace().unwrap());
+    assert!(wait
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    clock.advance_to(clock.next_deadline().unwrap());
+    assert_eq!(device.io.read_port(0x3da, 1) & 0x88, 8);
+    {
+        let _card = device.card.borrow_mut();
+        assert_eq!(device.io.read_port(0x3da, 1) & 0x88, 8);
+    }
+    device.io.write_port(0x3c2, 1, 0x42);
+    assert_eq!(device.io.read_port(0x3ba, 1) & 0x88, 8);
+    assert_eq!(device.io.read_port(0x3da, 1), 0xff);
+}

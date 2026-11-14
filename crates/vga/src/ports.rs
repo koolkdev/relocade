@@ -290,7 +290,7 @@ fn crtc<Card: VgaPortAccess>(
         Mapping::bind(
             io,
             status,
-            PortRead::low_byte(move |_| read_status()),
+            PortRead::low_byte(move |_| Card::input_status_1(read_status())),
             PortWrite::low_byte(
                 callbacks.write(|_, card, value| card.vga_mut().registers.feature_control = value),
             ),

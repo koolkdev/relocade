@@ -104,7 +104,7 @@ fn cached_status_resets_attribute_phase_without_borrowing_the_card() {
     device.io.write_port(0x3c0, 1, 0x01); // Awaiting palette data.
     {
         let _borrow = device.card.borrow_mut();
-        assert_eq!(device.io.read_port(0x3da, 2), 0xff00);
+        assert_eq!(device.io.read_port(0x3da, 2), 0xff80);
     }
     device.io.write_port(0x3c0, 1, 0x02); // Status read restored the index phase.
     device.io.write_port(0x3c0, 1, 0x35);
