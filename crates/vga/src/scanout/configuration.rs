@@ -1,5 +1,5 @@
 //! Prepared display interpretation, resolved with live latches at capture.
-use super::{Scanout, VgaDisplayState};
+use super::{Scanout, VgaDisplayLayout, VgaDisplayState};
 use crate::{snapshot::Blanking, PackedLayout, Registers};
 
 pub(crate) struct DisplayConfiguration {
@@ -10,9 +10,7 @@ pub(crate) struct DisplayConfiguration {
 
 #[derive(Clone, Copy)]
 pub(crate) enum PreparedScanout {
-    Vga {
-        linear_addressing: bool,
-    },
+    Vga(VgaDisplayLayout),
     /// A complete viewport, including its programmed physical start address.
     Packed(PackedLayout),
     /// A wrapping viewport whose start includes panning but not the CRTC latch.
@@ -23,11 +21,9 @@ pub(crate) enum PreparedScanout {
 }
 
 impl DisplayConfiguration {
-    pub fn vga() -> Self {
+    pub fn vga(registers: &Registers) -> Self {
         Self {
-            scanout: PreparedScanout::Vga {
-                linear_addressing: false,
-            },
+            scanout: PreparedScanout::Vga(VgaDisplayLayout::vga(registers)),
             blanked: false,
             blanking: Blanking::default(),
         }
@@ -35,7 +31,7 @@ impl DisplayConfiguration {
 
     pub fn packed_layout(&self) -> Option<PackedLayout> {
         match self.scanout {
-            PreparedScanout::Vga { .. } => None,
+            PreparedScanout::Vga(_) => None,
             PreparedScanout::Packed(layout)
             | PreparedScanout::PackedWithCrtcStart { layout, .. } => Some(layout),
         }
@@ -45,12 +41,10 @@ impl DisplayConfiguration {
     /// Native drawing supplies the programmed counter instead of its latch.
     pub fn scanout_at(&self, registers: &Registers, start: u32, retrace_count: u64) -> Scanout {
         match self.scanout {
-            PreparedScanout::Vga { linear_addressing } => {
+            PreparedScanout::Vga(layout) => {
                 // Raw register inspection includes CPU-only controls. Copying
                 // them here keeps those writes independent of display preparation.
-                let mut state = VgaDisplayState::from_registers(registers);
-                state.display_start = start as u16;
-                state.linear_addressing = linear_addressing;
+                let state = VgaDisplayState::from_registers(registers, layout, start);
                 Scanout::Vga(state.with_blink_phase(retrace_count))
             }
             PreparedScanout::Packed(layout) => Scanout::Packed(layout),

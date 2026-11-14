@@ -1,9 +1,10 @@
 //! Captured display interpretation, independent of CPU port access state.
 mod configuration;
+mod layout;
 mod vga;
-use crate::memory::VGA_MEMORY_BYTES;
 use crate::{DisplayGeometry, PackedLayout};
 pub(crate) use configuration::{DisplayConfiguration, PreparedScanout};
+pub use layout::VgaDisplayLayout;
 pub use vga::{VgaDisplayState, VgaGeometry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,7 +25,7 @@ impl Scanout {
 
     pub(crate) fn memory_bytes(&self) -> u32 {
         match self {
-            Self::Vga(_) => VGA_MEMORY_BYTES,
+            Self::Vga(state) => state.layout.memory_bytes,
             Self::Packed(layout) => layout.memory_bytes(),
         }
     }

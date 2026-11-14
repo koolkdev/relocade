@@ -37,7 +37,7 @@ impl Addressing {
     pub fn geometry(&self) -> FramebufferGeometry {
         let size = self.state.geometry().output.size;
         if self.text {
-            let rows = self.state.crtc.vertical_display() as u32
+            let rows = self.state.layout.vertical_display
                 * self.state.crtc.scanlines_per_vertical_count() as u32
                 / self.repeat()
                 / self.row_height();
@@ -75,12 +75,10 @@ impl Addressing {
     /// Counter, row scan, byte pan and pel pan at a physical scanline.
     fn scanline(&self, physical: u32) -> [u32; 4] {
         let preset = self.crtc(crtc::PRESET_ROW_SCAN);
-        let compare = self.crtc(crtc::LINE_COMPARE)
-            | ((self.crtc(crtc::OVERFLOW) & 0x10) << 4)
-            | ((self.crtc(crtc::MAXIMUM_SCAN_LINE) & 0x40) << 3);
-        let split = (compare + 1) * self.state.crtc.scanlines_per_vertical_count() as u32;
+        let split = (self.state.layout.line_compare + 1)
+            * self.state.crtc.scanlines_per_vertical_count() as u32;
         let mut row = physical / self.repeat() + (preset & 31);
-        let mut start = u32::from(self.state.display_start);
+        let mut start = self.state.display_start;
         let mut byte_pan = (preset >> 5) & 3;
         let mut pel_pan =
             u32::from(self.state.attributes[attribute::HORIZONTAL_PANNING as usize] & 7);
@@ -104,9 +102,10 @@ impl Addressing {
     }
 
     fn address(&self, counter: u32, row_scan: u32) -> u32 {
-        let counter = counter & 0xffff;
+        let mask = self.state.layout.plane_address_mask();
+        let counter = counter & mask;
         let mode = self.crtc(crtc::MODE_CONTROL);
-        let mut address = if self.state.linear_addressing {
+        let mut address = if self.state.layout.linear_addressing {
             counter
         } else if self.crtc(crtc::UNDERLINE_LOCATION) & 0x40 != 0 {
             (counter << 2) | ((counter >> 12) & 3)
@@ -121,7 +120,7 @@ impl Addressing {
         if mode & 2 == 0 {
             address = (address & !0x4000) | ((row_scan & 2) << 13);
         }
-        (address & 0xffff) * 4
+        (address & mask) * 4
     }
 
     pub fn pixel(&self, x: u16, y: u16) -> Option<Location> {

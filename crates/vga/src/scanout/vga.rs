@@ -1,4 +1,5 @@
 //! VGA display inputs and geometry decoded from captured register values.
+use super::VgaDisplayLayout;
 use crate::{
     registers::{
         attribute,
@@ -19,10 +20,8 @@ pub struct VgaDisplayState {
     pub miscellaneous: u8,
     pub display_enabled: bool,
     /// Start address latched at the last serviced VGA retrace.
-    pub display_start: u16,
-    /// The CRTC counter addresses consecutive four-byte groups instead of
-    /// rotating byte/word/doubleword pins into IBM's plane layout.
-    pub linear_addressing: bool,
+    pub display_start: u32,
+    pub layout: VgaDisplayLayout,
     /// Cursor phase toggles every eight retraces.
     pub cursor_blink_on: bool,
     /// Text and graphics attribute phase toggles every sixteen retraces.
@@ -30,7 +29,11 @@ pub struct VgaDisplayState {
 }
 
 impl VgaDisplayState {
-    pub(crate) fn from_registers(registers: &Registers) -> Self {
+    pub(crate) fn from_registers(
+        registers: &Registers,
+        layout: VgaDisplayLayout,
+        display_start: u32,
+    ) -> Self {
         Self {
             sequencer: registers.sequencer.values,
             crtc: registers.crtc.registers,
@@ -38,8 +41,8 @@ impl VgaDisplayState {
             attributes: registers.attribute.values,
             miscellaneous: registers.miscellaneous,
             display_enabled: registers.attribute.display_enabled(),
-            display_start: registers.crtc.display_start,
-            linear_addressing: false,
+            display_start,
+            layout,
             cursor_blink_on: true,
             attribute_blink_on: true,
         }
@@ -100,7 +103,7 @@ impl VgaDisplayState {
         let dots_per_pixel = if indexed256 { 2 } else { 1 };
         let columns = self.crtc.horizontal_display() as u32;
         let physical_height =
-            self.crtc.vertical_display() as u32 * self.crtc.scanlines_per_vertical_count() as u32;
+            self.layout.vertical_display * self.crtc.scanlines_per_vertical_count() as u32;
         let scanline_step = self.scanline_step(physical_height, indexed256 || graphics16);
         let size = [
             (columns * dots_per_character).div_ceil(dots_per_pixel),
@@ -132,16 +135,13 @@ impl VgaDisplayState {
         }
 
         let scanlines_per_count = self.crtc.scanlines_per_vertical_count() as u32;
-        let line_compare = u32::from(c[crtc::LINE_COMPARE as usize])
-            | (u32::from(c[crtc::OVERFLOW as usize] & 0x10) << 4)
-            | (u32::from(c[crtc::MAXIMUM_SCAN_LINE as usize] & 0x40) << 3);
-        let split_line = (line_compare + 1) * scanlines_per_count;
+        let split_line = (self.layout.line_compare + 1) * scanlines_per_count;
         let blanking_edges = self
-            .crtc
-            .vertical_blanking()
+            .layout
+            .vertical_blanking
             .into_iter()
-            .filter(|range| !range.is_empty())
-            .flat_map(|range| [range.start, range.end])
+            .filter(|[start, end]| start < end)
+            .flatten()
             .map(|count| count * scanlines_per_count);
 
         // The image end, split and blanking edges must not cut a repeated row.

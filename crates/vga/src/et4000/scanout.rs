@@ -7,7 +7,7 @@ use crate::{
     registers::{attribute, crtc, graphics},
     scanout::{DisplayConfiguration, PreparedScanout},
     snapshot::Blanking,
-    PackedLayout,
+    PackedLayout, VgaDisplayLayout,
 };
 
 pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
@@ -25,14 +25,15 @@ pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
             blanking: card.packed_blanking(),
         },
         None => DisplayConfiguration {
-            scanout: PreparedScanout::Vga {
+            scanout: PreparedScanout::Vga(VgaDisplayLayout {
                 // Keep VGA's serializer, row repeats, split screen and blanking.
                 // ET4000 changes how its CRTC counter addresses physical bytes.
                 linear_addressing: registers.attribute.values[attribute::MODE_CONTROL as usize]
                     & 0x41
                     == 0x41
                     && registers.graphics.values[graphics::MODE as usize] & 0x40 != 0,
-            },
+                ..VgaDisplayLayout::vga(registers)
+            }),
             blanked,
             blanking: Default::default(),
         },

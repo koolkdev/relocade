@@ -1,4 +1,4 @@
-// VGA settings occupy 128 bytes, including final structure padding. Raw banks
+// VGA settings occupy 160 bytes, including final structure padding. Raw banks
 // contain four bytes per word; offsets match renderer/state.rs.
 struct VgaState {
     sequencer: vec4<u32>,
@@ -12,6 +12,10 @@ struct VgaState {
     scanline_step: u32,
     display_start: u32,
     linear_addressing: u32,
+    plane_address_mask: u32,
+    cursor_address: u32,
+    line_compare: u32,
+    vertical_blanking: vec4<u32>,
 }
 
 @group(0) @binding(0) var<uniform> state: VgaState;
@@ -30,4 +34,9 @@ fn graphics(index: u32) -> u32 {
 
 fn attribute_reg(index: u32) -> u32 {
     return packed_byte(state.attributes[index / 16u][(index / 4u) % 4u], index);
+}
+
+fn vga_byte(plane: u32, address: u32) -> u32 {
+    // Each word contains the four planes at one VGA plane offset.
+    return packed_byte(memory[address & state.plane_address_mask], plane);
 }

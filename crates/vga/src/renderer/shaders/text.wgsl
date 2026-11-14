@@ -11,7 +11,7 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let column = (x + line.pel_pan) / glyph_width;
     let dot = (x + line.pel_pan) % glyph_width;
     let line_start = line.counter + line.byte_pan;
-    let counter = (line_start + column / count_divisor) & 0xffffu;
+    let counter = (line_start + column / count_divisor) & state.plane_address_mask;
     let address = display_address(counter, glyph_row, address_mode, underline);
     let character = vga_byte(0u, address);
     let cell_attribute = vga_byte(1u, address);
@@ -43,7 +43,7 @@ fn text_color(input: DisplayVertex, line: Scanline, x: u32) -> u32 {
     let skew = (cursor_end >> 5u) & 3u;
     if cursor_blink_on && (cursor_start & 0x20u) == 0u
         && column >= skew && column < columns
-        && ((line_start + (column - skew) / count_divisor) & 0xffffu) == cursor_address
+        && ((line_start + (column - skew) / count_divisor) & state.plane_address_mask) == cursor_address
         && glyph_row >= (cursor_start & 31u) && glyph_row <= (cursor_end & 31u) {
         foreground_pixel = true;
     }
