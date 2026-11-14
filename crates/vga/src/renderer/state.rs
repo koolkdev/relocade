@@ -171,6 +171,7 @@ fn settings(snapshot: &DisplaySnapshot) -> [u8; SETTINGS_BYTES] {
                 PixelFormat::Indexed8 => 0,
                 PixelFormat::Rgb565 => 1,
                 PixelFormat::Bgrx8888 => 2,
+                PixelFormat::Rgb555 => 3,
             };
             bytes[8..12].copy_from_slice(&format.to_le_bytes());
             bytes[12..16].copy_from_slice(&layout.address_mask().to_le_bytes());

@@ -1,6 +1,8 @@
 //! Native drawing into guest VRAM, independent of CPU aperture programming.
 mod addressing;
 mod location;
+#[cfg(test)]
+mod tests;
 
 use crate::{memory::VideoMemory, PixelFormat, Scanout};
 use addressing::Addressing;
@@ -104,6 +106,7 @@ impl Framebuffer<'_> {
                 let address = layout.pixel_address(u32::from(x), u32::from(y));
                 let mask = match format {
                     PixelFormat::Indexed8 => 255,
+                    PixelFormat::Rgb555 => 0x7fff,
                     PixelFormat::Rgb565 => 0xffff,
                     PixelFormat::Bgrx8888 => 0x00ff_ffff,
                 };

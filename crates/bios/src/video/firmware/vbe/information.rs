@@ -123,16 +123,10 @@ fn banked_mode(
     bytes[16..18].copy_from_slice(&(layout.pitch() as u16).to_le_bytes());
     bytes[18..20].copy_from_slice(&width.to_le_bytes());
     bytes[20..22].copy_from_slice(&height.to_le_bytes());
-    bytes[22..28].copy_from_slice(&[
-        8,
-        16,
-        1,
-        (layout.format().bytes_per_pixel() * 8) as u8,
-        1,
-        4,
-    ]);
+    bytes[22..28].copy_from_slice(&[8, 16, 1, layout.format().bits_per_pixel(), 1, 4]);
     let masks = match layout.format() {
         PixelFormat::Indexed8 => None,
+        PixelFormat::Rgb555 => Some([5, 10, 5, 5, 5, 0, 1, 15, 0]),
         PixelFormat::Rgb565 => Some([5, 11, 6, 5, 5, 0, 0, 0, 0]),
         PixelFormat::Bgrx8888 => Some([8, 16, 8, 8, 8, 0, 8, 24, 2]),
     };
