@@ -15,7 +15,7 @@ pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
     let blanked = !registers.attribute.display_enabled()
         || registers.sequencer.reset_active()
         || registers.sequencer.values[1] & 0x20 != 0;
-    match card.packed_layout() {
+    match card.prepare_packed_layout() {
         Some(layout) => DisplayConfiguration {
             scanout: PreparedScanout::PackedWithCrtcStart {
                 layout,
@@ -50,7 +50,7 @@ impl Et4000Ax {
             | (u32::from(self.display_start_high) << 16)
     }
 
-    fn packed_layout(&self) -> Option<PackedLayout> {
+    fn prepare_packed_layout(&self) -> Option<PackedLayout> {
         let registers = &self.vga.registers;
         let attribute = &registers.attribute.values;
         if registers.graphics.values[graphics::MODE as usize] & 0x40 == 0

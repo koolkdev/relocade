@@ -4,12 +4,21 @@ use crate::{
     effects::{CardEffects, Effects},
     ports::VgaPortAccess,
     registers::crtc,
+    PackedLayout,
 };
 use relocade_machine::IoContext;
 
 impl Et4000Ax {
     pub fn ports_enabled(&self) -> bool {
         self.vga.setup.enabled()
+    }
+
+    /// Prepared indexed image with the currently programmed CRTC start address.
+    pub fn packed_layout(&self) -> Option<PackedLayout> {
+        self.output
+            .display
+            .packed_layout()
+            .map(|layout| layout.with_start_offset(self.programmed_start() * 4))
     }
 
     /// Remove extended addressing, clocks and banks before common VGA font

@@ -1,33 +1,16 @@
-//! Guest byte layouts from the VESA Super VGA BIOS Extension standard, version 1.2.
-//! https://mircosoft.mzf.cz/texty/VESA12sp.htm (functions 00h and 01h).
+//! DISPI capabilities supplied to the shared VBE information buffers.
 use super::{available, layout, Mode};
-use crate::BIOS_SEGMENT;
+use crate::video::firmware::vbe::{self, WindowAccess};
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
-use relocade_vga::{dispi, DispiAdapter, PixelFormat};
+use relocade_vga::DispiAdapter;
 use std::cell::RefCell;
 
-// Follows the legacy video parameter table (F000:A700–AE3F).
-const OEM: FarPointer = FarPointer {
-    segment: BIOS_SEGMENT,
-    offset: 0xb000,
-};
-const MODES: FarPointer = FarPointer {
-    segment: BIOS_SEGMENT,
-    offset: 0xb020,
-};
-
 pub(in super::super) fn initialize(memory: &mut MemoryView<'_>) {
-    memory
-        .write_backing(OEM.address(), b"Relocade banked SVGA\0")
-        .expect("VBE OEM string");
-    let mut modes = Vec::new();
-    for mode in Mode::ALL {
-        modes.extend(mode.number.to_le_bytes());
-    }
-    modes.extend(0xffffu16.to_le_bytes());
-    memory
-        .write_backing(MODES.address(), &modes)
-        .expect("VBE mode list");
+    vbe::initialize(
+        memory,
+        b"Relocade banked SVGA\0",
+        Mode::ALL.map(|mode| mode.number),
+    );
 }
 
 #[interrupt(context(memory), args(destination = ptr(es, di)),
@@ -41,18 +24,8 @@ pub(super) fn controller(
     if !available(card) {
         return false;
     }
-    // This is the 256-byte 1.x structure, even if the caller requests "VBE2".
-    let mut bytes = [0; 256];
-    bytes[..4].copy_from_slice(b"VESA");
-    bytes[4..6].copy_from_slice(&0x0102u16.to_le_bytes());
-    bytes[6..10].copy_from_slice(&OEM.packed().to_le_bytes());
-    // Capabilities = 0: VGA compatible, fixed six-bit DAC.
-    bytes[14..18].copy_from_slice(&MODES.packed().to_le_bytes());
-    bytes[18..20]
-        .copy_from_slice(&((card.borrow().video_memory_bytes() / 65536) as u16).to_le_bytes());
-    memory
-        .write_wrapping(destination, &bytes)
-        .expect("VBE controller information buffer");
+    let memory_bytes = card.borrow().video_memory_bytes();
+    vbe::controller(memory, destination, memory_bytes);
     true
 }
 
@@ -68,7 +41,6 @@ pub(super) fn mode(
     let Some(mode) = Mode::from_number(number).filter(|_| available(card)) else {
         return false;
     };
-    let [width, height] = mode.display.size().map(|value| value as u16);
     let layout = layout::active(card)
         .filter(|layout| {
             layout.size() == mode.display.size() && layout.format() == mode.display.format()
@@ -78,35 +50,11 @@ pub(super) fn mode(
                 .layout(card.borrow().video_memory_bytes())
                 .expect("supported mode fits VRAM")
         });
-    let mut bytes = [0; 256];
-    // Supported color graphics, extended information, no BIOS text/pixel output.
-    bytes[..2].copy_from_slice(&0x001bu16.to_le_bytes());
-    bytes[2] = 7; // Window A exists and is readable and writable; no window B.
-    let window_kib = (dispi::BANK_BYTES / 1024) as u16;
-    bytes[4..6].copy_from_slice(&window_kib.to_le_bytes());
-    bytes[6..8].copy_from_slice(&window_kib.to_le_bytes());
-    bytes[8..10].copy_from_slice(&((dispi::BANK_START >> 4) as u16).to_le_bytes());
-    // Null WinFuncPtr directs callers to INT 10h/4F05h.
-    bytes[16..18].copy_from_slice(&(layout.pitch() as u16).to_le_bytes());
-    bytes[18..20].copy_from_slice(&width.to_le_bytes());
-    bytes[20..22].copy_from_slice(&height.to_le_bytes());
-    bytes[22..28].copy_from_slice(&[8, 16, 1, mode.display.bits_per_pixel(), 1, 4]);
-    let masks = match mode.display.format() {
-        PixelFormat::Indexed8 => None,
-        PixelFormat::Rgb565 => Some([5, 11, 6, 5, 5, 0, 0, 0, 0]),
-        PixelFormat::Bgrx8888 => Some([8, 16, 8, 8, 8, 0, 8, 24, 2]),
-    };
-    if let Some(masks) = masks {
-        // Direct color, with a fixed color ramp.
-        bytes[27] = 6;
-        // RGB and reserved masks, then DirectColorModeInfo: X is application storage.
-        bytes[31..40].copy_from_slice(&masks);
-    }
-    // No interleaved scanline banks. VBE counts additional complete display pages.
-    bytes[29] = (layout.image_pages() - 1) as u8;
-    bytes[30] = 1; // VBE 1.2's reserved page-function byte.
-    memory
-        .write_wrapping(destination, &bytes)
-        .expect("VBE mode information buffer");
+    vbe::banked_mode(
+        memory,
+        destination,
+        layout,
+        [WindowAccess::ReadWrite, WindowAccess::Absent],
+    );
     true
 }
