@@ -13,13 +13,18 @@ use crate::{
 
 impl ScalarFacts {
     pub(super) fn assume(&mut self, table: &ValueTable, condition: usize, truth: bool) {
-        let mut pending = vec![(
+        self.assume_encoding(
+            table,
             condition,
             Bits {
                 mask: 1,
                 value: u64::from(truth),
             },
-        )];
+        );
+    }
+
+    pub(super) fn assume_encoding(&mut self, table: &ValueTable, id: usize, bits: Bits) {
+        let mut pending = vec![(id, bits)];
         while let Some((id, bits)) = pending.pop() {
             let value = table.values[id];
             let bits = bits.restrict(value.ty.mask());
@@ -39,6 +44,15 @@ impl ScalarFacts {
                 continue;
             }
             let bits = previous.union(bits);
+            // Equivalent predicates must also contribute their operand implications.
+            if let Some(answer) = self.answers.borrow().get(&id) {
+                for equivalent in [answer.residual, answer.form].into_iter().flatten() {
+                    let equivalent = equivalent.get() - 1;
+                    if equivalent != id {
+                        pending.push((equivalent, bits));
+                    }
+                }
+            }
             self.record(table, id, bits);
             if self.constraints.track(table, id, bits) {
                 self.dependencies

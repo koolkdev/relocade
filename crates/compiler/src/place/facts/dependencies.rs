@@ -34,6 +34,7 @@ impl Demand {
 pub(super) enum Source {
     Bits(usize),
     Reduction(usize),
+    Form(usize),
     Range(usize),
     Comparison(Comparison),
     Word(VectorWord),
@@ -41,7 +42,7 @@ pub(super) enum Source {
 
 #[derive(Clone, Copy, Default)]
 struct Uses {
-    heads: [Option<NonZeroUsize>; 3],
+    heads: [Option<NonZeroUsize>; 4],
     indexed: u8,
 }
 
@@ -56,6 +57,7 @@ pub(super) struct Dependencies {
     edges: Vec<Edge>,
     aliases: FxHashSet<(usize, usize)>,
     proof_inputs: FxHashSet<(usize, usize)>,
+    form_inputs: FxHashSet<(usize, usize)>,
     comparisons: FxHashMap<Comparison, Option<NonZeroUsize>>,
     words: FxHashMap<VectorWord, Option<NonZeroUsize>>,
 }
@@ -128,6 +130,12 @@ impl Dependencies {
         }
     }
 
+    pub(super) fn form_input(&mut self, root: usize, input: usize) {
+        if input != root && self.form_inputs.insert((root, input)) {
+            self.add(Source::Form(input), Demand::Reduction(root));
+        }
+    }
+
     pub(super) fn proof_input(&mut self, table: &ValueTable, root: usize, input: usize) {
         if input != root && self.proof_inputs.insert((root, input)) {
             self.add(Source::Bits(input), Demand::Reduction(root));
@@ -165,12 +173,13 @@ impl Dependencies {
 
     fn add(&mut self, source: Source, user: Demand) {
         let head = match source {
-            Source::Bits(id) | Source::Reduction(id) | Source::Range(id) => {
+            Source::Bits(id) | Source::Reduction(id) | Source::Range(id) | Source::Form(id) => {
                 self.values
                     .resize(self.values.len().max(id + 1), Uses::default());
                 let kind = match source {
                     Source::Bits(_) => 0,
                     Source::Reduction(_) => 1,
+                    Source::Form(_) => 3,
                     _ => 2,
                 };
                 &mut self.values[id].heads[kind]
@@ -187,6 +196,7 @@ impl Dependencies {
             Source::Bits(id) => self.values.get(id).and_then(|uses| uses.heads[0]),
             Source::Reduction(id) => self.values.get(id).and_then(|uses| uses.heads[1]),
             Source::Range(id) => self.values.get(id).and_then(|uses| uses.heads[2]),
+            Source::Form(id) => self.values.get(id).and_then(|uses| uses.heads[3]),
             Source::Comparison(key) => self.comparisons.get(&key).copied().flatten(),
             Source::Word(word) => self.words.get(&word).copied().flatten(),
         };

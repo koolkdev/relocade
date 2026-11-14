@@ -48,29 +48,92 @@ pub(crate) fn fold_carrier(
     expression: Expression<usize>,
     component: usize,
 ) -> usize {
-    Folder { values }.fold_result(ty, expression, component)
+    Folder { values, form: None }.fold_result(ty, expression, component)
+}
+
+/// Inspect operands through their scoped forms without replacing their identities.
+pub(crate) fn fold_in_scope(
+    values: &mut ValueTable,
+    id: usize,
+    expression: Expression<usize>,
+    form: &dyn Fn(usize) -> usize,
+) -> usize {
+    let ty = values[id].ty;
+    let original = values.expression(id).unwrap();
+    let mut folder = Folder {
+        values,
+        form: Some(form),
+    };
+    if let Some(result) = folder.simplify_result(ty, expression, original.component) {
+        result
+    } else if expression == original.expression {
+        id
+    } else {
+        folder.intern_result(ty, expression, original.component)
+    }
 }
 
 pub(crate) fn normalize(values: &mut ValueTable, input: usize) -> usize {
-    Folder { values }.normalize(input)
+    Folder { values, form: None }.normalize(input)
 }
 
 struct Folder<'a> {
     values: &'a mut ValueTable,
+    form: Option<&'a dyn Fn(usize) -> usize>,
 }
 
 impl Folder<'_> {
+    fn resolved(&self, id: usize) -> usize {
+        self.form.map_or(id, |form| form(id))
+    }
+
+    fn value(&self, id: usize) -> Value {
+        self.values[self.resolved(id)]
+    }
+
+    fn bounds(&self, id: usize) -> crate::body::BitBounds {
+        self.values.bounds[self.resolved(id)]
+    }
+
+    fn representation(&self, mut id: usize) -> usize {
+        loop {
+            id = self.resolved(id);
+            let value = self.values[id];
+            let ValueDefinition::Expression(Expression::Unary {
+                operator: Unary::Convert,
+                input,
+            }) = value.definition
+            else {
+                return id;
+            };
+            if value.ty.carrier() != self.value(input).ty.carrier() {
+                return id;
+            }
+            id = input;
+        }
+    }
+
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         self.fold_result(ty, expression, 0)
     }
 
-    // Construction and operand replacement share rewrites that preserve every result bit.
     fn fold_result(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
+        self.simplify_result(ty, expression, component)
+            .unwrap_or_else(|| self.intern_result(ty, expression, component))
+    }
+
+    // Construction and operand replacement share rewrites that preserve every result bit.
+    fn simplify_result(
+        &mut self,
+        ty: Type,
+        expression: Expression<usize>,
+        component: usize,
+    ) -> Option<usize> {
         if let Some(bits) = self
             .literals(expression)
             .and_then(|literals| literals.carrier_result(ty, component))
         {
-            return self.values.carrier_literal(ty, bits);
+            return Some(self.values.carrier_literal(ty, bits));
         }
         let input = match expression {
             Expression::Unary { operator, input } => match operator {
@@ -78,21 +141,21 @@ impl Folder<'_> {
                 Unary::LowBits { bits } => Some(self.fold_low_bits(ty, input, bits)),
                 Unary::SignExtend { input_type } => self.fold_sign_extend(ty, input_type, input),
                 Unary::ExtractLane { lane } => self.fold_extract_lane(ty, lane, input),
-                Unary::Convert if self.values[input].ty == ty => Some(input),
-                Unary::Convert => match self.values[input].definition {
+                Unary::Convert if self.value(input).ty == ty => Some(input),
+                Unary::Convert => match self.value(input).definition {
                     ValueDefinition::Expression(Expression::Unary {
                         operator: Unary::Convert,
                         input: original,
-                    }) if self.values[original].ty == ty
-                        && self.values[input].ty.carrier().bits() >= ty.carrier().bits() =>
+                    }) if self.value(original).ty == ty
+                        && self.value(input).ty.carrier().bits() >= ty.carrier().bits() =>
                     {
                         Some(original)
                     }
                     _ => None,
                 },
                 Unary::Reinterpret => self.reinterpret_input(input).filter(|&original| {
-                    self.values[original].ty == ty
-                        && self.values[input].ty.carrier().bits() >= ty.carrier().bits()
+                    self.value(original).ty == ty
+                        && self.value(input).ty.carrier().bits() >= ty.carrier().bits()
                 }),
                 _ => None,
             },
@@ -144,22 +207,22 @@ impl Folder<'_> {
                 right,
             } => self.fold_multiply_wide(signed, left, right, component),
         };
-        let expression = if let Some(input) = input {
-            if self.values[input].ty == ty {
-                return input;
-            }
+        let input = input?;
+        if self.value(input).ty == ty {
+            return Some(input);
+        }
+        Some(self.intern_result(
+            ty,
             Expression::Unary {
                 operator: Unary::Convert,
                 input,
-            }
-        } else {
-            expression
-        };
-        self.intern_result(ty, expression, component)
+            },
+            component,
+        ))
     }
 
     fn vector_literal(&self, input: usize) -> Option<u128> {
-        match self.values[input].definition {
+        match self.value(input).definition {
             ValueDefinition::Literal(bits) => Some(u128::from(bits)),
             _ => None,
         }
@@ -196,7 +259,7 @@ impl Folder<'_> {
             definition: ValueDefinition::Expression(expression),
         });
         let id = self.values.expression_result(id, component);
-        if self.values.bounds[id].unsigned == 0 {
+        if self.bounds(id).unsigned == 0 {
             self.values.literal(ty, 0)
         } else {
             id

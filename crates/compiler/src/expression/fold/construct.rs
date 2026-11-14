@@ -23,14 +23,14 @@ pub(crate) fn build(
     expression: Expression<usize>,
     component: usize,
 ) -> usize {
-    Folder { values }.construct(ty, expression, component)
+    Folder { values, form: None }.construct(ty, expression, component)
 }
 
 impl Folder<'_> {
     // Inputs carry logical types; canonical operations may retain wider physical bits.
     fn construct(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         let expression = expression.map(|&input| {
-            let value = self.values[input];
+            let value = self.value(input);
             match value.definition {
                 ValueDefinition::Literal(bits) => self.values.literal(value.ty, bits),
                 _ => input,
@@ -127,8 +127,8 @@ impl Folder<'_> {
     }
 
     pub(super) fn bitwise(&mut self, operator: BitwiseOp, left: usize, right: usize) -> usize {
-        let a = self.values[left];
-        let b = self.values[right];
+        let a = self.value(left);
+        let b = self.value(right);
         debug_assert_eq!(a.ty, b.ty);
         // Construction observes logical widths. Refolding an existing carrier
         // operation must retain its upper bits instead of repeating these rules.

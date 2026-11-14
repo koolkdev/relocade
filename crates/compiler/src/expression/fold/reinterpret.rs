@@ -27,17 +27,17 @@ impl Folder<'_> {
         let source = self
             .reinterpret_input(left)
             .or_else(|| self.reinterpret_input(right))?;
-        let source = self.values[source].ty;
+        let source = self.value(source).ty;
         if !source.is_integer() || source.bits() != target.bits() {
             return None;
         }
         [left, right]
             .into_iter()
             .all(|input| {
-                matches!(self.values[input].definition, ValueDefinition::Literal(_))
+                matches!(self.value(input).definition, ValueDefinition::Literal(_))
                     || self
                         .reinterpret_input(input)
-                        .is_some_and(|original| self.values[original].ty == source)
+                        .is_some_and(|original| self.value(original).ty == source)
             })
             .then_some(source)
     }
@@ -46,7 +46,7 @@ impl Folder<'_> {
         // Construction observes logical bits. A V64 roundtrip through I64 may
         // discard the unused high carrier half here, but not during refolding.
         if let Some(original) = self.reinterpret_input(input) {
-            if self.values[original].ty == target {
+            if self.value(original).ty == target {
                 return original;
             }
         }
@@ -60,7 +60,7 @@ impl Folder<'_> {
     }
 
     pub(super) fn reinterpret_input(&self, input: usize) -> Option<usize> {
-        match self.values[input].definition {
+        match self.value(input).definition {
             ValueDefinition::Expression(Expression::Unary {
                 operator: Unary::Reinterpret,
                 input,

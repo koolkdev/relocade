@@ -208,14 +208,15 @@ fn refolding_changed_operands_preserves_wide_result_components() {
     let scope = branch(&mut reducer, parent, &graph.values, 0, true);
     let high = reducer.reduce(&mut graph.values, scope, high);
     let low = reducer.reduce(&mut graph.values, scope, product);
-    let high = graph.values.expression(high).unwrap();
-    let low = graph.values.expression(low).unwrap();
+    let specialized = |value| {
+        reducer.recipes(scope, value).filter_map(|recipe| graph.values.expression(recipe)).find(|result| {
+            matches!(result.expression, Expression::MultiplyWide { left, right, .. } if left == input && right == input)
+        }).expect("the refolded form remains an equivalent recipe")
+    };
+    let high = specialized(high);
+    let low = specialized(low);
     assert_eq!((low.component, high.component), (0, 1));
     assert_eq!(low.producer, high.producer);
-    assert!(matches!(
-        high.expression,
-        Expression::MultiplyWide { left, right, .. } if left == input && right == input
-    ));
 }
 
 #[test]

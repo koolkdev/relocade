@@ -10,18 +10,18 @@ use crate::{
 
 impl Folder<'_> {
     pub(super) fn fold_shift(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
-        let zero_count = matches!(self.values[count].scalar_literal(), Some(bits) if integer::shift_count(ty, bits as u32) == 0);
-        (zero_count || self.values.bounds[input].unsigned == 0).then_some(input)
+        let zero_count = matches!(self.value(count).scalar_literal(), Some(bits) if integer::shift_count(ty, bits as u32) == 0);
+        (zero_count || self.bounds(input).unsigned == 0).then_some(input)
     }
 
     pub(super) fn fold_rotate(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
-        let identity_input = matches!(self.values[input].scalar_literal(), Some(bits) if bits == 0 || bits == ty.carrier().mask());
+        let identity_input = matches!(self.value(input).scalar_literal(), Some(bits) if bits == 0 || bits == ty.carrier().mask());
         self.fold_shift(ty, input, count)
             .or(identity_input.then_some(input))
     }
 
     pub(super) fn shift(&mut self, operator: ShiftOp, input: usize, count: usize) -> usize {
-        let value = self.values[input];
+        let value = self.value(input);
         if let Some(input) = self.fold_shift(value.ty, input, count) {
             return input;
         }
@@ -46,12 +46,12 @@ impl Folder<'_> {
     }
 
     pub(super) fn rotate(&mut self, operator: RotateOp, input: usize, count: usize) -> usize {
-        let value = self.values[input];
+        let value = self.value(input);
         if value.ty == Type::I1 {
             return input;
         }
         if matches!(value.ty, Type::I8 | Type::I16) {
-            if matches!(self.values[count].scalar_literal(), Some(bits)
+            if matches!(self.value(count).scalar_literal(), Some(bits)
                 if integer::rotate_count(value.ty, bits as u32) == 0)
                 || matches!(value.scalar_literal(), Some(bits)
                     if bits == 0 || bits == value.ty.mask())

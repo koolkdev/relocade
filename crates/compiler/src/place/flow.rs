@@ -53,7 +53,7 @@ impl ReducedFlow {
                         .map(|parent| reducer.facts(scopes[parent].unwrap()).clone())
                         .unwrap_or_default()
                 });
-            let observations = if let [source] = sources.as_slice() {
+            let mut observations: Vec<_> = if let [source] = sources.as_slice() {
                 let authored = edge_observation(&graph.values, &exits[*source], BlockId(block));
                 let reduced =
                     edge_observation(&graph.values, &graph.blocks[*source].exit, BlockId(block));
@@ -63,12 +63,39 @@ impl ReducedFlow {
                     authored,
                     reduced.filter(|observation| Some(*observation) != authored),
                 ]
+                .into_iter()
+                .flatten()
+                .collect()
             } else {
-                [None; 2]
+                Vec::new()
             };
-            let scope = reducer.scope(
-                incoming.with_assumptions(&graph.values, observations.into_iter().flatten()),
-            );
+            if let [source] = sources.as_slice() {
+                let source = scopes[*source].unwrap();
+                for observation in observations.clone() {
+                    let value = match observation {
+                        Assumption::Truth { condition, .. } => condition,
+                        Assumption::Bits { value, .. } => value,
+                    };
+                    let residual = reducer.facts(source).reduced(value).unwrap_or(value);
+                    for value in reducer.recipes(source, residual) {
+                        let fact = match observation {
+                            Assumption::Truth { truth, .. } => Assumption::Truth {
+                                condition: value,
+                                truth,
+                            },
+                            Assumption::Bits { mask, bits, .. } => Assumption::Bits {
+                                value,
+                                mask: mask & graph.values[value].ty.mask(),
+                                bits,
+                            },
+                        };
+                        if !observations.contains(&fact) {
+                            observations.push(fact);
+                        }
+                    }
+                }
+            }
+            let scope = reducer.scope(incoming.with_assumptions(&graph.values, observations));
             for item in &graph.blocks[block].items {
                 let BlockItem::Effect(id) = item else {
                     unreachable!()

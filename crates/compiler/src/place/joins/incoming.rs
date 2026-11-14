@@ -26,8 +26,16 @@ impl IncomingValues {
         }
         // Reduction never adds an execution. A non-leaf residual can only be
         // supplied by a calculation already recorded on this predecessor.
-        let residual = flow.reduce(&mut graph.values, BlockId(self.source), recipe);
-        let residual = graph.values.representation(residual);
+        // Removing a type view can expose another scoped reduction.
+        let mut residual = recipe;
+        loop {
+            residual = flow.reduce(&mut graph.values, BlockId(self.source), residual);
+            let input = graph.values.representation(residual);
+            if input == residual {
+                break;
+            }
+            residual = input;
+        }
         let result = joins
             .recorded_value(self.source, recipe)
             .or_else(|| joins.recorded_value(self.source, residual))

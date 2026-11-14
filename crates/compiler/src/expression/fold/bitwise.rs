@@ -13,12 +13,12 @@ impl Folder<'_> {
         left: usize,
         right: usize,
     ) -> Option<usize> {
-        let a = self.values.representation(left);
-        let b = self.values.representation(right);
+        let a = self.representation(left);
+        let b = self.representation(right);
         if operator == BitwiseOp::And {
             let masked = match (
-                self.values[a].scalar_literal(),
-                self.values[b].scalar_literal(),
+                self.value(a).scalar_literal(),
+                self.value(b).scalar_literal(),
             ) {
                 (_, Some(mask)) => self.and_constant(ty, left, mask),
                 (Some(mask), _) => self.and_constant(ty, right, mask),
@@ -41,8 +41,8 @@ impl Folder<'_> {
         }
         match (
             operator,
-            self.values[a].scalar_literal(),
-            self.values[b].scalar_literal(),
+            self.value(a).scalar_literal(),
+            self.value(b).scalar_literal(),
         ) {
             (BitwiseOp::Or | BitwiseOp::Xor, _, Some(0)) => Some(left),
             (BitwiseOp::Or | BitwiseOp::Xor, Some(0), _) => Some(right),
@@ -59,11 +59,11 @@ impl Folder<'_> {
                         operator: Binary::Bitwise(nested),
                         left,
                         right,
-                    }) = self.values[self.values.representation(input)].definition
+                    }) = self.value(self.representation(input)).definition
                     {
                         if nested == operator
-                            && (self.values.representation(left) == other
-                                || self.values.representation(right) == other)
+                            && (self.representation(left) == other
+                                || self.representation(right) == other)
                         {
                             return Some(input);
                         }
@@ -82,24 +82,24 @@ impl Folder<'_> {
                 operator: Binary::Bitwise(BitwiseOp::Xor),
                 left: inner_left,
                 right: inner_right,
-            }) = self.values[nested].definition
+            }) = self.value(nested).definition
             else {
                 continue;
             };
-            let a = self.values.representation(inner_left);
-            let b = self.values.representation(inner_right);
+            let a = self.representation(inner_left);
+            let b = self.representation(inner_right);
             if b == other {
                 return Some(inner_left);
             }
             if a == other {
                 return Some(inner_right);
             }
-            let Some(outer_mask) = self.values[other].scalar_literal() else {
+            let Some(outer_mask) = self.value(other).scalar_literal() else {
                 continue;
             };
             let (base, inner_mask) = match (
-                self.values[a].scalar_literal(),
-                self.values[b].scalar_literal(),
+                self.value(a).scalar_literal(),
+                self.value(b).scalar_literal(),
             ) {
                 (_, Some(mask)) => (inner_left, mask),
                 (Some(mask), _) => (inner_right, mask),
@@ -120,7 +120,7 @@ impl Folder<'_> {
 
     fn and_constant(&mut self, ty: Type, input: usize, mask: u64) -> Option<usize> {
         let bits = mask.trailing_ones() as u8;
-        if self.values.bounds[input].unsigned <= bits {
+        if self.bounds(input).unsigned <= bits {
             return Some(input);
         }
         if mask == integer::low_mask(bits) {

@@ -90,13 +90,16 @@ impl Reducer {
                         .and_then(|bits| values.carrier_bits(id, bits))
                     {
                         let result = values.carrier_literal(values[id].ty, bits);
-                        self.record(scope, id, result);
+                        self.record(values, scope, id, result);
                     } else if let Some(step) = facts.identity_inference(values, id) {
                         self.pending.push(Work::Visit(id));
                         self.pending.push(Work::Infer(step));
                     } else if let Some(input) = facts.bitwise_identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
+                    } else if let Some(residual) = facts.previous_reduction(id) {
+                        self.pending.push(Work::Alias(id, residual));
+                        self.pending.push(Work::Visit(residual));
                     } else if let Some(result) = values.expression(id) {
                         let expression = result.expression;
                         if let Expression::Ternary {
@@ -115,7 +118,7 @@ impl Reducer {
                                 .extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        self.record(scope, id, id);
+                        self.record(values, scope, id, id);
                     }
                 }
                 Work::Select(id, condition, when_true, when_false) => {
@@ -132,22 +135,33 @@ impl Reducer {
                 }
                 Work::Alias(id, input) => {
                     let result = facts.reduced(input).unwrap();
-                    self.record(scope, id, result);
+                    self.record(values, scope, id, result);
                 }
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
                     let expression = original.expression.map(|v| facts.reduced(*v).unwrap());
-                    // Construction already canonicalized unchanged expressions.
-                    // Fold changed operands directly, without interning a temporary recipe.
-                    let result = if expression == original.expression {
-                        id
-                    } else {
-                        crate::expression::fold_carrier(
-                            values,
-                            values[id].ty,
-                            expression,
-                            original.component,
-                        )
+                    // An unchanged operand ID can have a new form in this scope.
+                    // Pattern matching must inspect that form as well.
+                    let mut equivalent = None;
+                    let result = {
+                        let folded =
+                            crate::expression::fold_in_scope(values, id, expression, &|input| {
+                                facts.form(id, input)
+                            });
+                        if folded == id {
+                            id
+                        } else if values.expression(folded).is_some_and(|result| {
+                            result.expression == expression
+                                && result.component == original.component
+                        }) && facts.constant(values, folded).is_none()
+                            && facts.reduced(folded).is_none()
+                        {
+                            // Operand substitution alone keeps the recipe's identity.
+                            equivalent = Some(folded);
+                            id
+                        } else {
+                            folded
+                        }
                     };
                     // Consult path facts on newly folded semantic recipes before
                     // expanding them. Lowering uses the same cache and aliases.
@@ -163,7 +177,11 @@ impl Reducer {
                             .constant_across_selects(values, id)
                             .map(|bits| values.carrier_literal(crate::Type::I1, bits))
                             .unwrap_or(id);
-                        self.record(scope, id, result);
+                        if let Some(equivalent) = equivalent {
+                            self.record(values, scope, equivalent, result);
+                        }
+                        self.record(values, scope, id, result);
+                        self.scopes[scope.0].record_form(id, equivalent);
                     } else {
                         // Folding and lowering may introduce another recipe.
                         // Reduce it in this context before publishing a stable normal form.
@@ -176,9 +194,14 @@ impl Reducer {
         self.scopes[scope.0].reduced(root).unwrap()
     }
 
-    fn record(&mut self, scope: ScopeId, recipe: usize, residual: usize) {
+    fn record(&mut self, values: &ValueTable, scope: ScopeId, recipe: usize, residual: usize) {
         let facts = &mut self.scopes[scope.0];
-        if facts.record_reduction(recipe, residual) && recipe != residual {
+        if facts.record_reduction(
+            recipe,
+            residual,
+            matches!(values[residual].definition, ValueDefinition::Literal(_)),
+        ) && recipe != residual
+        {
             let head = self.equivalents.record(facts.aliases(residual), recipe);
             facts.set_aliases(residual, head);
         }

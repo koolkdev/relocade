@@ -42,10 +42,11 @@ fn flow(graph: &mut FunctionGraph) -> ReducedFlow {
     ReducedFlow::new(graph, &dominators, &predecessors)
 }
 
-fn assert_primitive(values: &ValueTable, root: usize) {
+fn assert_primitive(graph: &mut FunctionGraph, flow: &mut ReducedFlow, root: usize) {
     let mut pending = vec![root];
     while let Some(id) = pending.pop() {
-        if let Some(result) = values.expression(id) {
+        let id = flow.reduce(&mut graph.values, BlockId(0), id);
+        if let Some(result) = graph.values.expression(id) {
             assert!(
                 !matches!(
                     result.expression,
@@ -76,7 +77,7 @@ fn late_semantic_recipes_use_the_same_lowering_as_initial_roots() {
     // by initial lowering. Its newly interned semantic recipe must lower too.
     let late = count(&mut graph.values, BitCountOp::TrailingZeros, lowered_input);
     let result = flow.reduce(&mut graph.values, BlockId(0), late);
-    assert_primitive(&graph.values, result);
+    assert_primitive(&mut graph, &mut flow, result);
     assert_eq!(flow.reduce(&mut graph.values, BlockId(0), late), result);
 }
 
@@ -191,7 +192,7 @@ fn unused_compounds_stay_unexpanded_alongside_a_live_count() {
     let before = graph.values.len();
     let mut flow = flow(&mut graph);
     let lowered = flow.reduce(&mut graph.values, BlockId(0), leading);
-    assert_primitive(&graph.values, lowered);
+    assert_primitive(&mut graph, &mut flow, lowered);
     assert!(graph.values[before..].iter().all(|value| !matches!(
         value.definition,
         ValueDefinition::Expression(Expression::Unary {
