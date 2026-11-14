@@ -89,10 +89,6 @@ impl VgaPortAccess for Et4000Ax {
     fn vga_mut(&mut self) -> &mut VgaCore {
         &mut self.vga
     }
-    fn refresh_raster(&mut self) {
-        Et4000Ax::refresh_raster(self);
-    }
-
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
         match kind {
             WriteKind::Access => Effects::NONE,

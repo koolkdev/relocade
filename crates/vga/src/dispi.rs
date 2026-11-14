@@ -8,13 +8,11 @@
 mod configuration;
 mod device;
 mod effects;
-mod framebuffer;
 mod mmio;
 mod modes;
 mod output;
 mod ports;
 mod registers;
-mod retrace;
 mod scanout;
 mod state;
 

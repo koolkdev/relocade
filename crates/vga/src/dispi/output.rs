@@ -1,7 +1,33 @@
-//! Capture on the execution owner, then synchronize and publish from its task.
+//! DISPI's retrace-latch policy and public output access.
 
-use crate::{DacSnapshot, DispiAdapter, DisplaySnapshot};
+use crate::{
+    output::{CardOutput, Output},
+    DispiAdapter, DisplaySnapshot, Framebuffer, FramebufferAccess, RetraceEvent,
+};
 use relocade_machine::Timestamp;
+use std::future::Future;
+
+impl CardOutput for DispiAdapter {
+    fn output(&mut self) -> &mut Output {
+        &mut self.output
+    }
+
+    fn adapter_enabled(&self) -> bool {
+        self.vga.setup.enabled()
+    }
+
+    fn capture_retrace(&mut self, time: Timestamp) {
+        if self.output.display.packed_layout().is_none() {
+            self.vga.registers.crtc.latch_display_start();
+        }
+        self.output.capture(
+            &self.vga.registers,
+            &mut self.memory,
+            u32::from(self.vga.registers.crtc.display_start),
+            time,
+        );
+    }
+}
 
 impl DispiAdapter {
     /// Captures current display inputs immediately on the execution owner, without
@@ -13,50 +39,30 @@ impl DispiAdapter {
     /// force pending CRTC start-address writes to become effective.
     /// Unlike [`DispiAdapter::frames`], this does not wait for a refresh boundary.
     pub fn snapshot(&self) -> DisplaySnapshot {
-        let scanout = self.output.display.scanout_at(
-            &self.vga.registers,
-            u32::from(self.vga.registers.crtc.display_start),
-            self.output.raster.retrace_count,
-        );
         self.output.snapshot(
-            scanout,
-            DacSnapshot {
-                colors: self.vga.registers.dac.colors,
-                mask: self.vga.registers.dac.mask,
-            },
+            &self.vga.registers,
             &self.memory,
+            u32::from(self.vga.registers.crtc.display_start),
         )
     }
 
-    /// Service elapsed capture boundaries from the output task or before a
-    /// display programming change. CPU VRAM transfers do not consult the clock.
-    pub(super) fn capture_if_due(&mut self) {
-        if let Some(now) = self.output.capture_due() {
-            self.advance_raster(now);
-        }
+    /// Prepare an owned wait without retaining a device borrow across suspension.
+    /// Already being in retrace completes immediately. Suppressed sync waits
+    /// for configuration changes to restore the signal; disabled VGA returns None.
+    /// Notifications are installed before returning, so configuration changes
+    /// invalidate even a wait that has not yet been polled. The caller handles
+    /// revalidation after [`RetraceEvent::Reconfigured`]. Capture activity need
+    /// not be running.
+    pub fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static> {
+        CardOutput::wait_for_retrace(self)
     }
+}
 
-    /// Refresh due status and capture events. Timing changes then materialize
-    /// any remaining phase at this observed time before remapping the counters.
-    #[inline]
-    pub(super) fn advance_raster(&mut self, now: Timestamp) {
-        if self.output.raster.status.observe(now) {
-            self.refresh_raster();
-        }
-    }
-
-    // Status readers and the output task share raster integration and capture.
-    // Mode selection is only needed when a retrace produces new display inputs.
-    #[cold]
-    #[inline(never)]
-    pub(super) fn refresh_raster(&mut self) {
-        let Some(time) = self.output.raster.update_observed() else {
-            return;
-        };
-        if self.output.display.packed_layout().is_none() {
-            self.vga.registers.crtc.latch_display_start();
-        }
-        let display = self.snapshot();
-        self.output.capture(display, &mut self.memory, time);
+impl FramebufferAccess for DispiAdapter {
+    fn framebuffer(&mut self) -> Framebuffer<'_> {
+        self.capture_if_due();
+        let start = u32::from(self.vga.registers.crtc.programmed_start());
+        self.output
+            .framebuffer(&self.vga.registers, &mut self.memory, start)
     }
 }

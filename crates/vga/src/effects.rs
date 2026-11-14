@@ -1,7 +1,12 @@
 //! Effects of video state changes on display output and address decoding.
 use crate::{
-    io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding, registers::WriteKind,
-    scanout::DisplayConfiguration, PackedLayout, Timing,
+    io::Io,
+    mmio::MemoryDecoding,
+    output::{CardOutput, Output},
+    ports::PortDecoding,
+    registers::WriteKind,
+    scanout::DisplayConfiguration,
+    PackedLayout, Timing,
 };
 use relocade_machine::{IoContext, Timestamp};
 
@@ -71,10 +76,8 @@ impl Effects {
 
 /// Card policy used by the shared synchronous effects operation. Calls are
 /// specialized for the concrete card; installed I/O operations use no vtable.
-pub(crate) trait CardEffects: Sized {
-    fn output(&mut self) -> &mut Output;
+pub(crate) trait CardEffects: CardOutput {
     fn io(&self) -> Option<&Io>;
-    fn advance_raster(&mut self, now: Timestamp);
     fn timing(&self) -> Timing;
     fn port_decoding(&self) -> PortDecoding;
     fn memory_decoding(&self) -> MemoryDecoding;

@@ -19,6 +19,6 @@ impl Et4000Ax {
 
 impl Device for Et4000Ax {
     async fn run(device: Rc<RefCell<Self>>) {
-        crate::output::run(device, |card| &mut card.output, Self::capture_if_due).await;
+        crate::output::run(device).await;
     }
 }

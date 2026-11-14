@@ -11,7 +11,6 @@ use relocade_machine::IoContext;
 pub(crate) trait VgaPortAccess: CardEffects + 'static {
     fn vga(&self) -> &VgaCore;
     fn vga_mut(&mut self) -> &mut VgaCore;
-    fn refresh_raster(&mut self);
 
     fn read_input_status_0(&self) -> u8 {
         0x10
