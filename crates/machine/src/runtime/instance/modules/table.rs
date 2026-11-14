@@ -26,6 +26,7 @@ pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     entries: BTreeMap<u32, Entry<B>>,
     interpreter: Option<FunctionRef<B, abi::ExecutionSignature>>,
     next_slot: u32,
+    free_slots: Vec<u32>,
     capacity: u32,
 }
 
@@ -41,6 +42,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             entries: BTreeMap::new(),
             interpreter: None,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+            free_slots: Vec::new(),
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
     }
@@ -109,6 +111,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     ) -> Result<()> {
         let mut entries = self.entries.clone();
         let mut next_slot = self.next_slot;
+        let mut free_slots = self.free_slots.clone();
         let mut functions = Vec::with_capacity(exports.len());
         for entry in exports {
             let function = backend.function(
@@ -119,6 +122,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 .get(&entry.key)
                 .map(|entry| entry.slot)
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
+                .or_else(|| free_slots.pop())
                 .unwrap_or_else(|| {
                     let slot = next_slot;
                     next_slot = next_slot
@@ -136,7 +140,32 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             );
             functions.push((slot, function));
         }
-        self.publish(backend, entries, functions)
+        self.publish(backend, entries, functions)?;
+        self.free_slots = free_slots;
+        Ok(())
+    }
+
+    pub(super) fn remove(&mut self, backend: &mut B, keys: &[u32]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let mut entries = self.entries.clone();
+        let mut slots = Vec::new();
+        for key in keys {
+            let entry = entries.remove(key).expect("published module entry");
+            assert!(entry.slot >= EntryTable::FIRST_DYNAMIC_SLOT);
+            slots.push(entry.slot);
+        }
+        let interpreter = self.interpreter.as_ref().expect("installed interpreter");
+        // Clear retired function references even though their keys are also
+        // removed from lookup. Reuse these slots on subsequent installations.
+        let functions = slots
+            .iter()
+            .map(|&slot| (slot, interpreter.clone()))
+            .collect();
+        self.publish(backend, entries, functions)?;
+        self.free_slots.extend(slots);
+        Ok(())
     }
 
     fn publish(
