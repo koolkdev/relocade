@@ -202,7 +202,7 @@ fn normal_and_error_termination_release_process_resources() {
         let mut dos = common::dos().await;
         for (function, status) in [
             (0x4c07, Ok(7)),
-            (0x2a00, Err(ServiceError::UnsupportedFunction(0x2a))),
+            (0x4b00, Err(ServiceError::UnsupportedFunction(0x4b))),
         ] {
             dos.mount_file("A.DAT", b"abc".to_vec(), FileAccess::ReadWrite)
                 .unwrap();
@@ -334,7 +334,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
         assert_eq!(first.status(), ProcessStatus::Exited(Ok(b'Q')));
 
         dos.launch_mz(
-            &common::mz_image(&[0xb4, 0x2a, 0xcd, 0x21]),
+            &common::mz_image(&[0xb4, 0x4b, 0xcd, 0x21]),
             Default::default(),
         )
         .unwrap();
@@ -351,7 +351,7 @@ fn retained_process_observes_input_wait_exit_and_successive_launches() {
         assert_eq!(first.status(), ProcessStatus::Exited(Ok(b'Q')));
         assert_eq!(
             second.status(),
-            ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0x2a)))
+            ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0x4b)))
         );
     });
 }

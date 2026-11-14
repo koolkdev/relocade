@@ -112,12 +112,13 @@ async fn check_com_bounds_and_return() {
 
 async fn check_unsupported_service() {
     let mut dos = common::dos().await;
-    dos.launch_com(&[0xb4, 0x2a, 0xcd, 0x21], Default::default())
+    // AH=4Bh (EXEC) is not implemented.
+    dos.launch_com(&[0xb4, 0x4b, 0xcd, 0x21], Default::default())
         .unwrap();
     assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     assert_eq!(
         dos.process().unwrap().status(),
-        ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0x2a)))
+        ProcessStatus::Exited(Err(ServiceError::UnsupportedFunction(0x4b)))
     );
 }
 

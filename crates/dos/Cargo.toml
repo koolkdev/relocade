@@ -10,6 +10,7 @@ audio = ["dep:cpal", "relocade-pc/audio"]
 
 [dependencies]
 async-channel = { version = "=2.5.0", default-features = false }
+chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
 cpal = { workspace = true, optional = true }
 relocade-bios = { path = "../bios" }
 relocade-pc = { path = "../pc" }

@@ -24,6 +24,15 @@
 //! BIOS INT 1Ah/AH=00h reads the BIOS data area's clock. PIT channel 0 raises
 //! IRQ0 about 18.2 times per second by default; guest programming can change its
 //! rate. The BIOS handler advances the clock on each delivered interrupt.
+//! INT 21h/AH=2Ah and AH=2Ch read the host's local system date and time,
+//! including the weekday and hundredths of a second. These calls preserve flags
+//! and do not consume the BIOS midnight counter or depend on delivered IRQ0 ticks.
+//! AH=2Bh/2Dh set the DOS date/time through a session-local offset, preserving
+//! the other component and leaving the host clock unchanged. Dates must be valid
+//! within 1980–2099; time fields accept 0–23 hours, 0–59 minutes/seconds and
+//! 0–99 hundredths. AL=00h indicates success, AL=FFh invalid input; flags are preserved.
+//! The offset survives program launches. DOS time keeps following host wall time,
+//! including clock corrections and local timezone changes, independently of CPU pacing.
 //! INT 21h supports AH=09h string output, AH=40h stdout/stderr writes and
 //! AH=4Ch termination. INT 20h also exits,
 //! including a COM program's initial near RET. CON output is buffered as guest
