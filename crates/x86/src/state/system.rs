@@ -9,6 +9,13 @@ pub(crate) struct DescriptorTableValues {
 }
 
 impl State<'_> {
+    pub(crate) fn machine_status_word(
+        &self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<Val<I16>, BuildError> {
+        Ok(cpu_load!(body, self.cpu.memory(), cr0)?.truncate())
+    }
+
     pub(crate) fn global_descriptor_table(
         &self,
         body: &mut BlockBuilder<'_>,

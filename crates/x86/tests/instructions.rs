@@ -96,6 +96,8 @@ mod segments;
 mod sgdt;
 #[path = "suites/shifts.rs"]
 mod shifts;
+#[path = "suites/smsw.rs"]
+mod smsw;
 #[path = "suites/stack_flags.rs"]
 mod stack_flags;
 #[path = "suites/stack_operations.rs"]

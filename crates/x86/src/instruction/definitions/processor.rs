@@ -34,6 +34,22 @@ instruction_families! {
         execute: store_global_descriptor_table::<_>;
         forms { 0x0F 0x01 /0 => word_or_dword(mem); }
     }
+    SMSW {
+        execute: store_machine_status_word;
+        forms { 0x0F 0x01 /4 => word_or_dword(rm); }
+    }
+}
+
+fn store_machine_status_word<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: TypedLocation<T>,
+) -> Result<(), BuildError>
+where
+    I32: AtLeast<T>,
+{
+    let status = execution.machine_status_word()?;
+    // P4 leaves the upper word of a dword register destination undefined; choose zero.
+    destination.write_word(execution, status)
 }
 
 fn store_global_descriptor_table<T: RegisterType>(
