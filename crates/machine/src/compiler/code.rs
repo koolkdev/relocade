@@ -100,7 +100,7 @@ pub(super) fn ranges(addresses: &[u32], blocks: &[BlockEntry]) -> Vec<Range<u64>
         let start = u64::from(address);
         let len = block.byte_len as u64;
         if len >= END {
-            return vec![0..END];
+            return std::iter::once(0..END).collect();
         }
         if len == 0 {
             continue;
