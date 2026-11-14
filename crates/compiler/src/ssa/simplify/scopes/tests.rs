@@ -20,6 +20,11 @@ fn leaving_a_branch_restores_live_facts_and_preserves_its_snapshot() {
 
     let left = scopes.enter(BlockId(1));
     let left_value = scopes.refine(&mut graph, parent);
+    let values = graph.values.len();
+    assert_eq!(scopes.refine(&mut graph, value), left_value);
+    assert_eq!(scopes.refine(&mut graph, left_value), left_value);
+    assert_eq!(graph.values.len(), values);
+    assert_ne!(parent, left_value);
     scopes.assume_predicate(&graph, predicate, false);
     assert_eq!(scopes.refinement(value), Some(left_value));
     assert_eq!(graph.values.definition_block(left_value), Some(BlockId(1)));

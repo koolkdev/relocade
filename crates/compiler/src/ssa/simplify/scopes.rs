@@ -111,6 +111,13 @@ impl<'a> Scopes<'a> {
     }
 
     pub(super) fn refine(&mut self, graph: &mut SsaGraph, source: usize) -> usize {
+        // Facts can strengthen this block's alias in place. Descendants need
+        // their own alias so incoming snapshots retain their original facts.
+        if let Some(refined) = self.refinement(source) {
+            if graph.values.definition_block(refined) == Some(self.block) {
+                return refined;
+            }
+        }
         let refined = graph.values.push(Value {
             ty: graph.values[source].ty,
             definition: ValueDefinition::RefinedAlias {
