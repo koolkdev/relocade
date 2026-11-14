@@ -41,16 +41,14 @@ impl Analysis<'_> {
                 let refined = self.refine(id, block);
                 self.summaries[refined] = known;
                 for user in self.users.of(self.scopes.root(id)) {
-                    if !self.graph.values[user].ty.is_integer()
-                        || self.queued[user]
-                        || !self
-                            .graph
-                            .values
-                            .definition_block(user)
-                            .is_some_and(|owner| self.dominators.dominates(owner.0, block.0))
-                    {
+                    if !self.graph.values[user].ty.is_integer() || self.queued[user] {
                         continue;
                     }
+                    debug_assert!(self
+                        .graph
+                        .values
+                        .definition_block(user)
+                        .is_some_and(|owner| self.dominators.dominates(owner.0, block.0)));
                     let current = self.resolve(user);
                     let inferred = facts::infer_with(&self.graph.values, user, |input| {
                         self.summaries[self.resolve(input)]

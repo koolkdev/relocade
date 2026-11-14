@@ -59,8 +59,9 @@ pub(super) fn run(
     }
     let mut work = vec![(analysis.graph.entry.0, None)];
     while let Some((block, checkpoint)) = work.pop() {
-        if let Some(checkpoint) = checkpoint {
-            analysis.scopes.leave(checkpoint);
+        if let Some((facts, uses)) = checkpoint {
+            analysis.scopes.leave(facts);
+            analysis.users.leave(uses);
             continue;
         }
         let incoming: Vec<_> = predecessors[block]
@@ -87,7 +88,10 @@ pub(super) fn run(
             continue;
         }
         analysis.executable[block] = true;
-        let checkpoint = analysis.scopes.enter(BlockId(block));
+        let checkpoint = (
+            analysis.scopes.enter(BlockId(block)),
+            analysis.users.checkpoint(),
+        );
         analysis.enter(BlockId(block), &incoming);
         analysis.block(BlockId(block));
         analysis.scopes.finish();
