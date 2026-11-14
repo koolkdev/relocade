@@ -14,7 +14,7 @@ pub(in crate::video::firmware) fn mode(
         let mode = Mode::from_vbe_number(number).filter(|_| card.ports_enabled())?;
         let layout = mode.layout(card.video_memory_bytes())?;
         card.packed_layout()
-            .filter(|active| active.size() == layout.size())
+            .filter(|active| active.size() == layout.size() && active.format() == layout.format())
             .unwrap_or(layout)
     };
     // Window A controls writes, B controls reads; both use the A000h aperture.

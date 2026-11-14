@@ -91,6 +91,16 @@ in the BIOS crate and program these same registers: 640×480 (BIOS 2Eh/VBE 101h)
 1 MiB and exposes separate write/read windows at A000h. The card supplies the
 same frame queue and native drawing access as DISPI, including the DOS cursor.
 
+VBE also exposes RGB555 at 640×480 (110h) and 800×600 (113h), occupying 1280
+and 1600 bytes per row. These use SC11483 mode 1, ET4000 word output and MCLK/2.
+Interlaced timing retains approximately 60 fields per second with the fitted
+25.175/40-MHz oscillators. The renderer's complete-image capture policy above
+also applies to these modes. Larger RGB555 images exceed the installed memory;
+RGB565 and 24-bit output are not supported by this RAMDAC. These high-color
+presets have VBE numbers only, with the same 7Fh BDA convention used for DISPI.
+VBE pitch, viewport, bank and coordinated state services use their actual format.
+Returning to an indexed or legacy mode resets the high-color command.
+
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),
 configuration registers (pp. 136–138) and Revision E addendum (pp. 184–185);

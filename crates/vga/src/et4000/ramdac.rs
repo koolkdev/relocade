@@ -29,11 +29,16 @@ impl Sc11483 {
 
     pub fn write_mask(&mut self, palette: &mut Dac, value: u8) {
         if self.mask_reads == 4 {
-            self.command = value;
+            self.write_command(value);
         } else {
             palette.mask = value;
         }
         // Any write ends the consecutive-read sequence, including a command write.
+        self.mask_reads = 0;
+    }
+
+    pub fn write_command(&mut self, value: u8) {
+        self.command = value;
         self.mask_reads = 0;
     }
 

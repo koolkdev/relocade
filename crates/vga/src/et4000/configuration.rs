@@ -90,6 +90,13 @@ impl Et4000Ax {
         self.write_crtc_data(context, value);
     }
 
+    /// Program the SC11483 command directly, with the same effects as port access.
+    pub fn program_dac_command(&mut self, context: IoContext<'_>, value: u8) {
+        self.with_effects(context, Effects::CONFIGURATION, |card| {
+            card.ramdac.write_command(value);
+        });
+    }
+
     pub fn clear_video_memory(&mut self, context: IoContext<'_>) {
         self.with_effects(context, Effects::IMAGE, |card| card.memory.clear_vram());
     }

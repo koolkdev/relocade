@@ -45,6 +45,27 @@ async fn viewport_services() {
     assert_eq!(call(&mut cpu, 0x4f02, 0x105, 0, 0).await, 0x004f);
     assert_eq!(call(&mut cpu, 0x4f06, 3, 0, 0).await, 0x004f);
     assert_eq!((state.bx(), state.cx(), state.dx()), (1360, 1360, 771));
+
+    // RGB555 counts 15 color bits but occupies two bytes per pixel.
+    assert_eq!(call(&mut cpu, 0x4f02, 0x110, 0, 0).await, 0x004f);
+    assert_eq!(call(&mut cpu, 0x4f06, 0, 641, 0).await, 0x004f);
+    assert_eq!((state.bx(), state.cx(), state.dx()), (1288, 644, 814));
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 1, 1).await, 0x004f);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x004f);
+    assert_eq!((state.cx(), state.dx()), (1, 1));
+    assert_eq!(
+        machine
+            .card
+            .borrow()
+            .packed_layout()
+            .unwrap()
+            .display_start(),
+        1290
+    );
+    let (_, indexed) = super::information(&machine, &mut cpu, 0x4f01, 0x101).await;
+    assert_eq!(&indexed[16..18], &640u16.to_le_bytes());
+    let (_, high_color) = super::information(&machine, &mut cpu, 0x4f01, 0x110).await;
+    assert_eq!(&high_color[16..18], &1288u16.to_le_bytes());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

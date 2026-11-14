@@ -99,13 +99,13 @@ async fn discovery() {
     assert_eq!(&bytes[..6], b"VESA\x02\x01");
     assert_eq!(&bytes[18..20], &[16, 0]); // One MiB, not DISPI's four.
     let list = FarPointer::from_packed(u32::from_le_bytes(bytes[14..18].try_into().unwrap()));
-    let mut modes = [0; 8];
+    let mut modes = [0; 12];
     machine
         .memory
         .view()
         .read_wrapping(list, &mut modes)
         .unwrap();
-    assert_eq!(modes, [1, 1, 3, 1, 5, 1, 0xff, 0xff]);
+    assert_eq!(modes, [1, 1, 3, 1, 5, 1, 0x10, 1, 0x13, 1, 0xff, 0xff]);
 
     for (number, width, height, pages) in [
         (0x101, 640u16, 480u16, 2),
@@ -124,7 +124,16 @@ async fn discovery() {
         assert_eq!(&bytes[20..22], &height.to_le_bytes());
         assert_eq!(&bytes[25..31], &[8, 1, 4, 0, pages, 1]);
     }
-    for number in [0x111, 0x107, 0x4101, 0x8101] {
+    for (number, width, height) in [(0x110, 640u16, 480u16), (0x113, 800, 600)] {
+        let (status, bytes) = information(&machine, &mut cpu, 0x4f01, number).await;
+        assert_eq!(status, 0x004f);
+        assert_eq!(&bytes[16..18], &(width * 2).to_le_bytes());
+        assert_eq!(&bytes[18..20], &width.to_le_bytes());
+        assert_eq!(&bytes[20..22], &height.to_le_bytes());
+        assert_eq!(&bytes[25..31], &[15, 1, 6, 0, 0, 1]);
+        assert_eq!(&bytes[31..40], &[5, 10, 5, 5, 5, 0, 1, 15, 0]);
+    }
+    for number in [0x111, 0x116, 0x107, 0x4101, 0x8101] {
         let (status, bytes) = information(&machine, &mut cpu, 0x4f01, number).await;
         assert_eq!(status, 0x014f);
         assert_eq!(&bytes[..4], b"VBE2");

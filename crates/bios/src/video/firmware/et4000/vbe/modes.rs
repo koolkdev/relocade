@@ -34,7 +34,9 @@ pub(in crate::video::firmware) fn current(
     if let Some(layout) = card.packed_layout() {
         Mode::ALL
             .iter()
-            .find(|mode| mode.size.map(u32::from) == layout.size())
+            .find(|mode| {
+                mode.size.map(u32::from) == layout.size() && mode.format == layout.format()
+            })
             .map(|mode| mode.vbe_number)
     } else {
         // VBE 1.2 returns the mode without the memory-preservation flag.
