@@ -35,7 +35,9 @@
 //! 4F02h/4F03h set/get the mode, 4F04h queries/saves/restores programming state,
 //! 4F05h controls the banked window, 4F06h sets/gets logical scanlines, 4F07h
 //! sets/gets display start, and 4F08h controls DAC format.
-//! VBE calls preserve flags and return status in AX;
+//! Mode information also supplies a hooked real-mode far-call window function.
+//! It takes BX/DX without requiring AX, returns with RETF, and may change AX/DX.
+//! VBE interrupt calls preserve flags and return status in AX;
 //! remaining unsupported video services or pixel coordinates/pages
 //! return AH=86h with carry set.
 //! INT 09h consumes controller scan bytes and translates the default US layout into

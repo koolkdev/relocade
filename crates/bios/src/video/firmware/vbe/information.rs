@@ -1,6 +1,9 @@
 //! VBE 1.2 guest buffers shared by the selected card's firmware.
 //! https://mircosoft.mzf.cz/texty/VESA12sp.htm (functions 00h and 01h).
-use super::super::{dispi, et4000, VideoFirmware};
+use super::{
+    super::{dispi, et4000, VideoFirmware},
+    WINDOW_FUNCTION,
+};
 use crate::BIOS_SEGMENT;
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 use relocade_vga::{PackedLayout, PixelFormat};
@@ -29,6 +32,7 @@ pub(in crate::video::firmware) fn initialize(
         .chain([0xffff])
         .flat_map(u16::to_le_bytes)
         .collect();
+    assert!(bytes.len() <= usize::from(WINDOW_FUNCTION.offset - MODES.offset));
     memory
         .write_backing(MODES.address(), &bytes)
         .expect("VBE mode list");
@@ -119,7 +123,7 @@ fn banked_mode(
     }
     bytes[4..6].copy_from_slice(&64u16.to_le_bytes());
     bytes[6..8].copy_from_slice(&64u16.to_le_bytes());
-    // Null WinFuncPtr directs callers to INT 10h/4F05h.
+    bytes[12..16].copy_from_slice(&WINDOW_FUNCTION.packed().to_le_bytes());
     bytes[16..18].copy_from_slice(&(layout.pitch() as u16).to_le_bytes());
     bytes[18..20].copy_from_slice(&width.to_le_bytes());
     bytes[20..22].copy_from_slice(&height.to_le_bytes());

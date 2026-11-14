@@ -122,10 +122,9 @@ fn vbe_mode_information_describes_only_the_supported_banked_layout() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         let (status, bytes) = information(&mut dos, 1, 0x101, 0x200);
         assert_eq!(status, 0x004f);
-        assert_eq!(
-            &bytes[..16],
-            &[0x1b, 0, 7, 0, 64, 0, 64, 0, 0, 0xa0, 0, 0, 0, 0, 0, 0]
-        );
+        assert_eq!(&bytes[..12], &[0x1b, 0, 7, 0, 64, 0, 64, 0, 0, 0xa0, 0, 0]);
+        let window = FarPointer::from_packed(u32::from_le_bytes(bytes[12..16].try_into().unwrap()));
+        assert!((0xf0000..0x100000).contains(&window.address()));
         assert_eq!(
             &bytes[16..31],
             &[0x80, 2, 0x80, 2, 0xe0, 1, 8, 16, 1, 8, 1, 4, 0, 12, 1]

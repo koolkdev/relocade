@@ -8,10 +8,16 @@ mod state;
 use super::VideoFirmware;
 pub(super) use information::{initialize, ModeInformation, WindowAccess};
 use relocade_machine::{
-    real_mode_interrupt::{interrupt, interrupt_dispatch},
-    CpuContext, IoContext,
+    real_mode_interrupt::{interrupt, interrupt_dispatch, interrupt_handler, Interrupts},
+    CpuContext, FarPointer, IoContext,
 };
 use relocade_vga::{PackedLayout, RetraceEvent};
+
+// Follows the VBE OEM string and mode list in BIOS ROM.
+const WINDOW_FUNCTION: FarPointer = FarPointer {
+    segment: crate::BIOS_SEGMENT,
+    offset: 0xb100,
+};
 
 #[interrupt(context(call), args(function = al))]
 pub(in crate::video) async fn dispatch(
@@ -42,6 +48,19 @@ pub(in crate::video) async fn dispatch(
 fn unsupported() {}
 
 impl VideoFirmware {
+    pub(crate) fn register_procedures(&self, interrupts: &mut Interrupts<'_>) {
+        if matches!(self, Self::Vga) {
+            return;
+        }
+        let firmware = self.clone();
+        // The far-call ABI supplies BX/DX directly and permits AX/DX to change.
+        // This adapter only writes registers; there is no saved FLAGS word.
+        interrupts.register_far_procedure(
+            WINDOW_FUNCTION,
+            interrupt_handler!(modes::window(&firmware)),
+        );
+    }
+
     fn ports_enabled(&self) -> bool {
         match self {
             Self::Vga => false,

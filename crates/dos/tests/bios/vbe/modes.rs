@@ -1,7 +1,7 @@
 use super::super::video::{video, PROGRAM};
 use crate::common::{self, VideoInspection};
 use relocade_dos::Dos;
-use relocade_x86::CpuState;
+use relocade_x86::{CpuState, ExecutionExit};
 
 fn request(dos: &mut Dos, function: u8, bx: u16, dx: u16, status: u16) -> CpuState {
     {
@@ -23,6 +23,46 @@ fn request(dos: &mut Dos, function: u8, bx: u16, dx: u16, status: u16) -> CpuSta
         assert_eq!(result.registers.edx as u16, dx);
     }
     result
+}
+
+#[test]
+fn vbe_window_pointer_switches_the_dispi_bank_through_a_far_call() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        request(&mut dos, 2, 0x101, 0, 0x4f);
+        let (status, bytes) = super::information(&mut dos, 1, 0x101, 0x200);
+        assert_eq!(status, 0x004f);
+        let mut program = vec![0x9a]; // CALL FAR WinFuncPtr; JMP $
+        program.extend_from_slice(&bytes[12..16]);
+        program.extend_from_slice(&[0xeb, 0xfe]);
+        {
+            let mut context = dos.cpu().context();
+            let code = context.cpu.snapshot().segments.cs.base + 0x110;
+            context.memory.write(code, &program).unwrap();
+            context.cpu.set_eip(0x110);
+            context.cpu.set_ax(0xdead);
+            context.cpu.set_bx(0);
+            context.cpu.set_dx(1);
+            context.cpu.set_eflags(0x643);
+        }
+        assert_eq!(
+            common::run_until(dos.cpu(), 0x115).await,
+            ExecutionExit::Interrupted
+        );
+        let state = dos.cpu().cpu_state();
+        assert_eq!(state.sp(), 0xfffe);
+        assert_eq!(state.eflags(), 0x643);
+        assert_eq!(
+            request(&mut dos, 5, 0x100, 0xffff, 0x4f).registers.edx as u16,
+            1
+        );
+        dos.cpu().context().memory.write_u8(0xa0000, 0x5a).unwrap();
+        request(&mut dos, 5, 0, 0, 0x4f);
+        assert_eq!(dos.cpu().context().memory.read_u8(0xa0000).unwrap(), 0);
+        request(&mut dos, 5, 0, 1, 0x4f);
+        assert_eq!(dos.cpu().context().memory.read_u8(0xa0000).unwrap(), 0x5a);
+    });
 }
 
 #[test]

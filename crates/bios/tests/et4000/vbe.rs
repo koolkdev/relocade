@@ -114,11 +114,13 @@ async fn discovery() {
     ] {
         let (status, bytes) = information(&machine, &mut cpu, 0x4f01, number).await;
         assert_eq!(status, 0x004f);
-        // Independent write/read windows, same aperture, no callable window pointer.
+        // Independent write/read windows sharing the aperture, with a ROM entrypoint.
         assert_eq!(
-            &bytes[..16],
-            &[0x1b, 0, 5, 3, 64, 0, 64, 0, 0, 0xa0, 0, 0xa0, 0, 0, 0, 0]
+            &bytes[..12],
+            &[0x1b, 0, 5, 3, 64, 0, 64, 0, 0, 0xa0, 0, 0xa0]
         );
+        let window = FarPointer::from_packed(u32::from_le_bytes(bytes[12..16].try_into().unwrap()));
+        assert!((0xf0000..0x100000).contains(&window.address()));
         assert_eq!(&bytes[16..18], &width.to_le_bytes());
         assert_eq!(&bytes[18..20], &width.to_le_bytes());
         assert_eq!(&bytes[20..22], &height.to_le_bytes());
