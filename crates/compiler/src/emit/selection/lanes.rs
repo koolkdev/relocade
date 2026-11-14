@@ -5,7 +5,7 @@
 
 use super::Selection;
 use crate::{
-    body::{FunctionGraph, ValueDefinition},
+    body::{SsaGraph, ValueDefinition},
     expression::{BinaryOp as Binary, LaneBinaryOp, ShiftOp, UnaryOp as Unary},
     Expression,
 };
@@ -33,11 +33,7 @@ fn input_bytes(bytes: u16, width: u8, prefix: bool) -> u16 {
 }
 
 impl Selection {
-    pub(super) fn discard_unobserved_lanes(
-        &mut self,
-        graph: &FunctionGraph,
-        order: &[usize],
-    ) -> bool {
+    pub(super) fn discard_unobserved_lanes(&mut self, graph: &SsaGraph, order: &[usize]) -> bool {
         let mut changed = false;
         for &value in order {
             let ValueDefinition::Expression(Expression::Unary {
@@ -64,7 +60,7 @@ impl Selection {
 
     fn discard_replacements(
         &mut self,
-        graph: &FunctionGraph,
+        graph: &SsaGraph,
         value: usize,
         bytes: u16,
         budget: &mut u8,

@@ -9,9 +9,11 @@ mod values;
 pub(super) use operation::{CallTarget, Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};
 pub(super) use values::{BitBounds, ValueTable};
+pub(crate) use values::{Definitions, Phase, Recipes};
+pub(super) type SsaGraph = FunctionGraph<Definitions>;
 
-pub(super) struct FunctionGraph {
-    pub(super) values: ValueTable,
+pub(super) struct FunctionGraph<P: Phase = Recipes> {
+    pub(super) values: ValueTable<P>,
     pub(super) effects: Vec<Effect>,
     pub(super) blocks: Vec<Block>,
     pub(super) layout: Vec<Layout>,
@@ -42,8 +44,8 @@ pub(super) enum ValueDefinition {
     Literal(Literal),
     Expression(Expression<usize>),
     /// The same runtime value, with a proof valid from this block onward.
-    Refine {
-        input: usize,
+    RefinedAlias {
+        source: usize,
         block: BlockId,
     },
     Parameter {
@@ -138,7 +140,7 @@ impl Layout {
     }
 }
 
-impl FunctionGraph {
+impl<P: Phase> FunctionGraph<P> {
     pub(super) fn new() -> Self {
         Self {
             values: ValueTable::default(),
@@ -227,7 +229,7 @@ impl FunctionGraph {
 
 impl Exit {
     /// The sole executable edge when a conditional exit has a constant selector.
-    pub(super) fn constant_edge_index(&self, values: &ValueTable) -> Option<usize> {
+    pub(super) fn constant_edge_index(&self, values: &ValueTable<impl Phase>) -> Option<usize> {
         match self {
             Self::If { condition, .. } => values[*condition]
                 .scalar_literal()

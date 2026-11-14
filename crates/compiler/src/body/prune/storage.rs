@@ -3,6 +3,7 @@ use super::{
     super::{BlockItem, EffectId, Exit, FunctionGraph, OperationKind},
     liveness::Retained,
 };
+use crate::body::Phase;
 
 /// Stable-order indices for the retained values and effects.
 pub(in crate::body) struct Remapping {
@@ -45,7 +46,11 @@ impl Remapping {
     }
 }
 
-pub(super) fn compact(graph: &mut FunctionGraph, reachable: &[bool], mut retained: Retained) {
+pub(super) fn compact(
+    graph: &mut FunctionGraph<impl Phase>,
+    reachable: &[bool],
+    mut retained: Retained,
+) {
     for (index, block) in graph.blocks.iter_mut().enumerate() {
         if !reachable[index] {
             block.items = Vec::new();

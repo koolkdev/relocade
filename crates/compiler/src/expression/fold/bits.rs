@@ -13,7 +13,7 @@ struct MaskedBits {
     mask: u64,
 }
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     /// Rejoining bits extracted from the same carrier only needs their union
     /// mask. Match explicit masks and restored shifts, never logical type widths.
     pub(super) fn rejoin_bits(&mut self, ty: Type, left: usize, right: usize) -> Option<usize> {

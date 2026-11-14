@@ -8,7 +8,7 @@ use crate::{
     Expression, Type,
 };
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn fold_shift(&self, ty: Type, input: usize, count: usize) -> Option<usize> {
         let zero_count = matches!(self.values[count].scalar_literal(), Some(bits) if integer::shift_count(ty, bits as u32) == 0);
         (zero_count || self.values.bounds[input].unsigned == 0).then_some(input)

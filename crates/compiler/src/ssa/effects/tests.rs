@@ -1,4 +1,5 @@
 use super::*;
+use crate::body::FunctionGraph;
 use crate::{
     body::{Value, ValueDefinition},
     memory::{Mem, MemoryAccess},

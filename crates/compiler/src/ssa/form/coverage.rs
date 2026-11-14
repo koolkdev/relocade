@@ -14,7 +14,7 @@ pub(super) struct Coverage<'a> {
 
 impl<'a> Coverage<'a> {
     pub(super) fn new(
-        graph: &FunctionGraph,
+        graph: &crate::body::FunctionGraph,
         reachable: &[bool],
         dominators: &'a Dominators,
     ) -> Self {

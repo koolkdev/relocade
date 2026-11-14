@@ -61,10 +61,10 @@ impl Sites {
 }
 
 pub(super) fn build(
-    graph: &mut FunctionGraph,
+    graph: crate::body::FunctionGraph,
     reachable: &[bool],
     dominators: &Dominators,
-) -> Vec<Option<BlockId>> {
+) -> (SsaGraph, Vec<Option<BlockId>>) {
     let original = graph.values.len();
     let mut demands: Vec<_> = (0..original).map(|_| Sites::None).collect();
     for (index, block) in graph.blocks.iter().enumerate() {
@@ -84,7 +84,7 @@ pub(super) fn build(
             }
         }
     }
-    let mut coverage = Coverage::new(graph, reachable, dominators);
+    let mut coverage = Coverage::new(&graph, reachable, dominators);
     let mut scheduled = vec![Vec::new(); graph.blocks.len()];
     for id in (0..original).rev() {
         let sites = std::mem::take(&mut demands[id]).choose(&mut coverage);
@@ -115,8 +115,22 @@ pub(super) fn build(
     }
     // The expression-building adapter ends here. Analysis receives only actual
     // SSA definitions, without retaining the unused recipe arena beside them.
-    let source = std::mem::take(&mut graph.values);
-    let effects = std::mem::take(&mut graph.effects);
+    let crate::body::FunctionGraph {
+        values: source,
+        effects,
+        blocks,
+        layout,
+        entry,
+        memories,
+    } = graph;
+    let mut graph = SsaGraph {
+        values: ValueTable::default(),
+        blocks,
+        layout,
+        entry,
+        memories,
+        effects: Vec::new(),
+    };
     for (index, block) in graph.blocks.iter_mut().enumerate() {
         if !reachable[index] {
             block.items.clear();
@@ -125,9 +139,8 @@ pub(super) fn build(
             block.exit = Exit::Trap;
         }
     }
-    graph.values.define_calculations();
     let mut former = Formation {
-        graph,
+        graph: &mut graph,
         source,
         effects,
         definitions: Vec::new(),
@@ -206,11 +219,12 @@ pub(super) fn build(
         work.push((index, Some(checkpoint)));
         work.extend(children[index].iter().rev().map(|&child| (child, None)));
     }
-    former.definitions
+    let definitions = former.definitions;
+    (graph, definitions)
 }
 
 struct Formation<'a> {
-    graph: &'a mut FunctionGraph,
+    graph: &'a mut SsaGraph,
     source: ValueTable,
     effects: Vec<Effect>,
     definitions: Vec<Option<BlockId>>,

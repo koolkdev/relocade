@@ -8,7 +8,7 @@ use crate::expression::{
     UnaryOp as Unary,
 };
 use crate::{
-    body::{Value, ValueDefinition, ValueTable},
+    body::{Phase, Value, ValueDefinition, ValueTable},
     Expression, Type,
 };
 
@@ -33,7 +33,7 @@ use super::TypedLiteral;
 
 /// Fold a stored carrier operation without repeating logical normalization.
 #[cfg(test)]
-pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
+pub(crate) fn refold(values: &mut ValueTable<impl Phase>, id: usize) -> usize {
     let value = values[id];
     let Some(result) = values.expression(id) else {
         return id;
@@ -43,7 +43,7 @@ pub(crate) fn refold(values: &mut ValueTable, id: usize) -> usize {
 
 /// Fold a carrier recipe without admitting logical operands again.
 pub(crate) fn fold_carrier(
-    values: &mut ValueTable,
+    values: &mut ValueTable<impl Phase>,
     ty: Type,
     expression: Expression<usize>,
     component: usize,
@@ -51,15 +51,15 @@ pub(crate) fn fold_carrier(
     Folder { values }.fold_result(ty, expression, component)
 }
 
-pub(crate) fn normalize(values: &mut ValueTable, input: usize) -> usize {
+pub(crate) fn normalize(values: &mut ValueTable<impl Phase>, input: usize) -> usize {
     Folder { values }.normalize(input)
 }
 
-struct Folder<'a> {
-    values: &'a mut ValueTable,
+struct Folder<'a, P: Phase> {
+    values: &'a mut ValueTable<P>,
 }
 
-impl Folder<'_> {
+impl<P: Phase> Folder<'_, P> {
     fn fold(&mut self, ty: Type, expression: Expression<usize>) -> usize {
         self.fold_result(ty, expression, 0)
     }

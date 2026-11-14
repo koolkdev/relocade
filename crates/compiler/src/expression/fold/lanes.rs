@@ -7,7 +7,7 @@ use crate::{
     Expression, Type,
 };
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn fold_extract_lane(&mut self, ty: Type, lane: u8, input: usize) -> Option<usize> {
         let start = lane * ty.bits();
         let mut base = self.values.representation(input);

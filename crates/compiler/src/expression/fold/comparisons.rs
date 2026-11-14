@@ -31,7 +31,7 @@ impl ConstantComparison {
     }
 }
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn complementary_predicates(&self, left: usize, right: usize) -> bool {
         let left = self.values.representation(left);
         let right = self.values.representation(right);

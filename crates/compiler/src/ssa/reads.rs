@@ -30,7 +30,11 @@ impl Demand {
     }
 }
 
-pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachable: &[bool]) {
+pub(super) fn prepare(
+    graph: &mut crate::body::FunctionGraph,
+    summaries: &[Effects],
+    reachable: &[bool],
+) {
     let mut demands = vec![Demand::None; graph.values.len()];
     let mut effects = vec![Demand::None; graph.effects.len()];
     let mut work = VecDeque::new();
@@ -153,7 +157,7 @@ pub(super) fn prepare(graph: &mut FunctionGraph, summaries: &[Effects], reachabl
 }
 
 fn can_sink(
-    graph: &FunctionGraph,
+    graph: &crate::body::FunctionGraph,
     summaries: &[Effects],
     read: EffectId,
     target: BlockId,
@@ -189,7 +193,7 @@ fn can_sink(
 }
 
 fn blocks_read(
-    graph: &FunctionGraph,
+    graph: &crate::body::FunctionGraph,
     summaries: &[Effects],
     read: EffectId,
     item: BlockItem,

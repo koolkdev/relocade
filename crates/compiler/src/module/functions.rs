@@ -20,7 +20,7 @@ pub(super) struct FunctionOptimization {
 
 pub(super) struct OptimizedFunction {
     pub(super) id: usize,
-    pub(super) body: FunctionGraph,
+    pub(super) body: crate::body::SsaGraph,
 }
 
 impl Definitions {

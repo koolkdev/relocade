@@ -17,7 +17,7 @@ fn packed_operation_identity_includes_its_lane_width_without_view_nodes() {
         Type,
     };
 
-    let mut values = ValueTable::default();
+    let mut values: ValueTable = ValueTable::default();
     let left = values.push(Value {
         ty: Type::V128,
         definition: ValueDefinition::Parameter {
@@ -109,7 +109,7 @@ fn refolding_lane_replacement_discards_narrow_carrier_bits() {
         (Type::I8, 0xffff_ffff, 0xff),
         (Type::I16, 0xffff_ffff, 0xffff),
     ] {
-        let mut values = ValueTable::default();
+        let mut values: ValueTable = ValueTable::default();
         let vector = values.literal(Type::V128, 0_u128);
         let value = values.carrier_literal(ty, carrier);
         let expression = values.intern(Value {
@@ -146,7 +146,7 @@ fn refolding_splat_discards_narrow_carrier_bits() {
         ),
         (Type::I16, 0x10004, 0x00040004_00040004_00040004_00040004),
     ] {
-        let mut values = ValueTable::default();
+        let mut values: ValueTable = ValueTable::default();
         let input = values.carrier_literal(ty, carrier);
         let expression = values.intern(Value {
             ty: Type::V128,

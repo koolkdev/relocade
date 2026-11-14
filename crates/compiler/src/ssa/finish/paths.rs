@@ -9,11 +9,7 @@ pub(super) struct Paths {
 }
 
 impl Paths {
-    pub(super) fn new(
-        graph: &FunctionGraph,
-        dominators: &Dominators,
-        incoming: &[Vec<usize>],
-    ) -> Self {
+    pub(super) fn new(graph: &SsaGraph, dominators: &Dominators, incoming: &[Vec<usize>]) -> Self {
         let mut paths = Self {
             versions: Versions::new(),
             outgoing: vec![0; graph.blocks.len()],

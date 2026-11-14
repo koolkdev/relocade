@@ -1,6 +1,6 @@
 //! Operand-stack coverage references the placed graph rather than copying code.
 use super::selection::Selection;
-use crate::body::{BlockItem, Exit, FunctionGraph};
+use crate::body::{BlockItem, Exit, SsaGraph};
 
 pub(super) struct OperandView {
     pub(super) producer: Vec<Option<BlockItem>>,
@@ -9,7 +9,7 @@ pub(super) struct OperandView {
     pub(super) uses: Vec<usize>,
 }
 impl OperandView {
-    pub(super) fn new(graph: &FunctionGraph, selection: &Selection, reachable: &[bool]) -> Self {
+    pub(super) fn new(graph: &SsaGraph, selection: &Selection, reachable: &[bool]) -> Self {
         let mut this = Self {
             producer: vec![None; graph.values.len()],
             inline_values: vec![false; graph.values.len()],
@@ -98,7 +98,7 @@ impl OperandView {
     }
     fn cover(
         &mut self,
-        graph: &FunctionGraph,
+        graph: &SsaGraph,
         selection: &Selection,
         items: &[BlockItem],
         cursor: &mut usize,

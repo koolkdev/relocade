@@ -27,7 +27,7 @@ impl Optimizer {
         }
     }
 
-    pub(super) fn optimize(&self, mut graph: FunctionGraph) -> FunctionGraph {
+    pub(super) fn optimize(&self, mut graph: crate::body::FunctionGraph) -> SsaGraph {
         let mut reachable = graph.reachable();
         for (index, block) in graph.blocks.iter().enumerate() {
             if !reachable[index] {
@@ -58,7 +58,7 @@ impl Optimizer {
             incoming = predecessors(&graph, &reachable);
             dominators = Dominators::new(graph.entry.0, &successors(&graph, &reachable), &incoming);
         }
-        let definitions = form::build(&mut graph, &reachable, &dominators);
+        let (mut graph, definitions) = form::build(graph, &reachable, &dominators);
         let mut changed = simplify::run(&mut graph, definitions, &dominators, &incoming);
         let reachable = graph.reachable();
         graph.prune_unused(&reachable, |op| effects::observable(op, &self.summaries));
@@ -69,7 +69,10 @@ impl Optimizer {
     }
 }
 
-fn successors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
+fn successors(
+    graph: &crate::body::FunctionGraph<impl Phase>,
+    reachable: &[bool],
+) -> Vec<Vec<usize>> {
     graph
         .blocks
         .iter()
@@ -88,7 +91,10 @@ fn successors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
         .collect()
 }
 
-fn predecessors(graph: &FunctionGraph, reachable: &[bool]) -> Vec<Vec<usize>> {
+fn predecessors(
+    graph: &crate::body::FunctionGraph<impl Phase>,
+    reachable: &[bool],
+) -> Vec<Vec<usize>> {
     let mut result = vec![Vec::new(); graph.blocks.len()];
     for (source, targets) in successors(graph, reachable).into_iter().enumerate() {
         for target in targets {

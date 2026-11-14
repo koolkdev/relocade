@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) fn fold_repeated(
-    graph: &mut FunctionGraph,
+    graph: &mut crate::body::FunctionGraph,
     dominators: &Dominators,
     incoming: &[Vec<usize>],
 ) -> bool {

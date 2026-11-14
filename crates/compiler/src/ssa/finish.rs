@@ -6,7 +6,7 @@ mod motion;
 mod paths;
 use paths::Paths;
 
-pub(super) fn run(graph: &mut FunctionGraph, changed: &[bool]) {
+pub(super) fn run(graph: &mut SsaGraph, changed: &[bool]) {
     let reachable = graph.reachable();
     let incoming = predecessors(graph, &reachable);
     let dominators = Dominators::new(graph.entry.0, &successors(graph, &reachable), &incoming);
@@ -145,7 +145,7 @@ pub(super) fn run(graph: &mut FunctionGraph, changed: &[bool]) {
 }
 
 struct Reuse<'a> {
-    graph: &'a mut FunctionGraph,
+    graph: &'a mut SsaGraph,
     definitions: Vec<Option<BlockId>>,
     changed: &'a [bool],
     proofs: Paths,

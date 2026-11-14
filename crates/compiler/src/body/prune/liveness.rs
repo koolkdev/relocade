@@ -1,5 +1,6 @@
 //! Remove unneeded executions and parameters before reclaiming graph storage.
 use super::super::{BlockId, BlockItem, Edge, Exit, FunctionGraph, Operation, ValueDefinition};
+use crate::body::Phase;
 
 /// Liveness of referenced values and required operation executions.
 /// Compaction also retains unused results belonging to a live producer.
@@ -9,7 +10,7 @@ pub(super) struct Retained {
 }
 
 pub(super) fn prune(
-    graph: &mut FunctionGraph,
+    graph: &mut FunctionGraph<impl Phase>,
     reachable: &[bool],
     observable: impl Fn(&Operation) -> bool,
 ) -> Retained {

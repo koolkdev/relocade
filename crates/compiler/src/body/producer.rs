@@ -1,4 +1,5 @@
 //! Operation producers and their ordered input and result views.
+use crate::body::Phase;
 
 use super::{BlockId, FunctionGraph, Operation, ValueDefinition};
 use crate::Expression;
@@ -19,7 +20,7 @@ pub(crate) struct Effect {
     pub(crate) origin: BlockId,
 }
 
-impl FunctionGraph {
+impl<P: Phase> FunctionGraph<P> {
     /// Find the defining operation, independently of whether it has been placed.
     /// Constants and block parameters have no operation producer.
     pub(crate) fn producer_of(&self, value: usize) -> Option<BlockItem> {
@@ -28,7 +29,7 @@ impl FunctionGraph {
             ValueDefinition::Result { producer, .. } => Some(producer),
             ValueDefinition::Literal(_)
             | ValueDefinition::Parameter { .. }
-            | ValueDefinition::Refine { .. } => None,
+            | ValueDefinition::RefinedAlias { .. } => None,
         }
     }
 

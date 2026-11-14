@@ -4,7 +4,7 @@ use std::sync::Arc;
 use wasm_encoder::{CodeSection, Module};
 
 use super::{declarations::Declarations, functions::OptimizedFunction};
-use crate::{body::FunctionGraph, emit, ModuleDeclarations};
+use crate::{body::SsaGraph, emit, ModuleDeclarations};
 
 pub(super) struct Emission {
     module: Module,
@@ -13,7 +13,7 @@ pub(super) struct Emission {
 
 pub(super) struct FunctionEmission {
     id: usize,
-    body: FunctionGraph,
+    body: SsaGraph,
     parameters: u32,
     encoder: Arc<emit::ModuleEncoder>,
 }

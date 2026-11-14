@@ -40,7 +40,7 @@ impl Bits {
     }
 }
 
-pub(super) fn initial_bits(values: &ValueTable, id: usize) -> Bits {
+pub(super) fn initial_bits(values: &ValueTable<impl crate::body::Phase>, id: usize) -> Bits {
     let value = values[id];
     if !matches!(
         value.ty,
@@ -58,7 +58,11 @@ pub(super) fn initial_bits(values: &ValueTable, id: usize) -> Bits {
     }
 }
 
-pub(super) fn infer_bits(values: &ValueTable, id: usize, get: impl Fn(usize) -> Summary) -> Bits {
+pub(super) fn infer_bits(
+    values: &ValueTable<impl crate::body::Phase>,
+    id: usize,
+    get: impl Fn(usize) -> Summary,
+) -> Bits {
     let base = initial_bits(values, id);
     let ty = values[id].ty;
     if !matches!(ty, Type::I1 | Type::I8 | Type::I16 | Type::I32 | Type::I64) {

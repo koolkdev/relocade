@@ -8,7 +8,7 @@ pub(super) struct Numbering {
 }
 
 impl Numbering {
-    pub(super) fn new(values: &ValueTable) -> Self {
+    pub(super) fn new(values: &ValueTable<impl crate::body::Phase>) -> Self {
         let mut numbering = Self {
             numbers: Vec::new(),
             expressions: FxHashMap::default(),
@@ -17,7 +17,7 @@ impl Numbering {
         numbering
     }
 
-    pub(super) fn extend(&mut self, values: &ValueTable) {
+    pub(super) fn extend(&mut self, values: &ValueTable<impl crate::body::Phase>) {
         for id in self.numbers.len()..values.len() {
             let number = if matches!(values[id].definition, ValueDefinition::Literal(_)) {
                 *self.expressions.entry(values[id]).or_insert(id)
@@ -37,7 +37,7 @@ impl Numbering {
 
     pub(super) fn define(
         &mut self,
-        values: &ValueTable,
+        values: &ValueTable<impl crate::body::Phase>,
         producer: usize,
         expression: Expression<usize>,
     ) -> usize {

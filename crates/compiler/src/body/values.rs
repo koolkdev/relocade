@@ -3,7 +3,7 @@ use crate::expression::UnaryOp as Unary;
 use crate::literal::Literal;
 use hashbrown::HashTable;
 use rustc_hash::FxBuildHasher;
-use std::hash::BuildHasher;
+use std::{hash::BuildHasher, marker::PhantomData};
 
 use super::{BlockItem, Value, ValueDefinition};
 use crate::{Expression, Type};
@@ -13,15 +13,30 @@ pub(crate) use bounds::BitBounds;
 #[cfg(test)]
 mod tests;
 
+/// Construction shares immutable recipes; SSA gives each calculation its own definition.
+pub(crate) trait Phase: Default {
+    const INTERN_EXPRESSIONS: bool;
+}
+
 #[derive(Default)]
-pub(crate) struct ValueTable {
+pub(crate) struct Recipes;
+impl Phase for Recipes {
+    const INTERN_EXPRESSIONS: bool = true;
+}
+
+#[derive(Default)]
+pub(crate) struct Definitions;
+impl Phase for Definitions {
+    const INTERN_EXPRESSIONS: bool = false;
+}
+
+#[derive(Default)]
+pub(crate) struct ValueTable<P: Phase = Recipes> {
     pub(crate) values: Vec<Value>,
     pub(crate) bounds: Vec<BitBounds>,
-    // Construction interns immutable recipes. Definition mode interns only
-    // literals, so passes can rewrite calculations without stale keys.
     interned: HashTable<usize>,
     hash_builder: FxBuildHasher,
-    definitions: bool,
+    phase: PhantomData<P>,
 }
 
 /// One component of a pure expression, whether stored inline or as a projection.
@@ -32,15 +47,7 @@ pub(crate) struct ExpressionResult {
     pub(crate) component: usize,
 }
 
-impl ValueTable {
-    /// SSA rewrites create definitions; structurally equal operations may live
-    /// on different paths. Dominance, rather than global interning, owns reuse.
-    pub(crate) fn define_calculations(&mut self) {
-        if !self.definitions {
-            self.definitions = true;
-            self.interned = HashTable::new();
-        }
-    }
+impl<P: Phase> ValueTable<P> {
     pub(super) fn compact(&mut self, remapping: &super::prune::Remapping) {
         // No more construction or folding follows finalization. Release the
         // lookup table before changing the values and IDs that supply its keys.
@@ -51,8 +58,11 @@ impl ValueTable {
                 return false;
             }
             value.definition = match value.definition {
-                ValueDefinition::Refine { input, block } => ValueDefinition::Refine {
-                    input: remapping.value(input),
+                ValueDefinition::RefinedAlias {
+                    source: input,
+                    block,
+                } => ValueDefinition::RefinedAlias {
+                    source: remapping.value(input),
                     block,
                 },
                 ValueDefinition::Expression(expression) => {
@@ -125,7 +135,7 @@ impl ValueTable {
     pub(crate) fn representation(&self, mut id: usize) -> usize {
         loop {
             match self.values[id].definition {
-                ValueDefinition::Refine { input, .. } => id = input,
+                ValueDefinition::RefinedAlias { source: input, .. } => id = input,
                 ValueDefinition::Expression(Expression::Unary {
                     operator: Unary::Convert,
                     input,
@@ -172,7 +182,7 @@ impl ValueTable {
     }
 
     pub(crate) fn intern(&mut self, value: Value) -> usize {
-        if self.definitions && !matches!(value.definition, ValueDefinition::Literal(_)) {
+        if !P::INTERN_EXPRESSIONS && !matches!(value.definition, ValueDefinition::Literal(_)) {
             return self.push(value);
         }
         let hash = self.hash_builder.hash_one(value);
@@ -190,7 +200,7 @@ impl ValueTable {
     }
 }
 
-impl std::ops::Deref for ValueTable {
+impl<P: Phase> std::ops::Deref for ValueTable<P> {
     type Target = [Value];
     fn deref(&self) -> &Self::Target {
         &self.values

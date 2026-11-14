@@ -6,7 +6,7 @@
 use super::wasm_type;
 use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{
-    body::{BlockItem, EffectId, Exit, FunctionGraph, ValueDefinition},
+    body::{BlockItem, EffectId, Exit, SsaGraph, ValueDefinition},
     integer::BinaryOp,
     Expression, Type,
 };
@@ -23,7 +23,7 @@ pub(super) struct Selection {
     uses: Vec<usize>,
 }
 impl Selection {
-    pub(super) fn new(graph: &FunctionGraph, reachable: &[bool]) -> Self {
+    pub(super) fn new(graph: &SsaGraph, reachable: &[bool]) -> Self {
         let count = graph.values.len();
         let mut this = Self {
             skipped: vec![false; count],
@@ -130,7 +130,7 @@ impl Selection {
     /// Operand-stack coverage and encoding consume the same selected operands.
     pub(super) fn inputs<'a>(
         &'a self,
-        graph: &'a FunctionGraph,
+        graph: &'a SsaGraph,
         producer: BlockItem,
     ) -> impl DoubleEndedIterator<Item = usize> + 'a {
         let store = match producer {
@@ -153,7 +153,7 @@ impl Selection {
     }
     /// Select for the placed consumers, preserving ordered inputs and a prefix
     /// of the original results. Result enumeration uses this same expression.
-    pub(super) fn expression(&self, graph: &FunctionGraph, value: usize) -> Expression<Type> {
+    pub(super) fn expression(&self, graph: &SsaGraph, value: usize) -> Expression<Type> {
         let ValueDefinition::Expression(expression) = graph.values[value].definition else {
             panic!("evaluate names an expression")
         };
@@ -186,7 +186,7 @@ impl Selection {
     }
     pub(super) fn results<'a>(
         &self,
-        graph: &'a FunctionGraph,
+        graph: &'a SsaGraph,
         producer: &'a BlockItem,
     ) -> impl DoubleEndedIterator<Item = usize> + 'a {
         let replacement = match *producer {
@@ -217,7 +217,7 @@ impl Selection {
         value
     }
     /// Redirect one consumer, retaining a producer needed by other consumers.
-    fn replace_input(&mut self, graph: &FunctionGraph, old: usize, input: usize) {
+    fn replace_input(&mut self, graph: &SsaGraph, old: usize, input: usize) {
         let old = self.resolve(old);
         let input = self.resolve(input);
         self.uses[input] += 1;
@@ -226,7 +226,7 @@ impl Selection {
     }
     /// Bypass a single-result expression for all of its placed consumers.
     /// The caller proves the replacement preserves what those consumers observe.
-    fn bypass_expression(&mut self, graph: &FunctionGraph, value: usize, input: usize) {
+    fn bypass_expression(&mut self, graph: &SsaGraph, value: usize, input: usize) {
         debug_assert_eq!(graph.values.expression_results(value).len(), 1);
         let input = self.resolve(input);
         self.uses[input] += std::mem::take(&mut self.uses[value]);
@@ -234,7 +234,7 @@ impl Selection {
         debug_assert!(retired);
         self.aliases[value] = Some(input);
     }
-    fn retire_unused(&mut self, graph: &FunctionGraph, value: usize) -> bool {
+    fn retire_unused(&mut self, graph: &SsaGraph, value: usize) -> bool {
         if self.skipped[value] {
             return false;
         }
@@ -257,7 +257,7 @@ impl Selection {
     }
     pub(super) fn condition(
         &self,
-        graph: &FunctionGraph,
+        graph: &SsaGraph,
         value: usize,
         inverted: bool,
     ) -> (usize, bool) {
@@ -272,7 +272,7 @@ impl Selection {
         }
         (self.resolve(value), inverted)
     }
-    fn truth(&mut self, graph: &FunctionGraph, value: usize, can_invert: bool) {
+    fn truth(&mut self, graph: &SsaGraph, value: usize, can_invert: bool) {
         if self.uses[value] != 1 {
             return;
         }

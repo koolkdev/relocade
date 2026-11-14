@@ -3,7 +3,7 @@ use crate::body::{Exit, FunctionGraph};
 
 #[test]
 fn interning_reuses_complete_results_after_storage_grows() {
-    let mut values = ValueTable::default();
+    let mut values: ValueTable = ValueTable::default();
     let left = values.literal(Type::I64, 3);
     let right = values.literal(Type::I64, 5);
     let product = Value {
@@ -57,7 +57,7 @@ fn interning_reuses_complete_results_after_storage_grows() {
 
 #[test]
 fn interning_distinguishes_logical_types_and_physical_bits() {
-    let mut values = ValueTable::default();
+    let mut values: ValueTable = ValueTable::default();
     let byte = values.literal(Type::I8, 255);
     let word = values.literal(Type::I16, 255);
     let negative_byte = values.carrier_literal(Type::I8, 0xffff_ffff_u64);
@@ -76,7 +76,7 @@ fn interning_distinguishes_logical_types_and_physical_bits() {
 
 #[test]
 fn finalization_releases_the_interning_allocation() {
-    let mut graph = FunctionGraph::new();
+    let mut graph: FunctionGraph = FunctionGraph::new();
     graph.values.literal(Type::I32, 13);
     let result = graph.values.literal(Type::I32, 7);
     graph.blocks[0].exit = Exit::Return(vec![result]);
@@ -87,4 +87,30 @@ fn finalization_releases_the_interning_allocation() {
     assert_eq!(graph.values.interned.capacity(), 0);
     assert_eq!(graph.values.len(), 1);
     assert!(matches!(graph.values[0].scalar_literal(), Some(7)));
+}
+
+#[test]
+fn definitions_share_literals_but_keep_distinct_calculations() {
+    let mut values = ValueTable::<Definitions>::default();
+    let input = values.literal(Type::I32, 7);
+    let calculation = Value {
+        ty: Type::I32,
+        definition: ValueDefinition::Expression(Expression::Unary {
+            operator: crate::expression::UnaryOp::Convert,
+            input,
+        }),
+    };
+    let first = values.intern(calculation);
+    let second = values.intern(calculation);
+    assert_ne!(first, second);
+    assert_eq!(values.literal(Type::I32, 7), input);
+
+    values.values[first].definition = ValueDefinition::Literal(9_u64.into());
+    let third = values.intern(calculation);
+    assert_ne!(third, first);
+    assert_ne!(third, second);
+    assert!(matches!(
+        values[second].definition,
+        ValueDefinition::Expression(_)
+    ));
 }
