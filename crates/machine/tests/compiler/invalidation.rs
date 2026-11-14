@@ -19,7 +19,7 @@ async fn run_caller(runner: &mut Runner, expected: u16) {
 async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
     let memory = machine.memory();
-    let memory = memory.view();
+    let mut memory = memory.view();
     memory
         .write(0x100, &[0xe8, 0xfd, 0, 0xe9, 0xfa, 0x0e]) // CALL 0200; JMP 1000
         .unwrap();
