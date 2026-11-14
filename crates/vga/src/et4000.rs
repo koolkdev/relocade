@@ -1,4 +1,5 @@
 #![doc = include_str!("et4000/README.md")]
+mod configuration;
 mod device;
 mod effects;
 mod mmio;

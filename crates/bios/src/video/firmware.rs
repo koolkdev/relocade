@@ -1,12 +1,13 @@
 //! The video firmware selected by the machine composition.
 pub mod dispi;
+pub mod et4000;
 
 use super::{modes, COLOR_TEXT_80X25};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, IoBus, MemoryView,
 };
-use relocade_vga::DispiAdapter;
+use relocade_vga::{DispiAdapter, Et4000Ax};
 use std::{cell::RefCell, rc::Rc};
 
 /// Firmware services for the connected card; VGA-only firmware has no VBE interface.
@@ -14,6 +15,7 @@ use std::{cell::RefCell, rc::Rc};
 pub enum VideoFirmware {
     Vga,
     Dispi(Rc<RefCell<DispiAdapter>>),
+    Et4000Ax(Rc<RefCell<Et4000Ax>>),
 }
 
 impl VideoFirmware {
@@ -28,6 +30,7 @@ impl VideoFirmware {
                 modes::set_mode(memory, io, COLOR_TEXT_80X25).expect("initial VGA text mode");
             }
             Self::Dispi(card) => dispi::initialize(memory, io, card),
+            Self::Et4000Ax(card) => et4000::initialize(memory, io, card),
         }
     }
 
@@ -36,6 +39,7 @@ impl VideoFirmware {
         match self {
             Self::Vga => modes::set_mode(memory, io, request),
             Self::Dispi(card) => dispi::set_mode(memory, io, card, request),
+            Self::Et4000Ax(card) => et4000::set_mode(memory, io, card, request),
         }
     }
 }
@@ -58,7 +62,7 @@ pub(super) async fn vbe(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
         call,
         match firmware {
             VideoFirmware::Dispi(card) => dispi::vbe::dispatch(card),
-            VideoFirmware::Vga => vbe_unavailable,
+            VideoFirmware::Vga | VideoFirmware::Et4000Ax(_) => vbe_unavailable,
         }
     );
 }
