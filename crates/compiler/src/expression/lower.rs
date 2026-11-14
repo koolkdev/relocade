@@ -7,9 +7,30 @@ use crate::{
     Expression, Type,
 };
 
+mod rounding;
 mod vector;
 
-pub(crate) fn lower(values: &mut ValueTable<crate::body::Definitions>, id: usize) -> usize {
+/// Replacements for the demanded results, or no expansion for a native operation.
+pub(crate) fn lower(
+    values: &mut ValueTable<crate::body::Definitions>,
+    id: usize,
+    demanded: &[bool],
+) -> Option<Vec<(usize, usize)>> {
+    if let ValueDefinition::Expression(Expression::RoundMagnitude {
+        integer,
+        distance,
+        control,
+    }) = values[id].definition
+    {
+        return Some(rounding::lower(
+            values, id, integer, distance, control, demanded,
+        ));
+    }
+    let result = lower_scalar(values, id);
+    (result != id).then(|| vec![(id, result)])
+}
+
+fn lower_scalar(values: &mut ValueTable<crate::body::Definitions>, id: usize) -> usize {
     use BitCountOp::{LeadingZeros, TrailingZeros};
 
     let value = values[id];

@@ -87,9 +87,14 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             ..
         } => return value.ty.bits(),
         ValueDefinition::Result {
-            producer: BlockItem::Evaluate(_),
+            producer: BlockItem::Evaluate(producer),
             ..
-        } => return carrier,
+        } => {
+            return match values[producer].definition {
+                ValueDefinition::Expression(Expression::RoundMagnitude { .. }) => 1,
+                _ => carrier,
+            }
+        }
         ValueDefinition::Expression(expression) => expression,
     };
     match expression {
@@ -168,6 +173,8 @@ fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
             second: when_false,
             ..
         } => inputs[when_true].unsigned.max(inputs[when_false].unsigned),
-        Expression::Ternary { .. } | Expression::MultiplyWide { .. } => carrier,
+        Expression::Ternary { .. }
+        | Expression::MultiplyWide { .. }
+        | Expression::RoundMagnitude { .. } => carrier,
     }
 }

@@ -37,7 +37,12 @@ impl UnboundExpression {
         debug_assert!(component < self.node.expression.result_types(self.ty).len());
         Self {
             node: self.node.clone(),
-            ty: self.ty,
+            ty: self
+                .node
+                .expression
+                .result_types(self.ty)
+                .nth(component)
+                .unwrap(),
             component: component
                 .try_into()
                 .expect("expression result index fits in a byte"),

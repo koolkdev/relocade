@@ -58,6 +58,8 @@ mod path_facts;
 mod refined_control;
 #[path = "suites/rotations.rs"]
 mod rotations;
+#[path = "suites/rounding.rs"]
+mod rounding;
 #[path = "suites/shifts.rs"]
 mod shifts;
 #[path = "suites/signed_arithmetic.rs"]

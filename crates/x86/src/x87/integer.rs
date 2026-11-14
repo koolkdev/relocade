@@ -62,7 +62,8 @@ impl ExtendedValue {
         let too_large = exponent.unsigned().ge(16383 + 64);
         let distance = too_large.select(0_u32, Val::<I32>::from(16383 + 63).sub(exponent));
         let rounded = rounding.round(
-            RoundingInput::exact(value.significand).shift_right(distance),
+            &RoundingInput::exact(value.significand),
+            distance,
             &negative,
         );
         // Range is checked after rounding: a fractional input can cross the limit.

@@ -61,8 +61,9 @@ impl Optimizer {
         let mut graph = form::build(graph, &reachable, &dominators);
         let mut changed = simplify::run(&mut graph, &dominators, &incoming);
         let reachable = graph.reachable();
-        graph.prune_unused(&reachable, |op| effects::observable(op, &self.summaries));
-        lower::run(&mut graph, &dominators, &mut changed);
+        let demanded =
+            graph.prune_unused(&reachable, |op| effects::observable(op, &self.summaries));
+        lower::run(&mut graph, &dominators, &mut changed, &demanded);
         finish::run(&mut graph, &changed);
         graph.compact(|op| effects::observable(op, &self.summaries));
         graph

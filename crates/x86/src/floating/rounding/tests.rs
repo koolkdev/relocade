@@ -1,6 +1,6 @@
 use super::*;
 use crate::{test_step as step, CompiledModule};
-use relocade_compiler::Program;
+use relocade_compiler::{Program, I64};
 
 #[test]
 fn integer_rounding_preserves_evidence_across_word_boundaries() {
@@ -11,10 +11,9 @@ fn integer_rounding_preserves_evidence_across_word_boundaries() {
                 integer: body.parameter::<I64>(0)?,
                 guard: body.parameter::<I1>(4)?,
                 sticky: body.parameter::<I1>(5)?,
-            }
-            .shift_right(body.parameter::<I32>(1)?);
+            };
             let mode = RoundingMode::new(body.parameter::<I8>(2)?);
-            let result = mode.round(input, &body.parameter::<I1>(3)?);
+            let result = mode.round(&input, body.parameter::<I32>(1)?, &body.parameter::<I1>(3)?);
             body.return_((result.integer, result.inexact, result.incremented))
         },
     );

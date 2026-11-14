@@ -5,11 +5,13 @@ use crate::expression::{
 mod argument;
 mod construction;
 mod floating;
+mod rounding;
 mod source;
 mod unbound;
 mod vector;
 
 pub use argument::Argument;
+pub use rounding::{RoundedInteger, RoundingInput};
 pub use vector::{F32x4, F64x2, SaturatingLane, VectorLane, VectorType};
 
 use std::marker::PhantomData;

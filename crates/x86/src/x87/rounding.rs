@@ -15,7 +15,7 @@ impl FiniteMagnitude {
         let precision = precision.and(3);
         // The reserved PC encoding follows the full-precision policy.
         let discarded = precision.eq(0).select(40, precision.eq(2).select(11, 0));
-        let rounded = rounding.round(self.significand.shift_right(&discarded), &self.negative);
+        let rounded = rounding.round(&self.significand, &discarded, &self.negative);
         let significand = rounded.integer.shl(&discarded);
         let carry = significand.eq(0_u64);
         let exponent = self.exponent.add(carry.unsigned().extend::<I32>());
@@ -44,7 +44,7 @@ impl FiniteMagnitude {
             discarded.add(Val::<I32>::from(-16382).sub(&self.exponent)),
             &discarded,
         );
-        let stored = rounding.round(self.significand.shift_right(distance), &self.negative);
+        let stored = rounding.round(&self.significand, distance, &self.negative);
         let subnormal = stored.integer.shl(&discarded);
         let stored_exponent = below_normal.select(
             subnormal.and(LEADING).ne(0_u64).unsigned().extend::<I32>(),

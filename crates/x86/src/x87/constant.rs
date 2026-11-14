@@ -31,11 +31,12 @@ impl Constant {
             Self::LnTwo => (0xb172_17f7_d1cf_79ab, 0x3ffe, true),
         };
         let rounded = rounding.round(
-            RoundingInput {
+            &RoundingInput {
                 integer: significand.into(),
                 guard: increment_nearest.into(),
                 sticky: true.into(),
             },
+            0,
             &false.into(),
         );
         // PC does not apply, and the load discards rounding evidence rather

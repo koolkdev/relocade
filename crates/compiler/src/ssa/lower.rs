@@ -1,7 +1,12 @@
 //! Expand surviving semantic operations without reopening path analysis.
 use super::*;
 
-pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut Vec<bool>) {
+pub(super) fn run(
+    graph: &mut SsaGraph,
+    dominators: &Dominators,
+    changed: &mut Vec<bool>,
+    demanded: &[bool],
+) {
     let original_count = graph.values.len();
     let mut aliases: Vec<_> = (0..original_count).collect();
     let mut emitted = vec![true; original_count];
@@ -14,17 +19,20 @@ pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut V
                 graph.append(BlockId(block), item);
                 continue;
             };
-            let result = crate::expression::lower(&mut graph.values, id);
-            if result == id {
+            let Some(replacements) = crate::expression::lower(&mut graph.values, id, demanded)
+            else {
                 graph.append(BlockId(block), item);
                 continue;
-            }
+            };
             while aliases.len() < graph.values.len() {
                 aliases.push(aliases.len());
                 emitted.push(false);
             }
-            aliases[id] = result;
-            let mut work = vec![(result, false)];
+            let mut work = Vec::with_capacity(replacements.len());
+            for (output, result) in replacements {
+                aliases[output] = result;
+                work.push((result, false));
+            }
             while let Some((id, ready)) = work.pop() {
                 let Some(result) = graph.values.expression(id) else {
                     continue;

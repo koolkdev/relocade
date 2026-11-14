@@ -23,7 +23,7 @@ where
     let leading = magnitude.clz();
     let exponent = Val::<I32>::from(31).sub(&leading);
     let normalized = magnitude.unsigned().extend::<I64>().shl(leading.add(32));
-    let rounded = rounding.round(RoundingInput::exact(normalized).shift_right(40), &negative);
+    let rounded = rounding.round(&RoundingInput::exact(normalized), 40, &negative);
     // Adding the rounded significand carries naturally into the exponent.
     let encoded = exponent
         .add(126)

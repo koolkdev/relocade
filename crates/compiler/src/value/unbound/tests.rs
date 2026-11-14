@@ -148,3 +148,23 @@ fn unbound_wide_components_share_storage_but_keep_distinct_identities_and_cache_
     drop(high);
     assert!(retained.upgrade().is_none());
 }
+
+#[test]
+fn unbound_rounding_results_retain_their_distinct_logical_types() {
+    let integer = Val::<I64>::from(7).unsigned().div(0).and(0).or(3);
+    let rounded = crate::RoundingInput::exact(integer).round(1, true, false);
+    let arena = FunctionArena::new();
+    // Admit a boolean first: its recipe must not inherit the integer result type.
+    let inexact = rounded.inexact.checked_expression(&arena, 0).unwrap();
+    let incremented = rounded.incremented.checked_expression(&arena, 0).unwrap();
+    let integer = rounded.integer.checked_expression(&arena, 0).unwrap();
+    let graph = arena.take().unwrap();
+    for (id, ty, expected) in [
+        (inexact, Type::I1, 1),
+        (integer, Type::I64, 2),
+        (incremented, Type::I1, 1),
+    ] {
+        assert_eq!(graph.values[id].ty, ty);
+        assert_eq!(graph.values[id].scalar_literal(), Some(expected));
+    }
+}
