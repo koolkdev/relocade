@@ -225,10 +225,88 @@ async fn installation_rejects_changed_instruction_bytes() {
     compilation::run(reject_changed_source).await;
 }
 
+async fn crossing_code_write(compiler: &relocade_machine::CompilerService) {
+    let (_, config) = setup();
+    let map =
+        PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let mut machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
+    let memory = machine.memory();
+    // MOV word [0FFF],3; CALL 0FFE; JMP 2000. The callee's immediate crosses pages.
+    memory
+        .view()
+        .write(
+            0x100,
+            &[
+                0xc7, 6, 0xff, 0x0f, 3, 0, 0xe8, 0xf5, 0x0e, 0xe9, 0xf4, 0x1e,
+            ],
+        )
+        .unwrap();
+    memory.view().write(0xffe, &[0xb8, 1, 1, 0xc3]).unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        for offset in [0x100, 0xffe] {
+            compiler
+                .request_functions(
+                    target,
+                    vec![FunctionRequest {
+                        entry: FarPointer { segment: 0, offset },
+                        limits: FunctionLimits::default(),
+                    }],
+                )
+                .unwrap();
+            compiler
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .install(runner.cpu())
+                .unwrap();
+        }
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x2000, async move || exit.request())])
+            .await
+            .unwrap();
+        runner.cpu().cpu_state().set_sp(0x800);
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(runner.cpu().cpu_state().ax(), 3);
+        assert_eq!(runner.cpu().cpu_state().sp(), 0x800);
+        assert_eq!(runner.cpu().compiled_modules_at(0xffe).count(), 0);
+        assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn crossing_stores_invalidate_all_touched_instruction_pages() {
+    pollster::block_on(compilation::run(crossing_code_write));
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn crossing_stores_invalidate_all_touched_instruction_pages() {
+    compilation::run(crossing_code_write).await;
+}
+
 async fn self_modifying_blocks(compiler: &relocade_machine::CompilerService) {
     for (program, expected_ax, expected_bx) in [
         // MOV byte [0106],42; MOV AX,7; JMP 1000.
         (vec![0xc6, 6, 6, 1, 42, 0xb8, 7, 0, 0xe9, 0xf5, 0x0e], 42, 0),
+        // LOCK INC byte [0106]; MOV AX,7; JMP 1000. The update must happen once.
+        (
+            vec![0xf0, 0xfe, 6, 6, 1, 0xb8, 7, 0, 0xe9, 0xf5, 0x0e],
+            8,
+            0,
+        ),
         // MOV AL,42; MOV DI,010B; MOV CX,1; REP STOSB; MOV BX,7; JMP 1000.
         (
             vec![
