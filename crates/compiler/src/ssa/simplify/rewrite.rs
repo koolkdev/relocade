@@ -26,7 +26,7 @@ impl Analysis<'_> {
         let source = self.graph.values.expression(id).unwrap();
         let expression = source.expression.map(|&input| self.operand(input));
         if let Some((index, positive)) = self.predicate_for(expression) {
-            if let Some(truth) = self.predicates[index] {
+            if let Some(truth) = self.scopes.predicate(index) {
                 let constant = self
                     .graph
                     .values
@@ -131,7 +131,7 @@ impl Analysis<'_> {
                     .define(&self.graph.values, result.producer, expression);
                 for output in self.graph.values.expression_results(result.producer) {
                     for &input in result.expression.inputs() {
-                        self.users.add(self.roots[input], output);
+                        self.users.add(self.scopes.root(input), output);
                     }
                 }
                 self.graph

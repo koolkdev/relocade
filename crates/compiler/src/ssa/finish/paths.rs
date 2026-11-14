@@ -1,10 +1,10 @@
 //! Reuse may omit an incoming value only when explicit branch decisions exclude it.
 use super::*;
-use crate::ssa::versions::Versions;
+use crate::ssa::versions::{Snapshot, Versions};
 
 pub(super) struct Paths {
     versions: Versions,
-    outgoing: Vec<u32>,
+    outgoing: Vec<Snapshot>,
     excluded: FxHashMap<(usize, usize), bool>,
 }
 
@@ -12,7 +12,7 @@ impl Paths {
     pub(super) fn new(graph: &SsaGraph, dominators: &Dominators, incoming: &[Vec<usize>]) -> Self {
         let mut paths = Self {
             versions: Versions::new(),
-            outgoing: vec![0; graph.blocks.len()],
+            outgoing: vec![Snapshot::default(); graph.blocks.len()],
             excluded: FxHashMap::default(),
         };
         let mut order: Vec<_> = (0..graph.blocks.len()).collect();
@@ -30,11 +30,11 @@ impl Paths {
                 } = graph.blocks[source].exit
                 {
                     if taken.target != otherwise.target {
-                        root = paths.versions.set(
+                        root = paths.versions.with_truth(
                             root,
-                            block,
-                            condition << 1 | 1,
-                            usize::from(taken.target.0 == block),
+                            BlockId(block),
+                            condition,
+                            taken.target.0 == block,
                         );
                     }
                 }

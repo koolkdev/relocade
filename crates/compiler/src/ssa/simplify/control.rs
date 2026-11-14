@@ -3,37 +3,29 @@ use super::*;
 
 impl Analysis<'_> {
     pub(super) fn enter(&mut self, block: BlockId, sources: &[usize]) {
-        let mut merges = std::mem::take(&mut self.merges[block.0]);
-        merges.sort_unstable();
-        merges.dedup();
-        if !sources.is_empty() && sources.iter().all(|&source| self.complete[source]) {
+        let merges = self.scopes.pending();
+        if !sources.is_empty() && sources.iter().all(|&source| self.scopes.complete(source)) {
             for key in merges {
-                if key & 1 != 0 {
-                    let index = key >> 1;
-                    let fallback = self.predicates[index];
-                    let mut incoming = sources.iter().map(|&source| {
-                        self.versions
-                            .get(self.outgoing[source], key)
-                            .map(|truth| truth != 0)
-                            .or(fallback)
-                    });
-                    if let Some(Some(truth)) = incoming.next() {
-                        if incoming.all(|other| other == Some(truth)) {
-                            self.observe_predicate(index, truth, block);
+                let root = match key {
+                    FactKey::Predicate(id) => {
+                        let mut incoming = sources
+                            .iter()
+                            .map(|&source| self.scopes.predicate_at(source, id));
+                        if let Some(Some(truth)) = incoming.next() {
+                            if incoming.all(|other| other == Some(truth)) {
+                                self.observe_predicate(id, truth, block);
+                            }
                         }
+                        continue;
                     }
-                    continue;
-                }
-                let root = key >> 1;
+                    FactKey::Value(root) => root,
+                };
                 let fallback = self.resolve(root);
                 if matches!(self.graph.values[root].ty, Type::V64 | Type::V128) {
                     let common = sources
                         .iter()
                         .map(|&source| {
-                            let value = self
-                                .versions
-                                .get(self.outgoing[source], key)
-                                .unwrap_or(fallback);
+                            let value = self.scopes.value_at(source, root, fallback);
                             self.vector_bits(value)
                         })
                         .reduce(|a, b| [a[0].intersect(b[0]), a[1].intersect(b[1])])
@@ -43,10 +35,7 @@ impl Analysis<'_> {
                 }
                 let mut common: Option<Summary> = None;
                 for &source in sources {
-                    let value = self
-                        .versions
-                        .get(self.outgoing[source], key)
-                        .unwrap_or(fallback);
+                    let value = self.scopes.value_at(source, root, fallback);
                     let bits = self.summaries[value];
                     common = Some(common.map_or(bits, |previous| previous.intersect(bits)));
                 }
@@ -57,7 +46,7 @@ impl Analysis<'_> {
         }
         // A backedge contributes unknown facts until convergence is established.
         // Acyclic joins can intersect their actual incoming SSA summaries now.
-        if sources.iter().all(|&source| self.complete[source]) {
+        if sources.iter().all(|&source| self.scopes.complete(source)) {
             for (component, parameter) in self.graph.blocks[block.0]
                 .parameters
                 .clone()
@@ -105,7 +94,7 @@ impl Analysis<'_> {
         let [source] = sources else {
             return;
         };
-        if !self.complete[*source] {
+        if !self.scopes.complete(*source) {
             return;
         }
         match self.graph.blocks[*source].exit.clone() {

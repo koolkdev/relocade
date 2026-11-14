@@ -9,6 +9,8 @@ mod control;
 mod lanes;
 mod observations;
 mod rewrite;
+mod scopes;
+use scopes::{FactKey, PredicateId, Scopes};
 mod uses;
 use crate::{
     bitwise::BitwiseOp,
@@ -30,27 +32,15 @@ pub(super) fn run(
         numbers,
         graph,
         dominators,
+        scopes: Scopes::new(dominators, predecessors, count),
         aliases: (0..count).collect(),
-        renamed: vec![None; count],
-        bindings: Vec::new(),
         summaries: Vec::with_capacity(count),
-        complete: vec![false; predecessors.len()],
         executable: vec![false; predecessors.len()],
         emitted: vec![false; count],
-        roots: (0..count).collect(),
-        versions: super::versions::Versions::new(),
-        outgoing: vec![0; predecessors.len()],
-        current: 0,
-        block: BlockId(0),
-        frontiers: dominators.frontiers(predecessors),
-        merges: vec![Vec::new(); predecessors.len()],
         lanes: FxHashMap::default(),
         choices: FxHashMap::default(),
         users: uses::Uses::default(),
         queued: vec![false; count],
-        predicate_ids: FxHashMap::default(),
-        predicate_keys: Vec::new(),
-        predicates: Vec::new(),
     };
     for id in 0..count {
         let bits = facts::infer(&analysis.graph.values, id, &analysis.summaries);
@@ -70,21 +60,14 @@ pub(super) fn run(
     let mut work = vec![(analysis.graph.entry.0, None)];
     while let Some((block, checkpoint)) = work.pop() {
         if let Some(checkpoint) = checkpoint {
-            while analysis.bindings.len() > checkpoint {
-                let (value, previous) = analysis.bindings.pop().unwrap();
-                if value & 1 == 0 {
-                    analysis.renamed[value >> 1] = previous;
-                } else {
-                    analysis.predicates[value >> 1] = previous.map(|truth| truth != 0);
-                }
-            }
+            analysis.scopes.leave(checkpoint);
             continue;
         }
         let incoming: Vec<_> = predecessors[block]
             .iter()
             .copied()
             .filter(|&source| {
-                !analysis.complete[source]
+                !analysis.scopes.complete(source)
                     || (analysis.executable[source]
                         && analysis
                             .graph
@@ -98,19 +81,16 @@ pub(super) fn run(
         {
             let mut discarded = vec![block];
             while let Some(block) = discarded.pop() {
-                analysis.complete[block] = true;
+                analysis.scopes.discard(block);
                 discarded.extend(children[block].iter().copied());
             }
             continue;
         }
         analysis.executable[block] = true;
-        let checkpoint = analysis.bindings.len();
-        analysis.current = dominators.parent[block].map_or(0, |parent| analysis.outgoing[parent]);
-        analysis.block = BlockId(block);
+        let checkpoint = analysis.scopes.enter(BlockId(block));
         analysis.enter(BlockId(block), &incoming);
         analysis.block(BlockId(block));
-        analysis.complete[block] = true;
-        analysis.outgoing[block] = analysis.current;
+        analysis.scopes.finish();
         work.push((block, Some(checkpoint)));
         work.extend(children[block].iter().rev().map(|&child| (child, None)));
     }
@@ -121,38 +101,25 @@ struct Analysis<'a> {
     graph: &'a mut SsaGraph,
     numbers: super::numbering::Numbering,
     dominators: &'a Dominators,
+    scopes: Scopes<'a>,
     aliases: Vec<usize>,
-    renamed: Vec<Option<usize>>,
-    bindings: Vec<(usize, Option<usize>)>,
     summaries: Vec<Summary>,
-    complete: Vec<bool>,
     executable: Vec<bool>,
     emitted: Vec<bool>,
-    roots: Vec<usize>,
-    versions: super::versions::Versions,
-    outgoing: Vec<u32>,
-    current: u32,
-    block: BlockId,
-    frontiers: Vec<Vec<usize>>,
-    merges: Vec<Vec<usize>>,
     lanes: FxHashMap<usize, [Bits; 2]>,
     choices: FxHashMap<usize, choices::Choice>,
     users: uses::Uses,
     queued: Vec<bool>,
-    predicate_ids: FxHashMap<Predicate, usize>,
-    predicate_keys: Vec<Predicate>,
-    predicates: Vec<Option<bool>>,
 }
 
 impl Analysis<'_> {
     fn extend(&mut self) {
         self.numbers.extend(&self.graph.values);
+        self.scopes.extend(self.graph.values.len());
         while self.aliases.len() < self.graph.values.len() {
             let id = self.aliases.len();
             self.aliases.push(id);
-            self.renamed.push(None);
             self.emitted.push(false);
-            self.roots.push(id);
             self.queued.push(false);
             self.summaries
                 .push(facts::infer(&self.graph.values, id, &self.summaries));
@@ -163,7 +130,7 @@ impl Analysis<'_> {
         loop {
             if self.aliases[id] != id {
                 id = self.aliases[id];
-            } else if let Some(next) = self.renamed[self.roots[id]].filter(|&next| next != id) {
+            } else if let Some(next) = self.scopes.refinement(id).filter(|&next| next != id) {
                 id = next;
             } else {
                 return id;
@@ -185,7 +152,7 @@ impl Analysis<'_> {
         }
     }
 
-    fn predicate_for(&mut self, expression: Expression<usize>) -> Option<(usize, bool)> {
+    fn predicate_for(&mut self, expression: Expression<usize>) -> Option<(PredicateId, bool)> {
         let (key, positive) = facts::predicate(&self.graph.values, expression, |input| {
             self.numbers.get(
                 self.graph
@@ -193,22 +160,10 @@ impl Analysis<'_> {
                     .representation(self.runtime_identity(input)),
             )
         })?;
-        Some((self.predicate_index(key), positive))
+        Some((self.scopes.predicate_id(key), positive))
     }
 
-    fn predicate_index(&mut self, key: Predicate) -> usize {
-        if let Some(&index) = self.predicate_ids.get(&key) {
-            index
-        } else {
-            let index = self.predicates.len();
-            self.predicate_ids.insert(key, index);
-            self.predicate_keys.push(key);
-            self.predicates.push(None);
-            index
-        }
-    }
-
-    fn predicate_of(&mut self, id: usize) -> Option<(usize, bool)> {
+    fn predicate_of(&mut self, id: usize) -> Option<(PredicateId, bool)> {
         let source = self.runtime_identity(id);
         if let Some(expression) = self.graph.values.expression(source) {
             if expression.component == 0 {
@@ -220,7 +175,8 @@ impl Analysis<'_> {
         (self.graph.values[source].ty == Type::I1 && self.graph.values.bounds[source].unsigned <= 1)
             .then(|| {
                 (
-                    self.predicate_index(Predicate::Zero(self.numbers.get(source))),
+                    self.scopes
+                        .predicate_id(Predicate::Zero(self.numbers.get(source))),
                     false,
                 )
             })
@@ -241,11 +197,11 @@ impl Analysis<'_> {
                 .is_some_and(|result| self.emitted[result.producer])
         {
             if let Some((index, positive)) = self.predicate_of(id) {
-                if let Some(truth) = self.predicates[index] {
+                if let Some(truth) = self.scopes.predicate(index) {
                     self.assume(
                         id,
                         Bits::constant(u64::from(truth == positive), 1),
-                        self.block,
+                        self.scopes.block(),
                     );
                     id = self.resolve(id);
                 }
