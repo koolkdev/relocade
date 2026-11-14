@@ -15,11 +15,12 @@ mod output;
 mod ports;
 mod registers;
 mod retrace;
+mod scanout;
 mod state;
 
 use crate::{
-    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Scanout, Timing, VgaCore,
-    VgaDisplayState,
+    memory::VideoMemory, output::Output, scanout::DisplayConfiguration, DisplaySnapshot, Registers,
+    Timing, VgaCore,
 };
 use async_channel::Receiver;
 pub use modes::{DispiMode, DispiResolution};
@@ -77,7 +78,7 @@ impl DispiAdapter {
         let output = Output::new(
             clock,
             Timing::vga(&vga.registers),
-            Scanout::Vga(VgaDisplayState::from_registers(&vga.registers)),
+            DisplayConfiguration::vga(),
         );
         Self {
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),

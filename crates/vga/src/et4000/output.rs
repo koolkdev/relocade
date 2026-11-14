@@ -7,8 +7,13 @@ use std::future::Future;
 impl Et4000Ax {
     /// Inspect current display inputs without advancing the raster or CPU latches.
     pub fn snapshot(&self) -> DisplaySnapshot {
+        let scanout = self.output.display.scanout_at(
+            &self.vga.registers,
+            self.display_start(),
+            self.output.raster.retrace_count,
+        );
         self.output.snapshot(
-            self.scanout_at(self.display_start()),
+            scanout,
             DacSnapshot {
                 colors: self.vga.registers.dac.colors,
                 mask: self.vga.registers.dac.mask,
@@ -59,7 +64,11 @@ impl FramebufferAccess for Et4000Ax {
     fn framebuffer(&mut self) -> Framebuffer<'_> {
         self.capture_if_due();
         Framebuffer {
-            scanout: self.scanout_at(self.programmed_start()),
+            scanout: self.output.display.scanout_at(
+                &self.vga.registers,
+                self.programmed_start(),
+                self.output.raster.retrace_count,
+            ),
             memory: &mut self.memory,
         }
     }

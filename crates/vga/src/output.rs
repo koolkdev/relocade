@@ -5,10 +5,12 @@ mod task;
 pub use retrace::RetraceEvent;
 pub(crate) use task::run;
 
-use crate::snapshot::Blanking;
 #[cfg(feature = "renderer")]
 use crate::snapshot::MemoryChanges;
-use crate::{memory::VideoMemory, raster::Raster, DacSnapshot, DisplaySnapshot, Scanout, Timing};
+use crate::{
+    memory::VideoMemory, raster::Raster, scanout::DisplayConfiguration, DacSnapshot,
+    DisplaySnapshot, Scanout, Timing,
+};
 use async_channel::{Receiver, Sender};
 use event_listener::Event;
 use relocade_machine::{Clock, Timestamp};
@@ -17,9 +19,7 @@ pub(crate) struct Output {
     pub clock: Clock,
     pub raster: Raster,
     /// Display programming prepared by the card before the next capture.
-    pub scanout: Scanout,
-    pub blanked: bool,
-    pub blanking: Blanking,
+    pub display: DisplayConfiguration,
     pub configuration_changed: Event,
     pub(crate) sender: Sender<DisplaySnapshot>,
     pub frames: Receiver<DisplaySnapshot>,
@@ -35,13 +35,11 @@ pub(crate) struct PendingSnapshot {
 }
 
 impl Output {
-    pub fn new(clock: Clock, timing: Timing, scanout: Scanout) -> Self {
+    pub fn new(clock: Clock, timing: Timing, display: DisplayConfiguration) -> Self {
         let (sender, frames) = async_channel::bounded(1);
         Self {
             raster: Raster::new(clock.clone(), timing),
-            scanout,
-            blanked: false,
-            blanking: Default::default(),
+            display,
             clock,
             configuration_changed: Event::new(),
             sender,
@@ -72,8 +70,8 @@ impl Output {
                 previous.map(|snapshot| &snapshot.memory),
             ),
             dac,
-            blanked: self.blanked,
-            blanking: self.blanking.clone(),
+            blanked: self.display.blanked,
+            blanking: self.display.blanking.clone(),
             scanout,
             #[cfg(feature = "renderer")]
             changes: previous.map(|previous| MemoryChanges {
