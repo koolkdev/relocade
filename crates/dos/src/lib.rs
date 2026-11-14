@@ -119,8 +119,10 @@
 //! AH=43h queries or changes read-only, hidden, system and archive attributes.
 //! Closing a written file handle restores the archive attribute.
 //! AH=68h/6Ah commits that metadata while preserving the open handle and its cursor.
+//! AH=57h gets or sets an open handle's packed modification time (CX) and date (DX).
 //! Creation and modified-file commit/close use DOS's session clock at two-second
-//! precision.
+//! precision. An explicit AH=57h timestamp survives commit/close until another write.
+//! Read-only handles can set timestamps; duplicated handles share pending metadata.
 //! Directory searches return the committed timestamps. Supplied files start with
 //! the mount time, and timestamps persist across program launches with the files.
 //! AH=41h deletes files after read-only and open-handle checks.

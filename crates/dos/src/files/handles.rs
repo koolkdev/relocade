@@ -3,7 +3,7 @@
 use super::{
     devices::DeviceHandle,
     file_handle::{FileHandle, SeekOrigin},
-    AccessMode, FileSystem, Files,
+    AccessMode, FileSystem, FileTimestamp, Files,
 };
 use crate::{
     devices::DeviceChain,
@@ -165,6 +165,26 @@ impl Files {
             Handle::File(file) => file.information(),
             Handle::Device(device) => device.information(),
         })
+    }
+
+    pub(crate) fn timestamp(&self, handle: u16) -> Result<FileTimestamp, DosError> {
+        Ok(match self.handle(handle)? {
+            Handle::File(file) => file.timestamp(),
+            Handle::Device(device) => device.timestamp.get(),
+        })
+    }
+
+    pub(crate) fn set_timestamp(
+        &self,
+        handle: u16,
+        timestamp: FileTimestamp,
+    ) -> Result<(), DosError> {
+        // DOS changes the open record even for read-only handles and character devices.
+        match self.handle(handle)? {
+            Handle::File(file) => file.set_timestamp(timestamp),
+            Handle::Device(device) => device.timestamp.set(timestamp),
+        }
+        Ok(())
     }
 
     pub(crate) fn close_all(self, filesystem: &mut FileSystem) {

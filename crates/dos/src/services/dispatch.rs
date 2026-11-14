@@ -72,6 +72,7 @@ async fn dispatch_function(call: &mut CpuContext<'_>, services: &Services<'_>) {
             0x4e => search::find_first(services),
             0x4f => search::find_next(services),
             0x56 => files::metadata::rename(services),
+            0x57 => files::metadata::timestamp(services),
             0x58 => memory::strategy(services),
             0x5a => files::create_temporary(services),
             0x5b => files::create_new(services),

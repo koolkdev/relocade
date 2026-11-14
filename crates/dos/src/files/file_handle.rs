@@ -1,7 +1,7 @@
 //! An open file's shared cursor, access rights and pending metadata.
 
 use super::{
-    AccessMode, EntryMetadata, FileSystem, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
+    AccessMode, EntryMetadata, FileSystem, FileTimestamp, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
 };
 use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::File;
@@ -26,6 +26,8 @@ struct State {
     deny_write: bool,
     compatibility: bool,
     written: bool,
+    modified: FileTimestamp,
+    explicit_timestamp: bool,
 }
 
 impl FileHandle {
@@ -34,6 +36,7 @@ impl FileHandle {
         path: ResolvedPath,
         access: AccessMode,
         sharing: u8,
+        modified: FileTimestamp,
     ) -> Result<Self, DosError> {
         if file.len() > u64::from(u32::MAX) {
             return Err(DosError::AccessDenied);
@@ -47,6 +50,8 @@ impl FileHandle {
             deny_write: matches!(sharing, 0x10 | 0x20),
             compatibility: sharing == COMPATIBILITY_SHARING,
             written: false,
+            modified,
+            explicit_timestamp: false,
         }))))
     }
 
@@ -101,6 +106,7 @@ impl FileHandle {
                 .set_len(u64::from(open.position))
                 .map_err(|_| DosError::AccessDenied)?;
             open.written = true;
+            open.explicit_timestamp = false;
             return Ok(0);
         }
         // DOS cursors and file sizes remain 32-bit even though VFS offsets are u64.
@@ -114,6 +120,7 @@ impl FileHandle {
             .map_err(|_| DosError::AccessDenied)?;
         open.position += count as u32;
         open.written = true;
+        open.explicit_timestamp = false;
         Ok(count)
     }
 
@@ -132,11 +139,13 @@ impl FileHandle {
     }
 
     pub(super) fn commit(&self, filesystem: &mut FileSystem) {
-        let open = self.0.borrow();
+        let mut open = self.0.borrow_mut();
         if !open.written {
             return;
         }
-        let modified = filesystem.timestamp();
+        if !open.explicit_timestamp {
+            open.modified = filesystem.timestamp();
+        }
         // VFS writes are immediate; commit and close publish DOS directory metadata.
         // A replaced mounted path must not receive the old open file's metadata.
         if filesystem
@@ -151,11 +160,22 @@ impl FileHandle {
                 .entry(open.path.clone())
                 .or_insert(EntryMetadata {
                     attributes: 0,
-                    modified,
+                    modified: open.modified,
                 });
             entry.attributes |= ARCHIVE_ATTRIBUTE as u8;
-            entry.modified = modified;
+            entry.modified = open.modified;
         }
+    }
+
+    pub(super) fn timestamp(&self) -> FileTimestamp {
+        self.0.borrow().modified
+    }
+
+    pub(super) fn set_timestamp(&self, timestamp: FileTimestamp) {
+        let mut open = self.0.borrow_mut();
+        open.modified = timestamp;
+        open.explicit_timestamp = true;
+        open.written = true;
     }
 
     pub(super) fn information(&self) -> u16 {

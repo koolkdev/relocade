@@ -177,6 +177,9 @@ async fn check_attributes() {
     dos.mount_file("NORMAL.DAT", b"abc".to_vec(), FileAccess::ReadOnly)
         .unwrap();
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
+    let normal = success(&path_service(&mut dos, b"NORMAL.DAT", 0x3d00, 0));
+    success(&service(&mut dos, 0x5701, normal, 0x645c, 0x285d));
+    success(&service(&mut dos, 0x3e00, normal, 0, 0));
     for (name, attributes) in [
         (b"HIDDEN.DAT".as_slice(), 2),
         (b"SYSTEM.DAT", 4),
@@ -194,8 +197,7 @@ async fn check_attributes() {
     );
     success(&path_service(&mut dos, b"NORMAL.DAT", 0x4e00, 0));
     let data = dta(&mut dos, 0x10080);
-    assert_eq!(data[21], 0x21);
-    assert_eq!(&data[26..30], &[3, 0, 0, 0]);
+    assert_eq!(&data[21..30], &[0x21, 0x5c, 0x64, 0x5d, 0x28, 3, 0, 0, 0]);
     assert_eq!(&data[30..], b"NORMAL.DAT\0\0\0");
     success(&path_service(&mut dos, b"BOTH.DAT", 0x4e00, 6));
     assert_eq!(dta(&mut dos, 0x10080)[21], 0x26);

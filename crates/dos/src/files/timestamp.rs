@@ -2,7 +2,7 @@
 
 use chrono::{Datelike, NaiveDateTime, Timelike};
 
-/// Packed local time and date stored in DOS directory entries.
+/// Keep guest-supplied words intact: AH=57h does not validate calendar fields.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct FileTimestamp {
     pub(crate) time: u16,
