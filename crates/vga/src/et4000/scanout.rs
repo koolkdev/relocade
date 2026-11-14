@@ -38,19 +38,19 @@ impl Et4000Ax {
         let registers = &self.vga.registers;
         let mut layout = VgaDisplayLayout::vga(registers);
         let attribute_mode = registers.attribute.values[attribute::MODE_CONTROL as usize];
-        if attribute_mode & 1 != 0 {
-            layout.memory_bytes = self.memory.capacity();
-            layout.vertical_display = self.vertical_display();
-            layout.line_compare |= u32::from(self.extensions.crtc(OVERFLOW).unwrap() & 0x10) << 6;
-            layout.vertical_blanking = self
-                .vertical_blanking()
-                .map(|range| [range.start, range.end]);
-            // The packed serializer and Tseng's contiguous mapping use the
-            // counter directly. IBM mapping retains byte/word pin rotation.
-            layout.linear_addressing = self.extensions.crtc(CONFIGURATION).unwrap() & 0x20 != 0
-                || (attribute_mode & 0x40 != 0
-                    && registers.graphics.values[graphics::MODE as usize] & 0x40 != 0);
-        }
+        layout.memory_bytes = self.memory.capacity();
+        layout.cursor_address |=
+            u32::from(self.extensions.crtc(EXTENDED_START).unwrap() & 0x0c) << 14;
+        layout.vertical_display = self.vertical_display();
+        layout.line_compare |= u32::from(self.extensions.crtc(OVERFLOW).unwrap() & 0x10) << 6;
+        layout.vertical_blanking = self
+            .vertical_blanking()
+            .map(|range| [range.start, range.end]);
+        // The packed serializer and Tseng's contiguous mapping use the
+        // counter directly. IBM mapping retains byte/word pin rotation.
+        layout.linear_addressing = self.extensions.crtc(CONFIGURATION).unwrap() & 0x20 != 0
+            || (attribute_mode & 0x41 == 0x41
+                && registers.graphics.values[graphics::MODE as usize] & 0x40 != 0);
         layout
     }
 
