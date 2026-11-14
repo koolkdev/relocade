@@ -1,10 +1,12 @@
-use crate::{DirEntry, File, Metadata};
+use crate::{space::Storage, DirEntry, File, Metadata, Space};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::io::{self, ErrorKind};
+use std::rc::Rc;
 
 /// A filesystem with explicit directories and shared in-memory files.
 pub struct MemoryFileSystem {
     entries: BTreeMap<String, Node>,
+    storage: Rc<Storage>,
 }
 
 enum Node {
@@ -31,15 +33,28 @@ impl Node {
 
 impl Default for MemoryFileSystem {
     fn default() -> Self {
-        Self {
-            entries: BTreeMap::from([(String::new(), Node::Directory)]),
-        }
+        Self::with_capacity(512 * 1024 * 1024, 16 * 1024).expect("default volume geometry")
     }
 }
 
 impl MemoryFileSystem {
+    /// Creates an empty 512 MiB volume with 16 KiB allocation units.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an empty volume without reserving host memory. Capacity is in
+    /// bytes and must be a multiple of the nonzero allocation-unit size.
+    /// Only file data consumes capacity; empty files and directories use none.
+    pub fn with_capacity(capacity: u64, allocation_unit: u32) -> io::Result<Self> {
+        Ok(Self {
+            entries: BTreeMap::from([(String::new(), Node::Directory)]),
+            storage: Rc::new(Storage::new(capacity, allocation_unit)?),
+        })
+    }
+
+    pub fn space(&self) -> Space {
+        self.storage.space()
     }
 
     /// Opens an existing file for reading.
@@ -69,7 +84,7 @@ impl MemoryFileSystem {
         match self.entries.entry(path.to_owned()) {
             Entry::Occupied(_) => Err(ErrorKind::AlreadyExists.into()),
             Entry::Vacant(entry) => {
-                let file = File::new(Vec::new());
+                let file = File::new(Vec::new(), &self.storage)?;
                 entry.insert(Node::File(file.clone()));
                 Ok(file)
             }
@@ -206,13 +221,17 @@ impl MemoryFileSystem {
     /// Supplies host-owned contents as a new file, replacing any file at the path.
     /// Existing handles keep the old file. Its read-only flag does not prevent
     /// replacement; the new file starts writable. Parent directories must exist.
+    /// A failed replacement preserves the old file and its allocation.
     pub fn replace_file(&mut self, path: &str, contents: Vec<u8>) -> io::Result<File> {
         validate_path(path)?;
         self.require_parents(path)?;
         if self.is_dir(path) {
             return Err(ErrorKind::IsADirectory.into());
         }
-        let file = File::new(contents);
+        if let Some(Node::File(file)) = self.entries.get_mut(path) {
+            return file.replace(contents, &self.storage);
+        }
+        let file = File::new(contents, &self.storage)?;
         self.entries
             .insert(path.to_owned(), Node::File(file.clone()));
         Ok(file)

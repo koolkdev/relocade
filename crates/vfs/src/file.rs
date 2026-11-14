@@ -1,3 +1,4 @@
+use crate::space::{Allocation, Storage};
 use std::cell::RefCell;
 use std::io::{self, ErrorKind};
 use std::rc::Rc;
@@ -14,17 +15,34 @@ pub struct File {
 struct FileData {
     contents: Vec<u8>,
     read_only: bool,
+    allocation: Allocation,
 }
 
 impl File {
-    pub(crate) fn new(contents: Vec<u8>) -> Self {
-        Self {
+    pub(crate) fn new(contents: Vec<u8>, storage: &Rc<Storage>) -> io::Result<Self> {
+        let allocation = storage.allocate(contents.len() as u64)?;
+        Ok(Self {
             data: Rc::new(RefCell::new(FileData {
                 contents,
                 read_only: false,
+                allocation,
             })),
             writable: true,
+        })
+    }
+
+    pub(crate) fn replace(&mut self, contents: Vec<u8>, storage: &Rc<Storage>) -> io::Result<Self> {
+        if let Some(data) = Rc::get_mut(&mut self.data) {
+            // No handles retain this file, so its allocation can fund the replacement.
+            let data = data.get_mut();
+            data.allocation.resize(contents.len() as u64)?;
+            data.contents = contents;
+            data.read_only = false;
+        } else {
+            // Retained handles keep both the old contents and their allocation.
+            *self = Self::new(contents, storage)?;
         }
+        Ok(self.clone())
     }
 
     pub(crate) fn open(&self, writable: bool) -> io::Result<Self> {
@@ -74,6 +92,7 @@ impl File {
 
     /// Writes bytes, extending the file with zeroes when necessary.
     /// Empty writes leave the length unchanged; use [`Self::set_len`] to resize.
+    /// A full volume permits a partial write; no room for any bytes returns StorageFull.
     pub fn write_at(&self, bytes: &[u8], offset: u64) -> io::Result<usize> {
         if !self.writable {
             return Err(ErrorKind::PermissionDenied.into());
@@ -84,20 +103,27 @@ impl File {
         let end = offset
             .checked_add(bytes.len() as u64)
             .ok_or(ErrorKind::FileTooLarge)?;
+        checked_len(offset)?;
         let mut data = self.data.borrow_mut();
-        if end > data.contents.len() as u64 {
-            resize(&mut data.contents, end)?;
+        let end = end.min(data.allocation.max_len());
+        let count = end.saturating_sub(offset) as usize;
+        if count == 0 {
+            return Err(ErrorKind::StorageFull.into());
         }
-        data.contents[offset as usize..end as usize].copy_from_slice(bytes);
-        Ok(bytes.len())
+        if end > data.contents.len() as u64 {
+            data.resize(end)?;
+        }
+        data.contents[offset as usize..end as usize].copy_from_slice(&bytes[..count]);
+        Ok(count)
     }
 
     /// Truncates the file or extends it with zeroes.
+    /// Growth is all-or-nothing, returning StorageFull if it exceeds the volume's capacity.
     pub fn set_len(&self, len: u64) -> io::Result<()> {
         if !self.writable {
             return Err(ErrorKind::PermissionDenied.into());
         }
-        resize(&mut self.data.borrow_mut().contents, len)
+        self.data.borrow_mut().resize(len)
     }
 
     pub(crate) fn read_all(&self) -> Vec<u8> {
@@ -105,17 +131,27 @@ impl File {
     }
 }
 
-fn resize(contents: &mut Vec<u8>, len: u64) -> io::Result<()> {
+impl FileData {
+    fn resize(&mut self, len: u64) -> io::Result<()> {
+        let len = checked_len(len)?;
+        let old_len = self.contents.len();
+        self.allocation.resize(len as u64)?;
+        if len > old_len && self.contents.try_reserve(len - old_len).is_err() {
+            self.allocation
+                .resize(old_len as u64)
+                .expect("restore previous allocation");
+            return Err(ErrorKind::OutOfMemory.into());
+        }
+        self.contents.resize(len, 0);
+        Ok(())
+    }
+}
+
+fn checked_len(len: u64) -> io::Result<usize> {
     let len = usize::try_from(len).map_err(|_| ErrorKind::FileTooLarge)?;
     // Vec allocations cannot exceed isize::MAX bytes.
     if len > isize::MAX as usize {
         return Err(ErrorKind::FileTooLarge.into());
     }
-    if len > contents.len() {
-        contents
-            .try_reserve(len - contents.len())
-            .map_err(|_| ErrorKind::OutOfMemory)?;
-    }
-    contents.resize(len, 0);
-    Ok(())
+    Ok(len)
 }

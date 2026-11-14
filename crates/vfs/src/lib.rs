@@ -6,6 +6,10 @@
 //! and share contents; guest layers maintain cursors and sharing rules.
 //! [`Drives`] mounts these filesystems by drive letter, independently of DOS or
 //! Win32 path parsing. It starts empty and does not choose a current drive.
+//! Filesystems default to a virtual capacity of 512 MiB with 16 KiB allocation
+//! units. [`MemoryFileSystem::with_capacity`] configures other sizes without
+//! preallocating memory. Live files retain their allocation after unlink or
+//! replacement until their last handle is released.
 //!
 //! ```
 //! use relocade_vfs::MemoryFileSystem;
@@ -32,8 +36,10 @@ mod drives;
 mod file;
 mod filesystem;
 mod metadata;
+mod space;
 
 pub use drives::Drives;
 pub use file::File;
 pub use filesystem::MemoryFileSystem;
 pub use metadata::{DirEntry, Metadata};
+pub use space::Space;
