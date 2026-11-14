@@ -25,9 +25,6 @@ impl VgaPortAccess for DispiAdapter {
     fn vga_mut(&mut self) -> &mut VgaCore {
         &mut self.vga
     }
-    fn refresh_raster(&mut self) {
-        DispiAdapter::refresh_raster(self);
-    }
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
         if self.dispi.display_layout().is_some() {
             Effects::NONE

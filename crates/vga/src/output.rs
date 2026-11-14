@@ -1,7 +1,9 @@
 //! One card's raster, capture queue and display activity lifetime.
+mod card;
 mod retrace;
 pub(crate) mod status;
 mod task;
+pub(crate) use card::CardOutput;
 pub use retrace::RetraceEvent;
 pub(crate) use task::run;
 
@@ -9,7 +11,7 @@ pub(crate) use task::run;
 use crate::snapshot::MemoryChanges;
 use crate::{
     memory::VideoMemory, raster::Raster, scanout::DisplayConfiguration, DacSnapshot,
-    DisplaySnapshot, Scanout, Timing,
+    DisplaySnapshot, Framebuffer, Registers, Timing,
 };
 use async_channel::{Receiver, Sender};
 use event_listener::Event;
@@ -59,17 +61,23 @@ impl Output {
 
     pub fn snapshot(
         &self,
-        scanout: Scanout,
-        dac: DacSnapshot,
+        registers: &Registers,
         memory: &VideoMemory,
+        start: u32,
     ) -> DisplaySnapshot {
+        let scanout = self
+            .display
+            .scanout_at(registers, start, self.raster.retrace_count);
         let previous = self.captured.as_ref();
         DisplaySnapshot {
             memory: memory.snapshot(
                 scanout.memory_bytes(),
                 previous.map(|snapshot| &snapshot.memory),
             ),
-            dac,
+            dac: DacSnapshot {
+                colors: registers.dac.colors,
+                mask: registers.dac.mask,
+            },
             blanked: self.display.blanked,
             blanking: self.display.blanking.clone(),
             scanout,
@@ -81,7 +89,30 @@ impl Output {
         }
     }
 
-    pub fn capture(&mut self, display: DisplaySnapshot, memory: &mut VideoMemory, time: Timestamp) {
+    /// Native drawing resolves the programmed start against the same prepared
+    /// configuration as capture. The caller services overdue output first.
+    pub fn framebuffer<'memory>(
+        &self,
+        registers: &Registers,
+        memory: &'memory mut VideoMemory,
+        start: u32,
+    ) -> Framebuffer<'memory> {
+        Framebuffer {
+            scanout: self
+                .display
+                .scanout_at(registers, start, self.raster.retrace_count),
+            memory,
+        }
+    }
+
+    pub fn capture(
+        &mut self,
+        registers: &Registers,
+        memory: &mut VideoMemory,
+        start: u32,
+        time: Timestamp,
+    ) {
+        let display = self.snapshot(registers, memory, start);
         if self
             .captured
             .as_ref()

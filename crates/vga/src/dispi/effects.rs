@@ -3,22 +3,13 @@ mod writes;
 
 use super::scanout;
 use crate::{
-    effects::CardEffects, io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding,
+    effects::CardEffects, io::Io, mmio::MemoryDecoding, ports::PortDecoding,
     scanout::DisplayConfiguration, DispiAdapter, Timing,
 };
-use relocade_machine::Timestamp;
 
 impl CardEffects for DispiAdapter {
-    fn output(&mut self) -> &mut Output {
-        &mut self.output
-    }
-
     fn io(&self) -> Option<&Io> {
         self.io.as_ref()
-    }
-
-    fn advance_raster(&mut self, now: Timestamp) {
-        DispiAdapter::advance_raster(self, now);
     }
 
     fn display_configuration(&self) -> DisplayConfiguration {
