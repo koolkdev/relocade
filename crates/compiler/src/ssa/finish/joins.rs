@@ -3,9 +3,7 @@ use super::*;
 
 impl Reuse<'_> {
     pub(super) fn may_join(&self, number: usize, block: BlockId) -> bool {
-        let Some(executions) = self.executions.get(&number) else {
-            return false;
-        };
+        let executions = self.executions[number].as_slice();
         let mut pending = Vec::new();
         for &(owner, _) in executions {
             if self.dominators.dominates(owner.0, block.0) {
@@ -37,18 +35,17 @@ impl Reuse<'_> {
         use_block: BlockId,
         budget: &mut usize,
     ) -> Option<(usize, bool)> {
-        if *budget == 0 || !self.executions.contains_key(&number) {
+        let executions = self.executions[number].as_slice();
+        if *budget == 0 || executions.is_empty() {
             return None;
         }
         *budget -= 1;
-        if let Some(value) = self.executions.get(&number).and_then(|executions| {
-            executions
-                .iter()
-                .rev()
-                .find(|(owner, _)| self.dominators.dominates(owner.0, block.0))
-                .map(|(_, value)| *value)
-        }) {
-            return Some((value, false));
+        if let Some((_, value)) = executions
+            .iter()
+            .rev()
+            .find(|(owner, _)| self.dominators.dominates(owner.0, block.0))
+        {
+            return Some((*value, false));
         }
         if self.incoming[block.0].is_empty()
             || self.incoming[block.0]
@@ -112,10 +109,7 @@ impl Reuse<'_> {
         self.numbers.assign(parameter, number);
         // Placeholder inputs are irrelevant only under the consuming block's
         // proof. This equality must never become available at the earlier join.
-        self.executions
-            .entry(number)
-            .or_default()
-            .push((if guarded { use_block } else { block }, parameter));
+        self.executions[number].push((if guarded { use_block } else { block }, parameter));
         Some((parameter, guarded))
     }
 }
