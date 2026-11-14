@@ -25,7 +25,7 @@ impl PixelFormat {
     }
 }
 
-/// A checked viewport into complete logical rows of physical video memory.
+/// A checked viewport into physical video memory, with optional address wrapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PackedLayout {
     size: [u32; 2],
@@ -33,6 +33,7 @@ pub struct PackedLayout {
     pitch: u32,
     display_start: u32,
     memory_bytes: u32,
+    address_mask: u32,
 }
 
 impl PackedLayout {
@@ -61,7 +62,50 @@ impl PackedLayout {
             pitch,
             display_start,
             memory_bytes,
+            address_mask: u32::MAX,
         })
+    }
+
+    /// A hardware viewport whose address counter wraps at a power-of-two
+    /// physical memory boundary. Rows may overlap or cross that boundary.
+    pub fn wrapping(
+        size: [u32; 2],
+        format: PixelFormat,
+        pitch: u32,
+        display_start: u32,
+        memory_bytes: u32,
+    ) -> Option<Self> {
+        let pixel_bytes = format.bytes_per_pixel();
+        if size.contains(&0)
+            || !memory_bytes.is_power_of_two()
+            || memory_bytes < pixel_bytes
+            || !pitch.is_multiple_of(pixel_bytes)
+            || !display_start.is_multiple_of(pixel_bytes)
+        {
+            return None;
+        }
+        display_start
+            .checked_add((size[1] - 1).checked_mul(pitch)?)?
+            .checked_add(size[0].checked_mul(pixel_bytes)?)?;
+        Some(Self {
+            size,
+            format,
+            pitch,
+            display_start: display_start & (memory_bytes - 1),
+            memory_bytes,
+            address_mask: memory_bytes - 1,
+        })
+    }
+
+    /// Physical address of a pixel inside this viewport.
+    pub fn pixel_address(self, x: u32, y: u32) -> u32 {
+        (self.display_start + y * self.pitch + x * self.format.bytes_per_pixel())
+            & self.address_mask
+    }
+
+    #[cfg(feature = "renderer")]
+    pub(crate) fn address_mask(self) -> u32 {
+        self.address_mask
     }
 
     pub fn size(self) -> [u32; 2] {
@@ -79,6 +123,9 @@ impl PackedLayout {
         self.display_start
     }
     pub fn origin(self) -> [u32; 2] {
+        if self.pitch == 0 {
+            return [self.display_start / self.format.bytes_per_pixel(), 0];
+        }
         [
             self.display_start % self.pitch / self.format.bytes_per_pixel(),
             self.display_start / self.pitch,
@@ -88,7 +135,7 @@ impl PackedLayout {
         self.pitch / self.format.bytes_per_pixel()
     }
     pub fn virtual_height(self) -> u32 {
-        self.memory_bytes / self.pitch
+        self.memory_bytes.checked_div(self.pitch).unwrap_or(0)
     }
     pub fn image_pages(self) -> u32 {
         self.virtual_height() / self.size[1]
@@ -98,20 +145,26 @@ impl PackedLayout {
         self.memory_bytes / self.size[1] / pixel_bytes * pixel_bytes
     }
     /// Change pitch while retaining the viewport's pixel coordinates.
-    pub fn with_pitch(self, pitch: u32) -> Option<Self> {
-        Self::new(self.size, self.format, pitch, 0, self.memory_bytes)?.with_origin(self.origin())
+    pub fn with_pitch(mut self, pitch: u32) -> Option<Self> {
+        let origin = self.origin();
+        self.pitch = pitch;
+        self.with_origin(origin)
     }
     pub fn with_virtual_width(self, pixels: u32) -> Option<Self> {
         self.with_pitch(pixels.checked_mul(self.format.bytes_per_pixel())?)
     }
     pub fn with_origin(self, [x, y]: [u32; 2]) -> Option<Self> {
-        if x.checked_add(self.size[0])? > self.virtual_width() {
+        if self.address_mask == u32::MAX && x.checked_add(self.size[0])? > self.virtual_width() {
             return None;
         }
         let start = y
             .checked_mul(self.pitch)?
             .checked_add(x.checked_mul(self.format.bytes_per_pixel())?)?;
-        Self::new(self.size, self.format, self.pitch, start, self.memory_bytes)
+        if self.address_mask == u32::MAX {
+            Self::new(self.size, self.format, self.pitch, start, self.memory_bytes)
+        } else {
+            Self::wrapping(self.size, self.format, self.pitch, start, self.memory_bytes)
+        }
     }
     pub fn geometry(self) -> DisplayGeometry {
         DisplayGeometry {
@@ -120,6 +173,9 @@ impl PackedLayout {
         }
     }
     pub(crate) fn memory_bytes(self) -> u32 {
+        if self.address_mask != u32::MAX {
+            return self.memory_bytes;
+        }
         self.display_start
             + (self.size[1] - 1) * self.pitch
             + self.size[0] * self.format.bytes_per_pixel()

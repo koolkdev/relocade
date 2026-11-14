@@ -48,7 +48,17 @@ behavior are outside this profile. CPU access uses independent read/write segmen
 in 3CDh. Chain-4 selects linear bytes; the plane system retains VGA read latches
 and graphics writes. Both address the same DRAM, with no conversion on writes.
 The board exposes the segmented host aperture; CR36h's optional relocated linear
-host aperture is not connected. Firmware and PC selection are separate.
+host aperture is not connected.
+
+Full-pixel indexed scanout derives its size, pitch and 18-bit start counter from VGA and
+extension registers. It uses the shared packed renderer and native drawing view,
+including panning across the physical DRAM boundary. Packed output captures CRTC
+blanking as pixel intervals, including blanking across counter reset. CPU banking never selects
+the displayed page. The data-book 640×480×8 register sequence is exercised through
+the bus and GPU renderer; no host mode table supplies that geometry. Serialized
+VGA 256-color modes retain the VGA decoder's row, split-screen, serializer and
+blanking rules, with the card's consecutive memory addressing. Firmware and PC
+selection are separate.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),
