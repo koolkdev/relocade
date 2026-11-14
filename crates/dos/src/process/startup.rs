@@ -31,10 +31,21 @@ pub(crate) fn allocate(
     }
     let paragraphs = maximum.max(minimum).min(usize::from(available)) as u16;
     memory::reset(memory);
-    let segment = memory::allocate(memory, paragraphs, memory::FIRST_SEGMENT)
-        .expect("validated root-process allocation");
-    let environment_segment = memory::allocate(memory, environment_paragraphs, segment)
-        .expect("validated environment allocation");
+    // Host launches use a fixed root PSP layout, independent of AH=48h policy.
+    let segment = memory::allocate(
+        memory,
+        paragraphs,
+        memory::FIRST_SEGMENT,
+        memory::AllocationStrategy::First,
+    )
+    .expect("validated root-process allocation");
+    let environment_segment = memory::allocate(
+        memory,
+        environment_paragraphs,
+        segment,
+        memory::AllocationStrategy::First,
+    )
+    .expect("validated environment allocation");
     memory
         .write(
             u32::from(environment_segment) * memory::PARAGRAPH_BYTES,

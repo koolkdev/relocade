@@ -3,6 +3,29 @@
 use crate::error::DosError;
 use relocade_machine::MemoryView;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum AllocationStrategy {
+    #[default]
+    First = 0,
+    Best = 1,
+    Last = 2,
+}
+
+impl AllocationStrategy {
+    pub(crate) fn from_code(code: u16) -> Result<Self, DosError> {
+        match code {
+            0 => Ok(Self::First),
+            1 => Ok(Self::Best),
+            2 => Ok(Self::Last),
+            _ => Err(DosError::InvalidFunction),
+        }
+    }
+
+    pub(crate) fn code(self) -> u16 {
+        self as u16
+    }
+}
+
 pub(crate) const PARAGRAPH_BYTES: u32 = 16;
 // Keep the IVT and DOS workspace below the single root process.
 pub(crate) const FIRST_SEGMENT: u16 = 0x1000;
@@ -32,13 +55,20 @@ pub(crate) fn allocate(
     memory: &mut MemoryView<'_>,
     paragraphs: u16,
     owner: u16,
+    strategy: AllocationStrategy,
 ) -> Result<u16, DosError> {
     let mut blocks = read_chain(memory)?;
     coalesce(&mut blocks);
-    let Some(index) = blocks
+    let mut candidates = blocks
         .iter()
-        .position(|block| block.owner == 0 && block.paragraphs >= paragraphs)
-    else {
+        .enumerate()
+        .filter(|(_, block)| block.owner == 0 && block.paragraphs >= paragraphs);
+    let candidate = match strategy {
+        AllocationStrategy::First => candidates.next(),
+        AllocationStrategy::Best => candidates.min_by_key(|(_, block)| block.paragraphs),
+        AllocationStrategy::Last => candidates.next_back(),
+    };
+    let Some((mut index, _)) = candidate else {
         let available = blocks
             .iter()
             .filter(|block| block.owner == 0)
@@ -47,7 +77,15 @@ pub(crate) fn allocate(
             .unwrap_or(0);
         return Err(DosError::InsufficientMemory { available });
     };
-    split(&mut blocks, index, paragraphs);
+    if strategy == AllocationStrategy::Last && paragraphs < blocks[index].paragraphs {
+        // Last fit takes the high end of the last suitable block. The low
+        // remainder retains the original MCB, including for a zero-sized request.
+        let remainder = blocks[index].paragraphs - paragraphs - 1;
+        split(&mut blocks, index, remainder);
+        index += 1;
+    } else {
+        split(&mut blocks, index, paragraphs);
+    }
     blocks[index].owner = owner;
     let segment = blocks[index].mcb + 1;
     write_chain(memory, &blocks);
