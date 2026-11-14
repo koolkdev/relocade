@@ -1,4 +1,5 @@
 //! Retain live control, operations and values, then reclaim their graph storage.
+use crate::body::Phase;
 
 use super::{FunctionGraph, Operation};
 
@@ -11,7 +12,7 @@ pub(super) use storage::Remapping;
 #[cfg(test)]
 mod tests;
 
-impl FunctionGraph {
+impl<P: Phase> FunctionGraph<P> {
     /// Remove unused executions and result channels before placement, preserving
     /// all value and effect IDs. Reuse the reachability snapshot placement needs.
     pub(crate) fn prune_unused(

@@ -14,7 +14,7 @@ impl Analysis<'_> {
                     Bits::constant((bits >> 64) as u64, u64::MAX),
                 ]
             }
-            ValueDefinition::Refine { input, .. } => self.vector_bits(input),
+            ValueDefinition::RefinedAlias { source: input, .. } => self.vector_bits(input),
             ValueDefinition::Expression(Expression::Unary {
                 operator: Unary::Reinterpret | Unary::Convert,
                 input,

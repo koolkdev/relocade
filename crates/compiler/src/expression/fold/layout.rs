@@ -3,7 +3,7 @@
 use super::*;
 use crate::expression::{BinaryOp as Binary, ShuffleMask, UnaryOp as Unary};
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn fold_shuffle_bytes(
         &mut self,
         ty: Type,

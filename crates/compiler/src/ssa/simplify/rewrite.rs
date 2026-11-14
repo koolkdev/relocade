@@ -157,7 +157,7 @@ impl Analysis<'_> {
             loop {
                 if self.aliases[id] != id {
                     id = self.aliases[id];
-                } else if let ValueDefinition::Refine { input, .. } =
+                } else if let ValueDefinition::RefinedAlias { source: input, .. } =
                     self.graph.values[id].definition
                 {
                     id = input;
@@ -181,7 +181,6 @@ impl Analysis<'_> {
         for block in &mut self.graph.blocks {
             block.exit.map_inputs(|input| runtime[input]);
         }
-        self.graph.values.define_calculations();
         changed
     }
 }

@@ -15,7 +15,7 @@ fn lane_ones(lane_type: Type) -> u128 {
     }
 }
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn vector(
         &mut self,
         ty: Type,

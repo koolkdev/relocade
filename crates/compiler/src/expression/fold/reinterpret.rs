@@ -7,7 +7,7 @@ use crate::{
     Expression, Type,
 };
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     // Whole-bit operations commute with equal-width integer reinterpretations.
     // Check both inputs before constructing anything: packed inputs should keep
     // their carrier instead of acquiring an extraction and a later insertion.

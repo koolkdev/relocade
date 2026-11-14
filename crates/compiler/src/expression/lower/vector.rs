@@ -3,7 +3,11 @@
 use super::{fold, Binary, BitwiseOp, Expression, Type, ValueTable};
 use crate::expression::{LaneBinaryOp, ShuffleMask, TernaryOp as Ternary};
 
-pub(super) fn lower(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> usize {
+pub(super) fn lower(
+    values: &mut ValueTable<crate::body::Definitions>,
+    ty: Type,
+    expression: Expression<usize>,
+) -> usize {
     match expression {
         Expression::Binary {
             operator: Binary::Swizzle {
@@ -87,7 +91,12 @@ pub(super) fn lower(values: &mut ValueTable, ty: Type, expression: Expression<us
     }
 }
 
-fn swizzle(values: &mut ValueTable, ty: Type, left: usize, indices: usize) -> usize {
+fn swizzle(
+    values: &mut ValueTable<crate::body::Definitions>,
+    ty: Type,
+    left: usize,
+    indices: usize,
+) -> usize {
     fold(
         values,
         ty,

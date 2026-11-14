@@ -4,7 +4,7 @@ use super::Folder;
 use crate::expression::{TernaryOp as Ternary, UnaryOp as Unary};
 use crate::{Expression, Type};
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn select(
         &mut self,
         condition: usize,

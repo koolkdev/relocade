@@ -31,7 +31,9 @@ impl Analysis<'_> {
                 continue;
             }
             let mut source = id;
-            while let ValueDefinition::Refine { input, .. } = self.graph.values[source].definition {
+            while let ValueDefinition::RefinedAlias { source: input, .. } =
+                self.graph.values[source].definition
+            {
                 source = input;
             }
             let expression = self.graph.values.expression(source);
@@ -207,7 +209,7 @@ impl Analysis<'_> {
     pub(super) fn refine(&mut self, id: usize, block: BlockId) -> usize {
         let refined = self.graph.values.push(Value {
             ty: self.graph.values[id].ty,
-            definition: ValueDefinition::Refine { input: id, block },
+            definition: ValueDefinition::RefinedAlias { source: id, block },
         });
         self.extend();
         self.definitions[refined] = Some(block);

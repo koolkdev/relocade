@@ -43,7 +43,7 @@ impl Range {
 }
 
 pub(super) fn infer(
-    values: &ValueTable,
+    values: &ValueTable<impl crate::body::Phase>,
     id: usize,
     summaries: impl Fn(usize) -> Summary,
     bits: Bits,
@@ -121,7 +121,7 @@ pub(super) fn comparison(operator: CompareOp, a: Range, b: Range) -> Option<bool
 }
 
 pub(super) fn backward(
-    values: &ValueTable,
+    values: &ValueTable<impl crate::body::Phase>,
     ty: Type,
     expression: Expression<usize>,
     observed: Summary,

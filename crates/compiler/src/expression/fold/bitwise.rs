@@ -4,7 +4,7 @@ use super::Folder;
 use crate::expression::{BinaryOp as Binary, TernaryOp as Ternary};
 use crate::{bitwise::BitwiseOp, body::ValueDefinition, integer, Expression, Type};
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     // These rewrites preserve every result bit, including unobserved upper bits.
     pub(super) fn fold_bitwise(
         &mut self,

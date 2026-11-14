@@ -178,9 +178,8 @@ impl FunctionArena {
     }
     pub(super) fn definition_scope(&self, value: usize) -> Result<usize, BuildError> {
         self.with_graph(|graph| match graph.values[value].definition {
-            ValueDefinition::Parameter { block, .. } | ValueDefinition::Refine { block, .. } => {
-                graph.blocks[block.0].scope
-            }
+            ValueDefinition::Parameter { block, .. }
+            | ValueDefinition::RefinedAlias { block, .. } => graph.blocks[block.0].scope,
             ValueDefinition::Result {
                 producer: BlockItem::Effect(effect),
                 ..

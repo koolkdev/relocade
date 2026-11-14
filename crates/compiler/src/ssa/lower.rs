@@ -1,7 +1,7 @@
 //! Expand surviving semantic operations without reopening path analysis.
 use super::*;
 
-pub(super) fn run(graph: &mut FunctionGraph, dominators: &Dominators, changed: &mut Vec<bool>) {
+pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut Vec<bool>) {
     let original_count = graph.values.len();
     let mut aliases: Vec<_> = (0..original_count).collect();
     let mut emitted = vec![true; original_count];

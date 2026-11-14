@@ -1,10 +1,11 @@
 //! Resolve constant exits and keep lexical nesting consistent with live edges.
 use super::super::{BlockId, Exit, FunctionGraph, Layout};
+use crate::body::Phase;
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn simplify(graph: &mut FunctionGraph, reachable: &[bool]) {
+pub(super) fn simplify(graph: &mut FunctionGraph<impl Phase>, reachable: &[bool]) {
     let layout = std::mem::take(&mut graph.layout);
     graph.layout = Control::new(graph, reachable).simplify(layout);
     for block in &mut graph.blocks {
@@ -14,14 +15,14 @@ pub(super) fn simplify(graph: &mut FunctionGraph, reachable: &[bool]) {
     }
 }
 
-struct Control<'a> {
-    graph: &'a FunctionGraph,
+struct Control<'a, P: Phase> {
+    graph: &'a FunctionGraph<P>,
     reachable: &'a [bool],
     incoming: Vec<Vec<BlockId>>,
 }
 
-impl<'a> Control<'a> {
-    fn new(graph: &'a FunctionGraph, reachable: &'a [bool]) -> Self {
+impl<'a, P: Phase> Control<'a, P> {
+    fn new(graph: &'a FunctionGraph<P>, reachable: &'a [bool]) -> Self {
         let mut incoming = vec![Vec::new(); graph.blocks.len()];
         for (source, &live) in reachable.iter().enumerate() {
             if live {

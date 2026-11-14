@@ -8,7 +8,7 @@ use crate::{
     Expression, Type,
 };
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     pub(super) fn fold_multiply_wide(
         &mut self,
         signed: bool,

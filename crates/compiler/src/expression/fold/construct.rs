@@ -26,7 +26,7 @@ pub(crate) fn build(
     Folder { values }.construct(ty, expression, component)
 }
 
-impl Folder<'_> {
+impl<P: crate::body::Phase> Folder<'_, P> {
     // Inputs carry logical types; canonical operations may retain wider physical bits.
     fn construct(&mut self, ty: Type, expression: Expression<usize>, component: usize) -> usize {
         let expression = expression.map(|&input| {

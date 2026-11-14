@@ -35,7 +35,7 @@ impl BitBounds {
         // full carrier width no narrower signed representation is established.
         let fallback = unsigned.saturating_add(1).min(carrier);
         let signed = match value.definition {
-            ValueDefinition::Refine { input, .. } => inputs[input].signed,
+            ValueDefinition::RefinedAlias { source: input, .. } => inputs[input].signed,
             ValueDefinition::Literal(literal) => {
                 literal.scalar(value.ty).map_or(fallback, |bits| {
                     let signed = if carrier == 64 {
@@ -77,7 +77,7 @@ impl BitBounds {
 fn unsigned_bits(value: Value, values: &[Value], inputs: &[BitBounds]) -> u8 {
     let carrier = value.ty.carrier().bits();
     let expression = match value.definition {
-        ValueDefinition::Refine { input, .. } => return inputs[input].unsigned,
+        ValueDefinition::RefinedAlias { source: input, .. } => return inputs[input].unsigned,
         // Backedges may carry wider intermediate bits than their initial values.
         // Loop edges preserve those bits just like ordinary result joins.
         ValueDefinition::Parameter { .. } => return carrier,

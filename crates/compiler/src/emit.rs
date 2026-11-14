@@ -1,6 +1,6 @@
 //! Forward Wasm encoding over placed graph IDs and operand-stack coverage.
 use crate::{
-    body::{BlockId, BlockItem, FunctionGraph, OperationKind, ValueDefinition},
+    body::{BlockId, BlockItem, OperationKind, SsaGraph, ValueDefinition},
     Type, WasmFeatures,
 };
 use wasm_encoder::{Function, Instruction as Wasm, ValType};
@@ -31,7 +31,7 @@ pub(super) struct ModuleEncoder {
 }
 
 impl ModuleEncoder {
-    pub(super) fn function(&self, graph: FunctionGraph, parameter_count: u32) -> Function {
+    pub(super) fn function(&self, graph: SsaGraph, parameter_count: u32) -> Function {
         let reachable = graph.reachable();
         let selection = Selection::new(&graph, &reachable);
         let view = view::OperandView::new(&graph, &selection, &reachable);
@@ -81,7 +81,7 @@ enum Pending {
     Finish(BlockItem),
 }
 struct Writer<'a> {
-    graph: &'a FunctionGraph,
+    graph: &'a SsaGraph,
     memories: &'a [Option<u32>],
     functions: &'a [Option<u32>],
     tables: &'a [Option<(u32, u32)>],

@@ -62,7 +62,11 @@ impl Summary {
     }
 }
 
-pub(super) fn infer(values: &ValueTable, id: usize, summaries: &[Summary]) -> Summary {
+pub(super) fn infer(
+    values: &ValueTable<impl crate::body::Phase>,
+    id: usize,
+    summaries: &[Summary],
+) -> Summary {
     infer_with(values, id, |input| {
         summaries.get(input).copied().unwrap_or_else(|| {
             let bits = initial_bits(values, input);
@@ -82,7 +86,7 @@ pub(super) fn infer(values: &ValueTable, id: usize, summaries: &[Summary]) -> Su
 }
 
 pub(super) fn infer_with(
-    values: &ValueTable,
+    values: &ValueTable<impl crate::body::Phase>,
     id: usize,
     get: impl Fn(usize) -> Summary,
 ) -> Summary {
@@ -124,7 +128,7 @@ pub(super) fn infer_with(
 }
 
 pub(super) fn backward_ranges(
-    values: &ValueTable,
+    values: &ValueTable<impl crate::body::Phase>,
     ty: Type,
     expression: Expression<usize>,
     observed: Summary,

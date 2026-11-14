@@ -4,7 +4,7 @@
 //! operands and results in the graph and use the plain encoding form.
 
 use super::Selection;
-use crate::body::{BlockItem, EffectId, FunctionGraph, OperationKind, ValueDefinition};
+use crate::body::{BlockItem, EffectId, OperationKind, SsaGraph, ValueDefinition};
 use crate::emit::memory::{LoadForm, StoreForm};
 use crate::expression::UnaryOp as Unary;
 use crate::{Expression, Type};
@@ -28,7 +28,7 @@ pub(super) enum MemorySelection {
 }
 
 impl Selection {
-    pub(in crate::emit) fn load(&self, graph: &FunctionGraph, effect: EffectId) -> SelectedLoad {
+    pub(in crate::emit) fn load(&self, graph: &SsaGraph, effect: EffectId) -> SelectedLoad {
         match self.memory.get(&effect) {
             Some(MemorySelection::Load(load)) => *load,
             _ => SelectedLoad {
@@ -38,7 +38,7 @@ impl Selection {
         }
     }
 
-    pub(in crate::emit) fn store(&self, graph: &FunctionGraph, effect: EffectId) -> SelectedStore {
+    pub(in crate::emit) fn store(&self, graph: &SsaGraph, effect: EffectId) -> SelectedStore {
         match self.memory.get(&effect) {
             Some(MemorySelection::Store(store)) => *store,
             _ => SelectedStore {
@@ -54,7 +54,7 @@ impl Selection {
         }
     }
 
-    pub(super) fn cover_store(&mut self, graph: &FunctionGraph, effect: EffectId) {
+    pub(super) fn cover_store(&mut self, graph: &SsaGraph, effect: EffectId) {
         let operation = &graph.effects[effect.0].operation;
         let OperationKind::Store { access } = operation.kind() else {
             return;
@@ -74,12 +74,7 @@ impl Selection {
         self.memory.insert(effect, MemorySelection::Store(store));
     }
 
-    fn store_conversion(
-        &self,
-        graph: &FunctionGraph,
-        value: usize,
-        bytes: u8,
-    ) -> Option<SelectedStore> {
+    fn store_conversion(&self, graph: &SsaGraph, value: usize, bytes: u8) -> Option<SelectedStore> {
         let ValueDefinition::Expression(Expression::Unary { operator, input }) =
             graph.values[value].definition
         else {
@@ -124,7 +119,7 @@ impl Selection {
         })
     }
 
-    pub(super) fn cover_load(&mut self, graph: &FunctionGraph, result: usize) {
+    pub(super) fn cover_load(&mut self, graph: &SsaGraph, result: usize) {
         let ValueDefinition::Expression(Expression::Unary {
             operator,
             mut input,

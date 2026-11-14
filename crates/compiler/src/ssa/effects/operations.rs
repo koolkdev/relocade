@@ -1,6 +1,6 @@
 //! Allocation-free effect descriptions for individual operations.
 use super::{Effects, MemoryRange};
-use crate::body::{CallTarget, FunctionGraph, Operation, OperationKind};
+use crate::body::{CallTarget, Operation, OperationKind};
 
 // Direct operations keep their single access inline; calls borrow summary slices.
 pub(super) enum Accesses<'a> {
@@ -17,7 +17,10 @@ impl AsRef<[MemoryRange]> for Accesses<'_> {
     }
 }
 
-pub(super) fn direct(operation: &Operation, body: &FunctionGraph) -> Effects<Accesses<'static>> {
+pub(super) fn direct(
+    operation: &Operation,
+    body: &crate::body::FunctionGraph<impl crate::body::Phase>,
+) -> Effects<Accesses<'static>> {
     let mut reads = Accesses::Borrowed(&[]);
     let mut writes = Accesses::Borrowed(&[]);
     let mut synchronizes = false;
@@ -68,7 +71,7 @@ pub(super) fn direct(operation: &Operation, body: &FunctionGraph) -> Effects<Acc
 
 pub(super) fn describe<'a>(
     operation: &Operation,
-    body: &FunctionGraph,
+    body: &crate::body::FunctionGraph<impl crate::body::Phase>,
     summaries: &'a [Effects],
 ) -> Effects<Accesses<'a>> {
     match operation.kind() {

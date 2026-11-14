@@ -1,10 +1,7 @@
 //! Local access ranges retain relative addresses; call summaries erase local IDs.
 use std::ops::Range;
 
-use crate::{
-    body::FunctionGraph,
-    memory::{Location, Mem},
-};
+use crate::memory::{Location, Mem};
 
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::ssa) struct MemoryRange {
@@ -19,7 +16,7 @@ impl MemoryRange {
         base: usize,
         offset: u64,
         bytes: Option<u64>,
-        body: &FunctionGraph,
+        body: &crate::body::FunctionGraph<impl crate::body::Phase>,
     ) -> Self {
         let base = body.values.representation(base);
         let (base, start) = match body.values[base].scalar_literal() {
@@ -33,13 +30,21 @@ impl MemoryRange {
         }
     }
 
-    pub(super) fn from_span(memory: Mem, base: usize, bytes: usize, body: &FunctionGraph) -> Self {
+    pub(super) fn from_span(
+        memory: Mem,
+        base: usize,
+        bytes: usize,
+        body: &crate::body::FunctionGraph<impl crate::body::Phase>,
+    ) -> Self {
         let bytes = body.values.representation(bytes);
         let bytes = body.values[bytes].scalar_literal();
         Self::new(memory, base, 0, bytes, body)
     }
 
-    pub(super) fn from_location(location: Location, body: &FunctionGraph) -> Self {
+    pub(super) fn from_location(
+        location: Location,
+        body: &crate::body::FunctionGraph<impl crate::body::Phase>,
+    ) -> Self {
         Self::new(
             location.memory,
             location.base,

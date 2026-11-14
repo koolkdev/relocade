@@ -9,7 +9,7 @@ use crate::{
 
 mod vector;
 
-pub(crate) fn lower(values: &mut ValueTable, id: usize) -> usize {
+pub(crate) fn lower(values: &mut ValueTable<crate::body::Definitions>, id: usize) -> usize {
     use BitCountOp::{LeadingZeros, TrailingZeros};
 
     let value = values[id];
@@ -86,10 +86,19 @@ pub(crate) fn lower(values: &mut ValueTable, id: usize) -> usize {
     unary(values, value.ty, Unary::Convert, result)
 }
 
-fn unary(values: &mut ValueTable, ty: Type, operator: Unary, input: usize) -> usize {
+fn unary(
+    values: &mut ValueTable<crate::body::Definitions>,
+    ty: Type,
+    operator: Unary,
+    input: usize,
+) -> usize {
     fold(values, ty, Expression::Unary { operator, input })
 }
 
-fn fold(values: &mut ValueTable, ty: Type, expression: Expression<usize>) -> usize {
+fn fold(
+    values: &mut ValueTable<crate::body::Definitions>,
+    ty: Type,
+    expression: Expression<usize>,
+) -> usize {
     super::fold::fold_carrier(values, ty, expression, 0)
 }

@@ -7,7 +7,7 @@ use operations::Accesses;
 use ranges::MemoryRange;
 
 use crate::{
-    body::{BlockItem, CallTarget, Exit, FunctionGraph, Operation, OperationKind},
+    body::{BlockItem, CallTarget, Exit, Operation, OperationKind},
     BuiltProgram,
 };
 
@@ -87,7 +87,7 @@ pub(super) fn observable(operation: &Operation, summaries: &[Effects]) -> bool {
 pub(super) fn blocks_read(
     writer: &Operation,
     reader: &Operation,
-    body: &FunctionGraph,
+    body: &crate::body::FunctionGraph<impl crate::body::Phase>,
     summaries: &[Effects],
 ) -> bool {
     if !observable(writer, summaries) {
@@ -108,7 +108,10 @@ fn include(target: &mut Vec<MemoryRange>, ranges: impl IntoIterator<Item = Memor
 
 // Summaries include authored reads even when local result demand can remove them.
 // This can restrict motion, but cannot hide a possible memory dependency.
-fn summarize(body: &FunctionGraph, summaries: &[Option<Effects>]) -> Option<Effects> {
+fn summarize(
+    body: &crate::body::FunctionGraph<impl crate::body::Phase>,
+    summaries: &[Option<Effects>],
+) -> Option<Effects> {
     let mut reads = Vec::new();
     let mut writes = Vec::new();
     let mut callees = Vec::new();

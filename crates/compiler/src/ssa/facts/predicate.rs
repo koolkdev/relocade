@@ -19,7 +19,7 @@ impl Predicate {
 }
 
 pub(in crate::ssa) fn identify(
-    values: &ValueTable,
+    values: &ValueTable<impl crate::body::Phase>,
     expression: Expression<usize>,
     identity: impl Fn(usize) -> usize,
 ) -> Option<(Predicate, bool)> {

@@ -32,7 +32,7 @@ fn resolved_conditionals_and_switches_keep_only_the_surviving_layout() {
         (Type::I32, 7, 1),
         (Type::I32, 99, 2),
     ] {
-        let mut graph = FunctionGraph::new();
+        let mut graph: FunctionGraph = FunctionGraph::new();
         let arms = std::array::from_fn::<_, 3, _>(|_| graph.block(0, &[]));
         let join = graph.block(0, &[]);
         for &block in &arms {
@@ -87,7 +87,7 @@ fn resolved_conditionals_and_switches_keep_only_the_surviving_layout() {
 #[test]
 fn scopes_keep_early_branch_labels_and_flatten_a_final_entrance() {
     for early in [false, true] {
-        let mut graph = FunctionGraph::new();
+        let mut graph: FunctionGraph = FunctionGraph::new();
         let input = if early {
             condition(&mut graph)
         } else {
