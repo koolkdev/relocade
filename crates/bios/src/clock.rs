@@ -1,4 +1,4 @@
-//! BIOS time-of-day data, advanced by IRQ0 and read through INT 1Ah.
+//! BIOS time-of-day data, advanced by IRQ0 and read or set through INT 1Ah.
 
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -8,7 +8,8 @@ use relocade_x86::{Segment, SegmentRegister};
 
 const CLOCK_TICKS: u32 = 0x46c;
 const MIDNIGHT_ROLLOVER: u32 = 0x470;
-const TICKS_PER_DAY: u32 = 0x18_00b0;
+/// The BIOS tick count at which IRQ0 rolls the clock over to midnight.
+pub const TICKS_PER_DAY: u32 = 0x18_00b0;
 const BIOS_DATA_SEGMENT: u16 = 0x40;
 
 pub(crate) fn initialize(memory: &mut MemoryView<'_>) {
@@ -74,12 +75,24 @@ pub fn read_clock(memory: &mut MemoryView<'_>) -> ClockReading {
     }
 }
 
+/// Sets the BIOS tick count and clears pending midnight rollovers.
+/// Like INT 1Ah/AH=01h, stores CX:DX unchanged; the next IRQ0 applies the
+/// normal midnight threshold even when the supplied count exceeds one day.
+#[interrupt(context(memory), args(ticks = (cx, dx)))]
+pub fn set_clock(memory: &mut MemoryView<'_>, ticks: u32) {
+    memory.write_u32(CLOCK_TICKS, ticks).expect("BIOS clock ticks");
+    memory
+        .write_u8(MIDNIGHT_ROLLOVER, 0)
+        .expect("BIOS midnight rollover");
+}
+
 #[interrupt(context(call), args(function = ah))]
 pub(crate) async fn dispatch(call: &mut CpuContext<'_>, function: u8) {
     interrupt_dispatch!(
         call,
         match function {
             0x00 => read_clock,
+            0x01 => set_clock,
             _ => crate::interrupts::unsupported,
         }
     );

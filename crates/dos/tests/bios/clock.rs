@@ -89,6 +89,40 @@ fn bios_reads_ticks_and_consumes_midnight_rollover() {
 }
 
 #[test]
+fn bios_sets_ticks_and_clears_rollovers_without_changing_caller_state() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(&[0xcd, 0x1a, 0xeb, 0xfe], Default::default())
+            .unwrap();
+        for (ticks, flags) in [(0x000c_0058u32, 0x0a57), (0, 0x0856), (u32::MAX, 0x0a57)] {
+            let memory = dos.cpu().memory();
+            memory
+                .view()
+                .write(0x46c, &[0x12, 0x34, 0x56, 0x78, 7])
+                .unwrap();
+            let state = dos.cpu().cpu_state();
+            state.set_eip(0x100);
+            state.set_eax(0xabcd_01ef);
+            state.set_ebx(0x1234_5678);
+            state.set_ecx(0x2345_0000 | (ticks >> 16));
+            state.set_edx(0x3456_0000 | (ticks & 0xffff));
+            state.set_eflags(flags);
+            let before = state.snapshot();
+            assert_eq!(
+                common::run_until(dos.cpu(), 0x102).await,
+                ExecutionExit::Interrupted
+            );
+            let after = state.snapshot();
+            assert_eq!(after.registers, before.registers);
+            assert_eq!(after.segments, before.segments);
+            assert_eq!(after.flags.eflags(), flags);
+            assert_eq!(memory.view().read_u32(0x46c).unwrap(), ticks);
+            assert_eq!(memory.view().read_u8(0x470).unwrap(), 0);
+        }
+    });
+}
+
+#[test]
 fn timer_advances_the_clock_during_guest_execution() {
     pollster::block_on(async {
         // Default BIOS timing, then guest mode 2/divisor 1193: the first IRQ

@@ -58,6 +58,7 @@
 //! not preserved by BIOS calls.
 //! INT 1Ah/AH=00h reads ticks and midnight rollover from the BIOS data area at
 //! 0040:006C and 0040:0070. The IRQ0 handler advances them once per delivered tick.
+//! AH=01h sets the tick count and clears the pending midnight rollover count.
 //! Timer hardware supplies vector 08h. After advancing the clock, the BIOS invokes
 //! the guest's INT 1Ch callback, then acknowledges the PIC and returns. The default
 //! callback simply returns; guests may replace it or chain to it. The Rust timer
