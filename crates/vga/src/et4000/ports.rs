@@ -28,9 +28,7 @@ impl Et4000Ax {
                 SEGMENT_SELECT,
                 callbacks.read(|_, card| card.extensions.read_segments()),
                 callbacks.write(|context, card, value| {
-                    card.with_effects(context, Effects::MEMORY, |card| {
-                        card.extensions.write_segments(value);
-                    });
+                    card.write_segments(context, value);
                 }),
             ),
         ]);

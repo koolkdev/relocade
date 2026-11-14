@@ -105,32 +105,7 @@ impl ModeSet {
         parameters.program(memory, io, palette);
         preset.load_palette(io, palette);
 
-        memory.write_u8(MODE, mode).expect("video mode");
-        palette::initialize_compatibility(memory, mode);
-        memory
-            .write_u16(COLUMNS, u16::from(parameters.columns))
-            .expect("video columns");
-        memory
-            .write_u16(PAGE_SIZE, parameters.page_bytes)
-            .expect("video page size");
-        memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
-        memory.write(CURSORS, &[0; 16]).expect("video cursors");
-        memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
-        screen::set_native_cursor_shape(memory, io, parameters.cursor_shape());
-        memory
-            .write_u16(CRTC_PORT, crtc_port(io))
-            .expect("CRTC port");
-        memory
-            .write(
-                LAST_ROW,
-                &[parameters.last_row, parameters.character_height, 0],
-            )
-            .expect("video font geometry");
-        let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
-        memory
-            .write_u8(VIDEO_CONTROL, (control & 0x7f) | (request & 0x80))
-            .expect("video control");
-        if request & 0x80 == 0 {
+        complete_mode(memory, io, request, &parameters, |memory| {
             if let Some(base) = text_memory {
                 let blank = [b' ', 7].repeat(2048);
                 for offset in (0..TEXT_MEMORY_BYTES).step_by(blank.len()) {
@@ -139,21 +114,61 @@ impl ModeSet {
             } else {
                 graphics::clear(memory);
             }
-        }
-        fonts::apply_guest_tables(memory, io);
-        palette::apply_guest_tables(memory, io);
-        write_indexed(
-            io,
-            SEQUENCER_INDEX_PORT,
-            sequencer::RESET,
-            sequencer::RESET_RELEASED,
-        );
+        });
         match mode {
             TEXT_40X25..=GRAPHICS_320X200_4_ALT | MONO_TEXT_80X25 => 0x30,
             GRAPHICS_640X200_2 => 0x3f,
             _ => 0x20,
         }
     }
+}
+
+/// Publish the programmed geometry, clear according to the card's memory policy,
+/// and apply guest font/palette overrides before releasing the sequencer.
+pub(super) fn complete_mode(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    request: u8,
+    parameters: &Parameters,
+    clear: impl FnOnce(&mut MemoryView<'_>),
+) {
+    let mode = request & 0x7f;
+    memory.write_u8(MODE, mode).expect("video mode");
+    palette::initialize_compatibility(memory, mode);
+    memory
+        .write_u16(COLUMNS, u16::from(parameters.columns))
+        .expect("video columns");
+    memory
+        .write_u16(PAGE_SIZE, parameters.page_bytes)
+        .expect("video page size");
+    memory.write_u16(PAGE_OFFSET, 0).expect("video page offset");
+    memory.write(CURSORS, &[0; 16]).expect("video cursors");
+    memory.write_u8(ACTIVE_PAGE, 0).expect("active video page");
+    screen::set_native_cursor_shape(memory, io, parameters.cursor_shape());
+    memory
+        .write_u16(CRTC_PORT, crtc_port(io))
+        .expect("CRTC port");
+    memory
+        .write(
+            LAST_ROW,
+            &[parameters.last_row, parameters.character_height, 0],
+        )
+        .expect("video font geometry");
+    let control = memory.read_u8(VIDEO_CONTROL).expect("video control");
+    memory
+        .write_u8(VIDEO_CONTROL, (control & 0x7f) | (request & 0x80))
+        .expect("video control");
+    if request & 0x80 == 0 {
+        clear(memory);
+    }
+    fonts::apply_guest_tables(memory, io);
+    palette::apply_guest_tables(memory, io);
+    write_indexed(
+        io,
+        SEQUENCER_INDEX_PORT,
+        sequencer::RESET,
+        sequencer::RESET_RELEASED,
+    );
 }
 
 /// AH=12h/BL=30h selects a profile for a later mode set; it does not touch VGA.
