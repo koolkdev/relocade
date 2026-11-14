@@ -11,7 +11,7 @@ use futures_util::{stream::FuturesUnordered, TryStreamExt};
 pub(super) fn encode(program: BuiltProgram) -> Vec<u8> {
     let mut definitions = Definitions::new(program);
     while let Some(function) = definitions.next() {
-        definitions.include(function.place());
+        definitions.include(function.optimize());
     }
     let mut emission = definitions.finish();
     let functions = emission
@@ -30,14 +30,14 @@ pub(super) async fn encode_with<E: CompileExecutor>(
     let mut pending = FuturesUnordered::new();
     loop {
         while let Some(function) = definitions.next() {
-            pending.push(executor.execute(move || function.place()));
+            pending.push(executor.execute(move || function.optimize()));
         }
         match pending.try_next().await? {
             Some(function) => definitions.include(function),
             None => break,
         }
     }
-    // Surviving calls determine final indices. Every placement must complete
+    // Surviving calls determine final indices. Every optimization must complete
     // before emission can read those immutable mappings.
     let mut emission = definitions.finish();
     let functions = emission

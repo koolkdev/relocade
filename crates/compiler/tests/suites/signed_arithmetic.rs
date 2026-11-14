@@ -311,16 +311,10 @@ fn underflow_shares_raw_store_bits_with_signed_and_unsigned_observers() {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            relevant,
-            [
-                "read",
-                "arithmetic",
-                "store",
-                "unsigned low bits",
-                "signed low bits",
-                "arithmetic"
-            ]
-        );
+        assert_eq!(&relevant[..3], &["read", "arithmetic", "store"]);
+        let mut observers = relevant[3..relevant.len() - 1].to_vec();
+        observers.sort_unstable();
+        assert_eq!(observers, ["signed low bits", "unsigned low bits"]);
+        assert_eq!(relevant.last(), Some(&"arithmetic"));
     }
 }

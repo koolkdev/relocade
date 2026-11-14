@@ -2,10 +2,11 @@
 use crate::expression::UnaryOp as Unary;
 use crate::literal::Literal;
 use hashbrown::HashTable;
-use std::{collections::hash_map::RandomState, hash::BuildHasher};
+use rustc_hash::FxBuildHasher;
+use std::hash::BuildHasher;
 
 use super::{BlockItem, Value, ValueDefinition};
-use crate::{integer, Expression, Type};
+use crate::{Expression, Type};
 
 mod bounds;
 pub(crate) use bounds::BitBounds;
@@ -16,9 +17,11 @@ mod tests;
 pub(crate) struct ValueTable {
     pub(crate) values: Vec<Value>,
     pub(crate) bounds: Vec<BitBounds>,
-    // Canonical keys live in `values` and stay unchanged until compaction.
+    // Construction interns immutable recipes. Definition mode interns only
+    // literals, so passes can rewrite calculations without stale keys.
     interned: HashTable<usize>,
-    hash_builder: RandomState,
+    hash_builder: FxBuildHasher,
+    definitions: bool,
 }
 
 /// One component of a pure expression, whether stored inline or as a projection.
@@ -30,6 +33,14 @@ pub(crate) struct ExpressionResult {
 }
 
 impl ValueTable {
+    /// SSA rewrites create definitions; structurally equal operations may live
+    /// on different paths. Dominance, rather than global interning, owns reuse.
+    pub(crate) fn define_calculations(&mut self) {
+        if !self.definitions {
+            self.definitions = true;
+            self.interned = HashTable::new();
+        }
+    }
     pub(super) fn compact(&mut self, remapping: &super::prune::Remapping) {
         // No more construction or folding follows finalization. Release the
         // lookup table before changing the values and IDs that supply its keys.
@@ -40,6 +51,10 @@ impl ValueTable {
                 return false;
             }
             value.definition = match value.definition {
+                ValueDefinition::Refine { input, block } => ValueDefinition::Refine {
+                    input: remapping.value(input),
+                    block,
+                },
                 ValueDefinition::Expression(expression) => {
                     ValueDefinition::Expression(expression.map(|&input| remapping.value(input)))
                 }
@@ -106,40 +121,17 @@ impl ValueTable {
         self.bounds[result].signed = self.bounds[result].signed.min(known.signed);
     }
 
-    /// Restore the carrier promised by construction after learning logical bits.
-    /// Literal values already contain the exact carrier and keep those bits.
-    /// Logical bits alone cannot reconstruct an unknown wider physical value.
-    pub(crate) fn carrier_bits(&self, id: usize, logical_bits: u64) -> Option<u64> {
-        let ty = self.values[id].ty;
-        if let Some(bits) = self.values[id].scalar_literal() {
-            return Some(ty.carrier().normalize(bits));
-        }
-        if self.bounds[id].unsigned > ty.bits() && self.bounds[id].signed > ty.bits() {
-            return None;
-        }
-        let bits = logical_bits & ty.mask();
-        let bits = if ty.bits() < 32
-            && self.bounds[id].signed <= ty.bits()
-            && bits & (1 << (ty.bits() - 1)) != 0
-        {
-            integer::signed_value(ty, bits) as u64
-        } else {
-            bits
-        };
-        Some(ty.carrier().normalize(bits))
-    }
-
     /// Conversions within a Wasm carrier preserve all physical bits.
     pub(crate) fn representation(&self, mut id: usize) -> usize {
-        while let ValueDefinition::Expression(Expression::Unary {
-            operator: Unary::Convert,
-            input,
-        }) = self.values[id].definition
-        {
-            if self.values[id].ty.carrier() != self.values[input].ty.carrier() {
-                break;
+        loop {
+            match self.values[id].definition {
+                ValueDefinition::Refine { input, .. } => id = input,
+                ValueDefinition::Expression(Expression::Unary {
+                    operator: Unary::Convert,
+                    input,
+                }) if self.values[id].ty.carrier() == self.values[input].ty.carrier() => id = input,
+                _ => break,
             }
-            id = input;
         }
         id
     }
@@ -180,6 +172,9 @@ impl ValueTable {
     }
 
     pub(crate) fn intern(&mut self, value: Value) -> usize {
+        if self.definitions && !matches!(value.definition, ValueDefinition::Literal(_)) {
+            return self.push(value);
+        }
         let hash = self.hash_builder.hash_one(value);
         if let Some(&index) = self
             .interned
