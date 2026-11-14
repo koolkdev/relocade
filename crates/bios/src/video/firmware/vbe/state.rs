@@ -1,42 +1,67 @@
 //! VBE 4F04h: complete programming state, excluding framebuffer memory.
-use super::available;
+use super::super::VideoFirmware;
 use crate::video::state::firmware;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer, IoBus, MemoryView,
 };
-use relocade_vga::{DacState, DispiAdapter, DispiState, VgaCoreState};
-use std::cell::RefCell;
+use relocade_vga::{DacState, DispiState, Et4000Ax, Et4000State, VgaCoreState};
 
 const HEADER_SIZE: usize = 16;
-const COMPONENT_SIZES: [usize; 4] = [
-    VgaCoreState::BYTE_LEN,
-    firmware::SIZE,
-    DacState::BYTE_LEN,
-    DispiState::BYTE_LEN,
-];
+/// Byte five identifies both the card and its fixed board profile. Zero keeps
+/// existing DISPI buffers compatible; ET4000 state belongs to the 1-MiB EV8913.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Profile {
+    Dispi = 0,
+    Et4000AxEv8913 = 1,
+}
+
+impl Profile {
+    fn of(card: &VideoFirmware) -> Option<Self> {
+        match card {
+            VideoFirmware::Dispi(_) => Some(Self::Dispi),
+            VideoFirmware::Et4000Ax(_) => Some(Self::Et4000AxEv8913),
+            VideoFirmware::Vga => None,
+        }
+    }
+
+    fn component_sizes(self) -> [usize; 4] {
+        [
+            VgaCoreState::BYTE_LEN,
+            firmware::SIZE,
+            DacState::BYTE_LEN,
+            match self {
+                Self::Dispi => DispiState::BYTE_LEN,
+                Self::Et4000AxEv8913 => Et4000State::BYTE_LEN,
+            },
+        ]
+    }
+}
 
 /// Relocade's opaque, versioned buffer. Relative offsets allow guest relocation.
 struct BufferLayout {
+    profile: Profile,
     components: u16,
     offsets: [u16; 4],
     bytes: u16,
 }
 
 impl BufferLayout {
-    fn new(components: u16) -> Option<Self> {
+    fn new(profile: Profile, components: u16) -> Option<Self> {
         if components == 0 || components & !0x0f != 0 {
             return None;
         }
         let mut offsets = [0; 4];
         let mut bytes = HEADER_SIZE as u16;
-        for (index, size) in COMPONENT_SIZES.into_iter().enumerate() {
+        for (index, size) in profile.component_sizes().into_iter().enumerate() {
             if components & (1 << index) != 0 {
                 offsets[index] = bytes;
                 bytes += size as u16;
             }
         }
         Some(Self {
+            profile,
             components,
             offsets,
             bytes,
@@ -45,7 +70,8 @@ impl BufferLayout {
 
     fn header(&self) -> [u8; HEADER_SIZE] {
         let mut header = [0; HEADER_SIZE];
-        header[..6].copy_from_slice(b"RVBE\x01\x00");
+        header[..5].copy_from_slice(b"RVBE\x01");
+        header[5] = self.profile as u8;
         header[6..8].copy_from_slice(&self.components.to_le_bytes());
         for (index, offset) in self.offsets.into_iter().enumerate() {
             header[8 + index * 2..10 + index * 2].copy_from_slice(&offset.to_le_bytes());
@@ -53,9 +79,9 @@ impl BufferLayout {
         header
     }
 
-    fn from_header(header: &[u8; HEADER_SIZE]) -> Option<Self> {
+    fn from_header(profile: Profile, header: &[u8; HEADER_SIZE]) -> Option<Self> {
         let components = u16::from_le_bytes(header[6..8].try_into().unwrap());
-        let layout = Self::new(components)?;
+        let layout = Self::new(profile, components)?;
         (layout.header() == *header).then_some(layout)
     }
 
@@ -67,7 +93,7 @@ impl BufferLayout {
 #[interrupt(context(call), args(operation = dl))]
 pub(in crate::video::firmware) async fn dispatch(
     call: &mut CpuContext<'_>,
-    card: &RefCell<DispiAdapter>,
+    card: &VideoFirmware,
     operation: u8,
 ) {
     interrupt_dispatch!(
@@ -84,9 +110,13 @@ pub(in crate::video::firmware) async fn dispatch(
 #[interrupt(args(components = cx), returns {
     Some(blocks) => { ax = 0x004f, bx = blocks }, None => { ax = 0x014f },
 })]
-fn required_blocks(card: &RefCell<DispiAdapter>, components: u16) -> Option<u16> {
-    available(card).then_some(())?;
-    Some(BufferLayout::new(components)?.bytes.div_ceil(64))
+fn required_blocks(card: &VideoFirmware, components: u16) -> Option<u16> {
+    card.ports_enabled().then_some(())?;
+    Some(
+        BufferLayout::new(Profile::of(card)?, components)?
+            .bytes
+            .div_ceil(64),
+    )
 }
 
 #[interrupt(context(memory), args(components = cx, destination = ptr(es, bx)),
@@ -94,22 +124,38 @@ fn required_blocks(card: &RefCell<DispiAdapter>, components: u16) -> Option<u16>
 )]
 fn save(
     memory: &mut MemoryView<'_>,
-    card: &RefCell<DispiAdapter>,
+    card: &VideoFirmware,
     components: u16,
     destination: FarPointer,
 ) -> Option<()> {
-    available(card).then_some(())?;
-    let layout = BufferLayout::new(components)?;
+    card.ports_enabled().then_some(())?;
+    let layout = BufferLayout::new(Profile::of(card)?, components)?;
     // Capture everything before writing: the buffer may overlap BIOS data or VRAM.
-    let hardware = (components & 1 != 0).then(|| card.borrow().core_state().to_bytes());
+    let (core, dac, extensions) = match card {
+        VideoFirmware::Dispi(card) => {
+            let card = card.borrow();
+            (
+                card.core_state().to_bytes(),
+                card.dac_state().to_bytes(),
+                card.dispi_state().to_bytes().to_vec(),
+            )
+        }
+        VideoFirmware::Et4000Ax(card) => {
+            let card = card.borrow();
+            (
+                card.core_state().to_bytes(),
+                card.dac_state().to_bytes(),
+                card.et4000_state().to_bytes().to_vec(),
+            )
+        }
+        VideoFirmware::Vga => return None,
+    };
     let firmware = (components & 2 != 0).then(|| firmware::save(memory));
-    let dac = (components & 4 != 0).then(|| card.borrow().dac_state().to_bytes());
-    let dispi = (components & 8 != 0).then(|| card.borrow().dispi_state().to_bytes());
     let blocks = [
-        hardware.as_ref().map(|bytes| bytes.as_slice()),
+        (components & 1 != 0).then_some(core.as_slice()),
         firmware.as_ref().map(|bytes| bytes.as_slice()),
-        dac.as_ref().map(|bytes| bytes.as_slice()),
-        dispi.as_ref().map(|bytes| bytes.as_slice()),
+        (components & 4 != 0).then_some(dac.as_slice()),
+        (components & 8 != 0).then_some(extensions.as_slice()),
     ];
     memory
         .write_wrapping(destination, &layout.header())
@@ -130,22 +176,24 @@ fn save(
 fn restore(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    card: &RefCell<DispiAdapter>,
+    card: &VideoFirmware,
     components: u16,
     source: FarPointer,
 ) -> Option<()> {
-    available(card).then_some(())?;
-    let layout = BufferLayout::from_header(&read_buffer(memory, source))?;
+    card.ports_enabled().then_some(())?;
+    let layout = BufferLayout::from_header(Profile::of(card)?, &read_buffer(memory, source))?;
     if components == 0 || components & !layout.components != 0 {
         return None;
     }
     // Validate all requested device classes before changing any state. Read BIOS
     // data before remapping VRAM or writing potentially overlapping destinations.
     let hardware = if components & 1 != 0 {
-        Some(VgaCoreState::from_bytes(&read_buffer(
-            memory,
-            layout.component(source, 0),
-        ))?)
+        let bytes = read_buffer(memory, layout.component(source, 0));
+        Some(match card {
+            VideoFirmware::Dispi(_) => VgaCoreState::from_bytes(&bytes)?,
+            VideoFirmware::Et4000Ax(_) => Et4000Ax::decode_core_state(&bytes)?,
+            VideoFirmware::Vga => return None,
+        })
     } else {
         None
     };
@@ -158,18 +206,37 @@ fn restore(
     } else {
         None
     };
-    let dispi = if components & 8 != 0 {
-        Some(DispiState::from_bytes(&read_buffer(
-            memory,
-            layout.component(source, 3),
-        ))?)
-    } else {
-        None
-    };
-    io.with_context(|context| {
-        card.borrow_mut()
-            .restore_state(context, hardware, dac, dispi)
-    });
+    match card {
+        VideoFirmware::Dispi(card) => {
+            let extensions = if components & 8 != 0 {
+                Some(DispiState::from_bytes(&read_buffer(
+                    memory,
+                    layout.component(source, 3),
+                ))?)
+            } else {
+                None
+            };
+            io.with_context(|context| {
+                card.borrow_mut()
+                    .restore_state(context, hardware, dac, extensions)
+            });
+        }
+        VideoFirmware::Et4000Ax(card) => {
+            let extensions = if components & 8 != 0 {
+                Some(Et4000State::from_bytes(&read_buffer(
+                    memory,
+                    layout.component(source, 3),
+                ))?)
+            } else {
+                None
+            };
+            io.with_context(|context| {
+                card.borrow_mut()
+                    .restore_state(context, hardware, dac, extensions)
+            });
+        }
+        VideoFirmware::Vga => return None,
+    }
     if let Some(bytes) = firmware {
         firmware::restore(memory, &bytes);
     }
