@@ -1,14 +1,17 @@
 //! Shared Wasm declarations and function emission for one snapshot batch.
 
 use super::{decode::DecodedBlock, BlockEntry, Compiler};
-use crate::{execution::ExecutionModule, BlockError};
+use crate::compile::CodeAddress;
+use crate::{execution::ExecutionModule, instruction::CallTarget, BlockError, ExecutionProfile};
 use relocade_compiler::{Func, Program};
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 pub(in crate::compile) struct BlockModule<'a> {
     pub(in crate::compile) compiler: &'a Compiler,
     pub(in crate::compile) program: Program,
     pub(in crate::compile) entries: Vec<BlockEntry>,
+    pub(in crate::compile) call_targets: Vec<u32>,
+    call_slots: BTreeMap<u32, u32>,
     execution: ExecutionModule,
 }
 
@@ -30,6 +33,8 @@ impl<'a> BlockModule<'a> {
             compiler,
             program,
             entries: Vec::new(),
+            call_targets: Vec::new(),
+            call_slots: BTreeMap::new(),
             execution,
         }
     }
@@ -37,6 +42,7 @@ impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn append(
         &mut self,
         blocks: Vec<DecodedBlock>,
+        entry: CodeAddress,
     ) -> Result<(), BlockError> {
         let blocks = self.declare_blocks(blocks);
         // Each discovered function has its own CS-relative namespace. Separate
@@ -45,7 +51,31 @@ impl<'a> BlockModule<'a> {
             .iter()
             .map(|(block, function)| (block.entry.start_eip, *function))
             .collect();
-        let module = self.execution.with_entries(Arc::new(entries));
+        let mut call_sites = BTreeMap::new();
+        if self.compiler.target.profile == ExecutionProfile::Real16 {
+            for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
+                let target = match instruction.call_target() {
+                    Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
+                        let CodeAddress::RealMode(address) = entry else {
+                            continue;
+                        };
+                        (u32::from(address.segment) << 16) | eip
+                    }
+                    Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
+                        (u32::from(selector) << 16) | offset
+                    }
+                    _ => continue,
+                };
+                let index = *self.call_slots.entry(target).or_insert_with(|| {
+                    let index =
+                        u32::try_from(self.call_targets.len()).expect("call table fits u32");
+                    self.call_targets.push(target);
+                    index
+                });
+                call_sites.insert(instruction.eip, index);
+            }
+        }
+        let module = self.execution.with_function(entries, call_sites);
         self.define_blocks(blocks, module)
     }
 

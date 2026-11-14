@@ -14,6 +14,9 @@ mod delivery;
 #[path = "compiler/functions.rs"]
 mod functions;
 
+#[path = "compiler/linking.rs"]
+mod linking;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

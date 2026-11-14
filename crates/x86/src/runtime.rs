@@ -8,7 +8,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Func, Program, Table, TypedFun
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime {
     dispatch: Func,
-    resolve_call: TypedFunc<fn() -> (u32, bool)>,
+    resolve_call: TypedFunc<crate::abi::ResolveCallSignature>,
     functions: Table,
     interpret: Func,
     resolve_segment: Func,

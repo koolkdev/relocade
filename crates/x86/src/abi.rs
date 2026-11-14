@@ -23,6 +23,11 @@ pub const PAGE_TABLE: Memory = Memory::new(
     "machine",
     crate::memory::page_table::BYTE_LEN / 65536,
 );
+/// Private to one module instance; the embedding binds and updates destinations.
+pub const CALL_TARGETS: Table<ExecutionSignature> = Table::new("relocade", "callTargets", 0);
+pub const RESOLVE_AND_JUMP: Function<ExecutionSignature> =
+    Function::new("relocade", "resolveAndJump");
+
 /// Real-mode hooks and compiled blocks, keyed by packed 16:16 CS:IP.
 pub const EXECUTION_ENTRIES: Memory = Memory::new("relocade", "executionEntries", 1);
 /// CPU-local call observations. The embedding drains these while execution is stopped.
@@ -30,6 +35,7 @@ pub const CALL_PROFILE: Memory = Memory::new("relocade", "callProfile", 1);
 pub type ExecutionSignature = fn() -> crate::ExecutionExit;
 pub type InterruptSignature = fn(vector: u8) -> crate::ExecutionExit;
 pub type FarCallSignature = fn(segment: u16, offset: u16, stack_bytes: u16) -> crate::ExecutionExit;
+pub type ResolveCallSignature = fn() -> (u32, bool);
 pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
@@ -39,7 +45,7 @@ pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "di
 /// Published CPU state must remain compatible with the dispatcher's profile.
 /// Check execution controls before resolving; stopped calls are not profiled.
 /// Returns the callable slot and whether recording can continue without draining.
-pub const RESOLVE_CALL: Function<fn() -> (u32, bool)> = Function::new("relocade", "resolveCall");
+pub const RESOLVE_CALL: Function<ResolveCallSignature> = Function::new("relocade", "resolveCall");
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
 pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");

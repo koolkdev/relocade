@@ -65,7 +65,8 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CompiledBlocks, Compiler, EntryTable, FunctionLimits, FunctionModule,
+    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, EntryTable, FunctionLimits,
+    FunctionModule,
 };
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use interpreter::build_interpreter;

@@ -129,7 +129,11 @@ fn function_namespaces_do_not_alias_equal_offsets() {
     for code in &codes {
         roots.push(
             module
-                .add_function(0x1000, limits(), reader(0x1000, code))
+                .add_function(
+                    CodeAddress::CsRelative(0x1000),
+                    limits(),
+                    reader(0x1000, code),
+                )
                 .unwrap()[0]
                 .export
                 .clone(),
@@ -223,5 +227,58 @@ fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
                 exit: Exit::Dispatch(0x1003),
             }]
         ),
+    );
+}
+
+#[test]
+fn call_table_slots_are_shared_by_exact_targets_across_functions() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let mut module = compiler.function_module();
+    let code = [
+        0xe8, 0xfd, 0, // CALL 0200
+        0xe8, 0xfa, 0, // CALL 0200 again
+        0x9a, 0, 2, 0x10, 0, // CALL FAR 0010:0200
+        0xff, 0xd0, // CALL AX has no constant destination
+        0xc3,
+    ];
+    for (cs, start, bytes) in [
+        (0x10, 0x100, code.as_slice()),
+        (0x10, 0x180, &[0xe8, 0x7d, 0, 0xc3][..]), // CALL 0200; RET
+        (0x20, 0x100, code.as_slice()),
+    ] {
+        module
+            .add_function(
+                CodeAddress::RealMode(FarPointer {
+                    segment: cs,
+                    offset: start,
+                }),
+                FunctionLimits::default(),
+                reader(u32::from(start), bytes),
+            )
+            .unwrap();
+    }
+    let blocks = module.compile().unwrap();
+    assert_eq!(blocks.call_targets, [0x0010_0200, 0x0020_0200]);
+
+    // Without a known CS, only the explicit far target has a table entry.
+    let unknown_cs = compiler
+        .compile_function(0x100, FunctionLimits::default(), reader(0x100, &code))
+        .unwrap();
+    assert_eq!(unknown_cs.call_targets, [0x0010_0200]);
+
+    let mut local = compiler.function_module();
+    local
+        .add_function(
+            CodeAddress::RealMode(FarPointer {
+                segment: 0x10,
+                offset: 0x100,
+            }),
+            FunctionLimits::default(),
+            reader(0x100, &[0xe8, 0, 0, 0xc3]),
+        )
+        .unwrap();
+    assert!(
+        local.compile().unwrap().call_targets.is_empty(),
+        "a local call uses its direct entry"
     );
 }

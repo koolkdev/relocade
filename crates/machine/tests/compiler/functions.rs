@@ -167,9 +167,19 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         .write(
             0x100,
             &[
-                0xe8, 0, 0,    // CALL next: push the CS-relative return IP
-                0x58, // POP AX
+                0xe8, 0xfd, 0, // CALL the external callee at linear address 0200
                 0xff, 0xe3, // JMP BX to the CS:IP exit hook
+            ],
+        )
+        .unwrap();
+    machine
+        .memory()
+        .view()
+        .write(
+            0x200,
+            &[
+                0xe8, 0, 0, // CALL next: observe the callee's CS-relative return IP
+                0x58, 0xc3, // POP AX; RET to the caller
             ],
         )
         .unwrap();
@@ -195,6 +205,20 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                         },
                         limits: FunctionLimits::default(),
                     },
+                    FunctionRequest {
+                        entry: FarPointer {
+                            segment: 0,
+                            offset: 0x200,
+                        },
+                        limits: FunctionLimits::default(),
+                    },
+                    FunctionRequest {
+                        entry: FarPointer {
+                            segment: 1,
+                            offset: 0x1f0,
+                        },
+                        limits: FunctionLimits::default(),
+                    },
                 ],
             )
             .unwrap();
@@ -216,13 +240,13 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                 let exit = runner.cpu().exit_handle();
                 runner
                     .cpu()
-                    .install([Hook::host(0x100, async move || exit.request())])
+                    .install([Hook::host(0x200, async move || exit.request())])
                     .await
                     .unwrap();
             } else if phase == 2 {
                 code.install(runner.cpu()).unwrap();
             }
-            for (segment, offset, return_ip) in [(0, 0x100, 0x103), (1, 0xf0, 0xf3)] {
+            for (segment, offset, return_ip) in [(0, 0x100, 0x203), (1, 0xf0, 0x1f3)] {
                 let state = runner.cpu().cpu_state();
                 state.set_segment(
                     Segment::Cs,
@@ -245,7 +269,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                         return_ip
                     }
                 );
-                assert_eq!(state.sp(), 0x800);
+                assert_eq!(
+                    state.sp(),
+                    if phase == 1 && segment == 0 {
+                        0x7fe
+                    } else {
+                        0x800
+                    }
+                );
             }
         }
     })

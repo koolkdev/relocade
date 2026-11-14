@@ -9,7 +9,7 @@ pub use block::{
     BlockSnapshot, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
-pub use function::{FunctionLimits, FunctionModule};
+pub use function::{CodeAddress, FunctionLimits, FunctionModule};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 

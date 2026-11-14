@@ -23,6 +23,11 @@ pub(crate) struct SnapshotInstruction {
 }
 
 impl SnapshotInstruction {
+    pub(crate) fn call_target(&self) -> Option<crate::instruction::CallTarget> {
+        self.form
+            .call_target(self.fields.immediates, self.fallthrough_eip)
+    }
+
     pub(crate) fn successors(&self, target: ExecutionTarget) -> [Option<u32>; 2] {
         self.form
             .successors(self.fields.immediates, self.fallthrough_eip, target)

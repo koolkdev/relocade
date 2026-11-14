@@ -38,6 +38,10 @@ pub struct BlockEntry {
 pub struct CompiledBlocks {
     pub bytes: Vec<u8>,
     pub entries: Vec<BlockEntry>,
+    /// Unique packed Real16 CS:IP targets, in call-table slot order.
+    /// Calls from every function in this module share slots for equal targets.
+    /// Unresolved slots initially call `relocade.resolveAndJump`.
+    pub call_targets: Vec<u32>,
     /// Required target for every entry and its interpreter fallback.
     /// The host also maintains each entry's code bytes and mapping validity.
     pub execution_target: ExecutionTarget,
@@ -183,6 +187,7 @@ impl Compiler {
         Ok(CompiledBlocks {
             bytes: blocks.program.compile()?,
             entries: blocks.entries,
+            call_targets: blocks.call_targets,
             execution_target: self.target,
         })
     }
@@ -201,6 +206,7 @@ impl Compiler {
         Ok(CompiledBlocks {
             bytes: blocks.program.compile_with(executor).await?,
             entries: blocks.entries,
+            call_targets: blocks.call_targets,
             execution_target: self.target,
         })
     }

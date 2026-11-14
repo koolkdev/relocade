@@ -45,6 +45,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let completed = self.completed;
         let transfer = self.transfer.clone();
         let entries = self.entries;
+        let call_links = self.call_links;
         move |body| ExecutionBuilder {
             body,
             state: state.clone(),
@@ -63,6 +64,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             completed,
             transfer: transfer.clone(),
             entries,
+            call_links,
             // A child can contain partial effects of the current instruction,
             // so it cannot restart that instruction from its entry state.
             can_fallback: false,
