@@ -72,7 +72,9 @@ impl Shape {
                 };
                 let white = match pixel.format() {
                     PixelFormat::Indexed8 => pixel.color_mask().min(15),
-                    PixelFormat::Rgb565 | PixelFormat::Bgrx8888 => pixel.color_mask(),
+                    PixelFormat::Rgb555 | PixelFormat::Rgb565 | PixelFormat::Bgrx8888 => {
+                        pixel.color_mask()
+                    }
                 };
                 let cursor = if invert { white } else { 0 };
                 frame.write_pixel(&pixel, (pixel.value() & screen) ^ cursor);

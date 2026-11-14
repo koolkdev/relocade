@@ -14,6 +14,7 @@ struct PackedState {
 // Decoder tags shared with renderer/state.rs.
 const INDEXED8 = 0u;
 const RGB565 = 1u;
+const RGB555 = 3u;
 const BGRX8888 = 2u;
 
 @vertex
@@ -34,9 +35,14 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         case INDEXED8: {
             return unpack4x8unorm(dac_color(image_byte(row + pixel.x)));
         }
-        case RGB565: {
+        case RGB555, RGB565: {
             let address = row + pixel.x * 2u;
             let value = image_byte(address) | (image_byte(address + 1u) << 8u);
+            if state.format == RGB555 {
+                let rgb = vec3((value >> 10u) & 31u, (value >> 5u) & 31u, value & 31u);
+                let rgb8 = (rgb * 255u + vec3(15u)) / vec3(31u);
+                return vec4(vec3<f32>(rgb8) / 255.0, 1.0);
+            }
             let rgb = vec3(value >> 11u, (value >> 5u) & 63u, value & 31u);
             let rgb8 = (rgb * 255u + vec3(15u, 31u, 15u)) / vec3(31u, 63u, 31u);
             return vec4(vec3<f32>(rgb8) / 255.0, 1.0);

@@ -5,6 +5,8 @@ use crate::DisplayGeometry;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
     Indexed8,
+    /// Little-endian red, green and blue with five bits each; bit 15 is unused.
+    Rgb555,
     /// Little-endian red 5, green 6, blue 5 bits.
     Rgb565,
     /// Blue, green, red, unused bytes; display output is always opaque.
@@ -15,13 +17,14 @@ impl PixelFormat {
     pub const fn bits_per_pixel(self) -> u8 {
         match self {
             Self::Indexed8 => 8,
+            Self::Rgb555 => 15,
             Self::Rgb565 => 16,
             Self::Bgrx8888 => 32,
         }
     }
 
     pub const fn bytes_per_pixel(self) -> u32 {
-        self.bits_per_pixel() as u32 / 8
+        (self.bits_per_pixel() as u32).div_ceil(8)
     }
 }
 
