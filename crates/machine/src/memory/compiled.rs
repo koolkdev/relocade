@@ -1,6 +1,10 @@
 //! Live compiled source belongs to backing storage, including all guest aliases.
 
-use super::{code::CodeSource, Memory};
+mod policy;
+
+use super::{code::CodeSource, resolve::Spans, Memory};
+use relocade_x86::PhysicalMapping;
+use std::ops::Range;
 use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex, Weak},
@@ -10,6 +14,7 @@ use std::{
 pub struct CompiledMemory {
     watches: Vec<Weak<CodeWatch>>,
     revision: u64,
+    policy: policy::Policy,
 }
 
 pub(crate) struct CodeWatch {
@@ -24,6 +29,31 @@ impl CodeWatch {
 }
 
 impl Memory {
+    pub(crate) fn excluded_code(&self) -> Vec<Range<u64>> {
+        self.compiled.lock().unwrap().policy.excluded()
+    }
+
+    pub(crate) fn excludes_code(
+        &self,
+        address: u32,
+        bytes: usize,
+        excluded: &[Range<u64>],
+    ) -> bool {
+        Spans::new(self.config.memory_map(), address, bytes)
+            .expect("decoded instruction range")
+            .any(|span| {
+                let backing = match span.mapping {
+                    PhysicalMapping::Ram { backing_offset }
+                    | PhysicalMapping::Rom { backing_offset } => u64::from(backing_offset),
+                    _ => return false,
+                };
+                let index = excluded.partition_point(|range| range.end <= backing);
+                excluded
+                    .get(index)
+                    .is_some_and(|range| range.start < backing + span.len as u64)
+            })
+    }
+
     pub(crate) fn watch_code(&self, sources: &Arc<[CodeSource]>) -> Arc<CodeWatch> {
         let watch = Arc::new(CodeWatch {
             sources: sources.clone(),
@@ -68,8 +98,8 @@ impl Memory {
         if start == end {
             return;
         }
-        let code = self.compiled.lock().unwrap();
-        let mut changed = false;
+        let mut code = self.compiled.lock().unwrap();
+        let mut changed = Vec::new();
         for watch in code.watches.iter().filter_map(Weak::upgrade) {
             let mut blocks = watch.changed.lock().unwrap();
             for (index, source) in watch.sources.iter().enumerate() {
@@ -90,11 +120,14 @@ impl Memory {
                 });
                 if differs {
                     blocks.insert(index);
-                    changed = true;
+                    changed.extend(source.spans.iter().map(|span| {
+                        u64::from(span.backing)..u64::from(span.backing) + span.bytes.len() as u64
+                    }));
                 }
             }
         }
-        if changed {
+        if !changed.is_empty() {
+            code.policy.invalidate(changed);
             self.code_state.atomic_store(0, 1_u8);
         }
     }

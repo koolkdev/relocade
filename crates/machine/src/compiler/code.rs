@@ -94,12 +94,15 @@ impl CompiledCode {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
         }
-        if !self
-            .description
-            .sources
-            .iter()
-            .all(|source| source.matches(&cpu.memory()))
-        {
+        let memory = cpu.memory();
+        let excluded = memory.excluded_code();
+        if !self.description.sources.iter().all(|source| {
+            source.matches(&memory)
+                && !source
+                    .spans
+                    .iter()
+                    .any(|span| memory.excludes_code(span.address, span.bytes.len(), &excluded))
+        }) {
             return Err(Error::StaleCompilation);
         }
         let entries: Vec<_> = self

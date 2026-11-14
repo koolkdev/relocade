@@ -147,3 +147,20 @@ after JIT admission. Raw storage and raw mapping/A20 edits retain the embedding'
 validity obligation. The one-writer execution contract above also governs module
 installation and tracked writes; this is not a barrier for concurrent guest CPUs
 or writing DMA masters.
+
+
+## Unstable code
+
+Invalidation history follows backing ranges for the lifetime of guest memory.
+The first invalidated compiled version can be retried after fresh call hotness.
+The second excludes the affected block's source ranges from subsequent compilation;
+multiple stores to the same version and overlapping aliases consume one retry.
+Healthy blocks in the same function remain eligible. New entry roots and block
+sizes do not reset the budget.
+
+Discovery may decode excluded bytes to find successors, but emits no instruction
+that overlaps them. Compiled edges into an omitted region use ordinary dispatch.
+The interpreter follows its current bytes, including changed branches, and can
+re-enter healthy compiled code at a later dispatch boundary. Installation checks
+the current exclusion policy as well as source bytes, so an older pending result
+cannot restore a banned region even if its original bytes have been written back.

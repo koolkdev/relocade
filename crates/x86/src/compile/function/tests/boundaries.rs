@@ -14,7 +14,7 @@ fn decode_failures_preserve_valid_prefixes_and_other_branches() {
 
         let mut branch = vec![
             0x75, 3,    // JNZ 1005, explored before the fallthrough
-            0x40,       // INC EAX
+            0x40, // INC EAX
             0xff, 0xe0, // JMP EAX
         ];
         branch.extend(suffix);
@@ -82,6 +82,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
             target,
             FunctionLimits::default(),
             reader(0x1000, &bytes),
+            |_, _| false,
         )
         .unwrap();
         assert_eq!(
@@ -107,10 +108,16 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         let mut bytes = call.to_vec();
         bytes.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
         let mut read = reader(0x1000, &bytes);
-        let blocks = discover::blocks(0x1000, target, FunctionLimits::default(), |eip, output| {
-            assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
-            read(eip, output)
-        })
+        let blocks = discover::blocks(
+            0x1000,
+            target,
+            FunctionLimits::default(),
+            |eip, output| {
+                assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
+                read(eip, output)
+            },
+            |_, _| false,
+        )
         .unwrap();
         assert_eq!(
             blocks
@@ -160,6 +167,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
             Compiler::new(profile).target(),
             FunctionLimits::default(),
             reader(0x1000, &bytes),
+            |_, _| false,
         )
         .unwrap();
         assert_eq!(blocks.len(), 1, "{profile:?}, {code:02x?}");
@@ -184,4 +192,27 @@ fn discovered_continuations_preserve_snapshot_entry_spans() {
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
+}
+
+#[test]
+fn excluded_encodings_keep_discovered_successors() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let code = [0xb8, 1, 0, 0xeb, 2, 0x90, 0x90, 0x40, 0xc3];
+    let mut module = compiler.function_module();
+    let entries = module
+        .add_function_excluding(
+            CodeAddress::CsRelative(0x1000),
+            FunctionLimits::default(),
+            reader(0x1000, &code),
+            |eip, bytes| eip <= 0x1001 && 0x1001 < eip + bytes as u32,
+        )
+        .unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|block| (block.start_eip, block.byte_len))
+            .collect::<Vec<_>>(),
+        [(0x1003, 2), (0x1007, 2)]
+    );
+    module.compile().unwrap();
 }

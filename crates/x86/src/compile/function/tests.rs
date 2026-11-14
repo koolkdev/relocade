@@ -24,6 +24,7 @@ fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
         Compiler::new(SegmentProfile::Flat32).target(),
         limits,
         reader(0x1000, code),
+        |_, _| false,
     )
     .unwrap()
     .into_iter()
@@ -163,9 +164,13 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
             ..limits
         },
     ] {
-        let result = discover::blocks(0, compiler.target(), limits, |_, _| {
-            panic!("zero bounds must not read")
-        });
+        let result = discover::blocks(
+            0,
+            compiler.target(),
+            limits,
+            |_, _| panic!("zero bounds must not read"),
+            |_, _| false,
+        );
         assert!(matches!(result, Err(BlockError::ZeroFunctionLimit)));
     }
 }
@@ -241,6 +246,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
             copied += count;
             count
         },
+        |_, _| false,
     )
     .unwrap();
     assert_eq!(
