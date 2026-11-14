@@ -114,7 +114,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
 }
 
 #[test]
-fn discovered_continuations_preserve_existing_dispatch_and_runtime_exits() {
+fn discovered_continuations_preserve_snapshot_entry_spans() {
     let code = [0xec, 0x8e, 0xd8, 0x8e, 0xd0, 0x0f, 0xa2, 0xc3];
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let actual = compiler
@@ -130,5 +130,4 @@ fn discovered_continuations_preserve_existing_dispatch_and_runtime_exits() {
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
-    assert_eq!(actual.bytes, expected.bytes);
 }

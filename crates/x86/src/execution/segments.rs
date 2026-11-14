@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BuildError, Val, I1, I16, I32};
 
-use super::ExecutionBuilder;
+use super::{transfer::Transfer, ExecutionBuilder};
 use crate::{
     address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
     ExecutionProfile, Segment, SegmentDescriptorInfoValues,
@@ -23,6 +23,10 @@ impl ResolvedSegment {
     /// Installs the selector and cache after all instruction guards. Only
     /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+        if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
+            // The new cache may require a different compiled execution profile.
+            execution.transfer = Transfer::Dispatch;
+        }
         if let Some(needs_completion) = self.needs_completion {
             execution.runtime.complete_segment_load(
                 &mut execution.body,

@@ -65,11 +65,17 @@ impl Compiler {
     /// before building IR; it never produces a partially explored module.
     /// An unreadable successor ends its path; an unreadable entry produces no blocks.
     ///
-    /// Exports, dispatch, guards and code/addressing validity have the same contract
+    /// Known jumps, fallthroughs and near calls to entries in this function use
+    /// direct tail calls, including both conditional successors. Other transfers
+    /// use runtime dispatch. Every edge retains state publication, execution
+    /// checkpoints and the destination's entry guards. Separate functions have
+    /// separate CS-relative entry namespaces, even in the same module.
+    ///
+    /// Exports, guards and code/addressing validity have the same contract
     /// as [`Self::compile_blocks`]. The caller keeps code and mappings stable during
     /// discovery and maintains validity for the resulting entries' lifetime. After
     /// a segment load, each continuation still requires admission to its compiled
-    /// execution profile. Discovery does not bypass dispatch or runtime exits.
+    /// execution profile. Context changes and runtime exits retain their boundaries.
     pub fn compile_function(
         &self,
         start_eip: u32,

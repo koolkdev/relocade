@@ -4,7 +4,7 @@ use relocade_compiler::{AtLeast, BuildError, Val, I16, I32};
 
 use crate::{
     exception::Exception,
-    execution::{segments::ResolvedSegment, ExecutionBuilder},
+    execution::{segments::ResolvedSegment, transfer::Transfer, ExecutionBuilder},
     register::RegisterType,
     ExecutionProfile, Segment,
 };
@@ -48,6 +48,9 @@ impl CodeTarget {
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<Val<I32>, BuildError> {
         self.segment.commit(execution)?;
+        // A constant offset under the new CS is not an entry in the caller's
+        // local block namespace, even when its numeric EIP matches.
+        execution.transfer = Transfer::Dispatch;
         Ok(self.offset)
     }
 }
@@ -87,7 +90,7 @@ impl ExecutionBuilder<'_, '_> {
         // Real16 keeps the same execution profile after loading CS. Protected
         // CS transitions retain ordinary dispatch across the context change.
         if self.profile() == ExecutionProfile::Real16 {
-            self.call_dispatch = true;
+            self.transfer = Transfer::FarCall;
         }
         Ok(offset)
     }

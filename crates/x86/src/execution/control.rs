@@ -8,7 +8,7 @@ use relocade_compiler::{AtLeast, BuildError, Val, I1, I32};
 
 use crate::{exception::Exception, memory::Intent, register::RegisterType, segment::Segment};
 
-use super::ExecutionBuilder;
+use super::{transfer::Transfer, ExecutionBuilder};
 
 impl ExecutionBuilder<'_, '_> {
     /// Checks a snapshot block's complete encoding before any guest effects.
@@ -33,6 +33,13 @@ impl ExecutionBuilder<'_, '_> {
 
     pub(crate) fn jump(&mut self, target: Val<I32>) -> Result<Val<I32>, BuildError> {
         self.check_code_target(&target, None)?;
+        self.transfer = Transfer::Jump;
+        Ok(target)
+    }
+
+    pub(crate) fn return_(&mut self, target: Val<I32>) -> Result<Val<I32>, BuildError> {
+        self.check_code_target(&target, None)?;
+        self.transfer = Transfer::Return;
         Ok(target)
     }
 
@@ -47,7 +54,7 @@ impl ExecutionBuilder<'_, '_> {
     {
         self.check_code_target(&target, None)?;
         self.push(return_address.truncate::<T>(), T::BYTES)?;
-        self.call_dispatch = true;
+        self.transfer = Transfer::Call;
         Ok(target)
     }
 
@@ -58,6 +65,11 @@ impl ExecutionBuilder<'_, '_> {
         fallthrough: Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
         self.check_code_target(&target, Some(&taken))?;
+        self.transfer = Transfer::Branch {
+            condition: taken.clone(),
+            taken: target.clone(),
+            fallthrough: fallthrough.clone(),
+        };
         Ok(taken.select(target, fallthrough))
     }
 

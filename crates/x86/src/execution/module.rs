@@ -2,13 +2,14 @@
 
 use super::ExecutionBuilder;
 use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
-use relocade_compiler::{BlockBuilder, BuildError, Program, TypedFunc, Val, I32};
-use std::sync::Arc;
+use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct ExecutionModule {
     pub(crate) cpu: Arc<Cpu>,
     pub(crate) memory: Arc<Memory>,
+    pub(super) entries: Arc<BTreeMap<u32, Func>>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
@@ -19,6 +20,7 @@ impl ExecutionModule {
         let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
             memory: Arc::new(Memory::declare(program, target.profile)),
+            entries: Arc::default(),
             runtime: Runtime::declare(program),
             target,
             interrupt: None,
@@ -35,6 +37,13 @@ impl ExecutionModule {
             ));
         }
         module
+    }
+
+    pub(crate) fn with_entries(&self, entries: Arc<BTreeMap<u32, Func>>) -> Self {
+        Self {
+            entries,
+            ..self.clone()
+        }
     }
 
     pub(crate) fn builder<'body>(
