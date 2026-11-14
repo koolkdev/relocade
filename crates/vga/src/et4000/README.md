@@ -71,8 +71,10 @@ historical odd/even lines or simulate changes within a displayed scanline.
 
 The full 18-bit display start is sampled together at the shared retrace capture
 boundary, representing the page for the following visible frame. Native drawing
-uses the programmed page immediately. Extended text/planar scanout is not yet
-implemented.
+uses the programmed page immediately. Planar and serialized graphics can address
+the full DRAM, with physical wrapping, extended line compare, and eleven-bit
+vertical display/blanking counters. IBM pin rotation and Tseng's contiguous
+mapping are selected by CRTC 36h. Extended text addressing is not yet implemented.
 
 Four consecutive reads of the DAC mask port (3C6h) expose the SC11483 command
 register. Any write or access to another DAC port ends command access. Command
