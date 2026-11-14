@@ -41,8 +41,7 @@ pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
 
 impl Et4000Ax {
     pub(super) fn programmed_start(&self) -> u32 {
-        let values = &self.vga.registers.crtc.registers.values;
-        u32::from(u16::from_be_bytes([values[0x0c], values[0x0d]]))
+        u32::from(self.vga.registers.crtc.programmed_start())
             | (u32::from(self.extensions.crtc(EXTENDED_START).unwrap() & 3) << 16)
     }
 

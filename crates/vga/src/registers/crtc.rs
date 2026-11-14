@@ -77,11 +77,16 @@ impl Crtc {
         }
     }
 
-    pub(crate) fn latch_display_start(&mut self) {
-        self.display_start = u16::from_be_bytes([
+    /// Programmed start counter, which can differ from the retrace latch.
+    pub(crate) fn programmed_start(&self) -> u16 {
+        u16::from_be_bytes([
             self.registers.register(START_ADDRESS_HIGH),
             self.registers.register(START_ADDRESS_LOW),
-        ]);
+        ])
+    }
+
+    pub(crate) fn latch_display_start(&mut self) {
+        self.display_start = self.programmed_start();
     }
 
     pub fn index(&self) -> u8 {
