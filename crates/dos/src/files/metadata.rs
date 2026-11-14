@@ -1,17 +1,24 @@
-//! DOS attributes shared by path queries and directory searches.
+//! DOS directory metadata shared by open files, path queries and searches.
 
 use super::{
-    FileSystem, ARCHIVE_ATTRIBUTE, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE,
-    SYSTEM_ATTRIBUTE,
+    FileSystem, FileTimestamp, ARCHIVE_ATTRIBUTE, DIRECTORY_ATTRIBUTE, HIDDEN_ATTRIBUTE,
+    READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE,
 };
 use crate::{error::DosError, path::ResolvedPath};
 use relocade_vfs::Metadata;
+
+#[derive(Clone, Copy)]
+pub(super) struct EntryMetadata {
+    pub(super) attributes: u8,
+    pub(super) modified: FileTimestamp,
+}
 
 impl FileSystem {
     pub(crate) fn attributes(&self, path: &[u8]) -> Result<u16, DosError> {
         let path = self.resolve(path)?;
         Ok(u16::from(
-            self.entry_attributes(&path, &self.metadata(&path)?),
+            self.entry_metadata(&path, &self.metadata(&path)?)
+                .attributes,
         ))
     }
 
@@ -35,22 +42,30 @@ impl FileSystem {
                 .expect("existing file")
                 .set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
         }
-        self.attributes.insert(path, (attributes & mutable) as u8);
+        let mut entry = self.entry_metadata(&path, &metadata);
+        entry.attributes = (attributes & mutable) as u8;
+        self.entries.insert(path, entry);
         Ok(())
     }
 
-    pub(super) fn entry_attributes(&self, path: &ResolvedPath, metadata: &Metadata) -> u8 {
-        let attributes = self.attributes.get(path).copied().unwrap_or_else(|| {
-            if metadata.is_dir() {
+    pub(super) fn entry_metadata(&self, path: &ResolvedPath, metadata: &Metadata) -> EntryMetadata {
+        let mut entry = self.entries.get(path).copied().unwrap_or(EntryMetadata {
+            attributes: if metadata.is_dir() {
                 0
             } else {
                 ARCHIVE_ATTRIBUTE as u8
-            }
+            },
+            modified: self.mount_timestamps[&path.drive],
         });
-        if metadata.is_dir() {
-            attributes | DIRECTORY_ATTRIBUTE
+        entry.attributes = if metadata.is_dir() {
+            entry.attributes | DIRECTORY_ATTRIBUTE
         } else {
-            (attributes & !(READ_ONLY_ATTRIBUTE as u8)) | u8::from(metadata.is_read_only())
-        }
+            (entry.attributes & !(READ_ONLY_ATTRIBUTE as u8)) | u8::from(metadata.is_read_only())
+        };
+        entry
+    }
+
+    pub(super) fn timestamp(&self) -> FileTimestamp {
+        FileTimestamp::from_datetime(self.clock.now())
     }
 }

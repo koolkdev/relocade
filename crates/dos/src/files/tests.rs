@@ -4,7 +4,7 @@ use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 
 #[test]
 fn retained_file_handle_keeps_its_cursor_after_handle_replacement_and_reuse() {
-    let mut filesystem = FileSystem::default();
+    let mut filesystem = FileSystem::new(Default::default());
     filesystem
         .mount_file("FIRST.TXT", b"ABC".to_vec(), FileAccess::ReadWrite)
         .unwrap();

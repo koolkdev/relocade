@@ -4,27 +4,31 @@ use crate::{
     devices::DeviceChain,
     error::DosError,
     path::{self, ResolvedPath},
+    state::Clock,
     stdio::Output,
 };
 use relocade_vfs::{Drives, MemoryFileSystem, Metadata};
-use std::{collections::BTreeMap, io::ErrorKind};
+use std::{collections::BTreeMap, io::ErrorKind, rc::Rc};
 
-mod attributes;
 mod create;
 mod devices;
 mod directories;
 mod file_handle;
 mod handles;
 mod io;
+mod metadata;
 mod mounts;
 mod search;
 #[cfg(test)]
 mod tests;
+mod timestamp;
 pub(crate) use create::CreateMode;
 use file_handle::FileHandle;
 pub(crate) use handles::Handle;
 use handles::HANDLE_COUNT;
+use metadata::EntryMetadata;
 pub(crate) use search::FIND_DATA_BYTES;
+pub(crate) use timestamp::FileTimestamp;
 
 const READ_ONLY_ATTRIBUTE: u16 = 0x01;
 const HIDDEN_ATTRIBUTE: u16 = 0x02;
@@ -62,7 +66,9 @@ pub(crate) struct FileSystem {
     drives: Drives,
     current_drive: char,
     current_directories: BTreeMap<char, String>,
-    attributes: BTreeMap<ResolvedPath, u8>,
+    entries: BTreeMap<ResolvedPath, EntryMetadata>,
+    mount_timestamps: BTreeMap<char, FileTimestamp>,
+    clock: Rc<Clock>,
     next_temporary_name: u32,
 }
 
@@ -73,15 +79,17 @@ pub(crate) struct Files {
     search_directories: Vec<Option<search::SearchDirectory>>,
 }
 
-impl Default for FileSystem {
-    fn default() -> Self {
+impl FileSystem {
+    pub(crate) fn new(clock: Rc<Clock>) -> Self {
         let mut drives = Drives::new();
         drives.mount('C', MemoryFileSystem::new()).unwrap();
         Self {
             drives,
             current_drive: 'C',
             current_directories: BTreeMap::new(),
-            attributes: BTreeMap::new(),
+            entries: BTreeMap::new(),
+            mount_timestamps: BTreeMap::from([('C', FileTimestamp::from_datetime(clock.now()))]),
+            clock,
             next_temporary_name: 0,
         }
     }
@@ -109,7 +117,7 @@ impl Files {
             .unwrap()
             .remove_file(&path.relative)
             .expect("existing file");
-        filesystem.attributes.remove(&path);
+        filesystem.entries.remove(&path);
         Ok(())
     }
 
@@ -148,8 +156,8 @@ impl Files {
             .unwrap()
             .rename_file(&from.relative, &to.relative)
             .expect("validated file paths");
-        if let Some(attributes) = filesystem.attributes.remove(&from) {
-            filesystem.attributes.insert(to, attributes);
+        if let Some(metadata) = filesystem.entries.remove(&from) {
+            filesystem.entries.insert(to, metadata);
         }
         Ok(())
     }

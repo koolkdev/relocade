@@ -1,8 +1,8 @@
 //! File creation, including unique temporary names, shares DOS handle policy.
 
 use super::{
-    AccessMode, FileHandle, FileSystem, Files, ARCHIVE_ATTRIBUTE, COMPATIBILITY_SHARING,
-    HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE,
+    AccessMode, EntryMetadata, FileHandle, FileSystem, Files, ARCHIVE_ATTRIBUTE,
+    COMPATIBILITY_SHARING, HIDDEN_ATTRIBUTE, READ_ONLY_ATTRIBUTE, SYSTEM_ATTRIBUTE,
 };
 use crate::{error::DosError, path};
 use std::io::ErrorKind;
@@ -59,6 +59,7 @@ impl Files {
             Err(_) => return Err(DosError::AccessDenied),
         };
         // Existing files are truncated only after sharing and capacity checks.
+        let modified = filesystem.timestamp();
         let file_handle = FileHandle::new(
             file.clone(),
             path.clone(),
@@ -70,9 +71,13 @@ impl Files {
             .write(&[])
             .expect("truncating a new writable handle does not allocate");
         file.set_read_only(attributes & READ_ONLY_ATTRIBUTE != 0);
-        filesystem
-            .attributes
-            .insert(path, (attributes | ARCHIVE_ATTRIBUTE) as u8);
+        filesystem.entries.insert(
+            path,
+            EntryMetadata {
+                attributes: (attributes | ARCHIVE_ATTRIBUTE) as u8,
+                modified,
+            },
+        );
         Ok(handle)
     }
 

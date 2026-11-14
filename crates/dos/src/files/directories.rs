@@ -1,6 +1,6 @@
 //! Directory operations and per-drive current directories.
 
-use super::FileSystem;
+use super::{EntryMetadata, FileSystem};
 use crate::error::DosError;
 use std::io::ErrorKind;
 
@@ -14,7 +14,15 @@ impl FileSystem {
             .map_err(|error| match error.kind() {
                 ErrorKind::NotFound | ErrorKind::NotADirectory => DosError::PathNotFound,
                 _ => DosError::AccessDenied,
-            })
+            })?;
+        self.entries.insert(
+            directory,
+            EntryMetadata {
+                attributes: 0,
+                modified: self.timestamp(),
+            },
+        );
+        Ok(())
     }
 
     pub(crate) fn remove_directory(&mut self, path: &[u8]) -> Result<(), DosError> {
@@ -35,7 +43,7 @@ impl FileSystem {
         filesystem
             .remove_dir(&directory.relative)
             .map_err(|_| DosError::AccessDenied)?;
-        self.attributes.remove(&directory);
+        self.entries.remove(&directory);
         Ok(())
     }
 

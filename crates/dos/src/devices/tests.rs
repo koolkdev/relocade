@@ -38,7 +38,7 @@ fn installing_a_replacement_affects_new_opens_without_rebinding_open_handles() {
         chain.install(NullDevice);
         chain.install(Unavailable(*b"AUX     "));
         chain.install(Unavailable(*b"PRN     "));
-        let filesystem = FileSystem::default();
+        let filesystem = FileSystem::new(Default::default());
         let map = PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
             .unwrap();
         let memory = Memory::new(MachineConfig::new(4096, map).unwrap()).unwrap();
