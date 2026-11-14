@@ -1,4 +1,6 @@
 mod common;
+#[path = "memory/strategy.rs"]
+mod strategy;
 
 use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit, HostExit, Segment, SegmentRegister};

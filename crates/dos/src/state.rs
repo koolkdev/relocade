@@ -5,6 +5,7 @@ pub(crate) mod indos;
 use crate::{
     devices::{BiosConsole, ConsoleInput, DeviceChain, NullDevice, Unavailable},
     files::FileSystem,
+    memory::AllocationStrategy,
     process::Process,
     stdio::Stdio,
 };
@@ -18,6 +19,7 @@ pub(crate) struct DosState {
     pub(crate) mouse: crate::mouse::Mouse,
     indos: indos::InDos,
     pub(crate) check_break: Cell<bool>,
+    pub(crate) allocation_strategy: Cell<AllocationStrategy>,
     console_input: ConsoleInput,
     filesystem: RefCell<FileSystem>,
     stdio: Stdio,
@@ -43,6 +45,7 @@ impl DosState {
             mouse,
             indos: indos::InDos::new(memory),
             check_break: Cell::new(false),
+            allocation_strategy: Cell::default(),
             console_input,
             filesystem: RefCell::default(),
             stdio: Stdio::new(keyboard),
