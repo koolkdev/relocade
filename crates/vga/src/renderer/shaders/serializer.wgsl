@@ -17,7 +17,7 @@ fn graphics_fetch(input: DisplayVertex, line: Scanline, pixel: u32, pixels_per_c
     let count_divisor = input.grid.w;
     let address_mode = input.addressing.z;
     let underline = input.addressing.w;
-    let counter = (line.counter + load_clock / count_divisor) & 0xffffu;
+    let counter = line.counter + load_clock / count_divisor;
     return GraphicsFetch(
         display_address(counter, line.row_scan, address_mode, underline),
         clocks_since_load,

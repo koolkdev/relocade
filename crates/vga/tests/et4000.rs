@@ -19,6 +19,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 mod gpu;
 #[path = "et4000/memory.rs"]
 mod memory;
+#[path = "et4000/planar.rs"]
+mod planar;
 #[path = "et4000/ramdac.rs"]
 mod ramdac;
 #[cfg(feature = "renderer")]
