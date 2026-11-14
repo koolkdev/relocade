@@ -14,6 +14,9 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+#[path = "et4000/registers.rs"]
+mod registers;
+
 struct ConnectedEt4000 {
     card: Rc<RefCell<Et4000Ax>>,
     io: IoBus,

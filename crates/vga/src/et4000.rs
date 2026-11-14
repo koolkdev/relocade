@@ -2,6 +2,8 @@
 mod device;
 mod effects;
 mod output;
+mod ports;
+mod registers;
 
 use crate::{
     memory::VideoMemory, output::Output, DisplaySnapshot, Registers, Timing, VgaCore, VgaCoreState,
@@ -21,6 +23,7 @@ const PIXEL_CLOCKS: [u64; 8] = [
 /// Its standard VGA interface is available independently of DISPI firmware.
 pub struct Et4000Ax {
     vga: VgaCore,
+    extensions: registers::Extensions,
     memory: VideoMemory,
     output: Output,
     io: Option<crate::io::Io>,
@@ -41,6 +44,7 @@ impl Et4000Ax {
         let output = Output::new(clock, Self::vga_timing(&vga));
         Self {
             vga,
+            extensions: registers::Extensions::default(),
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
             output,
             io: None,

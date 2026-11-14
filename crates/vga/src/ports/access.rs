@@ -13,6 +13,13 @@ pub(crate) trait VgaPortAccess: CardEffects + 'static {
     fn vga_mut(&mut self) -> &mut VgaCore;
     fn refresh_raster(&mut self);
 
+    fn read_input_status_0(&self) -> u8 {
+        0x10
+    }
+    fn read_adapter_control(&self) -> u8 {
+        0xff
+    }
+
     fn legacy_effect(&self, kind: WriteKind) -> Effects {
         Effects::vga(kind)
     }

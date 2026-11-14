@@ -27,15 +27,24 @@ is open. Vendor ROM execution is not part of device initialization.
 As with the existing VGA core, construction starts from a usable legacy register
 preset rather than simulating power-on and POST. Extension startup values are
 fixed to locked access, bank zero, no extended display-address bits, no interlace,
-CRTC 36h = 40h and CRTC 37h = 0Bh. These choices retain VGA address mapping and
+CRTC 34h = 08h (enable at 46E8h), CRTC 36h = 40h, CRTC 37h = 0Bh and
+Sequencer 07h = BCh (VGA operation, 32 KiB ROM, recommended Rev E bits). These choices retain VGA address mapping and
 describe the installed DRAM. SC11483 command state starts at zero (indexed mode),
 with no pending command-register access. Registers whose power-on contents are
 unspecified use zero until firmware programs them.
 
 `Et4000Ax` composes the shared VGA core, standard port and memory bindings, and
 display activity with this board's capacity and clocks. Its CRTC index retains
-six bits, so extended indices cannot alias legacy registers. The ET4000 register
-extensions, firmware and PC configuration choice are added separately.
+six bits, so extended indices cannot alias legacy registers. Extension access follows the two-port KEY sequence (3BFh=03h, then the active
+3B8h/3D8h=A0h). CRTC 33h is not KEY-protected; 35h follows the VGA timing
+protection bit, except its line-compare and interlace bits. Segment-register
+access remains enabled after relocking, until synchronous reset. There is one
+Attribute address/phase latch for both standard and extension registers.
+
+The selected adapter-enable address is 3C3h or 46E8h; Rev E aliases 46E8h on
+its low twelve address bits. Extension configuration registers retain their
+documented bits. Translation-ROM, external genlock and 6845 compatibility
+behavior are outside this profile. Firmware and PC selection are separate.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),

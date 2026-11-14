@@ -4,7 +4,7 @@ use crate::{
     io::Io,
     memory::VideoMemory,
     mmio::{MemoryDecoding, MemoryMapping, VgaMemory},
-    ports::{PortDecoding, Ports, VgaPortAccess},
+    ports::PortDecoding,
     VgaCore,
 };
 use relocade_machine::{Device, DeviceConnection};
@@ -14,7 +14,7 @@ impl Et4000Ax {
     pub fn configure_io(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
         assert!(device.borrow().io.is_none(), "ET4000 is already connected");
         let memory = MemoryMapping::new(io, device, None);
-        let ports = Ports::new(io, device);
+        let ports = Self::bind_ports(io, device);
         let mut card = device.borrow_mut();
         memory.update_decoding(io.context(), None, MemoryDecoding::vga(&card.vga));
         ports.update_decoding(io.context(), None, PortDecoding::vga(&card.vga));
@@ -31,22 +31,5 @@ impl Device for Et4000Ax {
 impl VgaMemory for Et4000Ax {
     fn vga_memory(&mut self) -> (&mut VgaCore, &mut VideoMemory) {
         (&mut self.vga, &mut self.memory)
-    }
-}
-
-impl VgaPortAccess for Et4000Ax {
-    fn vga(&self) -> &VgaCore {
-        &self.vga
-    }
-    fn vga_mut(&mut self) -> &mut VgaCore {
-        &mut self.vga
-    }
-    fn refresh_raster(&mut self) {
-        Et4000Ax::refresh_raster(self);
-    }
-
-    fn select_crtc(&mut self, value: u8) {
-        // ET4000 CRTC indices have six bits; extended indices must not alias VGA.
-        self.vga.registers.crtc.select_raw(value & 0x3f);
     }
 }
