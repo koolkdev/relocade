@@ -1,8 +1,8 @@
 //! ET4000 policy for the shared synchronous effects operation.
-use super::Et4000Ax;
+use super::{scanout, Et4000Ax};
 use crate::{
     effects::CardEffects, io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding,
-    PackedLayout, Timing,
+    scanout::DisplayConfiguration, Timing,
 };
 use relocade_machine::Timestamp;
 
@@ -19,8 +19,8 @@ impl CardEffects for Et4000Ax {
         Et4000Ax::advance_raster(self, now);
     }
 
-    fn display_layout(&self) -> Option<PackedLayout> {
-        self.packed_layout(self.display_start())
+    fn display_configuration(&self) -> DisplayConfiguration {
+        scanout::configuration(self)
     }
 
     fn timing(&self) -> Timing {

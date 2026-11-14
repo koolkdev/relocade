@@ -30,18 +30,7 @@ pub struct VgaDisplayState {
 }
 
 impl VgaDisplayState {
-    /// Native drawing uses the programmed viewport, including a page selected
-    /// for the next retrace. Display captures keep their latched start instead.
-    pub(crate) fn for_drawing(registers: &Registers) -> Self {
-        let mut state = Self::capture(registers, 0);
-        state.display_start = u16::from_be_bytes([
-            state.crtc.values[crtc::START_ADDRESS_HIGH as usize],
-            state.crtc.values[crtc::START_ADDRESS_LOW as usize],
-        ]);
-        state
-    }
-
-    pub(crate) fn capture(registers: &Registers, retrace_count: u64) -> Self {
+    pub(crate) fn from_registers(registers: &Registers) -> Self {
         Self {
             sequencer: registers.sequencer.values,
             crtc: registers.crtc.registers,
@@ -51,10 +40,17 @@ impl VgaDisplayState {
             display_enabled: registers.attribute.display_enabled(),
             display_start: registers.crtc.display_start,
             linear_addressing: false,
-            // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
-            cursor_blink_on: (retrace_count / 8).is_multiple_of(2),
-            attribute_blink_on: (retrace_count / 16).is_multiple_of(2),
+            cursor_blink_on: true,
+            attribute_blink_on: true,
         }
+    }
+
+    /// Apply retrace-driven phases without decoding display programming again.
+    pub(crate) fn with_blink_phase(mut self, retrace_count: u64) -> Self {
+        // IBM VGA: cursor VSYNC/16 and attribute VSYNC/32, both 50% duty.
+        self.cursor_blink_on = (retrace_count / 8).is_multiple_of(2);
+        self.attribute_blink_on = (retrace_count / 16).is_multiple_of(2);
+        self
     }
 
     /// Compare all captured state except known CPU-only controls. Normalizing

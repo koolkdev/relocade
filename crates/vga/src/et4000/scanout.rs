@@ -5,14 +5,43 @@ use super::{
 };
 use crate::{
     registers::{attribute, crtc, graphics},
+    scanout::{DisplayConfiguration, PreparedScanout},
     snapshot::Blanking,
-    PackedLayout, PixelFormat, VgaDisplayState,
+    PackedLayout, PixelFormat,
 };
+
+pub(super) fn configuration(card: &Et4000Ax) -> DisplayConfiguration {
+    let registers = &card.vga.registers;
+    let blanked = !registers.attribute.display_enabled()
+        || registers.sequencer.reset_active()
+        || registers.sequencer.values[1] & 0x20 != 0;
+    match card.packed_layout() {
+        Some(layout) => DisplayConfiguration {
+            scanout: PreparedScanout::PackedWithCrtcStart {
+                layout,
+                bytes_per_address: 4,
+            },
+            blanked,
+            blanking: card.packed_blanking(),
+        },
+        None => DisplayConfiguration {
+            scanout: PreparedScanout::Vga {
+                // Keep VGA's serializer, row repeats, split screen and blanking.
+                // ET4000 changes how its CRTC counter addresses physical bytes.
+                linear_addressing: registers.attribute.values[attribute::MODE_CONTROL as usize]
+                    & 0x41
+                    == 0x41
+                    && registers.graphics.values[graphics::MODE as usize] & 0x40 != 0,
+            },
+            blanked,
+            blanking: Default::default(),
+        },
+    }
+}
 
 impl Et4000Ax {
     pub(super) fn programmed_start(&self) -> u32 {
-        let values = &self.vga.registers.crtc.registers.values;
-        u32::from(u16::from_be_bytes([values[0x0c], values[0x0d]]))
+        u32::from(self.vga.registers.crtc.programmed_start())
             | (u32::from(self.extensions.crtc(EXTENDED_START).unwrap() & 3) << 16)
     }
 
@@ -21,17 +50,7 @@ impl Et4000Ax {
             | (u32::from(self.display_start_high) << 16)
     }
 
-    pub(super) fn vga_display_state(&self) -> VgaDisplayState {
-        let mut state =
-            VgaDisplayState::capture(&self.vga.registers, self.output.raster.retrace_count);
-        // Keep VGA's serializer, row repeats, split screen and blanking in its
-        // decoder. ET4000's linear-byte memory organization changes addressing.
-        state.linear_addressing = state.attributes[attribute::MODE_CONTROL as usize] & 0x41 == 0x41
-            && state.graphics[graphics::MODE as usize] & 0x40 != 0;
-        state
-    }
-
-    pub(super) fn packed_layout(&self, start: u32) -> Option<PackedLayout> {
+    fn packed_layout(&self) -> Option<PackedLayout> {
         let registers = &self.vga.registers;
         let attribute = &registers.attribute.values;
         if registers.graphics.values[graphics::MODE as usize] & 0x40 == 0
@@ -57,12 +76,12 @@ impl Et4000Ax {
             [width, height],
             PixelFormat::Indexed8,
             pitch,
-            start * 4 + byte_pan + pan,
+            byte_pan + pan,
             self.memory.capacity(),
         )
     }
 
-    pub(super) fn packed_blanking(&self) -> Blanking {
+    fn packed_blanking(&self) -> Blanking {
         let registers = &self.vga.registers;
         let crtc = &registers.crtc.registers;
         let skew = crtc.horizontal_display_skew() as u32;

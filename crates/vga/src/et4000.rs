@@ -9,7 +9,8 @@ mod scanout;
 mod timing;
 
 use crate::{
-    memory::VideoMemory, output::Output, DisplaySnapshot, Registers, VgaCore, VgaCoreState,
+    memory::VideoMemory, output::Output, scanout::DisplayConfiguration, DisplaySnapshot, Registers,
+    VgaCore, VgaCoreState,
 };
 use relocade_machine::{Clock, Runner};
 use std::{cell::RefCell, rc::Rc};
@@ -46,7 +47,11 @@ impl Et4000Ax {
     pub fn with_clock(clock: Clock) -> Self {
         let vga = VgaCore::default();
         let extensions = registers::Extensions::default();
-        let output = Output::new(clock, Self::display_timing(&vga, &extensions));
+        let output = Output::new(
+            clock,
+            Self::display_timing(&vga, &extensions),
+            DisplayConfiguration::vga(),
+        );
         Self {
             vga,
             extensions,

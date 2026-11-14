@@ -1,7 +1,7 @@
 //! Effects of video state changes on display output and address decoding.
 use crate::{
     io::Io, mmio::MemoryDecoding, output::Output, ports::PortDecoding, registers::WriteKind,
-    PackedLayout, Timing,
+    scanout::DisplayConfiguration, PackedLayout, Timing,
 };
 use relocade_machine::{IoContext, Timestamp};
 
@@ -15,6 +15,7 @@ pub(crate) enum VideoEffect {
 #[derive(Clone, Copy)]
 pub(crate) struct Effects {
     pub video: VideoEffect,
+    pub scanout: bool,
     pub port_decode: bool,
     pub memory_decode: bool,
 }
@@ -22,6 +23,7 @@ pub(crate) struct Effects {
 impl Effects {
     pub const NONE: Self = Self {
         video: VideoEffect::None,
+        scanout: false,
         port_decode: false,
         memory_decode: false,
     };
@@ -31,6 +33,7 @@ impl Effects {
     };
     pub const CONFIGURATION: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::NONE
     };
     pub const IO: Self = Self {
@@ -39,6 +42,7 @@ impl Effects {
     };
     pub const CONFIGURATION_AND_IO: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::IO
     };
     pub const MEMORY: Self = Self {
@@ -47,6 +51,7 @@ impl Effects {
     };
     pub const CONFIGURATION_AND_MEMORY: Self = Self {
         video: VideoEffect::Configuration,
+        scanout: true,
         ..Self::MEMORY
     };
 }
@@ -55,7 +60,10 @@ impl Effects {
     pub fn vga(kind: WriteKind) -> Self {
         match kind {
             WriteKind::Access => Self::NONE,
-            WriteKind::Display => Self::IMAGE,
+            WriteKind::Display => Self {
+                scanout: true,
+                ..Self::IMAGE
+            },
             WriteKind::Timing => Self::CONFIGURATION,
         }
     }
@@ -70,10 +78,7 @@ pub(crate) trait CardEffects: Sized {
     fn timing(&self) -> Timing;
     fn port_decoding(&self) -> PortDecoding;
     fn memory_decoding(&self) -> MemoryDecoding;
-
-    fn display_layout(&self) -> Option<PackedLayout> {
-        None
-    }
+    fn display_configuration(&self) -> DisplayConfiguration;
 
     /// Preserve overdue output, mutate live state, then apply configuration and
     /// decoding changes synchronously. Preparation can update hardware latches;
@@ -87,15 +92,20 @@ pub(crate) trait CardEffects: Sized {
         if let Some(now) = self.output().prepare(effects.video) {
             self.advance_raster(now);
         }
-        let previous_layout =
-            matches!(effects.video, VideoEffect::Configuration).then(|| self.display_layout());
+        let previous_layout = matches!(effects.video, VideoEffect::Configuration)
+            .then(|| self.output().display.packed_layout());
         let previous_ports = effects.port_decode.then(|| self.port_decoding());
         let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
 
         let result = mutate(self);
 
+        if effects.scanout {
+            let display = self.display_configuration();
+            self.output().display = display;
+        }
+
         let video_changed = previous_layout.is_some_and(|previous| {
-            let layout = self.display_layout();
+            let layout = self.output().display.packed_layout();
             let timing = self.timing();
             self.output().update_configuration(previous, layout, timing)
         });
