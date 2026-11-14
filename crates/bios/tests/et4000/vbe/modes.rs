@@ -106,11 +106,12 @@ async fn banked_modes() {
     machine.io.write_mmio(0xafffe, 2, 0x801f);
     assert_eq!(call(&mut cpu, 0x4f05, 0, 0, 1).await, 0x004f);
     machine.io.write_mmio(0xa0000, 2, 0x03e0);
-    let mut card = machine.card.borrow_mut();
-    let framebuffer = card.framebuffer();
-    assert_eq!(framebuffer.pixel(127, 51).unwrap().value(), 0x801f);
-    assert_eq!(framebuffer.pixel(128, 51).unwrap().value(), 0x03e0);
-    drop(card);
+    {
+        let mut card = machine.card.borrow_mut();
+        let framebuffer = card.framebuffer();
+        assert_eq!(framebuffer.pixel(127, 51).unwrap().value(), 0x801f);
+        assert_eq!(framebuffer.pixel(128, 51).unwrap().value(), 0x03e0);
+    }
     assert_eq!(call(&mut cpu, 0x4f02, 0x8110, 0, 0).await, 0x004f);
     assert_eq!(machine.io.read_mmio(0xafffe, 2), 0x801f);
     assert_eq!(call(&mut cpu, 0x4f02, 0x8101, 0, 0).await, 0x004f);
