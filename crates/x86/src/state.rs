@@ -8,6 +8,7 @@ mod layout;
 mod observation;
 mod segments;
 mod simd;
+mod system;
 pub(crate) mod x87;
 
 pub use context::ExecutionContext;
@@ -24,6 +25,7 @@ pub use layout::{
 pub(crate) use observation::compile_flag_observer;
 pub(crate) use segments::SegmentReads;
 pub(crate) use simd::Mxcsr;
+pub(crate) use system::DescriptorTableValues;
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};

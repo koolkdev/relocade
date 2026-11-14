@@ -92,6 +92,8 @@ mod rotates;
 mod segmented_blocks;
 #[path = "suites/segments.rs"]
 mod segments;
+#[path = "suites/sgdt.rs"]
+mod sgdt;
 #[path = "suites/shifts.rs"]
 mod shifts;
 #[path = "suites/stack_flags.rs"]
