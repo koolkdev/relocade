@@ -101,3 +101,55 @@ fn vbe_viewports_respect_crtc_units_capacity_and_independent_banks() {
 async fn vbe_viewports_respect_crtc_units_capacity_and_independent_banks() {
     viewport_services().await;
 }
+
+async fn legacy_display_start() {
+    use relocade_vga::FramebufferAccess;
+    let machine = Firmware::new();
+    let mut cpu = machine.cpu().await;
+    let state = cpu.cpu_state();
+    machine.set_mode(0x0f).unwrap();
+    assert_eq!(call(&mut cpu, 0x4f06, 2, 100, 0).await, 0x4f);
+    machine.io.write_port(0x3c4, 2, 0x0102);
+    machine.io.write_mmio(0xa0000 + 501, 1, 4);
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 13, 5).await, 0x4f);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (13, 5));
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        1
+    );
+
+    machine.set_mode(0x13).unwrap();
+    machine.io.write_port(0x3d4, 2, 0x6712);
+    assert_eq!(call(&mut cpu, 0x4f06, 0, 321, 0).await, 0x4f);
+    machine.io.write_mmio(0xa0000 + 659, 1, 0x5a);
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 3, 2).await, 0x4f);
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        0x5a
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn vbe_legacy_panning_uses_monochrome_routing_and_et4000_chained_addressing() {
+    pollster::block_on(legacy_display_start());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn vbe_legacy_panning_uses_monochrome_routing_and_et4000_chained_addressing() {
+    legacy_display_start().await;
+}

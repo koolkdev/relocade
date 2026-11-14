@@ -151,3 +151,54 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     assert_eq!(firmware.packed_layout().unwrap().origin(), [32, 480]);
 }
+
+#[test]
+fn legacy_retrace_wait_preserves_the_completed_frame_and_defers_the_start_latch() {
+    let clock = ManualClock::default();
+    let (card, io, firmware) = device(clock.clock());
+    write_register(&io, 4, 0); // Default eight-dot, eight-row text with doubled scanlines.
+    assert!(scanline(&io, &firmware, 2, 200).is_ok());
+    let frames = card.borrow().frames();
+    let mut video = pin!(DispiAdapter::run(card.clone()));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    let mut request = pin!(display_start(&io, &firmware, 0x80, 16, 8));
+    assert!(request.as_mut().poll(&mut cx).is_pending());
+    let retrace = |frame: u64| {
+        Duration::from_nanos(
+            ((412 + (frame - 1) * 449) * 800 * 1_000_000_000u64).div_ceil(25_175_000),
+        )
+    };
+    clock.advance_to(clock.at(retrace(1)));
+    assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([16, 8])));
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    let completed = frames.try_recv().unwrap();
+    assert_eq!(completed.vga().unwrap().display_start, 0);
+    assert_eq!(card.borrow().registers().crtc.display_start, 0);
+    assert_eq!(firmware.legacy_layout().unwrap().origin(), [16, 8]);
+    clock.advance_to(clock.at(retrace(2)));
+    io.read_port(0x3da, 1);
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(frames.try_recv().unwrap().vga().unwrap().display_start, 102);
+    assert_eq!(completed.vga().unwrap().display_start, 0);
+}
+
+#[test]
+fn legacy_retrace_wait_revalidates_register_changes_even_without_sync() {
+    for (register, value) in [(0x13, 51), (0x0d, 1), (0x08, 1)] {
+        let (_card, io, firmware) = device(ManualClock::default().clock());
+        write_register(&io, 4, 0);
+        assert!(scanline(&io, &firmware, 2, 200).is_ok());
+        io.write_port(0x3c4, 2, 0x0100); // No retrace deadline while reset is active.
+        let wakes = Arc::new(Wakes::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut request = pin!(display_start(&io, &firmware, 0x80, 16, 8));
+        assert!(request.as_mut().poll(&mut cx).is_pending());
+        write_indexed(&io, 0x3d4, register, value);
+        assert!(wakes.0.load(Ordering::SeqCst) > 0);
+        let changed = firmware.legacy_layout();
+        assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(None));
+        assert_eq!(firmware.legacy_layout(), changed);
+    }
+}
