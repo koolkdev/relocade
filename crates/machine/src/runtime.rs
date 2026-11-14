@@ -133,6 +133,25 @@ impl Cpu {
         self.instance.io.clone()
     }
 
+    /// Installed compilations whose decoded bytes cover this linear address.
+    /// Several modules can cover the same bytes; coverage does not make an
+    /// interior address a callable entry. Old compilations remain owned by the CPU.
+    pub fn compiled_modules_at(&self, address: u32) -> impl Iterator<Item = &crate::CompiledCode> {
+        self.instance.compiled_modules_at(address)
+    }
+
+    pub(crate) fn install_compilation(
+        &mut self,
+        code: &crate::CompiledCode,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before installing"
+        );
+        self.instance_mut().install_compilation(code, entries)
+    }
+
     pub(crate) fn has_entry(&self, key: u32) -> bool {
         self.instance.has_entry(key)
     }

@@ -14,14 +14,14 @@ fn collected_count(cpu: &mut Cpu, target: FarPointer) -> u64 {
     let instance = &mut cpu.instance;
     instance
         .runtime
-        .with_runtime(|wasm| instance.profiling.collect(wasm, &instance.table));
+        .with_runtime(|wasm| instance.profiling.collect(wasm, &instance.modules));
     merged_count(&instance.profiling, target.packed())
 }
 
 struct Recorder {
     wasm: WasmRuntime,
     profiling: Profiling,
-    table: DispatchTable<WasmRuntime>,
+    modules: Modules<WasmRuntime>,
     record: Function<WasmRuntime, fn(u32) -> bool>,
 }
 
@@ -30,7 +30,7 @@ impl Recorder {
         let mut wasm = WasmRuntime::new().unwrap();
         let target = relocade_x86::Compiler::new(ExecutionProfile::Real16).target();
         let profiling = Profiling::new(&mut wasm, target).unwrap();
-        let table = DispatchTable::new(&mut wasm).unwrap();
+        let modules = Modules::new(&mut wasm).unwrap();
         let mut program = Program::new();
         let record = CallProfile::declare_recorder(&mut program);
         let declaration = FunctionDeclaration::<fn(u32) -> bool>::new("", "record");
@@ -47,7 +47,7 @@ impl Recorder {
         Self {
             wasm,
             profiling,
-            table,
+            modules,
             record,
         }
     }
@@ -61,12 +61,12 @@ impl Recorder {
     }
 
     fn collect(&mut self) {
-        self.profiling.collect(&mut self.wasm, &self.table);
+        self.profiling.collect(&mut self.wasm, &self.modules);
     }
 
     fn collect_if_due(&mut self, now: Instant) {
         self.profiling
-            .collect_if_due(&mut self.wasm, &self.table, now);
+            .collect_if_due(&mut self.wasm, &self.modules, now);
     }
 }
 

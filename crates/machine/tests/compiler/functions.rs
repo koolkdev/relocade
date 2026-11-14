@@ -116,6 +116,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
                     .collect::<Vec<_>>(),
                 [(0, 8), (8, 2), (0, 2)]
             );
+            assert_eq!(code.ranges(), &[0x100..0x10a, 0x200..0x202]);
             compiler
                 .request_functions(target, vec![request(0x30)])
                 .unwrap();
@@ -134,6 +135,17 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
                 .await
                 .unwrap();
             code.install(runner.cpu()).unwrap();
+            for address in [0x100, 0x109, 0x200, 0x201] {
+                assert_eq!(runner.cpu().compiled_modules_at(address).count(), 1);
+            }
+            for address in [0xff, 0x10a, 0x180, 0x202, 0x300] {
+                assert_eq!(runner.cpu().compiled_modules_at(address).count(), 0);
+            }
+            // Replacement leaves the old module owned: both versions depend on
+            // these bytes, even though only the newest exports are dispatched.
+            code.install(runner.cpu()).unwrap();
+            assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 2);
+
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)

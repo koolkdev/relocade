@@ -1,6 +1,8 @@
 //! Shared compilation service over each machine's guest memory.
 
 mod client;
+mod code;
+pub use code::{CompiledCode, Description};
 mod connection;
 mod service;
 pub use client::CompilerClient;
@@ -8,11 +10,9 @@ pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
 pub use service::CompilerService;
 
-use crate::{
-    worker::Transfer, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Memory, Result,
-};
+use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
-use relocade_x86::{BlockEntry, BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
+use relocade_x86::{BlockSnapshot, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
@@ -32,82 +32,6 @@ pub struct BlockRequest {
 pub struct FunctionRequest {
     pub entry: FarPointer,
     pub limits: FunctionLimits,
-}
-
-/// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
-/// Clones share the engine module. Each installation creates CPU-local bindings.
-#[derive(Clone)]
-pub struct CompiledCode {
-    module: Module,
-    description: Description,
-}
-
-#[derive(Clone)]
-pub struct Description {
-    addresses: Vec<u32>,
-    blocks: Vec<BlockEntry>,
-    target: ExecutionTarget,
-}
-
-impl CompiledCode {
-    pub fn blocks(&self) -> &[BlockEntry] {
-        &self.description.blocks
-    }
-
-    /// Publishes these entries through the CPU's existing dispatch and hook path.
-    /// The caller maintains code/mapping validity for the installed code's lifetime.
-    /// Pending or parked host calls must finish before installation.
-    pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
-        self.install_entries(cpu, false)
-    }
-
-    /// Automatic admission preserves entries installed while the batch was pending.
-    pub(crate) fn install_missing(&self, cpu: &mut Cpu) -> Result<()> {
-        self.install_entries(cpu, true)
-    }
-
-    fn entry_key(&self, index: usize) -> Result<u32> {
-        let eip = self.description.blocks[index].start_eip;
-        let offset = u16::try_from(eip).map_err(|_| ConfigurationError::IncompatibleCpu)?;
-        let base = self.description.addresses[index]
-            .checked_sub(eip)
-            .filter(|base| base & 15 == 0 && *base <= 0xffff0)
-            .ok_or(ConfigurationError::IncompatibleCpu)?;
-        Ok(FarPointer {
-            segment: (base >> 4) as u16,
-            offset,
-        }
-        .packed())
-    }
-
-    fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
-        if cpu.cpu_state().execution_target() != self.description.target {
-            return Err(Error::CompilationTarget);
-        }
-        let entries: Vec<_> = self
-            .description
-            .blocks
-            .iter()
-            .enumerate()
-            // Out-of-range continuations retain their internal fetch guards,
-            // but have no 16:16 identity to publish in the real-mode map.
-            .filter(|(_, block)| block.start_eip <= u32::from(u16::MAX))
-            .map(|(index, block)| {
-                Ok(DispatchEntry {
-                    key: self.entry_key(index)?,
-                    export: &block.export,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let entries: Vec<_> = entries
-            .into_iter()
-            .filter(|entry| !missing_only || !cpu.has_entry(entry.key))
-            .collect();
-        if entries.is_empty() {
-            return Ok(());
-        }
-        cpu.install_compiled_module(&self.module, &entries)
-    }
 }
 
 /// Successes and errors occupy the same ordered channel message.
@@ -204,6 +128,7 @@ async fn compile(
     Ok(CompiledCode {
         module: compiler.compile(&blocks.bytes).await?,
         description: Description {
+            ranges: code::ranges(&addresses, &blocks.entries),
             addresses,
             blocks: blocks.entries,
             target: blocks.execution_target,

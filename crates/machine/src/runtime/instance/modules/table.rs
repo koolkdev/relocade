@@ -43,7 +43,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     }
 
     /// Failed Real16 candidates suppress profiling only for their own CS:IP.
-    pub(super) fn interpret_at(&mut self, backend: &mut B, entry: FarPointer) -> Result<()> {
+    pub(super) fn install_interpreter_fallback(
+        &mut self,
+        backend: &mut B,
+        entry: FarPointer,
+    ) -> Result<()> {
         let key = entry.packed();
         if self.contains(key) {
             return Ok(());
