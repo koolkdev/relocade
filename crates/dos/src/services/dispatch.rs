@@ -1,6 +1,6 @@
 //! INT 21h selection; each service owns its argument and return mapping.
 
-use super::{console, control, directories, files, ioctl, memory, search, system, Services};
+use super::{clock, console, control, directories, files, ioctl, memory, search, system, Services};
 use crate::ServiceError;
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
@@ -41,6 +41,8 @@ async fn dispatch_function(call: &mut CpuContext<'_>, services: &Services<'_>) {
             0x19 => directories::get_drive(services),
             0x1a => search::set_dta(services),
             0x25 => system::set_vector,
+            0x2a => clock::get_date,
+            0x2c => clock::get_time,
             0x2f => search::get_dta(services),
             0x30 => system::version,
             0x33 => control::break_setting(services),
