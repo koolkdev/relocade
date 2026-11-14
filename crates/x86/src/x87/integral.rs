@@ -39,7 +39,8 @@ impl Operand {
         let already_integral = exponent.unsigned().ge(16383 + 63);
         let distance = already_integral.select(0, Val::<I32>::from(16383 + 63).sub(exponent));
         let rounded = rounding.round(
-            RoundingInput::exact(bits.significand.clone()).shift_right(distance),
+            &RoundingInput::exact(bits.significand.clone()),
+            distance,
             &bits.negative(),
         );
         let shift = rounded.integer.clz().truncate::<I32>();

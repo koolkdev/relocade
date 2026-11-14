@@ -15,12 +15,13 @@ mod tests;
 impl<P: Phase> FunctionGraph<P> {
     /// Remove unused executions and result channels before placement, preserving
     /// all value and effect IDs. Reuse the reachability snapshot placement needs.
+    /// Return the independently live values so lowering can omit unused results.
     pub(crate) fn prune_unused(
         &mut self,
         reachable: &[bool],
         observable: impl Fn(&Operation) -> bool,
-    ) {
-        liveness::prune(self, reachable, observable);
+    ) -> Vec<bool> {
+        liveness::prune(self, reachable, observable).values
     }
 
     /// Retain only the live graph after placement releases its ID-based caches.

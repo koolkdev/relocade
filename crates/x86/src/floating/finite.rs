@@ -140,7 +140,7 @@ impl FiniteMagnitude {
         let precision = fraction_bits + 1;
         let shift = 64 - precision;
         let minimum = 1 - format.bias() as i32;
-        let unbounded = rounding.round(self.significand.shift_right(shift), &self.negative);
+        let unbounded = rounding.round(&self.significand, shift, &self.negative);
         // Only an increment of an all-ones retained significand carries into
         // the exponent. Range evidence does not need the rounded integer.
         let carry = unbounded
@@ -161,7 +161,7 @@ impl FiniteMagnitude {
             shift,
         );
         // Never round an already precision-rounded value a second time.
-        let bounded = rounding.round(self.significand.shift_right(distance), &self.negative);
+        let bounded = rounding.round(&self.significand, distance, &self.negative);
         let exponent_field = below_normal.select(0, self.exponent.sub(minimum));
         let finite_bits = exponent_field
             .unsigned()

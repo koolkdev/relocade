@@ -122,7 +122,9 @@ impl<P: crate::body::Phase> Folder<'_, P> {
                 }
                 self.fold(ty, expression)
             }
-            Expression::MultiplyWide { .. } => self.fold_result(ty, expression, component),
+            Expression::MultiplyWide { .. } | Expression::RoundMagnitude { .. } => {
+                self.fold_result(ty, expression, component)
+            }
         }
     }
 

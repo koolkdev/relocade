@@ -7,6 +7,7 @@ mod evaluate;
 pub(super) use evaluate::TypedLiteral;
 mod fold;
 mod lower;
+pub(crate) mod rounding;
 mod shuffle;
 #[cfg(test)]
 pub(crate) use fold::refold;
@@ -46,6 +47,11 @@ pub(super) enum Expression<V> {
         left: V,
         right: V,
     },
+    RoundMagnitude {
+        integer: V,
+        distance: V,
+        control: V,
+    },
 }
 
 impl<V> Expression<V> {
@@ -53,8 +59,9 @@ impl<V> Expression<V> {
     /// value result type; operations with a fixed signature declare it here.
     pub(super) fn result_types(&self, ty: Type) -> impl ExactSizeIterator<Item = Type> {
         let (types, count) = match self {
-            Self::MultiplyWide { .. } => ([Type::I64; 2], 2),
-            _ => ([ty; 2], 1),
+            Self::MultiplyWide { .. } => ([Type::I64; 3], 2),
+            Self::RoundMagnitude { .. } => ([Type::I64, Type::I1, Type::I1], 3),
+            _ => ([ty; 3], 1),
         };
         types.into_iter().take(count)
     }
@@ -127,6 +134,15 @@ impl<V> Expression<V> {
                 signed: *signed,
                 left: input(left)?,
                 right: input(right)?,
+            },
+            Self::RoundMagnitude {
+                integer,
+                distance,
+                control,
+            } => Expression::RoundMagnitude {
+                integer: input(integer)?,
+                distance: input(distance)?,
+                control: input(control)?,
             },
         })
     }

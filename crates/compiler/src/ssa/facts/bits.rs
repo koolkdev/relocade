@@ -70,10 +70,20 @@ pub(super) fn infer_bits(
     }
     let mask = ty.carrier().mask();
     let bits = |id: usize| get(id).bits;
-    let ValueDefinition::Expression(expression) = values[id].definition else {
+    let Some(result) = values.expression(id) else {
         return base;
     };
-    let inferred = match expression {
+    let inferred = match result.expression {
+        Expression::RoundMagnitude {
+            integer,
+            distance,
+            control,
+        } => super::rounding::infer(
+            bits(integer),
+            bits(distance),
+            bits(control),
+            result.component,
+        ),
         Expression::Unary { operator, input } => {
             let a = bits(input);
             match operator {

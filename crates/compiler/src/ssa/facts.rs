@@ -12,6 +12,7 @@ use crate::{
 mod bits;
 mod predicate;
 mod range;
+mod rounding;
 pub(super) use bits::Bits;
 use bits::{infer_bits, initial_bits};
 pub(super) use predicate::{identify as predicate, Predicate};

@@ -22,6 +22,9 @@ impl Writer<'_> {
             }
             Expression::Ternary { operator, .. } => self.emit(operators::ternary(operator)),
             Expression::MultiplyWide { signed, .. } => self.multiply_wide(signed),
+            Expression::RoundMagnitude { .. } => {
+                unreachable!("rounding is lowered before emission")
+            }
         }
     }
 }

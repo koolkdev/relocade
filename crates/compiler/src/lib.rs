@@ -55,7 +55,8 @@ pub use types::{
     V64,
 };
 pub use value::{
-    Argument, F32x4, F64x2, SaturatingLane, Signed, Unsigned, Val, VectorLane, VectorType,
+    Argument, F32x4, F64x2, RoundedInteger, RoundingInput, SaturatingLane, Signed, Unsigned, Val,
+    VectorLane, VectorType,
 };
 
 /// A function's ordered logical parameter and result types.

@@ -97,6 +97,18 @@ impl Expression<TypedLiteral> {
                         .into(),
                 )
             }
+            Self::RoundMagnitude {
+                integer,
+                distance,
+                control,
+            } => Some(
+                super::rounding::evaluate(
+                    integer.value.scalar(integer.ty)?,
+                    distance.value.scalar(distance.ty)? as u32,
+                    control.value.scalar(control.ty)? as u8,
+                )[component]
+                    .into(),
+            ),
         }
     }
 }

@@ -143,6 +143,7 @@ impl<P: Phase> Folder<'_, P> {
                 left,
                 right,
             } => self.fold_multiply_wide(signed, left, right, component),
+            Expression::RoundMagnitude { .. } => None,
         };
         let expression = if let Some(input) = input {
             if self.values[input].ty == ty {
@@ -191,8 +192,9 @@ impl<P: Phase> Folder<'_, P> {
         expression: Expression<usize>,
         component: usize,
     ) -> usize {
+        // The producer owns the first result type; ty names the requested output.
         let id = self.values.intern(Value {
-            ty,
+            ty: expression.result_types(ty).next().unwrap(),
             definition: ValueDefinition::Expression(expression),
         });
         let id = self.values.expression_result(id, component);
