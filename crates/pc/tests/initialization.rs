@@ -6,7 +6,7 @@ use relocade_machine::{
     worker::wake_connection,
     FarPointer, Hook, Runner,
 };
-use relocade_pc::Pc;
+use relocade_pc::{Configuration, Pc, VideoCard};
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
 use std::time::Duration;
 
@@ -14,6 +14,13 @@ use std::time::Duration;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn bios_without_dos() {
+    assert_eq!(VideoCard::default(), VideoCard::Dispi);
+    for video_card in [VideoCard::Dispi, VideoCard::Et4000Ax] {
+        bios_for_video_card(video_card).await;
+    }
+}
+
+async fn bios_for_video_card(video_card: VideoCard) {
     let clock = ManualClock::default();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
@@ -27,7 +34,15 @@ async fn bios_without_dos() {
         .run(
             futures_timer::Delay::new(Duration::from_secs(30)),
             async |runner| {
-                let mut pc = Pc::new(runner).await.unwrap();
+                let mut pc = Pc::with_configuration(
+                    runner,
+                    Configuration {
+                        video_card,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
                 let memory = pc.cpu().memory();
                 // PC startup installs neither a DOS vector nor DOS allocation metadata.
                 assert_eq!(memory.view().read_u32(0x21 * 4).unwrap(), 0);
@@ -72,7 +87,7 @@ async fn bios_without_dos() {
                 assert_eq!(samples, [0x80, 0xa0, 0x80]);
                 assert_eq!(io.read_port(STATUS_PORT, 1), 2);
 
-                // Query the default card's video firmware, then physical input and IRQ0.
+                // Query the selected card's firmware, then physical input and IRQ0.
                 let code = [
                     0xb4, 0x0f, 0xcd, 0x10, 0xa3, 0, 7, // Video mode.
                     0xbf, 0, 8, 0xb8, 0, 0x4f, 0xcd, 0x10, 0xa3, 6, 7, // VBE info.
@@ -109,6 +124,17 @@ async fn bios_without_dos() {
                 assert_eq!(memory.view().read_u16(0x702).unwrap(), 0x1e61);
                 assert_eq!(memory.view().read_u16(0x704).unwrap(), 1);
                 assert_eq!(memory.view().read_u16(0x706).unwrap(), 0x004f);
+                assert_eq!(
+                    memory.view().read_u16(0x812).unwrap(),
+                    match video_card {
+                        VideoCard::Dispi => 64,
+                        VideoCard::Et4000Ax => 16,
+                    }
+                );
+                if video_card == VideoCard::Et4000Ax {
+                    assert_eq!(io.read_port(0x1ce, 2), 0xffff);
+                    assert_eq!(io.read_port(0x1cf, 2), 0xffff);
+                }
                 assert_eq!(
                     memory.view().read_u32(0x800).unwrap(),
                     u32::from_le_bytes(*b"VESA")
