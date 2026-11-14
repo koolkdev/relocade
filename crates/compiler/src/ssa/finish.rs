@@ -1,6 +1,7 @@
 //! Local folding and reuse of already defined calculations, including SSA joins.
 use super::*;
-use rustc_hash::FxHashMap;
+mod executions;
+use executions::Executions;
 mod joins;
 mod motion;
 mod paths;
@@ -25,7 +26,7 @@ pub(super) fn run(graph: &mut SsaGraph, changed: &[bool]) {
         numbers,
         visible: vec![None; count],
         changes: Vec::new(),
-        executions: FxHashMap::default(),
+        executions: Executions::new(count),
         complete: vec![false; reachable.len()],
     };
     let mut children = vec![Vec::new(); reachable.len()];
@@ -121,13 +122,14 @@ struct Reuse<'a> {
     numbers: super::numbering::Numbering,
     visible: Vec<Option<usize>>,
     changes: Vec<(usize, Option<usize>)>,
-    executions: FxHashMap<usize, Vec<(BlockId, usize)>>,
+    executions: Executions,
     complete: Vec<bool>,
 }
 
 impl Reuse<'_> {
     fn extend(&mut self) {
         self.numbers.extend(&self.graph.values);
+        self.executions.extend(self.graph.values.len());
         while self.aliases.len() < self.graph.values.len() {
             let id = self.aliases.len();
             self.aliases.push(id);
@@ -145,10 +147,7 @@ impl Reuse<'_> {
     fn bind(&mut self, number: usize, value: usize, block: BlockId) {
         let previous = self.visible[number].replace(value);
         self.changes.push((number, previous));
-        self.executions
-            .entry(number)
-            .or_default()
-            .push((block, value));
+        self.executions.record(number, block, value);
     }
 
     fn calculation(&mut self, producer: usize, block: BlockId) {
@@ -191,7 +190,7 @@ impl Reuse<'_> {
                 for &input in result.expression.inputs().rev() {
                     let input = self.resolve(input);
                     if self.graph.values.expression(input).is_some()
-                        && !self.executions.contains_key(&self.numbers.get(input))
+                        && self.executions.get(self.numbers.get(input)).is_empty()
                     {
                         work.push((input, false));
                     }

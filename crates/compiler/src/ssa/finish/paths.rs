@@ -1,6 +1,7 @@
 //! Reuse may omit an incoming value only when explicit branch decisions exclude it.
 use super::*;
 use crate::ssa::versions::{Snapshot, Versions};
+use rustc_hash::FxHashMap;
 
 pub(super) struct Paths {
     versions: Versions,
