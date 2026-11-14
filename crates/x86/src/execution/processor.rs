@@ -3,11 +3,16 @@
 use super::ExecutionBuilder;
 use crate::{
     processor::{self, CpuidValues},
+    state::DescriptorTableValues,
     CpuFeature, ExecutionExitValues,
 };
 use relocade_compiler::{BuildError, Val, I1, I32};
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn global_descriptor_table(&mut self) -> Result<DescriptorTableValues, BuildError> {
+        self.state.global_descriptor_table(&mut self.body)
+    }
+
     pub(crate) fn halt(&mut self, next_ip: &Val<I32>) -> Result<(), BuildError> {
         self.state
             .publish(&mut self.body, next_ip, self.completed + 1)?;

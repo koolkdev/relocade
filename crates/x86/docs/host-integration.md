@@ -410,6 +410,18 @@ do not narrow its full-width registers. LOCK uses the shared unsupported exit.
 The register and permission semantics follow Intel's [Volume 2B, RDTSC](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366721.pdf#page=248).
 The instruction-based progression is this virtual CPU's explicit timing policy.
 
+## System register stores
+
+SGDT copies `CpuState::gdtr` to a six-byte memory destination in real and protected
+mode, preserving flags. It stores the 16-bit limit followed by the base. With a
+32-bit operand size the complete base is stored; with a 16-bit operand size only
+the low 24 base bits are stored and the sixth byte is zero. This follows the
+[P4-era Intel SGDT reference](https://www.scs.stanford.edu/nyu/04fa/lab/ia32/IA32-2B.pdf#page=196).
+The complete destination must pass segment and memory access checks before any
+bytes are written. A register destination and LOCK use the shared unsupported
+encoding exit. The instruction reads the retained GDTR even in real mode, where
+that register does not participate in segment addressing.
+
 ## Port I/O
 
 Real16 IN/OUT and INS/OUTS call entries in two synchronous `relocade` function tables:

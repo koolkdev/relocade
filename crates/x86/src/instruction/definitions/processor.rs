@@ -1,7 +1,11 @@
 //! Processor queries and execution control.
 
 use super::*;
-use crate::register::Gpr32;
+use crate::{
+    address::MemoryAddress,
+    memory::Intent,
+    register::{Gpr32, RegisterType},
+};
 
 instruction_families! {
     HLT {
@@ -26,6 +30,26 @@ instruction_families! {
             0x0F 0x31 => no_operands();
         }
     }
+    SGDT {
+        execute: store_global_descriptor_table::<_>;
+        forms { 0x0F 0x01 /0 => word_or_dword(mem); }
+    }
+}
+
+fn store_global_descriptor_table<T: RegisterType>(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    destination: MemoryAddress<Val<I32>>,
+) -> Result<(), BuildError> {
+    let table = execution.global_descriptor_table()?;
+    // P4's 16-bit operand size stores a 24-bit base and zero in the sixth byte.
+    let base = if T::BYTES == 2 {
+        table.base.and(0x00ff_ffffu32)
+    } else {
+        table.base
+    };
+    let target = execution.memory_operand(destination, 6, Intent::Write, &[])?;
+    target.write::<I16>(execution, 0, table.limit)?;
+    target.write::<I32>(execution, 2, base)
 }
 
 fn halt(
