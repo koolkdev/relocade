@@ -6,7 +6,7 @@ use crate::{
     path::{self, ResolvedPath},
     MountError,
 };
-use relocade_vfs::MemoryFileSystem;
+use relocade_vfs::{MemoryFileSystem, Space};
 use std::io::{self, ErrorKind};
 
 impl FileSystem {
@@ -84,6 +84,22 @@ impl FileSystem {
 
     pub(crate) fn current_drive(&self) -> u8 {
         self.current_drive as u8 - b'A'
+    }
+
+    pub(crate) fn disk_space(&self, number: u8) -> Result<Space, DosError> {
+        let letter = self.query_drive(number)?;
+        Ok(self.drives.get(letter).unwrap().space())
+    }
+
+    /// DOS drive queries use 0 for the default and 1-based explicit drive numbers.
+    pub(super) fn query_drive(&self, number: u8) -> Result<char, DosError> {
+        let letter = match number {
+            0 => self.current_drive,
+            1..=26 => char::from(b'A' + number - 1),
+            _ => return Err(DosError::InvalidDrive),
+        };
+        self.drives.get(letter).ok_or(DosError::InvalidDrive)?;
+        Ok(letter)
     }
 
     fn path_context(&self, path: &[u8]) -> Result<(char, &str), DosError> {

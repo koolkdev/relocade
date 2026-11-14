@@ -101,6 +101,9 @@
 //! AH=5Ah creates a uniquely named temporary file; the caller owns its deletion.
 //! AH=56h renames or moves closed files on the same drive without replacing a destination.
 //! AH=0Eh/19h select/query the current drive; AH=3Bh/47h change/query a drive's directory.
+//! AH=36h reports a drive's sectors per cluster (AX), free clusters (BX), bytes
+//! per sector (CX) and total clusters (DX). DL=0 selects the current drive;
+//! DL=1..26 selects A:..Z:. Invalid drives return AX=FFFFh. Flags are preserved.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
 //! Guest relative paths use the selected drive's directory; both persist across loads.
 //! ASCII pathname components use DOS 8.3 translation: names and extensions are

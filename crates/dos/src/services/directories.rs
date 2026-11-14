@@ -1,5 +1,5 @@
 use super::{files::read_path, Services};
-use crate::DosError;
+use crate::{files::BYTES_PER_SECTOR, DosError};
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 
 #[interrupt(args(number = dl), returns { count => { al = count } })]
@@ -10,6 +10,22 @@ pub(super) fn select_drive(services: &Services<'_>, number: u8) -> u8 {
 #[interrupt(returns { number => { al = number } })]
 pub(super) fn get_drive(services: &Services<'_>) -> u8 {
     services.dos.filesystem().current_drive()
+}
+
+#[interrupt(args(drive = dl), returns {
+    Ok(space) => {
+        ax = (space.allocation_unit / u32::from(BYTES_PER_SECTOR)) as u16,
+        bx = space.free_units as u16,
+        cx = BYTES_PER_SECTOR,
+        dx = space.total_units as u16,
+    },
+    Err(_) => { ax = 0xffffu16 },
+})]
+pub(super) fn free_space(
+    services: &Services<'_>,
+    drive: u8,
+) -> Result<relocade_vfs::Space, DosError> {
+    services.dos.filesystem().disk_space(drive)
 }
 
 #[interrupt(context(memory), args(path = ptr(ds, dx)), returns {
