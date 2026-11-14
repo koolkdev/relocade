@@ -15,7 +15,7 @@ async fn state_services() {
         Segment::Es,
         SegmentRegister::real_mode(Segment::Es, BUFFER.segment),
     );
-    assert_eq!(call(&mut cpu, 0x4f02, 0x101, 0, 0).await, 0x004f);
+    assert_eq!(call(&mut cpu, 0x4f02, 0x110, 0, 0).await, 0x004f);
     machine.io.write_port(0x3cd, 1, 0x75);
     machine.io.write_mmio(0xa0000, 1, 0x6a);
     machine.io.write_port(0x3d4, 1, 0x33);
@@ -23,6 +23,8 @@ async fn state_services() {
     machine.io.write_port(0x3c0, 1, 0x36);
     machine.io.write_port(0x3c8, 1, 9);
     machine.io.write_port(0x3c9, 1, 12);
+    machine.io.read_port(0x3c6, 1);
+    machine.io.read_port(0x3c6, 1); // Preserve a partly completed command sequence.
     let core = machine.card.borrow().core_state();
     let dac = machine.card.borrow().dac_state();
     let extensions = machine.card.borrow().et4000_state();
@@ -69,7 +71,7 @@ async fn state_services() {
         drop(card);
         assert_eq!(
             machine.memory.view().read_u8(0x449).unwrap(),
-            if mask & 2 != 0 { 0x2e } else { 0x30 }
+            if mask & 2 != 0 { 0x7f } else { 0x30 }
         );
     }
     assert_eq!(machine.io.read_port(0x3cd, 1), 0x75);
