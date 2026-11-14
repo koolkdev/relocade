@@ -1,4 +1,5 @@
 //! ET4000's VBE services; capabilities come from this board's indexed modes.
+mod modes;
 use super::modes::Mode;
 use crate::video::firmware::vbe::{self, WindowAccess};
 use relocade_machine::{
@@ -19,6 +20,9 @@ pub(in crate::video::firmware) async fn dispatch(
         match function {
             0 => controller(card),
             1 => mode(card),
+            2 => modes::set(card),
+            3 => modes::current(card),
+            5 => modes::window(card),
             _ => unsupported,
         }
     );

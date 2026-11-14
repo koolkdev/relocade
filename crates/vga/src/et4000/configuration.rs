@@ -21,6 +21,39 @@ impl Et4000Ax {
             .map(|layout| layout.with_start_offset(self.programmed_start() * 4))
     }
 
+    pub fn read_bank(&self) -> u16 {
+        u16::from(self.extensions.segments >> 4)
+    }
+
+    pub fn write_bank(&self) -> u16 {
+        u16::from(self.extensions.segments & 15)
+    }
+
+    /// Change only the read segment of the 64-KiB aperture.
+    pub fn set_read_bank(&mut self, context: IoContext<'_>, bank: u16) -> bool {
+        self.set_video_banks(context, bank, self.write_bank())
+    }
+
+    /// Change only the write segment of the 64-KiB aperture.
+    pub fn set_write_bank(&mut self, context: IoContext<'_>, bank: u16) -> bool {
+        self.set_video_banks(context, self.read_bank(), bank)
+    }
+
+    fn set_video_banks(&mut self, context: IoContext<'_>, read: u16, write: u16) -> bool {
+        let banks = self.video_memory_bytes() / 65536;
+        if !self.ports_enabled()
+            || self.packed_layout().is_none()
+            || u32::from(read) >= banks
+            || u32::from(write) >= banks
+        {
+            return false;
+        }
+        self.extensions.write_hercules(3);
+        self.extensions.write_mode(0xa0);
+        self.write_segments(context, ((read << 4) | write) as u8);
+        true
+    }
+
     /// Remove extended addressing, clocks and banks before common VGA font
     /// loading and mode programming. The firmware can then install new timings.
     pub fn prepare_legacy_mode(&mut self, mut context: IoContext<'_>) {
