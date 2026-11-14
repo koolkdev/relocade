@@ -10,9 +10,9 @@ use crate::{
 impl Folder<'_> {
     pub(super) fn fold_extract_lane(&mut self, ty: Type, lane: u8, input: usize) -> Option<usize> {
         let start = lane * ty.bits();
-        let mut base = self.values.representation(input);
+        let mut base = self.representation(input);
         loop {
-            match self.values[base].definition {
+            match self.value(base).definition {
                 ValueDefinition::Expression(Expression::Binary {
                     operator:
                         Binary::ReplaceLane {
@@ -33,7 +33,7 @@ impl Folder<'_> {
                     {
                         break;
                     }
-                    base = self.values.representation(left);
+                    base = self.representation(left);
                 }
                 ValueDefinition::Expression(Expression::Binary {
                     operator: Binary::ShuffleImmediate(mask),
@@ -63,7 +63,7 @@ impl Folder<'_> {
                 _ => break,
             }
         }
-        (base != self.values.representation(input)).then(|| {
+        (base != self.representation(input)).then(|| {
             self.fold(
                 ty,
                 Expression::Unary {
@@ -82,15 +82,15 @@ impl Folder<'_> {
         left: usize,
         right: usize,
     ) -> Option<usize> {
-        let scalar = self.values.representation(right);
+        let scalar = self.representation(right);
         if let ValueDefinition::Expression(Expression::Unary {
             operator: Unary::ExtractLane { lane: extracted },
             input,
-        }) = self.values[scalar].definition
+        }) = self.value(scalar).definition
         {
-            if self.values[scalar].ty == lane_type
+            if self.value(scalar).ty == lane_type
                 && lane == extracted
-                && self.values.representation(input) == self.values.representation(left)
+                && self.representation(input) == self.representation(left)
             {
                 return Some(left);
             }
@@ -103,7 +103,7 @@ impl Folder<'_> {
                 },
             left: base,
             ..
-        }) = self.values[self.values.representation(left)].definition
+        }) = self.value(self.representation(left)).definition
         {
             if lane_type == previous_type && lane == previous {
                 return Some(self.fold(
@@ -126,7 +126,7 @@ impl Folder<'_> {
         left: usize,
         right: usize,
     ) -> Option<usize> {
-        let same = self.values.representation(left) == self.values.representation(right);
+        let same = self.representation(left) == self.representation(right);
         for (half, input) in [left, right].into_iter().enumerate() {
             if indices.iter().enumerate().all(|(byte, &index)| {
                 index < width * 2
@@ -155,19 +155,16 @@ impl Folder<'_> {
         let mut sources = [None; 2];
         let mut composed = false;
         let inputs = [left, right].map(|input| {
-            let input = self.values.representation(input);
+            let input = self.representation(input);
             if let ValueDefinition::Expression(Expression::Binary {
                 operator: Binary::ShuffleImmediate(inner),
                 left,
                 right,
-            }) = self.values[input].definition
+            }) = self.value(input).definition
             {
                 composed = true;
                 (
-                    [
-                        self.values.representation(left),
-                        self.values.representation(right),
-                    ],
+                    [self.representation(left), self.representation(right)],
                     inner.indices(),
                 )
             } else {

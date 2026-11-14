@@ -55,8 +55,8 @@ impl Folder<'_> {
         right: usize,
     ) -> Option<usize> {
         use LaneBinaryOp::*;
-        let a = self.values.representation(left);
-        let b = self.values.representation(right);
+        let a = self.representation(left);
+        let b = self.representation(right);
         if a == b {
             match operator {
                 Sub | SubSatSigned | SubSatUnsigned | GtSigned => {
@@ -104,8 +104,8 @@ impl Folder<'_> {
         count: usize,
         lane_type: Type,
     ) -> Option<usize> {
-        let input = self.values.representation(value);
-        let count = self.values[self.values.representation(count)].scalar_literal();
+        let input = self.representation(value);
+        let count = self.value(self.representation(count)).scalar_literal();
         if self.vector_literal(input) == Some(0)
             || count.is_some_and(|count| count % u64::from(lane_type.bits()) == 0)
         {

@@ -18,7 +18,7 @@ impl ScalarFacts {
         };
         let mut joined = (*first).clone();
         for (facts, _) in &incoming[1..] {
-            joined.retain_common(facts);
+            joined.retain_common(table, facts);
         }
         for (component, &parameter) in parameters.iter().enumerate() {
             joined.merge_parameter(
@@ -54,7 +54,9 @@ impl ScalarFacts {
         }
     }
 
-    fn retain_common(&mut self, other: &Self) {
+    fn retain_common(&mut self, table: &ValueTable, other: &Self) {
+        self.refresh_bits(table);
+        other.refresh_bits(table);
         self.known.retain(|id, bits| {
             let incoming = other.known.get(id).copied().unwrap_or_default();
             *bits = bits.common(incoming);
@@ -81,8 +83,27 @@ impl ScalarFacts {
         {
             self.lanes = None;
         }
-        // Earlier inferences may depend on knowledge just discarded.
-        self.answers.get_mut().clear();
-        *self.updates.get_mut() = Default::default();
+        self.answers
+            .borrow_mut()
+            .intersect(&other.answers.borrow(), |a, b| {
+                let mut answer = *a;
+                answer.bits = a.bits.zip(b.bits).map(|(a, b)| a.common(b));
+                answer.bits_complete = a.bits_complete && b.bits_complete && a.bits == b.bits;
+                if a.residual != b.residual {
+                    answer.residual = None;
+                }
+                answer.revisit |= b.revisit;
+                answer.literal &= b.literal && answer.residual.is_some();
+                if a.form != b.form {
+                    answer.form = None;
+                    answer.revisit = true;
+                }
+                if a.aliases != b.aliases {
+                    answer.aliases = None;
+                }
+                (answer.bits.is_some() || answer.residual.is_some() || answer.aliases.is_some())
+                    .then_some(answer)
+            });
+        *self.updates.borrow_mut() = Default::default();
     }
 }

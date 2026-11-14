@@ -76,9 +76,14 @@ impl Bits {
 #[derive(Clone, Copy, Default)]
 struct Answer {
     bits: Option<Bits>,
-    // Offset IDs by one to keep the optional normal form in one word.
+    // The representative keeps its identity when only its operands simplify.
+    // Offset IDs by one to keep each optional ID in one word.
     residual: Option<NonZeroUsize>,
+    // Equivalent expression with the operands resolved in this scope.
+    form: Option<NonZeroUsize>,
     revisit: bool,
+    bits_complete: bool,
+    literal: bool,
     aliases: Option<NonZeroUsize>,
 }
 
@@ -155,14 +160,14 @@ impl ScalarFacts {
     }
 
     fn assume_bits(&mut self, table: &ValueTable, id: usize, mask: u64, value: u64) {
-        let previous = self.known_bits(table, id);
-        let bits = Bits {
-            mask,
-            value: value & mask,
-        };
-        if !previous.conflicts(bits) && bits.mask & !previous.mask != 0 {
-            self.record(table, id, previous.union(bits));
-        }
+        self.assume_encoding(
+            table,
+            id,
+            Bits {
+                mask,
+                value: value & mask,
+            },
+        );
     }
 
     fn record(&mut self, table: &ValueTable, id: usize, bits: Bits) {

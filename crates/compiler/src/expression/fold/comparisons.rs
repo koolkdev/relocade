@@ -33,31 +33,31 @@ impl ConstantComparison {
 
 impl Folder<'_> {
     pub(super) fn complementary_predicates(&self, left: usize, right: usize) -> bool {
-        let left = self.values.representation(left);
-        let right = self.values.representation(right);
+        let left = self.representation(left);
+        let right = self.representation(right);
         for (predicate, other) in [(left, right), (right, left)] {
             let ValueDefinition::Expression(Expression::Unary {
                 operator: Unary::ZeroTest { nonzero },
                 input,
-            }) = self.values[predicate].definition
+            }) = self.value(predicate).definition
             else {
                 continue;
             };
-            let input = self.values.representation(input);
+            let input = self.representation(input);
             if let ValueDefinition::Expression(Expression::Unary {
                 operator:
                     Unary::ZeroTest {
                         nonzero: other_nonzero,
                     },
                 input: other_input,
-            }) = self.values[other].definition
+            }) = self.value(other).definition
             {
-                if input == self.values.representation(other_input) && nonzero != other_nonzero {
+                if input == self.representation(other_input) && nonzero != other_nonzero {
                     return true;
                 }
             }
             // Logical I1 alone is insufficient: a type view can carry upper bits.
-            if !nonzero && input == other && self.values.bounds[other].unsigned <= 1 {
+            if !nonzero && input == other && self.bounds(other).unsigned <= 1 {
                 return true;
             }
         }
@@ -65,8 +65,8 @@ impl Folder<'_> {
     }
 
     pub(super) fn compare(&mut self, operator: CompareOp, left: usize, right: usize) -> usize {
-        let a = self.values[left];
-        let b = self.values[right];
+        let a = self.value(left);
+        let b = self.value(right);
         debug_assert_eq!(a.ty, b.ty);
         if let Some(result) = self.compare_constant_choices(operator, left, right, a.ty) {
             return self.values.literal(Type::I1, u64::from(result));
@@ -75,12 +75,12 @@ impl Folder<'_> {
         // logical sign. Mixed signed/unsigned representations still need masks.
         let signed_operands = matches!(operator, CompareOp::LtSigned | CompareOp::GeSigned)
             || (matches!(operator, CompareOp::Eq | CompareOp::Ne)
-                && self.values.bounds[left].signed <= a.ty.bits()
-                && self.values.bounds[right].signed <= b.ty.bits());
+                && self.bounds(left).signed <= a.ty.bits()
+                && self.bounds(right).signed <= b.ty.bits());
         if matches!(operator, CompareOp::Eq | CompareOp::Ne)
             && !signed_operands
-            && self.values.bounds[left].unsigned > a.ty.bits()
-            && self.values.bounds[right].unsigned > a.ty.bits()
+            && self.bounds(left).unsigned > a.ty.bits()
+            && self.bounds(right).unsigned > a.ty.bits()
         {
             // Compare the low-bit difference once instead of masking both operands.
             let difference = self.bitwise(BitwiseOp::Xor, left, right);
@@ -110,10 +110,10 @@ impl Folder<'_> {
         left: usize,
         right: usize,
     ) -> Option<usize> {
-        let a = self.values.representation(left);
-        let b = self.values.representation(right);
+        let a = self.representation(left);
+        let b = self.representation(right);
         if let Some(result) =
-            self.compare_constant_choices(operator, a, b, self.values[a].ty.carrier())
+            self.compare_constant_choices(operator, a, b, self.value(a).ty.carrier())
         {
             return Some(self.values.literal(Type::I1, u64::from(result)));
         }
@@ -127,13 +127,13 @@ impl Folder<'_> {
             ));
         }
         if matches!(operator, CompareOp::LtUnsigned | CompareOp::GeUnsigned) {
-            if self.values[b].scalar_literal() == Some(0) {
+            if self.value(b).scalar_literal() == Some(0) {
                 return Some(
                     self.values
                         .literal(Type::I1, u64::from(operator == CompareOp::GeUnsigned)),
                 );
             }
-            if self.values[a].scalar_literal() == Some(0) {
+            if self.value(a).scalar_literal() == Some(0) {
                 return Some(self.fold(
                     Type::I1,
                     Expression::Unary {
@@ -149,8 +149,8 @@ impl Folder<'_> {
             return None;
         }
         let (input, mask) = match (
-            self.values[a].scalar_literal(),
-            self.values[b].scalar_literal(),
+            self.value(a).scalar_literal(),
+            self.value(b).scalar_literal(),
         ) {
             (_, Some(mask)) => (left, mask),
             (Some(mask), _) => (right, mask),
@@ -159,16 +159,16 @@ impl Folder<'_> {
         let nonzero = if mask == 0 {
             operator == CompareOp::Ne
         } else {
-            let one_bit = mask == 1 && self.values.bounds[input].unsigned <= 1;
-            let masked_bit = match self.values[self.values.representation(input)].definition {
+            let one_bit = mask == 1 && self.bounds(input).unsigned <= 1;
+            let masked_bit = match self.value(self.representation(input)).definition {
                 ValueDefinition::Expression(Expression::Binary {
                     operator: Binary::Bitwise(BitwiseOp::And),
                     left,
                     right,
                 }) => {
                     mask.is_power_of_two()
-                        && (self.values[left].scalar_literal() == Some(mask)
-                            || self.values[right].scalar_literal() == Some(mask))
+                        && (self.value(left).scalar_literal() == Some(mask)
+                            || self.value(right).scalar_literal() == Some(mask))
                 }
                 _ => false,
             };
@@ -194,8 +194,8 @@ impl Folder<'_> {
         ty: Type,
     ) -> Option<bool> {
         let (input, constant, constant_first) = match (
-            self.values[left].scalar_literal(),
-            self.values[right].scalar_literal(),
+            self.value(left).scalar_literal(),
+            self.value(right).scalar_literal(),
         ) {
             (_, Some(constant)) => (left, constant, false),
             (Some(constant), _) => (right, constant, true),
@@ -219,7 +219,7 @@ impl Folder<'_> {
         remaining: &mut usize,
     ) -> Option<bool> {
         *remaining = remaining.checked_sub(1)?;
-        let value = self.values[input];
+        let value = self.value(input);
         if let Some(bits) = value.scalar_literal() {
             return Some(comparison.evaluate(bits));
         }
@@ -234,7 +234,7 @@ impl Folder<'_> {
                 let when_false = self.compare_choices(when_false, comparison, remaining)?;
                 (when_true == when_false).then_some(when_true)
             }
-            _ if self.values.bounds[input].unsigned <= 1 => {
+            _ if self.bounds(input).unsigned <= 1 => {
                 // Canonical predicates retain the same choices after a 0/1
                 // selection has folded away, including through type views.
                 let zero = comparison.evaluate(0);
@@ -245,7 +245,7 @@ impl Folder<'_> {
     }
 
     pub(super) fn zero_test(&mut self, input: usize, nonzero: bool) -> usize {
-        let input = if self.values.bounds[input].signed <= self.values[input].ty.bits() {
+        let input = if self.bounds(input).signed <= self.value(input).ty.bits() {
             input
         } else {
             self.normalize(input)
@@ -260,7 +260,7 @@ impl Folder<'_> {
     }
 
     pub(super) fn fold_zero_test(&mut self, input: usize, nonzero: bool) -> Option<usize> {
-        if nonzero && self.values.bounds[input].unsigned <= 1 {
+        if nonzero && self.bounds(input).unsigned <= 1 {
             return Some(input);
         }
         if let ValueDefinition::Expression(Expression::Unary {
@@ -268,7 +268,7 @@ impl Folder<'_> {
                 nonzero: inner_nonzero,
             },
             input: source,
-        }) = self.values[input].definition
+        }) = self.value(input).definition
         {
             return Some(self.fold(
                 Type::I1,
@@ -287,11 +287,11 @@ impl Folder<'_> {
         if let ValueDefinition::Expression(Expression::Unary {
             operator: Unary::Convert,
             input: source,
-        }) = self.values[input].definition
+        }) = self.value(input).definition
         {
             // A carrier conversion that discards no set bits preserves zero.
             // Logical narrowing still keeps its explicit normalization mask.
-            if self.values.bounds[source].unsigned <= self.values[input].ty.carrier().bits() {
+            if self.bounds(source).unsigned <= self.value(input).ty.carrier().bits() {
                 return Some(self.fold(
                     Type::I1,
                     Expression::Unary {

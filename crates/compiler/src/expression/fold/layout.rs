@@ -22,7 +22,7 @@ impl Folder<'_> {
         if !has_left && !has_right {
             return Some(self.values.literal(ty, 0));
         }
-        let same = self.values.representation(left) == self.values.representation(right);
+        let same = self.representation(left) == self.representation(right);
         let (left, right, mask) = if !has_left || !has_right || same {
             let input = if has_left { left } else { right };
             let other = if has_zero {
@@ -140,7 +140,7 @@ impl Folder<'_> {
             _ => {}
         }
         let offset = mask.trailing_zeros() as u8;
-        let (input, lane_type) = match self.values[when_true].definition {
+        let (input, lane_type) = match self.value(when_true).definition {
             ValueDefinition::Expression(Expression::Unary {
                 operator: Unary::Splat { lane_type },
                 input,

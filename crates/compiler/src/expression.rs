@@ -10,7 +10,7 @@ mod lower;
 mod shuffle;
 #[cfg(test)]
 pub(crate) use fold::refold;
-pub(crate) use fold::{build, fold_carrier, normalize};
+pub(crate) use fold::{build, fold_in_scope, normalize};
 pub(crate) use lower::lower;
 pub(super) use shuffle::ShuffleMask;
 

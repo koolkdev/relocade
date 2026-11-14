@@ -83,23 +83,28 @@ impl ScalarFacts {
             .track(table, Demand::Bits(id));
         let value = table[id];
         if !value.ty.is_scalar() {
-            cache.get_or_insert_default(id).bits = Some(Bits::default());
+            remember(&mut cache, table, id, Bits::default());
             return;
         }
         let known = self.known_bits(table, id);
         if let Some(bits) = value.scalar_literal() {
-            cache.get_or_insert_default(id).bits = Some(Bits {
-                mask: value.ty.mask(),
-                value: value.ty.normalize(bits),
-            });
+            remember(
+                &mut cache,
+                table,
+                id,
+                Bits {
+                    mask: value.ty.mask(),
+                    value: value.ty.normalize(bits),
+                },
+            );
             return;
         }
         if known.mask == value.ty.mask() {
-            cache.get_or_insert_default(id).bits = Some(known);
+            remember(&mut cache, table, id, known);
             return;
         }
         let Some(result) = table.expression(id) else {
-            cache.get_or_insert_default(id).bits = Some(known);
+            remember(&mut cache, table, id, known);
             return;
         };
         let expression = result.expression;
@@ -110,10 +115,15 @@ impl ScalarFacts {
         } = expression
         {
             if let Some(truth) = self.comparisons.get(table, operator, left, right) {
-                cache.get_or_insert_default(id).bits = Some(Bits {
-                    mask: 1,
-                    value: u64::from(truth),
-                });
+                remember(
+                    &mut cache,
+                    table,
+                    id,
+                    Bits {
+                        mask: 1,
+                        value: u64::from(truth),
+                    },
+                );
                 return;
             }
         }
@@ -138,8 +148,12 @@ impl ScalarFacts {
                     when_false
                 };
                 if let Some(bits) = cache.get(&input).and_then(|answer| answer.bits) {
-                    cache.get_or_insert_default(id).bits =
-                        Some(bits.union(known).restrict(value.ty.mask()));
+                    remember(
+                        &mut cache,
+                        table,
+                        id,
+                        bits.union(known).restrict(value.ty.mask()),
+                    );
                 } else {
                     schedule(Inference::Visit(id));
                     schedule(Inference::Visit(input));
@@ -155,6 +169,17 @@ impl ScalarFacts {
             return;
         }
         let bits = self.expression_bits(table, id, |input| cache[&input].bits.unwrap());
-        cache.get_or_insert_default(id).bits = Some(bits.union(known).restrict(value.ty.mask()));
+        remember(
+            &mut cache,
+            table,
+            id,
+            bits.union(known).restrict(value.ty.mask()),
+        );
     }
+}
+
+fn remember(cache: &mut super::Storage<super::Answer>, table: &ValueTable, id: usize, bits: Bits) {
+    let answer = cache.get_or_insert_default(id);
+    answer.bits = Some(bits);
+    answer.bits_complete = !table[id].ty.is_scalar() || bits.mask == table[id].ty.mask();
 }

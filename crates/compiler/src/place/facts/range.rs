@@ -77,7 +77,8 @@ impl ScalarFacts {
         else {
             return;
         };
-        if self.ranges.insert(id, range) != Some(range) {
+        if self.ranges.get(&id) != Some(&range) {
+            self.ranges.insert(id, range);
             self.changed_fact(Source::Range(id));
         }
     }

@@ -11,6 +11,15 @@ impl ScalarFacts {
             return;
         }
         let mut answers = self.answers.borrow_mut();
+        match demand {
+            Demand::Bits(id) if answers.get(&id).is_some_and(|answer| answer.bits_complete) => {
+                return
+            }
+            Demand::Reduction(id) if answers.get(&id).is_some_and(|answer| answer.literal) => {
+                return
+            }
+            _ => {}
+        }
         let demand = match demand {
             Demand::Bits(id) if answers.get(&id).is_some_and(|answer| answer.bits.is_some()) => {
                 demand
@@ -32,9 +41,19 @@ impl ScalarFacts {
     }
 
     pub(super) fn changed_fact(&self, source: Source) {
-        self.dependencies
-            .borrow()
-            .users(source, |user| self.queue(user));
+        self.dependencies.borrow().users(source, |user| {
+            if self.depends_on(source, user) {
+                self.queue(user);
+            }
+        });
+    }
+
+    fn depends_on(&self, source: Source, demand: Demand) -> bool {
+        let (Source::Reduction(input), Demand::Reduction(user)) = (source, demand) else {
+            return true;
+        };
+        self.previous_reduction(user)
+            .is_none_or(|residual| residual == input)
     }
 
     pub(super) fn refined_value(&self, id: usize) {
@@ -90,6 +109,9 @@ impl ScalarFacts {
                         let Demand::Reduction(user) = user else {
                             unreachable!()
                         };
+                        if !self.depends_on(Source::Reduction(id), Demand::Reduction(user)) {
+                            return;
+                        }
                         consumed |= self
                             .answers
                             .borrow()
@@ -104,6 +126,45 @@ impl ScalarFacts {
         None
     }
 
+    // Only rules that inspect expression structure subscribe to its changes.
+    pub(in crate::place) fn form(&self, root: usize, mut id: usize) -> usize {
+        loop {
+            self.dependencies.borrow_mut().form_input(root, id);
+            let answers = self.answers.borrow();
+            let Some(answer) = answers.get(&id) else {
+                return id;
+            };
+            if let Some(residual) = answer
+                .residual
+                .map(|id| id.get() - 1)
+                .filter(|&residual| residual != id)
+            {
+                id = residual;
+            } else {
+                return answer.form.map_or(id, |id| id.get() - 1);
+            }
+        }
+    }
+
+    pub(in crate::place) fn record_form(&mut self, id: usize, form: Option<usize>) {
+        let form = form.and_then(|id| NonZeroUsize::new(id + 1));
+        let answer = self.answers.get_mut().get_or_insert_default(id);
+        if answer.form != form {
+            answer.form = form;
+            self.changed_fact(Source::Form(id));
+        }
+    }
+
+    // Stronger facts preserve an equivalence already proved on this path.
+    pub(in crate::place) fn previous_reduction(&self, id: usize) -> Option<usize> {
+        self.answers
+            .borrow()
+            .get(&id)
+            .and_then(|answer| answer.residual)
+            .map(|id| id.get() - 1)
+            .filter(|&residual| residual != id)
+    }
+
     pub(in crate::place) fn reduced(&self, id: usize) -> Option<usize> {
         self.answers
             .borrow()
@@ -113,19 +174,29 @@ impl ScalarFacts {
             .map(|id| id.get() - 1)
     }
 
-    pub(in crate::place) fn record_reduction(&mut self, recipe: usize, residual: usize) -> bool {
+    pub(in crate::place) fn record_reduction(
+        &mut self,
+        recipe: usize,
+        residual: usize,
+        literal: bool,
+    ) -> bool {
         self.dependencies.borrow_mut().alias(recipe, residual);
-        let answers = self.answers.get_mut();
+        let mut answers = self.answers.borrow_mut();
         let encoded = NonZeroUsize::new(residual + 1).unwrap();
         let answer = answers.get_or_insert_default(recipe);
         let previous = answer.residual.replace(encoded);
         answer.revisit = false;
-        answers
-            .get_or_insert_default(residual)
-            .residual
-            .get_or_insert(encoded);
+        answer.literal = literal;
+        if answers
+            .get(&residual)
+            .is_none_or(|answer| answer.residual.is_none())
+        {
+            answers.get_or_insert_default(residual).residual = Some(encoded);
+        }
+        drop(answers);
         if previous.is_some() && previous != Some(encoded) {
             self.changed_fact(Source::Reduction(recipe));
+            self.changed_fact(Source::Form(recipe));
         }
         previous != Some(encoded)
     }
@@ -140,7 +211,7 @@ impl ScalarFacts {
 
     pub(in crate::place) fn set_aliases(&mut self, residual: usize, head: usize) {
         self.answers
-            .get_mut()
+            .borrow_mut()
             .get_or_insert_default(residual)
             .aliases = NonZeroUsize::new(head + 1);
     }

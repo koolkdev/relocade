@@ -18,6 +18,14 @@ impl Placer<'_> {
                 self.bind_reduction(block, id, value);
                 continue;
             }
+            if !ready {
+                // Stable recipes retain authored operands; resolve each before execution.
+                let residual = self.flow.reduce(&mut self.graph.values, block, id);
+                if residual != id {
+                    work.push((residual, false));
+                    continue;
+                }
+            }
             if self.graph.values.expression(id).is_some() {
                 let mut index = 0;
                 let reused = loop {

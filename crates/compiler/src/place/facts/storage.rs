@@ -36,8 +36,30 @@ impl<T: Clone> Storage<T> {
         self.root.is_none()
     }
 
-    pub(super) fn clear(&mut self) {
-        *self = Self::default();
+    /// Meet matching entries, skipping shared subtrees. `merge(a, a)` must keep `a`.
+    pub(super) fn intersect(&mut self, other: &Self, merge: impl Fn(&T, &T) -> Option<T>) {
+        while self.shift > other.shift {
+            self.root = match self.root.take() {
+                Some(Node::Branch(children)) => children[0].clone(),
+                None => None,
+                _ => unreachable!(),
+            };
+            self.shift -= LEVEL_BITS;
+        }
+        let mut incoming = other.root.as_ref();
+        let mut shift = other.shift;
+        while shift > self.shift {
+            incoming = match incoming {
+                Some(Node::Branch(children)) => children[0].as_ref(),
+                None => None,
+                _ => unreachable!(),
+            };
+            shift -= LEVEL_BITS;
+        }
+        intersect_node(&mut self.root, incoming, &merge);
+        if self.root.is_none() {
+            self.shift = 0;
+        }
     }
 
     pub(super) fn get(&self, id: &usize) -> Option<&T> {
@@ -172,6 +194,43 @@ impl<T: Clone> Storage<T> {
         if self.root.is_none() {
             self.shift = 0;
         }
+    }
+}
+
+fn intersect_node<T: Clone>(
+    current: &mut Option<Node<T>>,
+    other: Option<&Node<T>>,
+    merge: &impl Fn(&T, &T) -> Option<T>,
+) {
+    let retained = match (current.as_mut(), other) {
+        (Some(Node::Leaf(entries)), Some(Node::Leaf(incoming))) => {
+            if Rc::ptr_eq(entries, incoming) {
+                return;
+            }
+            let entries = Rc::make_mut(entries);
+            for (entry, other) in entries.iter_mut().zip(incoming.iter()) {
+                *entry = entry
+                    .as_ref()
+                    .zip(other.as_ref())
+                    .and_then(|(a, b)| merge(a, b));
+            }
+            entries.iter().any(Option::is_some)
+        }
+        (Some(Node::Branch(children)), Some(Node::Branch(incoming))) => {
+            if Rc::ptr_eq(children, incoming) {
+                return;
+            }
+            let children = Rc::make_mut(children);
+            for (child, other) in children.iter_mut().zip(incoming.iter()) {
+                intersect_node(child, other.as_ref(), merge);
+            }
+            children.iter().any(Option::is_some)
+        }
+        (None, _) | (_, None) => false,
+        _ => unreachable!(),
+    };
+    if !retained {
+        *current = None;
     }
 }
 

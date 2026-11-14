@@ -13,7 +13,7 @@ impl Folder<'_> {
     ) -> usize {
         let condition = self.normalize(condition);
         self.fold(
-            self.values[when_true].ty,
+            self.value(when_true).ty,
             Expression::Ternary {
                 operator: Ternary::Select,
                 first: when_true,
@@ -29,20 +29,20 @@ impl Folder<'_> {
         when_true: usize,
         when_false: usize,
     ) -> Option<usize> {
-        match self.values[condition].scalar_literal() {
+        match self.value(condition).scalar_literal() {
             Some(0) => return Some(when_false),
             Some(_) => return Some(when_true),
             _ => {}
         }
-        if self.values.representation(when_true) == self.values.representation(when_false) {
+        if self.representation(when_true) == self.representation(when_false) {
             return Some(when_true);
         }
-        if !self.values[when_true].ty.is_integer() {
+        if !self.value(when_true).ty.is_integer() {
             return None;
         }
         let nonzero = match (
-            self.values[when_true].scalar_literal(),
-            self.values[when_false].scalar_literal(),
+            self.value(when_true).scalar_literal(),
+            self.value(when_false).scalar_literal(),
         ) {
             (Some(1), Some(0)) => true,
             (Some(0), Some(1)) => false,

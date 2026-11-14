@@ -41,7 +41,7 @@ fn common_bits_discard_disagreements_missing_facts_and_cached_constants() {
     assert_eq!(first.constant(&table, 1), Some(9));
     let mut second = ScalarFacts::default();
     second.assume_bits(&table, 0, 0xffff_ffff, 7);
-    first.retain_common(&second);
+    first.retain_common(&table, &second);
     let bits = first.bits(&table, 0);
     assert_eq!((bits.mask, bits.value), (0xffff_fffd, 5));
     assert_eq!(first.constant(&table, 0), None);
@@ -59,11 +59,11 @@ fn common_ranges_cover_both_paths_even_without_a_shared_predicate_identity() {
     first.assume(&table, below_ten, true);
     let mut second = ScalarFacts::default();
     second.assume(&table, below_twenty, true);
-    first.retain_common(&second);
+    first.retain_common(&table, &second);
     assert!(first.known.is_empty());
     assert_eq!(first.constant(&table, below_twenty), Some(1));
     assert_eq!(first.constant(&table, below_ten), None);
-    first.retain_common(&ScalarFacts::default());
+    first.retain_common(&table, &ScalarFacts::default());
     assert_eq!(first.constant(&table, below_twenty), None);
 }
 
@@ -76,11 +76,11 @@ fn common_comparison_outcomes_survive_distinct_predicates_but_not_disagreement()
     first.assume(&table, equal, true);
     let mut second = ScalarFacts::default();
     second.assume(&table, reversed, true);
-    first.retain_common(&second);
+    first.retain_common(&table, &second);
     assert!(first.known.is_empty());
     assert_eq!(first.constant(&table, equal), Some(1));
     let mut unequal = ScalarFacts::default();
     unequal.assume(&table, reversed, false);
-    first.retain_common(&unequal);
+    first.retain_common(&table, &unequal);
     assert_eq!(first.constant(&table, equal), None);
 }

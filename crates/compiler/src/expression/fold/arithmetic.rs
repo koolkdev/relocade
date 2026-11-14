@@ -16,8 +16,8 @@ impl Folder<'_> {
         right: usize,
         component: usize,
     ) -> Option<usize> {
-        let left_bounds = self.values.bounds[left];
-        let right_bounds = self.values.bounds[right];
+        let left_bounds = self.bounds(left);
+        let right_bounds = self.bounds(right);
         let product_bits = if signed {
             left_bounds.signed + right_bounds.signed
         } else {
@@ -63,12 +63,12 @@ impl Folder<'_> {
         left: usize,
         right: usize,
     ) -> Option<usize> {
-        let a = self.values.representation(left);
-        let b = self.values.representation(right);
+        let a = self.representation(left);
+        let b = self.representation(right);
         let offset = match (
             operator,
-            self.values[a].scalar_literal(),
-            self.values[b].scalar_literal(),
+            self.value(a).scalar_literal(),
+            self.value(b).scalar_literal(),
         ) {
             (BinaryOp::Add, _, Some(offset)) => Some((left, offset)),
             (BinaryOp::Add, Some(offset), _) => Some((right, offset)),
@@ -80,13 +80,13 @@ impl Folder<'_> {
         }
         match (
             operator,
-            self.values[a].scalar_literal(),
-            self.values[b].scalar_literal(),
+            self.value(a).scalar_literal(),
+            self.value(b).scalar_literal(),
         ) {
             (BinaryOp::DivUnsigned | BinaryOp::RemUnsigned, _, _)
                 if ty == Type::I64
-                    && self.values.bounds[left].unsigned <= 32
-                    && self.values.bounds[right].unsigned <= 32 =>
+                    && self.bounds(left).unsigned <= 32
+                    && self.bounds(right).unsigned <= 32 =>
             {
                 // Both operands and the result fit 32 unsigned bits. The caller
                 // restores the logical i64 type by zero-extending the result.
@@ -112,8 +112,8 @@ impl Folder<'_> {
     }
 
     pub(super) fn binary(&mut self, operator: BinaryOp, left: usize, right: usize) -> usize {
-        let a = self.values[left];
-        let b = self.values[right];
+        let a = self.value(left);
+        let b = self.value(right);
         debug_assert_eq!(a.ty, b.ty);
         // These transformations interpret the logical width. Placement has
         // already chosen its carrier operations and must not repeat them.
@@ -165,7 +165,7 @@ impl Folder<'_> {
         if offset == 0 {
             return input;
         }
-        if let Some(value) = self.values[input].scalar_literal() {
+        if let Some(value) = self.value(input).scalar_literal() {
             return self
                 .values
                 .carrier_literal(ty, value.wrapping_add(offset) & mask);
@@ -186,11 +186,11 @@ impl Folder<'_> {
             operator: Binary::Integer(BinaryOp::Add),
             left,
             right,
-        }) = self.values[input].definition
+        }) = self.value(input).definition
         else {
             return None;
         };
-        self.values[right]
+        self.value(right)
             .scalar_literal()
             .map(|offset| (left, offset))
     }
