@@ -190,6 +190,24 @@ fn changing_the_vertical_clock_divider_preserves_the_live_counter() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn clearing_the_vertical_clock_divider_preserves_the_second_scanlines_position() {
+    let clock = ManualClock::default();
+    let vga = ConnectedVga::new(clock.clock());
+    crtc(&vga.io, 0x17, 0xa7);
+    // Count 411, dot 100 of its second physical scanline.
+    let changed_at = 823 * 800 + 100;
+    clock.advance_to(clock.at(dots(changed_at, 25_175_000)));
+    crtc(&vga.io, 0x17, 0xa3);
+    assert_eq!(vga.io.read_port(0x3da, 1) & 8, 0);
+    // Count 412 starts after the remaining 700 dots, not on the next dot.
+    clock.advance_to(clock.at(dots(changed_at + 699, 25_175_000)));
+    assert_eq!(vga.io.read_port(0x3da, 1) & 8, 0);
+    clock.advance_to(clock.at(dots(changed_at + 700, 25_175_000)));
+    assert_eq!(vga.io.read_port(0x3da, 1) & 8, 8);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn retrace_end_comparison_continues_after_the_vertical_counter_wraps() {
     let clock = ManualClock::default();
     let vga = ConnectedVga::new(clock.clock());

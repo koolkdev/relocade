@@ -12,6 +12,8 @@ pub(super) struct Raster {
     timing: Timing,
     updated: Timestamp,
     dot: u64,
+    // Independent horizontal phase survives an interlaced half-line field boundary.
+    horizontal_dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
     dot_remainder: u64,
     pub retrace_count: u64,
@@ -57,6 +59,7 @@ impl Raster {
             timing,
             updated: now,
             dot: 0,
+            horizontal_dot: 0,
             dot_remainder: 0,
             retrace_count: 0,
             next_retrace: None,
@@ -113,6 +116,8 @@ impl Raster {
                 )
             });
         self.dot = ((u128::from(self.dot) + dots) % u128::from(frame_dots)) as u64;
+        self.horizontal_dot =
+            ((u128::from(self.horizontal_dot) + dots) % u128::from(timing.horizontal_total)) as u64;
         if completed.is_some() {
             self.refresh_deadline();
         }
@@ -133,20 +138,27 @@ impl Raster {
         if old.reset_active || new.reset_active {
             self.updated = self.status.observed.get();
             self.dot = 0;
+            self.horizontal_dot = 0;
             self.dot_remainder = 0;
         } else {
-            let physical_line = self.dot / old.horizontal_total;
-            let vertical_count = physical_line / old.scanlines_per_vertical_count;
-            let subline = physical_line % old.scanlines_per_vertical_count;
-            let line = vertical_count * new.scanlines_per_vertical_count
-                + subline * new.scanlines_per_vertical_count / old.scanlines_per_vertical_count;
-            let horizontal = self.dot % old.horizontal_total;
+            self.horizontal_dot = (self.horizontal_dot / old.dots_per_horizontal_count
+                * new.dots_per_horizontal_count
+                + (self.horizontal_dot % old.dots_per_horizontal_count)
+                    .min(new.dots_per_horizontal_count - 1))
+                % new.horizontal_total;
+            let vertical_count = self.dot / old.vertical_count_dots();
+            let within_count = self.dot % old.vertical_count_dots();
+            let subline = within_count / old.horizontal_total * new.scanlines_per_vertical_count
+                / old.scanlines_per_vertical_count;
+            let horizontal = within_count % old.horizontal_total;
             let horizontal = horizontal / old.dots_per_horizontal_count
                 * new.dots_per_horizontal_count
                 + (horizontal % old.dots_per_horizontal_count)
                     .min(new.dots_per_horizontal_count - 1);
-            self.dot = (line * new.horizontal_total + horizontal % new.horizontal_total)
-                % new.frame_dots();
+            let within_count = (subline * new.horizontal_total + horizontal % new.horizontal_total)
+                .min(new.vertical_count_dots() - 1);
+            self.dot =
+                (vertical_count * new.vertical_count_dots() + within_count) % new.frame_dots();
             self.dot_remainder = new.rescale_remainder(self.dot_remainder, old);
         }
         self.refresh_deadline();
@@ -160,6 +172,7 @@ impl Raster {
         self.timing = timing;
         self.updated = self.status.observed.get();
         self.dot = 0;
+        self.horizontal_dot = 0;
         self.dot_remainder = 0;
         self.refresh_deadline();
         self.refresh_status();
@@ -198,13 +211,18 @@ impl Raster {
     }
 
     fn refresh_status(&mut self) {
-        self.status.value.set(self.timing.input_status_1(self.dot));
-        let next_status = self.timing.next_status_in_dots(self.dot).and_then(|dots| {
-            self.clock.checked_add(
-                self.updated,
-                self.timing.remaining_for_dots(dots, self.dot_remainder),
-            )
-        });
+        self.status
+            .value
+            .set(self.timing.input_status_1(self.dot, self.horizontal_dot));
+        let next_status = self
+            .timing
+            .next_status_in_dots(self.dot, self.horizontal_dot)
+            .and_then(|dots| {
+                self.clock.checked_add(
+                    self.updated,
+                    self.timing.remaining_for_dots(dots, self.dot_remainder),
+                )
+            });
         // Internal captures still advance latches and blink when external sync
         // is suppressed, independently of the observable status bits.
         self.status

@@ -18,7 +18,7 @@ impl Et4000Ax {
 
     pub(super) fn display_start(&self) -> u32 {
         u32::from(self.vga.registers.crtc.display_start)
-            | (u32::from(self.extensions.crtc(EXTENDED_START).unwrap() & 3) << 16)
+            | (u32::from(self.display_start_high) << 16)
     }
 
     pub(super) fn vga_display_state(&self) -> VgaDisplayState {
@@ -45,8 +45,9 @@ impl Et4000Ax {
             crtc.horizontal_display() as u32 * registers.sequencer.dots_per_character() as u32;
         let repeat = (u32::from(values[crtc::MAXIMUM_SCAN_LINE as usize] & 31) + 1)
             << (values[crtc::MAXIMUM_SCAN_LINE as usize] >> 7);
-        let height =
-            crtc.vertical_display() as u32 * crtc.scanlines_per_vertical_count() as u32 / repeat;
+        let vertical_display = crtc.vertical_display() as u32
+            + (u32::from(self.extensions.crtc(OVERFLOW).unwrap() & 4) << 8);
+        let height = vertical_display * crtc.scanlines_per_vertical_count() as u32 / repeat;
         // The linear counter addresses four adjacent physical bytes. Row
         // Offset advances it by twice the programmed value (data book p.123).
         let pitch = u32::from(values[crtc::OFFSET as usize]) * 8;

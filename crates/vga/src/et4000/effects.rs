@@ -24,7 +24,7 @@ impl CardEffects for Et4000Ax {
     }
 
     fn timing(&self) -> Timing {
-        Self::vga_timing(&self.vga)
+        Self::display_timing(&self.vga, &self.extensions)
     }
 
     fn port_decoding(&self) -> PortDecoding {

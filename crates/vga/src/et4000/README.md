@@ -57,8 +57,20 @@ blanking as pixel intervals, including blanking across counter reset. CPU bankin
 the displayed page. The data-book 640×480×8 register sequence is exercised through
 the bus and GPU renderer; no host mode table supplies that geometry. Serialized
 VGA 256-color modes retain the VGA decoder's row, split-screen, serializer and
-blanking rules, with the card's consecutive memory addressing. Firmware and PC
-selection are separate.
+blanking rules, with the card's consecutive memory addressing.
+
+CRTC 35h extends the vertical total, display end and retrace counters. CRTC 34h
+selects the third oscillator-select bit; Sequencer 07h supplies the /2 or /4
+pixel-clock division. Register fixtures cover 800×600 at 40 MHz and 1024×768
+interlaced at 44.9 MHz. Interlaced retraces occur once per field, preserving the
+half-line horizontal phase between fields. As elsewhere in the renderer, captures
+represent a complete current image at the capture boundary; they do not weave
+historical odd/even lines or simulate changes within a displayed scanline.
+
+The full 18-bit display start is sampled together at the shared retrace capture
+boundary, representing the page for the following visible frame. Native drawing
+uses the programmed page immediately. Extended text/planar scanout and the
+optional high-color RAMDAC protocol are not yet implemented. Firmware and PC selection are separate.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),

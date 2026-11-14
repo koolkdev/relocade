@@ -30,6 +30,7 @@ impl Timing {
             vertical_total,
             vertical_display: crtc.vertical_display(),
             scanlines_per_vertical_count: crtc.scanlines_per_vertical_count(),
+            vertical_count_divisor: 1,
             vertical_retrace_start: retrace_start,
             vertical_retrace_end: first_end,
             wrapped_retrace_end: if retrace_start < vertical_total && first_end >= vertical_total {

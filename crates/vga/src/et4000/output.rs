@@ -47,6 +47,11 @@ impl Et4000Ax {
             return;
         };
         self.vga.registers.crtc.latch_display_start();
+        self.display_start_high = self
+            .extensions
+            .crtc(super::registers::EXTENDED_START)
+            .unwrap()
+            & 3;
         let snapshot = self.snapshot();
         self.output.capture(snapshot, &mut self.memory, time);
     }
