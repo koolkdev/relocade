@@ -5,7 +5,6 @@
 //! Facts about a truncated value do not erase its other carrier bits.
 
 use crate::expression::BinaryOp as Binary;
-use rustc_hash::FxHashMap;
 use std::{cell::RefCell, num::NonZeroUsize};
 
 use crate::{
@@ -24,11 +23,13 @@ mod merge;
 mod range;
 mod selects;
 mod shifts;
+mod storage;
 use comparisons::Comparisons;
 use constraints::Constraints;
 pub(super) use infer::Inference;
 use lanes::{LaneFacts, LaneObservation};
 use range::Range;
+use storage::Storage;
 
 #[cfg(test)]
 mod tests;
@@ -78,13 +79,13 @@ struct Answer {
 
 #[derive(Default)]
 pub(super) struct ScalarFacts {
-    // These sparse maps hash compiler-assigned value IDs, never guest values.
-    known: FxHashMap<usize, Bits>,
+    // Sparse observations indexed by compiler-assigned value IDs.
+    known: Storage<Bits>,
     lanes: Option<Box<LaneFacts>>,
-    ranges: FxHashMap<usize, Range>,
+    ranges: Storage<Range>,
     comparisons: Comparisons,
     constraints: Constraints,
-    answers: RefCell<FxHashMap<usize, Answer>>,
+    answers: RefCell<Storage<Answer>>,
     pending: RefCell<Vec<Inference>>,
 }
 
@@ -138,10 +139,9 @@ impl ScalarFacts {
     pub(in crate::place) fn record_reduction(&mut self, recipe: usize, residual: usize) {
         let answers = self.answers.get_mut();
         let encoded = NonZeroUsize::new(residual + 1).unwrap();
-        answers.entry(recipe).or_default().residual = Some(encoded);
+        answers.get_or_insert_default(recipe).residual = Some(encoded);
         answers
-            .entry(residual)
-            .or_default()
+            .get_or_insert_default(residual)
             .residual
             .get_or_insert(encoded);
     }
@@ -156,8 +156,7 @@ impl ScalarFacts {
     /// Whether known logical bits prove that these paths cannot coincide.
     pub(super) fn conflicts_with(&self, table: &ValueTable, other: &Self) -> bool {
         self.known
-            .iter()
-            .any(|(&id, &bits)| bits.conflicts(other.bits(table, id)))
+            .any(|id, &bits| bits.conflicts(other.bits(table, id)))
             || self
                 .lanes
                 .as_deref()

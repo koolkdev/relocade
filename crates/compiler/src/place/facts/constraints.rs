@@ -1,8 +1,8 @@
 //! Revisit a bounded set of Boolean constraints after a batch of changed facts.
 
+use super::storage::Storage;
 use super::{Bits, ScalarFacts};
 use crate::{bitwise::BitwiseOp, body::ValueTable, expression::BinaryOp, Expression, Type};
-use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 #[cfg(test)]
@@ -75,7 +75,7 @@ impl Constraints {
         }
     }
 
-    pub(super) fn retain_known(&mut self, known: &FxHashMap<usize, Bits>) {
+    pub(super) fn retain_known(&mut self, known: &Storage<Bits>) {
         let Some(roots) = &self.roots else { return };
         // A join can forget the operand that settled a constraint on either path.
         self.active = roots
