@@ -48,6 +48,7 @@ fn narrow_scalar(
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
+    execution.specialize_simd_precision(&controls)?;
     let source = source.read::<I64>(execution, VectorAlignment::Unaligned)?;
     let guarded_result = execution.if_can_fallback(|execution| {
         // Only the active source participates in admission and precision reporting.
@@ -100,6 +101,7 @@ fn narrow_packed(
     source: XmmLocation,
 ) -> Result<(), BuildError> {
     let controls = execution.simd_controls()?;
+    execution.specialize_simd_precision(&controls)?;
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
     let guarded_result = execution.if_can_fallback(|execution| {
         let candidate = narrow_packed_float(

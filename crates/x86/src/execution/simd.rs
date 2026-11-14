@@ -31,6 +31,7 @@ impl ExecutionBuilder<'_, '_> {
     /// nearest rounding; observed blocks already guard their recorded controls.
     pub(crate) fn simd_arithmetic_controls(&mut self) -> Result<Mxcsr, BuildError> {
         let controls = self.simd_controls()?;
+        self.specialize_simd_precision(&controls)?;
         self.if_can_fallback(|jit| {
             if jit.observed_cpu.is_none() {
                 jit.guard(controls.bits().and(0x6000).eq(0))?;
@@ -38,6 +39,18 @@ impl ExecutionBuilder<'_, '_> {
             Ok(())
         })?;
         Ok(controls)
+    }
+
+    /// Precision-producing operations can discard exactness work when masked
+    /// PE is already set. Establish this before reading instruction operands.
+    pub(crate) fn specialize_simd_precision(&mut self, controls: &Mxcsr) -> Result<(), BuildError> {
+        self.if_can_fallback(|jit| {
+            if let Some(observed) = jit.observed_cpu {
+                jit.guard(controls.preserves_masked_precision(observed.simd.mxcsr))?;
+            }
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Requires interpreter fallback. Guard the candidate's numerical domain

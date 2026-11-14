@@ -22,6 +22,17 @@ impl Mxcsr {
         self.0.and(CONTROLS).eq(observed & CONTROLS)
     }
 
+    pub(crate) fn preserves_masked_precision(&self, observed: u32) -> Val<I1> {
+        const PRECISION: u32 = 1 << 5;
+        const PRECISION_MASK: u32 = 1 << 12;
+        let masked_precision = PRECISION | PRECISION_MASK;
+        if observed & masked_precision == masked_precision {
+            self.0.and(masked_precision).eq(masked_precision)
+        } else {
+            true.into()
+        }
+    }
+
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {
         self.0.and(1 << 6).ne(0)
     }
