@@ -37,8 +37,4 @@ impl VgaDisplayLayout {
                 .map(|range| [range.start, range.end]),
         }
     }
-
-    pub(crate) fn plane_address_mask(&self) -> u32 {
-        self.memory_bytes / 4 - 1
-    }
 }

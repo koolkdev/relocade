@@ -1,13 +1,16 @@
 //! Captured display interpretation, independent of CPU port access state.
 mod configuration;
+mod geometry;
 mod layout;
+mod parameters;
 mod vga;
 use crate::{DisplayGeometry, PackedLayout};
 pub(crate) use configuration::{DisplayConfiguration, PreparedScanout};
 pub use layout::VgaDisplayLayout;
+pub(crate) use parameters::{VgaMode, VgaParameters};
 pub use vga::{VgaDisplayState, VgaGeometry};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scanout {
     /// Text or graphics interpreted through captured VGA display registers.
     Vga(VgaDisplayState),
