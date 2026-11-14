@@ -40,7 +40,7 @@ impl Reuse<'_> {
             if !cheap {
                 continue;
             }
-            let owner = self.definitions[value]?;
+            let owner = self.graph.values.definition_block(value)?;
             let common = self.dominators.common(owner.0, block.0)?;
             if common == owner.0 {
                 // Keep a dominating definition before its existing users.
@@ -50,20 +50,17 @@ impl Reuse<'_> {
                 matches!(
                     self.graph.values[input].definition,
                     ValueDefinition::Literal(_)
-                ) || self.definitions[input]
+                ) || self
+                    .graph
+                    .values
+                    .definition_block(input)
                     .is_some_and(|owner| self.dominators.dominates(owner.0, common))
             }) {
                 continue;
             }
-            self.graph.blocks[owner.0]
-                .items
-                .retain(|item| *item != BlockItem::Evaluate(result.producer));
-            self.graph.blocks[common]
-                .items
-                .push(BlockItem::Evaluate(result.producer));
-            self.graph.values.values[result.producer].definition =
-                ValueDefinition::Expression(expression);
-            self.definitions[value] = Some(BlockId(common));
+            self.graph
+                .move_calculation(result.producer, BlockId(common));
+            self.graph.set_expression(result.producer, expression);
             self.executions
                 .get_mut(&number)
                 .unwrap()

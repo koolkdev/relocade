@@ -11,12 +11,12 @@ pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut V
         let items = std::mem::take(&mut graph.blocks[block].items);
         for item in items {
             let BlockItem::Evaluate(id) = item else {
-                graph.blocks[block].items.push(item);
+                graph.append(BlockId(block), item);
                 continue;
             };
             let result = crate::expression::lower(&mut graph.values, id);
             if result == id {
-                graph.blocks[block].items.push(item);
+                graph.append(BlockId(block), item);
                 continue;
             }
             while aliases.len() < graph.values.len() {
@@ -34,9 +34,7 @@ pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut V
                 }
                 if ready {
                     emitted[result.producer] = true;
-                    graph.blocks[block]
-                        .items
-                        .push(BlockItem::Evaluate(result.producer));
+                    graph.append(BlockId(block), BlockItem::Evaluate(result.producer));
                 } else {
                     work.push((id, true));
                     work.extend(
@@ -58,17 +56,5 @@ pub(super) fn run(graph: &mut SsaGraph, dominators: &Dominators, changed: &mut V
         aliases[id] = result;
     }
     changed.resize(graph.values.len(), false);
-    for (id, value) in graph.values.values.iter_mut().enumerate() {
-        if let ValueDefinition::Expression(expression) = value.definition {
-            let lowered = expression.map(|&input| aliases[input]);
-            changed[id] |= lowered != expression;
-            value.definition = ValueDefinition::Expression(lowered);
-        }
-    }
-    for effect in &mut graph.effects {
-        effect.operation = effect.operation.clone().map_inputs(|input| aliases[input]);
-    }
-    for block in &mut graph.blocks {
-        block.exit.map_inputs(|input| aliases[input]);
-    }
+    graph.rewrite_inputs(|input| aliases[input], |id| changed[id] = true);
 }

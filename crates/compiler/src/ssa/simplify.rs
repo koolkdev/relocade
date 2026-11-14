@@ -21,7 +21,6 @@ use crate::{
 
 pub(super) fn run(
     graph: &mut SsaGraph,
-    definitions: Vec<Option<BlockId>>,
     dominators: &Dominators,
     predecessors: &[Vec<usize>],
 ) -> Vec<bool> {
@@ -30,7 +29,6 @@ pub(super) fn run(
     let mut analysis = Analysis {
         numbers,
         graph,
-        definitions,
         dominators,
         aliases: (0..count).collect(),
         renamed: vec![None; count],
@@ -122,7 +120,6 @@ pub(super) fn run(
 struct Analysis<'a> {
     graph: &'a mut SsaGraph,
     numbers: super::numbering::Numbering,
-    definitions: Vec<Option<BlockId>>,
     dominators: &'a Dominators,
     aliases: Vec<usize>,
     renamed: Vec<Option<usize>>,
@@ -154,7 +151,6 @@ impl Analysis<'_> {
             let id = self.aliases.len();
             self.aliases.push(id);
             self.renamed.push(None);
-            self.definitions.push(None);
             self.emitted.push(false);
             self.roots.push(id);
             self.queued.push(false);

@@ -18,7 +18,7 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
         body.return_(results)
     });
     program.export("run", function).unwrap();
-    let program = program.build_reachable_functions().unwrap();
+    let mut program = program.build_reachable_functions().unwrap();
     let Some(graph) = &program.bodies[crate::Func::from(function).0] else {
         panic!("the function has a completed graph");
     };
@@ -55,6 +55,7 @@ fn producer_views_preserve_dependencies_and_zero_one_or_many_results() {
 
     assert!(graph.results(fence).next().is_none());
     assert!(graph.inputs(fence).next().is_none());
+    check_definition_locations(&mut program, crate::Func::from(function));
 }
 
 #[test]
@@ -65,7 +66,7 @@ fn wide_components_expose_one_producer_with_ordered_results() {
         body.return_((high, low))
     });
     program.export("run", function).unwrap();
-    let program = program.build_reachable_functions().unwrap();
+    let mut program = program.build_reachable_functions().unwrap();
     let Some(graph) = &program.bodies[crate::Func::from(function).0] else {
         panic!("the function has a completed graph")
     };
@@ -89,5 +90,24 @@ fn wide_components_expose_one_producer_with_ordered_results() {
             view.expression,
             Expression::MultiplyWide { signed: false, .. }
         ));
+    }
+    check_definition_locations(&mut program, crate::Func::from(function));
+}
+
+fn check_definition_locations(program: &mut crate::BuiltProgram, function: crate::Func) {
+    let optimizer = crate::ssa::Optimizer::new(program);
+    let graph = optimizer.optimize(program.bodies[function.0].take().unwrap());
+    for (index, block) in graph.blocks.iter().enumerate() {
+        for &parameter in &block.parameters {
+            assert_eq!(
+                graph.values.definition_block(parameter),
+                Some(BlockId(index))
+            );
+        }
+        for &item in &block.items {
+            for result in graph.results(item) {
+                assert_eq!(graph.values.definition_block(result), Some(BlockId(index)));
+            }
+        }
     }
 }

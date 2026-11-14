@@ -5,6 +5,7 @@ use crate::{memory::Mem, Expression, Func, Type};
 mod operation;
 mod producer;
 mod prune;
+mod ssa;
 mod values;
 pub(super) use operation::{CallTarget, Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};

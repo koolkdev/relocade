@@ -58,8 +58,8 @@ impl Optimizer {
             incoming = predecessors(&graph, &reachable);
             dominators = Dominators::new(graph.entry.0, &successors(&graph, &reachable), &incoming);
         }
-        let (mut graph, definitions) = form::build(graph, &reachable, &dominators);
-        let mut changed = simplify::run(&mut graph, definitions, &dominators, &incoming);
+        let mut graph = form::build(graph, &reachable, &dominators);
+        let mut changed = simplify::run(&mut graph, &dominators, &incoming);
         let reachable = graph.reachable();
         graph.prune_unused(&reachable, |op| effects::observable(op, &self.summaries));
         lower::run(&mut graph, &dominators, &mut changed);

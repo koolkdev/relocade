@@ -53,7 +53,11 @@ impl Analysis<'_> {
                 .values
                 .expression(result)
                 .is_some_and(|result| !self.emitted[result.producer])
-                && self.definitions[result].is_none_or(|owner| owner == block);
+                && self
+                    .graph
+                    .values
+                    .definition_block(result)
+                    .is_none_or(|owner| owner == block);
             if fresh {
                 self.summaries[result] = self.summaries[result].union(self.infer(result));
                 self.infer_choice(result);
@@ -114,7 +118,7 @@ impl Analysis<'_> {
             if self.emitted[result.producer] {
                 continue;
             }
-            if let Some(owner) = self.definitions[id] {
+            if let Some(owner) = self.graph.values.definition_block(id) {
                 if owner != block {
                     debug_assert!(self.dominators.dominates(owner.0, block.0));
                     continue;
@@ -130,12 +134,8 @@ impl Analysis<'_> {
                         self.users.add(self.roots[input], output);
                     }
                 }
-                self.graph.blocks[block.0]
-                    .items
-                    .push(BlockItem::Evaluate(result.producer));
-                for output in self.graph.values.expression_results(result.producer) {
-                    self.definitions[output] = Some(block);
-                }
+                self.graph
+                    .append(block, BlockItem::Evaluate(result.producer));
             } else {
                 work.push((id, true));
                 work.extend(
@@ -168,19 +168,8 @@ impl Analysis<'_> {
             runtime.push(id);
         }
         let mut changed = vec![false; self.graph.values.len()];
-        for (id, value) in self.graph.values.values.iter_mut().enumerate() {
-            if let ValueDefinition::Expression(expression) = value.definition {
-                let erased = expression.map(|&input| runtime[input]);
-                changed[id] = erased != expression;
-                value.definition = ValueDefinition::Expression(erased);
-            }
-        }
-        for effect in &mut self.graph.effects {
-            effect.operation = effect.operation.clone().map_inputs(|input| runtime[input]);
-        }
-        for block in &mut self.graph.blocks {
-            block.exit.map_inputs(|input| runtime[input]);
-        }
+        self.graph
+            .rewrite_inputs(|input| runtime[input], |id| changed[id] = true);
         changed
     }
 }

@@ -64,7 +64,7 @@ pub(super) fn build(
     graph: crate::body::FunctionGraph,
     reachable: &[bool],
     dominators: &Dominators,
-) -> (SsaGraph, Vec<Option<BlockId>>) {
+) -> SsaGraph {
     let original = graph.values.len();
     let mut demands: Vec<_> = (0..original).map(|_| Sites::None).collect();
     for (index, block) in graph.blocks.iter().enumerate() {
@@ -143,7 +143,6 @@ pub(super) fn build(
         graph: &mut graph,
         source,
         effects,
-        definitions: Vec::new(),
         bindings: vec![None; original],
         changes: Vec::new(),
     };
@@ -170,7 +169,7 @@ pub(super) fn build(
                 .values
                 .push_with_bounds(former.source[id], former.source.bounds[id]);
             former.graph.blocks[index].parameters[component] = value;
-            former.define(id, value, block);
+            former.define(id, value);
         }
         let items = std::mem::take(&mut former.graph.blocks[index].items);
         for &id in &scheduled[index] {
@@ -199,16 +198,14 @@ pub(super) fn build(
                     former.source.bounds[output],
                 );
                 results.push(value);
-                former.define(output, value, block);
+                former.define(output, value);
             }
             former.graph.effects.push(Effect {
                 results,
                 operation,
                 origin: block,
             });
-            former.graph.blocks[index]
-                .items
-                .push(BlockItem::Effect(effect));
+            former.graph.append(block, BlockItem::Effect(effect));
         }
         for &id in scheduled[index].iter().rev() {
             former.value(id, block, &here);
@@ -219,23 +216,19 @@ pub(super) fn build(
         work.push((index, Some(checkpoint)));
         work.extend(children[index].iter().rev().map(|&child| (child, None)));
     }
-    let definitions = former.definitions;
-    (graph, definitions)
+    graph
 }
 
 struct Formation<'a> {
     graph: &'a mut SsaGraph,
     source: ValueTable,
     effects: Vec<Effect>,
-    definitions: Vec<Option<BlockId>>,
     bindings: Vec<Option<usize>>,
     changes: Vec<(usize, Option<usize>)>,
 }
 
 impl Formation<'_> {
-    fn define(&mut self, source: usize, value: usize, block: BlockId) {
-        self.definitions.resize(self.graph.values.len(), None);
-        self.definitions[value] = Some(block);
+    fn define(&mut self, source: usize, value: usize) {
         let previous = self.bindings[source].replace(value);
         self.changes.push((source, previous));
     }
@@ -252,7 +245,6 @@ impl Formation<'_> {
                     "SSA operand has an available definition"
                 );
                 let value = self.graph.values.intern(self.source[id]);
-                self.definitions.resize(self.graph.values.len(), None);
                 self.bindings[id] = Some(value);
                 continue;
             };
@@ -279,16 +271,14 @@ impl Formation<'_> {
                 definition: ValueDefinition::Expression(expression),
             };
             let producer = self.graph.values.push(definition);
-            self.graph.blocks[block.0]
-                .items
-                .push(BlockItem::Evaluate(producer));
+            self.graph.append(block, BlockItem::Evaluate(producer));
             let originals: Vec<_> = self.source.expression_results(result.producer).collect();
             for (component, original) in originals.into_iter().enumerate() {
                 let value = self.graph.values.expression_result(producer, component);
                 let retained = &mut self.graph.values.bounds[value];
                 retained.unsigned = retained.unsigned.min(self.source.bounds[original].unsigned);
                 retained.signed = retained.signed.min(self.source.bounds[original].signed);
-                self.define(original, value, block);
+                self.define(original, value);
             }
         }
         self.bindings[root].unwrap()

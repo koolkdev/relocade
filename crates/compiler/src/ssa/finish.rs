@@ -14,29 +14,8 @@ pub(super) fn run(graph: &mut SsaGraph, changed: &[bool]) {
     let frontiers = dominators.frontiers(&incoming);
     let count = graph.values.len();
     let numbers = super::numbering::Numbering::new(&graph.values);
-    let mut definitions = vec![None; count];
-    for (index, block) in graph.blocks.iter().enumerate() {
-        for &value in &block.parameters {
-            definitions[value] = Some(BlockId(index));
-        }
-        for &item in &block.items {
-            match item {
-                BlockItem::Evaluate(id) => {
-                    for output in graph.values.expression_results(id) {
-                        definitions[output] = Some(BlockId(index));
-                    }
-                }
-                BlockItem::Effect(id) => {
-                    for &output in &graph.effects[id.0].results {
-                        definitions[output] = Some(BlockId(index));
-                    }
-                }
-            }
-        }
-    }
     let mut pass = Reuse {
         graph,
-        definitions,
         dominators,
         incoming,
         proofs,
@@ -127,26 +106,12 @@ pub(super) fn run(graph: &mut SsaGraph, changed: &[bool]) {
     for id in 0..pass.aliases.len() {
         pass.aliases[id] = pass.resolve(id);
     }
-    for value in &mut pass.graph.values.values {
-        if let ValueDefinition::Expression(expression) = value.definition {
-            value.definition =
-                ValueDefinition::Expression(expression.map(|&input| pass.aliases[input]));
-        }
-    }
-    for effect in &mut pass.graph.effects {
-        effect.operation = effect
-            .operation
-            .clone()
-            .map_inputs(|input| pass.aliases[input]);
-    }
-    for block in &mut pass.graph.blocks {
-        block.exit.map_inputs(|input| pass.aliases[input]);
-    }
+    pass.graph
+        .rewrite_inputs(|input| pass.aliases[input], |_| {});
 }
 
 struct Reuse<'a> {
     graph: &'a mut SsaGraph,
-    definitions: Vec<Option<BlockId>>,
     changed: &'a [bool],
     proofs: Paths,
     dominators: Dominators,
@@ -167,7 +132,6 @@ impl Reuse<'_> {
             let id = self.aliases.len();
             self.aliases.push(id);
             self.visible.push(None);
-            self.definitions.push(None);
         }
     }
 
@@ -265,18 +229,15 @@ impl Reuse<'_> {
             }
             let existing = reused.iter().all(|(_, value)| value.is_some());
             if !existing {
-                self.graph.values.values[result.producer].definition =
-                    ValueDefinition::Expression(expression);
-                self.graph.blocks[block.0]
-                    .items
-                    .push(BlockItem::Evaluate(result.producer));
+                self.graph.set_expression(result.producer, expression);
+                self.graph
+                    .append(block, BlockItem::Evaluate(result.producer));
             }
             for (output, (number, value)) in outputs.into_iter().zip(reused) {
                 self.numbers.assign(output, number);
                 if existing {
                     self.aliases[output] = value.unwrap();
                 } else {
-                    self.definitions[output] = Some(block);
                     self.bind(number, output, block);
                 }
             }
