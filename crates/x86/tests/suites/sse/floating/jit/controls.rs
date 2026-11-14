@@ -3,15 +3,6 @@
 use super::*;
 use crate::support::machine::step_returns;
 
-fn block(code: &[u8], count: u32, profile: ExecutionProfile, observed: &CpuState) -> TestModule {
-    TestModule::new(
-        &Compiler::new(profile)
-            .specialize_on_cpu(observed)
-            .compile_block(0x1000, code, count)
-            .unwrap(),
-    )
-}
-
 fn matching_controls() {
     // Two inexact ADDSS instructions exercise both initial status variation and
     // the new PE set by the first instruction before the second control check.
@@ -20,7 +11,7 @@ fn matching_controls() {
         let mut image = floating_image(&code, 0x1f80 | rounding << 13);
         lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
         lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3380_0000); // 2^-24, half an ulp at 1.
-        let compiled = block(&code, 2, SegmentProfile::Flat32.into(), &image.cpu);
+        let compiled = observed_block(&code, 2, SegmentProfile::Flat32.into(), &image.cpu);
         for old_flags in [0, 1, 0x20, 0x3f, 0xabcd_0025] {
             image.cpu.simd.mxcsr = (0x1f80 | rounding << 13) | old_flags;
             let mut cpu = retire(retire(image.cpu, 4), 4);
@@ -44,7 +35,7 @@ fn matching_controls() {
     let mut image = floating_image(&code, 0x9fc0);
     lane(&mut image.cpu.simd.xmm[0], false, 0, 0);
     lane(&mut image.cpu.simd.xmm[1], false, 0, 1);
-    let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+    let compiled = observed_block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
     assert_eq!(
         compiled.observe(&image.input(), 1),
         expected(&image, &[dispatch(retire(image.cpu, code.len()))])
@@ -54,7 +45,7 @@ fn matching_controls() {
     let code = [0xf3, 0x0f, 0x2d, 0xc1]; // CVTSS2SI EAX,XMM1
     let mut image = floating_image(&code, 0x0f80);
     lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3fc0_0000); // 1.5
-    let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+    let compiled = observed_block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
     let mut cpu = image.cpu;
     cpu.simd.mxcsr |= 0x20;
     assert_eq!(
@@ -87,8 +78,8 @@ fn changed_controls() {
         image.cpu.registers.ecx = 1;
         lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
         lane(&mut image.cpu.simd.xmm[1], false, 0, TWO[0]);
-        let compiled = block(&code, 2, profile, &image.cpu);
-        let linked = block(&code, 2, profile, &image.cpu)
+        let compiled = observed_block(&code, 2, profile, &image.cpu);
+        let linked = observed_block(&code, 2, profile, &image.cpu)
             .with_interpreter(TestModule::interpreter_with_profile(profile));
         for changed_bit in 6..16 {
             image.cpu.simd.mxcsr = (0x1f80 ^ (1 << changed_bit)) | 0x25;
@@ -131,8 +122,8 @@ fn loaded_controls() {
     lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
     lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3380_0000);
     lane(&mut image.cpu.simd.xmm[2], false, 0, 0x3fa0_0000); // 1.25
-    let compiled = block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu);
-    let linked = block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu)
+    let compiled = observed_block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu);
+    let linked = observed_block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu)
         .with_interpreter(TestModule::interpreter());
     for loaded in [0x1f80_u32, 0x1fa1, 0x5f80] {
         image.data(0x8000, &loaded.to_le_bytes());
@@ -173,8 +164,8 @@ fn mismatch_before_mmio() {
     image.initialize_real_mode();
     lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
     image.data(0x8000, &0x4000_0000_u32.to_le_bytes()); // 2.0
-    let compiled = block(&code, 1, ExecutionProfile::Real16, &image.cpu);
-    let linked = block(&code, 1, ExecutionProfile::Real16, &image.cpu).with_interpreter(
+    let compiled = observed_block(&code, 1, ExecutionProfile::Real16, &image.cpu);
+    let linked = observed_block(&code, 1, ExecutionProfile::Real16, &image.cpu).with_interpreter(
         TestModule::interpreter_with_profile(ExecutionProfile::Real16),
     );
     image.cpu.simd.mxcsr = 0x5f80;
@@ -213,8 +204,8 @@ fn flush_to_zero() {
         let mut image = floating_image(&code, controls);
         lane(&mut image.cpu.simd.xmm[0], false, 0, 0x0080_0000);
         lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3f00_0000);
-        let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
-        let linked = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu)
+        let compiled = observed_block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+        let linked = observed_block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu)
             .with_interpreter(TestModule::interpreter());
         let mut cpu = retire(image.cpu, code.len());
         lane(&mut cpu.simd.xmm[0], false, 0, result);
@@ -241,7 +232,7 @@ fn mmx_admission() {
     let code = [0x0f, 0x2d, 0xc1]; // CVTPS2PI MM0,XMM1
     let mut image = floating_image(&code, 0x1f80);
     image.cpu.x87.status = crate::support::x87::status(0);
-    let compiled = block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+    let compiled = observed_block(&code, 1, SegmentProfile::Flat32.into(), &image.cpu);
     image.cpu.simd.mxcsr = 0x5f80;
     image.check_unchanged_exit(
         &compiled,
