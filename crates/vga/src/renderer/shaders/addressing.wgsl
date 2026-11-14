@@ -1,13 +1,14 @@
 // CRTC counter pins: byte/word/doubleword rotation and row-scan substitution.
 fn display_address(counter: u32, row_scan: u32, address_mode: u32, underline: u32) -> u32 {
-    var address = counter;
+    let bounded_counter = counter & state.plane_address_mask;
+    var address = bounded_counter;
     if state.linear_addressing != 0u {
-        address = counter;
+        address = bounded_counter;
     } else if (underline & 0x40u) != 0u {
-        address = (counter << 2u) | ((counter >> 12u) & 3u);
+        address = (bounded_counter << 2u) | ((bounded_counter >> 12u) & 3u);
     } else if (address_mode & 0x40u) == 0u {
         let wrap = select(13u, 15u, (address_mode & 0x20u) != 0u);
-        address = (counter << 1u) | ((counter >> wrap) & 1u);
+        address = (bounded_counter << 1u) | ((bounded_counter >> wrap) & 1u);
     }
     if (address_mode & 1u) == 0u {
         address = (address & ~0x2000u) | ((row_scan & 1u) << 13u);
@@ -15,7 +16,7 @@ fn display_address(counter: u32, row_scan: u32, address_mode: u32, underline: u3
     if (address_mode & 2u) == 0u {
         address = (address & ~0x4000u) | ((row_scan & 2u) << 13u);
     }
-    return address & 0xffffu;
+    return address & state.plane_address_mask;
 }
 
 struct Scanline {

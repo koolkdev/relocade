@@ -35,8 +35,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
         && (shift_mode & 0x40u) == 0u;
     let glyph_width = select(9u, 8u, (clocking & 1u) != 0u);
 
-    let line_compare = crtc(0x18u) | ((crtc(7u) & 0x10u) << 4u)
-        | ((maximum_scan_line & 0x40u) << 3u);
+    let line_compare = state.line_compare;
     let vertical_divisor = 1u << ((crtc(0x17u) >> 2u) & 1u);
     let split_scanline = (line_compare + 1u) * vertical_divisor - 1u;
     let preset_row_scan = crtc(8u);
@@ -75,7 +74,7 @@ fn vertex(@builtin(vertex_index) index: u32) -> DisplayVertex {
     output.addressing = vec4(state.display_start, crtc(0x13u) * 2u, address_mode, underline);
     output.panning = vec4(preset_row_scan & 31u, (preset_row_scan >> 5u) & 3u, pel_pan, split_scanline);
     output.fonts = vec3(font_a, font_b, u32(extended_memory && font_a != font_b));
-    output.cursor = vec4((crtc(14u) << 8u) | crtc(15u), crtc(10u), crtc(11u), state.cursor_blink_on);
+    output.cursor = vec4(state.cursor_address, crtc(10u), crtc(11u), state.cursor_blink_on);
     output.scanlines = vec2(1u << (maximum_scan_line >> 7u), state.scanline_step);
     output.display = vec4(attribute_mode, state.attribute_blink_on, u32(blanked), shift_mode);
     output.colors0 = colors[0];

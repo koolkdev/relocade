@@ -57,7 +57,10 @@ fn page_writes_before_at_and_after_retrace_select_the_following_display() {
             let second = source.try_recv().unwrap();
             assert_eq!(second.vga().unwrap().display_start, 0x100);
         }
-        assert_eq!(first.vga().unwrap().display_start, first_text.start_address);
+        assert_eq!(
+            first.vga().unwrap().display_start,
+            u32::from(first_text.start_address)
+        );
     }
 }
 

@@ -9,6 +9,6 @@ pub(super) fn configuration(card: &DispiAdapter) -> DisplayConfiguration {
             blanked: false,
             blanking: Default::default(),
         },
-        None => DisplayConfiguration::vga(),
+        None => DisplayConfiguration::vga(&card.vga.registers),
     }
 }

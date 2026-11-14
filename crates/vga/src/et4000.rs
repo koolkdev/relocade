@@ -57,7 +57,7 @@ impl Et4000Ax {
         let output = Output::new(
             clock,
             Self::display_timing(&vga, &extensions),
-            DisplayConfiguration::vga(),
+            DisplayConfiguration::vga(&vga.registers),
         );
         Self {
             vga,

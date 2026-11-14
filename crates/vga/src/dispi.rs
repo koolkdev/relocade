@@ -76,7 +76,7 @@ impl DispiAdapter {
         let output = Output::new(
             clock,
             Timing::vga(&vga.registers),
-            DisplayConfiguration::vga(),
+            DisplayConfiguration::vga(&vga.registers),
         );
         Self {
             memory: VideoMemory::new(VIDEO_MEMORY_BYTES),
