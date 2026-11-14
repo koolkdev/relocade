@@ -6,7 +6,7 @@ use crate::{
     ports::PortDecoding,
     registers::WriteKind,
     scanout::DisplayConfiguration,
-    PackedLayout, Timing,
+    PackedLayout, Timing, Viewport,
 };
 use relocade_machine::{IoContext, Timestamp};
 
@@ -82,6 +82,7 @@ pub(crate) trait CardEffects: CardOutput {
     fn port_decoding(&self) -> PortDecoding;
     fn memory_decoding(&self) -> MemoryDecoding;
     fn display_configuration(&self) -> DisplayConfiguration;
+    fn viewport(&self) -> Option<Viewport>;
 
     /// Preserve overdue output, mutate live state, then apply configuration and
     /// decoding changes synchronously. Preparation can update hardware latches;
@@ -97,6 +98,7 @@ pub(crate) trait CardEffects: CardOutput {
         }
         let previous_layout = matches!(effects.video, VideoEffect::Configuration)
             .then(|| self.output().display.packed_layout());
+        let previous_viewport = effects.scanout.then(|| self.viewport());
         let previous_ports = effects.port_decode.then(|| self.port_decoding());
         let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
 
@@ -132,7 +134,12 @@ pub(crate) trait CardEffects: CardOutput {
                 }
             }
         }
-        if video_changed || ports_changed {
+        // The programmed viewport includes VGA geometry and full start addresses
+        // that packed-layout and timing comparisons omit. Revalidate changed
+        // viewports even without sync; unchanged state restores leave waits alone.
+        let viewport_changed =
+            previous_viewport.is_some_and(|previous| self.viewport() != previous);
+        if video_changed || ports_changed || viewport_changed {
             self.output().configuration_changed.notify(usize::MAX);
         }
         result

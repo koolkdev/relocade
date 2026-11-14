@@ -81,10 +81,12 @@ pub(in crate::video::firmware) async fn display_start<C: Vbe>(
     x: u16,
     y: u16,
 ) -> Option<[u16; 2]> {
-    card.borrow().packed_layout()?;
     let layout = card.borrow().viewport()?;
     match operation {
-        1 => Some(layout.origin().map(|value| value as u16)),
+        1 => {
+            let [x, y] = layout.origin();
+            Some([x.try_into().ok()?, y.try_into().ok()?])
+        }
         0 | 0x80 => {
             layout.with_origin([u32::from(x), u32::from(y)])?;
             if operation == 0x80 {

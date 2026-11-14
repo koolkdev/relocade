@@ -132,3 +132,127 @@ fn legacy_scanlines_use_aperture_or_banked_capacity() {
 async fn legacy_scanlines_use_aperture_or_banked_capacity() {
     scanlines().await;
 }
+
+async fn legacy_display_start() {
+    let machine = Firmware::new();
+    let mut cpu = machine.cpu().await;
+    let state = cpu.cpu_state();
+    machine.set_mode(0x0f).unwrap();
+    assert_eq!(call(&mut cpu, 0x4f06, 2, 100, 0).await, 0x4f);
+    machine.io.write_port(0x3c4, 2, 0x0102);
+    machine.io.write_mmio(0xa0000 + 501, 1, 4);
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 13, 5).await, 0x4f);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (13, 5));
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        1
+    );
+
+    machine.io.write_port(0x3bf, 1, 3);
+    machine.io.write_port(0x3b8, 1, 0xa0);
+    machine.io.write_port(0x3b4, 2, 0x0c33);
+    machine.io.write_port(0x3cd, 1, 0x73);
+    machine.io.write_mmio(0xa0d41, 1, 4); // Counter 30D41h, pixel pan five.
+    machine.io.write_port(0x3cd, 1, 0x75);
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 13, 2000).await, 0x4f);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (13, 2000));
+    machine.io.write_port(0x3b4, 1, 0x33);
+    assert_eq!(machine.io.read_port(0x3b5, 1), 0x0f);
+    assert_eq!(machine.io.read_port(0x3cd, 1), 0x75);
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        1
+    );
+    // A guest high-register write is visible to queries before the retrace latch.
+    machine.io.write_port(0x3b4, 2, 0x0d33);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (237, 689));
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 0, 0).await, 0x4f);
+    machine.io.write_port(0x3b4, 1, 0x33);
+    assert_eq!(machine.io.read_port(0x3b5, 1), 0x0c);
+    let before = machine.card.borrow().core_state();
+    let extended = machine.card.borrow().et4000_state();
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 0, 3000).await, 0x14f);
+    assert_eq!(machine.card.borrow().core_state(), before);
+    assert_eq!(machine.card.borrow().et4000_state(), extended);
+
+    machine.set_mode(0x13).unwrap();
+    machine.io.write_port(0x3d4, 2, 0x6712);
+    assert_eq!(call(&mut cpu, 0x4f06, 0, 321, 0).await, 0x4f);
+    machine.io.write_mmio(0xa0000 + 659, 1, 0x5a);
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 3, 2).await, 0x4f);
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        0x5a
+    );
+
+    machine.io.write_port(0x3bf, 1, 3);
+    machine.io.write_port(0x3d8, 1, 0xa0);
+    machine.io.write_port(0x3cd, 1, 0x75);
+    machine.io.write_mmio(0xa0143, 1, 0x6b); // Physical byte 50143h.
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 3, 1000).await, 0x4f);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (3, 1000));
+    assert_eq!(
+        machine
+            .card
+            .borrow_mut()
+            .framebuffer()
+            .pixel(0, 0)
+            .unwrap()
+            .value(),
+        0x6b
+    );
+
+    machine.set_mode(3).unwrap();
+    machine.io.write_port(0x3d4, 2, 0x0933);
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0, 0).await, 0x4f);
+    assert_eq!((state.cx(), state.dx()), (144, 13104));
+    // Queries expose a guest-programmed text page outside the bounded image;
+    // firmware can still move it back into that image without losing cursor bits.
+    assert_eq!(call(&mut cpu, 0x4f07, 0, 0, 0).await, 0x4f);
+    machine.io.write_port(0x3d4, 1, 0x33);
+    assert_eq!(machine.io.read_port(0x3d5, 1), 8);
+    for value in [0x0b33, 0xff0c, 0xff0d, 0x0113] {
+        machine.io.write_port(0x3d4, 2, value);
+    }
+    let before = machine.card.borrow().core_state();
+    let extended = machine.card.borrow().et4000_state();
+    // This origin cannot be represented in VBE's 16-bit coordinates.
+    assert_eq!(call(&mut cpu, 0x4f07, 1, 0x1234, 0x5678).await, 0x14f);
+    assert_eq!((state.cx(), state.dx()), (0x1234, 0x5678));
+    assert_eq!(machine.card.borrow().core_state(), before);
+    assert_eq!(machine.card.borrow().et4000_state(), extended);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn vbe_legacy_panning_uses_monochrome_routing_and_et4000_chained_addressing() {
+    pollster::block_on(legacy_display_start());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn vbe_legacy_panning_uses_monochrome_routing_and_et4000_chained_addressing() {
+    legacy_display_start().await;
+}
