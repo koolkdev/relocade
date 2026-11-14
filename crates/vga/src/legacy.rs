@@ -163,7 +163,9 @@ impl LegacyLayout {
         self.with_pitch(self.max_pitch())
     }
 
-    fn with_origin(mut self, origin: [u32; 2]) -> Option<Self> {
+    /// Move within complete addressable rows. Coordinates are pixels, including
+    /// glyph dots and glyph scanlines in text modes.
+    pub fn with_origin(mut self, origin: [u32; 2]) -> Option<Self> {
         if origin[0].checked_add(self.size[0])? > self.virtual_width()
             || origin[1].checked_add(self.size[1])? > self.virtual_height()
         {

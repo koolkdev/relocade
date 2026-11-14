@@ -132,7 +132,12 @@ pub(crate) trait CardEffects: CardOutput {
                 }
             }
         }
-        if video_changed || ports_changed {
+        // VGA geometry and viewport inputs live in the registers rather than
+        // the prepared packed layout. Wake waiters so they can revalidate those
+        // inputs too, including changes made while sync is suppressed.
+        let legacy_configuration_written =
+            effects.scanout && self.output().display.packed_layout().is_none();
+        if video_changed || ports_changed || legacy_configuration_written {
             self.output().configuration_changed.notify(usize::MAX);
         }
         result

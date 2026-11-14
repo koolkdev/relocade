@@ -125,6 +125,50 @@ fn program_legacy_layout(io: &IoBus, layout: LegacyLayout) {
     );
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Viewport {
+    Packed(PackedLayout),
+    Legacy(LegacyLayout),
+}
+
+impl Viewport {
+    fn current(firmware: &VideoFirmware) -> Option<Self> {
+        firmware
+            .packed_layout()
+            .map(Self::Packed)
+            .or_else(|| firmware.legacy_layout().map(Self::Legacy))
+    }
+
+    fn origin(self) -> [u32; 2] {
+        match self {
+            Self::Packed(layout) => layout.origin(),
+            Self::Legacy(layout) => layout.origin(),
+        }
+    }
+
+    fn with_origin(self, firmware: &VideoFirmware, origin: [u32; 2]) -> Option<Self> {
+        match self {
+            Self::Packed(layout) => firmware
+                .bounded_layout(layout.pitch())?
+                .with_origin(origin)
+                .map(Self::Packed),
+            Self::Legacy(layout) => layout.with_origin(origin).map(Self::Legacy),
+        }
+    }
+
+    fn program(self, io: &IoBus, firmware: &VideoFirmware) -> bool {
+        match self {
+            Self::Packed(layout) => io.with_context(|context| {
+                firmware.set_display_origin(context, layout.origin().map(|value| value as u16))
+            }),
+            Self::Legacy(layout) => {
+                program_legacy_layout(io, layout);
+                true
+            }
+        }
+    }
+}
+
 #[interrupt(context(io), args(operation = bx, x = cx, y = dx), returns {
     Some([x, y]) => { ax = 0x004f, bh = 0, cx = x, dx = y },
     None => { ax = 0x014f },
@@ -136,18 +180,16 @@ pub(in crate::video::firmware) async fn display_start(
     x: u16,
     y: u16,
 ) -> Option<[u16; 2]> {
-    let layout = firmware.packed_layout()?;
+    let layout = Viewport::current(firmware)?;
     match operation {
         1 => Some(layout.origin().map(|value| value as u16)),
         0 | 0x80 => {
-            firmware
-                .bounded_layout(layout.pitch())?
-                .with_origin([u32::from(x), u32::from(y)])?;
+            let next = layout.with_origin(firmware, [u32::from(x), u32::from(y)])?;
             if operation == 0x80 {
                 loop {
                     let event = firmware.wait_for_retrace().await?;
                     // Revalidation services the completed boundary before the origin changes.
-                    if firmware.packed_layout() != Some(layout) {
+                    if Viewport::current(firmware) != Some(layout) {
                         return None;
                     }
                     if event == RetraceEvent::Started {
@@ -155,8 +197,7 @@ pub(in crate::video::firmware) async fn display_start(
                     }
                 }
             }
-            io.with_context(|context| firmware.set_display_origin(context, [x, y]))
-                .then_some([x, y])
+            next.program(io, firmware).then_some([x, y])
         }
         _ => None, // BH is reserved; only the three complete BX values are valid.
     }
