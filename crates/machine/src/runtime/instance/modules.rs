@@ -80,9 +80,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .map(|&id| &self.modules[id])
             .filter(move |module| {
                 module.code().is_some_and(|code| {
-                    code.ranges()
-                        .iter()
-                        .any(|range| range.contains(&u64::from(address)))
+                    let address = u64::from(address);
+                    let ranges = code.ranges();
+                    let index = ranges.partition_point(|range| range.end <= address);
+                    ranges
+                        .get(index)
+                        .is_some_and(|range| range.start <= address)
                 })
             })
     }
