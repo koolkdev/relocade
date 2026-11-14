@@ -1,4 +1,6 @@
 use super::{execution, Firmware};
+#[path = "vbe/layout.rs"]
+mod layout;
 #[path = "vbe/modes.rs"]
 mod modes;
 use relocade_bios::Keyboard;

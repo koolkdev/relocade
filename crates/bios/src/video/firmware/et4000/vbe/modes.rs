@@ -1,44 +1,32 @@
 //! Validated mode and independent bank services for the ET4000 board.
 use super::super::modes::Mode;
 use crate::video::modes as legacy;
-use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::Et4000Ax;
 use std::cell::RefCell;
 
-#[interrupt(context(memory, io), args(request = bx), returns { true => { ax = 0x004f }, false => { ax = 0x014f } })]
-pub(super) fn set(
+pub(in crate::video::firmware) fn set(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
     card: &RefCell<Et4000Ax>,
-    request: u16,
+    number: u16,
+    preserve: bool,
 ) -> bool {
-    if !card.borrow().ports_enabled() {
+    let Some(mode) = Mode::from_vbe_number(number) else {
+        // Includes unsupported linear-framebuffer requests and reserved flags.
+        return false;
+    };
+    if mode.layout(card.borrow().video_memory_bytes()).is_none() {
         return false;
     }
-    let number = request & 0x7fff;
-    let preserve = request & 0x8000 != 0;
-    if let Some(mode) = Mode::from_vbe_number(number) {
-        if mode.layout(card.borrow().video_memory_bytes()).is_none() {
-            return false;
-        }
-        mode.activate(memory, io, card, preserve);
-        true
-    } else if number < 0x80 {
-        super::super::set_mode(
-            memory,
-            io,
-            card,
-            number as u8 | if preserve { 0x80 } else { 0 },
-        )
-        .is_some()
-    } else {
-        // Includes unsupported linear-framebuffer requests and reserved flags.
-        false
-    }
+    mode.activate(memory, io, card, preserve);
+    true
 }
 
-#[interrupt(context(memory), returns { Some(number) => { ax = 0x004f, bx = number }, None => { ax = 0x014f } })]
-pub(super) fn current(memory: &MemoryView<'_>, card: &RefCell<Et4000Ax>) -> Option<u16> {
+pub(in crate::video::firmware) fn current(
+    memory: &MemoryView<'_>,
+    card: &RefCell<Et4000Ax>,
+) -> Option<u16> {
     let card = card.borrow();
     if !card.ports_enabled() {
         return None;
@@ -57,8 +45,7 @@ pub(super) fn current(memory: &MemoryView<'_>, card: &RefCell<Et4000Ax>) -> Opti
     }
 }
 
-#[interrupt(context(io), args(operation = bx, position = dx), returns { Some(position) => { ax = 0x004f, dx = position }, None => { ax = 0x014f } })]
-pub(super) fn window(
+pub(in crate::video::firmware) fn window(
     io: &IoBus,
     card: &RefCell<Et4000Ax>,
     operation: u16,
