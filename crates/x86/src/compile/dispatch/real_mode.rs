@@ -27,7 +27,7 @@ pub(super) fn define_call_resolver(
     program: &mut Program,
     cpu: Arc<Cpu>,
     lookup: TypedFunc<fn() -> u32>,
-) -> Result<TypedFunc<fn() -> (u32, bool)>, BuildError> {
+) -> Result<TypedFunc<abi::ResolveCallSignature>, BuildError> {
     let recorder = CallProfile::declare_recorder(program);
     abi::RESOLVE_CALL.define(program, move |mut body, ()| {
         let slot = lookup.call(&mut body, ())?;
