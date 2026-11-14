@@ -79,6 +79,41 @@ in the BIOS crate and program these same registers: 640×480 (BIOS 2Eh/VBE 101h)
 800×600 (30h/103h), and interlaced 1024×768 (38h/105h). VBE reports the installed
 1 MiB and exposes separate write/read windows at A000h. The card supplies the
 same frame queue and native drawing access as DISPI, including the DOS cursor.
+VBE scanline requests round up to eight-byte pitches and validate the complete
+viewport against the installed memory. Display-start services program the coarse
+counter and pixel pan without changing CPU banks. Native register accesses still
+support address wrapping. The DAC-format service reports six-bit components.
+
+VBE state buffers include standard VGA registers and latches, BIOS bookkeeping,
+DAC transfer state, extensions, the bank/unlock protocol and the high start latch.
+The versioned header identifies the board profile. Restore validates requested
+components before applying them together, preserves unselected components and
+never clears VRAM. A buffer for DISPI cannot restore an ET4000, even for a subset.
+
+## DOS compatibility fixture
+
+Fractint 19.6 passes the DOS allocation-strategy and date services, then stops
+before graphics on the unsupported `SGDT [BP]` CPU probe (`0F 01 46 00`). The
+same probe subsequently uses `SMSW`, also currently unimplemented; see `cputype`
+in the matching [source package](https://files.mpoli.fi/software/dos/graphics/frasr196.zip).
+Native-Tseng and VESA rendering results remain unverified.
+
+The optional `fractint` DOS test uses the original real-mode **Fractint 19.6**
+package, supplied outside the repository. Obtain `frain196.zip` from the
+[archived distribution](https://files.mpoli.fi/software/dos/graphics/frain196.zip)
+and extract it into a local directory. The `FRACTINT.EXE` SHA-256 is
+`dfc2da9010ddb7b02f855049edf56b5a39c1ed8ec12b3e36d6d00e2442617b53`.
+
+```sh
+FRACTINT196_DIR=/path/to/fractint196 cargo test -p relocade-dos --test fractint -- --ignored
+```
+
+The first batch uses `video=sf5 vesadetect=no` to exercise Fractint's native
+Tseng detection and bank routine. The second uses its banked VESA driver at the
+same 640×480×256 mode. The fixture requires both to save a GIF, produce matching
+nonuniform captured images, and return to text. External executables are not checked into this
+repository. The regular authored DOS fixture separately covers mouse drawing
+and restoring pixels without disturbing independent guest banks.
 
 Sources: [Tseng ET4000 data book](https://ardent-tool.com/datasheets/Tseng_ET4000_Databook_1990.pdf),
 EV8913 schematic sheets 1–3 (printed pp. 14–16), clock selection (p. 32),
