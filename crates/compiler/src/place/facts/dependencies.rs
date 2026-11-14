@@ -35,7 +35,7 @@ pub(super) struct Dependencies {
     values: Vec<Uses>,
     edges: Vec<Edge>,
     aliases: FxHashSet<(usize, usize)>,
-    pending: WorkQueue,
+    proof_inputs: FxHashSet<(usize, usize)>,
 }
 
 /// Keep sparse pending work unique, without a bitmap copied at every path fork.
@@ -50,6 +50,15 @@ impl WorkQueue {
         if self.queued.insert(demand) {
             self.pending.push(Reverse(demand));
         }
+    }
+
+    pub(super) fn next_bits(&mut self) -> Option<usize> {
+        let Reverse(Demand::Bits(id)) = self.pending.peek()? else {
+            return None;
+        };
+        let id = *id;
+        self.pop();
+        Some(id)
     }
 
     pub(super) fn pop(&mut self) -> Option<Demand> {
@@ -87,6 +96,12 @@ impl Dependencies {
         }
     }
 
+    pub(super) fn proof_input(&mut self, root: usize, input: usize) {
+        if input != root && self.proof_inputs.insert((root, input)) {
+            self.add(Demand::Bits(input), Demand::Reduction(root));
+        }
+    }
+
     fn add(&mut self, source: Demand, user: Demand) {
         let (id, kind) = source.index();
         self.values
@@ -96,47 +111,30 @@ impl Dependencies {
         *head = NonZeroUsize::new(self.edges.len());
     }
 
-    pub(super) fn invalidate(&mut self, id: usize, mut invalidate: impl FnMut(Demand) -> bool) {
-        self.pending.push(Demand::Bits(id));
-        self.pending.push(Demand::Reduction(id));
-        while let Some(demand) = self.pending.pop() {
-            if !invalidate(demand) {
-                continue;
-            }
-            let (id, kind) = demand.index();
-            let mut edge = self.values.get(id).and_then(|uses| uses.heads[kind]);
-            while let Some(index) = edge {
-                let user = &self.edges[index.get() - 1];
-                self.pending.push(user.user);
-                edge = user.next;
-            }
+    pub(super) fn users(&self, source: Demand, mut visit: impl FnMut(Demand)) {
+        let (id, kind) = source.index();
+        let mut edge = self.values.get(id).and_then(|uses| uses.heads[kind]);
+        while let Some(index) = edge {
+            let user = &self.edges[index.get() - 1];
+            visit(user.user);
+            edge = user.next;
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Demand, Dependencies};
-
+    use super::{Demand, WorkQueue};
     #[test]
-    fn converging_and_alias_dependencies_visit_each_cached_answer_once() {
-        let mut dependencies = Dependencies::default();
-        dependencies.add(Demand::Bits(0), Demand::Bits(1));
-        dependencies.add(Demand::Bits(0), Demand::Bits(2));
-        dependencies.add(Demand::Bits(1), Demand::Bits(2));
-        dependencies.add(Demand::Bits(2), Demand::Reduction(2));
-        dependencies.alias(3, 2);
-        dependencies.alias(3, 2);
-        let mut demanded = rustc_hash::FxHashSet::from_iter([
-            Demand::Bits(0),
-            Demand::Bits(1),
-            Demand::Bits(2),
-            Demand::Reduction(2),
-            Demand::Reduction(3),
-            Demand::Bits(9),
-        ]);
-        dependencies.invalidate(0, |demand| demanded.remove(&demand));
-        assert_eq!(demanded.len(), 1);
-        assert!(demanded.contains(&Demand::Bits(9)));
+    fn work_is_unique_until_completed_and_can_be_scheduled_again() {
+        let mut work = WorkQueue::default();
+        work.push(Demand::Bits(2));
+        work.push(Demand::Bits(1));
+        work.push(Demand::Bits(2));
+        assert!(matches!(work.pop(), Some(Demand::Bits(1))));
+        assert!(matches!(work.pop(), Some(Demand::Bits(2))));
+        assert!(work.pop().is_none());
+        work.push(Demand::Bits(1));
+        assert!(matches!(work.pop(), Some(Demand::Bits(1))));
     }
 }

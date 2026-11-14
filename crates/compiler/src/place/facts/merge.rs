@@ -83,5 +83,6 @@ impl ScalarFacts {
         }
         // Earlier inferences may depend on knowledge just discarded.
         self.answers.get_mut().clear();
+        *self.updates.get_mut() = Default::default();
     }
 }

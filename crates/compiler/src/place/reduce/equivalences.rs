@@ -1,37 +1,27 @@
-//! Full-carrier aliases grouped by their stable normal form in one reduction context.
-//! Logical-bit observations and partial-demand substitutions are not equivalences.
-use rustc_hash::FxHashMap;
+//! Immutable full-carrier alias lists shared by path snapshots.
+//! A refinement preserves earlier proofs; joins discard their cached answers.
 
 #[derive(Default)]
 pub(super) struct Equivalences {
-    originals: FxHashMap<usize, Sources>,
+    links: Vec<Link>,
 }
 
-// Most residuals have one original recipe. Allocate only when forms converge.
-enum Sources {
-    One(usize),
-    Many(Vec<usize>),
+struct Link {
+    recipe: usize,
+    previous: Option<usize>,
 }
 
 impl Equivalences {
-    pub(super) fn recipes(&self, residual: usize) -> &[usize] {
-        match self.originals.get(&residual) {
-            Some(Sources::One(recipe)) => std::slice::from_ref(recipe),
-            Some(Sources::Many(recipes)) => recipes,
-            None => &[],
-        }
+    pub(super) fn recipes(&self, head: Option<usize>) -> impl Iterator<Item = usize> + '_ {
+        std::iter::successors(head, |&id| self.links[id].previous).map(|id| self.links[id].recipe)
     }
 
-    /// The reducer finishes the residual before recording an alias. A recipe
-    /// with aliases is already a stable normal form and cannot be reduced again.
-    pub(super) fn record(&mut self, recipe: usize, residual: usize) {
-        debug_assert!(self.recipes(recipe).is_empty());
-        self.originals
-            .entry(residual)
-            .and_modify(|sources| match sources {
-                Sources::One(first) => *sources = Sources::Many(vec![*first, recipe]),
-                Sources::Many(recipes) => recipes.push(recipe),
-            })
-            .or_insert(Sources::One(recipe));
+    pub(super) fn record(&mut self, head: Option<usize>, recipe: usize) -> usize {
+        let id = self.links.len();
+        self.links.push(Link {
+            recipe,
+            previous: head,
+        });
+        id
     }
 }

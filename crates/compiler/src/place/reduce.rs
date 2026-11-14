@@ -11,18 +11,13 @@ mod tests;
 /// One function's path scopes and reusable reduction worklist.
 #[derive(Default)]
 pub(super) struct Reducer {
-    scopes: Vec<Scope>,
+    scopes: Vec<ScalarFacts>,
     pending: Vec<Work>,
+    equivalents: Equivalences,
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct ScopeId(usize);
-
-#[derive(Default)]
-struct Scope {
-    facts: ScalarFacts,
-    equivalents: Equivalences,
-}
 
 enum Work {
     Infer(Inference),
@@ -43,10 +38,7 @@ impl Reducer {
     /// Publish a path's facts before its first reduction. Later queries keep them fixed.
     pub(super) fn scope(&mut self, facts: ScalarFacts) -> ScopeId {
         let id = ScopeId(self.scopes.len());
-        self.scopes.push(Scope {
-            facts,
-            ..Scope::default()
-        });
+        self.scopes.push(facts);
         id
     }
 
@@ -56,44 +48,53 @@ impl Reducer {
         residual: usize,
     ) -> impl Iterator<Item = usize> + '_ {
         std::iter::once(residual).chain(
-            self.scopes[scope.0]
-                .equivalents
-                .recipes(residual)
-                .iter()
-                .copied(),
+            self.equivalents
+                .recipes(self.scopes[scope.0].aliases(residual)),
         )
     }
 
     pub(super) fn facts(&self, scope: ScopeId) -> &ScalarFacts {
-        &self.scopes[scope.0].facts
+        &self.scopes[scope.0]
     }
 
     /// Reduce semantic recipes without consulting execution availability.
     /// Scheduling consumes the result only after all input folds are complete.
     pub(super) fn reduce(&mut self, values: &mut ValueTable, scope: ScopeId, root: usize) -> usize {
-        let scope = &mut self.scopes[scope.0];
+        self.scopes[scope.0].refresh_bits(values);
+        while let Some(id) = self.scopes[scope.0].next_reduction() {
+            self.reduce_value(values, scope, id);
+        }
+        self.reduce_value(values, scope, root)
+    }
+
+    fn reduce_value(&mut self, values: &mut ValueTable, scope: ScopeId, root: usize) -> usize {
         self.pending.push(Work::Visit(root));
         while let Some(task) = self.pending.pop() {
+            let facts = &self.scopes[scope.0];
             match task {
-                Work::Infer(step) => scope
-                    .facts
-                    .infer_step(values, step, |step| self.pending.push(Work::Infer(step))),
+                Work::Infer(step) => {
+                    facts.infer_step(values, step, |step| self.pending.push(Work::Infer(step)))
+                }
                 Work::Visit(id) => {
-                    if scope.facts.reduced(id).is_some() {
+                    if facts.reduced(id).is_some() {
                         continue;
                     }
-                    scope.facts.track_reduction(values, id);
-                    if let Some(step) = scope.facts.constant_inference(values, id) {
+                    facts.track_reduction(values, id);
+                    if let Some(step) = facts.constant_inference(values, id) {
                         self.pending.push(Work::Visit(id));
                         self.pending.push(Work::Infer(step));
                         continue;
                     }
-                    if let Some(result) = scope.known_constant(values, id) {
-                        scope.record(id, result);
-                    } else if let Some(step) = scope.facts.identity_inference(values, id) {
+                    if let Some(bits) = facts
+                        .constant(values, id)
+                        .and_then(|bits| values.carrier_bits(id, bits))
+                    {
+                        let result = values.carrier_literal(values[id].ty, bits);
+                        self.record(scope, id, result);
+                    } else if let Some(step) = facts.identity_inference(values, id) {
                         self.pending.push(Work::Visit(id));
                         self.pending.push(Work::Infer(step));
-                    } else if let Some(input) = scope.facts.bitwise_identity(values, id) {
+                    } else if let Some(input) = facts.bitwise_identity(values, id) {
                         self.pending.push(Work::Alias(id, input));
                         self.pending.push(Work::Visit(input));
                     } else if let Some(result) = values.expression(id) {
@@ -114,11 +115,11 @@ impl Reducer {
                                 .extend(expression.inputs().rev().map(|&v| Work::Visit(v)));
                         }
                     } else {
-                        scope.record(id, id);
+                        self.record(scope, id, id);
                     }
                 }
                 Work::Select(id, condition, when_true, when_false) => {
-                    let condition = scope.facts.reduced(condition).unwrap();
+                    let condition = facts.reduced(condition).unwrap();
                     if let Some(bits) = values[condition].scalar_literal() {
                         let input = if bits == 0 { when_false } else { when_true };
                         self.pending.push(Work::Alias(id, input));
@@ -130,13 +131,12 @@ impl Reducer {
                     }
                 }
                 Work::Alias(id, input) => {
-                    scope.record(id, scope.facts.reduced(input).unwrap());
+                    let result = facts.reduced(input).unwrap();
+                    self.record(scope, id, result);
                 }
                 Work::Finish(id) => {
                     let original = values.expression(id).unwrap();
-                    let expression = original
-                        .expression
-                        .map(|v| scope.facts.reduced(*v).unwrap());
+                    let expression = original.expression.map(|v| facts.reduced(*v).unwrap());
                     // Construction already canonicalized unchanged expressions.
                     // Fold changed operands directly, without interning a temporary recipe.
                     let result = if expression == original.expression {
@@ -159,12 +159,11 @@ impl Reducer {
                     if result == id {
                         // Prove only a stable recipe. Alias/Visit below handles
                         // new or already memoized results without repeating proofs.
-                        let result = scope
-                            .facts
+                        let result = facts
                             .constant_across_selects(values, id)
                             .map(|bits| values.carrier_literal(crate::Type::I1, bits))
                             .unwrap_or(id);
-                        scope.record(id, result);
+                        self.record(scope, id, result);
                     } else {
                         // Folding and lowering may introduce another recipe.
                         // Reduce it in this context before publishing a stable normal form.
@@ -174,21 +173,14 @@ impl Reducer {
                 }
             }
         }
-        scope.facts.reduced(root).unwrap()
-    }
-}
-
-impl Scope {
-    fn known_constant(&self, values: &mut ValueTable, value: usize) -> Option<usize> {
-        let bits = self.facts.constant(values, value)?;
-        let bits = values.carrier_bits(value, bits)?;
-        Some(values.carrier_literal(values[value].ty, bits))
+        self.scopes[scope.0].reduced(root).unwrap()
     }
 
-    fn record(&mut self, recipe: usize, residual: usize) {
-        self.facts.record_reduction(recipe, residual);
-        if recipe != residual {
-            self.equivalents.record(recipe, residual);
+    fn record(&mut self, scope: ScopeId, recipe: usize, residual: usize) {
+        let facts = &mut self.scopes[scope.0];
+        if facts.record_reduction(recipe, residual) && recipe != residual {
+            let head = self.equivalents.record(facts.aliases(residual), recipe);
+            facts.set_aliases(residual, head);
         }
     }
 }

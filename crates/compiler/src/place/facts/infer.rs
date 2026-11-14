@@ -15,6 +15,11 @@ pub(in crate::place) enum Inference {
 impl ScalarFacts {
     /// Known scalar bits; non-scalar values contribute no knowledge.
     pub(super) fn bits(&self, table: &ValueTable, root: usize) -> Bits {
+        self.refresh_bits(table);
+        self.infer_bits(table, root)
+    }
+
+    pub(super) fn infer_bits(&self, table: &ValueTable, root: usize) -> Bits {
         if let Some(bits) = self.cached_bits(root) {
             return bits;
         }

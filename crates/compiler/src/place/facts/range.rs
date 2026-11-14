@@ -78,7 +78,7 @@ impl ScalarFacts {
             return;
         };
         if self.ranges.insert(id, range) != Some(range) {
-            self.changed(id);
+            self.changed(table, id);
         }
     }
 

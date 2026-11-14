@@ -86,7 +86,7 @@ impl ScalarFacts {
                             self.comparisons
                                 .assume(table, operator, left, right, bits.value != 0)
                         {
-                            self.changed(first);
+                            self.changed(table, first);
                         }
                         self.assume_comparison(table, operator, left, right, bits.value != 0);
                         if matches!(operator, CompareOp::Eq | CompareOp::Ne)
