@@ -88,6 +88,7 @@ where
                         &cursor,
                         state.with_prefix(*prefix),
                         &[(&opcode).into()],
+                        &self.code_default_is_32_bit,
                     )
                 }
             }

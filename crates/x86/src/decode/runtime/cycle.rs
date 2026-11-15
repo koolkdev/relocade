@@ -1,6 +1,6 @@
 //! Shared continuation for the ordinary direct opcode path.
 
-use relocade_compiler::{BlockBuilder, BuildError, Func, Val, I1, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
@@ -18,7 +18,7 @@ impl RuntimeDecoder {
         mut body: BlockBuilder<'_>,
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
-        entry: Func,
+        code_default_is_32_bit: &Val<I1>,
         before_next_instruction: &impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>,
         complete_instruction: &impl Fn(
             BlockBuilder<'_>,
@@ -26,7 +26,7 @@ impl RuntimeDecoder {
             &DecodeContinuation,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let code_default_is_32_bit = self.read_code_default(&mut body)?;
+        // CS loads dispatch, so ordinary loop iterations retain the entry default.
         let fetch = cursor.fetch.clone();
         let initial = (
             cursor.instruction_eip(),
@@ -64,7 +64,7 @@ impl RuntimeDecoder {
                     Some(&mut cache),
                 )?;
                 iteration.if_(&direct.unavailable, |fallback| {
-                    Self::resume(fallback, entry)
+                    Self::resume(fallback, self.entry)
                 })?;
                 let mut cursor = RuntimeCursor::new(
                     &iteration,

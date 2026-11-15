@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use relocade_compiler::{
-    Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, I1, I32,
+    Argument, BlockBuilder, BuildError, Func, Program, Signature, Type, Val, I1, I32,
 };
 
 use crate::{
@@ -58,6 +58,7 @@ impl DecodePoint {
 pub(super) struct DecodeHandlers {
     point: DecodePoint,
     default_selection: FormSelection,
+    code_default: Option<SegmentDefaultSize>,
     direct: Option<Func>,
     checked: Func,
     resumed: Vec<ResumedEntry>,
@@ -75,11 +76,16 @@ impl DecodeHandlers {
         program: &mut Program,
         point: DecodePoint,
         default_size: SegmentDefaultSize,
+        code_default: Option<SegmentDefaultSize>,
         direct_entry: bool,
     ) -> Self {
         let default_selection = FormSelection::new(default_size);
         let mut parameters = vec![Type::I1, Type::I32];
         parameters.extend_from_slice(point.field_types());
+        // Live CS.D travels with the instruction; an admitted default needs no parameter.
+        if code_default.is_none() {
+            parameters.push(Type::I1);
+        }
         let checked = program.declare(Signature {
             parameters: parameters.clone(),
             results: crate::abi::RUN.signature().results,
@@ -117,6 +123,7 @@ impl DecodeHandlers {
         Self {
             point,
             default_selection,
+            code_default,
             direct,
             checked,
             resumed,
@@ -132,6 +139,7 @@ impl DecodeHandlers {
                 BlockBuilder<'_>,
                 RuntimeCursor<'_>,
                 DecodeState,
+                Val<I1>,
             ) -> Result<(), BuildError>
             + Send
             + Sync
@@ -156,10 +164,16 @@ impl DecodeHandlers {
             let decode = decode.clone();
             let point = self.point;
             let default_selection = self.default_selection;
+            let code_default = self.code_default;
             program.define(function, move |body| {
                 let fetch = decoder.fetch();
                 let instruction_eip = body.parameter::<I32>(1)?;
-                let position_parameter = point.field_types().len() as u32 + 2;
+                let default_parameter = point.field_types().len() as u32 + 2;
+                let code_default_is_32_bit = match code_default {
+                    Some(size) => body.value(size == SegmentDefaultSize::Bits32)?,
+                    None => body.parameter::<I1>(default_parameter)?,
+                };
+                let position_parameter = default_parameter + u32::from(code_default.is_none());
                 let (cursor, prefixes) = match entry {
                     Entry::Resumed(entry) => {
                         let cursor = RuntimeCursor::resume(
@@ -191,7 +205,13 @@ impl DecodeHandlers {
                         (cursor, default_selection.prefixes())
                     }
                 };
-                decode(&decoder, body, cursor, point.state(prefixes))
+                decode(
+                    &decoder,
+                    body,
+                    cursor,
+                    point.state(prefixes),
+                    code_default_is_32_bit,
+                )
             })?;
         }
         Ok(())
@@ -199,18 +219,22 @@ impl DecodeHandlers {
 
     /// All entries carry the single-step flag first, followed by instruction EIP.
     /// Opcode entries receive a byte; memory entries receive a validated form
-    /// index and ModRM. Cursor progress and optional prefix arguments follow
-    /// these decoded fields.
+    /// index and ModRM. Live CS.D, cursor progress and optional prefix arguments
+    /// follow these decoded fields.
     pub(super) fn tail_call(
         &self,
         body: BlockBuilder<'_>,
         cursor: &RuntimeCursor<'_>,
         state: DecodeState,
         fields: &[Argument],
+        code_default_is_32_bit: &Val<I1>,
     ) -> Result<(), BuildError> {
         let single_step = body.parameter::<I1>(0)?;
         let mut arguments = vec![(&single_step).into(), cursor.instruction_eip().into()];
         arguments.extend_from_slice(fields);
+        if self.code_default.is_none() {
+            arguments.push(code_default_is_32_bit.into());
+        }
         let target = if cursor.fixed_offset() == Some(self.point.consumed()) {
             match cursor.physical_start() {
                 Some(physical_start) => {

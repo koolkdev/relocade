@@ -1,5 +1,7 @@
 //! The same decoder reads operand and address defaults from each entering CPU image.
 
+mod entries;
+
 use crate::{
     support::machine::Image,
     test_step::{returned, Event, TestModule},

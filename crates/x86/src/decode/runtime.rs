@@ -110,18 +110,21 @@ impl RuntimeDecoder {
                 program,
                 DecodePoint::Opcode,
                 default_size,
+                code_default,
                 true,
             ),
             primary_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Primary),
                 default_size,
+                code_default,
                 false,
             ),
             extended_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Extended),
                 default_size,
+                code_default,
                 false,
             ),
         });
@@ -133,11 +136,10 @@ impl RuntimeDecoder {
             handlers.define(
                 program,
                 decoder.clone(),
-                move |decoder, mut body, cursor, state| {
+                move |decoder, body, cursor, state, code_default_is_32_bit| {
                     let continuation = DecodeContinuation::Entry(completed);
                     let form_index = body.parameter::<I32>(2)?;
                     let modrm = body.parameter::<I8>(3)?;
-                    let code_default_is_32_bit = decoder.read_code_default(&mut body)?;
                     InstructionDecoder {
                         decoder,
                         code_default_is_32_bit,
@@ -162,19 +164,18 @@ impl RuntimeDecoder {
             decoder.opcode_handlers.define(
                 program,
                 decoder.clone(),
-                move |decoder, mut body, cursor, state| {
+                move |decoder, body, cursor, state, code_default_is_32_bit| {
                     let opcode = body.parameter::<I8>(2)?;
                     if cursor.physical_start().is_some() {
                         decoder.decode_cycle(
                             body,
                             cursor,
                             &opcode,
-                            entry,
+                            &code_default_is_32_bit,
                             &*before_next_instruction,
                             &*complete_instruction,
                         )
                     } else {
-                        let code_default_is_32_bit = decoder.read_code_default(&mut body)?;
                         let continuation = DecodeContinuation::Entry(completed);
                         InstructionDecoder {
                             decoder,
@@ -256,6 +257,7 @@ impl RuntimeDecoder {
         physical_start: Option<&Val<I32>>,
     ) -> Result<(), BuildError> {
         let mut cursor = RuntimeCursor::new(&body, fetch, instruction_eip, physical_start, 0)?;
+        let code_default_is_32_bit = self.read_code_default(&mut body)?;
         let opcode = cursor.byte(&mut body)?;
         self.opcode_handlers.tail_call(
             body,
@@ -265,6 +267,7 @@ impl RuntimeDecoder {
                 ..DecodeState::default()
             },
             &[(&opcode).into()],
+            &code_default_is_32_bit,
         )
     }
 }
