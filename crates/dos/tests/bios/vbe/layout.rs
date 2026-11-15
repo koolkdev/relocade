@@ -54,9 +54,11 @@ fn direct_color_scanlines_distinguish_pixel_width_from_byte_pitch() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        for (mode, pixel_bytes, max_pitch, rounded_rows) in
-            [(0x111, 2u16, 8738, 2046), (0x142, 4, 8736, 1023)]
-        {
+        for (mode, pixel_bytes, max_pitch, rounded_rows) in [
+            (0x111, 2u16, 8738, 2046),
+            (0x112, 3, 8736, 1364),
+            (0x142, 4, 8736, 1023),
+        ] {
             video(&mut dos, 0x4f02, mode, 0, 0);
             let pitch = 1024 * pixel_bytes;
             let rows = 4096 / pixel_bytes;

@@ -43,6 +43,7 @@ impl DispiMode {
             8 => PixelFormat::Indexed8,
             15 => PixelFormat::Rgb555,
             16 => PixelFormat::Rgb565,
+            24 => PixelFormat::Bgr888,
             32 => PixelFormat::Bgrx8888,
             _ => return None,
         };

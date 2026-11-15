@@ -18,7 +18,7 @@ pub(super) struct Mode {
 }
 
 impl Mode {
-    pub(super) const ALL: [Self; 12] = [
+    pub(super) const ALL: [Self; 15] = [
         Self {
             number: 0x101,
             display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Indexed8),
@@ -54,6 +54,18 @@ impl Mode {
         Self {
             number: 0x117,
             display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Rgb565),
+        },
+        Self {
+            number: 0x112,
+            display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Bgr888),
+        },
+        Self {
+            number: 0x115,
+            display: DispiMode::new(DispiResolution::R800x600, PixelFormat::Bgr888),
+        },
+        Self {
+            number: 0x118,
+            display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Bgr888),
         },
         // Bochs OEM numbers identify 32-bit storage without reusing 24-bit modes.
         Self {

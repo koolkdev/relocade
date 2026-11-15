@@ -991,8 +991,8 @@ requests memory preservation. Readback retains the accepted enable word. Repeati
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
 legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
 including LFB combined with no-clear, are ignored as a whole. The restricted ID2
-profile supports 8-, 15-, 16- and 32-bit pixels and no-clear mode entry. The 24-bit
-format and linear aperture remain unsupported.
+profile supports 8-, 15-, 16-, 24- and 32-bit pixels and no-clear mode entry.
+The linear aperture remains unsupported.
 
 `PackedLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
 Pitch changes retain pixel coordinates and fail if the viewport would no longer
@@ -1004,10 +1004,11 @@ are ignored. Each retrace captures the layout in effect at that boundary.
 `PackedLayout` holds size, format, pitch and physical display start, checked
 against the memory capacity supplied by its owner. It has no DISPI mode or timing
 dependency. `DispiMode` and `DispiResolution` live beside the DISPI registers; they
-select this adapter's supported sizes and fixed timings. The three resolutions have fixed DMT rasters, independent of pixel
-format. DISPI accepts indexed eight-bit, little-endian RGB555/RGB565 and BGRX8888 modes
-at each resolution. The packed shader selects decoding from the captured format;
-direct colors bypass the DAC palette and mask, and BGRX output is opaque.
+select this adapter's supported sizes and fixed timings. The three resolutions
+have fixed DMT rasters, independent of pixel format. DISPI accepts indexed
+eight-bit, little-endian RGB555/RGB565 and BGR888/BGRX8888 modes at each resolution.
+The packed shader selects decoding from the captured format; direct colors bypass
+the DAC palette and mask, and output is opaque.
 BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
 The shared packed framebuffer and renderer also support BGR888: exactly three
@@ -1042,7 +1043,7 @@ to preserve BIOS console output; the DISPI firmware exposes packed graphics
 through VBE for the guest to select.
 
 The DISPI firmware reports VBE 1.2. Its VBE module provides `INT 10h/4F00h`
-controller discovery and `4F01h` information for twelve banked modes,
+controller discovery and `4F01h` information for fifteen banked modes,
 `4F02h`/`4F03h` mode control,
 `4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
 `4F07h` display-start control, `4F08h` DAC-format control and `4F09h` palette
@@ -1068,6 +1069,9 @@ All VBE results preserve flags.
 | 0111h | 640×480 | RGB565 | 1280 bytes | 5 |
 | 0114h | 800×600 | RGB565 | 1600 bytes | 3 |
 | 0117h | 1024×768 | RGB565 | 2048 bytes | 1 |
+| 0112h | 640×480 | BGR888 | 1920 bytes | 3 |
+| 0115h | 800×600 | BGR888 | 2400 bytes | 1 |
+| 0118h | 1024×768 | BGR888 | 3072 bytes | 0 |
 | 0142h | 640×480 | BGRX8888 | 2560 bytes | 2 |
 | 0143h | 800×600 | BGRX8888 | 3200 bytes | 1 |
 | 0144h | 1024×768 | BGRX8888 | 4096 bytes | 0 |
@@ -1080,7 +1084,7 @@ addresses. That unused byte can hold application data and never controls alpha.
 Direct-color mode information reports memory model 6, the channel and reserved
 bit masks, and a fixed color ramp. The 32-bit mode numbers follow
 [Bochs VGABIOS's OEM assignments](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe.h);
-the common 24-bit numbers 0112h, 0115h and 0118h remain unsupported. Guests should
+the standard 24-bit numbers 0112h, 0115h and 0118h use BGR888. Guests should
 enumerate the mode list and inspect mode information to choose a pixel format.
 
 The OEM string, mode list and `WinFuncPtr` bank entry reside in ROM and remain
@@ -1092,9 +1096,9 @@ redirect this entry. As specified by VBE 1.2 function 05h, callers must allow
 AX/DX to change and must not depend on an AX status result from the far call.
 The entry preserves the other registers and flags. Controller information
 remains the 256-byte 1.x structure even when the caller supplies a `VBE2` signature.
-Capability bits advertise VGA compatibility and a fixed six-bit DAC. The
-24-bit format, eight-bit DAC components, linear framebuffer access and
-protected-mode VBE entry points are not advertised.
+Capability bits advertise VGA compatibility and a fixed six-bit DAC. Eight-bit
+DAC components, linear framebuffer access and protected-mode VBE entry points
+are not advertised.
 
 State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
 0–3. DL=0 reports the required allocation in 64-byte blocks; DL=1 saves to ES:BX
@@ -1179,12 +1183,13 @@ a changed mode or disabled adapter cancels the request with AX=014Fh. Empty bloc
 return immediately. The completed frame retains its old colors, and subsequent
 captures use the new palette.
 
-Native and browser GPU checks cover RGB565 channel scaling, BGRX padding and
-opacity, bank edges, panning to the final VRAM byte, and retained captures.
-A native DOS guest draws both formats through byte stores and VBE bank calls,
-pans with a wider scanline, saves and restores all state classes around an indexed
-mode change, then returns to usable text. Full image comparisons verify both
-restoration and retained output after the device is destroyed.
+Native and browser GPU checks cover RGB555/RGB565 channel scaling, BGR888 packing,
+BGRX padding and opacity, bank edges, panning to the last complete VRAM row, and
+retained captures. A native DOS guest draws all four direct-color formats through
+byte stores and VBE bank calls, pans with a wider scanline, saves and restores all
+state classes around an indexed mode change, then returns to usable text. Full
+image comparisons verify both restoration and retained output after the device
+is destroyed.
 
 Display-start control supports immediate updates, position queries and BL=80h
 retrace synchronization. Requests validate the whole visible rectangle;

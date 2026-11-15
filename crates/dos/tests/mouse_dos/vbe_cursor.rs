@@ -1,5 +1,5 @@
-use crate::common::VideoInspection;
 use super::*;
+use crate::common::VideoInspection;
 
 #[test]
 fn vbe_cursor_preserves_banks_reserved_bits_and_restores_pixels_across_a_bank_boundary() {
@@ -7,6 +7,7 @@ fn vbe_cursor_preserves_banks_reserved_bits_and_restores_pixels_across_a_bank_bo
         for (mode, bytes, original, inverted, black, white) in [
             (0x101, 1, 0xa5u32, 0xaa, 0, 15),
             (0x111, 2, 0x5aa5, 0xa55a, 0, 0xffff),
+            (0x112, 3, 0x123456, 0xedcba9, 0, 0xffffff),
             (0x142, 4, 0x7a123456, 0x7aedcba9, 0x7a000000, 0x7affffff),
         ] {
             video(&mut dos, 0x4f02, mode, 0, 0).await;
@@ -21,7 +22,7 @@ fn vbe_cursor_preserves_banks_reserved_bits_and_restores_pixels_across_a_bank_bo
             );
             let io = dos.cpu().context().io.clone();
             let memory = dos.cpu().memory().with_io(io.clone());
-            let y = 65536 / (1024 * bytes) - 2;
+            let y = 65536u32.div_ceil(1024 * bytes) - 2;
             for row in 0..2 {
                 // Two adjacent cursor rows lie on opposite sides of a CPU bank boundary.
                 for x in 10..14 {

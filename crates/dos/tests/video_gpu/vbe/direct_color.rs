@@ -2,24 +2,42 @@ use super::{common, run, ExecutionExit, Gpu, HostExit, TEXT_WITH_RED_BLOCK};
 use relocade_vga::{PixelFormat, Scanout};
 
 #[test]
-fn guest_draws_pans_and_restores_both_direct_color_formats() {
+fn guest_draws_pans_and_restores_direct_color_formats() {
     pollster::block_on(async {
         let mut gpu = Gpu::new().await;
-        for (mode, pixel_bytes, values) in [
-            (0x111u16, 2u32, [0xf800u32, 0x07e0, 0x001f]),
-            (0x142, 4, [0xa5ff_0000, 0x0000_ff00, 0x0100_00ff]),
+        for (mode, format, pixel_bytes, values) in [
+            (
+                0x110u16,
+                PixelFormat::Rgb555,
+                2u32,
+                [0xfc00u32, 0x03e0, 0x801f, 0xfc1f],
+            ),
+            (
+                0x111,
+                PixelFormat::Rgb565,
+                2,
+                [0xf800, 0x07e0, 0x001f, 0xf81f],
+            ),
+            (
+                0x112,
+                PixelFormat::Bgr888,
+                3,
+                [0xff0000, 0x00ff00, 0x0000ff, 0xff00ff],
+            ),
+            (
+                0x142,
+                PixelFormat::Bgrx8888,
+                4,
+                [0xa5ff_0000, 0x0000_ff00, 0x0100_00ff, 0x7aff_00ff],
+            ),
         ] {
             let mut dos = common::dos().await;
-            let format = if pixel_bytes == 2 {
-                PixelFormat::Rgb565
-            } else {
-                PixelFormat::Bgrx8888
-            };
             let bank_rows = 65536 / (1024 * pixel_bytes);
             let points = [
                 (0, 0, 0),
                 (639, bank_rows - 1, 1),
                 (0, bank_rows, 2),
+                (298, 10, 3), // In BGR888, nonzero components straddle the bank at byte 131072.
                 (639, 479, 0),
             ];
             let mut program = vec![0xb8, 2, 0x4f, 0xbb]; // Set direct-color mode.
@@ -33,17 +51,23 @@ fn guest_draws_pans_and_restores_both_direct_color_formats() {
             for (index, (x, y, color)) in points.into_iter().enumerate() {
                 // Draw into the viewport that starts at pixel (384, 32).
                 let address = ((32 + y) * 1024 + 384 + x) * pixel_bytes;
-                program.extend([0xb8, 5, 0x4f, 0x31, 0xdb, 0xba]); // Select window A bank.
-                program.extend(((address >> 16) as u16).to_le_bytes());
-                program.extend([0xcd, 0x10, 0xa3, 0x30 + index as u8 * 2, 6]);
-                // Byte stores exercise partial pixels, including the bank's last pixel.
+                let mut bank = None;
+                // A three-byte pixel can straddle banks; switch before each fragment.
                 for (byte, value) in values[color].to_le_bytes()[..pixel_bytes as usize]
                     .iter()
                     .copied()
                     .enumerate()
                 {
+                    let address = address + byte as u32;
+                    let next_bank = (address >> 16) as u16;
+                    if bank != Some(next_bank) {
+                        program.extend([0xb8, 5, 0x4f, 0x31, 0xdb, 0xba]);
+                        program.extend(next_bank.to_le_bytes());
+                        program.extend([0xcd, 0x10, 0xa3, 0x30 + index as u8 * 2, 6]);
+                        bank = Some(next_bank);
+                    }
                     program.extend([0x26, 0xc6, 6]); // MOV byte ES:[offset],value.
-                    program.extend((address as u16 + byte as u16).to_le_bytes());
+                    program.extend((address as u16).to_le_bytes());
                     program.push(value);
                 }
             }
@@ -99,7 +123,7 @@ fn guest_draws_pans_and_restores_both_direct_color_formats() {
                 let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
                 for offset in [
                     0x600, 0x602, 0x608, 0x60a, 0x60c, 0x60e, 0x610, 0x612, 0x614, 0x616, 0x630,
-                    0x632, 0x634, 0x636,
+                    0x632, 0x634, 0x636, 0x638,
                 ] {
                     assert_eq!(
                         context.memory.read_u16(base + offset).unwrap(),
@@ -124,7 +148,12 @@ fn guest_draws_pans_and_restores_both_direct_color_formats() {
                     );
                 }
             }
-            let colors = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+            let colors = [
+                [255, 0, 0, 255],
+                [0, 255, 0, 255],
+                [0, 0, 255, 255],
+                [255, 0, 255, 255],
+            ];
             let original = gpu.render(&captures[0], [640, 480]).await;
             for (offset, actual) in original.as_chunks::<4>().0.iter().enumerate() {
                 let expected = points
