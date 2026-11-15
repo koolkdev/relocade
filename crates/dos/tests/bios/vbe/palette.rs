@@ -30,7 +30,7 @@ fn dac_format_queries_follow_direct_dispi_precision_changes() {
 }
 
 #[test]
-fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
+fn dac_format_queries_and_rejections_preserve_six_bit_palette_transfers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -51,8 +51,6 @@ fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
                 (0xff01, 0x4f, 0x0601),
                 (0x0600, 0x4f, 0x0600),
                 (0x0700, 0x4f, 0x0600),
-                (0x0800, 0x4f, 0x0600),
-                (0xff00, 0x4f, 0x0600),
                 (0x0000, 0x14f, 0x0000),
                 (0x0500, 0x14f, 0x0500),
                 (0x0602, 0x14f, 0x0602),
@@ -76,7 +74,7 @@ fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
 }
 
 #[test]
-fn direct_color_modes_preserve_the_dac_and_reject_format_control() {
+fn direct_color_modes_preserve_six_bit_palette_state_and_reject_format_control() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -91,7 +89,7 @@ fn direct_color_modes_preserve_the_dac_and_reject_format_control() {
             assert_eq!(video(&mut dos, 0x4f02, mode, 0, 0).registers.eax, 0x4f);
             assert_eq!(dos.vga().borrow().dac_state(), dac);
             dos.cpu().context().io.write_port(0x1ce, 2, 0x1234);
-            for request in [1, 0x0600, 0x0800] {
+            for request in [1, 0x0600, 0x0800, 0x0680] {
                 let result = video(&mut dos, 0x4f08, request, 0x5678, 0x6789).registers;
                 assert_eq!(
                     [result.eax, result.ebx, result.ecx, result.edx],
@@ -101,6 +99,65 @@ fn direct_color_modes_preserve_the_dac_and_reject_format_control() {
                 assert_eq!(dos.cpu().context().io.read_port(0x1ce, 2), 0x1234);
             }
         }
+    });
+}
+
+#[test]
+fn eight_bit_format_rounds_requests_and_mode_entry_resets_precision() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        for mode in [3, 0x101, 0x103, 0x105] {
+            video(&mut dos, 0x4f02, mode, 0, 0);
+            assert_eq!(video(&mut dos, 0x4f08, 1, 0, 0).registers.ebx, 0x0601);
+            {
+                let context = dos.cpu().context();
+                context.io.write_port(0x3c6, 1, 0xa5);
+                context.io.write_port(0x3c8, 1, 17);
+                context.io.write_port(0x3c9, 1, 62); // Leave the transfer at green.
+                context.io.write_port(0x1ce, 2, 0x1234);
+            }
+            let core = dos.vga().borrow().core_state();
+            let dispi = dos.vga().borrow().dispi_state();
+            let result = video(&mut dos, 0x4f08, 0x0800, 0x5678, 0x6789);
+            assert_eq!(
+                [
+                    result.registers.eax,
+                    result.registers.ebx,
+                    result.registers.ecx,
+                    result.registers.edx
+                ],
+                [0x4f, 0x0800, 0x5678, 0x6789]
+            );
+            {
+                let context = dos.cpu().context();
+                context.io.write_port(0x3c9, 1, 129);
+                context.io.write_port(0x3c9, 1, 255);
+            }
+            assert_eq!(
+                dos.vga().borrow().registers().dac.colors[17],
+                [248, 129, 255]
+            );
+            let dac = dos.vga().borrow().dac_state();
+            for (request, status, result) in [
+                (0xff01, 0x4f, 0x0801),
+                (0xff00, 0x4f, 0x0800),
+                (0x0500, 0x14f, 0x0500),
+            ] {
+                let cpu = video(&mut dos, 0x4f08, request, 0, 0);
+                assert_eq!([cpu.registers.eax, cpu.registers.ebx], [status, result]);
+                assert_eq!(dos.vga().borrow().dac_state(), dac);
+            }
+            assert_eq!(video(&mut dos, 0x4f08, 0x0700, 0, 0).registers.ebx, 0x0600);
+            assert_eq!(dos.vga().borrow().registers().dac.colors[17], [62, 32, 63]);
+            assert_eq!(dos.vga().borrow().registers().dac.mask, 0xa5);
+            assert_eq!(dos.vga().borrow().core_state(), core);
+            assert_eq!(dos.vga().borrow().dispi_state(), dispi);
+            // The next iteration must reset this eight-bit state on mode entry.
+            video(&mut dos, 0x4f08, 0x0800, 0, 0);
+        }
+        video(&mut dos, 0x4f02, 0x112, 0, 0);
+        assert_eq!(dos.vga().borrow().dac_bits_per_component(), 6);
     });
 }
 

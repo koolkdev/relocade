@@ -10,7 +10,7 @@ use std::{cell::RefCell, future::Future};
 
 impl Vbe for DispiAdapter {
     const OEM_STRING: &'static [u8] = b"Relocade banked SVGA\0";
-    const MAX_DAC_BITS_PER_COMPONENT: u8 = 6;
+    const MAX_DAC_BITS_PER_COMPONENT: u8 = 8;
     // DISPI state with interface negotiation and capability queries.
     const STATE_PROFILE: u8 = 3;
     const EXTENSION_STATE_BYTES: usize = DispiState::BYTE_LEN;

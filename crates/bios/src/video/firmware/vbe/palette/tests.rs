@@ -20,6 +20,21 @@ const BUFFER: FarPointer = FarPointer {
     offset: 0x100,
 };
 
+#[test]
+fn et4000_keeps_six_bit_precision_for_larger_requests() {
+    let card = Rc::new(RefCell::new(relocade_vga::Et4000Ax::with_clock(
+        ManualClock::default().clock(),
+    )));
+    let io = IoBus::new(card.clone(), |io| {
+        relocade_vga::Et4000Ax::configure_io(io, &card)
+    });
+    let before = card.borrow().dac_state();
+    assert_eq!(set_format(&io, card.as_ref(), 8), Ok(6));
+    assert_eq!(set_format(&io, card.as_ref(), 255), Ok(6));
+    assert_eq!(get_format(card.as_ref()), Ok(6));
+    assert_eq!(card.borrow().dac_state(), before);
+}
+
 struct Palette {
     card: Rc<RefCell<DispiAdapter>>,
     io: IoBus,
