@@ -148,7 +148,7 @@ fn sparse_masks_intersect_retained_bits_without_crossing_arithmetic() {
         let function = program.function::<fn(T, T) -> T>(move |body, (input, other)| {
             for mask in [4_u32, 0x14, 0x84] {
                 let cleared = input.and(!mask);
-                assert_eq!(body.constant_bits(&cleared.and(mask))?, Some(0));
+                assert_eq!(body.constant_bits(cleared.and(mask))?, Some(0));
                 assert!(input
                     .and(0x14)
                     .and(mask)
@@ -163,7 +163,7 @@ fn sparse_masks_intersect_retained_bits_without_crossing_arithmetic() {
                     assert!(combined.and(mask).same_expression(&kept));
                 }
                 // Carries and overlapping bits must remain runtime calculations.
-                assert_eq!(body.constant_bits(&cleared.add(1).and(mask))?, None);
+                assert_eq!(body.constant_bits(cleared.add(1).and(mask))?, None);
                 assert!(!input.or(&kept).and(mask).same_expression(&kept));
             }
             body.return_(input)
