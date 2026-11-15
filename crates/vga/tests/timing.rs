@@ -372,8 +372,8 @@ fn native_guest_deadlines_reach_status_edges_through_the_connected_bus() {
     for (count, status) in [(639, 0), (640, 1), (800, 0), (412 * 800, 9), (414 * 800, 1)] {
         let deadline = clock.add(start, dots(count, 25_175_000));
         // Service a cold edge one native tick late. The following cached edge
-        // must still occur on the raster's nanosecond grid.
-        let fraction = u128::from(count == 640 || count == 412 * 800);
+        // must still follow the original raster phase.
+        let fraction = u64::from(count == 640 || count == 412 * 800);
         let mut wait = pin!(clock.sleep_until(Timestamp::from_ticks(deadline.ticks() + fraction)));
         assert!(wait
             .as_mut()

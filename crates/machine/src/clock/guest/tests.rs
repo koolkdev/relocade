@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ClockSource, Instant, Sleep};
+use crate::{ClockCursor, ClockSource, Instant, Sleep};
 use std::{
     cell::Cell,
     future::Future,
@@ -33,7 +33,7 @@ impl ClockSource for HostClock {
 
     fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
         Some(Timestamp::from_ticks(
-            time.saturating_duration_since(self.origin).as_nanos(),
+            time.saturating_duration_since(self.origin).as_nanos() as u64,
         ))
     }
 
@@ -130,6 +130,34 @@ fn mapped_waits_follow_repeated_recovery_but_exclude_pauses() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn mapped_waits_retain_fractional_ticks_across_lag_recovery() {
+    let origin = Instant::now();
+    let host = Rc::new(Cell::new(origin));
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap()).with_host_clock(Clock::new(
+        HostClock {
+            origin,
+            time: host.clone(),
+        },
+    ));
+    let clock = driver.clock();
+    let start = clock.now();
+    driver.0.borrow_mut().host.as_mut().unwrap().resume(start);
+    let mut wait = pin!(clock.sync_to(origin + Duration::from_millis(100)));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(wait.as_mut().poll(&mut cx).is_pending());
+    // Each recovery removes 20.4 ticks. Rounding each subtraction would retain
+    // an extra tick after the third recovery, delaying the input event.
+    for tick in [80, 60, 39] {
+        host.set(host.get() + Duration::from_micros(20_400));
+        driver.synchronize(None);
+        assert_eq!(driver.next_deadline(), Some(Timestamp(tick)));
+    }
+    assert!(driver.advance_to_next_deadline());
+    assert!(wait.as_mut().poll(&mut cx).is_ready());
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn deadlines_follow_registration_cancellation_and_idle_time() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
     let clock = driver.clock();
@@ -191,45 +219,76 @@ fn deadlines_follow_registration_cancellation_and_idle_time() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn native_arithmetic_keeps_fractional_progress_and_checks_coordinate_limits() {
-    let driver = GuestTimeDriver::new(NonZeroU64::new(u64::MAX).unwrap());
-    driver.0.borrow_mut().now = Timestamp(1);
+fn native_deadlines_and_elapsed_time_cross_tick_wrap() {
+    let driver = GuestTimeDriver::new(NonZeroU64::new(10).unwrap());
+    driver.0.borrow_mut().offset = u64::MAX - 1;
     let clock = driver.clock();
-    let origin = clock.now();
-    let duration = Duration::from_secs(500 * 365 * 24 * 60 * 60);
-    let deadline = clock.add(origin, duration);
-    driver.advance_to(deadline);
-    assert_eq!(clock.now(), deadline);
-    assert_eq!(clock.duration_since(deadline, origin), duration);
-    assert_eq!(clock.sub(deadline, duration), origin);
-    assert_eq!(clock.add(origin, Duration::ZERO), origin);
-    assert!(clock
-        .checked_add(origin, Duration::from_secs(600 * 365 * 24 * 60 * 60))
-        .is_none());
-    assert!(clock.checked_sub(origin, Duration::from_nanos(1)).is_none());
+    let start = clock.now();
+    let deadline = clock.add(start, Duration::from_millis(250));
+    assert_eq!(deadline, Timestamp(1));
+    assert!(deadline > start);
+    let mut wait = pin!(clock.sleep_until(deadline));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(wait.as_mut().poll(&mut cx).is_pending());
+    driver.advance_to(Timestamp(0));
+    assert!(wait.as_mut().poll(&mut cx).is_pending());
+    driver.advance_to_next_deadline();
+    assert!(wait.as_mut().poll(&mut cx).is_ready());
+    assert_eq!(
+        clock.duration_since(clock.now(), start),
+        Duration::from_millis(300)
+    );
+    assert_eq!(clock.sub(deadline, Duration::from_millis(300)), start);
+    assert_eq!(clock.add(start, Duration::ZERO), start);
+    assert!(clock.checked_add(start, Duration::MAX).is_none());
+    assert!(clock.checked_sub(start, Duration::MAX).is_none());
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn elapsed_time_measures_the_difference_and_consumption_retains_fractions() {
-    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
-    driver.advance_to(Timestamp(1));
+fn periodic_scheduling_rounds_deadlines_without_accumulating_error() {
+    let driver = GuestTimeDriver::new(NonZeroU64::new(10).unwrap());
     let clock = driver.clock();
-    let start = clock.now();
-    assert_eq!(clock.duration_since(Timestamp(3), start), Duration::ZERO);
-    assert_eq!(clock.checked_duration_since(start, Timestamp(3)), None);
-    assert_eq!(clock.add(start, Duration::from_nanos(1)), Timestamp(4));
-
-    let mut cursor = start;
-    let mut total = Duration::ZERO;
-    for (reading, consumed, nanos) in [(2, 1, 0), (3, 1, 0), (4, 4, 1), (6, 4, 1), (7, 7, 2)] {
-        driver.advance_to(Timestamp(reading));
-        assert_eq!(clock.now(), Timestamp(reading));
-        total += clock.consume_elapsed(&mut cursor, clock.now());
-        assert_eq!(cursor, Timestamp(consumed));
-        assert_eq!(total, Duration::from_nanos(nanos));
+    let mut phase = ClockCursor::from(clock.now());
+    let mut cx = Context::from_waker(Waker::noop());
+    // Each period is 2.5 instructions. Rounding the period itself would give
+    // 3, 6, 9, 12 and permanently slow the timer.
+    for tick in [3, 5, 8, 10] {
+        phase.advance(&clock, Duration::from_millis(250));
+        assert_eq!(phase.deadline(), Timestamp(tick));
+        let mut wait = pin!(clock.sleep_until(phase.deadline()));
+        assert!(wait.as_mut().poll(&mut cx).is_pending());
+        driver.advance_to(Timestamp(tick - 1));
+        assert!(wait.as_mut().poll(&mut cx).is_pending());
+        driver.advance_to_next_deadline();
+        assert!(wait.as_mut().poll(&mut cx).is_ready());
     }
-    assert_eq!(total, clock.duration_since(clock.now(), start));
-    assert_eq!(clock.consume_elapsed(&mut cursor, start), Duration::ZERO);
-    assert_eq!(cursor, Timestamp(7));
+    assert_eq!(
+        clock.duration_since(phase, Timestamp(0)),
+        Duration::from_secs(1)
+    );
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn elapsed_consumption_retains_fractions_at_coarse_and_fine_tick_rates() {
+    for rate in [3, 3_000_000_000] {
+        let driver = GuestTimeDriver::new(NonZeroU64::new(rate).unwrap());
+        driver.advance_to(Timestamp(1));
+        let clock = driver.clock();
+        let start = clock.now();
+        let mut cursor = ClockCursor::from(start);
+        let mut total = Duration::ZERO;
+        for reading in 2..=7 {
+            driver.advance_to(Timestamp(reading));
+            total += clock.consume_elapsed(&mut cursor, clock.now());
+            assert_eq!(total, clock.duration_since(clock.now(), start));
+        }
+        let expected = if rate == 3 { 2_000_000_000 } else { 2 };
+        assert_eq!(total, Duration::from_nanos(expected));
+        assert_eq!(cursor, ClockCursor::from(Timestamp(7)));
+        assert_eq!(clock.consume_elapsed(&mut cursor, start), Duration::ZERO);
+        assert_eq!(cursor, ClockCursor::from(Timestamp(7)));
+        assert_eq!(clock.checked_duration_since(start, Timestamp(7)), None);
+    }
 }

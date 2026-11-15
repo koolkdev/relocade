@@ -1,7 +1,7 @@
 //! Owned sleep registration and synchronous cancellation.
 
 use super::State;
-use crate::{ClockDeadline, ClockSource, Instant, Sleep, Timestamp};
+use crate::{ClockCursor, ClockSource, Instant, Sleep, Timestamp};
 use futures_channel::oneshot;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -10,7 +10,7 @@ pub(super) struct Source(pub(super) Rc<RefCell<State>>);
 
 pub(super) struct Wait {
     pub(super) token: Rc<()>,
-    pub(super) deadline: Timestamp,
+    pub(super) deadline: ClockCursor,
     pub(super) host_sync: bool,
     pub(super) complete: oneshot::Sender<()>,
 }
@@ -46,18 +46,10 @@ impl Drop for Registration {
 
 impl ClockSource for Source {
     fn now(&self) -> Timestamp {
-        self.0.borrow_mut().observe()
+        self.0.borrow().now()
     }
 
-    fn deadline(self: Rc<Self>) -> Box<dyn ClockDeadline> {
-        Box::new(super::deadline::Deadline {
-            state: self.0.clone(),
-            deadline: Default::default(),
-            target: Default::default(),
-        })
-    }
-
-    fn ticks_per_nanosecond(&self) -> std::num::NonZeroU64 {
+    fn ticks_per_second(&self) -> std::num::NonZeroU64 {
         self.0.borrow().timebase.0
     }
 
@@ -82,12 +74,12 @@ impl ClockSource for Source {
     }
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
-        self.wait(deadline, None)
+        self.wait(deadline.into(), None)
     }
 }
 
 impl Source {
-    fn wait(&self, mut deadline: Timestamp, captured_lag: Option<Duration>) -> Sleep {
+    fn wait(&self, mut deadline: ClockCursor, captured_lag: Option<Duration>) -> Sleep {
         let source = self.clone();
         Sleep::new(async move {
             let now = source.now();
@@ -98,10 +90,10 @@ impl Source {
                     .0
                     .borrow()
                     .timebase
-                    .checked_sub(deadline, discarded)
-                    .unwrap_or(now);
+                    .checked_retreat(deadline, discarded)
+                    .unwrap_or_else(|| now.into());
             }
-            if deadline <= now {
+            if deadline.deadline() <= now {
                 return;
             }
             let (complete, completed) = oneshot::channel();

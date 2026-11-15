@@ -1,7 +1,7 @@
 use super::dac::Dac;
 use crate::DMA_CHANNEL;
 use relocade_dma::Dma;
-use relocade_machine::{Clock, IoContext, Memory, Timestamp};
+use relocade_machine::{Clock, ClockCursor, IoContext, Memory, Timestamp};
 use relocade_pic::IrqLine;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -30,7 +30,7 @@ impl Mode {
 
 struct Transfer {
     /// Last elapsed sample boundary, retaining the clock's fractional phase.
-    at: Timestamp,
+    at: ClockCursor,
     remaining: u32,
     mode: Mode,
     paused_at: Option<Timestamp>,
@@ -78,7 +78,7 @@ impl Playback {
     pub fn set_time_constant(&mut self, value: u8) {
         self.time_constant = value;
         if let Some(transfer) = &mut self.transfer {
-            transfer.at = transfer.paused_at.unwrap_or_else(|| self.clock.now());
+            transfer.at = transfer.paused_at.unwrap_or_else(|| self.clock.now()).into();
         }
     }
 
@@ -126,7 +126,7 @@ impl Playback {
 
     fn begin(&mut self, count: u32, mode: Mode) {
         self.transfer = Some(Transfer {
-            at: self.clock.now(),
+            at: self.clock.now().into(),
             remaining: count,
             mode,
             paused_at: None,
@@ -145,7 +145,7 @@ impl Playback {
         if let Some(transfer) = &mut self.transfer {
             if let Some(paused_at) = transfer.paused_at.take() {
                 let paused = self.clock.duration_since(self.clock.now(), paused_at);
-                transfer.at = self.clock.add(transfer.at, paused);
+                transfer.at.advance(&self.clock, paused);
             }
         }
     }
@@ -183,7 +183,8 @@ impl Playback {
             return;
         }
         let remainder = Duration::from_nanos((elapsed.as_nanos() % period.as_nanos()) as u64);
-        let last_sample = self.clock.add(transfer.at, elapsed - remainder);
+        let mut last_sample = transfer.at;
+        last_sample.advance(&self.clock, elapsed - remainder);
         let memory = self.memory.view().with_io_context(context);
         while due != 0 {
             let requested = due.min(u128::from(transfer.remaining)) as usize;
@@ -195,12 +196,13 @@ impl Playback {
                     .dma
                     .borrow_mut()
                     .read(DMA_CHANNEL, &memory, &mut samples);
-                let first_sample = self.clock.add(transfer.at, period);
+                let mut first_sample = transfer.at;
+                first_sample.advance(&self.clock, period);
                 samples.truncate(consumed);
                 dac.write_samples(first_sample, period, samples);
                 consumed
             };
-            transfer.at = self.clock.add(transfer.at, period * consumed as u32);
+            transfer.at.advance(&self.clock, period * consumed as u32);
             transfer.remaining -= consumed as u32;
             due -= consumed as u128;
             if transfer.remaining == 0 {

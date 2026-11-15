@@ -88,7 +88,7 @@ impl ClockSource for ManualClock {
     fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
         let state = self.0.lock().unwrap();
         Some(Timestamp::from_ticks(
-            time.saturating_duration_since(state.origin).as_nanos(),
+            time.saturating_duration_since(state.origin).as_nanos() as u64,
         ))
     }
 

@@ -14,23 +14,24 @@ clock.sleep_until(deadline).await;
 clock.sync_to_host(now).await;
 ```
 
-`Timestamp` is an opaque native coordinate. It carries no origin, rate or source
-identity. Compare readings only within the same clock and its clones, and use
-that clock for arithmetic and waits. Host and guest timelines are independent.
+`Timestamp` is an opaque, wrapping `u64` tick coordinate. It carries no origin,
+rate or source identity. Compare readings only within the same clock and its
+clones, at most `i64::MAX` ticks apart, and use that clock for arithmetic and waits.
+Host and guest timelines are independent.
 The clock owns its fixed scale; the host timer source owns its host origin.
 `Instant`, re-exported from `web_time`, is used only for external host events.
 
-`Clock::add` and `sub` preserve fractional progress exactly; their checked forms
-return `None` on coordinate overflow or subtraction before the origin.
+`Clock::add` and `sub` round their result toward the future to a native tick;
+their checked forms return `None` for durations beyond half the counter range.
 `now()` returns the source's native position without converting it to a duration.
 `duration_since` subtracts native readings, then rounds the actual elapsed time
 down to whole nanoseconds. It saturates at zero; `checked_duration_since` instead
 returns `None` for reversed readings. Ordinary comparisons retain native precision.
 
-Repeated integration uses `consume_elapsed` with a saved position:
+Repeated integration uses `consume_elapsed` with a saved fractional cursor:
 
 ```rust,ignore
-let mut updated = clock.now();
+let mut updated = ClockCursor::from(clock.now());
 // At each observation:
 let elapsed = clock.consume_elapsed(&mut updated, clock.now());
 device.advance(elapsed);
@@ -41,8 +42,23 @@ fraction for the next observation. State and derived deadlines refer to this
 consumed position. Raster timing and PIT counters use this operation; PIT snapshots
 and audio frames share its phase. An explicit device restart establishes a new
 phase from `now()`. No clock origin or rounding parameter is needed by consumers.
-Event timers use `add` and comparisons directly; DOS mouse speed measures one
-packet interval with `checked_duration_since`.
+One-shot timers use `add` and comparisons directly; DOS mouse speed measures one
+packet interval with `checked_duration_since`. Repeating timers advance a retained
+cursor, rounding only when arming the next wait:
+
+```rust,ignore
+let mut next = ClockCursor::from(clock.now());
+loop {
+    next.advance(&clock, period);
+    clock.sleep_until(next.deadline()).await;
+    device.tick();
+}
+```
+
+A period of 2.5 ticks produces deadlines 3, 5, 8, 10. Fractional phase belongs to
+these cursors; reads and armed deadlines remain integer ticks. Mixer intervals
+also retain fractional ticks, so the audio sample rate can exceed the guest tick
+rate without producing empty sample intervals.
 
 A relative sleep captures the full duration from the native reading. For example,
 at three billion instructions per second, a one-nanosecond sleep always requires
@@ -56,7 +72,7 @@ polled sleep cancels it. An expired sleep may complete immediately: awaiting a
 clock does not promise an executor yield or a browser event-loop turn.
 
 `ClockSource` supplies `now() -> Timestamp` and `sleep_until(Timestamp) -> Sleep`.
-Its immutable, nonzero `ticks_per_nanosecond()` defaults to one. Sources construct
+Its immutable, nonzero `ticks_per_second()` defaults to one billion. Sources construct
 coordinates with `Timestamp::from_ticks` and interpret them with `ticks`; device
 consumers do neither. `Clock::new(source)` captures the scale and wraps the source
 behind the common consumer API. `Sleep::new(future)` owns its wait state.
@@ -88,14 +104,14 @@ fixture deadline, and `host_now()` supplies external input timestamps.
 
 `GuestTimeDriver::new(instructions_per_second)` owns emulated guest time,
 pending sleeps and the corresponding CPU instruction target. Its timeline starts
-at zero. One instruction adds one billion native ticks; one nanosecond adds the
-instruction rate. Deadline comparisons and instruction targets operate directly
-on these coordinates. The finite coordinate range covers over 584 years even at
-the maximum rate; checked arithmetic reports exhaustion without rebasing old
-readings. While the CPU runs,
-retired instructions advance guest time at the configured rate. While the CPU is
-idle, the embedding may advance time to the next registered sleep. The driver is
-synchronous; the embedding owns execution and executor turns.
+at zero. One instruction advances one tick. While bound, `now()` reads the
+published instruction count and adds an offset; it performs no duration conversion
+or clock-state update. The offset changes only for binding, pausing and idle
+advancement. Pending deadlines stay in the same guest coordinate system, and the
+CPU target is obtained by subtracting the offset. While the CPU is idle, the
+embedding may advance time to the next registered sleep without changing retired
+instruction accounting. The driver is synchronous; the embedding owns execution
+and executor turns.
 
 ```rust,ignore
 let driver = GuestTimeDriver::new(instructions_per_second);
@@ -165,7 +181,7 @@ let worker = cpu.spawn_with_guest_time(
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. Its
 private `ExecutionSchedule::poll_cpu` owns each turn: poll host work, wait for
-pacing, prepare instruction targets, drive guest execution and publish time.
+pacing, prepare instruction targets, drive guest execution and service due waits.
 Continuing execution gives ready activities a turn. Terminal exits yield only
 when an execution notification remains pending, including notifications from
 timers made due by the final instructions. The schedule's binding scopes the

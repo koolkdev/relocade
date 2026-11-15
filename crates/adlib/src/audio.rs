@@ -1,5 +1,5 @@
 use crate::{Adlib, Opl2};
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, ClockCursor, Timestamp};
 use std::{cell::RefCell, collections::VecDeque, ops::Range, rc::Rc};
 
 pub(super) struct RegisterWrite {
@@ -13,7 +13,7 @@ pub(super) struct RegisterWrite {
 pub struct AudioSource {
     clock: Clock,
     chip: Opl2,
-    at: Timestamp,
+    at: ClockCursor,
     rate: u32,
     fraction: u32,
     value: f32,
@@ -35,7 +35,7 @@ impl Adlib {
         Ok(AudioSource {
             clock: self.clock.clone(),
             chip,
-            at: self.clock.now(),
+            at: self.clock.now().into(),
             rate: sample_rate,
             fraction: 0,
             value: 0.0,
@@ -48,30 +48,30 @@ impl AudioSource {
     /// Averages resampled PCM over an elapsed interval on the device's clock.
     /// Intervals progress forward from source creation without overlap and span
     /// at least one nanosecond. Skipped time still advances synthesis and writes.
-    pub fn sample(&mut self, interval: Range<Timestamp>) -> f32 {
-        self.advance_to(interval.start);
+    pub fn sample(&mut self, interval: Range<impl Into<ClockCursor>>) -> f32 {
+        self.advance_to(interval.start.into());
         let start = self.at;
-        let integral = self.advance_to(interval.end);
+        let integral = self.advance_to(interval.end.into());
         let duration = self.clock.duration_since(self.at, start).as_nanos();
         (integral / (duration * u128::from(self.rate)) as f64) as f32
     }
 
-    fn advance_to(&mut self, end: Timestamp) -> f64 {
+    fn advance_to(&mut self, end: ClockCursor) -> f64 {
         let mut integral = 0.0;
         while self
             .writes
             .borrow()
             .front()
-            .is_some_and(|write| write.at <= end)
+            .is_some_and(|write| ClockCursor::from(write.at) <= end)
         {
             let write = self.writes.borrow_mut().pop_front().unwrap();
-            integral += self.advance_clock(write.at);
+            integral += self.advance_clock(write.at.into());
             self.chip.write_register(write.register, write.value);
         }
         integral + self.advance_clock(end)
     }
 
-    fn advance_clock(&mut self, end: Timestamp) -> f64 {
+    fn advance_clock(&mut self, end: ClockCursor) -> f64 {
         let elapsed = self.clock.consume_elapsed(&mut self.at, end);
         let mut remaining = elapsed.as_nanos() * u128::from(self.rate);
         let mut integral = 0.0;

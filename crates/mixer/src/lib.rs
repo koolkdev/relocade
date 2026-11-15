@@ -3,12 +3,12 @@
 
 use async_channel::Sender;
 use futures_lite::future::or;
-use relocade_machine::{Clock, Device, Timestamp};
+use relocade_machine::{Clock, ClockCursor, Device};
 use std::{cell::RefCell, ops::Range, rc::Rc, time::Duration};
 
 struct Source {
     gain: f32,
-    sample: Box<dyn FnMut(Range<Timestamp>) -> f32>,
+    sample: Box<dyn FnMut(Range<ClockCursor>) -> f32>,
 }
 
 /// Mixes elapsed source samples into one bounded, interleaved PCM stream.
@@ -48,8 +48,9 @@ impl Mixer {
 
     /// Adds a mono source before the activity starts. The callback averages its
     /// signal over each elapsed interval on this mixer's clock, without blocking.
+    /// Intervals retain fractional ticks even when samples outpace guest execution.
     /// Gains are applied before summing; the result feeds every output channel.
-    pub fn add_source(&mut self, gain: f32, sample: impl FnMut(Range<Timestamp>) -> f32 + 'static) {
+    pub fn add_source(&mut self, gain: f32, sample: impl FnMut(Range<ClockCursor>) -> f32 + 'static) {
         self.sources.push(Source {
             gain,
             sample: Box::new(sample),
@@ -67,13 +68,15 @@ impl Device for Mixer {
         let started_at = clock.now();
         let rate = u64::from(config.sample_rate);
         let frame_time = |frame: u64| {
-            clock.add(
-                started_at,
+            let mut time = ClockCursor::from(started_at);
+            time.advance(
+                &clock,
                 Duration::new(
                     frame / rate,
                     ((frame % rate) * 1_000_000_000).div_ceil(rate) as u32,
                 ),
-            )
+            );
+            time
         };
         let batch = match config.buffer_size {
             cpal::BufferSize::Fixed(frames) => frames.clamp(1, 256) as usize,
@@ -83,7 +86,7 @@ impl Device for Mixer {
         let mut frames = 0;
         while !samples.is_closed() {
             or(
-                clock.sleep_until(frame_time(frames + batch as u64)),
+                clock.sleep_until(frame_time(frames + batch as u64).deadline()),
                 samples.closed(),
             )
             .await;

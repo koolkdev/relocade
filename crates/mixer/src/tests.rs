@@ -88,11 +88,11 @@ fn sources_sum_with_gains_on_the_same_sample_intervals() {
     for (index, interval) in intervals.borrow().iter().enumerate() {
         let clock = playback.clock.clock();
         assert_eq!(
-            interval.start,
+            interval.start.deadline(),
             clock.add(start, Duration::from_millis(index as u64))
         );
         assert_eq!(
-            interval.end,
+            interval.end.deadline(),
             clock.add(start, Duration::from_millis(index as u64 + 1))
         );
     }
@@ -125,6 +125,35 @@ fn sample_intervals_do_not_depend_on_batch_size() {
                 ((index as u128 + 1) * 1_000_000_000).div_ceil(44_100)
             );
         }
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn sample_intervals_keep_their_duration_below_one_guest_tick() {
+    use relocade_machine::GuestTimeDriver;
+    use std::{num::NonZeroU64, pin::pin};
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
+    let clock = driver.clock();
+    let (samples, output) = async_channel::bounded(1);
+    let mut mixer = Mixer::new(clock.clone(), config(4000, 1, 4), samples).unwrap();
+    let intervals = Rc::new(RefCell::new(Vec::new()));
+    let recorded = intervals.clone();
+    mixer.add_source(1.0, move |interval| {
+        let elapsed = clock.duration_since(interval.end, interval.start);
+        recorded.borrow_mut().push(elapsed);
+        elapsed.as_secs_f32() * 4000.0
+    });
+    let mut activity = pin!(Mixer::run(Rc::new(RefCell::new(mixer))));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline().unwrap().ticks(), 1);
+    assert!(driver.advance_to_next_deadline());
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(*intervals.borrow(), vec![Duration::from_micros(250); 4]);
+    for sample in output.try_recv().unwrap() {
+        assert!((sample - 1.0).abs() < 1e-6);
     }
 }
 

@@ -1,7 +1,7 @@
 //! Integrates timestamped speaker changes into complete PCM sample intervals.
 
 use crate::Speaker;
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, ClockCursor};
 use relocade_pit::{Channel2State, INPUT_HZ};
 use std::{cell::RefCell, collections::VecDeque, ops::Range, rc::Rc};
 
@@ -15,7 +15,7 @@ impl Signal {
     /// preserves phase; only the audible contribution becomes zero.
     /// Keep the cursor on the PIT's consumed nanosecond timeline so fractions
     /// of a nanosecond remain available for the next update.
-    fn advance_to(&mut self, clock: &Clock, end: Timestamp) -> u128 {
+    fn advance_to(&mut self, clock: &Clock, end: ClockCursor) -> u128 {
         let elapsed = clock.consume_elapsed(&mut self.state.at, end);
         let span = elapsed.as_nanos() * u128::from(INPUT_HZ) + u128::from(self.state.fraction);
         let before = u128::from(self.state.counter.output());
@@ -72,10 +72,10 @@ impl AudioSource {
     /// Each interval must span at least one nanosecond. Endpoints are rounded
     /// down on the PIT's nanosecond timeline, retaining fractions between samples.
     /// Skipped time still advances the counter and consumes control changes.
-    pub fn sample(&mut self, interval: Range<Timestamp>) -> f32 {
-        self.advance_to(interval.start);
+    pub fn sample(&mut self, interval: Range<impl Into<ClockCursor>>) -> f32 {
+        self.advance_to(interval.start.into());
         let start = self.signal.state.at;
-        let integral = self.advance_to(interval.end);
+        let integral = self.advance_to(interval.end.into());
         let duration = self
             .clock
             .duration_since(self.signal.state.at, start)
@@ -83,7 +83,7 @@ impl AudioSource {
         (integral as f64 / (duration * u128::from(INPUT_HZ)) as f64) as f32
     }
 
-    fn advance_to(&mut self, end: Timestamp) -> u128 {
+    fn advance_to(&mut self, end: ClockCursor) -> u128 {
         let mut changes = self.changes.borrow_mut();
         let mut integral = 0;
         while changes.front().is_some_and(|change| change.state.at <= end) {

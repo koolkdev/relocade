@@ -1,6 +1,6 @@
 //! One guest-time boundary for cooperative yields and optional host pacing.
 
-use crate::{Clock, Sleep, Timestamp};
+use crate::{Clock, ClockCursor, Sleep, Timestamp};
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -11,29 +11,31 @@ use std::{
 
 pub(super) struct ExecutionSlice {
     duration: Duration,
-    end: Cell<Timestamp>,
+    end: Cell<ClockCursor>,
     paced: bool,
     wait: RefCell<Option<Sleep>>,
 }
 
 impl ExecutionSlice {
     pub(super) fn new(clock: &Clock, duration: Duration, paced: bool) -> Self {
+        let mut end = ClockCursor::from(clock.now());
+        end.advance(clock, duration);
         Self {
             duration,
-            end: Cell::new(clock.add(clock.now(), duration)),
+            end: Cell::new(end),
             paced,
             wait: RefCell::new(None),
         }
     }
 
     pub(super) fn deadline(&self) -> Timestamp {
-        self.end.get()
+        self.end.get().deadline()
     }
 
     /// Unpaced idle time can skip slices; a slice alone never advances time.
     pub(super) fn idle_deadline(&self, device_deadline: Timestamp) -> Timestamp {
         if self.paced {
-            device_deadline.min(self.end.get())
+            device_deadline.min(self.deadline())
         } else {
             device_deadline
         }
@@ -44,8 +46,8 @@ impl ExecutionSlice {
     }
 
     pub(super) fn poll(&self, clock: &Clock, now: Timestamp, cx: &mut Context<'_>) -> Poll<()> {
-        let end = self.end.get();
-        if now < end {
+        let mut end = self.end.get();
+        if now < end.deadline() {
             return Poll::Ready(());
         }
         if self.paced {
@@ -58,14 +60,15 @@ impl ExecutionSlice {
         // when a CPU checkpoint overshoots by a fractional nanosecond.
         let elapsed = clock.duration_since(now, end).as_nanos();
         let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
-        let boundary = clock.add(
-            end,
+        end.advance(
+            clock,
             Duration::new(
                 (whole / 1_000_000_000) as u64,
                 (whole % 1_000_000_000) as u32,
             ),
         );
-        self.end.set(clock.add(boundary, self.duration));
+        end.advance(clock, self.duration);
+        self.end.set(end);
         Poll::Ready(())
     }
 }

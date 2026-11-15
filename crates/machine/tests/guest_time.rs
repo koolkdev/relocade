@@ -4,7 +4,7 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
+    Clock, ClockCursor, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -41,13 +41,10 @@ async fn progress() {
         let cpu = runner.cpu();
         let start = clock.now();
         let fractional_deadline = clock.add(start, Duration::from_nanos(333_333_334));
-        let deadline = clock.deadline();
-        deadline.set(Some(fractional_deadline));
-        assert_eq!(deadline.now_if_due(), None);
         let binding = driver.bind(cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
         // across counter wrap. Repeated consumption accounts for every ns.
-        let mut consumed = start;
+        let mut consumed = ClockCursor::from(start);
         let mut elapsed = Duration::ZERO;
         for nanos in [
             333_333_333,
@@ -58,7 +55,6 @@ async fn progress() {
             2_000_000_000,
         ] {
             cpu.step();
-            let due = deadline.now_if_due();
             let reading = clone.now();
             elapsed += clock.consume_elapsed(&mut consumed, reading);
             assert_eq!(
@@ -67,46 +63,39 @@ async fn progress() {
             );
             assert_eq!(elapsed, Duration::from_nanos(nanos));
             assert_eq!(reading >= fractional_deadline, nanos > 333_333_333);
-            assert_eq!(due, (nanos > 333_333_333).then_some(reading));
             assert_eq!(driver.clock().now(), reading);
         }
         assert_eq!(cpu.cpu_state().instruction_count(), 4);
-        deadline.set(Some(clock.add(start, Duration::from_nanos(2_333_333_333))));
         drop(binding);
         cpu.step();
-        assert_eq!(deadline.now_if_due(), None);
         assert_eq!(clock.now(), clock.add(start, Duration::from_secs(2)));
         let _binding = driver.bind(cpu, std::task::Waker::noop());
         cpu.step();
-        assert_eq!(deadline.now_if_due(), Some(clock.now()));
         assert_eq!(
             clock.duration_since(clock.now(), start),
             Duration::from_nanos(2_333_333_333)
         );
-        // Idle advancement reaches the exact deadline; retired fractions then
-        // accumulate from that position rather than adding pre-jump fractions.
+        // Idle advancement rounds 7.5 instructions up to tick 8 without retiring
+        // an instruction. Execution then continues from that guest-time offset.
         use std::{
             future::Future,
             pin::pin,
             task::{Context, Waker},
         };
-        let idle_deadline = clock.add(start, Duration::from_millis(2500));
-        deadline.set(Some(idle_deadline));
-        assert_eq!(deadline.now_if_due(), None);
-        let mut wait = pin!(clock.sleep_until(idle_deadline));
+        let deadline = clock.add(start, Duration::from_millis(2500));
+        let mut wait = pin!(clock.sleep_until(deadline));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(wait.as_mut().poll(&mut cx).is_pending());
         assert!(driver.advance_to_next_deadline());
         assert!(wait.as_mut().poll(&mut cx).is_ready());
-        assert_eq!(deadline.now_if_due(), Some(idle_deadline));
-        assert_eq!(clock.now(), idle_deadline);
-        deadline.set(None);
+        assert_eq!(clock.now(), deadline);
+        assert_eq!(clock.now().ticks(), 8);
+        assert_eq!(cpu.cpu_state().instruction_count(), 6);
         cpu.step();
         cpu.step();
-        assert_eq!(deadline.now_if_due(), None);
         assert_eq!(
             clock.duration_since(clock.now(), start),
-            Duration::from_nanos(3_166_666_666)
+            Duration::from_nanos(3_333_333_333)
         );
     });
     let execution = execution.await;
@@ -208,14 +197,11 @@ async fn subnanosecond_progress() {
     let clock = driver.clock();
     let start = clock.now();
     let deadline = clock.add(start, Duration::from_nanos(1));
-    let polling = clock.deadline();
-    polling.set(Some(deadline));
     let mut cpu = support::create_cpu(configuration(0)).await.unwrap();
     cpu.memory().view().write(0x100, &[0x90; 3]).unwrap();
     let _binding = driver.bind(&cpu, std::task::Waker::noop());
     for count in 1..=3 {
         cpu.step();
-        assert_eq!(polling.now_if_due().is_some(), count == 3);
         assert!(clock.now() > start);
         assert_eq!(clock.now() >= deadline, count == 3);
         assert_eq!(
@@ -226,7 +212,6 @@ async fn subnanosecond_progress() {
     cpu.memory().view().write(0x103, &[0x90; 4]).unwrap();
     cpu.step(); // 1 1/3 ns: a full 1 ns sleep requires three more instructions.
     let sleep_start = clock.now();
-    polling.set(Some(clock.add(sleep_start, Duration::from_nanos(1))));
     use std::{
         future::Future,
         pin::pin,
@@ -241,7 +226,6 @@ async fn subnanosecond_progress() {
     );
     for count in 1..=3 {
         cpu.step();
-        assert_eq!(polling.now_if_due().is_some(), count == 3);
         driver.synchronize(None);
         assert_eq!(wait.as_mut().poll(&mut cx).is_ready(), count == 3);
     }
