@@ -13,6 +13,7 @@ pub enum Error {
     Worker(crate::worker::WorkerError),
     Pool(crate::worker::PoolError),
     CompilationTarget,
+    CompilationMemory,
 }
 
 impl fmt::Display for Error {
@@ -25,6 +26,9 @@ impl fmt::Display for Error {
             Self::Wasm(error) => error.fmt(f),
             Self::Worker(error) => error.fmt(f),
             Self::Pool(error) => error.fmt(f),
+            Self::CompilationMemory => {
+                f.write_str("compiled code belongs to different guest memory")
+            }
             Self::CompilationTarget => {
                 f.write_str("compiled code and CPU execution targets differ")
             }
@@ -42,7 +46,7 @@ impl std::error::Error for Error {
             Self::Wasm(error) => Some(error),
             Self::Worker(error) => Some(error),
             Self::Pool(error) => Some(error),
-            Self::CompilationTarget => None,
+            Self::CompilationTarget | Self::CompilationMemory => None,
         }
     }
 }

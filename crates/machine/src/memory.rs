@@ -1,13 +1,16 @@
+pub(crate) mod code;
+pub use code::CodeSource;
 mod resolve;
 mod view;
 pub use relocade_x86::real_mode::FarPointer;
 pub use view::MemoryView;
 
 use crate::{IoBus, MachineConfig, Result};
-use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
-use relocade_x86::PhysicalMapping;
-use resolve::Spans;
-use std::{fmt, sync::Arc};
+use relocade_wasm_runtime::SharedMemory;
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 /// Owned guest memory and its address policy, independent of CPU execution.
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
@@ -17,6 +20,7 @@ use std::{fmt, sync::Arc};
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
+    code: Arc<Mutex<code::CodeRegistry>>,
 }
 
 impl Memory {
@@ -30,6 +34,7 @@ impl Memory {
         Ok(Self {
             config: Arc::new(config),
             backing,
+            code: Arc::default(),
         })
     }
 
@@ -38,50 +43,6 @@ impl Memory {
     }
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
-    }
-
-    /// Copies mapped instruction bytes from RAM/ROM, including A20 aliases.
-    /// Rejects MMIO, holes and overflowing ranges before allocating the copy.
-    /// The caller keeps code stable during compilation; this is not an atomic snapshot.
-    pub(crate) fn read_code(
-        &self,
-        address: u32,
-        len: usize,
-    ) -> std::result::Result<Vec<u8>, MemoryError> {
-        let spans = Spans::new(self.config.memory_map(), address, len)?;
-        for span in spans.clone() {
-            if !matches!(
-                span.mapping,
-                PhysicalMapping::Ram { .. } | PhysicalMapping::Rom { .. }
-            ) {
-                return Err(MemoryError::NotRamOrRom);
-            }
-        }
-        let mut bytes = vec![0; len];
-        self.read_code_prefix(address, &mut bytes);
-        Ok(bytes)
-    }
-
-    /// Copies the readable RAM/ROM prefix without crossing a hole or invoking a device.
-    pub(crate) fn read_code_prefix(&self, address: u32, output: &mut [u8]) -> usize {
-        let len = (output.len() as u64).min((1_u64 << 32) - u64::from(address)) as usize;
-        let spans = Spans::new(self.config.memory_map(), address, len)
-            .expect("the prefix fits the guest address space");
-        let mut output = &mut output[..len];
-        let storage = self.backing.view();
-        let mut copied = 0;
-        for span in spans {
-            let backing_offset = match span.mapping {
-                PhysicalMapping::Ram { backing_offset }
-                | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                _ => break,
-            };
-            let (part, rest) = output.split_at_mut(span.len);
-            storage.read(backing_offset, part);
-            output = rest;
-            copied += span.len;
-        }
-        copied
     }
 
     /// Retains this memory and its execution worker's device bus together.
@@ -94,7 +55,7 @@ impl Memory {
     /// For MMIO, retain device routing with [`Self::with_io`], or borrow a bus
     /// for this view with [`MemoryView::with_io`].
     pub fn view(&self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, self.backing.view())
+        MemoryView::new(self)
     }
 }
 

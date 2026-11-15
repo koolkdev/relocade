@@ -97,6 +97,22 @@ host reader may see part of an update and sample the remainder later. Display
 snapshots belong to the video device; see the [VGA device](../../vga/README.md).
 Worker lifetime belongs to the application.
 
+## Compiled instruction sources
+
+`Memory` owns the registry of instruction sources shared by compiler jobs and CPU
+installations. Compilation copies each backing page once and reuses that copy for
+aliases and repeated discovery reads. A completed `CompiledCode` retains only the
+bytes used by emitted blocks, excluding gaps and read-ahead. Its `CodeSource`
+registration remains alive until the compilation and its last installation are
+dropped. `Memory::code_sources_at` queries those dependencies by backing address.
+
+Memory-view writes update the generations of retained source pages under the same
+lock used to capture them. Generated RAM stores do not use this lock or update these
+generations. `CodeSource::has_recorded_writes` therefore reports recorded host writes;
+it does not prove that a compilation is current. Callers must still keep code stable
+during compilation and installation and explicitly retire code before changing it.
+Raw writes through `Memory::backing` bypass this metadata as well.
+
 ## Devices
 
 `Device` owns interrupts and optional asynchronous activity. Prepare register

@@ -2,10 +2,10 @@ mod io;
 mod read;
 mod write;
 
-use super::{range_fits, resolve::Spans, MemoryError};
+use super::{range_fits, resolve::Spans, Memory, MemoryError};
 use crate::{IoBus, IoContext, MachineConfig};
 use io::Routing;
-use relocade_wasm_runtime::MemoryAccess;
+use relocade_wasm_runtime::{MemoryAccess, WasmSharedMemory};
 use relocade_x86::SegmentRegister;
 use std::cell::RefCell;
 
@@ -15,6 +15,7 @@ use std::cell::RefCell;
 /// The view borrows one storage handle; other shared handles remain usable.
 /// Accessing MMIO without a local bus is a programming error and panics.
 pub struct MemoryView<'a> {
+    memory: &'a Memory,
     config: &'a MachineConfig,
     storage: MemoryAccess<'a>,
     io: Option<Routing<'a>>,
@@ -23,10 +24,11 @@ pub struct MemoryView<'a> {
 impl<'a> MemoryView<'a> {
     /// Borrows backing storage matching the configured map and capacity.
     #[inline]
-    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>) -> Self {
+    pub(super) fn new(memory: &'a Memory) -> Self {
         Self {
-            config,
-            storage,
+            memory,
+            config: &memory.config,
+            storage: memory.backing.view(),
             io: None,
         }
     }

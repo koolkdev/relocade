@@ -67,6 +67,7 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::PoolHandle,
 ) -> Result<CompiledCode> {
+    let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
@@ -74,7 +75,7 @@ async fn compile(
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
                 .iter()
-                .map(|block| memory.read_code(block.address, block.byte_len))
+                .map(|block| reader.read(block.address, block.byte_len))
                 .collect::<std::result::Result<_, _>>()?;
             let snapshots: Vec<_> = requests
                 .iter()
@@ -106,7 +107,7 @@ async fn compile(
                         if len == 0 {
                             return 0;
                         }
-                        memory.read_code_prefix(base + eip, &mut buffer[..len])
+                        reader.read_prefix(base + eip, &mut buffer[..len])
                     },
                 ) {
                     Ok(entries) => {
@@ -125,9 +126,16 @@ async fn compile(
             (module.compile_with(jobs).await?, addresses)
         }
     };
+    let source = reader.finish(
+        addresses
+            .iter()
+            .zip(&blocks.entries)
+            .map(|(&address, block)| (address, block.byte_len)),
+    );
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
         addresses,
         blocks,
+        source,
     ))
 }
