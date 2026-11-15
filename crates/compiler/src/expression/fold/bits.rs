@@ -60,6 +60,39 @@ impl<P: crate::body::Phase> Folder<'_, P> {
         }
     }
 
+    /// Sparse masks can intersect an existing mask or discard a disjoint
+    /// OR/XOR operand. Each rewrite removes an operation from the masked input.
+    pub(super) fn fold_masked_bits(&mut self, ty: Type, input: usize, mask: u64) -> Option<usize> {
+        let source = self.masked_bits(input);
+        let (input, mask) = if source.input != self.values.representation(input) {
+            (source.input, source.mask & mask)
+        } else if let ValueDefinition::Expression(Expression::Binary {
+            operator: Binary::Bitwise(BitwiseOp::Or | BitwiseOp::Xor),
+            left,
+            right,
+        }) = self.values[self.values.representation(input)].definition
+        {
+            if self.masked_bits(left).mask & mask == 0 {
+                (right, mask)
+            } else if self.masked_bits(right).mask & mask == 0 {
+                (left, mask)
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+        let mask = self.values.carrier_literal(ty, mask);
+        Some(self.fold(
+            ty,
+            Expression::Binary {
+                operator: Binary::Bitwise(BitwiseOp::And),
+                left: input,
+                right: mask,
+            },
+        ))
+    }
+
     fn restored_bits(&self, input: usize) -> MaskedBits {
         let mut bits = self.masked_bits(input);
         let ValueDefinition::Expression(Expression::Shift {

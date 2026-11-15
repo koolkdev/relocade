@@ -22,6 +22,18 @@ use std::{
 
 use crate::{register::Gpr32, PrivilegeLevel, SegmentDefaultSize};
 
+pub(crate) mod cr0 {
+    pub const PROTECTION_ENABLE: u32 = 1 << 0;
+    pub const EXTENSION_TYPE: u32 = 1 << 4;
+    pub const NUMERIC_ERROR: u32 = 1 << 5;
+}
+
+pub(crate) mod cr4 {
+    pub const TIMESTAMP_DISABLE: u32 = 1 << 2;
+    pub const OS_FXSR: u32 = 1 << 9;
+    pub const OS_XMM_EXCEPTIONS: u32 = 1 << 10;
+}
+
 /// Architectural operating mode derived from CR0.PE and EFLAGS.VM.
 /// Representing a mode does not imply that generated entries can execute it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,7 +46,7 @@ pub enum CpuMode {
 
 impl CpuMode {
     pub const fn from_control(cr0: u32, virtual_8086: bool) -> Self {
-        if cr0 & 1 == 0 {
+        if cr0 & cr0::PROTECTION_ENABLE == 0 {
             Self::Real
         } else if virtual_8086 {
             Self::Virtual8086
@@ -49,7 +61,7 @@ impl CpuMode {
         match self {
             Self::Real => PrivilegeLevel::Ring0,
             Self::Virtual8086 => PrivilegeLevel::Ring3,
-            Self::Protected => match cs_selector & 3 {
+            Self::Protected => match cs_selector & PrivilegeLevel::MASK as u16 {
                 0 => PrivilegeLevel::Ring0,
                 1 => PrivilegeLevel::Ring1,
                 2 => PrivilegeLevel::Ring2,
@@ -101,6 +113,11 @@ pub struct FlagBytes {
     pub vm: u8,
     /// Snapshot padding, not architectural flags.
     pub reserved: [u8; 2],
+}
+
+impl FlagBytes {
+    /// Single flags occupy the low bit of their backing byte; IOPL uses two bits.
+    pub(crate) const BOOLEAN_MASK: u8 = 1;
 }
 
 /// Flag backing state, including inactive source operands and stale flag bytes.
@@ -188,7 +205,7 @@ impl CpuState {
     pub const BYTE_LEN: usize = size_of::<Self>();
 
     pub const fn mode(&self) -> CpuMode {
-        CpuMode::from_control(self.cr0, self.flags.bytes.vm & 1 != 0)
+        CpuMode::from_control(self.cr0, self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK != 0)
     }
 
     pub const fn privilege_level(&self) -> PrivilegeLevel {
@@ -212,9 +229,9 @@ impl CpuState {
         Self {
             segments: Segments::real_mode(),
             // ET and NE; x87 execution has no emulation or task-switch trap.
-            cr0: 0x30,
+            cr0: cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR,
             // OSFXSR and OSXMMEXCPT enable the represented SIMD environment.
-            cr4: 0x600,
+            cr4: cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS,
             x87: X87State::default(),
             simd: SimdState::default(),
             idtr: DescriptorTableRegister::REAL_MODE_IDTR,
@@ -228,7 +245,7 @@ impl CpuState {
     pub fn protected_mode(code_size: SegmentDefaultSize, stack_size: SegmentDefaultSize) -> Self {
         let mut cpu = Self {
             segments: Segments::flat32(),
-            cr0: 0x31, // PE, ET and NE.
+            cr0: cr0::PROTECTION_ENABLE | cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR,
             ..Self::real_mode()
         };
         cpu.flags.bytes.if_ = 1;

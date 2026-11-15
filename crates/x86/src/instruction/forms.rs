@@ -223,7 +223,7 @@ impl ResolvedForm {
         fallthrough: u32,
         target: crate::ExecutionTarget,
     ) -> [Option<u32>; 2] {
-        if self.form.requirements.fault(target).is_some() {
+        if self.form.requirements.known_fault(target).is_some() {
             return [None, None];
         }
         let mask = match self.operand_size {
@@ -255,7 +255,7 @@ impl ResolvedForm {
     }
 
     pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
-        self.form.ends_block || self.form.requirements.fault(target).is_some()
+        self.form.ends_block || self.form.requirements.known_fault(target).is_some()
     }
 
     pub(crate) fn address_size(&self) -> AddressSize {

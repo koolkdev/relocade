@@ -4,11 +4,36 @@ use super::ExecutionBuilder;
 use crate::{
     processor::{self, CpuidValues},
     state::DescriptorTableValues,
-    CpuFeature, ExecutionExitValues,
+    CpuFeature, ExecutionExitValues, PrivilegeLevel,
 };
-use relocade_compiler::{BuildError, Val, I1, I16, I32};
+use relocade_compiler::{BuildError, Val, I1, I16, I32, I8};
+
+#[cfg(test)]
+mod tests;
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn protected_mode(&mut self) -> Result<Val<I1>, BuildError> {
+        self.state.protected_mode(&mut self.body)
+    }
+
+    pub(crate) fn privilege_level(&mut self) -> Result<Val<I8>, BuildError> {
+        self.state.privilege_level(&mut self.body)
+    }
+
+    pub(crate) fn io_privilege_denied(&mut self) -> Result<Val<I1>, BuildError> {
+        let protected = self.state.protection_enabled(&mut self.body)?;
+        let cpl = self.state.privilege_level(&mut self.body)?;
+        // The current protected execution policy fixes effective IOPL at zero;
+        // saved IOPL bytes remain available to real-mode flag operations.
+        let iopl = self.state.read_iopl(&mut self.body)?;
+        let effective_iopl = protected.select(PrivilegeLevel::Ring0 as u32, iopl);
+        Ok(effective_iopl.unsigned().lt(cpl))
+    }
+
+    pub(crate) fn timestamp_access_denied(&mut self) -> Result<Val<I1>, BuildError> {
+        self.state.timestamp_access_denied(&mut self.body)
+    }
+
     pub(crate) fn machine_status_word(&mut self) -> Result<Val<I16>, BuildError> {
         self.state.machine_status_word(&mut self.body)
     }

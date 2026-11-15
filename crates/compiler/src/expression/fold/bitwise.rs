@@ -151,6 +151,6 @@ impl<P: crate::body::Phase> Folder<'_, P> {
         if mask == integer::low_mask(bits) {
             return Some(self.fold_low_bits(ty, input, bits));
         }
-        None
+        self.fold_masked_bits(ty, input, mask)
     }
 }

@@ -142,6 +142,42 @@ fn low_masks_discard_only_disjoint_bitwise_inputs() {
 }
 
 #[test]
+fn sparse_masks_intersect_retained_bits_without_crossing_arithmetic() {
+    fn check<T: IntType>() {
+        let mut program = Program::new();
+        let function = program.function::<fn(T, T) -> T>(move |body, (input, other)| {
+            for mask in [4_u32, 0x14, 0x84] {
+                let cleared = input.and(!mask);
+                assert_eq!(body.constant_bits(&cleared.and(mask))?, Some(0));
+                assert!(input
+                    .and(0x14)
+                    .and(mask)
+                    .same_expression(&input.and(0x14 & mask)));
+                let kept = other.and(mask);
+                for combined in [
+                    cleared.or(&kept),
+                    kept.or(&cleared),
+                    cleared.xor(&kept),
+                    kept.xor(&cleared),
+                ] {
+                    assert!(combined.and(mask).same_expression(&kept));
+                }
+                // Carries and overlapping bits must remain runtime calculations.
+                assert_eq!(body.constant_bits(&cleared.add(1).and(mask))?, None);
+                assert!(!input.or(&kept).and(mask).same_expression(&kept));
+            }
+            body.return_(input)
+        });
+        program.export("run", function).unwrap();
+        program.compile().unwrap();
+    }
+    check::<I8>();
+    check::<I16>();
+    check::<I32>();
+    check::<I64>();
+}
+
+#[test]
 fn long_mask_chains_preserve_low_bit_sums() {
     let mut program = Program::new();
     let function = program.function::<fn(u32) -> u32>(move |body, (input,)| {

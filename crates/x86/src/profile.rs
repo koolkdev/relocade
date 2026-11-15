@@ -2,7 +2,44 @@
 
 pub use relocade_x86_profile::ExecutionProfile;
 
-use crate::{CpuMode, CpuModel, CpuState};
+use crate::{
+    state::{cr0, cr4, StateAssumption},
+    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
+};
+use std::mem::offset_of;
+
+/// Bits consumed by mode and privilege predicates. Other supported-state
+/// restrictions remain in CPU admission until their transitions are implemented.
+pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StateAssumption> {
+    macro_rules! require_bits {
+        ($($field:ident).+, $mask:expr, $expected:expr) => {
+            StateAssumption::bits(
+                offset_of!(CpuState, $($field).+),
+                |cpu: &CpuState| &cpu.$($field).+,
+                $mask,
+                $expected,
+            )
+        };
+    }
+    let protected = matches!(profile, ExecutionProfile::Protected(_));
+    let mut requirements = vec![
+        require_bits!(
+            cr0,
+            cr0::PROTECTION_ENABLE,
+            if protected { cr0::PROTECTION_ENABLE } else { 0 }
+        ),
+        require_bits!(flags.bytes.vm, FlagBytes::BOOLEAN_MASK, 0),
+        require_bits!(cr4, cr4::TIMESTAMP_DISABLE, 0),
+    ];
+    if protected {
+        requirements.push(require_bits!(
+            segments.cs.selector,
+            u16::from(PrivilegeLevel::MASK),
+            PrivilegeLevel::Ring3 as u16
+        ));
+    }
+    requirements
+}
 
 /// The processor model and execution assumptions required by a compiled entry.
 ///
@@ -39,11 +76,11 @@ impl CpuState {
             ExecutionProfile::Protected(_) => CpuMode::Protected,
         };
         self.mode() == mode
-            && self.flags.bytes.vm & 1 == 0
+            && self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK == 0
             // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
-            && self.cr0 & !1 == 0x30
+            && self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
             // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
-            && self.cr4 == 0x600
+            && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
             && self.segments.is_compatible_with(profile)
     }
 }

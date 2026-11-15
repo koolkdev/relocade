@@ -14,6 +14,11 @@ pub enum PrivilegeLevel {
     Ring3,
 }
 
+impl PrivilegeLevel {
+    /// Selectors and IOPL encode a privilege level in two bits.
+    pub(crate) const MASK: u8 = 0b11;
+}
+
 /// Code/data descriptor types supported by user-mode segment resolution.
 /// Conformance affects loading and verifying a descriptor, not cached accesses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
