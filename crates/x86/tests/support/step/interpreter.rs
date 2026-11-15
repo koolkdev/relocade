@@ -53,6 +53,7 @@ impl TestModule {
                 }
                 .into(),
                 target: Some(target),
+                state_assumptions: target.state_assumptions(),
                 interpreter: None,
             }
         })

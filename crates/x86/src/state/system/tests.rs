@@ -25,6 +25,7 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
         bytes: program.compile().unwrap(),
         entry: "observe".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     for (pe, vm, selector, cr4, iopl, expected) in [
         (0, 1, 0xffff, 4, 0xff, [0, 0, 0, 3]),
@@ -70,7 +71,8 @@ fn admitted_modes_fold_privilege_and_timestamp_predicates() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::new(&cpu).with_control_profile(profile);
+            let mut state = State::new(&cpu)
+                .with_control_assumptions(crate::profile::control_assumptions(profile).into());
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;

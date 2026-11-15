@@ -2,10 +2,11 @@
 
 use super::{
     access::{cpu_load, cpu_location},
-    cr0, cr4, State,
+    cr0, cr4, State, StateAssumption,
 };
-use crate::{ExecutionProfile, PrivilegeLevel};
+use crate::PrivilegeLevel;
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
@@ -18,8 +19,8 @@ pub(crate) struct DescriptorTableValues {
 impl State<'_> {
     /// System controls cannot change within an admitted entry. Segment loads
     /// dispatch before any further reads of the old CS selector.
-    pub(crate) fn with_control_profile(mut self, profile: ExecutionProfile) -> Self {
-        self.control_profile = Some(profile);
+    pub(crate) fn with_control_assumptions(mut self, assumptions: Arc<[StateAssumption]>) -> Self {
+        self.control_assumptions = Some(assumptions);
         self
     }
 
@@ -27,8 +28,8 @@ impl State<'_> {
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I1>, BuildError> {
-        if let Some(profile) = self.control_profile.take() {
-            for assumption in crate::profile::control_assumptions(profile) {
+        if let Some(assumptions) = self.control_assumptions.take() {
+            for assumption in assumptions.iter() {
                 assumption.apply(body, &mut self.system)?;
             }
         }

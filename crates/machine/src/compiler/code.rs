@@ -2,7 +2,7 @@
 
 use crate::{ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget};
+use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget, StateAssumption};
 use std::ops::Range;
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
@@ -20,6 +20,7 @@ pub struct Description {
     pub(super) blocks: Vec<BlockEntry>,
     pub(super) call_targets: Vec<u32>,
     pub(super) target: ExecutionTarget,
+    pub(super) state_assumptions: Vec<StateAssumption>,
 }
 
 impl CompiledCode {
@@ -32,6 +33,7 @@ impl CompiledCode {
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
                 target: blocks.execution_target,
+                state_assumptions: blocks.state_assumptions,
             },
         }
     }
@@ -47,6 +49,10 @@ impl CompiledCode {
         &self.description.blocks
     }
 
+    pub fn state_assumptions(&self) -> &[StateAssumption] {
+        &self.description.state_assumptions
+    }
+
     pub(crate) fn call_targets(&self) -> &[u32] {
         &self.description.call_targets
     }
@@ -56,7 +62,8 @@ impl CompiledCode {
     }
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
-    /// The caller maintains code/mapping validity for the installed code's lifetime.
+    /// State requirements are checked before publishing any entry. The caller
+    /// maintains code/mapping validity for the installed code's lifetime.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         self.install_entries(cpu, false)
@@ -82,7 +89,17 @@ impl CompiledCode {
     }
 
     fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
-        if cpu.cpu_state().execution_target() != self.description.target {
+        let state = cpu.cpu_state();
+        let snapshot = state.snapshot();
+        let target_matches = self
+            .description
+            .target
+            .is_compatible_with(state.execution_target(), &snapshot);
+        let assumptions_match = self
+            .state_assumptions()
+            .iter()
+            .all(|requirement| requirement.matches(&snapshot));
+        if !target_matches || !assumptions_match {
             return Err(Error::CompilationTarget);
         }
         let entries: Vec<_> = self
@@ -147,6 +164,75 @@ fn ranges(addresses: &[u32], blocks: &[BlockEntry]) -> Vec<Range<u64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn entry_admission() {
+        use crate::{compiler::Reply, worker::Transfer, CpuConfig, MachineConfig, Memory};
+        use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
+        use relocade_x86::{
+            BlockSnapshot, Compiler, CpuState, ExecutionProfile, PhysicalMapping,
+            PhysicalMemoryMap, SegmentProfile,
+        };
+
+        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let blocks = compiler
+            .compile_blocks(&[BlockSnapshot {
+                start_eip: 0x100,
+                bytes: &[0x90],
+                instruction_limit: 1,
+            }])
+            .unwrap();
+        let module = WasmRuntime::new()
+            .unwrap()
+            .compiler()
+            .compile(&blocks.bytes)
+            .await
+            .unwrap();
+        let ordinary = CompiledCode::new(module, vec![0x100], blocks);
+        let mut restricted = ordinary.clone();
+        // An extra requirement must survive transfer and participate in admission
+        // even when the target itself agrees with the receiving CPU.
+        let protected = Compiler::new(SegmentProfile::Flat32)
+            .target()
+            .state_assumptions()
+            .into_iter()
+            .find(|requirement| !requirement.matches(&CpuState::real_mode()))
+            .unwrap();
+        restricted.description.state_assumptions.push(protected);
+        let expected = restricted.state_assumptions().to_vec();
+        let (state, payload) = Reply(Ok(restricted)).encode();
+        let restricted = Reply::decode(state, payload).0.unwrap();
+        assert_eq!(restricted.state_assumptions(), expected);
+
+        let map = PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
+            .unwrap();
+        let memory = Memory::new(MachineConfig::new(0x1000, map).unwrap()).unwrap();
+        memory.view().write(0x100, &[0x90]).unwrap();
+        let config = CpuConfig::new(compiler.target(), CpuState::real_mode()).unwrap();
+        let mut cpu = Cpu::new(memory, config, Default::default()).await.unwrap();
+        assert!(matches!(
+            restricted.install(&mut cpu),
+            Err(Error::CompilationTarget)
+        ));
+        assert!(matches!(
+            restricted.install_missing(&mut cpu),
+            Err(Error::CompilationTarget)
+        ));
+        assert!(!cpu.has_entry(0x100));
+        ordinary.install(&mut cpu).unwrap();
+        assert!(cpu.has_entry(0x100));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn transferred_requirements_are_checked_before_publishing_entries() {
+        pollster::block_on(entry_admission());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    async fn transferred_requirements_are_checked_before_publishing_entries() {
+        entry_admission().await;
+    }
 
     #[test]
     fn coverage_merges_neighbors_but_preserves_gaps_and_address_wrap() {

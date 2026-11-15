@@ -72,12 +72,16 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         let target = module.target;
         let state = State::new(&module.cpu)
             .with_instruction_budgets(target.instruction_budgets)
-            .with_control_profile(target.profile);
+            .with_control_assumptions(module.control_assumptions.clone());
         Ok(Self {
             body,
             state,
             accesses: module.memory.accesses(),
-            segments: SegmentReads::new(&module.cpu, target.profile),
+            segments: SegmentReads::new(
+                &module.cpu,
+                target.profile,
+                module.segment_assumptions.clone(),
+            ),
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_size: AddressSize::Bits32,

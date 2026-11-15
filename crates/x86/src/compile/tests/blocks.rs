@@ -74,6 +74,7 @@ fn entries_report_consumed_spans_in_input_order() {
     assert_eq!(parallel.bytes, blocks.bytes);
     assert_eq!(parallel.entries, blocks.entries);
     assert_eq!(parallel.execution_target, blocks.execution_target);
+    assert_eq!(parallel.state_assumptions, blocks.state_assumptions);
 }
 
 #[test]

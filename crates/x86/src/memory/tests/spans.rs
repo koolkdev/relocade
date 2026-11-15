@@ -46,6 +46,7 @@ fn field_module() -> TestModule {
     Validator::new().validate_all(&bytes).unwrap();
     TestModule::new(&crate::CompiledModule {
         execution_target: None,
+        state_assumptions: Vec::new(),
         bytes,
         entry: "fields".into(),
     })
@@ -173,6 +174,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     ["read_fields", "write_fields"].map(|entry| {
         TestModule::new(&crate::CompiledModule {
             execution_target: None,
+            state_assumptions: Vec::new(),
             bytes: bytes.clone(),
             entry: entry.into(),
         })

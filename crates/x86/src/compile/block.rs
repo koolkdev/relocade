@@ -45,6 +45,9 @@ pub struct CompiledBlocks {
     /// Required target for every entry and its interpreter fallback.
     /// The host also maintains each entry's code bytes and mapping validity.
     pub execution_target: ExecutionTarget,
+    /// State facts supplied to every entry, including captured decoding defaults.
+    /// Guarded observations are checked inside the code and are not listed here.
+    pub state_assumptions: Vec<crate::StateAssumption>,
 }
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
@@ -139,6 +142,7 @@ impl Compiler {
             bytes: blocks.bytes,
             entry: entry.export,
             execution_target: Some(blocks.execution_target),
+            state_assumptions: blocks.state_assumptions,
         })
     }
 
@@ -157,7 +161,8 @@ impl Compiler {
     ///
     /// Every export requires its original EIP and valid snapshot bytes under
     /// the current CS base. The embedding admits entries against
-    /// [`CompiledBlocks::execution_target`] and maintains their validity throughout
+    /// [`CompiledBlocks::execution_target`] and [`CompiledBlocks::state_assumptions`],
+    /// and maintains their validity throughout
     /// execution, as described by the [host integration contract](crate#entry-validity).
     /// The caller must also limit blocks at registered execution boundaries absent
     /// from this batch.
@@ -189,6 +194,7 @@ impl Compiler {
             entries: blocks.entries,
             call_targets: blocks.call_targets,
             execution_target: self.target,
+            state_assumptions: blocks.state_assumptions,
         })
     }
 
@@ -208,6 +214,7 @@ impl Compiler {
             entries: blocks.entries,
             call_targets: blocks.call_targets,
             execution_target: self.target,
+            state_assumptions: blocks.state_assumptions,
         })
     }
 }

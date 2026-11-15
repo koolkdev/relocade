@@ -68,6 +68,7 @@ impl Compiler {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
             execution_target: Some(self.target),
+            state_assumptions: self.target.state_assumptions(),
         })
     }
 }

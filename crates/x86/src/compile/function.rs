@@ -164,6 +164,7 @@ impl FunctionModule<'_> {
             entries: self.module.entries,
             call_targets: self.module.call_targets,
             execution_target: self.module.compiler.target,
+            state_assumptions: self.module.state_assumptions,
         })
     }
 
@@ -177,6 +178,7 @@ impl FunctionModule<'_> {
             entries: self.module.entries,
             call_targets: self.module.call_targets,
             execution_target: self.module.compiler.target,
+            state_assumptions: self.module.state_assumptions,
         })
     }
 }

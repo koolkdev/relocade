@@ -18,6 +18,7 @@ fn refined_root_and_rounding_evidence_match_integer_square_root() {
         bytes: program.compile().unwrap(),
         entry: "sqrt".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     let mut values = vec![
         1 << 63,

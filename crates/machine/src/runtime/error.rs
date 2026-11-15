@@ -26,7 +26,7 @@ impl fmt::Display for Error {
             Self::Worker(error) => error.fmt(f),
             Self::Pool(error) => error.fmt(f),
             Self::CompilationTarget => {
-                f.write_str("compiled code and CPU execution targets differ")
+                f.write_str("CPU does not satisfy the compiled entry requirements")
             }
         }
     }

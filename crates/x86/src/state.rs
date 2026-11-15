@@ -12,7 +12,7 @@ mod simd;
 mod system;
 pub(crate) mod x87;
 
-pub(crate) use assumptions::StateAssumption;
+pub use assumptions::StateAssumption;
 pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
 pub use exit::{
@@ -49,7 +49,7 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     simd: StateFields,
     system: StateFields,
-    control_profile: Option<crate::ExecutionProfile>,
+    control_assumptions: Option<std::sync::Arc<[StateAssumption]>>,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -73,7 +73,7 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             system: StateFields::new(cpu.memory()),
-            control_profile: None,
+            control_assumptions: None,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }

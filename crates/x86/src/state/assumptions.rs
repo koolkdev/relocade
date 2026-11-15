@@ -1,13 +1,15 @@
 //! Masked state requirements shared by code generation and entry admission.
 
-use super::ExecutionContext;
+use super::{CpuState, ExecutionContext};
 use crate::ssa::{Location, StateFields};
 use relocade_compiler::{BlockBuilder, BuildError, I16, I32, I64, I8};
 use std::mem::{offset_of, size_of};
 
-/// A requirement on scalar bytes in the CPU snapshot, in its encoded byte order.
+/// A masked requirement on a scalar field of the CPU snapshot.
+/// Entry admission establishes it; state-change owners must maintain it until
+/// the entry and all links to it have been invalidated or readmitted.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct StateAssumption {
+pub struct StateAssumption {
     offset: usize,
     byte_len: u8,
     mask: u64,
@@ -15,6 +17,10 @@ pub(crate) struct StateAssumption {
 }
 
 impl StateAssumption {
+    pub fn matches(&self, cpu: &CpuState) -> bool {
+        self.matches_record(&cpu.to_bytes(), 0)
+    }
+
     /// The field selector supplies its storage type without reading a snapshot.
     pub(crate) fn field<Record, T: Into<u64>>(
         offset: usize,

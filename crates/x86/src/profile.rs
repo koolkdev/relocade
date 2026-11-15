@@ -55,6 +55,15 @@ pub struct ExecutionTarget {
 }
 
 impl ExecutionTarget {
+    /// State facts supplied by the current profile preset. This includes the CS
+    /// default used by snapshot decoding, but excludes guarded CPU observations.
+    /// Supported-state admission still applies in addition to these requirements.
+    pub fn state_assumptions(self) -> Vec<StateAssumption> {
+        let mut assumptions = control_assumptions(self.profile);
+        assumptions.extend(crate::segment::profile::entry_assumptions(self.profile));
+        assumptions
+    }
+
     /// Check an entry against the installed target and architectural CPU state.
     ///
     /// The CPU image supplies the mode; the target retains generated-code policy

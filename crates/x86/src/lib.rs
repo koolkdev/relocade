@@ -83,8 +83,8 @@ pub use segment::{
 pub use state::{
     CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
     ExecutionExitValues, FlagBytes, FlagsState, HostExit, HostExitCase, HostExitValues, Registers,
-    SegmentRegister, Segments, SimdState, StatusSourceState, SystemSegmentRegister, X87Control,
-    X87Register, X87State, X87Status,
+    SegmentRegister, Segments, SimdState, StateAssumption, StatusSourceState,
+    SystemSegmentRegister, X87Control, X87Register, X87State, X87Status,
 };
 
 /// A WebAssembly module and the exported function that enters it.
@@ -98,6 +98,9 @@ pub struct CompiledModule {
     /// Snapshot instruction-fetch validity is separate. Modules that do not
     /// execute x86 instructions have no execution target.
     pub execution_target: Option<ExecutionTarget>,
+    /// Supplied state facts required throughout execution, in addition to target
+    /// admission and code/mapping validity. Guarded observations are not included.
+    pub state_assumptions: Vec<StateAssumption>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

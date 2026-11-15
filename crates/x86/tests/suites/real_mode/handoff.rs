@@ -19,6 +19,9 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
         bytes: program.compile().unwrap(),
         entry: "enter".into(),
         execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
+        state_assumptions: crate::Compiler::new(ExecutionProfile::Real16)
+            .target()
+            .state_assumptions(),
     })
     .with_interpreter(TestModule::interpreter_with_profile(
         ExecutionProfile::Real16,

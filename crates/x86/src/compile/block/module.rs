@@ -11,6 +11,7 @@ pub(in crate::compile) struct BlockModule<'a> {
     pub(in crate::compile) program: Program,
     pub(in crate::compile) entries: Vec<BlockEntry>,
     pub(in crate::compile) call_targets: Vec<u32>,
+    pub(in crate::compile) state_assumptions: Vec<crate::StateAssumption>,
     call_slots: BTreeMap<u32, u32>,
     execution: ExecutionModule,
 }
@@ -35,6 +36,7 @@ impl<'a> BlockModule<'a> {
             entries: Vec::new(),
             call_targets: Vec::new(),
             call_slots: BTreeMap::new(),
+            state_assumptions: execution.state_assumptions(),
             execution,
         }
     }

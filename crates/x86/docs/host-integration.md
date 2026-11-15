@@ -940,12 +940,24 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 ## Entry validity
 
 The runtime must ensure that each entry matches `CompiledModule::execution_target`
-before execution, including entries reached through a direct dispatch link. This
-replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
+and every record in `CompiledModule::state_assumptions` before execution, including
+entries reached through a direct dispatch link. `CompiledBlocks` retains the same
+requirements for all its exports. `StateAssumption::matches(cpu)` checks one
+masked field; the list includes supplied control/segment facts and captured code
+defaults. It excludes observations checked by local guards.
+
+`ExecutionTarget::is_compatible_with(active, cpu)`
 requires exact target equality and checks the architectural state and segment
 caches. `CpuState::is_compatible_with(profile)` validates the legacy profile
 contract against CR0, CR4, VM, CPL and loaded caches. Mode comes from CPU state;
 the installed target retains the requirements of existing generated code.
+
+The machine compiler carries the supplied records through worker replies and
+checks them against live CPU state before publishing any entries. Admission must
+remain valid while an entry or link is reachable. Existing supported-state and
+mutation restrictions maintain that validity; these records do not yet authorize
+mode transitions or arbitrary unguarded specialization. Code bytes, mappings and
+each export's CS-relative entry identity still require separate validation.
 
 Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
 CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots

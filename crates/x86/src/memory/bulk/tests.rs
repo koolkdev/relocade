@@ -41,6 +41,7 @@ fn transfers(fill: bool) -> TestModule {
         bytes: program.compile().unwrap(),
         entry: "transfer".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     })
 }
 

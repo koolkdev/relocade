@@ -106,6 +106,7 @@ fn widths(mmio: bool) {
                 bytes: transfers().to_vec(),
                 entry: format!("{}{bits}", if write { "write" } else { "read" }),
                 execution_target: None,
+                state_assumptions: Vec::new(),
             });
             let mut input = input();
             if mmio {
@@ -231,6 +232,7 @@ fn updates() {
             bytes: program.compile().unwrap(),
             entry: "update".into(),
             execution_target: None,
+            state_assumptions: Vec::new(),
         });
         let mut input = input();
         input.mmio_pages = vec![(1, 0x3000), (2, 0x5000), (8, 0x6000)];

@@ -35,6 +35,7 @@ fn loaded_binary64_values_compare_without_source_exceptions() {
         bytes: program.compile().unwrap(),
         entry: "classify".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     });
     // Loaded subnormals are normal extended values; loaded SNaNs are quiet.
     // Comparison bits are LT/EQ/UN/IE/DE.
@@ -102,6 +103,7 @@ fn binary32_promotion_preserves_ordering_and_source_exceptions() {
             bytes: program.compile().unwrap(),
             entry: "compare".into(),
             execution_target: None,
+            state_assumptions: Vec::new(),
         });
         // LT/EQ/UN/IE/DE: loading quiets SNaN and normalizes narrow denormals;
         // a memory operand must still report its original exception evidence.

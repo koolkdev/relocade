@@ -1,6 +1,57 @@
 use crate::{CpuState, ExecutionProfile};
 
 #[test]
+fn compiled_requirements_cover_decode_defaults_and_exclude_guarded_observations() {
+    use crate::{Compiler, SegmentDefaultSize::*, SegmentProfile};
+    for (profile, mut cpu) in [
+        (ExecutionProfile::Real16, CpuState::real_mode()),
+        (SegmentProfile::Flat32.into(), CpuState::default()),
+        (
+            SegmentProfile::Segmented16.into(),
+            CpuState::protected_mode(Bits16, Bits32),
+        ),
+        (
+            SegmentProfile::Segmented32.into(),
+            CpuState::protected_mode(Bits32, Bits16),
+        ),
+    ] {
+        cpu.x87.control.precision_control = 2;
+        cpu.x87.control.rounding_control = 0;
+        let compiler = Compiler::new(profile).specialize_on_cpu(&cpu);
+        let compiled = compiler.compile_block(0x1000, &[0xd9, 0xfa], 1).unwrap(); // FSQRT
+        assert_eq!(
+            compiled.state_assumptions,
+            compiler.target().state_assumptions()
+        );
+        let matches = |cpu: &CpuState| {
+            compiled
+                .state_assumptions
+                .iter()
+                .all(|requirement| requirement.matches(cpu))
+        };
+        assert!(matches(&cpu));
+        for change in [
+            (|cpu: &mut CpuState| cpu.cr0 ^= 1) as fn(&mut CpuState),
+            |cpu| cpu.flags.bytes.vm |= 1,
+            |cpu| cpu.cr4 |= 4,
+            |cpu| cpu.segments.cs.big ^= 1,
+        ] {
+            let mut changed = cpu;
+            change(&mut changed);
+            assert!(!matches(&changed), "{profile:?}: {changed:?}");
+        }
+        cpu.x87.control.precision_control = 3;
+        cpu.x87.control.rounding_control = 1;
+        cpu.flags.bytes.vm |= 0xfe; // Only the logical VM bit is required.
+        assert!(matches(&cpu));
+        // Unimplemented controls still belong to supported-state admission.
+        cpu.cr0 |= 1 << 31;
+        assert!(matches(&cpu));
+        assert!(!cpu.is_compatible_with(profile));
+    }
+}
+
+#[test]
 fn profile_admission_requires_supported_mode_and_control_state() {
     use crate::SegmentProfile;
     for (profile, cpu) in [

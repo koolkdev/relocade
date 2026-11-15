@@ -138,12 +138,16 @@ pub(crate) struct TestModule {
     module: Arc<Module>,
     pub(crate) entry: String,
     target: Option<ExecutionTarget>,
+    state_assumptions: Vec<crate::StateAssumption>,
     interpreter: Option<&'static TestModule>,
 }
 
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
-        Self::from_bytes(&module.bytes, &module.entry, module.execution_target)
+        Self {
+            state_assumptions: module.state_assumptions.clone(),
+            ..Self::from_bytes(&module.bytes, &module.entry, module.execution_target)
+        }
     }
 
     /// Selects an execution export from a module with any number of entries.
@@ -152,6 +156,7 @@ impl TestModule {
             module: Arc::new(Module::new(bytes)),
             entry: entry.into(),
             target,
+            state_assumptions: target.map_or_else(Vec::new, ExecutionTarget::state_assumptions),
             interpreter: None,
         }
     }
@@ -181,6 +186,10 @@ impl TestModule {
             "{} requires compatible {target:?} CPU state",
             self.entry
         );
+        assert!(self
+            .state_assumptions
+            .iter()
+            .all(|assumption| assumption.matches(&cpu)));
     }
 }
 

@@ -9,7 +9,11 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let cpu = Cpu::declare(&mut program);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
-            let mut access = SegmentReads::new(&cpu, profile);
+            let mut access = SegmentReads::new(
+                &cpu,
+                profile,
+                crate::segment::profile::entry_assumptions(profile).into(),
+            );
             let check = access.check(&mut body, &segment.into(), &offset, bytes, Intent::Write)?;
             body.return_((
                 check.linear,
@@ -21,6 +25,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
         execution_target: Some(crate::Compiler::new(profile).target()),
+        state_assumptions: crate::Compiler::new(profile).target().state_assumptions(),
     })
 }
 

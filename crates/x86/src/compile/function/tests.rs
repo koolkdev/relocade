@@ -53,6 +53,7 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
+    assert_eq!(actual.state_assumptions, expected.state_assumptions);
 }
 
 #[test]

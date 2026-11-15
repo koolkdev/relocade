@@ -1,7 +1,10 @@
 //! Shared CPU declarations and architectural entry helpers for generated modules.
 
 use super::{calls::CallLinks, ExecutionBuilder};
-use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
+use crate::{
+    abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget,
+    StateAssumption,
+};
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -13,6 +16,8 @@ pub(crate) struct ExecutionModule {
     pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
+    pub(super) control_assumptions: Arc<[StateAssumption]>,
+    pub(super) segment_assumptions: Arc<[StateAssumption]>,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
 }
 
@@ -25,6 +30,8 @@ impl ExecutionModule {
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
             target,
+            control_assumptions: crate::profile::control_assumptions(target.profile).into(),
+            segment_assumptions: crate::segment::profile::entry_assumptions(target.profile).into(),
             interrupt: None,
         };
         if target.profile == ExecutionProfile::Real16 {
@@ -39,6 +46,16 @@ impl ExecutionModule {
             ));
         }
         module
+    }
+
+    /// Retains the supplied facts, including the CS default used by decoding.
+    /// Guarded observations are local to their continuing paths and are excluded.
+    pub(crate) fn state_assumptions(&self) -> Vec<StateAssumption> {
+        self.control_assumptions
+            .iter()
+            .chain(self.segment_assumptions.iter())
+            .copied()
+            .collect()
     }
 
     pub(crate) fn with_function(

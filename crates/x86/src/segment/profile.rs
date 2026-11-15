@@ -4,6 +4,13 @@ use crate::{state::StateAssumption, ExecutionProfile, SegmentRegister, Segments}
 pub use relocade_x86_profile::SegmentProfile;
 use std::mem::offset_of;
 
+pub(crate) fn entry_assumptions(profile: ExecutionProfile) -> Vec<StateAssumption> {
+    Segment::ALL
+        .into_iter()
+        .flat_map(|segment| assumptions(profile, segment))
+        .collect()
+}
+
 pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<StateAssumption> {
     let base = Segments::offset(segment);
     let mut requirements = Vec::new();

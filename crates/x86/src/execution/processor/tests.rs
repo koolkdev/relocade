@@ -28,6 +28,7 @@ fn timestamp_module(tsc_supported: bool) -> CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
         execution_target: None,
+        state_assumptions: Vec::new(),
     }
 }
 
