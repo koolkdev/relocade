@@ -22,11 +22,10 @@ fn aliases_share_capture_versions_and_sources_retain_only_emitted_bytes() {
     memory.clone().view().write(0x100100, &[9]).unwrap();
     assert_eq!(reader.read(0x100100, 3).unwrap(), [1, 2, 3]);
     let source = reader.finish([(0x100, 3)]);
-    assert_eq!(source.ranges().collect::<Vec<_>>(), [0x100..0x103]);
-    assert_eq!(
-        source.backing_ranges().collect::<Vec<_>>(),
-        [0x1100..0x1103]
-    );
+    assert!(source.ranges().eq(std::iter::once(0x100..0x103)));
+    assert!(source
+        .backing_ranges()
+        .eq(std::iter::once(0x1100..0x1103)));
     assert!(source.has_recorded_writes());
     assert_eq!(memory.code_sources_at(0x1101).len(), 1);
     assert!(memory.code_sources_at(0x1103).is_empty());
