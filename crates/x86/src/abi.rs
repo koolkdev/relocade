@@ -17,6 +17,15 @@ pub const GUEST: Memory = Memory {
     shared: true,
     ..Memory::new("relocade", "guest", 1)
 };
+/// Shared notification for writes to live compiled instruction backing.
+/// The runtime clears byte zero only between guest entries, after retirement.
+pub const CODE_STATE: Memory = Memory {
+    shared: true,
+    maximum: Some(1),
+    ..Memory::new("relocade", "codeState", 1)
+};
+/// The interpreter's slow RAM writer supplies backing offsets, after A20/mapping.
+pub const WRITE_CODE: Function<fn(u32, u8)> = Function::new("relocade", "writeCode");
 pub const PHYSICAL_MAP: Memory = Memory::new("relocade", "physicalMap", 1);
 pub const PAGE_TABLE: Memory = Memory::new(
     "relocade",

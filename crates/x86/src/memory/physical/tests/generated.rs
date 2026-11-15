@@ -20,7 +20,13 @@ fn imports(bytes: &[u8]) -> Vec<String> {
 fn physical_accesses_import_backing_map_and_mmio_tables() {
     assert_eq!(
         imports(transfers()),
-        ["guest", "mmioReads", "mmioWrites", "physicalMap"]
+        [
+            "guest",
+            "mmioReads",
+            "mmioWrites",
+            "physicalMap",
+            "writeCode"
+        ]
     );
 }
 

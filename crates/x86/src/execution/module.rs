@@ -18,8 +18,12 @@ pub(crate) struct ExecutionModule {
 
 impl ExecutionModule {
     pub(crate) fn declare(program: &mut Program, target: ExecutionTarget) -> Self {
+        let mut cpu = Cpu::declare(program);
+        if target.profile == ExecutionProfile::Real16 {
+            cpu.track_code_writes(program);
+        }
         let mut module = Self {
-            cpu: Arc::new(Cpu::declare(program)),
+            cpu: Arc::new(cpu),
             memory: Arc::new(Memory::declare(program, target.profile)),
             entries: Arc::default(),
             call_links: Arc::new(CallLinks::declare(program)),

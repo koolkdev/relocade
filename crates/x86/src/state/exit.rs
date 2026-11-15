@@ -54,6 +54,9 @@ pub enum ExecutionExit {
     /// A continuing call exhausted the bounded observation batch. Drain it
     /// before resuming at the published callee; the call must not be replayed.
     CallProfileFull,
+    /// Compiled source changed. Retire affected versions before dispatching again.
+    /// This is consumed by the embedding, with CPU state at a completed boundary.
+    CodeInvalidated,
 }
 
 /// Host control flow carried by [`ExecutionExit::Host`].

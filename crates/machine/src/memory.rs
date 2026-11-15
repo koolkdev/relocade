@@ -1,4 +1,5 @@
 pub(crate) mod code;
+pub(crate) mod compiled;
 mod resolve;
 mod view;
 pub use relocade_x86::real_mode::FarPointer;
@@ -6,7 +7,10 @@ pub use view::MemoryView;
 
 use crate::{IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 /// Owned guest memory and its address policy, independent of CPU execution.
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
@@ -16,6 +20,8 @@ use std::{fmt, sync::Arc};
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
+    compiled: Arc<Mutex<compiled::CompiledMemory>>,
+    pub(crate) code_state: SharedMemory,
 }
 
 impl Memory {
@@ -29,12 +35,15 @@ impl Memory {
         Ok(Self {
             config: Arc::new(config),
             backing,
+            compiled: Arc::default(),
+            code_state: SharedMemory::new(1, 1)?,
         })
     }
 
     pub fn configuration(&self) -> &MachineConfig {
         &self.config
     }
+    /// Raw backing writes bypass code invalidation. Use `view()` for writes after JIT admission.
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
     }
@@ -49,7 +58,7 @@ impl Memory {
     /// For MMIO, retain device routing with [`Self::with_io`], or borrow a bus
     /// for this view with [`MemoryView::with_io`].
     pub fn view(&self) -> MemoryView<'_> {
-        MemoryView::new(&self.config, self.backing.view())
+        MemoryView::new(self, self.backing.view())
     }
 }
 

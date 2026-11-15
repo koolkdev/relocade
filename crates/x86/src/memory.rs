@@ -131,6 +131,25 @@ impl Memory {
         })
     }
 
+    /// A dominating JIT guard proved this whole span direct and callback-free.
+    pub(crate) fn direct_access(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        start: &Val<I32>,
+        bytes: u32,
+        intent: Intent,
+        physical: Val<I32>,
+    ) -> Result<Access, BuildError> {
+        Ok(Access {
+            linear: start.clone(),
+            physical,
+            denied: body.value(false)?,
+            unavailable: body.value(false)?,
+            intent,
+            constant_bytes: Some(bytes),
+        })
+    }
+
     /// Resolves a segment-checked span. Physical routing remains live until each transfer.
     pub(crate) fn resolve_access(
         &self,

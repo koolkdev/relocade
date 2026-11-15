@@ -3,7 +3,7 @@
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
-    physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
+    physical_map::{CODE, MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
     DirectRange, Intent, PhysicalMemoryMap,
 };
 
@@ -21,7 +21,8 @@ pub(super) struct Entry {
 
 impl Entry {
     pub(super) fn readable(&self) -> Val<I1> {
-        self.kind.eq(RAM).or(self.kind.eq(ROM))
+        let kind = self.kind.and(!CODE);
+        kind.eq(RAM).or(kind.eq(ROM))
     }
 
     pub(super) fn backing_address(&self) -> Val<I32> {

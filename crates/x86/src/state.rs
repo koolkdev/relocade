@@ -200,6 +200,12 @@ impl<'cpu> State<'cpu> {
         body.if_(interrupt_requested.ne(0), |body| {
             body.return_(ExecutionExitValues::interrupted())
         })?;
+        if let Some(code_state) = self.cpu.code_state {
+            let code_changed = body.atomic::<I8>(code_state, 0, 0)?.load()?;
+            body.if_(code_changed.ne(0), |body| {
+                body.return_(ExecutionExitValues::code_invalidated())
+            })?;
+        }
         if self.instruction_budgets {
             let target = body.load_at::<I64>(
                 self.cpu.memory(),

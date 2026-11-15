@@ -26,14 +26,14 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
         ExecutionProfile::Real16,
     ] {
         let compiler = Compiler::new(profile);
+        let mut controls = vec![("relocade", "executionContext")];
+        if profile == ExecutionProfile::Real16 {
+            controls.insert(0, ("relocade", "codeState"));
+        }
         for code in [&[0x40][..], &[0x8d, 0x00][..]] {
             // INC and LEA need CPU state but do not access guest memory.
             let block = compiler.compile_block(0x1000, code, 1).unwrap();
-            assert_eq!(
-                imports(&block.bytes),
-                [("relocade", "executionContext")],
-                "{profile:?}, {code:02x?}",
-            );
+            assert_eq!(imports(&block.bytes), controls, "{profile:?}, {code:02x?}",);
         }
         for code in [&[0x50][..], &[0x8b, 0x00][..]] {
             // PUSH uses memory without a memory operand; MOV has an explicit one.
@@ -42,15 +42,9 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
                 ExecutionProfile::Real16 => "physicalMap",
                 ExecutionProfile::Protected(_) => "machine",
             };
-            assert_eq!(
-                imports(&block.bytes),
-                [
-                    ("relocade", "executionContext"),
-                    ("relocade", "guest"),
-                    ("relocade", map),
-                ],
-                "{profile:?}, {code:02x?}",
-            );
+            let mut memories = controls.clone();
+            memories.extend([("relocade", "guest"), ("relocade", map)]);
+            assert_eq!(imports(&block.bytes), memories, "{profile:?}, {code:02x?}",);
         }
     }
 }

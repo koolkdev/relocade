@@ -4,12 +4,14 @@ mod calls;
 pub(super) use calls::Calls;
 mod table;
 
+use crate::memory::compiled::CodeWatch;
 use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
+    sync::Arc,
 };
 use table::DispatchTable;
 
@@ -22,6 +24,7 @@ pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
     code: Option<CompiledCode>,
     calls: Option<Calls<B>>,
     pages: BTreeSet<u32>,
+    watch: Option<Arc<CodeWatch>>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
@@ -30,6 +33,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         entries: &[DispatchEntry<'_>],
         code: Option<CompiledCode>,
         calls: Option<Calls<B>>,
+        watch: Option<Arc<CodeWatch>>,
     ) -> Self {
         let pages = code
             .iter()
@@ -46,6 +50,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
             code,
             calls,
             pages,
+            watch,
         }
     }
 
@@ -89,6 +94,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
 
     pub(super) fn has_entry(&self, key: u32) -> bool {
         self.table.contains(key)
+            && !self
+                .table
+                .owner(key)
+                .and_then(|id| self.modules[&id].watch.as_ref())
+                .is_some_and(|watch| watch.changed())
     }
 
     pub(super) fn install_interpreter(
@@ -146,6 +156,21 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .is_some_and(|source| source.start < range.end)
         });
         self.retire(backend, retired_modules).map(|_| ())
+    }
+
+    pub(super) fn retire_changed(&mut self, backend: &mut B) -> Result<Vec<u32>> {
+        let retired = self
+            .modules
+            .iter()
+            .filter_map(|(&id, module)| {
+                module
+                    .watch
+                    .as_ref()
+                    .is_some_and(|watch| watch.changed())
+                    .then_some(id)
+            })
+            .collect();
+        self.retire(backend, retired)
     }
 
     fn retire(&mut self, backend: &mut B, retired_modules: BTreeSet<ModuleId>) -> Result<Vec<u32>> {

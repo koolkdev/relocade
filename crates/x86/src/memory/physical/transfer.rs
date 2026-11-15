@@ -1,11 +1,11 @@
 //! One general reader and writer per module handle all non-direct transfers.
 
 use relocade_compiler::{
-    BlockBuilder, BuildError, Mem, Program, Table, TypedFunc, Val, I32, I64, I8,
+    BlockBuilder, BuildError, Func, Mem, Program, Table, TypedFunc, Val, I32, I64, I8,
 };
 
 use super::{
-    super::physical_map::{MMIO, RAM},
+    super::physical_map::{CODE, MMIO, RAM},
     table::{Entry, PhysicalTable},
 };
 
@@ -73,13 +73,22 @@ pub(super) fn declare_writer(
     table: PhysicalTable,
     mmio_writer: Table,
 ) -> TypedFunc<fn(u32, u32, u64)> {
+    let write_code = program.import_function(crate::abi::WRITE_CODE);
     program.function::<fn(u32, u32, u64)>(move |mut body, (address, bytes, value)| {
         body.loop_::<I32, ()>(0, |mut part, labels, done| {
             let current = address.add(&done);
             let entry = table.lookup(&mut part, &current)?;
             let count = table.transfer_bytes(&mut part, &entry, &bytes.sub(&done))?;
             let shifted = value.unsigned().shr(done.shl(3));
-            write_part(backing, mmio_writer, &mut part, &entry, &count, &shifted)?;
+            write_part(
+                backing,
+                mmio_writer,
+                write_code,
+                &mut part,
+                &entry,
+                &count,
+                &shifted,
+            )?;
             let next = done.add(count);
             part.branch_if(next.eq(&bytes), &labels.exit, ())?;
             part.branch(&labels.again, next)
@@ -91,6 +100,7 @@ pub(super) fn declare_writer(
 fn write_part(
     backing: Mem,
     callback: Table,
+    write_code: Func,
     body: &mut BlockBuilder<'_>,
     entry: &Entry,
     bytes: &Val<I32>,
@@ -110,9 +120,28 @@ fn write_part(
             )
         },
         |mut ordinary| {
-            ordinary.if_(entry.kind.eq(RAM), |mut ram| {
-                ram.store_at::<I8>(backing, entry.backing_address(), 0, value.truncate::<I8>())
-            })
+            ordinary.if_else(
+                entry.kind.eq(RAM | CODE),
+                |mut code| {
+                    code.call::<()>(
+                        write_code,
+                        &[
+                            entry.backing_address().into(),
+                            value.truncate::<I8>().into(),
+                        ],
+                    )
+                },
+                |mut ordinary| {
+                    ordinary.if_(entry.kind.eq(RAM), |mut ram| {
+                        ram.store_at::<I8>(
+                            backing,
+                            entry.backing_address(),
+                            0,
+                            value.truncate::<I8>(),
+                        )
+                    })
+                },
+            )
         },
     )
 }

@@ -8,6 +8,7 @@ pub(super) const UNMAPPED: u32 = 0;
 pub(super) const RAM: u32 = 1;
 pub(super) const ROM: u32 = 2;
 pub(super) const MMIO: u32 = 3;
+pub(super) const CODE: u32 = 1 << 8;
 
 /// Index in an execution instance's paired MMIO operation tables.
 /// Zero keeps the range resolver used for unconnected or mixed-device pages.
@@ -96,6 +97,9 @@ pub struct PhysicalMemoryMap {
 
 impl PhysicalMemoryMap {
     pub const PAGE_BYTES: u32 = 1 << PAGE_SHIFT;
+    /// OR into a RAM/ROM page's kind word while its backing contains live code.
+    /// Reads keep their usual routing; RAM writes use the interpreter slow writer.
+    pub const CODE_PAGE: u32 = CODE;
     pub const PAGE_COUNT: usize = 272;
     /// The trailing address-mask word; page-entry offsets are independent of A20.
     pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;

@@ -64,6 +64,12 @@ impl Profiling {
         self.submit(modules);
     }
 
+    pub(super) fn forget(&mut self, keys: impl IntoIterator<Item = u32>) {
+        for key in keys {
+            self.hotness.forget(key);
+        }
+    }
+
     fn disable(&mut self) {
         self.compiler = None;
         self.pending.clear();

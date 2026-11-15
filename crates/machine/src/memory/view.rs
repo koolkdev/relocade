@@ -16,6 +16,7 @@ use std::cell::RefCell;
 /// Accessing MMIO without a local bus is a programming error and panics.
 pub struct MemoryView<'a> {
     config: &'a MachineConfig,
+    memory: &'a super::Memory,
     storage: MemoryAccess<'a>,
     io: Option<Routing<'a>>,
 }
@@ -23,9 +24,10 @@ pub struct MemoryView<'a> {
 impl<'a> MemoryView<'a> {
     /// Borrows backing storage matching the configured map and capacity.
     #[inline]
-    pub fn new(config: &'a MachineConfig, storage: MemoryAccess<'a>) -> Self {
+    pub(crate) fn new(memory: &'a super::Memory, storage: MemoryAccess<'a>) -> Self {
         Self {
-            config,
+            config: memory.configuration(),
+            memory,
             storage,
             io: None,
         }

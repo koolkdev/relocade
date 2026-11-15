@@ -120,7 +120,7 @@ impl ExecutionBuilder<'_, '_> {
         operands: &[StringOperand; N],
         count: &Val<I32>,
     ) -> Result<Option<ResolvedStrings<N>>, BuildError> {
-        if !self.accesses.memory().has_stable_mappings() {
+        if !self.accesses.memory().has_stable_mappings() && !self.can_fallback {
             return Ok(None);
         }
         let bytes = count.mul(T::BYTES);
@@ -167,7 +167,7 @@ impl ExecutionBuilder<'_, '_> {
                                 segment.denied.unwrap_or(false.into()),
                                 |denied| denied.yield_((false, 0)),
                                 |mut paging| {
-                                    let access = memory.resolve_access(
+                                    let access = memory.check_direct_access(
                                         &mut paging,
                                         &segment.linear,
                                         &bytes,
