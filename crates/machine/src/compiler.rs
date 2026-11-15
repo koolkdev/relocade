@@ -71,6 +71,7 @@ async fn compile(
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
     let mut reader = memory.code_reader();
+    let excluded = memory.excluded_code();
     let (blocks, addresses) = match request {
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
@@ -99,7 +100,7 @@ async fn compile(
             let mut first_error = None;
             for request in requests {
                 let base = request.entry.segment_base();
-                match module.add_function(
+                match module.add_function_excluding(
                     CodeAddress::RealMode(request.entry),
                     request.limits,
                     |eip, buffer| {
@@ -109,6 +110,7 @@ async fn compile(
                         }
                         reader.read_prefix(base + eip, &mut buffer[..len])
                     },
+                    |eip, bytes| memory.excludes_code(base + eip, bytes, &excluded),
                 ) {
                     Ok(entries) => {
                         addresses.extend(entries.iter().map(|block| base + block.start_eip));

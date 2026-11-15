@@ -145,7 +145,29 @@ impl FunctionModule<'_> {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
+        self.add_function_excluding(entry, limits, read, |_, _| false)
+    }
+
+    /// Discovers through excluded encodings to find available successors, but
+    /// emits no instruction overlapping an excluded span. Transfers into omitted
+    /// code use runtime dispatch and follow the interpreter's actual control flow.
+    /// The predicate receives each decoded instruction's EIP and byte length;
+    /// backing-address policy belongs to the embedding. Excluded instructions
+    /// still count toward exploration limits.
+    pub fn add_function_excluding(
+        &mut self,
+        entry: CodeAddress,
+        limits: FunctionLimits,
+        read: impl FnMut(u32, &mut [u8]) -> usize,
+        excluded: impl FnMut(u32, usize) -> bool,
+    ) -> Result<&[BlockEntry], BlockError> {
+        let mut decoded = discover::blocks(
+            entry.eip(),
+            self.module.compiler.target,
+            limits,
+            read,
+            excluded,
+        )?;
         if self.functions != 0 {
             for block in &mut decoded {
                 block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);

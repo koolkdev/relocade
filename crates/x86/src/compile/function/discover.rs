@@ -12,6 +12,7 @@ pub(super) fn blocks(
     target: ExecutionTarget,
     mut limits: FunctionLimits,
     mut read: impl FnMut(u32, &mut [u8]) -> usize,
+    mut excluded: impl FnMut(u32, usize) -> bool,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
     if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
         return Err(BlockError::ZeroFunctionLimit);
@@ -20,6 +21,8 @@ pub(super) fn blocks(
     let mut entries = BTreeSet::from([start_eip]);
     let mut instructions = BTreeMap::<u32, SnapshotInstruction>::new();
     let mut window = Window::default();
+    let mut omitted = BTreeSet::new();
+    let mut boundaries = BTreeSet::new();
     while let Some(mut eip) = pending.pop_front() {
         loop {
             if instructions.contains_key(&eip) {
@@ -69,6 +72,11 @@ pub(super) fn blocks(
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
             let next = instruction.fallthrough_eip;
+            if excluded(eip, len as usize) {
+                omitted.insert(eip);
+                boundaries.insert(eip);
+                boundaries.insert(next);
+            }
             let ends_block = instruction.ends_block(target);
             if ends_block {
                 for successor in instruction.successors(target).into_iter().flatten() {
@@ -85,6 +93,8 @@ pub(super) fn blocks(
         }
     }
 
+    instructions.retain(|eip, _| !omitted.contains(eip));
+    entries.extend(boundaries);
     // Only now are all admitted branch targets known. Moving the instructions
     // into their final blocks also splits backward targets without decoding again.
     let mut blocks = Vec::new();

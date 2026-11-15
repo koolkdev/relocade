@@ -453,3 +453,125 @@ fn host_writes_retire_source_owners_and_repair_incoming_links() {
 async fn host_writes_retire_source_owners_and_repair_incoming_links() {
     compilation::run(tracked_writes_repair_links).await;
 }
+
+async fn retain_stable_blocks(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    memory
+        .view()
+        .write(0x100, &[0xe8, 0xfd, 0, 0xe9, 0xfa, 0x0e])
+        .unwrap();
+    memory
+        .view()
+        .write(0x200, &[0xb8, 7, 0, 0xe9, 0x0a, 0])
+        .unwrap();
+    memory
+        .view()
+        .write(0x210, &[0xbb, 1, 0, 0xe9, 0x0a, 0])
+        .unwrap();
+    memory.view().write(0x220, &[1, 0xd8, 0xc3]).unwrap(); // ADD AX,BX; RET
+    memory.view().write(0x230, &[0xb8, 99, 0, 0xc3]).unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        let request = |offset| FunctionRequest {
+            entry: FarPointer { segment: 0, offset },
+            limits: FunctionLimits::default(),
+        };
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x1000, async move || exit.request())])
+            .await
+            .unwrap();
+        for entry in [0x100, 0x200] {
+            compiler
+                .request_functions(target, vec![request(entry)])
+                .unwrap();
+            compiler
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .install(runner.cpu())
+                .unwrap();
+        }
+        run_caller(&mut runner, 8).await;
+        // Two byte stores invalidate one version, so this still permits one retry.
+        runner.cpu().memory().view().write(0x211, &[2]).unwrap();
+        runner.cpu().memory().view().write(0x211, &[3]).unwrap();
+        run_caller(&mut runner, 10).await;
+        compiler
+            .request_functions(target, vec![request(0x200)])
+            .unwrap();
+        let retry = compiler.recv().await.unwrap().unwrap();
+        assert!(retry.blocks().iter().any(|block| block.start_eip == 0x210));
+        retry.install(runner.cpu()).unwrap();
+        // The second compiled version is invalidated through an A20 alias.
+        runner.cpu().memory().view().write(0x100211, &[4]).unwrap();
+        run_caller(&mut runner, 11).await;
+        // Even restoring the old bytes cannot readmit an excluded old result.
+        runner.cpu().memory().view().write(0x211, &[3]).unwrap();
+        assert!(matches!(
+            retry.install(runner.cpu()),
+            Err(relocade_machine::Error::StaleCompilation)
+        ));
+        let mut smaller_blocks = request(0x200);
+        smaller_blocks.limits.block_instructions = 1;
+        compiler
+            .request_functions(target, vec![smaller_blocks])
+            .unwrap();
+        let stable = compiler.recv().await.unwrap().unwrap();
+        assert!(stable.blocks().iter().any(|block| block.start_eip == 0x200));
+        assert!(stable.blocks().iter().any(|block| block.start_eip == 0x220));
+        assert!(!stable
+            .blocks()
+            .iter()
+            .any(|block| (0x210..0x216).contains(&block.start_eip)));
+        stable.install(runner.cpu()).unwrap();
+        run_caller(&mut runner, 10).await;
+        runner.cpu().memory().view().write(0x211, &[5]).unwrap();
+        run_caller(&mut runner, 12).await;
+        assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
+        assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
+        assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 1);
+        // The interpreted middle block may choose a completely new successor.
+        runner.cpu().memory().view().write(0x214, &[0x1a]).unwrap();
+        run_caller(&mut runner, 99).await;
+        // A different CS:IP root still observes the same excluded backing.
+        compiler
+            .request_functions(
+                target,
+                vec![FunctionRequest {
+                    entry: FarPointer {
+                        segment: 0x10,
+                        offset: 0x110,
+                    },
+                    limits: FunctionLimits::default(),
+                }],
+            )
+            .unwrap();
+        let alias = compiler.recv().await.unwrap().unwrap();
+        assert!(!alias
+            .blocks()
+            .iter()
+            .any(|block| (0x110..0x116).contains(&block.start_eip)));
+        assert!(alias.blocks().iter().any(|block| block.start_eip == 0x130));
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn repeated_invalidation_excludes_only_unstable_backing() {
+    pollster::block_on(compilation::run(retain_stable_blocks));
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn repeated_invalidation_excludes_only_unstable_backing() {
+    compilation::run(retain_stable_blocks).await;
+}
