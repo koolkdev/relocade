@@ -89,7 +89,7 @@ impl Cpu {
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
         poll_fn(|cx| {
-            let _execution = ready!(self.poll_execution_access(cx));
+            let _execution = ready!(self.poll_enter_execution(cx));
             match self.poll_host_work(cx) {
                 Some(exit) => Poll::Ready(exit),
                 None => self.poll_execution(cx),
@@ -98,9 +98,10 @@ impl Cpu {
         .await
     }
 
-    /// Retained for one synchronous CPU turn, including service polling and IRQ
-    /// entry. Runners must acquire this before calling either poll operation.
-    pub(crate) fn poll_execution_access(
+    /// Enters one synchronous CPU turn, including service polling and IRQ entry.
+    /// While paused, registers a wakeup for resumption and returns Pending.
+    /// Runners retain the returned guard through both poll operations.
+    pub(crate) fn poll_enter_execution(
         &self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<crate::machine::execution::Active>> {

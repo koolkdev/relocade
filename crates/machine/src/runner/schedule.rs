@@ -59,7 +59,7 @@ impl ExecutionSchedule {
         cpu: &mut Cpu,
         cx: &mut Context<'_>,
     ) -> Poll<Option<ExecutionExit>> {
-        let _execution = ready!(cpu.poll_execution_access(cx));
+        let _execution = ready!(cpu.poll_enter_execution(cx));
         let result = if let Some(exit) = cpu.poll_host_work(cx) {
             Poll::Ready(exit)
         } else {

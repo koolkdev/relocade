@@ -65,6 +65,7 @@ pub struct Member {
 }
 
 impl Member {
+    /// Attempts entry immediately, without registering a waiter when paused.
     pub(crate) fn try_enter(&self) -> Option<Active> {
         let mut state = self.execution.state.load(Ordering::SeqCst);
         loop {
@@ -83,6 +84,7 @@ impl Member {
         }
     }
 
+    /// Attempts entry and arranges a wakeup on resumption if paused.
     pub(crate) fn poll_enter(&self, cx: &mut Context<'_>) -> Poll<Active> {
         if let Some(active) = self.try_enter() {
             self.resumed.take();
