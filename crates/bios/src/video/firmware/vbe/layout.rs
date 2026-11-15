@@ -3,7 +3,7 @@
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
 use super::Vbe;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
-use relocade_vga::{RetraceEvent, Viewport};
+use relocade_vga::Viewport;
 use std::cell::RefCell;
 
 #[cfg(test)]
@@ -90,17 +90,7 @@ pub(in crate::video::firmware) async fn display_start<C: Vbe>(
         0 | 0x80 => {
             layout.with_origin([u32::from(x), u32::from(y)])?;
             if operation == 0x80 {
-                loop {
-                    let wait = card.borrow_mut().wait_for_retrace()?;
-                    let event = wait.await;
-                    // Revalidation services the completed boundary before the origin changes.
-                    if card.borrow().viewport() != Some(layout) {
-                        return None;
-                    }
-                    if event == RetraceEvent::Started {
-                        break;
-                    }
-                }
+                super::retrace::wait(card, |card| card.viewport() == Some(layout)).await?;
             }
             io.with_context(|context| card.borrow_mut().set_display_origin(context, [x, y]))
                 .then_some([x, y])

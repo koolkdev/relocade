@@ -4,6 +4,7 @@ mod information;
 mod layout;
 mod modes;
 mod palette;
+mod retrace;
 mod state;
 
 use super::VideoFirmware;

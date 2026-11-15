@@ -1157,6 +1157,12 @@ have fixed ramps and return AX=034Fh. Both cards share the existing DAC colors
 and mask; ET4000 palette writes end its RAMDAC command-access sequence.
 Input colors are captured before programming, and reads release the card before
 writing guest memory, so buffers may wrap at 64 KiB or reside in banked VRAM.
+BL=80h captures the input colors and waits for vertical retrace before programming
+the primary palette. It uses the same owned wait as display-start control, leaving
+the card available to interrupt handlers. Configuration changes rearm the wait;
+a changed mode or disabled adapter cancels the request with AX=014Fh. Empty blocks
+return immediately. The completed frame retains its old colors, and subsequent
+captures use the new palette.
 
 Native and browser GPU checks cover RGB565 channel scaling, BGRX padding and
 opacity, bank edges, panning to the final VRAM byte, and retained captures.
