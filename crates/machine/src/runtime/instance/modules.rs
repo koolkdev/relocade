@@ -7,14 +7,21 @@ mod table;
 use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 use table::DispatchTable;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ModuleId(usize);
 
 pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
     entries: BTreeMap<u32, String>,
     code: Option<CompiledCode>,
     calls: Option<Calls<B>>,
+    pages: BTreeSet<u32>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
@@ -24,6 +31,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         code: Option<CompiledCode>,
         calls: Option<Calls<B>>,
     ) -> Self {
+        let pages = code
+            .iter()
+            .flat_map(|code| code.ranges())
+            .flat_map(|range| (range.start >> 12)..=((range.end - 1) >> 12))
+            .map(|page| page as u32)
+            .collect();
         Self {
             instance,
             entries: entries
@@ -32,6 +45,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
                 .collect(),
             code,
             calls,
+            pages,
         }
     }
 
@@ -39,35 +53,30 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         self.code.as_ref()
     }
 
-    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>) -> Result<()> {
+    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>, id: ModuleId) -> Result<()> {
         let entries: Vec<_> = self
             .entries
             .iter()
             .map(|(&key, export)| DispatchEntry { key, export })
             .collect();
-        table.install(backend, &self.instance, &entries)
+        table.install(backend, id, &self.instance, &entries)
     }
 }
 
 pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
     table: DispatchTable<B>,
-    modules: Vec<InstalledModule<B>>,
-    pages: BTreeMap<u32, Vec<usize>>,
-    callers: BTreeMap<u32, Vec<CallSite>>,
-}
-
-struct CallSite {
-    module: usize,
-    index: u32,
+    modules: BTreeMap<ModuleId, InstalledModule<B>>,
+    next_module_id: usize,
+    pages: BTreeMap<u32, BTreeSet<ModuleId>>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
     pub(super) fn new(backend: &mut B) -> Result<Self> {
         Ok(Self {
             table: DispatchTable::new(backend)?,
-            modules: Vec::new(),
+            modules: BTreeMap::new(),
+            next_module_id: 0,
             pages: BTreeMap::new(),
-            callers: BTreeMap::new(),
         })
     }
 
@@ -95,53 +104,71 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         backend: &mut B,
         entry: FarPointer,
     ) -> Result<()> {
-        self.table.install_interpreter_fallback(backend, entry)?;
-        self.relink(backend, [entry.packed()])
+        self.table.install_interpreter_fallback(backend, entry)
     }
 
     pub(super) fn install(&mut self, backend: &mut B, module: InstalledModule<B>) -> Result<()> {
-        module.publish(backend, &mut self.table)?;
-        let keys: Vec<_> = module.entries.keys().copied().collect();
-        let id = self.modules.len();
+        let id = ModuleId(self.next_module_id);
+        module.publish(backend, &mut self.table, id)?;
         if let Some(calls) = &module.calls {
-            for (index, &target) in calls.targets.iter().enumerate() {
-                calls.bind(backend, &self.table, index as u32)?;
-                self.callers.entry(target).or_default().push(CallSite {
-                    module: id,
-                    index: index as u32,
-                });
-            }
+            self.table.register_calls(backend, id, calls)?;
         }
-        self.insert(module);
-        self.relink(backend, keys)
-    }
-
-    fn relink(&self, backend: &mut B, keys: impl IntoIterator<Item = u32>) -> Result<()> {
-        for key in keys {
-            for site in self.callers.get(&key).into_iter().flatten() {
-                self.modules[site.module]
-                    .calls
-                    .as_ref()
-                    .expect("registered caller")
-                    .bind(backend, &self.table, site.index)?;
-            }
+        for &page in &module.pages {
+            self.pages.entry(page).or_default().insert(id);
         }
+        self.modules.insert(id, module);
+        self.next_module_id = self
+            .next_module_id
+            .checked_add(1)
+            .expect("module identity fits usize");
         Ok(())
     }
 
-    fn insert(&mut self, module: InstalledModule<B>) {
-        let id = self.modules.len();
-        if let Some(code) = module.code() {
-            let pages: BTreeSet<_> = code
-                .ranges()
-                .iter()
-                .flat_map(|range| (range.start >> 12)..=((range.end - 1) >> 12))
-                .collect();
-            for page in pages {
-                self.pages.entry(page as u32).or_default().push(id);
+    /// Retires complete linked versions: their direct internal calls cannot be
+    /// changed by updating only the entry for the modified block.
+    pub(super) fn invalidate(&mut self, backend: &mut B, range: Range<u64>) -> Result<()> {
+        if range.is_empty() {
+            return Ok(());
+        }
+        let mut retired_modules: BTreeSet<_> = self
+            .pages
+            .range((range.start >> 12) as u32..=((range.end - 1) >> 12) as u32)
+            .flat_map(|(_, modules)| modules.iter().copied())
+            .collect();
+        retired_modules.retain(|id| {
+            let ranges = self.modules[id]
+                .code()
+                .expect("indexed compilation")
+                .ranges();
+            let index = ranges.partition_point(|source| source.end <= range.start);
+            ranges
+                .get(index)
+                .is_some_and(|source| source.start < range.end)
+        });
+        self.retire(backend, retired_modules).map(|_| ())
+    }
+
+    fn retire(&mut self, backend: &mut B, retired_modules: BTreeSet<ModuleId>) -> Result<Vec<u32>> {
+        for id in &retired_modules {
+            if let Some(calls) = &self.modules[id].calls {
+                self.table.unregister_calls(*id, calls);
             }
         }
-        self.modules.push(module);
+        let exports = retired_modules
+            .iter()
+            .flat_map(|&id| self.modules[&id].entries.keys().map(move |&key| (id, key)));
+        let keys = self.table.remove(backend, exports)?;
+        for id in retired_modules {
+            let module = self.modules.remove(&id).expect("installed module");
+            for page in module.pages {
+                let modules = self.pages.get_mut(&page).expect("registered source page");
+                modules.remove(&id);
+                if modules.is_empty() {
+                    self.pages.remove(&page);
+                }
+            }
+        }
+        Ok(keys)
     }
 
     pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &InstalledModule<B>> {
@@ -149,7 +176,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .get(&(address >> 12))
             .into_iter()
             .flatten()
-            .map(|&id| &self.modules[id])
+            .map(|id| &self.modules[id])
             .filter(move |module| {
                 module.code().is_some_and(|code| {
                     let address = u64::from(address);

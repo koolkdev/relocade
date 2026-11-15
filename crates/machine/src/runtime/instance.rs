@@ -13,7 +13,7 @@ use modules::{Calls, InstalledModule, Modules};
 use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
-use std::rc::Rc;
+use std::{ops::Range, rc::Rc};
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
 pub struct DispatchEntry<'a> {
@@ -220,6 +220,11 @@ impl CpuInstance {
 
     pub(super) fn has_entry(&self, key: u32) -> bool {
         self.modules.has_entry(key)
+    }
+
+    pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
+        self.runtime
+            .with_runtime(|wasm| self.modules.invalidate(wasm, range))
     }
 
     pub(super) fn compiled_modules_at(

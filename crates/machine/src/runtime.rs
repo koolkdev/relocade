@@ -135,9 +135,33 @@ impl Cpu {
 
     /// Installed compilations whose decoded bytes cover this linear address.
     /// Several modules can cover the same bytes; coverage does not make an
-    /// interior address a callable entry. Old compilations remain owned by the CPU.
+    /// interior address a callable entry. Replaced compilations remain owned until
+    /// [`Self::invalidate_code`] retires them.
     pub fn compiled_modules_at(&self, address: u32) -> impl Iterator<Item = &crate::CompiledCode> {
         self.instance.compiled_modules_at(address)
+    }
+
+    /// Retires this CPU's compiled modules whose decoded source overlaps `range`.
+    /// Addresses are linear, before A20; the exclusive end can be `1 << 32`.
+    /// Empty ranges have no effect. Retiring a linked module also withdraws its
+    /// other entries, because direct calls within that version remain immutable.
+    /// Incoming call links return to resolution. Entries owned by unaffected
+    /// replacements or hooks survive.
+    ///
+    /// Call at a stopped boundary before executing modified code. This does not
+    /// observe writes, invalidate aliases or other CPUs, or queue recompilation.
+    ///
+    /// # Panics
+    /// Panics if a service is pending or parked. Complete or abandon it first.
+    pub fn invalidate_code(&mut self, range: std::ops::Range<u64>) -> Result<()> {
+        assert!(
+            self.suspended.is_empty(),
+            "host calls are parked; complete or abandon them before invalidating"
+        );
+        if range.end > 1_u64 << 32 {
+            return Err(crate::MemoryError::AddressRange.into());
+        }
+        self.instance_mut().invalidate_code(range)
     }
 
     pub(crate) fn install_compilation(

@@ -1,5 +1,6 @@
-//! Publishes real-mode CS:IP entries into one callable table.
+//! Real-mode entries own their current binding and incoming call-table slots.
 
+use super::{calls::CallSite, Calls, ModuleId};
 use crate::{DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
 use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table};
@@ -7,15 +8,46 @@ use relocade_x86::{abi, EntryTable};
 use std::collections::BTreeMap;
 
 struct Entry<B: ExportFunction<abi::ExecutionSignature>> {
-    slot: u32,
-    function: FunctionRef<B, abi::ExecutionSignature>,
+    target: Target<B>,
+    callers: BTreeMap<ModuleId, CallSite<B>>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Clone for Entry<B> {
-    fn clone(&self) -> Self {
+impl<B: ExportFunction<abi::ExecutionSignature>> Entry<B> {
+    fn unresolved() -> Self {
         Self {
-            slot: self.slot,
-            function: self.function.clone(),
+            target: Target::Unresolved,
+            callers: BTreeMap::new(),
+        }
+    }
+}
+
+enum Target<B: ExportFunction<abi::ExecutionSignature>> {
+    Unresolved,
+    Interpreter,
+    Export {
+        module: ModuleId,
+        slot: u32,
+        function: FunctionRef<B, abi::ExecutionSignature>,
+    },
+}
+
+impl<B: ExportFunction<abi::ExecutionSignature>> Target<B> {
+    fn slot(&self) -> Option<u32> {
+        match self {
+            Self::Unresolved => None,
+            Self::Interpreter => Some(EntryTable::INTERPRETER_SLOT),
+            Self::Export { slot, .. } => Some(*slot),
+        }
+    }
+
+    fn function<'a>(
+        &'a self,
+        interpreter: Option<&'a FunctionRef<B, abi::ExecutionSignature>>,
+    ) -> Option<&'a FunctionRef<B, abi::ExecutionSignature>> {
+        match self {
+            Self::Unresolved => None,
+            Self::Interpreter => Some(interpreter.expect("installed interpreter")),
+            Self::Export { function, .. } => Some(function),
         }
     }
 }
@@ -26,6 +58,7 @@ pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
     entries: BTreeMap<u32, Entry<B>>,
     interpreter: Option<FunctionRef<B, abi::ExecutionSignature>>,
     next_slot: u32,
+    free_slots: Vec<u32>,
     capacity: u32,
 }
 
@@ -41,6 +74,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             entries: BTreeMap::new(),
             interpreter: None,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
+            free_slots: Vec::new(),
             capacity: abi::EXECUTION_FUNCTIONS.minimum,
         })
     }
@@ -55,12 +89,42 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         ]
     }
 
-    pub(super) fn resolve(&self, key: u32) -> Option<&FunctionRef<B, abi::ExecutionSignature>> {
-        self.entries.get(&key).map(|entry| &entry.function)
+    pub(super) fn contains(&self, key: u32) -> bool {
+        self.entries
+            .get(&key)
+            .is_some_and(|entry| entry.target.slot().is_some())
     }
 
-    pub(super) fn contains(&self, key: u32) -> bool {
-        self.resolve(key).is_some()
+    pub(super) fn owner(&self, key: u32) -> Option<ModuleId> {
+        match &self.entries.get(&key)?.target {
+            Target::Export { module, .. } => Some(*module),
+            _ => None,
+        }
+    }
+
+    pub(super) fn register_calls(
+        &mut self,
+        backend: &mut B,
+        module: ModuleId,
+        calls: &Calls<B>,
+    ) -> Result<()> {
+        // Each module uses one call-table slot per distinct target.
+        for (key, site) in calls.sites() {
+            let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
+            site.bind(backend, entry.target.function(self.interpreter.as_ref()))?;
+            entry.callers.insert(module, site);
+        }
+        Ok(())
+    }
+
+    pub(super) fn unregister_calls(&mut self, module: ModuleId, calls: &Calls<B>) {
+        for key in &calls.targets {
+            let entry = self.entries.get_mut(key).expect("registered call target");
+            entry.callers.remove(&module);
+            if entry.target.slot().is_none() && entry.callers.is_empty() {
+                self.entries.remove(key);
+            }
+        }
     }
 
     /// Failed Real16 candidates suppress profiling only for their own CS:IP.
@@ -73,19 +137,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         if self.contains(key) {
             return Ok(());
         }
-        let mut entries = self.entries.clone();
-        entries.insert(
-            key,
-            Entry {
-                slot: EntryTable::INTERPRETER_SLOT,
-                function: self
-                    .interpreter
-                    .as_ref()
-                    .expect("interpreter is installed before execution")
-                    .clone(),
-            },
-        );
-        self.publish(backend, entries, Vec::new())
+        self.publish(backend, BTreeMap::from([(key, Target::Interpreter)]))
     }
 
     pub(super) fn install_interpreter(
@@ -104,21 +156,24 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     pub(super) fn install(
         &mut self,
         backend: &mut B,
+        module: ModuleId,
         instance: &B::Instance,
         exports: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        let mut entries = self.entries.clone();
+        let mut updates = BTreeMap::new();
         let mut next_slot = self.next_slot;
-        let mut functions = Vec::with_capacity(exports.len());
+        let mut free_slots = self.free_slots.clone();
         for entry in exports {
             let function = backend.function(
                 instance,
                 Function::<abi::ExecutionSignature>::new("", entry.export),
             )?;
-            let slot = entries
+            let slot = self
+                .entries
                 .get(&entry.key)
-                .map(|entry| entry.slot)
+                .and_then(|entry| entry.target.slot())
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
+                .or_else(|| free_slots.pop())
                 .unwrap_or_else(|| {
                     let slot = next_slot;
                     next_slot = next_slot
@@ -126,48 +181,114 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                         .expect("Wasm function table capacity");
                     slot
                 });
-            let function = backend.import_function(&function);
-            entries.insert(
+            updates.insert(
                 entry.key,
-                Entry {
+                Target::Export {
+                    module,
                     slot,
-                    function: function.clone(),
+                    function: backend.import_function(&function),
                 },
             );
-            functions.push((slot, function));
         }
-        self.publish(backend, entries, functions)
+        self.publish(backend, updates)?;
+        self.free_slots = free_slots;
+        Ok(())
     }
 
-    fn publish(
+    /// Only withdraw exports still owned by the retiring installation.
+    pub(super) fn remove(
         &mut self,
         backend: &mut B,
-        entries: BTreeMap<u32, Entry<B>>,
-        functions: Vec<(u32, FunctionRef<B, abi::ExecutionSignature>)>,
-    ) -> Result<()> {
-        let mut slots = EntryTable::default();
-        for (&key, entry) in &entries {
-            slots.insert(key, entry.slot);
-        }
-        let bytes = slots.to_bytes();
-        let next_slot = functions
+        exports: impl IntoIterator<Item = (ModuleId, u32)>,
+    ) -> Result<Vec<u32>> {
+        let updates: BTreeMap<_, _> = exports
+            .into_iter()
+            .filter(|&(module, key)| self.owner(key) == Some(module))
+            .map(|(_, key)| (key, Target::Unresolved))
+            .collect();
+        let keys: Vec<_> = updates.keys().copied().collect();
+        let slots: Vec<_> = keys
             .iter()
-            .map(|(slot, _)| slot + 1)
-            .max()
-            .unwrap_or(self.next_slot)
-            .max(self.next_slot);
+            .map(|key| self.entries[key].target.slot().expect("published export"))
+            .collect();
+        self.publish(backend, updates)?;
+        self.free_slots.extend(slots);
+        Ok(keys)
+    }
+
+    /// Publish binding changes and update their callers in the same operation.
+    /// Unresolved entries remain registered while they have incoming calls.
+    fn publish(&mut self, backend: &mut B, updates: BTreeMap<u32, Target<B>>) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let bytes = self.lookup_after(&updates).to_bytes();
+        let next_slot = self.reserve(backend, &updates, bytes.len())?;
+        for (key, target) in updates {
+            self.bind(backend, key, target)?;
+        }
+        backend.memory(&self.memory).write(0, &bytes);
+        self.next_slot = next_slot;
+        Ok(())
+    }
+
+    fn lookup_after(&self, updates: &BTreeMap<u32, Target<B>>) -> EntryTable {
+        let mut slots = EntryTable::default();
+        for (&key, entry) in &self.entries {
+            if updates.contains_key(&key) {
+                continue;
+            }
+            if let Some(slot) = entry.target.slot() {
+                slots.insert(key, slot);
+            }
+        }
+        for (&key, target) in updates {
+            if let Some(slot) = target.slot() {
+                slots.insert(key, slot);
+            }
+        }
+        slots
+    }
+
+    /// Grow both tables before replacing any live binding.
+    fn reserve(
+        &mut self,
+        backend: &mut B,
+        updates: &BTreeMap<u32, Target<B>>,
+        lookup_bytes: usize,
+    ) -> Result<u32> {
+        let next_slot = updates
+            .values()
+            .filter_map(Target::slot)
+            .fold(self.next_slot, |next, slot| next.max(slot + 1));
         if next_slot > self.capacity {
             let capacity = next_slot.max(self.capacity.saturating_mul(2));
             self.functions.ensure_size(backend, capacity, None)?;
             self.capacity = capacity;
         }
-        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
-        for (slot, function) in functions {
-            self.functions.set(backend, slot, &function)?;
+        backend.ensure_memory_size(&self.memory, lookup_bytes as u64)?;
+        Ok(next_slot)
+    }
+
+    /// Update the function-table slot and registered callers for one entry.
+    fn bind(&mut self, backend: &mut B, key: u32, target: Target<B>) -> Result<()> {
+        let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
+        if let Target::Export { slot, function, .. } = &target {
+            self.functions.set(backend, *slot, function)?;
+        } else if let Target::Export { slot, .. } = &entry.target {
+            self.functions.set(
+                backend,
+                *slot,
+                self.interpreter.as_ref().expect("installed interpreter"),
+            )?;
         }
-        backend.memory(&self.memory).write(0, &bytes);
-        self.entries = entries;
-        self.next_slot = next_slot;
+        for caller in entry.callers.values() {
+            caller.bind(backend, target.function(self.interpreter.as_ref()))?;
+        }
+        entry.target = target;
+        if entry.target.slot().is_none() && entry.callers.is_empty() {
+            self.entries.remove(&key);
+        }
         Ok(())
     }
 }
