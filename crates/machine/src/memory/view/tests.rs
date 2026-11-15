@@ -27,10 +27,13 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     let mut bytes = [0; 4];
     memory.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
-    assert_eq!(backing.read_code(0xffe, 4).unwrap(), [1, 2, 0xaa, 0xbb]);
-    assert_eq!(backing.read_code_prefix(0xffe, &mut bytes), 4);
+    assert_eq!(
+        backing.code_reader().read(0xffe, 4).unwrap(),
+        [1, 2, 0xaa, 0xbb]
+    );
+    assert_eq!(backing.code_reader().read_prefix(0xffe, &mut bytes), 4);
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
-    assert_eq!(backing.read_code_prefix(0, &mut bytes), 4);
+    assert_eq!(backing.code_reader().read_prefix(0, &mut bytes), 4);
     // Scalar accesses use little-endian order across the same RAM/ROM boundary.
     assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa02);
     memory.write_u16(0xfff, 0x7856).unwrap();
@@ -42,9 +45,9 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     memory.read(0x1ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xcc, 0xdd, 0xff, 0xff]);
     bytes.fill(0x77);
-    assert_eq!(backing.read_code_prefix(0x1ffe, &mut bytes), 2);
+    assert_eq!(backing.code_reader().read_prefix(0x1ffe, &mut bytes), 2);
     assert_eq!(bytes, [0xcc, 0xdd, 0x77, 0x77]);
-    assert_eq!(backing.read_code_prefix(0x3000, &mut bytes), 0);
+    assert_eq!(backing.code_reader().read_prefix(0x3000, &mut bytes), 0);
     memory.write(0x2ffe, &[1, 2, 3, 4]).unwrap();
     memory.read(0x2ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xff; 4]);
@@ -153,7 +156,7 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         memory.write_u32(0x100000, 0x1234_565a).unwrap();
         assert_eq!(memory.read_u32(0x100000).unwrap(), 0x1234_565a);
         assert_eq!(
-            backing.read_code(0x100000, 4).unwrap(),
+            backing.code_reader().read(0x100000, 4).unwrap(),
             [0x5a, 0x56, 0x34, 0x12]
         );
         let mut byte = [0];

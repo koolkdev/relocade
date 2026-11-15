@@ -14,7 +14,9 @@ impl<'a> MemoryView<'a> {
         {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
-                PhysicalMapping::Ram { backing_offset } => self.storage.write(backing_offset, part),
+                PhysicalMapping::Ram { backing_offset } => {
+                    self.memory.write_storage(backing_offset, part)
+                }
                 PhysicalMapping::Mmio { .. } => {
                     let io = self
                         .io
@@ -93,7 +95,7 @@ impl<'a> MemoryView<'a> {
         if !range_fits(offset, bytes.len(), self.backing_size()) {
             return Err(MemoryError::BackingRange);
         }
-        self.storage.write(offset, bytes);
+        self.memory.write_storage(offset, bytes);
         Ok(())
     }
 

@@ -46,14 +46,22 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
             compiler
                 .request_functions(target, vec![request(entry)])
                 .unwrap();
-            compiler
-                .recv()
-                .await
-                .unwrap()
-                .unwrap()
-                .install(runner.cpu())
-                .unwrap();
+            let code = compiler.recv().await.unwrap().unwrap();
+            assert!(!code.source().has_recorded_writes());
+            assert_eq!(
+                runner
+                    .cpu()
+                    .memory()
+                    .code_sources_at(0x1000 + entry as u32)
+                    .len(),
+                1
+            );
+            code.install(runner.cpu()).unwrap();
         }
+        // Installations retain shared dependencies after the reply is dropped.
+        let sources = runner.cpu().memory();
+        assert_eq!(sources.code_sources_at(0x1212).len(), 1);
+        assert!(sources.code_sources_at(0x1206).is_empty());
         run_caller(&mut runner, 8).await;
 
         // Read-ahead and the gap before the branch target are not source dependencies.
@@ -64,6 +72,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
+        assert!(sources.code_sources_at(0x1212).is_empty());
         runner.cpu().memory().view().write(0x212, &[2]).unwrap();
         run_caller(&mut runner, 9).await;
 

@@ -1,6 +1,6 @@
 //! Compiled guest code and the byte ranges retained by each installation.
 
-use crate::{ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
+use crate::{CodeSource, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
 use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget};
 use std::ops::Range;
@@ -20,10 +20,16 @@ pub struct Description {
     pub(super) blocks: Vec<BlockEntry>,
     pub(super) call_targets: Vec<u32>,
     pub(super) target: ExecutionTarget,
+    source: CodeSource,
 }
 
 impl CompiledCode {
-    pub(crate) fn new(module: Module, addresses: Vec<u32>, blocks: CompiledBlocks) -> Self {
+    pub(crate) fn new(
+        module: Module,
+        addresses: Vec<u32>,
+        blocks: CompiledBlocks,
+        source: CodeSource,
+    ) -> Self {
         Self {
             module,
             description: Description {
@@ -32,6 +38,7 @@ impl CompiledCode {
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
                 target: blocks.execution_target,
+                source,
             },
         }
     }
@@ -41,6 +48,11 @@ impl CompiledCode {
     /// A u64 end represents the exclusive end of the 32-bit address space.
     pub fn ranges(&self) -> &[Range<u64>] {
         &self.description.ranges
+    }
+
+    /// Shared source registration retained by this result and its CPU installations.
+    pub fn source(&self) -> &CodeSource {
+        &self.description.source
     }
 
     pub fn blocks(&self) -> &[BlockEntry] {
@@ -84,6 +96,9 @@ impl CompiledCode {
     fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
+        }
+        if !self.source().belongs_to(&cpu.memory()) {
+            return Err(crate::Error::CompilationMemory);
         }
         let entries: Vec<_> = self
             .description

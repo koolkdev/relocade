@@ -162,16 +162,18 @@ async fn far_calls() {
         .await
         .unwrap();
         if compiled_caller {
+            let mut reader = memory.code_reader();
             let function = compiler
                 .compile_function(0x100, FunctionLimits::default(), |eip, output| {
-                    let Some(bytes) = caller.get(eip.wrapping_sub(0x100) as usize..) else {
-                        return 0;
-                    };
-                    let len = bytes.len().min(output.len());
-                    output[..len].copy_from_slice(&bytes[..len]);
-                    len
+                    reader.read_prefix(eip, output)
                 })
                 .unwrap();
+            let source = reader.finish(
+                function
+                    .entries
+                    .iter()
+                    .map(|block| (block.start_eip, block.byte_len)),
+            );
             let addresses = function
                 .entries
                 .iter()
@@ -179,7 +181,7 @@ async fn far_calls() {
                 .collect();
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&function.bytes).await.unwrap();
-            crate::CompiledCode::new(module, addresses, function)
+            crate::CompiledCode::new(module, addresses, function, source)
                 .install(&mut cpu)
                 .unwrap();
         }
