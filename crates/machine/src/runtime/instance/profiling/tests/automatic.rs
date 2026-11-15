@@ -45,23 +45,23 @@ async fn slice(runner: &mut Runner) {
 async fn automatic() {
     let compiler = CompilerService::start_with_workers(NonZeroUsize::new(1).unwrap()).unwrap();
     full_collection(&compiler).await;
-    // The second case batches a rejected function with a valid callee. Discovery
-    // follows an untaken branch into unsupported bytes only in the rejected one.
-    for rejected in [false, true] {
+    // The second case batches a partially discovered function with another callee.
+    // Its untaken unsupported branch must not prevent compiling the valid paths.
+    for partial in [false, true] {
         let (mut machine, config) = setup();
         machine
             .memory()
             .view()
             .write(
                 0x100,
-                if rejected {
+                if partial {
                     &[0xe8, 0xfd, 0, 0xe8, 0xfa, 1, 0xeb, 0xf8] // CALL 0200; CALL 0300; JMP 0100
                 } else {
                     &[0xe8, 0xfd, 0, 0xeb, 0xfb] // CALL 0200; JMP 0100
                 },
             )
             .unwrap();
-        let callee: &[u8] = if rejected {
+        let callee: &[u8] = if partial {
             &[0x40, 0x85, 0xff, 0x75, 0x1b, 0xc3] // INC AX; TEST DI,DI; JNZ 0220; RET
         } else {
             &[0x40, 0xc3] // INC AX; RET
@@ -75,7 +75,7 @@ async fn automatic() {
                 runner.cpu().cpu_state().set_sp(0x800);
                 let targets: Vec<_> = [0x200, 0x300]
                     .into_iter()
-                    .take(if rejected { 2 } else { 1 })
+                    .take(if partial { 2 } else { 1 })
                     .map(|offset| FarPointer { segment: 0, offset })
                     .collect();
                 let deadline = runner
@@ -89,6 +89,16 @@ async fn automatic() {
                         .iter()
                         .all(|entry| runner.cpu().has_entry(entry.packed()))
                     {
+                        for entry in &targets {
+                            assert_eq!(
+                                runner
+                                    .cpu()
+                                    .compiled_modules_at(u32::from(entry.offset))
+                                    .count(),
+                                1,
+                            );
+                        }
+                        assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
                         // Wait for installation before inspecting counts, so this test
                         // cannot drive hotness by collecting the buffer itself.
                         let counts: Vec<_> = targets
@@ -179,12 +189,12 @@ async fn full_collection(compiler: &CompilerService) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn collection_submits_hot_batches_and_installs_compiled_or_fallback_entries() {
+fn collection_submits_hot_batches_and_installs_partial_functions() {
     pollster::block_on(automatic());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn collection_submits_hot_batches_and_installs_compiled_or_fallback_entries() {
+async fn collection_submits_hot_batches_and_installs_partial_functions() {
     automatic().await;
 }

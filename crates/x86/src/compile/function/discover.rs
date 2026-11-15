@@ -45,7 +45,16 @@ pub(super) fn blocks(
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
             let (instruction, _) =
-                snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile))?;
+                match snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile)) {
+                    Ok(decoded) => decoded,
+                    Err(error) if instructions.is_empty() => return Err(error),
+                    Err(
+                        BlockError::TruncatedInstruction { .. }
+                        | BlockError::InstructionTooLong { .. }
+                        | BlockError::UnsupportedInstruction { .. },
+                    ) => break,
+                    Err(error) => return Err(error),
+                };
             let len = instruction.fallthrough_eip.wrapping_sub(eip);
             if instructions
                 .range(eip..)
