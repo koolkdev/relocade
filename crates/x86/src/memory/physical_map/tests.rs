@@ -69,11 +69,16 @@ fn mmio_handler_indices_use_the_existing_payload_word() {
     let map = PhysicalMemoryMap::new([
         (0x1000..=0x1fff, PhysicalMapping::MMIO),
         (0x2000..=0x3fff, mapping),
+        (0x100000..=0x100fff, PhysicalMapping::MMIO),
     ])
     .unwrap();
     assert_eq!(map.get(0x2123), mapping);
     assert_eq!(map.get(0x3fff), mapping);
     assert!(map.fits_backing(0));
+    assert_eq!(
+        map.mmio_handler_offsets().collect::<Vec<_>>(),
+        [(0x1000, 12), (0x2000, 20), (0x3000, 28), (0x100000, 2052)]
+    );
     let bytes = map.to_bytes();
     assert_eq!(&bytes[8..16], &[3, 0, 0, 0, 0, 0, 0, 0]);
     assert_eq!(&bytes[16..24], &[3, 0, 0, 0, 7, 0, 0, 0]);

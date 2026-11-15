@@ -111,6 +111,16 @@ impl PhysicalMemoryMap {
             .all(|offset| u64::from(offset) + u64::from(Self::PAGE_BYTES) <= memory_size)
     }
 
+    /// Physical page addresses and the byte offsets of their serialized MMIO
+    /// handler words. Includes pages hidden by A20; publication updates the
+    /// underlying routing without applying the current address gate.
+    pub fn mmio_handler_offsets(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.pages.iter().enumerate().filter_map(|(page, mapping)| {
+            matches!(mapping, PhysicalMapping::Mmio { .. })
+                .then_some((page as u32 * Self::PAGE_BYTES, page as u32 * 8 + 4))
+        })
+    }
+
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
     /// A20 starts disabled for DOS-compatible address wrapping.

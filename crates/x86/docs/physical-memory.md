@@ -62,6 +62,9 @@ serialized mask to change the live gate; page entries stay intact.
 keyboard-controller or fast-A20 port that controls this platform state.
 
 Runtime mapping and gate changes update the installed Wasm table.
+Device attachment obtains physical page addresses and serialized handler-word
+offsets from `mmio_handler_offsets()`. This includes mappings hidden by A20 and
+keeps device publication independent of the routing table's indexing scheme.
 
 ## MMIO callbacks
 
