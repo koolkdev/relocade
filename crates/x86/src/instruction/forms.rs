@@ -139,6 +139,24 @@ pub(crate) struct Form {
 impl Form {
     /// Resolve prefix meaning before either decoder reads operand fields.
     pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
+        self.resolve_operand_size(prefixes, prefixes.selection().operand_size())
+    }
+
+    /// Fixed-width forms share their decoder body across both code defaults.
+    pub(crate) fn uses_operand_size(&self) -> bool {
+        matches!(self.handlers, SizedHandlers::OperandSize { .. })
+            || self
+                .encoding
+                .immediates
+                .iter()
+                .any(|width| matches!(width, Some(ImmediateWidth::OperandSize)))
+    }
+
+    pub(crate) fn resolve_operand_size(
+        &self,
+        prefixes: &PrefixState,
+        operand_size: super::OperandSize,
+    ) -> Option<ResolvedForm> {
         let accepts_prefix = match self.prefix {
             PrefixRule::Modifiers(required) => match prefixes.selection().group1() {
                 Some(Group1Prefix::F0) => self.lockable,
@@ -149,7 +167,6 @@ impl Form {
         if !accepts_prefix {
             return None;
         }
-        let operand_size = prefixes.selection().operand_size();
         Some(ResolvedForm {
             form: *self,
             operand_size,

@@ -62,6 +62,16 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
+    build(
+        profile,
+        Some(crate::SegmentDefaultSize::for_profile(profile)),
+    )
+}
+
+fn build(
+    profile: ExecutionProfile,
+    code_default: Option<crate::SegmentDefaultSize>,
+) -> Result<Program, BuildError> {
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
     // live allowance zero; snapshot compilation alone omits the checks.
@@ -80,6 +90,7 @@ pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program
         execution.cpu.clone(),
         execution.memory.clone(),
         profile,
+        code_default,
         move |body| {
             let single_step = RuntimeDecoder::single_step(body)?;
             body.if_(single_step, |mut body| {

@@ -1,6 +1,8 @@
 use super::build_interpreter;
 use crate::SegmentProfile;
 
+mod defaults;
+
 #[test]
 fn serial_and_parallel_compilation_match_the_embedded_interpreter() {
     let profile = SegmentProfile::Segmented16;

@@ -49,23 +49,21 @@ pub(super) enum Handler {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct SizedHandlers<H> {
-    pub(super) word: H,
-    pub(super) dword: H,
+pub(super) enum SizedHandlers<H> {
+    Fixed(H),
+    OperandSize { word: H, dword: H },
 }
 
 impl<H: Copy> SizedHandlers<H> {
     pub(super) const fn fixed(handler: H) -> Self {
-        Self {
-            word: handler,
-            dword: handler,
-        }
+        Self::Fixed(handler)
     }
 
     pub(super) fn resolve(self, size: OperandSize) -> H {
-        match size {
-            OperandSize::Word => self.word,
-            OperandSize::Dword => self.dword,
+        match (self, size) {
+            (Self::Fixed(handler), _) => handler,
+            (Self::OperandSize { word, .. }, OperandSize::Word) => word,
+            (Self::OperandSize { dword, .. }, OperandSize::Dword) => dword,
         }
     }
 }

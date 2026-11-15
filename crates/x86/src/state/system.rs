@@ -16,6 +16,24 @@ pub(crate) struct DescriptorTableValues {
 }
 
 impl State<'_> {
+    /// A supplied default is established by the entry's existing profile admission.
+    pub(crate) fn code_default_is_32_bit(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        known: Option<crate::SegmentDefaultSize>,
+    ) -> Result<Val<I1>, BuildError> {
+        let location = cpu_location!(segments.cs.big);
+        if let Some(size) = known {
+            self.system.assume_bits(
+                body,
+                location.clone(),
+                u32::from(u8::MAX),
+                u32::from(size == crate::SegmentDefaultSize::Bits32),
+            )?;
+        }
+        Ok(self.system.read(body, location)?.ne(0))
+    }
+
     /// System controls cannot change within an admitted entry. Segment loads
     /// dispatch before any further reads of the old CS selector.
     pub(crate) fn with_control_profile(mut self, profile: ExecutionProfile) -> Self {

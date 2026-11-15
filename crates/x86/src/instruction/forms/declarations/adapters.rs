@@ -20,13 +20,13 @@ macro_rules! declaration_handlers {
         SizedHandlers::fixed(declaration_adapter!($effects $pattern $call [relocade_compiler::I64]; $($operands)*))
     };
     ($effects:tt $pattern:tt $call:tt word_or_dword($($operands:tt)*)) => {
-        SizedHandlers {
+        SizedHandlers::OperandSize {
             word: declaration_adapter!($effects $pattern $call [I16]; $($operands)*),
             dword: declaration_adapter!($effects $pattern $call [I32]; $($operands)*),
         }
     };
     ($effects:tt $pattern:tt $call:tt word($($word:tt)*) | dword($($dword:tt)*)) => {
-        SizedHandlers {
+        SizedHandlers::OperandSize {
             word: declaration_adapter!($effects $pattern $call [I16]; $($word)*),
             dword: declaration_adapter!($effects $pattern $call [I32]; $($dword)*),
         }
