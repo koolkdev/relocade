@@ -24,6 +24,15 @@ impl StateAssumption {
         Self::new(offset, size_of::<T>(), u64::MAX, expected.into())
     }
 
+    pub(crate) fn bits<Record, T: Into<u64>>(
+        offset: usize,
+        _field: fn(&Record) -> &T,
+        mask: T,
+        expected: T,
+    ) -> Self {
+        Self::new(offset, size_of::<T>(), mask.into(), expected.into())
+    }
+
     fn new(offset: usize, byte_len: usize, mask: u64, expected: u64) -> Self {
         assert!(matches!(byte_len, 1 | 2 | 4 | 8));
         let field_bits = byte_len as u32 * u8::BITS;
