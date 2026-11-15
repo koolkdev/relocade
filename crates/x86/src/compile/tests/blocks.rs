@@ -329,8 +329,11 @@ fn shared_memory_helpers() {
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
             image.cpu.eip = entry.start_eip;
-            image.cpu.registers.ecx = 0x2fff;
-            image.cpu.registers.ebx = 0x4fff;
+            let physical = profile == ExecutionProfile::Real16;
+            // Physical JIT operands fit one page; virtual accesses also exercise
+            // the shared helpers for scattered backing across a page boundary.
+            image.cpu.registers.ecx = if physical { 0x2ff0 } else { 0x2fff };
+            image.cpu.registers.ebx = if physical { 0x4ff0 } else { 0x4fff };
             if profile == ExecutionProfile::Real16 {
                 image.initialize_real_mode();
             }
@@ -341,6 +344,9 @@ fn shared_memory_helpers() {
             }
             image.data(0x4fff, &[0x11]);
             image.data(0x6000, &[0x22, 0x33, 0x44]);
+            if physical {
+                image.data(0x4ff0, &[0x11, 0x22, 0x33, 0x44]);
+            }
             let mut after = image.cpu;
             after.registers.eax = 0x4433_2211;
             after.eip += code.len() as u32;
@@ -351,7 +357,11 @@ fn shared_memory_helpers() {
                     &image,
                     &[Step {
                         cpu: after,
-                        ram: &[(0x8fff, &[0x11]), (0xa000, &[0x22, 0x33, 0x44])],
+                        ram: if physical {
+                            &[(0x8ff0, &[0x11, 0x22, 0x33, 0x44])]
+                        } else {
+                            &[(0x8fff, &[0x11]), (0xa000, &[0x22, 0x33, 0x44])]
+                        },
                         exit: Exit::Dispatch(after.eip),
                     }]
                 ),

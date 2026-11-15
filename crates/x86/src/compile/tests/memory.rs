@@ -108,3 +108,23 @@ fn all_register_stack_transfers_reuse_one_span_check() {
         assert_eq!(guest_stores, stores, "opcode {opcode:02x}");
     }
 }
+
+#[test]
+fn physical_jit_operands_do_not_embed_general_transfer_helpers() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    // Scalar load, read/modify/write, and a repeated copy all retain direct proofs.
+    for code in [&[0xa1, 0, 0x20][..], &[0xff, 0x06, 0, 0x20], &[0xf3, 0xa4]] {
+        let block = compiler.compile_block(0x1000, code, 1).unwrap();
+        for payload in Parser::new(0).parse_all(&block.bytes) {
+            if let Payload::ImportSection(imports) = payload.unwrap() {
+                for import in imports {
+                    let import = import.unwrap();
+                    assert!(
+                        !matches!(import.name, "mmioReads" | "mmioWrites"),
+                        "{code:02x?} must hand off before a device transfer",
+                    );
+                }
+            }
+        }
+    }
+}

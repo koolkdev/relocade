@@ -119,9 +119,6 @@ where
         let indices = std::array::from_fn(|index| operands[index].index);
         let initial_indices = read_indices(execution, indices)?;
         let resolved = execution.resolve_strings::<T, N>(&operands, &count)?;
-        if let Some(resolved) = &resolved {
-            execution.if_can_fallback(|jit| jit.guard(&resolved.available))?;
-        }
         Ok(Self {
             count,
             indices,

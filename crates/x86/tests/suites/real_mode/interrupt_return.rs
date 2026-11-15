@@ -158,12 +158,19 @@ fn mmio_fields(frontend: Frontend) {
             .take(reads),
         );
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(
             module.observe(&input, 1),
-            module.expected(wanted.clone()),
+            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone()),
             "IRETD validates EIP before CS/FLAGS and transfers only the selector's low word"
         );
     }

@@ -104,16 +104,6 @@ impl PhysicalMemory {
         body.load_at::<T>(self.backing, backing, offset)
     }
 
-    /// Stores only under a successful direct writable-window proof.
-    pub(super) fn store<T: MemoryType>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        backing: &Val<I32>,
-        value: &Val<T>,
-    ) -> Result<(), BuildError> {
-        body.store_at::<T>(self.backing, backing, 0, value)
-    }
-
     pub(super) fn atomic_update<T: MemoryInt + TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
