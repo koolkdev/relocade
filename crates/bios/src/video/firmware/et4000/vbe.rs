@@ -89,6 +89,13 @@ impl Vbe for Et4000Ax {
         self.wait_for_retrace()
     }
 
+    fn palette(&self) -> &[[u8; 3]; 256] {
+        &self.registers().dac.colors
+    }
+    fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
+        self.set_palette(context, first, colors);
+    }
+
     fn capture_state(&self) -> SavedState {
         SavedState {
             core: self.core_state().to_bytes(),

@@ -95,4 +95,16 @@ impl Dac {
             value & ((1 << Self::BITS_PER_COMPONENT) - 1);
         self.step();
     }
+
+    /// A complete color transfer has the same masking and final position as
+    /// sequential writes through the DAC address and data ports.
+    pub(crate) fn write_colors(&mut self, first: u8, colors: &[[u8; 3]]) {
+        if colors.is_empty() {
+            return;
+        }
+        self.select(first, false);
+        for &component in colors.as_flattened() {
+            self.write(component);
+        }
+    }
 }

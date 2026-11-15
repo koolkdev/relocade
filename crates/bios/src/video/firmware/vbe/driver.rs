@@ -45,6 +45,9 @@ pub(in crate::video::firmware) trait Vbe: Sized {
     /// The owned wait must not retain a card borrow across suspension.
     fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static>;
 
+    fn palette(&self) -> &[[u8; 3]; 256];
+    fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]);
+
     fn capture_state(&self) -> SavedState;
     /// Validate every requested component before applying any of them together.
     fn restore_state(
