@@ -20,7 +20,7 @@ pub(crate) struct FetchWindow {
 pub(crate) struct InstructionFetch<'module> {
     pub(super) memory: &'module Memory,
     cpu: &'module Cpu,
-    segments: SegmentReads<'module>,
+    segments: SegmentReads,
 }
 
 impl<'module> InstructionFetch<'module> {

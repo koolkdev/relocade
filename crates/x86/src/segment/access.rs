@@ -15,7 +15,7 @@ pub(crate) struct SegmentCheck {
     pub(crate) denied: Option<Val<I1>>,
 }
 
-impl SegmentReads<'_> {
+impl SegmentReads {
     /// The runtime maintains profile compatibility throughout execution, including
     /// when segment loads replace a cache.
     /// Known flat data segments need no cache reads or segment guards.

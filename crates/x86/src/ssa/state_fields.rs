@@ -233,7 +233,24 @@ impl StateFields {
         Ok(value)
     }
 
-    /// Retains bits established by a guard without making a guest write.
+    /// Returns a retained fixed field without introducing a memory read.
+    pub(crate) fn retained<T: SsaType>(&self, location: &Location<T>) -> Option<&Val<T>> {
+        let Address::Fixed(offset) = location.address else {
+            return None;
+        };
+        self.definitions
+            .iter()
+            .find(|entry| {
+                entry.location
+                    == LocationKey {
+                        offset,
+                        bytes: T::BYTES,
+                    }
+            })
+            .map(|entry| T::retained(&entry.value).value())
+    }
+
+    /// Retains bits established by a guard or entry admission without a guest write.
     /// Unchecked bits, including snapshot padding, keep their original values.
     pub(crate) fn assume_bits<T: SsaType + IntType>(
         &mut self,
@@ -245,10 +262,31 @@ impl StateFields {
         let Address::Fixed(offset) = location.address else {
             unreachable!("state assumptions require a fixed field")
         };
-        let value = self.read(body, location)?;
+        let key = LocationKey {
+            offset,
+            bytes: T::BYTES,
+        };
         let mask = mask.into();
+        let expected = expected.into().and(&mask);
+        let full_field_mask = u64::MAX >> (u64::BITS - T::BYTES * u8::BITS);
+        // An admitted whole field needs no initial snapshot load. Overlapping
+        // retained values still use the normal synchronization path below.
+        if body.constant_bits(&mask)? == Some(full_field_mask)
+            && self
+                .definitions
+                .iter()
+                .all(|entry| !entry.location.span().overlaps(key.span()))
+        {
+            self.definitions.push(Definition {
+                location: key,
+                value: T::retain(TrackedValue::new(body, expected)?),
+                first_write: None,
+            });
+            return Ok(());
+        }
+        let value = self.read(body, location)?;
         let keep = mask.xor(Val::<I64>::from(u64::MAX).truncate::<T>());
-        let refined = value.and(keep).or(expected.into().and(mask));
+        let refined = value.and(keep).or(expected);
         let entry = self
             .definitions
             .iter_mut()

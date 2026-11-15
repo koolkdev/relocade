@@ -1,4 +1,5 @@
 mod access;
+mod assumptions;
 mod context;
 mod cpu;
 pub(super) mod exit;
@@ -12,6 +13,7 @@ mod system;
 pub(crate) mod x87;
 
 pub use context::ExecutionContext;
+pub(crate) use assumptions::StateAssumption;
 pub(super) use cpu::Cpu;
 pub use exit::{
     ExecutionExit, ExecutionExitCase, ExecutionExitValues, HostExit, HostExitCase, HostExitValues,

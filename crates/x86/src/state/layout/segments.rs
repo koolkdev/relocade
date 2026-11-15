@@ -7,10 +7,7 @@ use std::{
 
 use super::codec::{read_u16, read_u32, write};
 
-use crate::{
-    segment::SegmentAssumptions, CpuMode, ExecutionProfile, PrivilegeLevel, Segment,
-    SegmentDefaultSize,
-};
+use crate::{CpuMode, CpuState, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize};
 
 /// A visible selector and the cached properties used for address translation.
 /// Descriptor-table edits do not modify this record; a later segment load does.
@@ -56,7 +53,11 @@ impl SegmentRegister {
             ExecutionProfile::Protected(profile) => {
                 (segment != Segment::Cs
                     || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
-                    && SegmentAssumptions::for_profile(profile, segment).matches(self)
+                    && crate::segment::profile::assumptions(profile.into(), segment)
+                        .iter()
+                        .all(|requirement| {
+                            requirement.matches_record(&self.to_bytes(), Segments::offset(segment))
+                        })
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
         }
@@ -139,6 +140,10 @@ pub struct Segments {
 }
 
 impl Segments {
+    pub(crate) const fn offset(segment: Segment) -> usize {
+        offset_of!(CpuState, segments) + segment as usize * size_of::<SegmentRegister>()
+    }
+
     /// Tests the properties assumed by an execution profile. The host must
     /// establish the active mode separately; caches alone do not establish it.
     pub fn is_compatible_with(&self, profile: impl Into<ExecutionProfile>) -> bool {

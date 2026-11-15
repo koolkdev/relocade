@@ -46,7 +46,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     body: BlockBuilder<'body>,
     state: State<'module>,
     accesses: Accesses<'module>,
-    segments: SegmentReads<'module>,
+    segments: SegmentReads,
     target: ExecutionTarget,
     cpu_features: Val<I32>,
     segment_override: SegmentOverride,
