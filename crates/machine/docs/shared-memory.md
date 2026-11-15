@@ -45,6 +45,21 @@ may cache fields internally until they publish state on exit. Synchronous guest
 device callbacks must not edit this backing. Memory safety does not make such
 mid-entry architectural edits valid.
 
+For CPUs created by a `Machine`, acquire a stopped boundary from its owner:
+
+```rust
+let paused = machine.pause_cpus().await;
+let states: Vec<_> = machine.cpus().iter().map(|cpu| cpu.snapshot()).collect();
+drop(paused);
+```
+
+The guard blocks CPU execution and CPU host-service polling until released.
+Running CPUs stop at existing execution checkpoints; idle and unstarted CPUs need
+no acknowledgement. Cancellation also releases the pause. The execution owner
+continues to acknowledge execution-interrupt requests through its normal loop.
+Independent device tasks, host memory writers and standalone `Cpu::new` instances
+are outside this boundary. Pausing CPUs alone is not a memory-write transaction.
+
 `CpuContext` lends separate `cpu`, `memory` and `io` fields for stopped embedding
 access. The CPU-state and guest-memory views can be borrowed
 together:

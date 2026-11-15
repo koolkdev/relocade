@@ -18,7 +18,7 @@ const OFFSET: u32 = offset_of!(ExecutionContext, interrupt_requested) as u32;
 pub struct ExecutionInterrupt(SharedMemory);
 
 impl ExecutionInterrupt {
-    pub(super) fn new(storage: SharedMemory) -> Self {
+    pub(crate) fn new(storage: SharedMemory) -> Self {
         Self(storage)
     }
 

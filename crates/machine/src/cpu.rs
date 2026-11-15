@@ -38,6 +38,10 @@ mod saved_registers;
 pub use saved_registers::SavedRegisters;
 
 impl CpuStateAccess {
+    pub(crate) fn interrupt_handle(&self) -> crate::ExecutionInterrupt {
+        crate::ExecutionInterrupt::new(self.storage.clone())
+    }
+
     /// Compatibility requirements of the installed generated code. Architectural
     /// mode and widths are read from live state through the queries below.
     pub fn execution_target(&self) -> ExecutionTarget {
