@@ -48,7 +48,10 @@ fn bind_dispi_ports(
         Mapping::bind(
             io,
             dispi::DATA_PORT,
-            PortRead::word(callbacks.read(|_, card| card.dispi.read())),
+            PortRead::word(
+                callbacks
+                    .read(|_, card| card.dispi.read(card.vga.registers.dac.bits_per_component())),
+            ),
             PortWrite::word(
                 callbacks.write(|context, card, value| card.write_dispi_data(context, value)),
             ),

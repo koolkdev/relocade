@@ -21,11 +21,20 @@ impl DispiAdapter {
             _ => Effects::NONE,
         };
         self.with_effects(context, effects, |card| {
-            if let WriteAction::ClearVram =
-                card.dispi
-                    .write_register(index, value, card.memory.capacity())
+            if let WriteAction::Enable {
+                clear_memory,
+                dac_bits_per_component,
+            } = card
+                .dispi
+                .write_register(index, value, card.memory.capacity())
             {
-                card.memory.clear_vram();
+                if clear_memory {
+                    card.memory.clear_vram();
+                }
+                card.vga
+                    .registers
+                    .dac
+                    .set_bits_per_component(dac_bits_per_component);
             }
         });
     }

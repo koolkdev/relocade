@@ -7,6 +7,29 @@ use relocade_x86::{Segment, SegmentRegister};
 mod data;
 
 #[test]
+fn dac_format_queries_follow_direct_dispi_precision_changes() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x4f02, 0x101, 0, 0);
+        {
+            let context = dos.cpu().context();
+            context.io.write_port(0x1ce, 2, 4);
+            context.io.write_port(0x1cf, 2, 0x21);
+            context.io.write_port(0x1ce, 2, 0x1234);
+        }
+        let registers = dos.vga().borrow().registers().clone();
+        let result = video(&mut dos, 0x4f08, 1, 0, 0);
+        assert_eq!([result.registers.eax, result.registers.ebx], [0x4f, 0x0801]);
+        assert_eq!(dos.vga().borrow().registers(), &registers);
+        assert_eq!(dos.cpu().context().io.read_port(0x1ce, 2), 0x1234);
+        let result = video(&mut dos, 0x4f08, 0x0600, 0, 0);
+        assert_eq!([result.registers.eax, result.registers.ebx], [0x4f, 0x0600]);
+        assert_eq!(dos.vga().borrow().dac_bits_per_component(), 6);
+    });
+}
+
+#[test]
 fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
     pollster::block_on(async {
         let mut dos = common::dos().await;

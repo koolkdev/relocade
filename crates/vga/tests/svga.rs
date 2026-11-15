@@ -4,6 +4,8 @@ use relocade_clock_test_support::ManualClock;
 mod common;
 #[path = "svga/configuration.rs"]
 mod configuration;
+#[path = "svga/dac.rs"]
+mod dac;
 #[path = "svga/frames.rs"]
 mod frames;
 #[path = "svga/layout.rs"]
@@ -22,9 +24,13 @@ fn device() -> ConnectedVga {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dispi_ports_accept_whole_words_and_keep_full_register_indices() {
     let vga = device();
-    assert_eq!(get(&vga.io, 0), 0xb0c2);
+    assert_eq!(get(&vga.io, 0), 0xb0c3);
+    for id in 0xb0c0..=0xb0c3 {
+        set(&vga.io, 0, id);
+        assert_eq!(get(&vga.io, 0), u32::from(id));
+    }
     set(&vga.io, 0, 0xb0c5);
-    assert_eq!(get(&vga.io, 0), 0xb0c2);
+    assert_eq!(get(&vga.io, 0), 0xb0c3);
     set(&vga.io, 0x104, 1); // Must not alias the enable register.
     assert_eq!(vga.io.read_port(0x1ce, 2), 0x104);
     assert_eq!(vga.io.read_port(0x1cf, 2), 0xffff);
@@ -58,7 +64,7 @@ fn mode_enable_requires_supported_geometry_and_preserves_active_programming() {
     assert_eq!(get(&vga.io, 4), 0);
     set(&vga.io, 3, 8);
     vga.io.write_mmio(0xb8000, 2, 0x0741);
-    for flags in [0x41, 0xc1, 0x80, 0x02] {
+    for flags in [0x41, 0xc1, 0x80, 0x04] {
         set(&vga.io, 4, flags);
         assert_eq!(get(&vga.io, 4), 0);
         assert_eq!(vga.io.read_mmio(0xb8000, 2), 0x0741);

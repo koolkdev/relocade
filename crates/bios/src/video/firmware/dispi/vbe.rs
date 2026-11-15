@@ -4,16 +4,15 @@ use crate::video::firmware::vbe::{ModeInformation, SavedState, Vbe, WindowAccess
 use modes::Mode;
 use relocade_machine::{IoBus, IoContext, MemoryView};
 use relocade_vga::{
-    registers::dac::Dac, DacState, DispiAdapter, DispiState, PackedLayout, RetraceEvent,
-    VgaCoreState, Viewport,
+    DacState, DispiAdapter, DispiState, PackedLayout, RetraceEvent, VgaCoreState, Viewport,
 };
 use std::{cell::RefCell, future::Future};
 
 impl Vbe for DispiAdapter {
     const OEM_STRING: &'static [u8] = b"Relocade banked SVGA\0";
-    const DAC_BITS_PER_COMPONENT: u8 = Dac::BITS_PER_COMPONENT;
-    // The original DISPI state encoding.
-    const STATE_PROFILE: u8 = 0;
+    const MAX_DAC_BITS_PER_COMPONENT: u8 = 6;
+    // DISPI state with interface negotiation and capability queries.
+    const STATE_PROFILE: u8 = 3;
     const EXTENSION_STATE_BYTES: usize = DispiState::BYTE_LEN;
 
     fn mode_numbers() -> impl Iterator<Item = u16> {
@@ -94,6 +93,12 @@ impl Vbe for DispiAdapter {
 
     fn palette(&self) -> &[[u8; 3]; 256] {
         &self.registers().dac.colors
+    }
+    fn dac_bits_per_component(&self) -> u8 {
+        self.dac_bits_per_component()
+    }
+    fn set_dac_bits_per_component(&mut self, context: IoContext<'_>, bits: u8) {
+        self.set_dac_bits_per_component(context, bits);
     }
     fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
         self.set_palette(context, first, colors);

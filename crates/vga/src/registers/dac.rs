@@ -28,9 +28,6 @@ impl Default for Dac {
 }
 
 impl Dac {
-    /// Standard VGA component width before a card enables extended precision.
-    pub const BITS_PER_COMPONENT: u8 = 6;
-
     pub fn bits_per_component(&self) -> u8 {
         self.bits_per_component
     }

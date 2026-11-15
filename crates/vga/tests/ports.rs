@@ -37,7 +37,7 @@ fn register_and_dispi_operations_keep_their_distinct_transfer_rules() {
 
     // DISPI words address one complete register rather than two adjacent bytes.
     io.write_port(0x1ce, 2, 0);
-    assert_eq!(io.read_port(0x1cf, 2), 0xb0c2);
+    assert_eq!(io.read_port(0x1cf, 2), 0xb0c3);
     io.write_port(0x1ce, 2, 1);
     io.write_port(0x1cf, 2, 800);
     assert_eq!(io.read_port(0x1cf, 2), 800);

@@ -19,25 +19,53 @@ pub(in crate::video::firmware) enum Error {
     DirectColor = 0x034f,
 }
 
-#[interrupt(args(operation = bl, bits = bh), returns {
+#[interrupt(context(call), args(operation = bl))]
+pub(in crate::video::firmware) async fn format<C: Vbe>(
+    call: &mut CpuContext<'_>,
+    card: &RefCell<C>,
+    operation: u8,
+) {
+    interrupt_dispatch!(
+        call,
+        match operation {
+            0 => set_format(card),
+            1 => get_format(card),
+            _ => invalid_format(card),
+        }
+    );
+}
+
+#[interrupt(context(io), args(bits = bh), returns {
     Ok(bits) => { ax = 0x004f, bh = bits },
     Err(error) => { ax = error as u16 },
 })]
-pub(in crate::video::firmware) fn format<C: Vbe>(
-    card: &RefCell<C>,
-    operation: u8,
-    bits: u8,
-) -> Result<u8, Error> {
+fn set_format<C: Vbe>(io: &IoBus, card: &RefCell<C>, bits: u8) -> Result<u8, Error> {
+    check_mode(&*card.borrow())?;
+    // VBE 2.0 section 4.11: choose the next lower supported precision.
+    let bits = if bits >= 8 && C::MAX_DAC_BITS_PER_COMPONENT == 8 {
+        8
+    } else if bits >= 6 {
+        6
+    } else {
+        return Err(Error::Failed);
+    };
+    io.with_context(|context| card.borrow_mut().set_dac_bits_per_component(context, bits));
+    Ok(bits)
+}
+
+#[interrupt(returns {
+    Ok(bits) => { ax = 0x004f, bh = bits },
+    Err(error) => { ax = error as u16 },
+})]
+fn get_format<C: Vbe>(card: &RefCell<C>) -> Result<u8, Error> {
     let card = card.borrow();
     check_mode(&*card)?;
-    // VBE 2.0 section 4.11 specifies the next lower supported width when the
-    // requested width is unavailable. Each driver supplies its fixed DAC width.
-    // https://www.phatcode.net/res/221/files/vbe20.pdf
-    match operation {
-        0 if bits >= C::DAC_BITS_PER_COMPONENT => Ok(C::DAC_BITS_PER_COMPONENT),
-        1 => Ok(C::DAC_BITS_PER_COMPONENT),
-        _ => Err(Error::Failed),
-    }
+    Ok(card.dac_bits_per_component())
+}
+
+#[interrupt(returns { error => { ax = error as u16 } })]
+fn invalid_format<C: Vbe>(card: &RefCell<C>) -> Error {
+    check_mode(&*card.borrow()).err().unwrap_or(Error::Failed)
 }
 
 #[interrupt(context(call), args(operation = bl))]
@@ -92,8 +120,11 @@ async fn set_at_retrace<C: Vbe>(
         return Ok(());
     }
     let mode = card.borrow().current_mode(memory);
+    let bits = card.borrow().dac_bits_per_component();
     super::retrace::wait(card, |card| {
-        check_mode(card).is_ok() && card.current_mode(memory) == mode
+        check_mode(card).is_ok()
+            && card.current_mode(memory) == mode
+            && card.dac_bits_per_component() == bits
     })
     .await
     .ok_or(Error::Failed)?;
