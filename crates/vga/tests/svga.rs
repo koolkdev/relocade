@@ -226,7 +226,7 @@ fn svga_uses_the_existing_dac_without_resetting_legacy_registers() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn direct_color_modes_preserve_partial_pixels_at_bank_edges() {
     for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
-        for bits in [16, 32] {
+        for bits in [15, 16, 32] {
             let vga = device();
             common::support::svga::set_mode(&vga.io, width, height, bits);
             assert_eq!(get(&vga.io, 6), u32::from(width));

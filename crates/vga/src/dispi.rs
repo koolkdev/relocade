@@ -1,9 +1,9 @@
 //! The complete DISPI adapter: shared VGA core, one VRAM, and one raster/output lifetime.
 //!
 //! Its banked ID2 interface exposes three resolutions in indexed eight-bit,
-//! RGB565 and BGRX8888 formats, with the no-clear enable flag. Word transfers
+//! RGB555, RGB565 and BGRX8888 formats, with the no-clear enable flag. Word transfers
 //! at 01CE/01CF follow the [Bochs VBE Display API](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-//! Linear access, 15/24-bit modes, ID negotiation and newer flags are unsupported.
+//! Linear access, 24-bit modes, ID negotiation and newer flags are unsupported.
 //! Invalid requests leave the accepted configuration unchanged.
 mod configuration;
 mod device;

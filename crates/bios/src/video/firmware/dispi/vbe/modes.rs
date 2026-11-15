@@ -18,7 +18,7 @@ pub(super) struct Mode {
 }
 
 impl Mode {
-    pub(super) const ALL: [Self; 9] = [
+    pub(super) const ALL: [Self; 12] = [
         Self {
             number: 0x101,
             display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Indexed8),
@@ -30,6 +30,18 @@ impl Mode {
         Self {
             number: 0x105,
             display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Indexed8),
+        },
+        Self {
+            number: 0x110,
+            display: DispiMode::new(DispiResolution::R640x480, PixelFormat::Rgb555),
+        },
+        Self {
+            number: 0x113,
+            display: DispiMode::new(DispiResolution::R800x600, PixelFormat::Rgb555),
+        },
+        Self {
+            number: 0x116,
+            display: DispiMode::new(DispiResolution::R1024x768, PixelFormat::Rgb555),
         },
         Self {
             number: 0x111,
