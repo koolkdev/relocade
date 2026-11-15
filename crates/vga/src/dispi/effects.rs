@@ -4,7 +4,7 @@ mod writes;
 use super::scanout;
 use crate::{
     effects::CardEffects, io::Io, mmio::MemoryDecoding, ports::PortDecoding,
-    scanout::DisplayConfiguration, DispiAdapter, Timing,
+    scanout::DisplayConfiguration, DispiAdapter, Timing, Viewport,
 };
 
 impl CardEffects for DispiAdapter {
@@ -14,6 +14,10 @@ impl CardEffects for DispiAdapter {
 
     fn display_configuration(&self) -> DisplayConfiguration {
         scanout::configuration(self)
+    }
+
+    fn viewport(&self) -> Option<Viewport> {
+        self.viewport()
     }
 
     fn timing(&self) -> Timing {

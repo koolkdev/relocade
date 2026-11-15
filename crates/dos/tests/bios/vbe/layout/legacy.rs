@@ -129,3 +129,126 @@ fn chained_scanlines_are_limited_to_the_legacy_aperture() {
         assert_eq!(request(&mut dos, 6, 1, 0, 0).registers.eax, 0x14f);
     });
 }
+
+#[test]
+fn text_display_start_uses_pixels_and_preserves_partial_character_panning() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        scanline(&mut dos, 2, 180, [0x4f, 180, 810, 2912]);
+        assert_eq!(request(&mut dos, 7, 0, 19, 17).registers.eax, 0x4f);
+        let result = request(&mut dos, 7, 1, 0xffff, 0xffff).registers;
+        assert_eq!((result.eax, result.ecx, result.edx), (0x4f, 19, 17));
+        let registers = dos.vga().borrow().registers().clone();
+        assert_eq!(&registers.crtc.registers.values[0x0c..0x0e], &[0, 92]);
+        assert_eq!(registers.crtc.registers.values[8], 1);
+        assert_eq!(registers.attribute.values[0x13], 0); // One-dot pan in nine-dot text.
+        dos.cpu()
+            .context()
+            .memory
+            .write_u16(0xb8000 + 184, 0x2e41)
+            .unwrap();
+        assert_eq!(
+            dos.vga()
+                .borrow_mut()
+                .framebuffer()
+                .text_cell(0, 0)
+                .unwrap()
+                .value(),
+            0x2e41
+        );
+        scanline(&mut dos, 2, 184, [0x4f, 184, 828, 2848]);
+        let result = request(&mut dos, 7, 1, 0, 0).registers;
+        assert_eq!((result.ecx, result.edx), (19, 17));
+        assert_eq!(
+            dos.vga().borrow().registers().crtc.registers.values[0x0d],
+            94
+        );
+        let before = dos.vga().borrow().core_state();
+        for (operation, x, y) in [(0, 109, 0), (0x80, 0, 2449), (0x100, 0, 0)] {
+            assert_eq!(request(&mut dos, 7, operation, x, y).registers.eax, 0x14f);
+        }
+        assert_eq!(dos.vga().borrow().core_state(), before);
+
+        video(&mut dos, 3, 0, 0, 0);
+        let result = request(&mut dos, 7, 1, 99, 99).registers;
+        assert_eq!((result.ecx, result.edx), (0, 0));
+        dos.cpu().context().io.write_port(0x3d4, 2, 0x2308); // Byte pan one, row scan three.
+        let result = request(&mut dos, 7, 1, 0, 0).registers;
+        assert_eq!((result.ecx, result.edx), (9, 3));
+        assert_eq!(request(&mut dos, 7, 0, 0, 0).registers.eax, 0x4f);
+        assert_eq!(dos.vga().borrow().registers().crtc.registers.values[8], 0);
+        assert_eq!(dos.vga().borrow().registers().attribute.values[0x13], 8);
+    });
+}
+
+#[test]
+fn graphics_display_start_addresses_planar_bits_and_chained_pixels() {
+    pollster::block_on(async {
+        let mut dos = common::dos().await;
+        dos.launch_com(PROGRAM, Default::default()).unwrap();
+        video(&mut dos, 0x12, 0, 0, 0);
+        scanline(&mut dos, 2, 100, [0x4f, 100, 800, 655]);
+        {
+            let mut context = dos.cpu().context();
+            context.io.write_port(0x3c4, 2, 0x0102);
+            context.memory.write_u8(0xa0000 + 501, 4).unwrap(); // Pixel (13,5).
+        }
+        assert_eq!(request(&mut dos, 7, 0, 13, 5).registers.eax, 0x4f);
+        let result = request(&mut dos, 7, 1, 0, 0).registers;
+        assert_eq!((result.ecx, result.edx), (13, 5));
+        assert_eq!(
+            dos.vga()
+                .borrow_mut()
+                .framebuffer()
+                .pixel(0, 0)
+                .unwrap()
+                .value(),
+            1
+        );
+        assert_eq!(request(&mut dos, 7, 0, 160, 175).registers.eax, 0x4f);
+        let before = dos.vga().borrow().core_state();
+        for (x, y) in [(161, 0), (0, 176)] {
+            assert_eq!(request(&mut dos, 7, 0, x, y).registers.eax, 0x14f);
+        }
+        assert_eq!(dos.vga().borrow().core_state(), before);
+
+        video(&mut dos, 0x13, 0, 0, 0);
+        dos.cpu()
+            .context()
+            .memory
+            .write_u8(0xa0000 + 1280, 0x66)
+            .unwrap();
+        assert_eq!(request(&mut dos, 7, 0, 0, 4).registers.eax, 0x4f);
+        assert_eq!(
+            dos.vga()
+                .borrow_mut()
+                .framebuffer()
+                .pixel(0, 0)
+                .unwrap()
+                .value(),
+            0x66
+        );
+        assert_eq!(request(&mut dos, 7, 0, 0, 5).registers.eax, 0x14f);
+        dos.cpu().context().io.write_port(0x3d4, 2, 0x6712); // 180 visible pixel rows.
+        scanline(&mut dos, 0, 321, [0x4f, 328, 328, 199]);
+        dos.cpu()
+            .context()
+            .memory
+            .write_u8(0xa0000 + 659, 0x5a)
+            .unwrap();
+        assert_eq!(request(&mut dos, 7, 0, 3, 2).registers.eax, 0x4f);
+        assert_eq!(
+            dos.vga()
+                .borrow_mut()
+                .framebuffer()
+                .pixel(0, 0)
+                .unwrap()
+                .value(),
+            0x5a
+        );
+        let result = request(&mut dos, 7, 1, 0, 0).registers;
+        assert_eq!((result.ecx, result.edx), (3, 2));
+        assert_eq!(dos.vga().borrow().registers().attribute.values[0x13], 6);
+    });
+}

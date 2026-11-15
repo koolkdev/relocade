@@ -134,7 +134,7 @@ fn display_start_validates_the_viewport_and_reports_layout_capacity() {
     pollster::block_on(async {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
-        assert_eq!(request(&mut dos, 7, 1, 0, 0).registers.eax as u16, 0x14f);
+        assert_eq!(request(&mut dos, 7, 1, 0, 0).registers.eax as u16, 0x4f);
         video(&mut dos, 0x4f02, 0x101, 0, 0);
         scanline(&mut dos, 0, 1024, [0x4f, 1024, 1024, 4096]);
         for (operation, x, y) in [(0, 384, 3616), (0x80, 32, 480)] {

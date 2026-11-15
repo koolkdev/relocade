@@ -1111,7 +1111,7 @@ origins in text, planar and packed modes. Each card supplies its addressing and
 capacity limits and applies changes through its own registers. `PackedLayout`
 describes physical scanout, where native CRTC programming may wrap addresses.
 
-On both DISPI and ET4000, `4F06h` also supports standard VGA text, planar
+On both DISPI and ET4000, `4F06h` and `4F07h` also support standard VGA text, planar
 EGA/VGA and chained mode 13h layouts. Queries use the same effective geometry
 and addressing as scanout, including ET4000's extended counters and full
 18-bit programmed start. Pitch changes preserve that origin and the separate
@@ -1125,6 +1125,14 @@ mode 13h. CPU bank selection remains independent of the viewport. CGA
 interleaved rows, split screens and custom address/serializer configurations are not supported
 by these logical-image services. The visible mode and BIOS character grid stay
 unchanged when the logical stride changes.
+
+Display-start coordinates are pixels, including character dots and glyph
+scanlines in text modes. The card programs the coarse CRTC start, fine pel
+panning and text row scan together, and queries the programmed position before
+the retrace latch takes effect. Selector `0080h` waits for retrace and revalidates
+the viewport before changing it; mode, pitch or origin changes cancel a pending
+request. Requests that would cross a logical row or the accessible memory fail
+without modifying the viewport.
 
 DAC-format service `4F08h` reports the device's fixed six-bit color components
 in legacy and indexed modes. Direct-color modes return AX=034Fh for this service.

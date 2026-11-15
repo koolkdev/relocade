@@ -1,7 +1,8 @@
 use super::*;
+use crate::video::write_indexed;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{Clock, Device};
-use relocade_vga::{DispiAdapter, Scanout};
+use relocade_vga::{DispiAdapter, Et4000Ax, Scanout};
 use std::{
     cell::RefCell,
     future::Future,
@@ -150,4 +151,115 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     assert_eq!(io.read_port(0x3ba, 1) & 8, 0);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
     assert_eq!(card.borrow().viewport().unwrap().origin(), [32, 480]);
+}
+
+#[test]
+fn legacy_retrace_wait_preserves_the_completed_frame_and_defers_the_start_latch() {
+    let clock = ManualClock::default();
+    let (card, io) = device(clock.clock());
+    write_register(&io, 4, 0); // Default eight-dot, eight-row text with doubled scanlines.
+    assert!(scanline(&io, card.as_ref(), 2, 200).is_ok());
+    let frames = card.borrow().frames();
+    let mut video = pin!(DispiAdapter::run(card.clone()));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 16, 8));
+    assert!(request.as_mut().poll(&mut cx).is_pending());
+    let retrace = |frame: u64| {
+        Duration::from_nanos(
+            ((412 + (frame - 1) * 449) * 800 * 1_000_000_000u64).div_ceil(25_175_000),
+        )
+    };
+    clock.advance_to(clock.at(retrace(1)));
+    assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([16, 8])));
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    let completed = frames.try_recv().unwrap();
+    assert_eq!(completed.vga().unwrap().display_start, 0);
+    assert_eq!(card.borrow().registers().crtc.display_start, 0);
+    assert_eq!(card.borrow().viewport().unwrap().origin(), [16, 8]);
+    clock.advance_to(clock.at(retrace(2)));
+    io.read_port(0x3da, 1);
+    assert!(video.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(frames.try_recv().unwrap().vga().unwrap().display_start, 102);
+    assert_eq!(completed.vga().unwrap().display_start, 0);
+}
+
+#[test]
+fn legacy_retrace_wait_revalidates_register_changes_even_without_sync() {
+    for (register, value) in [(0x13, 51), (0x0d, 1), (0x08, 1)] {
+        let (card, io) = device(ManualClock::default().clock());
+        write_register(&io, 4, 0);
+        assert!(scanline(&io, card.as_ref(), 2, 200).is_ok());
+        io.write_port(0x3c4, 2, 0x0100); // No retrace deadline while reset is active.
+        let wakes = Arc::new(Wakes::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 16, 8));
+        assert!(request.as_mut().poll(&mut cx).is_pending());
+        write_indexed(&io, 0x3d4, register, value);
+        assert!(wakes.0.load(Ordering::SeqCst) > 0);
+        let changed = card.borrow().viewport();
+        assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(None));
+        assert_eq!(card.borrow().viewport(), changed);
+    }
+}
+
+#[test]
+fn et4000_retrace_wait_ignores_cursor_changes_but_revalidates_extended_display_state() {
+    for (register, value) in [(0x33, 5), (0x35, 4), (0x36, 0x50)] {
+        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(
+            ManualClock::default().clock(),
+        )));
+        let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
+        io.write_port(0x3bf, 1, 3);
+        io.write_port(0x3d8, 1, 0xa0);
+        io.write_port(0x3d4, 2, 0x0e11); // Unlock the vertical counter extension.
+        assert!(scanline(&io, card.as_ref(), 2, 200).is_ok());
+        io.write_port(0x3c4, 2, 0x0100); // Revalidation cannot depend on a retrace timer.
+        let wakes = Arc::new(Wakes::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 16, 8));
+        assert!(request.as_mut().poll(&mut cx).is_pending());
+        write_indexed(&io, 0x3d4, 0x33, 4); // Only cursor bit 16 changes.
+        assert!(request.as_mut().poll(&mut cx).is_pending());
+        wakes.0.store(0, Ordering::SeqCst);
+        write_indexed(&io, 0x3d4, register, value);
+        assert!(wakes.0.load(Ordering::SeqCst) > 0);
+        let core = card.borrow().core_state();
+        let extended = card.borrow().et4000_state();
+        assert_eq!(
+            request.as_mut().poll(&mut cx),
+            Poll::Ready(None),
+            "CR{register:02x}"
+        );
+        assert_eq!(card.borrow().core_state(), core);
+        assert_eq!(card.borrow().et4000_state(), extended);
+    }
+}
+
+#[test]
+fn et4000_firmware_start_clears_high_bits_at_the_next_capture() {
+    let clock = ManualClock::default();
+    let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.clock())));
+    let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
+    io.write_port(0x3d4, 2, 0x0133);
+    let retrace = |frame: u64| {
+        Duration::from_nanos(
+            ((412 + (frame - 1) * 449) * 800 * 1_000_000_000u64).div_ceil(25_175_000),
+        )
+    };
+    clock.advance_to(clock.at(retrace(1)));
+    assert_eq!(
+        pin!(display_start(&io, card.as_ref(), 0x80, 0, 0))
+            .poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Some([0, 0]))
+    );
+    let completed = card.borrow().snapshot();
+    assert_eq!(completed.vga().unwrap().display_start, 0x10000);
+    assert_eq!(card.borrow().viewport().unwrap().origin(), [0, 0]);
+    clock.advance_to(clock.at(retrace(2)));
+    io.read_port(0x3da, 1);
+    assert_eq!(card.borrow().snapshot().vga().unwrap().display_start, 0);
+    assert_eq!(completed.vga().unwrap().display_start, 0x10000);
 }

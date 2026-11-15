@@ -2,7 +2,7 @@
 use super::{scanout, Et4000Ax};
 use crate::{
     effects::CardEffects, io::Io, mmio::MemoryDecoding, ports::PortDecoding,
-    scanout::DisplayConfiguration, Timing,
+    scanout::DisplayConfiguration, Timing, Viewport,
 };
 
 impl CardEffects for Et4000Ax {
@@ -12,6 +12,10 @@ impl CardEffects for Et4000Ax {
 
     fn display_configuration(&self) -> DisplayConfiguration {
         scanout::configuration(self)
+    }
+
+    fn viewport(&self) -> Option<Viewport> {
+        self.viewport()
     }
 
     fn timing(&self) -> Timing {
