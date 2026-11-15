@@ -37,6 +37,25 @@ fn value_and_body_queries_agree_on_construction_folds() {
     program.compile().unwrap();
 }
 
+#[test]
+fn disjoint_masks_fold_during_construction() {
+    let mut program = Program::new();
+    let function = program.function::<fn(u64) -> u64>(|body, (input,)| {
+        let upper = input.and(!3_u64);
+        assert_eq!(body.constant_bits(upper.and(3_u64))?, Some(0));
+        assert_eq!(body.constant_bits(upper.add(7_u64).and(3_u64))?, Some(3));
+        assert_eq!(body.constant_bits(upper.or(2_u64).and(3_u64))?, Some(2));
+        assert_eq!(body.constant_bits(input.and(!1_u64).and(3_u64))?, None);
+        // Narrow views keep the upper carrier bits until explicitly masked.
+        let byte = input.truncate::<I32>().truncate::<I8>().and(0xfc);
+        assert_eq!(body.constant_bits(byte.and(3))?, Some(0));
+        assert_eq!(body.constant_bits(byte.and(0xfc))?, None);
+        body.return_(upper)
+    });
+    program.export("run", function).unwrap();
+    program.compile().unwrap();
+}
+
 fn assert_closed(value: &Val<I32>) {
     assert_eq!(value.constant_bits(), Err(BuildError::BodyClosed));
     for result in [

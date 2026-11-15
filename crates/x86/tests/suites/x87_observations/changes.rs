@@ -4,6 +4,30 @@ use super::*;
 use crate::support::machine::step_returns;
 use crate::support::x87::status;
 
+#[test]
+fn rounding_specialization_leaves_precision_for_its_consumer() {
+    let code = [0xd9, 0xfc, 0xd8, 0xc9]; // FRNDINT; FMUL ST0, ST1
+    let block = TestModule::new(&compiler(2, 0).compile_block(0x1000, &code, 2).unwrap());
+    let mut image = stack_image(&code, 0, 0xfff0);
+    image.cpu.x87.control.precision_control = 0x83; // PC64 differs from observed PC53.
+    image.cpu.x87.control.rounding_control = 0x40;
+    write_value(&mut image.cpu, 0, (LEADING, 0x4000));
+    write_value(&mut image.cpu, 1, (LEADING, 0x3fff));
+    let mut restart = complete_x87(image.cpu, 2, 0x01fc);
+    restart.x87.status.c1 = 0;
+    assert_eq!(
+        block.observe(&image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: restart,
+                ram: &[],
+                exit: Exit::Interpret,
+            }],
+        ),
+    );
+}
+
 fn loaded_controls() {
     let code = [0xd8, 0xc9, 0xd9, 0x2d, 0, 0x40, 0, 0, 0xd8, 0xc9];
     let compiled = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();

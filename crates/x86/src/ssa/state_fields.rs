@@ -3,7 +3,9 @@
 use super::TrackedValue;
 use std::marker::PhantomData;
 
-use relocade_compiler::{BlockBuilder, BuildError, Mem, MemoryType, Val, I16, I32, I64, I8, V128};
+use relocade_compiler::{
+    BlockBuilder, BuildError, IntType, Mem, MemoryType, Val, I16, I32, I64, I8, V128,
+};
 
 #[derive(Clone)]
 pub(crate) struct Location<T: SsaType> {
@@ -229,6 +231,30 @@ impl StateFields {
             first_write: None,
         });
         Ok(value)
+    }
+
+    /// Retains bits established by a guard without making a guest write.
+    /// Unchecked bits, including snapshot padding, keep their original values.
+    pub(crate) fn assume_bits<T: SsaType + IntType>(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        location: Location<T>,
+        mask: impl Into<Val<T>>,
+        expected: impl Into<Val<T>>,
+    ) -> Result<(), BuildError> {
+        let Address::Fixed(offset) = location.address else {
+            unreachable!("state assumptions require a fixed field")
+        };
+        let value = self.read(body, location)?;
+        let mask = mask.into();
+        let keep = mask.xor(Val::<I64>::from(u64::MAX).truncate::<T>());
+        let refined = value.and(keep).or(expected.into().and(mask));
+        let entry = self
+            .definitions
+            .iter_mut()
+            .find(|entry| entry.location.offset == offset)
+            .expect("reading a fixed field retains its definition");
+        T::retained_mut(&mut entry.value).refine(body, refined)
     }
 
     pub(crate) fn define<T: SsaType>(

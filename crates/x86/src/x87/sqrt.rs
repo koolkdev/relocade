@@ -36,15 +36,11 @@ impl Operand {
         body: &mut BlockBuilder<'_>,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<RoundedValue, BuildError> {
-        if nearest_53 {
+        if body.constant_bits(super::native::supported_controls(&precision, rounding))? == Some(1) {
             if let Some(rounded) = native::calculate(self) {
                 return Ok(rounded);
             }
-            // The control guard proves these construction-time constants.
-            // Full-width input still needs exact refinement before rounding.
-            return self.rounded_square_root(body, 2.into(), &RoundingMode::new(0.into()));
         }
         self.rounded_square_root(body, precision, rounding)
     }
