@@ -45,6 +45,17 @@ impl<T: ValueType> TrackedValue<T> {
         self.dirty.then_some(&self.value)
     }
 
+    /// Replaces the value with an equal expression on the continuing path.
+    /// A guard must establish that equality; publication state stays unchanged.
+    pub(crate) fn refine(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        value: impl Into<Val<T>>,
+    ) -> Result<(), BuildError> {
+        self.value = body.value(value)?;
+        Ok(())
+    }
+
     /// Repeated definitions of the same expression leave the dirty state alone.
     /// The returned flag lets an external owner order newly changed definitions.
     pub(crate) fn define(

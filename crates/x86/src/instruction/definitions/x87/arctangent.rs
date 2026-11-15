@@ -21,8 +21,8 @@ fn arctangent(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError
         mut stack_fault,
         ..
     } = execution.read_x87_operands(1.into(), X87Operand::Register(0.into()))?;
-    let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
+    let rounding = execution.x87().rounding()?;
     execution.guard_x87_operands(&mut stack_fault, operands.normal_or_zero())?;
     let mut result = execution.calculate(|body| operands.arctangent(body, &rounding))?;
     execution.if_can_fallback(|execution| {

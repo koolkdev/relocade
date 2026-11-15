@@ -1,6 +1,8 @@
 //! PC53/nearest arithmetic retains native significands and x87's wider exponent range.
 
-use relocade_compiler::{Val, F64, I1, I16, I32, I64};
+use relocade_compiler::{Val, F64, I1, I16, I32, I64, I8};
+
+use crate::floating::RoundingMode;
 
 use super::{
     operand::{AddendSigns, BinaryOperands, Operand},
@@ -11,6 +13,10 @@ use super::{
 
 fn integer_significand(value: &Val<F64>) -> Val<I64> {
     value.to_bits().and((1_u64 << 52) - 1).or(1_u64 << 52)
+}
+
+pub(super) fn supported_controls(precision: &Val<I8>, rounding: &RoundingMode) -> Val<I1> {
+    precision.and(3).eq(2).and(rounding.is_nearest())
 }
 
 /// Requires PC53/nearest. Wider operands keep the general calculation.

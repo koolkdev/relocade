@@ -173,6 +173,30 @@ impl Control {
 }
 
 impl X87Access<'_, '_> {
+    /// The execution owner has guarded these controls on this path. Retaining
+    /// them in the state lets numerical builders use ordinary constant folding.
+    pub(crate) fn assume_controls(
+        &mut self,
+        expected: &X87Control,
+        specialization: X87Specialization,
+    ) -> Result<(), BuildError> {
+        self.state.control.fields.assume_bits(
+            self.body,
+            cpu_location!(x87.control.rounding_control),
+            3,
+            u32::from(expected.rounding_control),
+        )?;
+        if matches!(specialization, X87Specialization::Arithmetic) {
+            self.state.control.fields.assume_bits(
+                self.body,
+                cpu_location!(x87.control.precision_control),
+                3,
+                u32::from(expected.precision_control),
+            )?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn rounding(&mut self) -> Result<RoundingMode, BuildError> {
         self.state.control.rounding(self.body)
     }

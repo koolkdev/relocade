@@ -30,8 +30,8 @@ fn logarithm_product(
         mut stack_fault,
         ..
     } = execution.read_x87_operands(1.into(), X87Operand::Register(0.into()))?;
-    let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
+    let rounding = execution.x87().rounding()?;
     execution.guard_x87_operands(
         &mut stack_fault,
         operands.logarithm_operands_valid(argument),

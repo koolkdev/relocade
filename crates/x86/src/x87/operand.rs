@@ -193,26 +193,25 @@ impl BinaryOperands {
     }
 
     /// Chooses a calculation without changing JIT coverage for wider operands.
-    /// `nearest_53` is a fact established by the caller's control guard. The
-    /// returned candidate still needs admission before its rounded value is used.
+    /// The candidate still needs admission before its rounded value is used.
     pub(crate) fn rounding_candidate(
         &self,
         body: &mut BlockBuilder<'_>,
         operation: BinaryOperation,
         precision: Val<I8>,
         rounding: &RoundingMode,
-        nearest_53: bool,
     ) -> Result<ArithmeticCandidate, BuildError> {
-        let calculation = if nearest_53 {
+        let native_mode =
+            body.constant_bits(super::native::supported_controls(&precision, rounding))? == Some(1);
+        if native_mode {
             if let Some(candidate) = super::native::calculate(self, operation) {
                 return Ok(candidate);
             }
-            self.calculate(body, operation, 2.into(), &RoundingMode::new(0.into()))?
-        } else {
-            self.calculate(body, operation, precision, rounding)?
-        };
-        let mut candidate = calculation.rounding_candidate(body)?;
-        if nearest_53 {
+        }
+        let mut candidate = self
+            .calculate(body, operation, precision, rounding)?
+            .rounding_candidate(body)?;
+        if native_mode {
             // PC53 proves an exact native view for later consumers. Keeping
             // the integer view avoids conversion work until one needs it.
             candidate.rounded.value = candidate.rounded.value.assume_precision53();

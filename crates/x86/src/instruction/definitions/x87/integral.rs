@@ -19,8 +19,8 @@ fn round_integral(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildE
     let top = execution.x87().read_stack(0)?;
     let mut empty = top.is_empty();
     let operand = Operand::new(&top.value);
-    let rounding = execution.x87().rounding()?;
     execution.specialize_x87(X87Specialization::Rounding)?;
+    let rounding = execution.x87().rounding()?;
     let operands_guarded = execution.guard_x87_operands(&mut empty, operand.normal_or_zero())?;
     let result = operand.round_integral(&rounding);
     let result = if operands_guarded {

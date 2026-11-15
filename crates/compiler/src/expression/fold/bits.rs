@@ -140,11 +140,14 @@ impl<P: crate::body::Phase> Folder<'_, P> {
                         self.values[left].scalar_literal(),
                         self.values[right].scalar_literal(),
                     ) {
-                        (_, Some(mask)) => (left, mask.trailing_ones()),
-                        (Some(mask), _) => (right, mask.trailing_ones()),
+                        (_, Some(mask)) => (left, mask),
+                        (Some(mask), _) => (right, mask),
                         _ => break,
                     };
-                    if kept < u32::from(bits) {
+                    if kept & mask == 0 {
+                        return self.values.carrier_literal(ty, offset & mask);
+                    }
+                    if kept & mask != mask {
                         break;
                     }
                     base = input;

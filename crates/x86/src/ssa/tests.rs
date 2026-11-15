@@ -88,6 +88,46 @@ fn accesses(
 }
 
 #[test]
+fn guarded_bits_refine_reads_without_writing_clean_fields() {
+    let emitted = accesses(|body, state| {
+        let location = Location::<I8>::new(4);
+        let before = state.read(body, location.clone()).unwrap();
+        body.if_(before.and(3).ne(2), |body| body.trap()).unwrap();
+        state.assume_bits(body, location.clone(), 3, 2).unwrap();
+        let after = state.read(body, location).unwrap();
+        assert_eq!(body.constant_bits(after.and(3)).unwrap(), Some(2));
+        assert_eq!(body.constant_bits(before.and(3)).unwrap(), None);
+        state.publish(body).unwrap();
+        after.unsigned().extend::<I32>()
+    });
+    assert_eq!(emitted, [Access::LoadByte(4)]);
+}
+
+#[test]
+fn guarded_bits_preserve_pending_writes_and_later_definitions_replace_them() {
+    let emitted = accesses(|body, state| {
+        let location = Location::<I16>::new(4);
+        let input = body.parameter::<I32>(0).unwrap().truncate::<I16>();
+        state.define(body, location.clone(), &input).unwrap();
+        body.if_(input.and(3).ne(2), |body| body.trap()).unwrap();
+        state.assume_bits(body, location.clone(), 3, 2).unwrap();
+        let refined = state.read(body, location.clone()).unwrap();
+        assert_eq!(body.constant_bits(refined.and(3)).unwrap(), Some(2));
+        assert_eq!(body.constant_bits(refined.and(0xfffc)).unwrap(), None);
+        state.publish(body).unwrap();
+        state.define(body, location.clone(), 7).unwrap();
+        let replaced = state.read(body, location).unwrap();
+        assert_eq!(body.constant_bits(replaced.and(3)).unwrap(), Some(3));
+        state.publish(body).unwrap();
+        refined.unsigned().extend::<I32>()
+    });
+    assert_eq!(
+        emitted,
+        [Access::StoreWord(4, None), Access::StoreWord(4, Some(7))]
+    );
+}
+
+#[test]
 fn repeated_reads_reuse_the_old_value_after_a_new_definition() {
     let emitted = accesses(|body, state| {
         let first = state.read(body, Location::<I32>::new(0)).unwrap();
