@@ -24,13 +24,13 @@ impl Wake for Wakes {
     }
 }
 
-fn device(clock: Clock) -> (Rc<RefCell<DispiAdapter>>, IoBus, VideoFirmware) {
+fn device(clock: Clock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
     let card = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
     let io = IoBus::new(card.clone(), |io| DispiAdapter::configure_io(io, &card));
     for (register, value) in [(1, 640), (2, 480), (3, 8), (4, 1), (6, 1024)] {
         write_register(&io, register, value);
     }
-    (card.clone(), io, VideoFirmware::Dispi(card))
+    (card, io)
 }
 
 fn write_register(io: &IoBus, register: u16, value: u16) {
@@ -53,7 +53,7 @@ fn boundary(frame: u64) -> Duration {
 #[test]
 fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     let clock = ManualClock::default();
-    let (card, io, firmware) = device(clock.clock());
+    let (card, io) = device(clock.clock());
     io.write_port(0x3c2, 1, 2); // Monochrome status port; keep CPU memory enabled.
     io.write_mmio(0xa0000, 1, 1);
     write_register(&io, 5, 7);
@@ -65,9 +65,9 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
-    let mut request = pin!(display_start(&io, &firmware, 0x80, 32, 480));
+    let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 32, 480));
     assert!(request.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(firmware.packed_layout().unwrap().origin(), [0, 0]);
+    assert_eq!(card.borrow().viewport().unwrap().origin(), [0, 0]);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 0);
     clock.advance_to(clock.at(boundary(1)));
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
@@ -95,38 +95,38 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
 #[test]
 fn requests_already_in_retrace_finish_without_yielding() {
     let clock = ManualClock::default();
-    let (_card, io, firmware) = device(clock.clock());
+    let (card, io) = device(clock.clock());
     clock.advance_to(clock.at(boundary(1)));
     assert_eq!(
-        pin!(display_start(&io, &firmware, 0x80, 384, 3616))
+        pin!(display_start(&io, card.as_ref(), 0x80, 384, 3616))
             .poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(Some([384, 3616]))
     );
-    assert_eq!(firmware.packed_layout().unwrap().origin(), [384, 3616]);
+    assert_eq!(card.borrow().viewport().unwrap().origin(), [384, 3616]);
 }
 
 #[test]
 fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
     for (register, value) in [(4, 0), (6, 1280), (8, 1)] {
-        let (_card, io, firmware) = device(ManualClock::new().clock());
+        let (card, io) = device(ManualClock::new().clock());
         let wakes = Arc::new(Wakes::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
-        let mut request = pin!(display_start(&io, &firmware, 0x80, 32, 480));
+        let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 32, 480));
         assert!(request.as_mut().poll(&mut cx).is_pending());
         write_register(&io, register, value);
         if register == 4 {
             io.write_port(0x3c4, 2, 0x0100); // No future raster event in this mode.
         }
         assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
-        let changed = firmware.packed_layout();
+        let changed = card.borrow().viewport();
         assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(None));
-        assert_eq!(firmware.packed_layout(), changed);
+        assert_eq!(card.borrow().viewport(), changed);
     }
-    let (_card, io, firmware) = device(ManualClock::new().clock());
+    let (card, io) = device(ManualClock::new().clock());
     io.write_port(0x46e8, 1, 0); // Disabled address decoding also blocks direct firmware access.
     assert_eq!(
-        pin!(display_start(&io, &firmware, 0x80, 0, 0))
+        pin!(display_start(&io, card.as_ref(), 0x80, 0, 0))
             .poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(None)
     );
@@ -135,11 +135,11 @@ fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
 #[test]
 fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     let clock = ManualClock::default();
-    let (_card, io, firmware) = device(clock.clock());
+    let (card, io) = device(clock.clock());
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
-    let mut request = pin!(display_start(&io, &firmware, 0x80, 32, 480));
+    let mut request = pin!(display_start(&io, card.as_ref(), 0x80, 32, 480));
     assert!(request.as_mut().poll(&mut cx).is_pending());
     io.write_port(0x3c2, 1, 2);
     assert_eq!(wakes.0.swap(0, Ordering::SeqCst), 1);
@@ -149,5 +149,5 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
     assert_eq!(io.read_port(0x3ba, 1) & 8, 0);
     assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(Some([32, 480])));
-    assert_eq!(firmware.packed_layout().unwrap().origin(), [32, 480]);
+    assert_eq!(card.borrow().viewport().unwrap().origin(), [32, 480]);
 }

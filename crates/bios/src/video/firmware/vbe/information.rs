@@ -1,12 +1,10 @@
 //! VBE 1.2 guest buffers shared by the selected card's firmware.
 //! https://mircosoft.mzf.cz/texty/VESA12sp.htm (functions 00h and 01h).
-use super::{
-    super::{dispi, et4000, VideoFirmware},
-    WINDOW_FUNCTION,
-};
+use super::{Vbe, WINDOW_FUNCTION};
 use crate::BIOS_SEGMENT;
 use relocade_machine::{real_mode_interrupt::interrupt, FarPointer, MemoryView};
 use relocade_vga::{PackedLayout, PixelFormat};
+use std::cell::RefCell;
 
 // Follows the legacy video parameter table (F000:A700–AE3F).
 const OEM: FarPointer = FarPointer {
@@ -18,17 +16,13 @@ const MODES: FarPointer = FarPointer {
     offset: 0xb020,
 };
 
-pub(in crate::video::firmware) fn initialize(
-    memory: &mut MemoryView<'_>,
-    oem: &[u8],
-    modes: impl IntoIterator<Item = u16>,
-) {
+pub(in crate::video::firmware) fn initialize<C: Vbe>(memory: &mut MemoryView<'_>) {
+    let oem = C::OEM_STRING;
     assert!(oem.len() <= 32 && oem.last() == Some(&0));
     memory
         .write_backing(OEM.address(), oem)
         .expect("VBE OEM string");
-    let bytes: Vec<_> = modes
-        .into_iter()
+    let bytes: Vec<_> = C::mode_numbers()
         .chain([0xffff])
         .flat_map(u16::to_le_bytes)
         .collect();
@@ -41,13 +35,16 @@ pub(in crate::video::firmware) fn initialize(
 #[interrupt(context(memory), args(destination = ptr(es, di)),
     returns { Some(()) => { ax = 0x004f }, None => { ax = 0x014f } },
 )]
-pub(super) fn controller(
+pub(super) fn controller<C: Vbe>(
     memory: &mut MemoryView<'_>,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     destination: FarPointer,
 ) -> Option<()> {
-    firmware.ports_enabled().then_some(())?;
-    let memory_bytes = firmware.video_memory_bytes()?;
+    let memory_bytes = {
+        let card = card.borrow();
+        card.ports_enabled().then_some(())?;
+        card.video_memory_bytes()
+    };
     // Always the bounded 1.x structure, even if the caller requests "VBE2".
     let mut bytes = [0; 256];
     bytes[..4].copy_from_slice(b"VESA");
@@ -70,17 +67,13 @@ pub(in crate::video::firmware) struct ModeInformation {
 #[interrupt(context(memory), args(number = cx, destination = ptr(es, di)),
     returns { Some(()) => { ax = 0x004f }, None => { ax = 0x014f } },
 )]
-pub(super) fn mode(
+pub(super) fn mode<C: Vbe>(
     memory: &mut MemoryView<'_>,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     number: u16,
     destination: FarPointer,
 ) -> Option<()> {
-    let information = match firmware {
-        VideoFirmware::Vga => return None,
-        VideoFirmware::Dispi(card) => dispi::vbe::information::mode(card, number)?,
-        VideoFirmware::Et4000Ax(card) => et4000::vbe::mode(card, number)?,
-    };
+    let information = card.borrow().mode_information(number)?;
     banked_mode(memory, destination, information.layout, information.windows);
     Some(())
 }

@@ -1012,10 +1012,15 @@ BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
 ### Banked VBE profile
 
-PC assembly selects `VideoFirmware::Dispi` for BIOS initialization and interrupt
-registration. The `video::firmware::dispi` module owns DISPI preparation and VBE
-services. Firmware calls card operations for mode entry, banking, pitch and display
-origin, and reads the active packed layout directly. These operations share the
+PC assembly selects a `VideoFirmware` for BIOS initialization and interrupt
+registration. The shared VBE handlers use the `Vbe` trait, implemented directly
+for `DispiAdapter` and `Et4000Ax` in their firmware drivers. Card selection occurs
+at dispatch; mode information, mode entry, banking, viewport control, retrace and
+device-state encoding use the same driver contract. The BIOS owns register results
+and guest-buffer serialization. Driver mode entry releases card borrows around
+VGA port programming, and retrace waits own their state across suspension.
+Firmware calls card operations for mode entry, banking, pitch and display
+origin, and reads the active logical viewport. These operations share the
 register mutation and effects code used by guest port accesses. They honor adapter
 address decoding and preserve the DISPI index left by firmware writes; queries
 leave that index alone. A legacy mode request is validated and its guest parameter
@@ -1084,8 +1089,10 @@ invalid buffers, missing classes, empty or reserved masks,
 and unsupported operations fail without applying state. Capture and restore
 preserve unselected classes and never use scratch VRAM or clear the framebuffer.
 The BIOS-data component shares the existing IBM metadata/vector implementation.
-The hardware, DAC and SVGA components use `VgaCoreState`, `DacState` and
-`DispiState`, respectively. DISPI's saved pitch remains a byte count in every
+The hardware and DAC components use `VgaCoreState` and `DacState`. Each driver
+supplies its state-profile identifier and extension encoding (`DispiState` or
+`Et4000State`) and validates every requested device component before applying
+them together. DISPI's saved pitch remains a byte count in every
 pixel format; the component encoding stays 18 bytes. The card applies the validated
 device components together in one effects operation, without replaying an enable
 command or clearing VRAM. IBM AH=1Ch retains its

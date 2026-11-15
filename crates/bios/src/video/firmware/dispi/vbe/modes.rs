@@ -1,5 +1,4 @@
 //! VBE mode numbers and BIOS bookkeeping around card programming.
-use super::{active_layout, available};
 use crate::video::{
     fonts, modes as legacy, palette::PaletteLoad, presets, ACTIVE_PAGE, CHARACTER_HEIGHT, COLUMNS,
     CURSORS, LAST_ROW, MODE, PAGE_OFFSET, PAGE_SIZE, VIDEO_CONTROL,
@@ -63,8 +62,8 @@ impl Mode {
         Self::ALL.into_iter().find(|mode| mode.number == number)
     }
 
-    pub(super) fn active(card: &RefCell<DispiAdapter>) -> Option<Self> {
-        let layout = active_layout(card)?;
+    pub(super) fn active(card: &DispiAdapter) -> Option<Self> {
+        let layout = card.packed_layout()?;
         Self::ALL.into_iter().find(|mode| {
             mode.display.size() == layout.size() && mode.display.format() == layout.format()
         })
@@ -110,7 +109,7 @@ impl Mode {
     }
 }
 
-pub(in crate::video::firmware) fn set(
+pub(super) fn set(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
     card: &RefCell<DispiAdapter>,
@@ -120,11 +119,8 @@ pub(in crate::video::firmware) fn set(
     Mode::from_number(number).is_some_and(|mode| mode.activate(memory, io, card, preserve))
 }
 
-pub(in crate::video::firmware) fn current(
-    memory: &MemoryView<'_>,
-    card: &RefCell<DispiAdapter>,
-) -> Option<u16> {
-    if !available(card) {
+pub(super) fn current(memory: &MemoryView<'_>, card: &DispiAdapter) -> Option<u16> {
+    if !card.ports_enabled() {
         return None;
     }
     if let Some(mode) = Mode::active(card) {
@@ -133,21 +129,5 @@ pub(in crate::video::firmware) fn current(
         // VBE 1.2 returns the mode alone, without the memory-preservation flag.
         let number = legacy::mode(memory).mode & 0x7f;
         (number != VBE_MODE_MARKER).then_some(u16::from(number))
-    }
-}
-
-pub(in crate::video::firmware) fn window(
-    io: &IoBus,
-    card: &RefCell<DispiAdapter>,
-    operation: u16,
-    position: u16,
-) -> Option<u16> {
-    active_layout(card)?;
-    match operation {
-        0 => io
-            .with_context(|context| card.borrow_mut().set_video_bank(context, position))
-            .then_some(position),
-        0x100 => Some(card.borrow().video_bank()),
-        _ => None,
     }
 }

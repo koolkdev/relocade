@@ -5,7 +5,7 @@ use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::Et4000Ax;
 use std::cell::RefCell;
 
-pub(in crate::video::firmware) fn set(
+pub(super) fn set(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
     card: &RefCell<Et4000Ax>,
@@ -23,11 +23,7 @@ pub(in crate::video::firmware) fn set(
     true
 }
 
-pub(in crate::video::firmware) fn current(
-    memory: &MemoryView<'_>,
-    card: &RefCell<Et4000Ax>,
-) -> Option<u16> {
-    let card = card.borrow();
+pub(super) fn current(memory: &MemoryView<'_>, card: &Et4000Ax) -> Option<u16> {
     if !card.ports_enabled() {
         return None;
     }
@@ -44,30 +40,5 @@ pub(in crate::video::firmware) fn current(
         Mode::from_bios_number(number)
             .is_none()
             .then_some(u16::from(number))
-    }
-}
-
-pub(in crate::video::firmware) fn window(
-    io: &IoBus,
-    card: &RefCell<Et4000Ax>,
-    operation: u16,
-    position: u16,
-) -> Option<u16> {
-    let mut card = card.borrow_mut();
-    if !card.ports_enabled() {
-        return None;
-    }
-    card.packed_layout()?;
-    match operation {
-        // Window A is writable; window B is readable. Neither changes the other.
-        0 => io
-            .with_context(|context| card.set_write_bank(context, position))
-            .then_some(position),
-        1 => io
-            .with_context(|context| card.set_read_bank(context, position))
-            .then_some(position),
-        0x100 => Some(card.write_bank()),
-        0x101 => Some(card.read_bank()),
-        _ => None,
     }
 }

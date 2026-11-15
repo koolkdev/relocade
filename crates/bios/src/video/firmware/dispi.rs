@@ -1,5 +1,5 @@
 //! Firmware for the banked DISPI adapter.
-pub(super) mod vbe;
+mod vbe;
 
 use crate::video::{
     modes::{self, ModeSet},
@@ -10,7 +10,7 @@ use relocade_vga::DispiAdapter;
 use std::cell::RefCell;
 
 pub(super) fn initialize(memory: &mut MemoryView<'_>, io: &IoBus, card: &RefCell<DispiAdapter>) {
-    vbe::initialize(memory);
+    super::vbe::initialize::<DispiAdapter>(memory);
     // Keep the BIOS text console available until the guest selects a VBE mode.
     assert!(
         modes::select_scanlines(memory, 2),
