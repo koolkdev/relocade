@@ -11,7 +11,7 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch, interrupt_handler, Interrupts},
     CpuContext, FarPointer, IoContext,
 };
-use relocade_vga::{PackedLayout, RetraceEvent};
+use relocade_vga::{PackedLayout, RetraceEvent, Viewport};
 
 // Follows the VBE OEM string and mode list in BIOS ROM.
 const WINDOW_FUNCTION: FarPointer = FarPointer {
@@ -88,25 +88,19 @@ impl VideoFirmware {
         }
     }
 
-    // VBE requests bounded viewports; native hardware may also wrap its counter.
-    fn bounded_layout(&self, pitch: u32) -> Option<PackedLayout> {
-        let layout = self.packed_layout()?;
-        let capacity = self.video_memory_bytes()?;
-        PackedLayout::new(layout.size(), layout.format(), pitch, 0, capacity)
-    }
-
-    fn max_packed_pitch(&self) -> Option<u32> {
+    fn viewport(&self) -> Option<Viewport> {
         match self {
-            Self::Et4000Ax(card) => card.borrow().max_packed_pitch(),
-            _ => Some(self.packed_layout()?.max_pitch()),
+            Self::Vga => None,
+            Self::Dispi(card) => card.borrow().viewport(),
+            Self::Et4000Ax(card) => card.borrow().viewport(),
         }
     }
 
-    fn set_packed_pitch(&self, context: IoContext<'_>, pitch: u32) -> Option<PackedLayout> {
+    fn set_display_pitch(&self, context: IoContext<'_>, pitch: u32) -> Option<Viewport> {
         match self {
             Self::Vga => None,
-            Self::Dispi(card) => card.borrow_mut().set_packed_pitch(context, pitch),
-            Self::Et4000Ax(card) => card.borrow_mut().set_packed_pitch(context, pitch),
+            Self::Dispi(card) => card.borrow_mut().set_display_pitch(context, pitch),
+            Self::Et4000Ax(card) => card.borrow_mut().set_display_pitch(context, pitch),
         }
     }
 

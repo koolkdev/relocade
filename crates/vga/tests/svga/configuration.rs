@@ -48,7 +48,7 @@ fn direct_layout_programming_preserves_indices_and_rejects_invalid_viewports() {
         .enter_packed_mode(context, MODE, false)));
     assert!(card
         .io
-        .with_context(|context| card.device.borrow_mut().set_packed_pitch(context, 2048))
+        .with_context(|context| card.device.borrow_mut().set_display_pitch(context, 2048))
         .is_some());
     assert_eq!(card.io.read_port(0x1ce, 2), 6);
     assert!(card.io.with_context(|context| card
@@ -60,7 +60,7 @@ fn direct_layout_programming_preserves_indices_and_rejects_invalid_viewports() {
     let before = card.device.borrow().dispi_state();
     card.io.with_context(|mut context| {
         let mut device = card.device.borrow_mut();
-        assert!(device.set_packed_pitch(context.reborrow(), 1024).is_none());
+        assert!(device.set_display_pitch(context.reborrow(), 1024).is_none());
         assert!(!device.set_display_origin(context.reborrow(), [1409, 0]));
         assert!(!device.set_video_bank(context, 64));
     });
@@ -85,7 +85,7 @@ fn disabled_decoding_blocks_direct_firmware_programming() {
         device.prepare_legacy_mode(context.reborrow());
         assert!(!device.enter_packed_mode(context.reborrow(), MODE, false));
         assert!(!device.set_video_bank(context.reborrow(), 7));
-        assert!(device.set_packed_pitch(context.reborrow(), 2048).is_none());
+        assert!(device.set_display_pitch(context.reborrow(), 2048).is_none());
         assert!(!device.set_display_origin(context, [0, 1]));
     });
     assert_eq!(card.device.borrow().dispi_state(), before);

@@ -27,6 +27,7 @@ mod renderer;
 mod scanout;
 mod snapshot;
 mod timing;
+mod viewport;
 
 pub use core::{DacState, VgaCore, VgaCoreState};
 pub use dispi::{
@@ -46,6 +47,7 @@ pub use scanout::{Scanout, VgaDisplayLayout, VgaDisplayState, VgaGeometry};
 pub use snapshot::{DacSnapshot, DisplaySnapshot};
 use std::ops::RangeInclusive;
 use timing::Timing;
+pub use viewport::Viewport;
 
 /// The color text aperture selected by the BIOS text preset.
 pub const TEXT_MEMORY_START: u32 = 0xb8000;
