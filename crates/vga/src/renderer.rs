@@ -2,6 +2,8 @@ mod memory;
 mod pipelines;
 mod shaders;
 mod state;
+#[cfg(test)]
+mod tests;
 
 use crate::{DisplaySnapshot, Scanout};
 use memory::GpuMemory;

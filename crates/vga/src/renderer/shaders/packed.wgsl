@@ -16,6 +16,7 @@ const INDEXED8 = 0u;
 const RGB565 = 1u;
 const RGB555 = 3u;
 const BGRX8888 = 2u;
+const BGR888 = 4u;
 
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -47,8 +48,9 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             let rgb8 = (rgb * 255u + vec3(15u, 31u, 15u)) / vec3(31u, 63u, 31u);
             return vec4(vec3<f32>(rgb8) / 255.0, 1.0);
         }
-        case BGRX8888: {
-            let address = row + pixel.x * 4u;
+        case BGR888, BGRX8888: {
+            let pixel_bytes = select(4u, 3u, state.format == BGR888);
+            let address = row + pixel.x * pixel_bytes;
             let rgb = vec3(image_byte(address + 2u), image_byte(address + 1u), image_byte(address));
             return vec4(vec3<f32>(rgb) / 255.0, 1.0);
         }

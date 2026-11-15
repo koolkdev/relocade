@@ -15,6 +15,7 @@ pub(super) enum Location {
     },
     Packed {
         address: u32,
+        address_mask: u32,
         format: PixelFormat,
     },
 }
@@ -47,13 +48,17 @@ impl Location {
                 };
                 rotate(color, rotation)
             }
-            Self::Packed { address, format } => {
+            Self::Packed {
+                address,
+                address_mask,
+                format,
+            } => {
                 let mut bytes = [0; 4];
                 for (offset, byte) in bytes[..format.bytes_per_pixel() as usize]
                     .iter_mut()
                     .enumerate()
                 {
-                    *byte = memory.read_physical(address + offset as u32);
+                    *byte = memory.read_physical((address + offset as u32) & address_mask);
                 }
                 return u32::from_le_bytes(bytes);
             }
@@ -89,12 +94,16 @@ impl Location {
                     );
                 }
             }
-            Self::Packed { address, format } => {
+            Self::Packed {
+                address,
+                address_mask,
+                format,
+            } => {
                 for (offset, byte) in value.to_le_bytes()[..format.bytes_per_pixel() as usize]
                     .iter()
                     .enumerate()
                 {
-                    memory.write_physical(address + offset as u32, *byte);
+                    memory.write_physical((address + offset as u32) & address_mask, *byte);
                 }
             }
         }
