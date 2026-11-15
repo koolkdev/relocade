@@ -26,9 +26,9 @@ pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
     timebase: Timebase,
-    // One retired instruction contributes 1e9 ticks; one nanosecond contributes
-    // the instruction rate. Reading progress requires no time conversion.
-    now: Timestamp,
+    // While bound, guest ticks are the published instruction count plus this
+    // offset. While paused, the offset holds the frozen reading.
+    offset: u64,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
     host: Option<HostTime>,
@@ -37,7 +37,6 @@ struct State {
 struct Binding {
     state: CpuStateAccess,
     target: InstructionTarget,
-    last_instruction_count: u64,
     yield_deadline: Option<Timestamp>,
     changed: Waker,
 }
@@ -46,7 +45,7 @@ impl GuestTimeDriver {
     pub fn new(instructions_per_second: NonZeroU64) -> Self {
         Self(Rc::new(RefCell::new(State {
             timebase: Timebase(instructions_per_second),
-            now: Timestamp(0),
+            offset: 0,
             cpu: None,
             waits: Vec::new(),
             host: None,
@@ -76,13 +75,13 @@ impl GuestTimeDriver {
     pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
-        let now = state.observe();
+        let now = state.now();
         if let Some(host) = &mut state.host {
             host.resume(now);
         }
         let cpu_state = cpu.cpu_state();
+        state.offset = now.0.wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {
-            last_instruction_count: cpu_state.instruction_count(),
             state: cpu_state,
             target: cpu.instruction_target(),
             yield_deadline: None,
@@ -92,7 +91,7 @@ impl GuestTimeDriver {
         BindingGuard(self)
     }
 
-    /// Updates guest time from retirement, completes due sleeps and arms the CPU
+    /// Reads guest time, completes due sleeps and arms the CPU
     /// target. `yield_deadline` is an optional absolute guest time at which the
     /// embedding wants execution to yield. Wait changes preserve it until the next
     /// synchronization. With host pacing, lag over 20 ms resets the correspondence
@@ -120,22 +119,29 @@ impl GuestTimeDriver {
     /// Earliest registered sleep in guest time. Query at a stopped boundary
     /// after ready activities have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Timestamp> {
-        self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
+        self.0
+            .borrow()
+            .waits
+            .iter()
+            .map(|wait| wait.deadline.deadline())
+            .min()
     }
 
     fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
-            let now = state.observe();
+            let now = state.now();
             let lag = state.host.as_mut().and_then(|host| host.discard_lag(now));
             let timebase = state.timebase;
             let due = state
                 .waits
                 .extract_if(.., |wait| {
                     if let Some(lag) = lag.filter(|_| wait.host_sync) {
-                        wait.deadline = timebase.checked_sub(wait.deadline, lag).unwrap_or(now);
+                        wait.deadline = timebase
+                            .checked_retreat(wait.deadline, lag)
+                            .unwrap_or_else(|| now.into());
                     }
-                    wait.deadline <= now
+                    wait.deadline.deadline() <= now
                 })
                 .collect::<Vec<_>>();
             state.refresh_target();
@@ -150,8 +156,10 @@ impl GuestTimeDriver {
     pub(crate) fn advance_to(&self, deadline: Timestamp) {
         {
             let mut state = self.0.borrow_mut();
-            let now = state.observe();
-            state.now = now.max(deadline);
+            let now = state.now();
+            if deadline > now {
+                state.offset = state.offset.wrapping_add(deadline.0.wrapping_sub(now.0));
+            }
         }
         self.notify_due();
     }
@@ -162,45 +170,31 @@ struct BindingGuard<'a>(&'a GuestTimeDriver);
 impl Drop for BindingGuard<'_> {
     fn drop(&mut self) {
         let mut state = self.0 .0.borrow_mut();
-        state.observe();
+        let now = state.now();
         if let Some(host) = &mut state.host {
             host.pause();
         }
         state.cpu.take().unwrap().target.set(None);
+        state.offset = now.0;
     }
 }
 
 impl State {
-    fn observe(&mut self) -> Timestamp {
-        if let Some(cpu) = &mut self.cpu {
-            let instruction_count = cpu.state.instruction_count();
-            let retired = instruction_count.wrapping_sub(cpu.last_instruction_count);
-            let progress = u128::from(retired) * 1_000_000_000;
-            self.now.0 = self
-                .now
-                .0
-                .checked_add(progress)
-                .expect("guest clock exhausted");
-            cpu.last_instruction_count = instruction_count;
-        }
-        self.now
+    fn now(&self) -> Timestamp {
+        let count = self.cpu.as_ref().map_or(0, |cpu| cpu.state.instruction_count());
+        Timestamp(count.wrapping_add(self.offset))
     }
 
     fn refresh_target(&mut self) {
-        let now = self.observe();
+        let now = self.now();
         let Some(cpu) = &self.cpu else { return };
         let deadline = self
             .waits
             .iter()
-            .map(|wait| wait.deadline)
+            .map(|wait| wait.deadline.deadline())
             .chain(cpu.yield_deadline)
             .min();
-        let target = deadline.map(|deadline| {
-            // Round up in native units so execution never stops before a deadline.
-            let remaining = deadline.0.saturating_sub(now.0);
-            let allowance = remaining.div_ceil(1_000_000_000).min(i64::MAX as u128) as u64;
-            cpu.last_instruction_count.wrapping_add(allowance)
-        });
+        let target = deadline.map(|deadline| deadline.max(now).0.wrapping_sub(self.offset));
         cpu.target.set(target);
     }
 }

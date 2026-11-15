@@ -4,7 +4,7 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
+    Clock, ClockCursor, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -44,7 +44,7 @@ async fn progress() {
         let binding = driver.bind(cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
         // across counter wrap. Repeated consumption accounts for every ns.
-        let mut consumed = start;
+        let mut consumed = ClockCursor::from(start);
         let mut elapsed = Duration::ZERO;
         for nanos in [
             333_333_333,
@@ -75,8 +75,8 @@ async fn progress() {
             clock.duration_since(clock.now(), start),
             Duration::from_nanos(2_333_333_333)
         );
-        // Idle advancement reaches the exact deadline; retired fractions then
-        // accumulate from that position rather than adding pre-jump fractions.
+        // Idle advancement rounds 7.5 instructions up to tick 8 without retiring
+        // an instruction. Execution then continues from that guest-time offset.
         use std::{
             future::Future,
             pin::pin,
@@ -89,11 +89,13 @@ async fn progress() {
         assert!(driver.advance_to_next_deadline());
         assert!(wait.as_mut().poll(&mut cx).is_ready());
         assert_eq!(clock.now(), deadline);
+        assert_eq!(clock.now().ticks(), 8);
+        assert_eq!(cpu.cpu_state().instruction_count(), 6);
         cpu.step();
         cpu.step();
         assert_eq!(
             clock.duration_since(clock.now(), start),
-            Duration::from_nanos(3_166_666_666)
+            Duration::from_nanos(3_333_333_333)
         );
     });
     let execution = execution.await;

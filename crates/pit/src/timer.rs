@@ -4,8 +4,8 @@ use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
-    Timestamp,
+    yield_now, Clock, ClockCursor, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite,
+    Runner, Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
@@ -15,7 +15,7 @@ use std::{cell::RefCell, rc::Rc};
 /// fraction remains pending. Snapshot times share that same phase for audio.
 #[derive(Clone, Debug)]
 pub struct Channel2State {
-    pub at: Timestamp,
+    pub at: ClockCursor,
     pub counter: Counter,
     /// Fraction of an input clock already elapsed, in billionths. The counter
     /// has consumed all whole input clocks before this fraction.
@@ -27,7 +27,7 @@ pub struct Channel2State {
 pub struct Pit {
     clock: Clock,
     started_at: Timestamp,
-    updated: Timestamp,
+    updated: ClockCursor,
     channel0: Counter,
     channel2: Counter,
     channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
@@ -86,7 +86,7 @@ impl Pit {
         let started_at = clock.now();
         Self {
             started_at,
-            updated: started_at,
+            updated: started_at.into(),
             clock,
             channel0,
             channel2: Counter::default(),

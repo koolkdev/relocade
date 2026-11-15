@@ -1,5 +1,5 @@
 use crate::timing::Timing;
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, ClockCursor, Timestamp};
 use std::{cell::Cell, rc::Rc};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
@@ -10,7 +10,7 @@ const VERTICAL_RETRACE: u8 = 1 << 3;
 pub(super) struct Raster {
     clock: Clock,
     timing: Timing,
-    updated: Timestamp,
+    updated: ClockCursor,
     dot: u64,
     // Independent horizontal phase survives an interlaced half-line field boundary.
     horizontal_dot: u64,
@@ -22,7 +22,8 @@ pub(super) struct Raster {
 }
 
 /// Authoritative polling state shared with status-port readers. Only the raster
-/// publishes status and deadlines; readers record time and service due edges.
+/// publishes status and deadlines. Polling services due edges; programming
+/// observations also retain time between edges.
 pub(super) struct RasterStatus {
     clock: Clock,
     observed: Cell<Timestamp>,
@@ -32,7 +33,12 @@ pub(super) struct RasterStatus {
 
 impl RasterStatus {
     pub fn observe_now(&self) -> bool {
-        self.observe(self.clock.now())
+        let now = self.clock.now();
+        let due = self.next_update.get().is_some_and(|deadline| now >= deadline);
+        if due {
+            self.observed.set(now);
+        }
+        due
     }
 
     /// Record observed time even between events, so a programming change can
@@ -57,7 +63,7 @@ impl Raster {
         let mut raster = Self {
             clock: clock.clone(),
             timing,
-            updated: now,
+            updated: now.into(),
             dot: 0,
             horizontal_dot: 0,
             dot_remainder: 0,
@@ -99,7 +105,9 @@ impl Raster {
         let frame_dots = timing.frame_dots();
         let completed = self
             .next_retrace
-            .filter(|deadline| self.updated >= *deadline)
+            // The deadline is rounded to a tick; the consumed phase can lag
+            // that reading by a fraction of a nanosecond after crossing the edge.
+            .filter(|deadline| now >= *deadline)
             .map(|_| {
                 let boundary = timing.retrace_dot().expect("Running capture boundary");
                 let since_previous_boundary = (self.dot + frame_dots - boundary) % frame_dots;
@@ -136,7 +144,7 @@ impl Raster {
         self.advance_to(self.status.observed.get());
         self.timing = new;
         if old.reset_active || new.reset_active {
-            self.updated = self.status.observed.get();
+            self.updated = self.status.observed.get().into();
             self.dot = 0;
             self.horizontal_dot = 0;
             self.dot_remainder = 0;
@@ -170,7 +178,7 @@ impl Raster {
     /// the lifetime retrace count so consumers can wait across mode switches.
     pub fn restart(&mut self, timing: Timing) {
         self.timing = timing;
-        self.updated = self.status.observed.get();
+        self.updated = self.status.observed.get().into();
         self.dot = 0;
         self.horizontal_dot = 0;
         self.dot_remainder = 0;

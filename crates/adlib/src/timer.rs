@@ -1,4 +1,4 @@
-use relocade_machine::{Clock, Timestamp};
+use relocade_machine::{Clock, ClockCursor, Timestamp};
 use std::time::Duration;
 
 /// Reloading eight-bit timer. Masking clears its flag without stopping its count.
@@ -7,7 +7,7 @@ pub(super) struct Timer {
     pub overflow: bool,
     masked: bool,
     tick: Duration,
-    deadline: Option<Timestamp>,
+    deadline: Option<ClockCursor>,
 }
 
 impl Timer {
@@ -31,14 +31,18 @@ impl Timer {
             self.overflow = false;
         }
         match (start, self.deadline) {
-            (true, None) => self.deadline = Some(clock.add(now, self.period())),
+            (true, None) => {
+                let mut deadline = ClockCursor::from(now);
+                deadline.advance(clock, self.period());
+                self.deadline = Some(deadline);
+            }
             (false, _) => self.deadline = None,
             _ => {}
         }
     }
 
     pub fn update(&mut self, clock: &Clock, now: Timestamp) {
-        let Some(deadline) = self.deadline.filter(|&deadline| deadline <= now) else {
+        let Some(mut deadline) = self.deadline.filter(|deadline| deadline.deadline() <= now) else {
             return;
         };
         self.overflow |= !self.masked;
@@ -47,6 +51,7 @@ impl Timer {
         let elapsed = clock.duration_since(now, deadline);
         let period = self.period();
         let remainder = Duration::from_nanos((elapsed.as_nanos() % period.as_nanos()) as u64);
-        self.deadline = Some(clock.add(deadline, elapsed - remainder + period));
+        deadline.advance(clock, elapsed - remainder + period);
+        self.deadline = Some(deadline);
     }
 }

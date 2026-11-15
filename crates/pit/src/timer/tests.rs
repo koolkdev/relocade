@@ -218,7 +218,7 @@ fn fractional_initialization_keeps_polling_and_timer_edges_on_the_same_grid() {
     use relocade_machine::{GuestTimeDriver, Timestamp};
     use std::num::NonZeroU64;
 
-    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     let clock = driver.clock();
     let mut cx = Context::from_waker(Waker::noop());
     let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
@@ -236,7 +236,10 @@ fn fractional_initialization_keeps_polling_and_timer_edges_on_the_same_grid() {
         assert!(driver.advance_to_next_deadline());
         timer.borrow_mut().sync_to_clock();
         let snapshot = timer.borrow().channel2_snapshot();
-        assert_eq!(snapshot.at, Timestamp::from_ticks(consumed));
+        assert_eq!(
+            snapshot.at,
+            ClockCursor::from(Timestamp::from_ticks(consumed))
+        );
         assert_eq!(snapshot.fraction, fraction);
     }
     assert_eq!(driver.next_deadline(), Some(edge));

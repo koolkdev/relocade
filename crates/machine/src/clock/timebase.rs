@@ -1,45 +1,81 @@
-//! Fixed clock units and duration conversion, independent of clock progress.
+//! Native tick frequency and precise duration conversion at device boundaries.
 
-use super::Timestamp;
+use super::{ClockCursor, Timestamp};
 use std::{num::NonZeroU64, time::Duration};
+
+const NANOS_PER_SECOND: u128 = 1_000_000_000;
 
 #[derive(Clone, Copy)]
 pub(super) struct Timebase(pub(super) NonZeroU64);
 
 impl Timebase {
-    pub(super) const NANOSECONDS: Self = Self(NonZeroU64::new(1).unwrap());
+    pub(super) const NANOSECONDS: Self = Self(NonZeroU64::new(1_000_000_000).unwrap());
 
-    fn ticks(self, duration: Duration) -> Option<u128> {
-        duration.as_nanos().checked_mul(u128::from(self.0.get()))
+    fn fractional_ticks(self, duration: Duration) -> Option<u128> {
+        let ticks = duration.as_nanos().checked_mul(u128::from(self.0.get()))?;
+        (ticks.div_ceil(NANOS_PER_SECOND) <= i64::MAX as u128).then_some(ticks)
     }
 
-    pub(super) fn checked_add(self, time: Timestamp, duration: Duration) -> Option<Timestamp> {
-        time.0.checked_add(self.ticks(duration)?).map(Timestamp)
+    pub(super) fn checked_advance(
+        self,
+        cursor: ClockCursor,
+        duration: Duration,
+    ) -> Option<ClockCursor> {
+        let ticks = self.fractional_ticks(duration)? + u128::from(cursor.fraction);
+        Some(ClockCursor {
+            time: Timestamp(cursor.time.0.wrapping_add((ticks / NANOS_PER_SECOND) as u64)),
+            fraction: (ticks % NANOS_PER_SECOND) as u32,
+        })
     }
 
-    pub(super) fn checked_sub(self, time: Timestamp, duration: Duration) -> Option<Timestamp> {
-        time.0.checked_sub(self.ticks(duration)?).map(Timestamp)
+    pub(super) fn checked_add(self, time: ClockCursor, duration: Duration) -> Option<Timestamp> {
+        self.checked_advance(time, duration)
+            .map(ClockCursor::deadline)
     }
 
-    pub(super) fn duration_since(self, time: Timestamp, earlier: Timestamp) -> Duration {
-        duration(time.0.saturating_sub(earlier.0) / u128::from(self.0.get()))
+    pub(super) fn checked_sub(self, time: ClockCursor, duration: Duration) -> Option<Timestamp> {
+        self.checked_retreat(time, duration)
+            .map(ClockCursor::deadline)
+    }
+
+    pub(super) fn checked_retreat(
+        self,
+        time: ClockCursor,
+        duration: Duration,
+    ) -> Option<ClockCursor> {
+        let ticks = self.fractional_ticks(duration)?;
+        let whole = (ticks / NANOS_PER_SECOND) as u64;
+        let fraction = (ticks % NANOS_PER_SECOND) as u32;
+        let borrow = u64::from(time.fraction < fraction);
+        Some(ClockCursor {
+            time: Timestamp(time.time.0.wrapping_sub(whole).wrapping_sub(borrow)),
+            fraction: ((u64::from(time.fraction) + borrow * NANOS_PER_SECOND as u64)
+                - u64::from(fraction)) as u32,
+        })
+    }
+
+    fn elapsed(self, time: ClockCursor, earlier: ClockCursor) -> u128 {
+        if time < earlier {
+            return 0;
+        }
+        u128::from(time.time.0.wrapping_sub(earlier.time.0)) * NANOS_PER_SECOND
+            + u128::from(time.fraction)
+            - u128::from(earlier.fraction)
+    }
+
+    pub(super) fn duration_since(self, time: ClockCursor, earlier: ClockCursor) -> Duration {
+        duration(self.elapsed(time, earlier) / u128::from(self.0.get()))
     }
 
     /// Cross-clock deadlines must not fire before their source time.
-    pub(super) fn duration_until(self, time: Timestamp, earlier: Timestamp) -> Duration {
-        duration(
-            time.0
-                .saturating_sub(earlier.0)
-                .div_ceil(u128::from(self.0.get())),
-        )
+    pub(super) fn duration_until(self, time: ClockCursor, earlier: ClockCursor) -> Duration {
+        duration(self.elapsed(time, earlier).div_ceil(u128::from(self.0.get())))
     }
 
-    pub(super) fn consume_elapsed(self, cursor: &mut Timestamp, time: Timestamp) -> Duration {
+    pub(super) fn consume_elapsed(self, cursor: &mut ClockCursor, time: ClockCursor) -> Duration {
         let elapsed = self.duration_since(time, *cursor);
-        // Advancing by the duration returned leaves any unconsumed native
-        // fraction between the cursor and the observation for the next update.
         *cursor = self
-            .checked_add(*cursor, elapsed)
+            .checked_advance(*cursor, elapsed)
             .expect("consumed time fits before observation");
         elapsed
     }
@@ -47,9 +83,9 @@ impl Timebase {
 
 fn duration(nanos: u128) -> Duration {
     Duration::new(
-        (nanos / 1_000_000_000)
+        (nanos / NANOS_PER_SECOND)
             .try_into()
             .expect("clock duration fits in u64 seconds"),
-        (nanos % 1_000_000_000) as u32,
+        (nanos % NANOS_PER_SECOND) as u32,
     )
 }

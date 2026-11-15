@@ -153,7 +153,7 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
         task::{Context, Waker},
     };
 
-    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     let clock = driver.clock();
     let mut cx = Context::from_waker(Waker::noop());
     let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));

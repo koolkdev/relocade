@@ -1,7 +1,7 @@
 //! Host/guest correspondence, excluding pauses and excessive execution lag.
 
 use super::super::Timebase;
-use crate::{Clock, Instant, Sleep, Timestamp};
+use crate::{Clock, ClockCursor, Instant, Sleep, Timestamp};
 use std::time::Duration;
 
 const MAX_LAG: Duration = Duration::from_millis(20);
@@ -37,11 +37,7 @@ impl HostTime {
                 let paused = self.paused_at.take().expect("host time was paused");
                 // Both coordinates belong to the host clock. Preserve even a
                 // sub-nanosecond pause without converting it through Duration.
-                mapping.host.0 = mapping
-                    .host
-                    .0
-                    .checked_add(now.0.saturating_sub(paused.0))
-                    .expect("paused host correspondence fits its timeline");
+                mapping.host.0 = mapping.host.0.wrapping_add(now.0.wrapping_sub(paused.0));
             }
             None => self.mapping = Some(Mapping { host: now, guest }),
         }
@@ -66,7 +62,7 @@ impl HostTime {
         Some(lag)
     }
 
-    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<Timestamp> {
+    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<ClockCursor> {
         if self.paused_at.is_some() {
             return None;
         }
@@ -75,9 +71,11 @@ impl HostTime {
             Some(time) => self.clock.source.host_timestamp(time)?,
             None => self.clock.now(),
         };
-        self.guest_timebase.checked_add(
-            mapping.guest,
-            self.clock.timebase.duration_until(host_time, mapping.host),
+        self.guest_timebase.checked_advance(
+            mapping.guest.into(),
+            self.clock
+                .timebase
+                .duration_until(host_time.into(), mapping.host.into()),
         )
     }
 
@@ -89,12 +87,14 @@ impl HostTime {
         if guest >= mapping.guest {
             self.clock.checked_add(
                 mapping.host,
-                self.guest_timebase.duration_until(guest, mapping.guest),
+                self.guest_timebase
+                    .duration_until(guest.into(), mapping.guest.into()),
             )
         } else {
             self.clock.checked_sub(
                 mapping.host,
-                self.guest_timebase.duration_since(mapping.guest, guest),
+                self.guest_timebase
+                    .duration_since(mapping.guest.into(), guest.into()),
             )
         }
     }

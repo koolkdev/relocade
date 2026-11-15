@@ -13,7 +13,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn advance_to(driver: &GuestTimeDriver, ticks: u128) -> Timestamp {
+fn advance_to(driver: &GuestTimeDriver, ticks: u64) -> Timestamp {
     let clock = driver.clock();
     let deadline = Timestamp::from_ticks(ticks);
     let mut sleep = pin!(clock.sleep_until(deadline));
@@ -29,7 +29,7 @@ fn advance_to(driver: &GuestTimeDriver, ticks: u128) -> Timestamp {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn fractional_sample_intervals_preserve_pitch_and_level() {
-    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     let (io, speaker) = common::hardware(driver.clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
     io.write_port(CHANNEL_2_PORT, 1, 2);
@@ -64,7 +64,7 @@ fn fractional_sample_intervals_preserve_pitch_and_level() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn offset_sample_epoch_preserves_level_across_a_pit_write() {
-    let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
+    let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     advance_to(&driver, 1);
     let (io, speaker) = common::hardware(driver.clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
