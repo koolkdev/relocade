@@ -10,12 +10,13 @@ use crate::{
     DacState, DispiAdapter, VgaCoreState,
 };
 
-/// Staged DISPI mode, active layout, enable flags, CPU bank and register index.
+/// Staged DISPI mode, active layout, capability query, interface ID, CPU bank
+/// and register index. The DAC width is restored with the DAC state class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DispiState(Dispi);
 
 impl DispiState {
-    pub const BYTE_LEN: usize = 18;
+    pub const BYTE_LEN: usize = 20;
 
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         self.0.to_state_bytes()

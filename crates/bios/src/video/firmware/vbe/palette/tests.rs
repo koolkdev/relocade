@@ -97,6 +97,24 @@ fn retrace_update_owns_the_input_and_preserves_completed_colors() {
 }
 
 #[test]
+fn precision_change_cancels_a_waiting_palette_transfer() {
+    let clock = ManualClock::default();
+    let Palette { card, io, memory } = Palette::new(clock.clock());
+    let mut view = memory.view();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut request = pin!(set_at_retrace(&mut view, &io, card.as_ref(), 1, 17, BUFFER));
+    assert!(request.as_mut().poll(&mut cx).is_pending());
+    io.with_context(|context| card.borrow_mut().set_dac_bits_per_component(context, 8));
+    let changed = card.borrow().dac_state();
+    clock.advance_to(clock.at(boundary(1)));
+    assert_eq!(
+        request.as_mut().poll(&mut cx),
+        Poll::Ready(Err(Error::Failed))
+    );
+    assert_eq!(card.borrow().dac_state(), changed);
+}
+
+#[test]
 fn mode_changes_and_disabled_decoding_cancel_without_programming_the_palette() {
     for mode in [
         Some(DispiMode::new(

@@ -1,9 +1,10 @@
 //! The complete DISPI adapter: shared VGA core, one VRAM, and one raster/output lifetime.
 //!
-//! Its banked ID2 interface exposes three resolutions in indexed eight-bit,
-//! RGB555, RGB565, BGR888 and BGRX8888 formats, with the no-clear enable flag. Word transfers
+//! Its banked ID3 subset exposes three resolutions in indexed eight-bit,
+//! RGB555, RGB565, BGR888 and BGRX8888 formats, with no-clear entry, capability
+//! queries and switchable six/eight-bit DAC precision. Word transfers
 //! at 01CE/01CF follow the [Bochs VBE Display API](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-//! Linear access, ID negotiation and newer flags are unsupported.
+//! Linear access and flags beyond this ID3 subset are unsupported.
 //! Invalid requests leave the accepted configuration unchanged.
 mod configuration;
 mod device;
@@ -25,9 +26,10 @@ use async_channel::Receiver;
 pub use modes::{DispiMode, DispiResolution};
 use registers::Dispi;
 pub use registers::{
-    BANK, BANK_BYTES, BANK_RANGE, BANK_START, BITS_PER_PIXEL, DATA_PORT, DISABLED, ENABLE, ENABLED,
-    ID, INDEX_PORT, INTERFACE_ID, NO_CLEAR_MEMORY, PORT_RANGE, VIDEO_MEMORY_BYTES, VIRTUAL_HEIGHT,
-    VIRTUAL_WIDTH, X_OFFSET, X_RESOLUTION, Y_OFFSET, Y_RESOLUTION,
+    BANK, BANK_BYTES, BANK_RANGE, BANK_START, BITS_PER_PIXEL, DATA_PORT, DISABLED, EIGHT_BIT_DAC,
+    ENABLE, ENABLED, GET_CAPABILITIES, ID, INDEX_PORT, INTERFACE_ID, NO_CLEAR_MEMORY, PORT_RANGE,
+    VIDEO_MEMORY_BYTES, VIRTUAL_HEIGHT, VIRTUAL_WIDTH, X_OFFSET, X_RESOLUTION, Y_OFFSET,
+    Y_RESOLUTION,
 };
 use relocade_machine::{Clock, Runner};
 pub use state::DispiState;

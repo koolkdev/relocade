@@ -4,14 +4,13 @@ use super::modes::Mode;
 use crate::video::firmware::vbe::{ModeInformation, SavedState, Vbe, WindowAccess};
 use relocade_machine::{IoBus, IoContext, MemoryView};
 use relocade_vga::{
-    registers::dac::Dac, DacState, Et4000Ax, Et4000State, PackedLayout, RetraceEvent, VgaCoreState,
-    Viewport,
+    DacState, Et4000Ax, Et4000State, PackedLayout, RetraceEvent, VgaCoreState, Viewport,
 };
 use std::{cell::RefCell, future::Future};
 
 impl Vbe for Et4000Ax {
     const OEM_STRING: &'static [u8] = b"Relocade ET4000AX\0";
-    const DAC_BITS_PER_COMPONENT: u8 = Dac::BITS_PER_COMPONENT;
+    const MAX_DAC_BITS_PER_COMPONENT: u8 = 6;
     // EV8913 state version 2 includes the SC11483 command/access state.
     const STATE_PROFILE: u8 = 2;
     const EXTENSION_STATE_BYTES: usize = Et4000State::BYTE_LEN;
@@ -91,6 +90,12 @@ impl Vbe for Et4000Ax {
 
     fn palette(&self) -> &[[u8; 3]; 256] {
         &self.registers().dac.colors
+    }
+    fn dac_bits_per_component(&self) -> u8 {
+        6
+    }
+    fn set_dac_bits_per_component(&mut self, _context: IoContext<'_>, bits: u8) {
+        debug_assert_eq!(bits, 6);
     }
     fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
         self.set_palette(context, first, colors);

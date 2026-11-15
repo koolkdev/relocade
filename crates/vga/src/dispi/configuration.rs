@@ -22,6 +22,22 @@ impl DispiAdapter {
         self.dispi.bank()
     }
 
+    pub fn dac_bits_per_component(&self) -> u8 {
+        self.vga.registers.dac.bits_per_component()
+    }
+
+    /// Apply the same enable-register operation as a guest, preserving its index,
+    /// active image, bank and partial palette transfer.
+    /// Accepts six or eight bits per component.
+    pub fn set_dac_bits_per_component(&mut self, context: IoContext<'_>, bits: u8) {
+        debug_assert!(matches!(bits, 6 | 8));
+        if !self.ports_enabled() {
+            return;
+        }
+        let flags = self.dispi.enable_flags(bits);
+        self.write_dispi_register(context, dispi::ENABLE, flags);
+    }
+
     /// Preserve overdue captures, then transfer RGB colors through the shared DAC.
     pub fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
         if !self.ports_enabled() || colors.is_empty() {

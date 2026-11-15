@@ -14,7 +14,7 @@ pub(in crate::video::firmware) struct SavedState {
 
 pub(in crate::video::firmware) trait Vbe: Sized {
     const OEM_STRING: &'static [u8];
-    const DAC_BITS_PER_COMPONENT: u8;
+    const MAX_DAC_BITS_PER_COMPONENT: u8;
     /// Identifies the card and encoding version in the opaque VBE state buffer.
     const STATE_PROFILE: u8;
     const EXTENSION_STATE_BYTES: usize;
@@ -46,6 +46,8 @@ pub(in crate::video::firmware) trait Vbe: Sized {
     fn wait_for_retrace(&mut self) -> Option<impl Future<Output = RetraceEvent> + 'static>;
 
     fn palette(&self) -> &[[u8; 3]; 256];
+    fn dac_bits_per_component(&self) -> u8;
+    fn set_dac_bits_per_component(&mut self, context: IoContext<'_>, bits: u8);
     fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]);
 
     fn capture_state(&self) -> SavedState;

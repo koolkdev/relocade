@@ -972,10 +972,9 @@ path.
 
 The device implements a restricted banked subset of the
 [Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-The ID2 register subset uses the 01CEh index and 01CFh data ports.
-The ID is fixed: ID writes are ignored, so this subset does not support the
-ID negotiation used by stock Bochs VGABIOS or SeaBIOS. It is not a drop-in
-Bochs/QEMU device or an emulation of a historical SVGA chipset.
+The ID3 register subset uses the 01CEh index and 01CFh data ports. The ID defaults
+to B0C3h and accepts ID0–ID3 negotiation; later IDs are ignored. The supported
+geometry and banked aperture remain a restricted Bochs profile.
 Both ports require word transfers: a word at 01CEh selects one complete register
 index, rather than writing two adjacent byte registers. Byte/dword reads return
 all ones and writes are ignored. Unknown register reads return FFFFh; unknown
@@ -983,9 +982,9 @@ register writes and unsupported requests leave the state unchanged.
 
 | Register | Readback and accepted writes |
 | --- | --- |
-| 0: ID | Fixed B0C2h; writes are ignored |
-| 1–3: X, Y, bits per pixel | Stage a mode while disabled; active writes are ignored |
-| 4: Enable | 0 disables; 1 or 81h enables a complete supported packed mode |
+| 0: ID | B0C3h initially; accepts B0C0h–B0C3h |
+| 1–3: X, Y, bits per pixel | Stage a mode while disabled; GETCAPS reads 1024, 768 and 32 |
+| 4: Enable | Bit 0 enables packed output; bit 1 queries capabilities; bit 5 selects eight-bit DAC; bit 7 preserves VRAM on entry |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
 | 6–7: Virtual width and height | Active logical width in pixels; read-only full-row count in VRAM |
 | 8–9: X and Y offsets | Active viewport origin in pixels; out-of-bounds writes are ignored |
@@ -993,10 +992,19 @@ register writes and unsupported requests leave the state unchanged.
 Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
 requests memory preservation. Readback retains the accepted enable word. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
-legacy registers, DAC contents and VGA read latches. Unsupported enable flags,
-including LFB combined with no-clear, are ignored as a whole. The restricted ID2
-profile supports 8-, 15-, 16-, 24- and 32-bit pixels and no-clear mode entry.
+legacy registers and VGA read latches. Unsupported enable flags, including LFB
+combined with no-clear, are ignored as a whole. The restricted ID3 profile
+supports 8-, 15-, 16-, 24- and 32-bit pixels and no-clear mode entry.
 The linear aperture remains unsupported.
+
+GETCAPS and eight-bit DAC flags can change while packed output is active without
+resetting the bank, viewport, VRAM or raster phase. GETCAPS substitutes the maximum
+resolution and depth on reads; it leaves the staged geometry intact. DAC precision
+also applies to legacy VGA output. Clearing its flag shifts the palette back to
+six bits. BIOS mode entry resets precision to six before loading any palette.
+The DAC state class owns precision, so its restoration updates enable-register
+readback without rewriting SVGA state. The DISPI state class owns the negotiated
+ID and capability-query flag.
 
 `PackedLayout::with_pitch` and `with_origin` validate immutable candidate layouts.
 Pitch changes retain pixel coordinates and fail if the viewport would no longer
@@ -1118,7 +1126,8 @@ The hardware and DAC components use `VgaCoreState` and `DacState`. Each driver
 supplies its state-profile identifier and extension encoding (`DispiState` or
 `Et4000State`) and validates every requested device component before applying
 them together. DISPI's saved pitch remains a byte count in every
-pixel format; the component encoding stays 18 bytes. The card applies the validated
+pixel format; its 20-byte component also stores the negotiated ID and capability
+query. DISPI uses state profile 3; ET4000 uses profile 2. The card applies the validated
 device components together in one effects operation, without replaying an enable
 command or clearing VRAM. IBM AH=1Ch retains its
 separate fixed buffer format and behavior.
@@ -1159,8 +1168,9 @@ the viewport before changing it; mode, pitch or origin changes cancel a pending
 request. Requests that would cross a logical row or the accessible memory fail
 without modifying the viewport.
 
-DAC-format service `4F08h` reports the device's fixed six-bit color components
-in legacy and indexed modes. Direct-color modes return AX=034Fh for this service.
+DAC-format service `4F08h` queries the driver's live component width in legacy
+and indexed modes, including changes made through DISPI ports. Direct-color
+modes return AX=034Fh for this service.
 Set requests of six bits or more select six, following VBE's next-lower-width
 rule; requests below six and unsupported selectors fail without changing the
 palette or an in-progress DAC transfer. The controller capability bit remains
@@ -1172,7 +1182,7 @@ rendering uploads palette changes that were skipped while displaying direct colo
 Palette-data service `4F09h` sets or gets primary palette blocks with BL=00h/01h.
 CX supplies the entry count and DX the first index. Each ES:DI entry contains
 blue, green, red and one padding byte. Writes ignore padding and mask components
-to six bits; reads return zero padding without changing DAC transfer position.
+to the active DAC width; reads return zero padding without changing DAC transfer position.
 The first index must be below 256 and the whole block must fit the palette.
 Empty transfers preserve device state and guest memory. Secondary palettes
 return AX=024Fh; invalid ranges or selectors return AX=014Fh. Direct-color modes
@@ -1183,7 +1193,7 @@ writing guest memory, so buffers may wrap at 64 KiB or reside in banked VRAM.
 BL=80h captures the input colors and waits for vertical retrace before programming
 the primary palette. It uses the same owned wait as display-start control, leaving
 the card available to interrupt handlers. Configuration changes rearm the wait;
-a changed mode or disabled adapter cancels the request with AX=014Fh. Empty blocks
+a changed mode, DAC width or disabled adapter cancels the request with AX=014Fh. Empty blocks
 return immediately. The completed frame retains its old colors, and subsequent
 captures use the new palette.
 

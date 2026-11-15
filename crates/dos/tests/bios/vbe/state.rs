@@ -55,7 +55,7 @@ fn component_masks_query_and_save_bounded_wrapping_buffers() {
         let mut dos = common::dos().await;
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         for (index, bytes) in [
-            90usize, 74, 148, 789, 863, 847, 921, 34, 108, 92, 166, 807, 881, 865, 939,
+            90usize, 74, 148, 789, 863, 847, 921, 36, 110, 94, 168, 809, 883, 867, 941,
         ]
         .into_iter()
         .enumerate()
@@ -103,7 +103,7 @@ fn relocated_state_restores_selected_classes_and_preserves_packed_memory() {
         let dispi = dos.vga().borrow().dispi_state();
         let firmware = read::<30>(&mut dos, FarPointer::from_packed(0x449));
         assert_eq!(state(&mut dos, 1, 15, BUFFER).registers.eax as u16, 0x4f);
-        let saved = read::<939>(&mut dos, BUFFER);
+        let saved = read::<941>(&mut dos, BUFFER);
         let relocated = FarPointer {
             segment: 0x4800,
             offset: 0x200,
@@ -180,7 +180,7 @@ fn invalid_state_and_requests_fail_before_restoring_any_class() {
         dos.launch_com(PROGRAM, Default::default()).unwrap();
         video(&mut dos, 0x4f02, 0x103, 0, 0);
         assert_eq!(state(&mut dos, 1, 15, BUFFER).registers.eax as u16, 0x4f);
-        let saved = read::<939>(&mut dos, BUFFER);
+        let saved = read::<941>(&mut dos, BUFFER);
         video(&mut dos, 0x4f02, 3, 0, 0);
         let core = dos.vga().borrow().core_state();
         let dac = dos.vga().borrow().dac_state();
@@ -214,7 +214,7 @@ fn invalid_state_and_requests_fail_before_restoring_any_class() {
                 state(&mut dos, operation, mask, BUFFER).registers.eax as u16,
                 0x14f
             );
-            assert_eq!(read::<939>(&mut dos, BUFFER), saved);
+            assert_eq!(read::<941>(&mut dos, BUFFER), saved);
         }
         assert_eq!(state(&mut dos, 1, 1, BUFFER).registers.eax as u16, 0x4f);
         assert_eq!(state(&mut dos, 2, 15, BUFFER).registers.eax as u16, 0x14f);
