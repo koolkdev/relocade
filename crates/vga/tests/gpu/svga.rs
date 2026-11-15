@@ -353,6 +353,18 @@ async fn check_direct_color() {
             ],
         ),
         (
+            24,
+            3072,
+            1365,
+            [0x0000_00ff, 0x0033_2211, 0x0000_ff00, 0x00ff_0000],
+            [
+                [0, 0, 255, 255],
+                [51, 34, 17, 255],
+                [0, 255, 0, 255],
+                [255, 0, 0, 255],
+            ],
+        ),
+        (
             32,
             4096,
             1024,
@@ -396,10 +408,11 @@ async fn check_direct_color() {
         vga.io.read_port(0x3da, 1);
         let original = vga.snapshot();
         assert_eq!(
-            original.vram_byte(4 * 1024 * 1024 - 1),
+            original.vram_byte(start + 479 * pitch + 640 * pixel_bytes - 1),
             Some(match bits {
                 15 => 0xfc,
                 16 => 0xf8,
+                24 => 0xff,
                 32 => 0xa5,
                 _ => unreachable!(),
             })

@@ -3,8 +3,8 @@
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
 //! This adapter exposes a fixed ID2 subset at the 01CE/01CF ports: three resolutions
-//! in indexed eight-bit, RGB555, RGB565 and BGRX8888 formats, with the no-clear flag.
-//! Linear access, 24-bit modes, ID negotiation and newer flags are unsupported.
+//! in indexed eight-bit, RGB555, RGB565, BGR888 and BGRX8888 formats, with no-clear entry.
+//! Linear access, ID negotiation and newer flags are unsupported.
 //! Invalid requests are ignored.
 
 use super::DispiMode;

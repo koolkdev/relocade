@@ -81,7 +81,7 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
         let mut name = [0; 21];
         context.memory.read_wrapping(oem, &mut name).unwrap();
         assert_eq!(&name, b"Relocade banked SVGA\0");
-        let mut list = [0; 26];
+        let mut list = [0; 32];
         context.memory.read_wrapping(modes, &mut list).unwrap();
         assert_eq!(
             list.as_chunks::<2>()
@@ -91,8 +91,8 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
                 .map(u16::from_le_bytes)
                 .collect::<Vec<_>>(),
             [
-                0x101, 0x103, 0x105, 0x110, 0x113, 0x116, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144,
-                0xffff
+                0x101, 0x103, 0x105, 0x110, 0x113, 0x116, 0x111, 0x114, 0x117, 0x112, 0x115, 0x118,
+                0x142, 0x143, 0x144, 0xffff
             ]
         );
         assert_eq!(dos.vga().borrow().registers(), &registers);
@@ -163,6 +163,9 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
             (0x111, 640, 480, 16, 5),
             (0x114, 800, 600, 16, 3),
             (0x117, 1024, 768, 16, 1),
+            (0x112, 640, 480, 24, 3),
+            (0x115, 800, 600, 24, 1),
+            (0x118, 1024, 768, 24, 0),
             (0x142, 640, 480, 32, 2),
             (0x143, 800, 600, 32, 1),
             (0x144, 1024, 768, 32, 0),
@@ -182,6 +185,7 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
                 8 => [0; 9],
                 15 => [5, 10, 5, 5, 5, 0, 1, 15, 0],
                 16 => [5, 11, 6, 5, 5, 0, 0, 0, 0],
+                24 => [8, 16, 8, 8, 8, 0, 0, 0, 0],
                 32 => [8, 16, 8, 8, 8, 0, 8, 24, 2],
                 _ => unreachable!(),
             };

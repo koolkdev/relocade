@@ -229,7 +229,7 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
         let mut name = [0; 21];
         context.memory.read_wrapping(oem, &mut name).unwrap();
         assert_eq!(&name, b"Relocade banked SVGA\0");
-        let mut list = [0; 26];
+        let mut list = [0; 32];
         context.memory.read_wrapping(modes, &mut list).unwrap();
         assert_eq!(
             list.as_chunks::<2>()
@@ -239,8 +239,8 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
                 .map(u16::from_le_bytes)
                 .collect::<Vec<_>>(),
             [
-                0x101, 0x103, 0x105, 0x110, 0x113, 0x116, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144,
-                0xffff
+                0x101, 0x103, 0x105, 0x110, 0x113, 0x116, 0x111, 0x114, 0x117, 0x112, 0x115, 0x118,
+                0x142, 0x143, 0x144, 0xffff
             ]
         );
     });
