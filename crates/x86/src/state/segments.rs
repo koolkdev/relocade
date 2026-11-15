@@ -1,135 +1,114 @@
-//! Reads of segment fields that remain fixed until the entry dispatches.
-
-use std::mem::size_of;
-
-use relocade_compiler::{BlockBuilder, BuildError, Val, ValueType, I1, I16, I32};
-
+//! Segment fields retain state values until a segment-changing entry dispatches.
+use super::{Cpu, ExecutionContext, SegmentRegister, Segments};
 use crate::{
-    segment::{Segment, SegmentAssumptions, SegmentSelection},
+    segment::{Segment, SegmentSelection},
+    ssa::{Location, SsaType, StateFields},
     ExecutionProfile,
 };
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
+use std::mem::{offset_of, size_of};
 
-use super::{access::cpu_load, Cpu, SegmentRegister};
-
-/// Segment loads commit at the end of an entry. Cloning these read caches keeps
-/// child-scoped loads local to their branch; inherited values remain reusable.
+/// Cloning forks retained state for a descendant path. Segment writes end the entry.
 #[derive(Clone)]
-pub(crate) struct SegmentReads<'cpu> {
-    cpu: &'cpu Cpu,
+pub(crate) struct SegmentReads {
     profile: ExecutionProfile,
-    cached: [Option<SegmentReadCache>; 6],
+    fields: StateFields,
+    initialized: bool,
 }
 
-#[derive(Clone, Default)]
-struct SegmentReadCache {
-    base: Option<Val<I32>>,
-    limit: Option<Val<I32>>,
-    selector: Option<Val<I16>>,
-    usable: Option<Val<I1>>,
-    readable: Option<Val<I1>>,
-    writable: Option<Val<I1>>,
-    executable: Option<Val<I1>>,
-    expand_down: Option<Val<I1>>,
-    big: Option<Val<I1>>,
-}
-
-impl SegmentReadCache {
-    fn new(profile: ExecutionProfile, segment: Segment) -> Self {
-        let mut cache = Self::default();
-        match profile {
-            ExecutionProfile::Real16 => {
-                cache.limit = Some(0xffffu32.into());
-                cache.big = Some(false.into());
-            }
-            ExecutionProfile::Protected(profile) => {
-                let facts = SegmentAssumptions::for_profile(profile, segment);
-                cache.base = facts.base.map(Into::into);
-                cache.limit = facts.limit.map(Into::into);
-                cache.usable = facts.usable.map(|value| (value != 0).into());
-                cache.readable = facts.readable.map(|value| (value != 0).into());
-                cache.writable = facts.writable.map(|value| (value != 0).into());
-                cache.executable = facts.executable.map(|value| (value != 0).into());
-                cache.expand_down = facts.expand_down.map(|value| (value != 0).into());
-                cache.big = facts.big.map(|value| (value != 0).into());
-            }
-        }
-        cache
-    }
-}
-
-macro_rules! read_field {
-    ($name:ident, $field:ident, $ty:ty $(, $convert:ident($argument:expr))?) => {
-        pub(crate) fn $name(
-            &mut self,
-            body: &mut BlockBuilder<'_>,
-            segment: &SegmentSelection,
-        ) -> Result<Val<$ty>, BuildError> {
-            let memory = self.cpu.memory();
-            self.read_field(body, segment, |cache| &mut cache.$field, |body, index| {
-                let value = cpu_load!(body, memory, segments.es.$field,
-                    at: index.mul(size_of::<SegmentRegister>() as u32))?;
-                Ok(value$(.$convert($argument))?)
-            })
-        }
-    };
-}
-
-impl<'cpu> SegmentReads<'cpu> {
-    pub(crate) fn new(cpu: &'cpu Cpu, profile: ExecutionProfile) -> Self {
+impl SegmentReads {
+    pub(crate) fn new(cpu: &Cpu, profile: ExecutionProfile) -> Self {
         Self {
-            cpu,
             profile,
-            cached: std::array::from_fn(|_| None),
+            fields: StateFields::new(cpu.memory()),
+            initialized: false,
         }
     }
-
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.profile
     }
 
-    fn cache(&mut self, segment: Segment) -> &mut SegmentReadCache {
-        self.cached[segment as usize]
-            .get_or_insert_with(|| SegmentReadCache::new(self.profile, segment))
-    }
-
-    fn read_field<T: ValueType>(
+    fn read_field<T: SsaType>(
         &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
-        field: impl Fn(&mut SegmentReadCache) -> &mut Option<Val<T>>,
-        load: impl FnOnce(&mut BlockBuilder<'_>, Val<I32>) -> Result<Val<T>, BuildError>,
+        offset: usize,
     ) -> Result<Val<T>, BuildError> {
+        if !self.initialized {
+            for segment in Segment::ALL {
+                for requirement in crate::segment::profile::assumptions(self.profile, segment) {
+                    requirement.apply(body, &mut self.fields)?;
+                }
+            }
+            self.initialized = true;
+        }
+        let location = |segment| {
+            Location::<T>::new(
+                (offset_of!(ExecutionContext, cpu) + Segments::offset(segment) + offset) as u32,
+            )
+        };
         let index = segment.index();
         if let Some(index) = body.constant_bits(&index)? {
-            let field = field(self.cache(Segment::ALL[index as usize]));
-            if let Some(value) = field {
-                return Ok(value.clone());
-            }
-            let value = load(body, (index as u32).into())?;
-            *field = Some(value.clone());
-            return Ok(value);
+            return self
+                .fields
+                .read(body, location(Segment::ALL[index as usize]));
         }
-
-        // Address defaults can reuse constants common to DS and SS.
+        // A default DS/SS choice can share a value established for both fields.
         if segment.is_ds_or_ss() {
-            let ds = field(self.cache(Segment::Ds)).clone();
-            let ss = field(self.cache(Segment::Ss)).clone();
-            if let (Some(ds), Some(ss)) = (ds, ss) {
-                if ds.same_expression(&ss) {
-                    return Ok(ds);
+            if let Some((ds, ss)) = self
+                .fields
+                .retained(&location(Segment::Ds))
+                .zip(self.fields.retained(&location(Segment::Ss)))
+            {
+                if ds.same_expression(ss) {
+                    return body.value(ds);
                 }
             }
         }
-        load(body, index)
+        let stride = size_of::<SegmentRegister>() as u32;
+        let last_segment_offset = (Segment::ALL.len() - 1) as u32 * stride;
+        self.fields.read(
+            body,
+            Location::indexed(
+                (offset_of!(ExecutionContext, cpu) + Segments::offset(Segment::Es) + offset) as u32,
+                last_segment_offset + T::BYTES,
+                index.mul(stride),
+            ),
+        )
     }
+}
 
-    read_field!(base, base, I32);
-    read_field!(limit, limit, I32);
-    read_field!(read_selector, selector, I16);
-    read_field!(usable, usable, I1, ne(0));
-    read_field!(readable, readable, I1, ne(0));
-    read_field!(writable, writable, I1, ne(0));
-    read_field!(executable, executable, I1, ne(0));
-    read_field!(expand_down, expand_down, I1, ne(0));
-    read_field!(big, big, I1, ne(0));
+macro_rules! read_field {
+    ($name:ident, $stored:ty, $ty:ty $(, $convert:ident($argument:expr))?) => {
+        impl SegmentReads {
+            pub(crate) fn $name(
+                &mut self,
+                body: &mut BlockBuilder<'_>,
+                segment: &SegmentSelection,
+            ) -> Result<Val<$ty>, BuildError> {
+                let value = self.read_field::<$stored>(
+                    body, segment, offset_of!(SegmentRegister, $name),
+                )?;
+                Ok(value$(.$convert($argument))?)
+            }
+        }
+    };
+}
+read_field!(base, I32, I32);
+read_field!(limit, I32, I32);
+read_field!(usable, I8, I1, ne(0));
+read_field!(readable, I8, I1, ne(0));
+read_field!(writable, I8, I1, ne(0));
+read_field!(executable, I8, I1, ne(0));
+read_field!(expand_down, I8, I1, ne(0));
+read_field!(big, I8, I1, ne(0));
+
+impl SegmentReads {
+    pub(crate) fn read_selector(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        segment: &SegmentSelection,
+    ) -> Result<Val<I16>, BuildError> {
+        self.read_field(body, segment, offset_of!(SegmentRegister, selector))
+    }
 }

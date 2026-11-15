@@ -88,6 +88,24 @@ fn accesses(
 }
 
 #[test]
+fn whole_field_admission_is_replaced_by_overlapping_writes() {
+    let emitted = accesses(|body, state| {
+        let word = Location::<I32>::new(4);
+        state
+            .assume_bits(body, word.clone(), u32::MAX, 0x4433_2211)
+            .unwrap();
+        let admitted = state.read(body, word.clone()).unwrap();
+        assert_eq!(body.constant_bits(&admitted).unwrap(), Some(0x4433_2211));
+        state.define(body, Location::<I8>::new(5), 0xee).unwrap();
+        let current = state.read(body, word).unwrap();
+        assert_eq!(body.constant_bits(&current).unwrap(), None);
+        state.publish(body).unwrap();
+        current
+    });
+    assert_eq!(emitted, [Access::StoreByte(5, Some(0xee)), Access::Load(4)]);
+}
+
+#[test]
 fn guarded_bits_refine_reads_without_writing_clean_fields() {
     let emitted = accesses(|body, state| {
         let location = Location::<I8>::new(4);
