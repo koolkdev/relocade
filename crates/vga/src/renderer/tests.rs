@@ -39,6 +39,7 @@ async fn bgr888_captures() {
             dac: DacSnapshot {
                 colors: [[63; 3]; 256],
                 mask: 0,
+                bits_per_component: 6,
             },
             scanout: Scanout::Packed(layout),
             blanked: false,
@@ -87,4 +88,65 @@ fn bgr888_captures_render_unaligned_pixels_padding_and_memory_wraps() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn bgr888_captures_render_unaligned_pixels_padding_and_memory_wraps() {
     bgr888_captures().await;
+}
+
+async fn dac_precision_captures() {
+    let adapter = wgpu::Instance::default()
+        .request_adapter(&Default::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter.request_device(&Default::default()).await.unwrap();
+    let mut renderer = VgaRenderer::new(&device).unwrap();
+    let mut memory = VideoMemory::new(65536);
+    memory.write_physical(0, 0x81);
+    let mut colors = [[0; 3]; 256];
+    colors[1] = [63, 21, 7];
+    let six = DisplaySnapshot {
+        memory: memory.snapshot(memory.capacity(), None),
+        dac: DacSnapshot {
+            colors,
+            mask: 1,
+            bits_per_component: 6,
+        },
+        scanout: Scanout::Packed(
+            PackedLayout::new([1, 1], PixelFormat::Indexed8, 1, 0, 65536).unwrap(),
+        ),
+        blanked: false,
+        blanking: Default::default(),
+        changes: None,
+    };
+    // Only the precision changes: the renderer must upload new DAC controls even
+    // when the palette, index mask and image bytes are identical.
+    let mut eight = six.clone();
+    eight.dac.bits_per_component = 8;
+    let mut full = eight.clone();
+    full.dac.colors[1] = [200, 129, 255];
+    drop(memory);
+    for (capture, expected) in [
+        (&six, [255, 85, 28, 255]),
+        (&eight, [63, 21, 7, 255]),
+        (&full, [200, 129, 255, 255]),
+        (&six, [255, 85, 28, 255]),
+    ] {
+        renderer.upload(&queue, capture);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let image = renderer.encode(&mut encoder).unwrap();
+        queue.submit([encoder.finish()]);
+        assert_eq!(
+            readback::read_pixels(&device, &queue, image.texture()).await,
+            expected
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn dac_precision_and_palette_are_owned_by_each_capture() {
+    pollster::block_on(dac_precision_captures());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn dac_precision_and_palette_are_owned_by_each_capture() {
+    dac_precision_captures().await;
 }

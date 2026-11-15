@@ -134,10 +134,14 @@ whose displayed region exceeds the programmed total are outside this timing mode
 Historical scanout requires captures that retain changes throughout the frame
 and, for accurate guest event times, machine-level timing.
 
-The sequencer, CRTC, Graphics Controller, Attribute Controller and six-bit DAC
+The sequencer, CRTC, Graphics Controller, Attribute Controller and DAC
 own their register storage and CPU access rules. Attribute writes alternate
 address and data phases; reading the active Input Status 1 port resets that
 phase. DAC reads and writes step through RGB channels and wrap palette addresses.
+The shared DAC defaults to six-bit RGB and can represent eight-bit components.
+Changing width shifts stored components left or right by two bits without
+resetting the transfer position or pixel mask. Snapshots retain the width with
+the palette, and both indexed renderers normalize that captured precision.
 CPU reads load all four latches; writes preserve those latched bytes. Memory
 transfers apply VGA read modes 0–1, write modes 0–3, rotation, logical operations,
 plane masks and pixel masks.
@@ -604,8 +608,8 @@ Firmware can also save complete device programming through `core_state()`,
 `dac_state()` and `dispi_state()`. Their `VgaCoreState`, `DacState` and `DispiState`
 values own fixed byte encodings with validated `from_bytes` constructors. VGA core
 state includes sequencer reset, register access phases, the latched CRTC display start,
-adapter decoding and CPU latches. DAC state includes the exact RGB transfer
-position and Color Select; DISPI state includes staged geometry, active layout,
+adapter decoding and CPU latches. DAC state includes component width, the exact
+RGB transfer position and Color Select; DISPI state includes staged geometry, active layout,
 enable flags, bank and register index. These values contain no framebuffer bytes.
 `restore_state(context, core, dac, dispi)` applies selected components together after
 servicing elapsed captures. It preserves VRAM and unselected components, and uses
@@ -813,7 +817,7 @@ The renderer requires a 2D texture limit of at least 2304 pixels for the largest
 nine-dot text width, four flat inter-stage variables, two uniform buffers and one
 4-MiB fragment storage buffer. Uploads cover only captured blocks. The settings
 buffer is 208 bytes; packed scanout uses its first 64 bytes. The shared DAC buffer holds
-a four-byte mask and 768 palette bytes at offset 16. Captures retain written
+four-byte pixel and component masks, then 768 palette bytes at offset 16. Captures retain written
 1-KiB pages as conservative GPU transfer hints, including equal-value writes.
 Consecutive dirty pages in each block become one upload. VGA plane bytes occupy
 their physical addresses in those pages. Hidden memory is included, so

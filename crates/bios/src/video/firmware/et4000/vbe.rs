@@ -116,7 +116,9 @@ impl Vbe for Et4000Ax {
             None => None,
         };
         let dac = match dac {
-            Some(bytes) => Some(DacState::from_bytes(bytes)?),
+            Some(bytes) => {
+                Some(DacState::from_bytes(bytes).filter(|state| state.bits_per_component() == 6)?)
+            }
             None => None,
         };
         let extensions = match extensions {

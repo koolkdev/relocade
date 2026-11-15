@@ -1,4 +1,4 @@
-//! Six-bit RGB palette and sequential CPU access, IBM VGA Function pp. 2-104–106.
+//! RGB palette and sequential CPU access, IBM VGA Function pp. 2-104–106.
 
 use super::text_mode;
 
@@ -6,8 +6,9 @@ use super::text_mode;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dac {
     pub mask: u8,
-    /// Six-bit RGB components in DAC address order.
+    /// RGB components in the active precision, in address order.
     pub colors: [[u8; 3]; 256],
+    bits_per_component: u8,
     address: u8,
     component: usize,
     reading: bool,
@@ -18,6 +19,7 @@ impl Default for Dac {
         Self {
             mask: 0xff,
             colors: text_mode::DAC_PALETTE,
+            bits_per_component: 6,
             address: 0,
             component: 0,
             reading: false,
@@ -26,8 +28,33 @@ impl Default for Dac {
 }
 
 impl Dac {
-    /// This VGA-compatible DAC has a fixed width in every display mode.
+    /// Standard VGA component width before a card enables extended precision.
     pub const BITS_PER_COMPONENT: u8 = 6;
+
+    pub fn bits_per_component(&self) -> u8 {
+        self.bits_per_component
+    }
+
+    /// Changing precision preserves the transfer position and shifts stored
+    /// components by two bits. Reducing precision discards the low two bits.
+    /// Accepts six or eight bits per component.
+    pub fn set_bits_per_component(&mut self, bits: u8) {
+        assert!(
+            matches!(bits, 6 | 8),
+            "DAC components must have six or eight bits"
+        );
+        if self.bits_per_component == bits {
+            return;
+        }
+        for component in self.colors.as_flattened_mut() {
+            *component = if bits == 8 {
+                *component << 2
+            } else {
+                *component >> 2
+            };
+        }
+        self.bits_per_component = bits;
+    }
 
     pub(crate) fn to_state_bytes(&self) -> [u8; 772] {
         let mut bytes = [0; 772];
@@ -35,14 +62,18 @@ impl Dac {
             self.mask,
             self.address,
             self.component as u8,
-            u8::from(self.reading),
+            u8::from(self.reading) | (u8::from(self.bits_per_component == 8) << 1),
         ]);
         bytes[4..].copy_from_slice(self.colors.as_flattened());
         bytes
     }
 
     pub(crate) fn from_state_bytes(bytes: &[u8; 772]) -> Option<Self> {
-        if bytes[2] >= 3 || bytes[3] > 1 || bytes[4..].iter().any(|&value| value >= 64) {
+        let bits_per_component = if bytes[3] & 2 != 0 { 8 } else { 6 };
+        if bytes[2] >= 3
+            || bytes[3] & !3 != 0
+            || (bits_per_component == 6 && bytes[4..].iter().any(|&value| value > 63))
+        {
             return None;
         }
         let mut colors = [[0; 3]; 256];
@@ -51,8 +82,9 @@ impl Dac {
             mask: bytes[0],
             address: bytes[1],
             component: usize::from(bytes[2]),
-            reading: bytes[3] != 0,
+            reading: bytes[3] & 1 != 0,
             colors,
+            bits_per_component,
         })
     }
 
@@ -91,8 +123,8 @@ impl Dac {
     }
 
     pub(crate) fn write(&mut self, value: u8) {
-        self.colors[usize::from(self.address)][self.component] =
-            value & ((1 << Self::BITS_PER_COMPONENT) - 1);
+        let mask = u8::MAX >> (8 - self.bits_per_component);
+        self.colors[usize::from(self.address)][self.component] = value & mask;
         self.step();
     }
 
@@ -108,3 +140,6 @@ impl Dac {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
