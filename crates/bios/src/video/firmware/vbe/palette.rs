@@ -8,6 +8,9 @@ use relocade_machine::{
 use relocade_vga::PixelFormat;
 use std::cell::RefCell;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub(in crate::video::firmware) enum Error {
@@ -49,6 +52,7 @@ pub(in crate::video::firmware) async fn data<C: Vbe>(
             0 => set(card),
             1 => get(card),
             2 | 3 => unsupported, // Neither card has a secondary palette.
+            0x80 => set_at_retrace(card),
             _ => failed,
         }
     );
@@ -69,6 +73,31 @@ fn set<C: Vbe>(
     if !colors.is_empty() {
         io.with_context(|context| card.borrow_mut().set_palette(context, first as u8, &colors));
     }
+    Ok(())
+}
+
+#[interrupt(context(memory, io), args(count = cx, first = dx, buffer = ptr(es, di)),
+    returns { Ok(()) => { ax = 0x004f }, Err(error) => { ax = error as u16 } },
+)]
+async fn set_at_retrace<C: Vbe>(
+    memory: &mut MemoryView<'_>,
+    io: &IoBus,
+    card: &RefCell<C>,
+    count: u16,
+    first: u16,
+    buffer: FarPointer,
+) -> Result<(), Error> {
+    let colors = read_colors(memory, card, count, first, buffer)?;
+    if colors.is_empty() {
+        return Ok(());
+    }
+    let mode = card.borrow().current_mode(memory);
+    super::retrace::wait(card, |card| {
+        check_mode(card).is_ok() && card.current_mode(memory) == mode
+    })
+    .await
+    .ok_or(Error::Failed)?;
+    io.with_context(|context| card.borrow_mut().set_palette(context, first as u8, &colors));
     Ok(())
 }
 
@@ -113,7 +142,8 @@ fn read_colors<C: Vbe>(
     buffer: FarPointer,
 ) -> Result<Vec<[u8; 3]>, Error> {
     check_transfer(&*card.borrow(), count, first)?;
-    // Own the input before borrowing the card: the buffer may be in VRAM.
+    // Own the input before programming or suspending: it may be in VRAM,
+    // and an interrupt handler may change it during a retrace wait.
     Ok((0..count)
         .map(|offset| {
             let mut entry = [0; 4];

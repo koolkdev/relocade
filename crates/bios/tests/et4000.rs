@@ -1,7 +1,7 @@
 //! Selected-card firmware exercised against the connected ET4000 hardware.
 use relocade_bios::video::VideoFirmware;
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{IoBus, MachineConfig, Memory};
+use relocade_machine::{Clock, IoBus, MachineConfig, Memory};
 use relocade_vga::{Et4000Ax, FramebufferAccess, FramebufferGeometry};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, rc::Rc};
@@ -25,6 +25,10 @@ struct Firmware {
 
 impl Firmware {
     fn new() -> Self {
+        Self::with_clock(ManualClock::default().clock())
+    }
+
+    fn with_clock(clock: Clock) -> Self {
         let map = PhysicalMemoryMap::new([
             (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
             (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
@@ -37,9 +41,7 @@ impl Firmware {
         ])
         .unwrap();
         let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
-        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(
-            ManualClock::default().clock(),
-        )));
+        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock)));
         let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
         let firmware = VideoFirmware::Et4000Ax(card.clone());
         relocade_bios::initialize(

@@ -144,6 +144,7 @@ fn invalid_and_empty_palette_transfers_preserve_device_and_buffer_state() {
             (3, 1, 0, 0x24f),
             (0, 0, 255, 0x4f),
             (1, 0, 0, 0x4f),
+            (0x80, 0, 17, 0x4f),
         ] {
             let result = video(&mut dos, 0x4f09, operation, count, first);
             assert_eq!(result.registers.eax, status);
@@ -160,7 +161,7 @@ fn invalid_and_empty_palette_transfers_preserve_device_and_buffer_state() {
         }
         // Fixed direct-color ramps cannot be programmed as indexed palettes.
         video(&mut dos, 0x4f02, 0x111, 0, 0);
-        for operation in [0, 1] {
+        for operation in [0, 1, 0x80] {
             assert_eq!(
                 video(&mut dos, 0x4f09, operation, 1, 17).registers.eax,
                 0x34f
@@ -168,7 +169,7 @@ fn invalid_and_empty_palette_transfers_preserve_device_and_buffer_state() {
             assert_eq!(dos.vga().borrow().dac_state(), dac);
         }
         dos.cpu().context().io.write_port(0x46e8, 1, 0);
-        for operation in [0, 1] {
+        for operation in [0, 1, 0x80] {
             assert_eq!(
                 video(&mut dos, 0x4f09, operation, 1, 17).registers.eax,
                 0x14f
