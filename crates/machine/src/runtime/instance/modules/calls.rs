@@ -1,6 +1,5 @@
 //! Each installation owns its call table, including unresolved destinations.
 
-use super::DispatchTable;
 use crate::{CompiledCode, Result};
 use relocade_wasm_runtime::{ExportFunction, Function, FunctionRef, Import, Table};
 use relocade_x86::abi;
@@ -9,6 +8,25 @@ pub(in super::super) struct Calls<B: ExportFunction<abi::ExecutionSignature>> {
     table: Table<B, abi::ExecutionSignature>,
     pub(super) targets: Vec<u32>,
     unresolved: FunctionRef<B, abi::ExecutionSignature>,
+}
+
+/// A registered caller retains the exact slot to update when its target changes.
+pub(super) struct CallSite<B: ExportFunction<abi::ExecutionSignature>> {
+    table: Table<B, abi::ExecutionSignature>,
+    index: u32,
+    unresolved: FunctionRef<B, abi::ExecutionSignature>,
+}
+
+impl<B: ExportFunction<abi::ExecutionSignature>> CallSite<B> {
+    pub(super) fn bind(
+        &self,
+        backend: &mut B,
+        target: Option<&FunctionRef<B, abi::ExecutionSignature>>,
+    ) -> Result<()> {
+        self.table
+            .set(backend, self.index, target.unwrap_or(&self.unresolved))?;
+        Ok(())
+    }
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
@@ -43,18 +61,16 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
         backend.bind(abi::CALL_TARGETS, &self.table)
     }
 
-    pub(super) fn bind(
-        &self,
-        backend: &mut B,
-        dispatch: &DispatchTable<B>,
-        index: u32,
-    ) -> Result<()> {
-        let target = self.targets[index as usize];
-        self.table.set(
-            backend,
-            index,
-            dispatch.resolve(target).unwrap_or(&self.unresolved),
-        )?;
-        Ok(())
+    pub(super) fn sites(&self) -> impl Iterator<Item = (u32, CallSite<B>)> + '_ {
+        self.targets.iter().enumerate().map(|(index, &target)| {
+            (
+                target,
+                CallSite {
+                    table: self.table.clone(),
+                    index: index as u32,
+                    unresolved: self.unresolved.clone(),
+                },
+            )
+        })
     }
 }

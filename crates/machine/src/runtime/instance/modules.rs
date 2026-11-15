@@ -13,11 +13,15 @@ use std::{
 };
 use table::DispatchTable;
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ModuleId(usize);
+
 pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
     entries: BTreeMap<u32, String>,
     code: Option<CompiledCode>,
     calls: Option<Calls<B>>,
+    pages: BTreeSet<u32>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
@@ -27,6 +31,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         code: Option<CompiledCode>,
         calls: Option<Calls<B>>,
     ) -> Self {
+        let pages = code
+            .iter()
+            .flat_map(|code| code.ranges())
+            .flat_map(|range| (range.start >> 12)..=((range.end - 1) >> 12))
+            .map(|page| page as u32)
+            .collect();
         Self {
             instance,
             entries: entries
@@ -35,6 +45,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
                 .collect(),
             code,
             calls,
+            pages,
         }
     }
 
@@ -42,28 +53,21 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
         self.code.as_ref()
     }
 
-    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>) -> Result<()> {
+    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>, id: ModuleId) -> Result<()> {
         let entries: Vec<_> = self
             .entries
             .iter()
             .map(|(&key, export)| DispatchEntry { key, export })
             .collect();
-        table.install(backend, &self.instance, &entries)
+        table.install(backend, id, &self.instance, &entries)
     }
 }
 
 pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
     table: DispatchTable<B>,
-    modules: BTreeMap<usize, InstalledModule<B>>,
+    modules: BTreeMap<ModuleId, InstalledModule<B>>,
     next_module_id: usize,
-    owners: BTreeMap<u32, usize>,
-    pages: BTreeMap<u32, Vec<usize>>,
-    callers: BTreeMap<u32, Vec<CallSite>>,
-}
-
-struct CallSite {
-    module: usize,
-    index: u32,
+    pages: BTreeMap<u32, BTreeSet<ModuleId>>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
@@ -72,9 +76,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             table: DispatchTable::new(backend)?,
             modules: BTreeMap::new(),
             next_module_id: 0,
-            owners: BTreeMap::new(),
             pages: BTreeMap::new(),
-            callers: BTreeMap::new(),
         })
     }
 
@@ -102,54 +104,24 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         backend: &mut B,
         entry: FarPointer,
     ) -> Result<()> {
-        self.table.install_interpreter_fallback(backend, entry)?;
-        self.relink(backend, [entry.packed()])
+        self.table.install_interpreter_fallback(backend, entry)
     }
 
     pub(super) fn install(&mut self, backend: &mut B, module: InstalledModule<B>) -> Result<()> {
-        module.publish(backend, &mut self.table)?;
-        let keys: Vec<_> = module.entries.keys().copied().collect();
-        let id = self.next_module_id;
+        let id = ModuleId(self.next_module_id);
+        module.publish(backend, &mut self.table, id)?;
         if let Some(calls) = &module.calls {
-            for (index, &target) in calls.targets.iter().enumerate() {
-                calls.bind(backend, &self.table, index as u32)?;
-                self.callers.entry(target).or_default().push(CallSite {
-                    module: id,
-                    index: index as u32,
-                });
-            }
+            self.table.register_calls(backend, id, calls)?;
         }
-        self.owners.extend(keys.iter().map(|&key| (key, id)));
-        self.insert(id, module);
-        self.next_module_id = id.checked_add(1).expect("module identity fits usize");
-        self.relink(backend, keys)
-    }
-
-    fn relink(&self, backend: &mut B, keys: impl IntoIterator<Item = u32>) -> Result<()> {
-        for key in keys {
-            for site in self.callers.get(&key).into_iter().flatten() {
-                self.modules[&site.module]
-                    .calls
-                    .as_ref()
-                    .expect("registered caller")
-                    .bind(backend, &self.table, site.index)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn insert(&mut self, id: usize, module: InstalledModule<B>) {
-        if let Some(code) = module.code() {
-            let pages: BTreeSet<_> = code
-                .ranges()
-                .iter()
-                .flat_map(|range| (range.start >> 12)..=((range.end - 1) >> 12))
-                .collect();
-            for page in pages {
-                self.pages.entry(page as u32).or_default().push(id);
-            }
+        for &page in &module.pages {
+            self.pages.entry(page).or_default().insert(id);
         }
         self.modules.insert(id, module);
+        self.next_module_id = self
+            .next_module_id
+            .checked_add(1)
+            .expect("module identity fits usize");
+        Ok(())
     }
 
     /// Retires complete linked versions: their direct internal calls cannot be
@@ -173,34 +145,30 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .get(index)
                 .is_some_and(|source| source.start < range.end)
         });
-        if retired_modules.is_empty() {
-            return Ok(());
-        }
-        let mut keys = Vec::new();
+        self.retire(backend, retired_modules).map(|_| ())
+    }
+
+    fn retire(&mut self, backend: &mut B, retired_modules: BTreeSet<ModuleId>) -> Result<Vec<u32>> {
         for id in &retired_modules {
-            for &key in self.modules[id].entries.keys() {
-                if self.owners.get(&key) == Some(id) {
-                    keys.push(key);
+            if let Some(calls) = &self.modules[id].calls {
+                self.table.unregister_calls(*id, calls);
+            }
+        }
+        let exports = retired_modules
+            .iter()
+            .flat_map(|&id| self.modules[&id].entries.keys().map(move |&key| (id, key)));
+        let keys = self.table.remove(backend, exports)?;
+        for id in retired_modules {
+            let module = self.modules.remove(&id).expect("installed module");
+            for page in module.pages {
+                let modules = self.pages.get_mut(&page).expect("registered source page");
+                modules.remove(&id);
+                if modules.is_empty() {
+                    self.pages.remove(&page);
                 }
             }
         }
-        self.table.remove(backend, &keys)?;
-        for key in &keys {
-            self.owners.remove(key);
-        }
-        self.callers.retain(|_, sites| {
-            sites.retain(|site| !retired_modules.contains(&site.module));
-            !sites.is_empty()
-        });
-        self.relink(backend, keys)?;
-        self.pages.retain(|_, modules| {
-            modules.retain(|id| !retired_modules.contains(id));
-            !modules.is_empty()
-        });
-        for id in retired_modules {
-            self.modules.remove(&id);
-        }
-        Ok(())
+        Ok(keys)
     }
 
     pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &InstalledModule<B>> {
