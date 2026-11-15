@@ -92,6 +92,7 @@ fn immediates_bind_after_location_operands() {
                 0x1000,
                 0x1007,
                 &crate::instruction::SegmentOverride::None,
+                u32::MAX,
             );
             if two {
                 assert!(matches!(

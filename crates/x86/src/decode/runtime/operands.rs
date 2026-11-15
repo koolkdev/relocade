@@ -2,13 +2,13 @@
 //! ModRM forms are selected before fetching address bytes. Register operands
 //! continue locally; memory operands join their shared address decoder.
 
-use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
     decode::DecodeState,
     instruction::{
         forms_by_opcode, DecodedFields, DecodedInstruction, Form, Location, OpcodeMap,
-        OperandEncoding, OperandSize, PrefixState, ResolvedForm, SegmentOverride,
+        OperandEncoding, OperandSize, PrefixState, ResolvedForm,
     },
     register::{RegisterCode, RegisterSelector},
 };
@@ -19,6 +19,16 @@ impl<C> InstructionDecoder<'_, C>
 where
     C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
+    fn address_dword(&self, prefixes: &PrefixState) -> Val<I1> {
+        self.code_default_is_32_bit
+            .xor(prefixes.selection().has_address_override())
+    }
+
+    fn address_mask(&self, prefixes: &PrefixState) -> Val<I32> {
+        self.address_dword(prefixes)
+            .select(u32::MAX, u32::from(u16::MAX))
+    }
+
     /// Resolve a typed handler only where operand width changes decoding or effects.
     /// Mandatory 66 selection remains a property of the collected prefix bytes.
     pub(super) fn decode_form(
@@ -63,7 +73,7 @@ where
         mut cursor: RuntimeCursor<'_>,
         opcode: u8,
         form: &ResolvedForm,
-        segment_override: &SegmentOverride,
+        prefixes: &PrefixState,
     ) -> Result<(), BuildError> {
         let mut fields = match form.encoding().operands {
             OperandEncoding::None => DecodedFields::default(),
@@ -72,7 +82,9 @@ where
                 ..DecodedFields::default()
             },
             OperandEncoding::AbsoluteOffset => DecodedFields {
-                absolute_offset: Some(cursor.integer(&mut body, form.address_width())?),
+                absolute_offset: Some(
+                    cursor.address_offset(&mut body, &self.address_dword(prefixes))?,
+                ),
                 ..DecodedFields::default()
             },
             OperandEncoding::ModRm => unreachable!("the selected form has no ModRM"),
@@ -82,7 +94,8 @@ where
             fields,
             cursor.instruction_eip().clone(),
             cursor.next_eip(),
-            segment_override,
+            prefixes.segment_override(),
+            self.address_mask(prefixes),
         );
         (self.complete_instruction)(body, decoded_instruction)
     }
@@ -133,7 +146,7 @@ where
                     &modrm,
                     &form,
                     rm.clone(),
-                    state.prefixes.segment_override(),
+                    &state.prefixes,
                 )
             })
         })
@@ -167,7 +180,7 @@ where
         modrm: &Val<I8>,
         form: &ResolvedForm,
         rm: Location<Val<I32>>,
-        segment_override: &SegmentOverride,
+        prefixes: &PrefixState,
     ) -> Result<(), BuildError> {
         let mut fields = DecodedFields {
             modrm: Some(modrm.unsigned().extend::<I32>()),
@@ -183,7 +196,8 @@ where
             fields,
             cursor.instruction_eip().clone(),
             cursor.next_eip(),
-            segment_override,
+            prefixes.segment_override(),
+            self.address_mask(prefixes),
         );
         (self.complete_instruction)(body, instruction)
     }
@@ -192,43 +206,42 @@ where
     /// opcode and fixed ModRM bits and established a memory addressing mode.
     pub(super) fn decode_memory_operands(
         &self,
-        body: BlockBuilder<'_>,
-        cursor: RuntimeCursor<'_>,
+        mut body: BlockBuilder<'_>,
+        mut cursor: RuntimeCursor<'_>,
         state: DecodeState,
         form_index: &Val<I32>,
         modrm: &Val<I8>,
     ) -> Result<(), BuildError> {
         let forms = memory_forms(&state);
         let indices: Vec<_> = (0..forms.len() as u32).collect();
-        super::address::decode(
-            body,
-            cursor,
+        let address = super::address::decode(
+            &mut body,
+            &mut cursor,
             modrm,
-            state.prefixes.selection().address_size(),
-            |mut body, cursor, address| {
-                body.switch(form_index, &indices, |arm, index| {
-                    let Some(index) = index else {
-                        return arm.trap();
-                    };
-                    self.decode_form(
+            &self.address_dword(&state.prefixes),
+        )?;
+        let rm = Location::Memory(address.memory().into());
+        body.switch(form_index, &indices, |arm, index| {
+            let Some(index) = index else {
+                return arm.trap();
+            };
+            self.decode_form(
+                arm,
+                forms[index as usize].form,
+                &state.prefixes,
+                |arm, form| {
+                    self.complete_modrm_instruction(
                         arm,
-                        forms[index as usize].form,
+                        cursor.clone(),
+                        modrm,
+                        &form,
+                        rm.clone(),
                         &state.prefixes,
-                        |arm, form| {
-                            self.complete_modrm_instruction(
-                                arm,
-                                cursor.clone(),
-                                modrm,
-                                &form,
-                                Location::Memory(address.clone().memory().into()),
-                                state.prefixes.segment_override(),
-                            )
-                        },
                     )
-                })?;
-                body.trap()
-            },
-        )
+                },
+            )
+        })?;
+        body.trap()
     }
 }
 

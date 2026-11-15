@@ -1,7 +1,7 @@
 //! Effective-address components with deferred register reads. Instruction
 //! semantics can add a displacement before resolving the effective offset.
 
-use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
 use crate::{
     register::{Gpr32, Register},
@@ -17,10 +17,10 @@ pub(crate) enum AddressSize {
 }
 
 impl AddressSize {
-    pub(crate) fn wrap(self, value: Val<I32>) -> Val<I32> {
+    pub(crate) const fn mask(self) -> u32 {
         match self {
-            Self::Bits16 => value.truncate::<I16>().unsigned().extend::<I32>(),
-            Self::Bits32 => value,
+            Self::Bits16 => u16::MAX as u32,
+            Self::Bits32 => u32::MAX,
         }
     }
 }
@@ -39,7 +39,7 @@ pub(super) struct IndexTerm<V> {
 
 #[derive(Clone)]
 pub(super) struct EffectiveAddress<V> {
-    pub(super) size: AddressSize,
+    pub(super) mask: V,
     pub(super) base: Option<RegisterTerm>,
     pub(super) index: Option<IndexTerm<V>>,
     pub(super) displacement: V,
@@ -137,5 +137,5 @@ pub(super) fn resolve<V: Into<Val<I32>>>(
         let register = index.register.read(body, state, bindings)?;
         value = value.add(register.shl(index.shift));
     }
-    Ok(address.size.wrap(value.add(address.displacement)))
+    Ok(value.add(address.displacement).and(address.mask))
 }

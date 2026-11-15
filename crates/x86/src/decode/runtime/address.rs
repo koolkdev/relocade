@@ -1,112 +1,68 @@
 //! Runtime address fields for 16-bit ModRM and 32-bit ModRM/SIB layouts.
 //! Register values remain part of shared instruction execution.
 
-use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
-    address::{AddressSize, EffectiveAddress, IndexTerm, RegisterTerm},
+    address::{EffectiveAddress, IndexTerm, RegisterTerm},
     decode::address16::{BASES, INDICES},
-    instruction::FieldWidth,
-    register::Register,
+    register::{Gpr32, Register},
 };
 
 use super::cursor::RuntimeCursor;
 
-/// Continues inside the selected layout with its address and consumed cursor.
-/// Only the 32-bit r/m=100 layout reads a SIB byte.
-pub(super) fn decode<'memory>(
-    mut body: BlockBuilder<'_>,
-    cursor: RuntimeCursor<'memory>,
+/// Reads the selected layout's bytes and returns one deferred address.
+pub(super) fn decode(
+    body: &mut BlockBuilder<'_>,
+    cursor: &mut RuntimeCursor<'_>,
     modrm: &Val<I8>,
-    size: AddressSize,
-    complete: impl Fn(
-        BlockBuilder<'_>,
-        RuntimeCursor<'memory>,
-        EffectiveAddress<Val<I32>>,
-    ) -> Result<(), BuildError>,
-) -> Result<(), BuildError> {
+    dword: &Val<I1>,
+) -> Result<EffectiveAddress<Val<I32>>, BuildError> {
     let mode = modrm.unsigned().shr(6);
     let rm = modrm.and(7).unsigned().extend::<I32>();
-    if size == AddressSize::Bits16 {
-        let no_base = mode.eq(0).and(rm.eq(6));
-        let mut cursor = cursor;
-        let displacement = cursor.displacement(&mut body, &mode, &no_base, FieldWidth::Word)?;
-        // Packed register codes select a value without duplicating execution paths.
-        let packed = |registers: &[crate::register::Gpr32]| {
-            registers
-                .iter()
-                .enumerate()
-                .fold(0u32, |bits, (index, register)| {
-                    bits | ((*register as u32) << (index * 4))
-                })
-        };
-        let base = body
-            .value::<I32>(packed(&BASES))?
-            .unsigned()
-            .shr(rm.shl(2))
-            .and(7);
-        let index = body
-            .value::<I32>(packed(&INDICES))?
-            .unsigned()
-            .shr(rm.shl(2))
-            .and(7);
-        return complete(
-            body,
-            cursor,
-            EffectiveAddress {
-                size,
-                base: Some(RegisterTerm {
-                    register: Register::indexed(base),
-                    present: Some(no_base.eq(0)),
-                }),
-                index: Some(IndexTerm {
-                    register: RegisterTerm {
-                        register: Register::indexed(index),
-                        present: Some(rm.unsigned().lt(4)),
-                    },
-                    shift: 0.into(),
-                }),
-                displacement,
-            },
-        );
-    }
-    let complete_layout = |mut body: BlockBuilder<'_>,
-                           mut cursor: RuntimeCursor<'memory>,
-                           sib: Option<Val<I8>>| {
-        let base = match &sib {
-            Some(sib) => sib.and(7).unsigned().extend::<I32>(),
-            None => rm.clone(),
-        };
-        let no_base = mode.eq(0).and(base.eq(5));
-        let displacement = cursor.displacement(&mut body, &mode, &no_base, FieldWidth::Dword)?;
-        let index = sib.map(|sib| IndexTerm {
+
+    // In 16-bit addressing r/m=100 names SI; only the 32-bit layout reads SIB.
+    let has_sib = dword.and(rm.eq(4));
+    let sib = cursor.byte_if(body, &has_sib)?;
+    let sib_base = sib.and(7).unsigned().extend::<I32>();
+    let sib_index = sib.unsigned().shr(3).and(7).unsigned().extend::<I32>();
+    let base32 = has_sib.select(sib_base, &rm);
+
+    // With mod=00, r/m=110 omits the base in 16-bit addressing;
+    // base=101 (including SIB.base) does so in 32-bit addressing.
+    let no_base = mode.eq(0).and(dword.select(base32.eq(5), rm.eq(6)));
+    let displacement = cursor.displacement(body, &mode, &no_base, dword)?;
+
+    let base = dword.select(base32, register_from_table(&BASES, &rm));
+    let index = dword.select(&sib_index, register_from_table(&INDICES, &rm));
+    // Only the first four 16-bit layouts have two registers; SIB.index=100
+    // suppresses the index in the 32-bit layout.
+    let has_index = dword.select(has_sib.and(sib_index.ne(4)), rm.unsigned().lt(4));
+    Ok(EffectiveAddress {
+        mask: dword.select(u32::MAX, u32::from(u16::MAX)),
+        base: Some(RegisterTerm {
+            register: Register::indexed(base),
+            present: Some(no_base.eq(false)),
+        }),
+        index: Some(IndexTerm {
             register: RegisterTerm {
-                register: Register::<I32>::indexed(
-                    sib.unsigned().shr(3).unsigned().extend::<I32>(),
-                ),
-                present: Some(sib.unsigned().shr(3).and(7).ne(4)),
+                register: Register::indexed(index),
+                present: Some(has_index),
             },
+            // An absent SIB reads as zero, giving the 16-bit layouts no scaling.
             shift: sib.unsigned().shr(6).unsigned().extend::<I32>(),
+        }),
+        displacement,
+    })
+}
+
+fn register_from_table(registers: &[Gpr32], rm: &Val<I32>) -> Val<I32> {
+    // Four bits per r/m value hold a parent register code.
+    let packed = registers
+        .iter()
+        .enumerate()
+        .fold(0u32, |bits, (index, register)| {
+            bits | ((*register as u32) << (index * 4))
         });
-        let address = EffectiveAddress {
-            size,
-            base: Some(RegisterTerm {
-                register: Register::<I32>::indexed(base),
-                present: Some(no_base.eq(0)),
-            }),
-            index,
-            displacement,
-        };
-        complete(body, cursor, address)
-    };
-    body.if_else(
-        rm.eq(4),
-        |mut arm| {
-            let mut sib_cursor = cursor.clone();
-            let sib = sib_cursor.byte(&mut arm)?;
-            complete_layout(arm, sib_cursor, Some(sib))
-        },
-        |arm| complete_layout(arm, cursor.clone(), None),
-    )?;
-    body.trap()
+    Val::<I32>::from(packed).unsigned().shr(rm.shl(2)).and(7)
 }

@@ -138,6 +138,10 @@ impl FormSelection {
         self.operand_size_override
     }
 
+    pub(crate) fn has_address_override(&self) -> bool {
+        self.address_size_override
+    }
+
     pub(crate) fn group1(&self) -> Option<Group1Prefix> {
         self.group1
     }

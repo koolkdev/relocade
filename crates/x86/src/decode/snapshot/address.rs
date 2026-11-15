@@ -19,7 +19,7 @@ pub(super) struct SnapshotAddress {
 impl SnapshotAddress {
     pub(super) fn bind(self) -> EffectiveAddress<u32> {
         EffectiveAddress {
-            size: self.size,
+            mask: self.size.mask(),
             base: self.base.map(named),
             index: self.index.map(|(register, shift)| IndexTerm {
                 register: named(register),

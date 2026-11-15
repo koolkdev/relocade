@@ -70,7 +70,7 @@ where
                                 cursor.clone(),
                                 opcode_case as u8,
                                 &form,
-                                state.prefixes.segment_override(),
+                                &state.prefixes,
                             )
                         })
                     }

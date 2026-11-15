@@ -34,7 +34,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, SegmentReads, State};
-use crate::{address::AddressSize, exception::ExceptionValues, CpuState, ExecutionProfile};
+use crate::{exception::ExceptionValues, CpuState, ExecutionProfile};
 use transfer::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -47,7 +47,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     segments: SegmentReads,
     cpu_features: Val<I32>,
     segment_override: SegmentOverride,
-    address_size: AddressSize,
+    address_mask: Val<I32>,
     locked: bool,
     x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
@@ -80,7 +80,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             segments: SegmentReads::new(&module.cpu, target.profile),
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
-            address_size: AddressSize::Bits32,
+            address_mask: u32::MAX.into(),
             locked: false,
             x87_opcode: None,
             runtime: module.runtime,
@@ -116,14 +116,14 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Executes an instruction whose required bytes have passed fetch checks.
-    pub(super) fn execute<V: Into<Val<I32>>, P: Into<Val<I32>>>(
+    pub(super) fn execute<V: Into<Val<I32>> + Clone, P: Into<Val<I32>>>(
         &mut self,
         mut decoded: DecodedInstruction<V, P>,
     ) -> Result<(), BuildError> {
         self.eip = self.body.value(decoded.eip)?;
         self.transfer = Transfer::Jump;
         let fallthrough_eip = self.body.value(decoded.fallthrough_eip)?;
-        self.address_size = decoded.instruction.address_size;
+        self.address_mask = decoded.instruction.address_mask.clone().into();
         self.segment_override = decoded.instruction.segment_override.clone();
         self.locked = decoded.instruction.locked;
         self.x87_opcode = decoded

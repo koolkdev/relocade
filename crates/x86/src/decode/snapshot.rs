@@ -46,6 +46,7 @@ impl SnapshotInstruction {
             &self
                 .segment_override
                 .map_or(SegmentOverride::None, SegmentOverride::Fixed),
+            self.form.address_size().mask(),
         )
     }
 }

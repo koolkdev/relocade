@@ -6,7 +6,6 @@ use relocade_compiler::{BuildError, Val, I1, I32};
 
 use super::ExecutionBuilder;
 use crate::{
-    address::AddressSize,
     flags::Flag,
     memory::Intent,
     register::{Gpr32, RegisterType},
@@ -138,9 +137,7 @@ impl ExecutionBuilder<'_, '_> {
             eligible = eligible
                 .and(position.unsigned().ge(&start))
                 .and(last.unsigned().ge(&position));
-            if self.address_size == AddressSize::Bits16 {
-                eligible = eligible.and(last.unsigned().lt(0x10000u32));
-            }
+            eligible = eligible.and(self.address_mask.unsigned().ge(&last));
             starts.push(start);
         }
         let starts: [Val<I32>; N] = starts.try_into().unwrap_or_else(|_| unreachable!());

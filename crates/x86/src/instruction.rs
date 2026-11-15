@@ -18,7 +18,7 @@ pub(crate) use operands::{
 pub(crate) use prefixes::{FormSelection, Group1Prefix, Prefix, PrefixState, SegmentOverride};
 use requirements::{Availability, Requirements};
 
-use crate::address::{AddressSize, EffectiveAddress, MemoryAddress};
+use crate::address::{EffectiveAddress, MemoryAddress};
 use crate::flags::Condition;
 use crate::register::RegisterOperand;
 use crate::Segment;
@@ -67,7 +67,7 @@ pub(super) struct Instruction<V> {
     condition: Option<Condition>,
     ends_block: bool,
     requirements: Requirements,
-    pub(super) address_size: AddressSize,
+    pub(super) address_mask: V,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
     pub(super) x87_opcode: Option<X87Opcode<V>>,

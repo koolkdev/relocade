@@ -2,7 +2,7 @@
 
 use super::ExecutionBuilder;
 use crate::{
-    address::{AddressSize, EffectiveAddress, MemoryAddress, RegisterTerm},
+    address::{EffectiveAddress, MemoryAddress, RegisterTerm},
     instruction::{Location, TypedLocation},
     register::{Gpr32, Register, RegisterType},
     segment::{Segment, SegmentSelection},
@@ -10,8 +10,8 @@ use crate::{
 use relocade_compiler::{BuildError, Val, I16, I32};
 
 impl ExecutionBuilder<'_, '_> {
-    pub(crate) fn address_size(&self) -> AddressSize {
-        self.address_size
+    pub(crate) fn wrap_address(&self, value: Val<I32>) -> Val<I32> {
+        value.and(&self.address_mask)
     }
 
     /// Implicit data sources use DS unless the current instruction overrides it.
@@ -40,7 +40,7 @@ impl ExecutionBuilder<'_, '_> {
         MemoryAddress {
             segment,
             offset: EffectiveAddress {
-                size: self.address_size,
+                mask: self.address_mask.clone(),
                 base: Some(RegisterTerm {
                     register: base.into(),
                     present: None,
@@ -55,13 +55,16 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         register: Gpr32,
     ) -> Result<Val<I32>, BuildError> {
-        match self.address_size {
-            AddressSize::Bits16 => Ok(self
+        match self.body.constant_bits(&self.address_mask)? {
+            Some(mask) if mask == u64::from(u16::MAX) => Ok(self
                 .state
                 .read_register::<I16>(&mut self.body, Register::named(register))?
                 .unsigned()
                 .extend::<I32>()),
-            AddressSize::Bits32 => self.state.read_register(&mut self.body, register),
+            _ => {
+                let value = self.state.read_register(&mut self.body, register)?;
+                Ok(self.wrap_address(value))
+            }
         }
     }
 
@@ -70,13 +73,22 @@ impl ExecutionBuilder<'_, '_> {
         register: Gpr32,
         value: Val<I32>,
     ) -> Result<(), BuildError> {
-        match self.address_size {
-            AddressSize::Bits16 => self.state.write_register(
+        match self.body.constant_bits(&self.address_mask)? {
+            Some(mask) if mask == u64::from(u16::MAX) => self.state.write_register(
                 &mut self.body,
                 Register::named(register),
                 value.truncate::<I16>(),
             ),
-            AddressSize::Bits32 => self.state.write_register(&mut self.body, register, value),
+            Some(mask) if mask == u64::from(u32::MAX) => {
+                self.state.write_register(&mut self.body, register, value)
+            }
+            _ => {
+                let previous: Val<I32> = self.state.read_register(&mut self.body, register)?;
+                let updated = previous
+                    .and(self.address_mask.xor(u32::MAX))
+                    .or(self.wrap_address(value));
+                self.state.write_register(&mut self.body, register, updated)
+            }
         }
     }
 }
