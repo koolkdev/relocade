@@ -125,6 +125,7 @@ fn banked_mode(
         PixelFormat::Indexed8 => None,
         PixelFormat::Rgb555 => Some([5, 10, 5, 5, 5, 0, 1, 15, 0]),
         PixelFormat::Rgb565 => Some([5, 11, 6, 5, 5, 0, 0, 0, 0]),
+        PixelFormat::Bgr888 => Some([8, 16, 8, 8, 8, 0, 0, 0, 0]),
         PixelFormat::Bgrx8888 => Some([8, 16, 8, 8, 8, 0, 8, 24, 2]),
     };
     if let Some(masks) = masks {

@@ -1010,6 +1010,16 @@ at each resolution. The packed shader selects decoding from the captured format;
 direct colors bypass the DAC palette and mask, and BGRX output is opaque.
 BIOS metadata uses the same layouts; VESA mode numbers belong to firmware.
 
+The shared packed framebuffer and renderer also support BGR888: exactly three
+bytes per pixel in blue, green, red order. Captures retain this format and byte
+pitch independently of a card's mode table. Pixel reads and writes handle word
+and 64-KiB block crossings; wrapping layouts wrap each component at the physical
+VRAM boundary. Since a power-of-two VRAM size is not divisible by three, a wrapped
+start can fall between pixel-aligned byte addresses. Pitch and origin changes
+preserve that byte offset. Rendering ignores DAC colors and the pixel mask, and
+emits opaque RGB output without treating the next pixel's blue byte as padding
+or alpha.
+
 ### Banked VBE profile
 
 PC assembly selects a `VideoFirmware` for BIOS initialization and interrupt

@@ -9,6 +9,8 @@ pub enum PixelFormat {
     Rgb555,
     /// Little-endian red 5, green 6, blue 5 bits.
     Rgb565,
+    /// Blue, green and red bytes, with no padding between pixels.
+    Bgr888,
     /// Blue, green, red, unused bytes; display output is always opaque.
     Bgrx8888,
 }
@@ -19,6 +21,7 @@ impl PixelFormat {
             Self::Indexed8 => 8,
             Self::Rgb555 => 15,
             Self::Rgb565 => 16,
+            Self::Bgr888 => 24,
             Self::Bgrx8888 => 32,
         }
     }
@@ -32,7 +35,7 @@ impl PixelFormat {
             Self::Indexed8 => 0xff,
             Self::Rgb555 => 0x7fff,
             Self::Rgb565 => 0xffff,
-            Self::Bgrx8888 => 0x00ff_ffff,
+            Self::Bgr888 | Self::Bgrx8888 => 0x00ff_ffff,
         }
     }
 }
@@ -131,7 +134,6 @@ impl PackedLayout {
         self
     }
 
-    #[cfg(feature = "renderer")]
     pub(crate) fn address_mask(self) -> u32 {
         self.address_mask
     }
@@ -153,6 +155,8 @@ impl PackedLayout {
     pub fn display_start(self) -> u32 {
         self.display_start
     }
+    /// Pixel coordinates of the physical start, excluding any partial-pixel byte
+    /// offset left by address wrapping. Coordinate changes preserve that offset.
     pub fn origin(self) -> [u32; 2] {
         if self.pitch == 0 {
             return [self.display_start / self.pixel_bytes, 0];
@@ -184,6 +188,7 @@ impl PackedLayout {
     pub fn with_virtual_width(self, pixels: u32) -> Option<Self> {
         self.with_pitch(pixels.checked_mul(self.pixel_bytes)?)
     }
+    /// Move the pixel origin while preserving its byte phase in physical memory.
     pub fn with_origin(self, [x, y]: [u32; 2]) -> Option<Self> {
         if self.address_mask == u32::MAX && x.checked_add(self.size[0])? > self.virtual_width() {
             return None;
@@ -195,6 +200,7 @@ impl PackedLayout {
             Self::new(self.size, self.format, self.pitch, start, self.memory_bytes)
         } else {
             Self::wrapping(self.size, self.format, self.pitch, start, self.memory_bytes)
+                .map(|layout| layout.with_start_offset(self.display_start % self.pixel_bytes))
         }
     }
     pub fn geometry(self) -> DisplayGeometry {
@@ -214,6 +220,50 @@ impl PackedLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn wrapping_bgr888_relocation_preserves_the_byte_phase() {
+        // One and two VRAM wraps leave different remainders modulo three.
+        for (start, physical, panned, widened) in [(65538, 2, 20, 23), (131073, 1, 19, 22)] {
+            let layout =
+                PackedLayout::wrapping([2, 2], PixelFormat::Bgr888, 15, start, 65536).unwrap();
+            assert_eq!(layout.display_start(), physical);
+            assert_eq!(layout.origin(), [0, 0]);
+            assert_eq!(layout.with_pitch(15), Some(layout));
+            assert_eq!(layout.with_origin(layout.origin()), Some(layout));
+
+            let moved = layout.with_origin([1, 1]).unwrap();
+            assert_eq!(moved.display_start(), panned);
+            assert_eq!(moved.origin(), [1, 1]);
+            let resized = moved.with_pitch(18).unwrap();
+            assert_eq!(resized.display_start(), widened);
+            assert_eq!(resized.origin(), [1, 1]);
+            assert_eq!(resized.with_pitch(15), Some(moved));
+
+            let repeated_row = moved.with_pitch(0).unwrap();
+            assert_eq!(repeated_row.display_start(), physical + 3);
+            assert_eq!(repeated_row.with_pitch(0), Some(repeated_row));
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    fn bgr888_layout_keeps_whole_pixels_and_complete_rows() {
+        let layout = PackedLayout::new([640, 480], PixelFormat::Bgr888, 3072, 0, 4194304).unwrap();
+        assert_eq!(layout.virtual_width(), 1024);
+        assert_eq!(layout.virtual_height(), 1365);
+        assert_eq!(layout.max_pitch(), 8736);
+        let corner = layout.with_origin([384, 885]).unwrap();
+        assert_eq!(corner.display_start(), 2719872);
+        assert_eq!(corner.memory_bytes(), 4193280); // 1024 bytes cannot hold another row.
+        assert!(layout.with_origin([385, 885]).is_none());
+        assert!(layout.with_origin([384, 886]).is_none());
+        assert!(layout.with_pitch(3073).is_none());
+        assert!(layout.with_pitch(8736).is_some());
+        assert!(layout.with_pitch(8739).is_none());
+        assert!(PackedLayout::new([1, 1], PixelFormat::Bgr888, 3, 1, 65536).is_none());
+    }
 
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -96,7 +96,14 @@ impl Framebuffer<'_> {
                 }
                 let format = layout.format();
                 let address = layout.pixel_address(u32::from(x), u32::from(y));
-                (Location::Packed { address, format }, layout.color_mask())
+                (
+                    Location::Packed {
+                        address,
+                        address_mask: layout.address_mask(),
+                        format,
+                    },
+                    layout.color_mask(),
+                )
             }
         };
         Some(Pixel {
