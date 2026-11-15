@@ -222,6 +222,17 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         if updates.is_empty() {
             return Ok(());
         }
+        let bytes = self.lookup_after(&updates).to_bytes();
+        let next_slot = self.reserve(backend, &updates, bytes.len())?;
+        for (key, target) in updates {
+            self.bind(backend, key, target)?;
+        }
+        backend.memory(&self.memory).write(0, &bytes);
+        self.next_slot = next_slot;
+        Ok(())
+    }
+
+    fn lookup_after(&self, updates: &BTreeMap<u32, Target<B>>) -> EntryTable {
         let mut slots = EntryTable::default();
         for (&key, entry) in &self.entries {
             if updates.contains_key(&key) {
@@ -231,41 +242,53 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 slots.insert(key, slot);
             }
         }
-        let mut next_slot = self.next_slot;
-        for (&key, target) in &updates {
+        for (&key, target) in updates {
             if let Some(slot) = target.slot() {
                 slots.insert(key, slot);
-                next_slot = next_slot.max(slot + 1);
             }
         }
-        let bytes = slots.to_bytes();
+        slots
+    }
+
+    /// Grow both tables before replacing any live binding.
+    fn reserve(
+        &mut self,
+        backend: &mut B,
+        updates: &BTreeMap<u32, Target<B>>,
+        lookup_bytes: usize,
+    ) -> Result<u32> {
+        let next_slot = updates
+            .values()
+            .filter_map(Target::slot)
+            .fold(self.next_slot, |next, slot| next.max(slot + 1));
         if next_slot > self.capacity {
             let capacity = next_slot.max(self.capacity.saturating_mul(2));
             self.functions.ensure_size(backend, capacity, None)?;
             self.capacity = capacity;
         }
-        backend.ensure_memory_size(&self.memory, bytes.len() as u64)?;
-        for (key, target) in updates {
-            let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
-            if let Target::Export { slot, function, .. } = &target {
-                self.functions.set(backend, *slot, function)?;
-            } else if let Target::Export { slot, .. } = &entry.target {
-                self.functions.set(
-                    backend,
-                    *slot,
-                    self.interpreter.as_ref().expect("installed interpreter"),
-                )?;
-            }
-            for caller in entry.callers.values() {
-                caller.bind(backend, target.function(self.interpreter.as_ref()))?;
-            }
-            entry.target = target;
-            if entry.target.slot().is_none() && entry.callers.is_empty() {
-                self.entries.remove(&key);
-            }
+        backend.ensure_memory_size(&self.memory, lookup_bytes as u64)?;
+        Ok(next_slot)
+    }
+
+    /// Update the function-table slot and registered callers for one entry.
+    fn bind(&mut self, backend: &mut B, key: u32, target: Target<B>) -> Result<()> {
+        let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
+        if let Target::Export { slot, function, .. } = &target {
+            self.functions.set(backend, *slot, function)?;
+        } else if let Target::Export { slot, .. } = &entry.target {
+            self.functions.set(
+                backend,
+                *slot,
+                self.interpreter.as_ref().expect("installed interpreter"),
+            )?;
         }
-        backend.memory(&self.memory).write(0, &bytes);
-        self.next_slot = next_slot;
+        for caller in entry.callers.values() {
+            caller.bind(backend, target.function(self.interpreter.as_ref()))?;
+        }
+        entry.target = target;
+        if entry.target.slot().is_none() && entry.callers.is_empty() {
+            self.entries.remove(&key);
+        }
         Ok(())
     }
 }
