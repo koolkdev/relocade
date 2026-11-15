@@ -13,14 +13,16 @@ pub struct CpuHandle {
     memory: Memory,
     config: CpuConfig,
     compiler: Option<crate::compiler::Endpoint>,
+    execution: super::execution::Member,
 }
 
 impl CpuHandle {
     pub(super) fn new(
-        memory: Memory,
+        machine: &super::Machine,
         config: CpuConfig,
         compiler: Option<crate::compiler::Endpoint>,
     ) -> Result<(Self, CpuStateAccess)> {
+        let memory = machine.memory();
         memory.configuration().validate_for(config.cpu().mode())?;
         let storage = CpuStorage::new()?;
         let backing = storage.initialize(&config);
@@ -31,6 +33,7 @@ impl CpuHandle {
                 memory,
                 config,
                 compiler,
+                execution: machine.execution.member(),
             },
             state,
         ))
@@ -59,10 +62,11 @@ impl CpuHandle {
         self,
         io: IoBus,
     ) -> Result<(Cpu, Option<crate::compiler::Endpoint>)> {
-        let cpu = self
+        let mut cpu = self
             .storage
             .into_initialized_cpu(self.memory, self.config, io)
             .await?;
+        cpu.execution = Some(self.execution);
         Ok((cpu, self.compiler))
     }
 

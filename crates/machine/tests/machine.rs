@@ -7,6 +7,9 @@ use relocade_x86::{
 };
 use std::{pin::pin, time::Duration};
 
+#[path = "machine/pause.rs"]
+mod pause;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

@@ -19,6 +19,7 @@ impl Cpu {
     /// Execution-interrupt requests remain pending for the execution owner.
     /// HLT returns `Halted`, including when an execution interrupt is pending.
     /// Further steps remain halted; use `run` to accept a device IRQ and resume.
+    /// A machine pause returns `Interrupted` without executing an instruction.
     ///
     /// # Panics
     /// Panics while a host call is active or suspended. Use `run` to continue
@@ -28,6 +29,13 @@ impl Cpu {
             self.pending.is_none() && self.suspended.is_empty(),
             "complete host calls before instruction stepping"
         );
+        let _execution = match &self.execution {
+            Some(execution) => match execution.try_enter() {
+                Some(active) => Some(active),
+                None => return ExecutionExit::Interrupted,
+            },
+            None => None,
+        };
         if self.halted {
             return ExecutionExit::Halted;
         }

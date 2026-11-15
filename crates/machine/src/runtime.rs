@@ -71,6 +71,7 @@ pub(crate) use wasm::WasmRuntimeHandle;
 
 /// Executes one guest and owns its execution instance, registered services and suspended calls.
 pub struct Cpu {
+    pub(crate) execution: Option<crate::machine::execution::Member>,
     pending: Option<Call>,
     suspended: Vec<SuspendedCall>,
     guest_calls: GuestCalls,
@@ -101,6 +102,7 @@ impl Cpu {
         let instance = CpuInstance::new(memory, cpu, io, storage).await?;
         let instruction_target = InstructionTarget::new(&instance.bindings);
         Ok(Self {
+            execution: None,
             pending: None,
             suspended: Vec::new(),
             guest_calls: GuestCalls::default(),

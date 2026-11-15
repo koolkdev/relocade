@@ -2,9 +2,11 @@
 
 mod cpu;
 pub use cpu::CpuHandle;
+pub(crate) mod execution;
 
 use crate::{CompilerService, CpuConfig, CpuStateAccess, MachineConfig, Memory, Result};
 use futures_util::future::join_all;
+use std::sync::Arc;
 
 /// Owns guest memory, every CPU's state and their compiler connection lifetimes.
 /// CPU handles grant execution access once; the machine retains state after the
@@ -13,6 +15,7 @@ pub struct Machine {
     memory: Memory,
     cpus: Vec<CpuStateAccess>,
     compiler_connections: Vec<crate::compiler::Connection>,
+    execution: Arc<execution::Execution>,
 }
 
 impl Machine {
@@ -24,6 +27,7 @@ impl Machine {
             memory,
             cpus: Vec::new(),
             compiler_connections: Vec::new(),
+            execution: Arc::default(),
         })
     }
 
@@ -49,18 +53,38 @@ impl Machine {
             .map(|compiler| crate::compiler::Connection::new(self.memory(), compiler))
             .transpose()?
             .unzip();
-        let (cpu, state) = CpuHandle::new(self.memory(), config, endpoint)?;
+        let (cpu, state) = CpuHandle::new(self, config, endpoint)?;
         self.cpus.push(state);
         self.compiler_connections.extend(connection);
         Ok(cpu)
     }
 
     /// State in creation order, for access at stopped guest boundaries.
-    /// Configure before transferring a CPU, or inspect after its worker joins.
-    /// Access during a session requires an explicit stopped handshake with its
-    /// execution owner; these handles do not stop or synchronize guest execution.
+    /// Configure before transferring a CPU, inspect after its worker joins, or
+    /// hold a [`Self::pause_cpus`] guard during a session. State handles themselves
+    /// do not stop or synchronize guest execution.
     pub fn cpus(&self) -> &[CpuStateAccess] {
         &self.cpus
+    }
+
+    /// Pauses CPUs created by this machine at completed execution boundaries.
+    /// The returned guard blocks guest entry and CPU host-service polling until
+    /// dropped. Idle, unstarted and dropped CPUs require no acknowledgement.
+    /// Concurrent pause requests serialize; cancellation releases a pending pause.
+    ///
+    /// Active execution stops at existing checkpoints, without a fixed latency
+    /// bound for straight-line code or REP. Device activities and independent
+    /// memory writers keep running. This is not an exclusive guest-memory lock,
+    /// and does not include standalone CPUs created through [`crate::Cpu::new`].
+    /// Request from the machine owner, outside a CPU execution or service poll.
+    pub async fn pause_cpus(&self) -> impl Drop + '_ {
+        self.execution
+            .pause(|| {
+                for cpu in &self.cpus {
+                    cpu.interrupt_handle().request();
+                }
+            })
+            .await
     }
 
     /// Closes this machine's compiler connections and drains their accepted work.

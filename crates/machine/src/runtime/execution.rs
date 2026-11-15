@@ -13,7 +13,7 @@ use std::{
     cell::Cell,
     future::poll_fn,
     rc::Rc,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 pub(super) use suspended::SuspendedCall;
 
@@ -88,11 +88,27 @@ impl Cpu {
     /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
-        poll_fn(|cx| match self.poll_host_work(cx) {
-            Some(exit) => Poll::Ready(exit),
-            None => self.poll_execution(cx),
+        poll_fn(|cx| {
+            let _execution = ready!(self.poll_enter_execution(cx));
+            match self.poll_host_work(cx) {
+                Some(exit) => Poll::Ready(exit),
+                None => self.poll_execution(cx),
+            }
         })
         .await
+    }
+
+    /// Enters one synchronous CPU turn, including service polling and IRQ entry.
+    /// While paused, registers a wakeup for resumption and returns Pending.
+    /// Runners retain the returned guard through both poll operations.
+    pub(crate) fn poll_enter_execution(
+        &self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<crate::machine::execution::Active>> {
+        match &self.execution {
+            Some(execution) => execution.poll_enter(cx).map(Some),
+            None => Poll::Ready(None),
+        }
     }
 
     /// Polls the active host service once and observes exit requests without
