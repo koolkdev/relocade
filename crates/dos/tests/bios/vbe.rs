@@ -72,7 +72,7 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
         let (status, bytes) = information(&mut dos, 0, 0, 0xff80);
         assert_eq!(status, 0x004f);
         assert_eq!(&bytes[..6], b"VESA\x02\x01");
-        assert_eq!(&bytes[10..14], &[0; 4]);
+        assert_eq!(&bytes[10..14], &[1, 0, 0, 0]);
         assert_eq!(&bytes[18..20], &[64, 0]); // Four MiB in 64-KiB blocks.
         assert_eq!(&bytes[20..], &[0; 236]);
         let oem = FarPointer::from_packed(u32::from_le_bytes(bytes[6..10].try_into().unwrap()));

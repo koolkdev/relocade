@@ -2,6 +2,8 @@ use super::{common, run, Gpu, TEXT_WITH_RED_BLOCK};
 use relocade_machine::FarPointer;
 use relocade_x86::{ExecutionExit, HostExit};
 
+#[path = "vbe/dac.rs"]
+mod dac;
 #[path = "vbe/direct_color.rs"]
 mod direct_color;
 

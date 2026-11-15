@@ -50,7 +50,8 @@ pub(super) fn controller<C: Vbe>(
     bytes[..4].copy_from_slice(b"VESA");
     bytes[4..6].copy_from_slice(&0x0102u16.to_le_bytes());
     bytes[6..10].copy_from_slice(&OEM.packed().to_le_bytes());
-    // Capabilities = 0: VGA compatible, fixed six-bit DAC.
+    // Bit 0 advertises switchable DAC precision; the card remains VGA compatible.
+    bytes[10] = u8::from(C::MAX_DAC_BITS_PER_COMPONENT == 8);
     bytes[14..18].copy_from_slice(&MODES.packed().to_le_bytes());
     bytes[18..20].copy_from_slice(&((memory_bytes / 65536) as u16).to_le_bytes());
     memory

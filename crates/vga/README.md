@@ -1108,9 +1108,9 @@ redirect this entry. As specified by VBE 1.2 function 05h, callers must allow
 AX/DX to change and must not depend on an AX status result from the far call.
 The entry preserves the other registers and flags. Controller information
 remains the 256-byte 1.x structure even when the caller supplies a `VBE2` signature.
-Capability bits advertise VGA compatibility and a fixed six-bit DAC. Eight-bit
-DAC components, linear framebuffer access and protected-mode VBE entry points
-are not advertised.
+Capability bits advertise VGA compatibility and switchable six/eight-bit DAC
+precision on DISPI. ET4000 keeps a fixed six-bit DAC. Linear framebuffer access
+and protected-mode VBE entry points are not advertised.
 
 State service `4F04h` selects hardware, BIOS data, DAC and SVGA through CX bits
 0–3. DL=0 reports the required allocation in 64-byte blocks; DL=1 saves to ES:BX
@@ -1171,13 +1171,16 @@ without modifying the viewport.
 DAC-format service `4F08h` queries the driver's live component width in legacy
 and indexed modes, including changes made through DISPI ports. Direct-color
 modes return AX=034Fh for this service.
-Set requests of six bits or more select six, following VBE's next-lower-width
-rule; requests below six and unsupported selectors fail without changing the
-palette or an in-progress DAC transfer. The controller capability bit remains
-clear. Legacy palette services and direct port access share the same colors and
-pixel mask in VGA and indexed SVGA. Direct-color mode entry preserves the DAC;
-subsequent DAC writes do not change its displayed colors. Returning to indexed
-rendering uploads palette changes that were skipped while displaying direct color.
+Set requests follow VBE's next-lower-width rule: DISPI selects eight for requests
+of eight or more and six for requests of six or seven. ET4000 selects six for
+requests of six or more. Smaller requests and unsupported selectors fail without
+changing the palette or an in-progress DAC transfer. Format operations use named
+hooked Rust routines and the same driver operations as direct port writes.
+Width changes preserve the pixel mask and transfer position; BIOS mode entry
+resets precision to six bits. Legacy palette services and direct port access share
+the same colors and pixel mask in VGA and indexed SVGA. Direct-color scanout
+bypasses the DAC. Returning to indexed rendering uploads palette changes that
+were skipped while displaying direct color.
 
 Palette-data service `4F09h` sets or gets primary palette blocks with BL=00h/01h.
 CX supplies the entry count and DX the first index. Each ES:DI entry contains
@@ -1204,6 +1207,10 @@ byte stores and VBE bank calls, pans with a wider scanline, saves and restores a
 state classes around an indexed mode change, then returns to usable text. Full
 image comparisons verify both restoration and retained output after the device
 is destroyed.
+
+An indexed DOS guest also selects eight-bit precision, transfers full-range BGR
+palette entries, and saves/restores them across a mode change. GPU comparisons
+verify the restored colors and retained captures after returning to six-bit text.
 
 Display-start control supports immediate updates, position queries and BL=80h
 retrace synchronization. Requests validate the whole visible rectangle;
