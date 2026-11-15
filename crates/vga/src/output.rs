@@ -77,6 +77,7 @@ impl Output {
             dac: DacSnapshot {
                 colors: registers.dac.colors,
                 mask: registers.dac.mask,
+                bits_per_component: registers.dac.bits_per_component(),
             },
             blanked: self.display.blanked,
             blanking: self.display.blanking.clone(),

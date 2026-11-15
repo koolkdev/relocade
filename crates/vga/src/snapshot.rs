@@ -15,9 +15,11 @@ pub(crate) struct Blanking {
 /// Shared indexed-color display inputs, without CPU palette-transfer position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DacSnapshot {
-    /// Six-bit RGB components in DAC address order.
+    /// RGB components in DAC address order, interpreted using the captured precision.
     pub colors: [[u8; 3]; 256],
     pub mask: u8,
+    /// Significant bits per component: 6 or 8.
+    pub bits_per_component: u8,
 }
 
 /// Changes since a known immutable memory version. Pending captures accumulate

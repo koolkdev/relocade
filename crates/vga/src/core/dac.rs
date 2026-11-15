@@ -1,6 +1,6 @@
 use crate::registers::dac::Dac;
 
-/// DAC colors, pixel mask, exact transfer position and Attribute Color Select.
+/// DAC precision, colors, pixel mask, exact transfer position and Attribute Color Select.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DacState {
     pub(super) dac: Dac,
@@ -9,6 +9,10 @@ pub struct DacState {
 
 impl DacState {
     pub const BYTE_LEN: usize = 773;
+
+    pub fn bits_per_component(&self) -> u8 {
+        self.dac.bits_per_component()
+    }
 
     pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
         let mut bytes = [0; Self::BYTE_LEN];

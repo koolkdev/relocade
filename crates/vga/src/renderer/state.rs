@@ -3,7 +3,7 @@ use crate::{DisplaySnapshot, PixelFormat, Scanout};
 
 // Settings hold prepared VGA parameters or packed layout and blanking inputs.
 const SETTINGS_BYTES: usize = 208;
-// WGSL aligns the palette's vec4 array after the DAC mask to 16 bytes.
+// WGSL aligns the palette's vec4 array after DAC controls to 16 bytes.
 const PALETTE_OFFSET: usize = 16;
 const PALETTE_BYTES: usize = 256 * 3;
 
@@ -12,7 +12,7 @@ pub(super) struct GpuState {
     dac: wgpu::Buffer,
     previous_settings: Option<[u8; SETTINGS_BYTES]>,
     previous_palette: Option<[[u8; 3]; 256]>,
-    previous_mask: Option<u8>,
+    previous_dac_controls: Option<[u32; 2]>,
     pub layout: wgpu::BindGroupLayout,
     pub binding: wgpu::BindGroup,
 }
@@ -74,7 +74,7 @@ impl GpuState {
             dac,
             previous_settings: None,
             previous_palette: None,
-            previous_mask: None,
+            previous_dac_controls: None,
             layout,
             binding,
         }
@@ -96,11 +96,14 @@ impl GpuState {
         {
             return settings_changed;
         }
-        let mask = snapshot.dac.mask;
-        let mask_changed = self.previous_mask != Some(mask);
-        if mask_changed {
-            queue.write_buffer(&self.dac, 0, &u32::from(mask).to_le_bytes());
-            self.previous_mask = Some(mask);
+        let controls = [
+            u32::from(snapshot.dac.mask),
+            u32::from(u8::MAX >> (8 - snapshot.dac.bits_per_component)),
+        ];
+        let controls_changed = self.previous_dac_controls != Some(controls);
+        if controls_changed {
+            queue.write_buffer(&self.dac, 0, controls.map(u32::to_le_bytes).as_flattened());
+            self.previous_dac_controls = Some(controls);
         }
         let palette = &snapshot.dac.colors;
         let palette_changed = self.previous_palette.as_ref() != Some(palette);
@@ -108,7 +111,7 @@ impl GpuState {
             queue.write_buffer(&self.dac, PALETTE_OFFSET as u64, palette.as_flattened());
             self.previous_palette = Some(*palette);
         }
-        settings_changed || mask_changed || palette_changed
+        settings_changed || controls_changed || palette_changed
     }
 }
 

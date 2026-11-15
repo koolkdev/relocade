@@ -253,7 +253,7 @@ fn malformed_component_bytes_are_rejected_before_restoration() {
         bytes[offset] = value;
         assert!(VgaCoreState::from_bytes(&bytes).is_none());
     }
-    for (offset, value) in [(2, 3), (3, 2), (4, 64), (772, 16)] {
+    for (offset, value) in [(2, 3), (3, 4), (4, 64), (772, 16)] {
         let mut bytes = vga.device.borrow().dac_state().to_bytes();
         bytes[offset] = value;
         assert!(DacState::from_bytes(&bytes).is_none());
