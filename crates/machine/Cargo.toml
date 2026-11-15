@@ -11,11 +11,11 @@ futures-channel = "=0.3.34"
 futures-lite = { version = "=2.6.1", default-features = false }
 web-time = "=1.1.0"
 relocade-wasm-runtime = { path = "../wasm-runtime" }
-relocade-workers = { path = "../workers", features = ["compiler"] }
+relocade-workers = { path = "../workers" }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-interpreter = { path = "../interpreter" }
 relocade-x86 = { path = "../x86" }
-relocade-compiler = { path = "../compiler" }
+relocade-compiler = { path = "../compiler", features = ["workers"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }

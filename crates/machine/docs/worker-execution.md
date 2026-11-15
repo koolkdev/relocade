@@ -43,6 +43,18 @@ activities retain their own handles, release mutable borrows before awaiting,
 and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
+`spawn_activity(future).await` starts a service without bus mappings with the
+same first-poll and session lifetime guarantees. `spawn_job_thread()` returns a
+sendable job executor backed by one reusable calculation thread. Jobs own their
+inputs and return results through Rust memory; awaiting one suspends only its
+calling activity. The thread binds the session's wake peer once, so completion
+can interrupt busy guest execution without a JavaScript message per block.
+
+Ending or cancelling the session drops local activities, then closes job
+admission, drains accepted calculations and joins their threads. Retained job
+handles cannot keep a stopped session alive. Calculations must finish without
+waiting for another job on the same queue.
+
 The machine initializes CPU state before spawning. Startup consumes its
 non-cloneable `CpuHandle` and transfers that CPU's storage, configuration and
 shared memory together. The runner constructor creates the local backend without

@@ -3,6 +3,9 @@
 use crate::BuildError;
 use std::{error::Error, fmt, future::Future};
 
+#[cfg(feature = "workers")]
+mod workers;
+
 /// Runs owned compilation jobs using the caller's execution resources.
 ///
 /// A job and its result can move between threads. The executor and its returned
@@ -13,6 +16,7 @@ use std::{error::Error, fmt, future::Future};
 ///
 /// Compilation submits multiple jobs before awaiting their completion. An
 /// executor may run jobs immediately or admit them when their futures are polled.
+/// The `workers` feature implements this contract for `relocade_workers::JobExecutor`.
 pub trait CompileExecutor {
     type Error;
 

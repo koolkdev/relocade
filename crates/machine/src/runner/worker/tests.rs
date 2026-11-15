@@ -60,6 +60,104 @@ async fn stopped_startup() {
     machine.shutdown().await.unwrap();
 }
 
+#[derive(Default)]
+struct Gate {
+    open: std::sync::Mutex<bool>,
+    changed: std::sync::Condvar,
+}
+
+impl Gate {
+    fn wait(&self) {
+        drop(
+            self.changed
+                .wait_while(self.open.lock().unwrap(), |open| !*open)
+                .unwrap(),
+        );
+    }
+
+    fn release(&self) {
+        *self.open.lock().unwrap() = true;
+        self.changed.notify_all();
+    }
+}
+
+struct Release(std::sync::Arc<Gate>);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+async fn jobs_accepted_during_startup_are_drained() {
+    let (machine, cpu) = cpu();
+    let (completed, completion) = oneshot::channel();
+    let worker = cpu.spawn_with_guest_time(
+        || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
+        async move |runner| {
+            let jobs = runner.spawn_job_thread();
+            let mut work = std::pin::pin!(jobs.execute(move || completed.send(()).unwrap()));
+            // Submit once, then finish the session without waiting for worker startup.
+            let _ = futures_lite::future::poll_once(work.as_mut()).await;
+        },
+    );
+    worker.join().await.unwrap();
+    completion.await.unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+async fn owned_job_cleanup(cancel: bool) {
+    let (machine, cpu) = cpu();
+    let (export, exported) = oneshot::channel();
+    let (started, ready) = oneshot::channel();
+    let (finish, finished) = oneshot::channel();
+    let (cleanup, mut cleaned) = oneshot::channel();
+    let gate = std::sync::Arc::new(Gate::default());
+    let release = Release(gate.clone());
+    let worker = cpu.spawn_with_guest_time(
+        || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
+        async move |runner| {
+            let jobs = runner.spawn_job_thread();
+            let mut work = std::pin::pin!(jobs.execute(move || {
+                let _cleanup = Dropped(Some(cleanup));
+                started.send(()).unwrap();
+                gate.wait();
+            }));
+            assert!(futures_lite::future::poll_once(work.as_mut())
+                .await
+                .is_none());
+            export
+                .send(jobs.clone())
+                .unwrap_or_else(|_| panic!("job owner"));
+            let _ = finished.await;
+        },
+    );
+    let jobs = exported.await.unwrap();
+    ready.await.unwrap();
+    if !cancel {
+        finish.send(()).unwrap();
+    }
+    let mut shutdown = std::pin::pin!(async move {
+        if cancel {
+            worker.stop().await
+        } else {
+            worker.join().await
+        }
+    });
+    assert!(futures_lite::future::poll_once(shutdown.as_mut())
+        .await
+        .is_none());
+    assert_eq!(cleaned.try_recv().unwrap(), None);
+    drop(release);
+    assert_eq!(shutdown.await.unwrap(), (!cancel).then_some(()));
+    assert_eq!(cleaned.try_recv().unwrap(), Some(()));
+    assert!(matches!(
+        jobs.execute(|| ()).await,
+        Err(crate::worker::PoolError::Closed)
+    ));
+    machine.shutdown().await.unwrap();
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn construction_errors_reach_the_worker_owner() {
@@ -82,4 +180,22 @@ fn stopping_during_construction_drops_startup_before_joining() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn stopping_during_construction_drops_startup_before_joining() {
     stopped_startup().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn session_completion_and_cancellation_drain_calculation_jobs() {
+    pollster::block_on(async {
+        jobs_accepted_during_startup_are_drained().await;
+        owned_job_cleanup(false).await;
+        owned_job_cleanup(true).await;
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn session_completion_and_cancellation_drain_calculation_jobs() {
+    jobs_accepted_during_startup_are_drained().await;
+    owned_job_cleanup(false).await;
+    owned_job_cleanup(true).await;
 }

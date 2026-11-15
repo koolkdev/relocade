@@ -151,6 +151,11 @@ such as `Rc`, the CPU and browser engine objects. Construct those values inside
 the task. `Thread::run` and `Thread::listen` return Send results through Rust memory;
 send resources back through a channel when the result contains an engine object.
 `Pool` accepts these same `Thread` owners for reusable synchronous jobs.
+`JobQueue::new()` returns a queue and the same `JobExecutor` submission handle.
+Run `queue.run(stopped)` inside a persistent worker to calculate sequential jobs
+without a posted task acknowledgement for each result. Stop closes admission
+and drains accepted jobs, including jobs whose result waiters were dropped.
+`Runner::spawn_job_thread()` owns this setup and shutdown for an execution session.
 
 Host services are ordinary async functions capturing CPU state, memory, I/O and
 service resources. They await Rust channel input without retaining a backend

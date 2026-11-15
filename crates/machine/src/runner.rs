@@ -8,7 +8,7 @@ mod worker;
 use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
-use crate::worker::{Executor, WakeEndpoint, WakePeer};
+use crate::worker::{Executor, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
 use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
@@ -18,7 +18,7 @@ use futures_lite::future::poll_once;
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
 use futures_util::{
-    future::{select, Either, LocalBoxFuture},
+    future::{join_all, select, Either, LocalBoxFuture},
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
@@ -41,6 +41,7 @@ pub struct Runner {
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
+    workers: Rc<RefCell<Vec<LocalBoxFuture<'static, ()>>>>,
     cpu: Cpu,
 }
 
@@ -87,6 +88,7 @@ impl Runner {
             activities,
             pending: Some(pending),
             executor,
+            workers: Rc::new(RefCell::new(Vec::new())),
             cpu,
         })
     }
@@ -126,6 +128,27 @@ impl Runner {
         self.executor.peer()
     }
 
+    /// Starts a reusable calculation thread owned by this execution session.
+    /// Each submitted closure owns its inputs and returns its result asynchronously.
+    /// The submitting activity can await a result while guest execution continues.
+    /// Session shutdown closes admission and drains accepted work before joining.
+    pub fn spawn_job_thread(&self) -> JobExecutor {
+        let (queue, jobs) = JobQueue::new();
+        let (started, ready) = oneshot::channel();
+        let worker = Worker::spawn_with(self.wake_peer(), move |peer, stopped| async move {
+            let _binding = peer.bind();
+            let _ = started.send(());
+            queue.run(stopped).await;
+        });
+        self.workers.borrow_mut().push(Box::pin(async move {
+            // Let startup acquire the queue before cancellation so jobs accepted
+            // during setup are drained even if the session ends immediately.
+            let _ = ready.await;
+            let _ = worker.stop().await.expect("session job thread cleanup");
+        }));
+        jobs
+    }
+
     /// Connects a device's mappings and starts its activity on this session.
     /// Await this during setup inside [`Self::run`]. Configuration finishes and
     /// releases the runtime context before activity starts. On return, activity
@@ -138,9 +161,15 @@ impl Runner {
         configure: impl FnOnce(&mut DeviceConnection<'_>),
     ) {
         self.io().connect(device.clone(), configure);
+        self.spawn_activity(D::run(device)).await;
+    }
+
+    /// Starts a local activity with the same lifetime and first-poll guarantee
+    /// as a connected device. Use for services without bus mappings.
+    pub async fn spawn_activity(&self, activity: impl Future<Output = ()> + 'static) {
         let (started, ready) = oneshot::channel();
         let activity = async move {
-            let mut run = pin!(D::run(device));
+            let mut run = pin!(activity);
             let completed = poll_once(run.as_mut()).await.is_some();
             let _ = started.send(());
             if !completed {
@@ -149,13 +178,14 @@ impl Runner {
         };
         self.activities
             .unbounded_send(Box::pin(activity))
-            .unwrap_or_else(|_| panic!("runner must own its device activities"));
-        ready.await.expect("runner must poll registered devices");
+            .unwrap_or_else(|_| panic!("runner must own its activities"));
+        ready.await.expect("runner must poll registered activities");
     }
 
     /// Runs the main activity and devices for one execution lifetime.
     /// Devices remain active while the main activity awaits input or another
-    /// process. Completion or cancellation drops every activity on this owner.
+    /// process. Completion or cancellation drops every activity on this owner,
+    /// then drains calculations and joins their threads.
     /// The stop future is registered before application code runs. It returns
     /// `None` on cancellation; ordinary main completion returns `Some(result)`.
     pub async fn run<R>(
@@ -167,7 +197,8 @@ impl Runner {
         let devices = pending.for_each_concurrent(None, |activity| activity);
         let executor = self.executor.clone();
         let _activities = self.activities.clone();
-        executor
+        let workers = self.workers.clone();
+        let result = executor
             .run_until(stop, async {
                 // Poll ready devices before returning to guest execution.
                 match select(pin!(devices), pin!(main(self))).await {
@@ -175,7 +206,10 @@ impl Runner {
                     Either::Left(_) => unreachable!("session retains the activity sender"),
                 }
             })
-            .await
+            .await;
+        let cleanup = std::mem::take(&mut *workers.borrow_mut());
+        join_all(cleanup).await;
+        result
     }
 
     /// Runs until the guest exits, polling ready Rust work on execution interrupts.

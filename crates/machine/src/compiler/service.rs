@@ -1,6 +1,6 @@
 use super::connection::Start;
 use crate::{
-    worker::{self, Pool, PoolHandle, Receiver, ReceiverEndpoint, Sender, Thread, Worker},
+    worker::{self, JobExecutor, Pool, Receiver, ReceiverEndpoint, Sender, Thread, Worker},
     Result,
 };
 use futures_util::{
@@ -70,7 +70,7 @@ async fn run(
 async fn serve(
     mut incoming: Receiver<Start>,
     compiler: relocade_wasm_runtime::Compiler,
-    jobs: PoolHandle,
+    jobs: JobExecutor,
 ) -> Result<()> {
     let mut connections = FuturesUnordered::new();
     loop {
