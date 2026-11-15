@@ -1,6 +1,11 @@
 //! Card programming shared by firmware and guest register accesses.
 
-use crate::{dispi, ports::VgaPortAccess, DispiAdapter, DispiMode};
+use crate::{
+    dispi,
+    effects::{CardEffects, Effects},
+    ports::VgaPortAccess,
+    DispiAdapter, DispiMode,
+};
 use relocade_machine::IoContext;
 
 impl DispiAdapter {
@@ -15,6 +20,16 @@ impl DispiAdapter {
 
     pub fn video_bank(&self) -> u16 {
         self.dispi.bank()
+    }
+
+    /// Preserve overdue captures, then transfer RGB colors through the shared DAC.
+    pub fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
+        if !self.ports_enabled() || colors.is_empty() {
+            return;
+        }
+        self.with_effects(context, Effects::IMAGE, |card| {
+            card.vga.registers.dac.write_colors(first, colors);
+        });
     }
 
     /// Leave packed access before standard VGA font loading and mode programming.

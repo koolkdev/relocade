@@ -3,6 +3,9 @@ use crate::common::{self, VideoInspection};
 use relocade_machine::FarPointer;
 use relocade_x86::{Segment, SegmentRegister};
 
+#[path = "palette/data.rs"]
+mod data;
+
 #[test]
 fn dac_format_reports_fixed_width_without_disturbing_palette_transfers() {
     pollster::block_on(async {

@@ -29,6 +29,19 @@ impl Et4000Ax {
         u16::from(self.extensions.segments & 15)
     }
 
+    /// Palette access ends the SC11483 command sequence without changing its
+    /// pixel format. Completed captures retain the preceding colors.
+    pub fn set_palette(&mut self, context: IoContext<'_>, first: u8, colors: &[[u8; 3]]) {
+        if !self.ports_enabled() || colors.is_empty() {
+            return;
+        }
+        self.with_effects(context, Effects::IMAGE, |card| {
+            card.ramdac
+                .access_palette(&mut card.vga.registers.dac)
+                .write_colors(first, colors);
+        });
+    }
+
     /// Change only the read segment of the 64-KiB aperture.
     pub fn set_read_bank(&mut self, context: IoContext<'_>, bank: u16) -> bool {
         self.set_video_banks(context, bank, self.write_bank())

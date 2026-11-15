@@ -47,6 +47,7 @@ async fn dispatch_card<C: Vbe>(call: &mut CpuContext<'_>, card: &RefCell<C>, fun
             0x06 => layout::scanline(card),
             0x07 => layout::display_start(card),
             0x08 => palette::format(card),
+            0x09 => palette::data(card),
             _ => unsupported,
         }
     );

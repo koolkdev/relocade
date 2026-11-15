@@ -1035,14 +1035,16 @@ The DISPI firmware reports VBE 1.2. Its VBE module provides `INT 10h/4F00h`
 controller discovery and `4F01h` information for nine banked modes,
 `4F02h`/`4F03h` mode control,
 `4F04h` state save/restore, `4F05h` bank control, `4F06h` logical scanline control,
-`4F07h` display-start control and `4F08h` DAC-format control, using the VBE 1.2
-register and 256-byte buffer layouts with selected VBE 2.0 extensions. It reports
-the 4 MiB adapter, a terminated ROM mode list, one readable and writable 64 KiB
+`4F07h` display-start control, `4F08h` DAC-format control and `4F09h` palette
+transfers, using the VBE 1.2 register and 256-byte information-buffer layouts
+with selected VBE 2.0 extensions. It reports the 4 MiB adapter, a terminated
+ROM mode list, one readable and writable 64 KiB
 window at A000h, and the number of additional complete display pages at the
 reported pitch. Mode information supplies a callable bank function; BIOS output
 functions are not advertised for these modes. Unimplemented functions return
 AL != 4Fh, while failed supported requests return AX=014Fh, AX=024Fh for an
-excessively wide scanline, or AX=034Fh for DAC-format control in direct color.
+excessively wide scanline or an absent secondary palette, or AX=034Fh for
+palette services in direct color.
 All VBE results preserve flags.
 
 | VBE mode | Resolution | Pixel format | Default pitch | Additional image pages |
@@ -1143,6 +1145,18 @@ clear. Legacy palette services and direct port access share the same colors and
 pixel mask in VGA and indexed SVGA. Direct-color mode entry preserves the DAC;
 subsequent DAC writes do not change its displayed colors. Returning to indexed
 rendering uploads palette changes that were skipped while displaying direct color.
+
+Palette-data service `4F09h` sets or gets primary palette blocks with BL=00h/01h.
+CX supplies the entry count and DX the first index. Each ES:DI entry contains
+blue, green, red and one padding byte. Writes ignore padding and mask components
+to six bits; reads return zero padding without changing DAC transfer position.
+The first index must be below 256 and the whole block must fit the palette.
+Empty transfers preserve device state and guest memory. Secondary palettes
+return AX=024Fh; invalid ranges or selectors return AX=014Fh. Direct-color modes
+have fixed ramps and return AX=034Fh. Both cards share the existing DAC colors
+and mask; ET4000 palette writes end its RAMDAC command-access sequence.
+Input colors are captured before programming, and reads release the card before
+writing guest memory, so buffers may wrap at 64 KiB or reside in banked VRAM.
 
 Native and browser GPU checks cover RGB565 channel scaling, BGRX padding and
 opacity, bank edges, panning to the final VRAM byte, and retained captures.
