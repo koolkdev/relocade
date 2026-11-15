@@ -144,7 +144,7 @@ async fn check_packed_pixels() {
         svga::write_byte(&vga.io, address, index);
     }
     vga.io.write_port(0x3c6, 1, 0x7f); // High palette indices obey the shared DAC mask.
-    // Service a retrace so inspections can reuse the output's captured memory.
+                                       // Service a retrace so inspections can reuse the output's captured memory.
     clock.advance_to(clock.at(common::svga_boundary(1)));
     vga.io.read_port(0x3da, 1);
     let original = vga.snapshot();
@@ -329,6 +329,18 @@ async fn check_direct_color() {
     let mut renderer = VgaRenderer::new(&device).unwrap();
     for (bits, pitch, rows, values, colors) in [
         (
+            15u16,
+            2048,
+            2048,
+            [0x801fu32, 0x4210, 0x03e0, 0xfc00],
+            [
+                [0, 0, 255, 255],
+                [132, 132, 132, 255],
+                [0, 255, 0, 255],
+                [255, 0, 0, 255],
+            ],
+        ),
+        (
             16,
             2048,
             2048,
@@ -359,7 +371,7 @@ async fn check_direct_color() {
         svga::set(&vga.io, 6, 1024);
         svga::set(&vga.io, 8, 384);
         svga::set(&vga.io, 9, rows - 480);
-        let pixel_bytes = u32::from(bits / 8);
+        let pixel_bytes = u32::from(bits.div_ceil(8));
         let start = u32::from(rows - 480) * pitch + 384 * pixel_bytes;
         let boundary_row = 65536 / pitch;
         let points = [
@@ -385,7 +397,12 @@ async fn check_direct_color() {
         let original = vga.snapshot();
         assert_eq!(
             original.vram_byte(4 * 1024 * 1024 - 1),
-            Some(if bits == 16 { 0xf8 } else { 0xa5 })
+            Some(match bits {
+                15 => 0xfc,
+                16 => 0xf8,
+                32 => 0xa5,
+                _ => unreachable!(),
+            })
         );
         assert!(renderer.upload(&queue, &original));
         palette(&vga.io, 0, [63, 63, 63]);

@@ -81,7 +81,7 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
         let mut name = [0; 21];
         context.memory.read_wrapping(oem, &mut name).unwrap();
         assert_eq!(&name, b"Relocade banked SVGA\0");
-        let mut list = [0; 20];
+        let mut list = [0; 26];
         context.memory.read_wrapping(modes, &mut list).unwrap();
         assert_eq!(
             list.as_chunks::<2>()
@@ -90,7 +90,10 @@ fn vbe_discovery_returns_bounded_structures_and_valid_rom_pointers() {
                 .copied()
                 .map(u16::from_le_bytes)
                 .collect::<Vec<_>>(),
-            [0x101, 0x103, 0x105, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144, 0xffff]
+            [
+                0x101, 0x103, 0x105, 0x110, 0x113, 0x116, 0x111, 0x114, 0x117, 0x142, 0x143, 0x144,
+                0xffff
+            ]
         );
         assert_eq!(dos.vga().borrow().registers(), &registers);
     });
@@ -154,6 +157,9 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
             (0x101, 640u16, 480u16, 8u8, 12),
             (0x103, 800, 600, 8, 7),
             (0x105, 1024, 768, 8, 4),
+            (0x110, 640, 480, 15, 5),
+            (0x113, 800, 600, 15, 3),
+            (0x116, 1024, 768, 15, 1),
             (0x111, 640, 480, 16, 5),
             (0x114, 800, 600, 16, 3),
             (0x117, 1024, 768, 16, 1),
@@ -163,7 +169,10 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
         ] {
             let (status, bytes) = information(&mut dos, 1, number, 0x200);
             assert_eq!(status, 0x4f);
-            assert_eq!(&bytes[16..18], &(width * u16::from(bits / 8)).to_le_bytes());
+            assert_eq!(
+                &bytes[16..18],
+                &(width * u16::from(bits.div_ceil(8))).to_le_bytes()
+            );
             assert_eq!(&bytes[18..20], &width.to_le_bytes());
             assert_eq!(&bytes[20..22], &height.to_le_bytes());
             assert_eq!(bytes[25], bits);
@@ -171,6 +180,7 @@ fn advertised_resolutions_match_mode_information_and_current_mode() {
             assert_eq!(bytes[29], pages);
             let masks = match bits {
                 8 => [0; 9],
+                15 => [5, 10, 5, 5, 5, 0, 1, 15, 0],
                 16 => [5, 11, 6, 5, 5, 0, 0, 0, 0],
                 32 => [8, 16, 8, 8, 8, 0, 8, 24, 2],
                 _ => unreachable!(),
