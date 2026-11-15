@@ -1,4 +1,5 @@
-//! Services shared by the selected card's VBE firmware.
+//! Shared VBE services, specialized once for the selected card's driver.
+mod driver;
 mod information;
 mod layout;
 mod modes;
@@ -6,12 +7,13 @@ mod palette;
 mod state;
 
 use super::VideoFirmware;
+pub(super) use driver::{SavedState, Vbe};
 pub(super) use information::{initialize, ModeInformation, WindowAccess};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch, interrupt_handler, Interrupts},
-    CpuContext, FarPointer, IoContext,
+    CpuContext, FarPointer,
 };
-use relocade_vga::{PackedLayout, RetraceEvent, Viewport};
+use std::{cell::RefCell, rc::Rc};
 
 // Follows the VBE OEM string and mode list in BIOS ROM.
 const WINDOW_FUNCTION: FarPointer = FarPointer {
@@ -19,25 +21,32 @@ const WINDOW_FUNCTION: FarPointer = FarPointer {
     offset: 0xb100,
 };
 
+#[interrupt(context(call))]
+pub(in crate::video) async fn dispatch(call: &mut CpuContext<'_>, firmware: &VideoFirmware) {
+    interrupt_dispatch!(
+        call,
+        match firmware {
+            VideoFirmware::Vga => unsupported,
+            VideoFirmware::Dispi(card) => dispatch_card(card.as_ref()),
+            VideoFirmware::Et4000Ax(card) => dispatch_card(card.as_ref()),
+        }
+    );
+}
+
 #[interrupt(context(call), args(function = al))]
-pub(in crate::video) async fn dispatch(
-    call: &mut CpuContext<'_>,
-    firmware: &VideoFirmware,
-    function: u8,
-) {
+async fn dispatch_card<C: Vbe>(call: &mut CpuContext<'_>, card: &RefCell<C>, function: u8) {
     interrupt_dispatch!(
         call,
         match function {
-            _ if matches!(firmware, VideoFirmware::Vga) => unsupported,
-            0x00 => information::controller(firmware),
-            0x01 => information::mode(firmware),
-            0x02 => modes::set(firmware),
-            0x03 => modes::current(firmware),
-            0x04 => state::dispatch(firmware),
-            0x05 => modes::window(firmware),
-            0x06 => layout::scanline(firmware),
-            0x07 => layout::display_start(firmware),
-            0x08 => palette::format(firmware),
+            0x00 => information::controller(card),
+            0x01 => information::mode(card),
+            0x02 => modes::set(card),
+            0x03 => modes::current(card),
+            0x04 => state::dispatch(card),
+            0x05 => modes::window(card),
+            0x06 => layout::scanline(card),
+            0x07 => layout::display_start(card),
+            0x08 => palette::format(card),
             _ => unsupported,
         }
     );
@@ -49,80 +58,22 @@ fn unsupported() {}
 
 impl VideoFirmware {
     pub(crate) fn register_procedures(&self, interrupts: &mut Interrupts<'_>) {
-        if matches!(self, Self::Vga) {
-            return;
-        }
-        let firmware = self.clone();
-        // The far-call ABI supplies BX/DX directly and permits AX/DX to change.
-        // This adapter only writes registers; there is no saved FLAGS word.
-        interrupts.register_far_procedure(
-            WINDOW_FUNCTION,
-            interrupt_handler!(modes::window(&firmware)),
-        );
-    }
-
-    fn ports_enabled(&self) -> bool {
         match self {
-            Self::Vga => false,
-            Self::Dispi(card) => card.borrow().ports_enabled(),
-            Self::Et4000Ax(card) => card.borrow().ports_enabled(),
+            Self::Vga => {}
+            Self::Dispi(card) => register_window_procedure(interrupts, card.clone()),
+            Self::Et4000Ax(card) => register_window_procedure(interrupts, card.clone()),
         }
     }
+}
 
-    fn packed_layout(&self) -> Option<PackedLayout> {
-        if !self.ports_enabled() {
-            return None;
-        }
-        match self {
-            Self::Vga => None,
-            Self::Dispi(card) => card.borrow().packed_layout(),
-            Self::Et4000Ax(card) => card.borrow().packed_layout(),
-        }
-    }
-
-    fn video_memory_bytes(&self) -> Option<u32> {
-        match self {
-            Self::Vga => None,
-            Self::Dispi(card) => Some(card.borrow().video_memory_bytes()),
-            Self::Et4000Ax(card) => Some(card.borrow().video_memory_bytes()),
-        }
-    }
-
-    fn viewport(&self) -> Option<Viewport> {
-        match self {
-            Self::Vga => None,
-            Self::Dispi(card) => card.borrow().viewport(),
-            Self::Et4000Ax(card) => card.borrow().viewport(),
-        }
-    }
-
-    fn set_display_pitch(&self, context: IoContext<'_>, pitch: u32) -> Option<Viewport> {
-        match self {
-            Self::Vga => None,
-            Self::Dispi(card) => card.borrow_mut().set_display_pitch(context, pitch),
-            Self::Et4000Ax(card) => card.borrow_mut().set_display_pitch(context, pitch),
-        }
-    }
-
-    fn set_display_origin(&self, context: IoContext<'_>, origin: [u16; 2]) -> bool {
-        match self {
-            Self::Vga => false,
-            Self::Dispi(card) => card.borrow_mut().set_display_origin(context, origin),
-            Self::Et4000Ax(card) => card.borrow_mut().set_display_origin(context, origin),
-        }
-    }
-
-    async fn wait_for_retrace(&self) -> Option<RetraceEvent> {
-        match self {
-            Self::Vga => None,
-            Self::Dispi(card) => {
-                let wait = card.borrow_mut().wait_for_retrace()?;
-                Some(wait.await)
-            }
-            Self::Et4000Ax(card) => {
-                let wait = card.borrow_mut().wait_for_retrace()?;
-                Some(wait.await)
-            }
-        }
-    }
+fn register_window_procedure<C: Vbe + 'static>(
+    interrupts: &mut Interrupts<'_>,
+    card: Rc<RefCell<C>>,
+) {
+    // Hook the bank service directly; far callers supply BX/DX without an AX
+    // function number, and the runtime provides the far-procedure return.
+    interrupts.register_far_procedure(
+        WINDOW_FUNCTION,
+        interrupt_handler!(modes::window(card.as_ref())),
+    );
 }

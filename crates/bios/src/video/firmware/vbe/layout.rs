@@ -1,9 +1,10 @@
 //! Logical framebuffer services use the active card's checked memory layout.
 //! VBE 2.0 sections 4.9–4.10 define the extended selectors and error results:
 //! https://www.phatcode.net/res/221/files/vbe20.pdf
-use super::super::VideoFirmware;
+use super::Vbe;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus};
 use relocade_vga::{RetraceEvent, Viewport};
+use std::cell::RefCell;
 
 #[cfg(test)]
 mod tests;
@@ -39,13 +40,13 @@ impl From<Viewport> for Scanline {
     Err(ScanlineError::TooWide) => { ax = 0x024f },
     Err(ScanlineError::Failed) => { ax = 0x014f },
 })]
-pub(in crate::video::firmware) fn scanline(
+pub(in crate::video::firmware) fn scanline<C: Vbe>(
     io: &IoBus,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     operation: u8,
     width: u16,
 ) -> Result<Scanline, ScanlineError> {
-    let layout = firmware.viewport().ok_or(ScanlineError::Failed)?;
+    let layout = card.borrow().viewport().ok_or(ScanlineError::Failed)?;
     match operation {
         0 | 2 => {
             let pitch = if operation == 2 {
@@ -56,7 +57,7 @@ pub(in crate::video::firmware) fn scanline(
             if pitch > layout.max_pitch() {
                 return Err(ScanlineError::TooWide);
             }
-            io.with_context(|context| firmware.set_display_pitch(context, pitch))
+            io.with_context(|context| card.borrow_mut().set_display_pitch(context, pitch))
                 .map(Into::into)
                 .ok_or(ScanlineError::Failed)
         }
@@ -73,24 +74,25 @@ pub(in crate::video::firmware) fn scanline(
     Some([x, y]) => { ax = 0x004f, bh = 0, cx = x, dx = y },
     None => { ax = 0x014f },
 })]
-pub(in crate::video::firmware) async fn display_start(
+pub(in crate::video::firmware) async fn display_start<C: Vbe>(
     io: &IoBus,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     operation: u16,
     x: u16,
     y: u16,
 ) -> Option<[u16; 2]> {
-    firmware.packed_layout()?;
-    let layout = firmware.viewport()?;
+    card.borrow().packed_layout()?;
+    let layout = card.borrow().viewport()?;
     match operation {
         1 => Some(layout.origin().map(|value| value as u16)),
         0 | 0x80 => {
             layout.with_origin([u32::from(x), u32::from(y)])?;
             if operation == 0x80 {
                 loop {
-                    let event = firmware.wait_for_retrace().await?;
+                    let wait = card.borrow_mut().wait_for_retrace()?;
+                    let event = wait.await;
                     // Revalidation services the completed boundary before the origin changes.
-                    if firmware.viewport() != Some(layout) {
+                    if card.borrow().viewport() != Some(layout) {
                         return None;
                     }
                     if event == RetraceEvent::Started {
@@ -98,7 +100,7 @@ pub(in crate::video::firmware) async fn display_start(
                     }
                 }
             }
-            io.with_context(|context| firmware.set_display_origin(context, [x, y]))
+            io.with_context(|context| card.borrow_mut().set_display_origin(context, [x, y]))
                 .then_some([x, y])
         }
         _ => None, // BH is reserved; only the three complete BX values are valid.

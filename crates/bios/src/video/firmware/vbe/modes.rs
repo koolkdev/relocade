@@ -1,58 +1,47 @@
-//! VBE mode and bank requests applied through the selected card's firmware.
-use super::super::{dispi, et4000, VideoFirmware};
+//! VBE mode and bank requests applied through the selected card's driver.
+use super::Vbe;
 use relocade_machine::{real_mode_interrupt::interrupt, IoBus, MemoryView};
+use std::cell::RefCell;
 
 #[interrupt(context(memory, io), args(request = bx),
     returns { true => { ax = 0x004f }, false => { ax = 0x014f } },
 )]
-pub(super) fn set(
+pub(super) fn set<C: Vbe>(
     memory: &mut MemoryView<'_>,
     io: &IoBus,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     request: u16,
 ) -> bool {
-    if !firmware.ports_enabled() {
+    if !card.borrow().ports_enabled() {
         return false;
     }
-    let number = request & 0x7fff;
-    let preserve = request & 0x8000 != 0;
-    if number < 0x80 {
-        return firmware
-            .set_mode(memory, io, number as u8 | if preserve { 0x80 } else { 0 })
-            .is_some();
-    }
-    match firmware {
-        VideoFirmware::Vga => false,
-        VideoFirmware::Dispi(card) => dispi::vbe::modes::set(memory, io, card, number, preserve),
-        VideoFirmware::Et4000Ax(card) => {
-            et4000::vbe::modes::set(memory, io, card, number, preserve)
-        }
-    }
+    C::set_mode(card, memory, io, request & 0x7fff, request & 0x8000 != 0)
 }
 
 #[interrupt(context(memory), returns {
     Some(number) => { ax = 0x004f, bx = number }, None => { ax = 0x014f },
 })]
-pub(super) fn current(memory: &MemoryView<'_>, firmware: &VideoFirmware) -> Option<u16> {
-    match firmware {
-        VideoFirmware::Vga => None,
-        VideoFirmware::Dispi(card) => dispi::vbe::modes::current(memory, card),
-        VideoFirmware::Et4000Ax(card) => et4000::vbe::modes::current(memory, card),
-    }
+pub(super) fn current<C: Vbe>(memory: &MemoryView<'_>, card: &RefCell<C>) -> Option<u16> {
+    card.borrow().current_mode(memory)
 }
 
 #[interrupt(context(io), args(operation = bx, position = dx), returns {
     Some(position) => { ax = 0x004f, dx = position }, None => { ax = 0x014f },
 })]
-pub(super) fn window(
+pub(super) fn window<C: Vbe>(
     io: &IoBus,
-    firmware: &VideoFirmware,
+    card: &RefCell<C>,
     operation: u16,
     position: u16,
 ) -> Option<u16> {
-    match firmware {
-        VideoFirmware::Vga => None,
-        VideoFirmware::Dispi(card) => dispi::vbe::modes::window(io, card, operation, position),
-        VideoFirmware::Et4000Ax(card) => et4000::vbe::modes::window(io, card, operation, position),
-    }
+    let [window, operation] = operation.to_le_bytes();
+    let bank = match operation {
+        0 => Some(position),
+        1 => None,
+        _ => return None,
+    };
+    let mut card = card.borrow_mut();
+    card.ports_enabled().then_some(())?;
+    card.packed_layout()?;
+    io.with_context(|context| card.window(context, window, bank))
 }
