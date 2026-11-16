@@ -3,16 +3,9 @@
 
 use async_channel::Sender;
 use futures_lite::future::or;
-use relocade_frontend::audio::AudioTiming;
+use relocade_frontend::audio::{AudioTiming, Sources};
 use relocade_machine::{Clock, Device};
-use std::{cell::RefCell, ops::Range, rc::Rc};
-
-type GenerateSamples = dyn FnMut(Range<u64>, &mut [f32]);
-
-struct Source {
-    gain: f32,
-    generate_samples: Box<GenerateSamples>,
-}
+use std::{cell::RefCell, rc::Rc};
 
 /// Mixes elapsed source samples into one bounded, interleaved PCM stream.
 /// Configure sources before connecting this activity with [`relocade_machine::Runner::connect`].
@@ -22,7 +15,7 @@ pub struct Mixer {
     config: cpal::StreamConfig,
     timing: AudioTiming,
     samples: Sender<Vec<f32>>,
-    sources: Vec<Source>,
+    sources: Option<Sources>,
 }
 
 impl Mixer {
@@ -48,7 +41,7 @@ impl Mixer {
             clock,
             config,
             samples,
-            sources: Vec::new(),
+            sources: Some(Sources::new(timing)),
         })
     }
 
@@ -57,25 +50,18 @@ impl Mixer {
         self.timing
     }
 
-    /// Adds a mono source before the activity starts. Fill exactly one value per
-    /// requested frame without blocking. All sources receive the same frame grid;
-    /// gains apply before the sum is copied into each output channel.
-    pub fn add_source(
-        &mut self,
-        gain: f32,
-        generate_samples: impl FnMut(Range<u64>, &mut [f32]) + 'static,
-    ) {
-        self.sources.push(Source {
-            gain,
-            generate_samples: Box::new(generate_samples),
-        });
+    /// Registers device-owned audio sources before connecting the activity.
+    pub fn sources(&mut self) -> &mut Sources {
+        self.sources
+            .as_mut()
+            .expect("sources registered before connection")
     }
 }
 
 impl Device for Mixer {
     async fn run(device: Rc<RefCell<Self>>) {
         // The activity owns sources so closing output releases recorded writes.
-        let mut sources = std::mem::take(&mut device.borrow_mut().sources);
+        let mut sources = device.borrow_mut().sources.take().expect("mixer runs once");
         let clock = device.borrow().clock.clone();
         let config = device.borrow().config;
         let samples = device.borrow().samples.clone();
@@ -86,7 +72,6 @@ impl Device for Mixer {
         };
         let channels = usize::from(config.channels);
         let mut frames = 0;
-        let mut mono = vec![0.0; batch];
         while !samples.is_closed() {
             or(
                 clock.sleep_until(timing.deadline_for_frame(frames + batch as u64)),
@@ -98,16 +83,7 @@ impl Device for Mixer {
             }
             let mut buffer = vec![0.0; batch * channels];
             let end = frames + batch as u64;
-            for source in &mut sources {
-                mono.fill(0.0);
-                (source.generate_samples)(frames..end, &mut mono);
-                for (frame, sample) in buffer.chunks_exact_mut(channels).zip(&mono) {
-                    // Preserve headroom until platform output converts the sum.
-                    for channel in frame {
-                        *channel += source.gain * sample;
-                    }
-                }
-            }
+            sources.generate_samples(frames..end, &mut buffer);
             frames = end;
             // A stalled sink retains recent PCM without blocking device progress.
             if samples.force_send(buffer).is_err() {

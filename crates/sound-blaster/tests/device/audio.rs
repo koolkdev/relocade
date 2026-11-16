@@ -4,6 +4,49 @@ use std::{future::Future, pin::pin, task::Poll};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn registered_sources_include_both_fm_and_digital_output() {
+    let [fm, mixed] = [false, true].map(|digital| {
+        let hw = Hardware::new();
+        let mut sources = relocade_frontend::audio::Sources::new(
+            AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
+        );
+        hw.card.borrow().add_audio_sources(&mut sources).unwrap();
+        for (register, value) in [
+            (0x20, 0x21),
+            (0x23, 0x21),
+            (0x40, 0x3f),
+            (0x43, 0),
+            (0x60, 0xf0),
+            (0x63, 0xf0),
+            (0x80, 0x0f),
+            (0x83, 0x0f),
+            (0xa0, 0x98),
+            (0xb0, 0x31),
+        ] {
+            hw.io.write_port(FM_ADDRESS_STATUS_PORT, 1, register);
+            hw.io.write_port(FM_DATA_PORT, 1, value);
+        }
+        if digital {
+            hw.command(&[0xd1, 0x10, 0xc0]); // Held DAC output of +0.5.
+        }
+        hw.clock.advance_by(Duration::from_millis(40));
+        let mut output = vec![0.0; 400];
+        sources.generate_samples(0..400, &mut output);
+        output
+    });
+    let low = fm.iter().copied().fold(f32::INFINITY, f32::min);
+    let high = fm.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        high - low > 0.01,
+        "FM source must produce the programmed tone"
+    );
+    for (fm, mixed) in fm.into_iter().zip(mixed) {
+        assert!((mixed - fm - 0.5).abs() < 0.000001);
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn timed_silence_zeros_the_dac_and_completes_without_consuming_dma() {
     let hw = Hardware::new();
     let (mut recorder, mut source) = hw.card.borrow().audio_source(
@@ -126,9 +169,11 @@ fn full_and_closed_output_do_not_block_dma_or_irqs() {
     let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
-    mixer.add_source(0.4, move |frames, output| {
-        source.generate_samples(recorder.take_events(), frames, output)
-    });
+    mixer.sources().add_source(
+        0.4,
+        move || recorder.take_events(),
+        move |events, frames, output| source.generate_samples(events, frames, output),
+    );
     let mut mixing = pin!(relocade_mixer::Mixer::run(Rc::new(RefCell::new(mixer))));
     let mut activity = pin!(SoundBlaster::run(hw.card.clone()));
     let mut cx = Context::from_waker(Waker::noop());

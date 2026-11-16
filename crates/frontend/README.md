@@ -49,3 +49,10 @@ storage cannot reconstruct its contents.
 This interface connects a graphics backend to host presentation. The emulated
 display device owns registers, memory and timing. `relocade-renderer` provides the GPU image and
 image-drawing tools used by the connection and host.
+
+The `audio` feature provides `AudioTiming` and `Sources`. A source collection owns
+one frame grid and lets each device register its recorder and mono generator
+together. `generate_samples(frames, output)` captures events and mixes every
+source once into interleaved PCM. Each source keeps its own gain and synthesis
+state; playback clamps the final mix. This contract uses value types from
+`relocade-time` and has no machine, worker, or playback-backend dependency.

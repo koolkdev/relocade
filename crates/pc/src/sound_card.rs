@@ -1,5 +1,3 @@
-#[cfg(feature = "audio")]
-use crate::audio::{FM_GAIN, PCM_GAIN};
 use relocade_adlib::Adlib;
 use relocade_sound_blaster::SoundBlaster;
 pub use relocade_sound_blaster::{Model as SoundBlasterModel, Settings as SoundBlasterSettings};
@@ -17,9 +15,12 @@ pub trait SoundCard {
     /// Describes the installed hardware independently of guest operating systems.
     fn settings(&self) -> Settings;
 
-    /// Registers the card's sources at the output rate using PC audio levels.
+    /// Registers the card's sources on the shared output frame grid.
     #[cfg(feature = "audio")]
-    fn add_audio_sources(&self, mixer: &mut relocade_mixer::Mixer) -> Result<(), String>;
+    fn add_audio_sources(
+        &self,
+        sources: &mut relocade_frontend::audio::Sources,
+    ) -> Result<(), String>;
 }
 
 impl SoundCard for Rc<RefCell<Adlib>> {
@@ -30,12 +31,11 @@ impl SoundCard for Rc<RefCell<Adlib>> {
     }
 
     #[cfg(feature = "audio")]
-    fn add_audio_sources(&self, mixer: &mut relocade_mixer::Mixer) -> Result<(), String> {
-        let (mut recorder, mut source) = self.borrow_mut().audio_source(mixer.timing())?;
-        mixer.add_source(FM_GAIN, move |frames, output| {
-            source.generate_samples(recorder.take_events(), frames, output)
-        });
-        Ok(())
+    fn add_audio_sources(
+        &self,
+        sources: &mut relocade_frontend::audio::Sources,
+    ) -> Result<(), String> {
+        self.borrow_mut().add_audio_sources(sources)
     }
 }
 
@@ -45,12 +45,10 @@ impl SoundCard for Rc<RefCell<SoundBlaster>> {
     }
 
     #[cfg(feature = "audio")]
-    fn add_audio_sources(&self, mixer: &mut relocade_mixer::Mixer) -> Result<(), String> {
-        self.borrow().adlib().add_audio_sources(mixer)?;
-        let (mut recorder, mut pcm) = self.borrow().audio_source(mixer.timing());
-        mixer.add_source(PCM_GAIN, move |frames, output| {
-            pcm.generate_samples(recorder.take_events(), frames, output)
-        });
-        Ok(())
+    fn add_audio_sources(
+        &self,
+        sources: &mut relocade_frontend::audio::Sources,
+    ) -> Result<(), String> {
+        self.borrow().add_audio_sources(sources)
     }
 }

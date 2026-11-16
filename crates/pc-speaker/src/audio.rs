@@ -88,6 +88,16 @@ pub struct SampleGenerator {
 }
 
 impl Speaker {
+    /// Registers this device's output at unity gain on the shared frame grid.
+    pub fn add_audio_sources(&self, sources: &mut relocade_frontend::audio::Sources) {
+        let (mut recorder, mut generator) = self.audio_source(sources.timing());
+        sources.add_source(
+            1.0,
+            move || recorder.take_events(),
+            move |events, frames, output| generator.generate_samples(events, frames, output),
+        );
+    }
+
     /// Records PIT/control writes from the current state. Create sources before
     /// execution starts, with the same timing used by the mixer.
     pub fn audio_source(&self, timing: AudioTiming) -> (EventRecorder, SampleGenerator) {

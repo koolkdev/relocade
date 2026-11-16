@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-audio = ["dep:cpal", "dep:relocade-mixer", "relocade-pc-speaker/audio"]
+audio = ["dep:cpal", "dep:relocade-mixer", "relocade-frontend/audio", "relocade-pc-speaker/audio"]
 
 [dependencies]
 relocade-adlib = { path = "../adlib" }
