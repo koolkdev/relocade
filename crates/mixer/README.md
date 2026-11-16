@@ -16,7 +16,7 @@ mixer.add_source(1.0, move |frames, output| source.generate_samples(frames, outp
 runner.connect(Rc::new(RefCell::new(mixer)), |_| {}).await;
 ```
 
-Each callback fills one mono sample per frame in a `Range<u64>`. Every source
+Each callback runs once per block and fills one mono sample per frame in a `Range<u64>`. Every source
 uses the same immutable `AudioTiming`: a native timestamp for frame zero, the
 native tick rate, and the output sample rate. Sources own synthesis and precise
 placement of changes within frames. Only the block wakeup is rounded to a native

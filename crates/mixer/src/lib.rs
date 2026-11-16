@@ -86,6 +86,7 @@ impl Device for Mixer {
         };
         let channels = usize::from(config.channels);
         let mut frames = 0;
+        let mut mono = vec![0.0; batch];
         while !samples.is_closed() {
             or(
                 clock.sleep_until(timing.deadline_for_frame(frames + batch as u64)),
@@ -96,19 +97,18 @@ impl Device for Mixer {
                 return;
             }
             let mut buffer = vec![0.0; batch * channels];
-            for frame in buffer.chunks_exact_mut(channels) {
-                let sample = sources
-                    .iter_mut()
-                    .map(|source| {
-                        let mut mono = [0.0];
-                        (source.generate_samples)(frames..frames + 1, &mut mono);
-                        source.gain * mono[0]
-                    })
-                    .sum();
-                // Preserve headroom until platform output converts the mixed sample.
-                frame.fill(sample);
-                frames += 1;
+            let end = frames + batch as u64;
+            for source in &mut sources {
+                mono.fill(0.0);
+                (source.generate_samples)(frames..end, &mut mono);
+                for (frame, sample) in buffer.chunks_exact_mut(channels).zip(&mono) {
+                    // Preserve headroom until platform output converts the sum.
+                    for channel in frame {
+                        *channel += source.gain * sample;
+                    }
+                }
             }
+            frames = end;
             // A stalled sink retains recent PCM without blocking device progress.
             if samples.force_send(buffer).is_err() {
                 return;

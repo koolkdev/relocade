@@ -67,7 +67,7 @@ fn sources_sum_with_gains_on_the_same_frames() {
         .mixer
         .borrow_mut()
         .add_source(0.5, move |frames, output| {
-            recorded.borrow_mut().extend(frames.clone());
+            recorded.borrow_mut().push(frames.clone());
             for (frame, sample) in frames.zip(output) {
                 *sample = if frame.is_multiple_of(2) { 1.0 } else { -1.0 };
             }
@@ -78,7 +78,7 @@ fn sources_sum_with_gains_on_the_same_frames() {
         .mixer
         .borrow_mut()
         .add_source(2.0, move |frames, output| {
-            recorded.borrow_mut().extend(frames);
+            recorded.borrow_mut().push(frames);
             output.fill(0.5);
         });
     playback
@@ -90,7 +90,8 @@ fn sources_sum_with_gains_on_the_same_frames() {
         [1.5, 1.5, 0.5, 0.5, 1.5, 1.5, 0.5, 0.5]
     );
     assert_eq!(*frames.borrow(), *other_frames.borrow());
-    assert_eq!(*frames.borrow(), [0, 1, 2, 3]);
+    assert_eq!(frames.borrow().len(), 1);
+    assert_eq!(frames.borrow()[0], 0..4);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
