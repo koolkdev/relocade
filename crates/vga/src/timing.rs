@@ -2,9 +2,7 @@
 //! Cards supply normalized counters for VGA or packed display output.
 mod vga;
 
-use std::time::Duration;
-
-const NANOS_PER_SECOND: u64 = 1_000_000_000;
+use relocade_machine::TickRate;
 
 /// Horizontal values count dot clocks; vertical values count increments
 /// of the vertical counter. `scanlines_per_vertical_count` relates that counter
@@ -111,42 +109,36 @@ impl Timing {
         self.retrace_dot()
     }
 
-    // Fractional dot position is numerator / phase_denominator(). An
-    // elapsed nanosecond adds oscillator_hz to that numerator. Keeping the
-    // division remainder avoids rounding every dot period to nanoseconds.
-    fn phase_denominator(self) -> u64 {
-        NANOS_PER_SECOND * self.dot_clock_divisor
+    fn phase_denominator(self, rate: TickRate) -> u128 {
+        u128::from(rate.ticks_per_second().get()) * u128::from(self.dot_clock_divisor)
     }
 
-    /// Returns whole dot clocks and carries the fractional position forward.
-    pub fn elapsed_dots(self, elapsed: Duration, remainder: &mut u64) -> u128 {
-        let numerator =
-            elapsed.as_nanos() * u128::from(self.oscillator_hz) + u128::from(*remainder);
-        let denominator = u128::from(self.phase_denominator());
-        *remainder = (numerator % denominator) as u64;
+    /// Converts native progress directly into dot clocks and retains the remainder.
+    pub fn elapsed_dots(self, ticks: u64, rate: TickRate, remainder: &mut u128) -> u128 {
+        let numerator = u128::from(ticks) * u128::from(self.oscillator_hz) + *remainder;
+        let denominator = self.phase_denominator(rate);
+        *remainder = numerator % denominator;
         numerator / denominator
     }
 
-    /// Preserves fractional dot position when clock division changes.
-    pub fn rescale_remainder(self, remainder: u64, old: Self) -> u64 {
-        (u128::from(remainder) * u128::from(self.phase_denominator())
-            / u128::from(old.phase_denominator())) as u64
+    /// Preserve the fractional dot when changing the oscillator divider.
+    pub fn rescale_remainder(self, remainder: u128, old: Self) -> u128 {
+        remainder * u128::from(self.dot_clock_divisor) / u128::from(old.dot_clock_divisor)
     }
 
-    /// Time represented by whole dot clocks plus fractional progress.
-    /// Round elapsed time down when dating an already completed boundary.
-    pub fn elapsed_for_dots(self, dots: u64, remainder: u64) -> Duration {
-        let numerator =
-            u128::from(dots) * u128::from(self.phase_denominator()) + u128::from(remainder);
-        Duration::from_nanos((numerator / u128::from(self.oscillator_hz)) as u64)
+    /// Native ticks since an already crossed boundary, rounded down.
+    pub fn elapsed_for_dots(self, dots: u64, rate: TickRate, remainder: u128) -> u64 {
+        let numerator = u128::from(dots) * self.phase_denominator(rate) + remainder;
+        (numerator / u128::from(self.oscillator_hz))
+            .try_into()
+            .expect("past raster edge fits in native ticks")
     }
 
-    /// Time to a future dot boundary, accounting for current progress.
-    /// Round up so the deadline cannot precede the boundary.
-    pub fn remaining_for_dots(self, dots: u64, remainder: u64) -> Duration {
-        let numerator =
-            u128::from(dots) * u128::from(self.phase_denominator()) - u128::from(remainder);
-        Duration::from_nanos(numerator.div_ceil(u128::from(self.oscillator_hz)) as u64)
+    /// Native ticks to a future dot boundary, rounded up without rounding a dot period.
+    pub fn remaining_for_dots(self, dots: u64, rate: TickRate, remainder: u128) -> Option<u64> {
+        let numerator = u128::from(dots).checked_mul(self.phase_denominator(rate))? - remainder;
+        let ticks = numerator.div_ceil(u128::from(self.oscillator_hz));
+        (ticks <= i64::MAX as u128).then_some(ticks as u64)
     }
 
     pub fn vertical_retrace_active(self, vertical_count: u64) -> bool {
