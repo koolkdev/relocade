@@ -233,8 +233,10 @@ fn checked_output_notifies_on_empty_input_but_handle_output_does_not() {
         dos.cpu().memory().view().write(0x10400, b"Y$").unwrap();
         service(&mut dos, 0x0900, 0, 0, 0x400);
         assert_eq!(calls.get(), 2);
+        service(&mut dos, 0x0500, 0, 0, u16::from(b'P'));
+        assert_eq!(calls.get(), 3);
         service(&mut dos, 0x4000, 1, 1, 0x400);
-        assert_eq!(calls.get(), 2);
+        assert_eq!(calls.get(), 3);
         assert_eq!(common::output(dos.stdout()), b"XYY");
     });
 }

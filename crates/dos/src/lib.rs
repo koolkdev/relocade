@@ -40,7 +40,7 @@
 //! Graphics-mode console bytes remain buffered but do not draw glyphs yet.
 //! AH=06h polls stdin without echo or writes one byte to stdout.
 //! AH=01h waits for a character and echoes it through stdout; AH=07h/08h omit echo.
-//! AH=01h/02h/08h/09h/0Ah/0Bh and cooked console handle I/O check Ctrl-C.
+//! AH=01h/02h/05h/08h/09h/0Ah/0Bh and cooked console handle I/O check Ctrl-C.
 //! DOS's INT 1Bh converts physical Ctrl-Break to console Ctrl-C. CON skips the
 //! BIOS's 0000h dummy keys; extended keys still produce zero followed by a scan byte.
 //! A top-level checked call prints ^C and invokes the live INT 23h with the
@@ -55,6 +55,9 @@
 //! AH=02h writes DL through stdout. Cooked console output expands tabs to
 //! eight-column stops. [`Cpu::run`] awaits an empty input source and resumes
 //! the pending read when input becomes available.
+//! AH=05h sends DL unchanged through standard printer handle 4, including when
+//! redirected to a file. It awaits the retained destination, leaves AL=DL and
+//! preserves flags; write errors are not returned through this legacy service.
 //! AH=0Bh checks for a break, then queries input availability. IOCTL AX=4406h
 //! queries input without consuming it; AX=4407h reports
 //! output readiness. Console status describes queued keys, not a buffered line.

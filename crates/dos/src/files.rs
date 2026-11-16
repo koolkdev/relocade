@@ -24,7 +24,7 @@ mod tests;
 mod timestamp;
 pub(crate) use create::CreateMode;
 use file_handle::FileHandle;
-pub(crate) use handles::Handle;
+pub(crate) use handles::{standard_handle, Handle};
 use handles::HANDLE_COUNT;
 use metadata::EntryMetadata;
 pub(crate) use search::FIND_DATA_BYTES;

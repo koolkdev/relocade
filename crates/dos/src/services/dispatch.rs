@@ -29,6 +29,7 @@ async fn dispatch_function(call: &mut CpuContext<'_>, services: &Services<'_>) {
         match request.function {
             0x01 => console::read_character_echo(&mut request),
             0x02 => console::write_character(&mut request),
+            0x05 => console::write_printer(&mut request),
             0x06 => console::direct_io(&mut request),
             0x07 => console::read_character(&mut request),
             0x08 => console::read_character_check_break(&mut request),

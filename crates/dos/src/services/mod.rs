@@ -16,7 +16,7 @@ mod search;
 mod system;
 pub(crate) use system::absolute_disk_unavailable_entry;
 
-use crate::{process::Process, state::DosState, ServiceError};
+use crate::{files::standard_handle, process::Process, state::DosState, ServiceError};
 
 /// Resources retained for one DOS interrupt invocation, independent of CPU registers.
 /// The active process is selected at entry and retained across pending I/O.
@@ -29,7 +29,7 @@ impl<'call> Services<'call> {
     fn stdout(&self) -> crate::console::CharacterOutput<'call> {
         crate::console::CharacterOutput::handle(
             self.dos.stdio(),
-            self.process.files().writable_handle(1),
+            self.process.files().writable_handle(standard_handle::OUTPUT),
         )
     }
 

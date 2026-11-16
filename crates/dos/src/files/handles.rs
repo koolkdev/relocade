@@ -16,6 +16,15 @@ use std::rc::Rc;
 // A DOS process starts with 20 handles, including its five standard devices.
 pub(super) const HANDLE_COUNT: usize = 20;
 
+/// DOS's initial handle slots. Programs may close or redirect them like any handle.
+pub(crate) mod standard_handle {
+    pub const INPUT: u16 = 0;
+    pub const OUTPUT: u16 = 1;
+    pub const ERROR: u16 = 2;
+    pub const AUXILIARY: u16 = 3;
+    pub const PRINTER: u16 = 4;
+}
+
 #[derive(Clone)]
 pub(crate) enum Handle {
     // Separate opens have separate cursors; duplicated handles share this record.
@@ -26,14 +35,14 @@ pub(crate) enum Handle {
 impl Files {
     pub(crate) fn new(devices: DeviceChain, stdio: &Stdio) -> Self {
         let mut handles: [Option<Handle>; HANDLE_COUNT] = Default::default();
-        for (slot, (name, stream)) in handles.iter_mut().zip([
-            (b"CON", OutputStream::Stdout),
-            (b"CON", OutputStream::Stdout),
-            (b"CON", OutputStream::Stderr),
-            (b"AUX", OutputStream::Stdout),
-            (b"PRN", OutputStream::Stdout),
-        ]) {
-            *slot = Some(Handle::Device(Rc::new(DeviceHandle::new(
+        for (number, name, stream) in [
+            (standard_handle::INPUT, b"CON", OutputStream::Stdout),
+            (standard_handle::OUTPUT, b"CON", OutputStream::Stdout),
+            (standard_handle::ERROR, b"CON", OutputStream::Stderr),
+            (standard_handle::AUXILIARY, b"AUX", OutputStream::Stdout),
+            (standard_handle::PRINTER, b"PRN", OutputStream::Stdout),
+        ] {
+            handles[usize::from(number)] = Some(Handle::Device(Rc::new(DeviceHandle::new(
                 devices.find(name).expect("standard DOS device"),
                 stdio.output(stream).clone(),
                 AccessMode::ReadWrite,
