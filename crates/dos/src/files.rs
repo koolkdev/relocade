@@ -13,6 +13,7 @@ use std::{collections::BTreeMap, io::ErrorKind, rc::Rc};
 mod create;
 mod devices;
 mod directories;
+mod disk_space;
 mod file_handle;
 mod handles;
 mod io;
@@ -23,6 +24,7 @@ mod search;
 mod tests;
 mod timestamp;
 pub(crate) use create::CreateMode;
+pub(crate) use disk_space::{DiskSpace, BYTES_PER_SECTOR};
 use file_handle::FileHandle;
 pub(crate) use handles::Handle;
 use handles::HANDLE_COUNT;
@@ -66,6 +68,7 @@ pub(crate) struct FileSystem {
     drives: Drives,
     current_drive: char,
     current_directories: BTreeMap<char, String>,
+    drive_capacities: BTreeMap<char, u64>,
     entries: BTreeMap<ResolvedPath, EntryMetadata>,
     mount_timestamps: BTreeMap<char, FileTimestamp>,
     clock: Rc<Clock>,
@@ -87,6 +90,7 @@ impl FileSystem {
             drives,
             current_drive: 'C',
             current_directories: BTreeMap::new(),
+            drive_capacities: BTreeMap::new(),
             entries: BTreeMap::new(),
             mount_timestamps: BTreeMap::from([('C', FileTimestamp::from_datetime(clock.now()))]),
             clock,

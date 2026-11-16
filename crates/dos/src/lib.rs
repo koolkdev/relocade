@@ -97,6 +97,14 @@
 //! AH=5Ah creates a uniquely named temporary file; the caller owns its deletion.
 //! AH=56h renames or moves closed files on the same drive without replacing a destination.
 //! AH=0Eh/19h select/query the current drive; AH=3Bh/47h change/query a drive's directory.
+//! AH=36h reports sectors per cluster (AX), free clusters (BX), bytes per sector
+//! (CX) and total clusters (DX). DL=0 queries the current drive; DL=1..26 queries
+//! A:..Z:. Invalid drives return AX=FFFFh. Flags are preserved.
+//! Drives report an advisory capacity of 512 MiB unless [`Dos::set_drive_capacity`]
+//! overrides it. Usage is the sum of current file lengths, rounded once to the
+//! reported cluster size. Directories, empty files and retained old file versions
+//! consume no reported space. Usage at or above capacity reports zero free space;
+//! the capacity does not limit file writes or reserve memory.
 //! AH=39h/3Ah create directories or remove empty ones, excluding root and current.
 //! Guest relative paths use the selected drive's directory; both persist across loads.
 //! ASCII pathname components use DOS 8.3 translation: names and extensions are
@@ -339,6 +347,7 @@ impl Dos {
     /// Filesystem paths must use uppercase, unpadded ASCII 8.3 names and '/' separators.
     /// Entries with other spellings are not assigned short-name aliases.
     /// Files larger than u32::MAX bytes cannot be opened or listed by DOS.
+    /// Resets the reported capacity to the default 512 MiB.
     /// Resets that drive's current directory to its root and discards its DOS
     /// attributes and searches; entries start with the current DOS timestamp.
     /// Open handles continue to access their original files.
@@ -356,6 +365,17 @@ impl Dos {
             }
         }
         Ok(())
+    }
+
+    /// Sets the advisory capacity in bytes reported by AH=36h for a mounted drive.
+    /// Drive letters are case-insensitive. Missing drives return NotFound; invalid
+    /// letters or capacities above 65,535 * 32 KiB bytes return InvalidInput.
+    /// Reports use 512-byte sectors and power-of-two clusters up to 32 KiB,
+    /// rounding capacity down to whole clusters. A zero capacity is allowed.
+    /// This does not limit file sizes or reserve memory. Remounting resets the
+    /// capacity to 512 MiB; launching another program preserves it.
+    pub fn set_drive_capacity(&mut self, letter: char, capacity: u64) -> std::io::Result<()> {
+        self.state.filesystem().set_drive_capacity(letter, capacity)
     }
 
     /// Supplies bytes at an ASCII path on a mounted drive with an initial read-only attribute.

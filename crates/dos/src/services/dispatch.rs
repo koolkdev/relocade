@@ -50,6 +50,7 @@ async fn dispatch_function(call: &mut CpuContext<'_>, services: &Services<'_>) {
             0x33 => control::break_setting(services),
             0x34 => system::indos,
             0x35 => system::get_vector,
+            0x36 => directories::free_space(services),
             0x39 => directories::create_directory(services),
             0x3a => directories::remove_directory(services),
             0x3b => directories::change_directory(services),
