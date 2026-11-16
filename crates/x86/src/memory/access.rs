@@ -18,7 +18,7 @@ pub(super) type FaultHandler<'handler> =
 /// Direct physical backing is reusable until a callback can change routing.
 #[derive(Clone)]
 pub(crate) struct Access {
-    pub(super) linear: Val<I32>,
+    pub(crate) linear: Val<I32>,
     pub(crate) physical: Val<I32>,
     pub(crate) denied: Val<I1>,
     pub(crate) unavailable: Val<I1>,

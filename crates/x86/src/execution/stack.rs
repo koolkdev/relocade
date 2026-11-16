@@ -1,5 +1,7 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
+mod access;
+
 use std::marker::PhantomData;
 
 use relocade_compiler::{BuildError, Val, I32};
@@ -140,6 +142,27 @@ impl StackPointer {
         execution
             .state
             .write_register(&mut execution.body, Gpr32::Esp, self.esp)
+    }
+
+    /// Prepares one direct span for a sequence of equal-width pushes. Unavailable
+    /// spans use ordered interpreter accesses, preserving wrapping between slots
+    /// and the progress and fault address of a later failed push.
+    pub(crate) fn push_values<T: RegisterType>(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        values: &[Val<T>],
+    ) -> Result<(), BuildError> {
+        assert!(!values.is_empty());
+        let bytes = values.len() as u32 * T::BYTES;
+        let next = self.advance(0u32.wrapping_sub(bytes));
+        let mut stack = next.check_access::<T>(execution, values.len() as u32, Intent::Write)?;
+        execution.guard_accesses(true, [&mut stack.access])?;
+        for (index, value) in values.iter().enumerate() {
+            stack
+                .field::<T>(execution, (values.len() - index - 1) as u32)?
+                .write(execution, value)?;
+        }
+        next.commit(execution)
     }
 
     /// Reserves bytes below this pointer and checks capacity at the new SP.

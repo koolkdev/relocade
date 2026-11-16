@@ -1,7 +1,7 @@
 //! Checked memory operands support widths independently of register views.
 
 use crate::memory::TransferType;
-use relocade_compiler::{BuildError, MemoryInt, MemoryType, Val, VectorType, I32};
+use relocade_compiler::{BuildError, MemoryInt, MemoryType, Val, VectorType, I1, I32};
 
 use super::ExecutionBuilder;
 use crate::{
@@ -96,6 +96,29 @@ impl MemoryOperand<'_> {
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
+    /// Guards resolved spans used while `active` is true, before instruction effects.
+    /// The JIT guards and refines them together. If the interpreter needs a slow
+    /// transfer, the other spans keep live routing across its callbacks too.
+    pub(crate) fn guard_accesses<const N: usize>(
+        &mut self,
+        active: impl Into<Val<I1>>,
+        accesses: [&mut Access; N],
+    ) -> Result<Val<I1>, BuildError> {
+        let mut unavailable = active.into().and(
+            accesses
+                .iter()
+                .fold(Val::<I1>::from(false), |unavailable, access| {
+                    unavailable.or(&access.unavailable)
+                }),
+        );
+        self.guard_and_clear([&mut unavailable])?;
+        for access in accesses {
+            access.denied = access.denied.and(&unavailable);
+            access.unavailable = unavailable.clone();
+        }
+        Ok(unavailable.eq(false))
+    }
+
     /// Wasm's full fence supplies the ordering required by all three x86 fences.
     /// Its stronger ordering also keeps accesses in generated helpers on their
     /// respective sides of the instruction.

@@ -96,7 +96,7 @@ fn push_all_registers<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    let mut pointer = execution.stack_pointer()?;
+    let pointer = execution.stack_pointer()?;
     if matches!(execution.profile(), ExecutionProfile::Real16) {
         // PUSHA/PUSHAD specify #GP for these real-mode entry stack offsets,
         // before the ordinary per-push checks and stores.
@@ -109,14 +109,12 @@ where
             crate::Exception::GeneralProtection { error_code: 0 },
         )?;
     }
-    for register in Gpr32::ALL {
-        // ESP stays at its entry value until all eight pushes succeed.
-        let value = TypedLocation::<T>::register(register).read(execution)?;
-        let frame = pointer.push_frame(execution, T::BYTES, T::BYTES)?;
-        frame.field::<T>(execution, 0)?.write(execution, &value)?;
-        pointer = frame.next_pointer();
-    }
-    pointer.commit(execution)
+    // Capture entry ESP along with the other registers before committing the frame.
+    let values = Gpr32::ALL
+        .into_iter()
+        .map(|register| TypedLocation::<T>::register(register).read(execution))
+        .collect::<Result<Vec<_>, _>>()?;
+    pointer.push_values(execution, &values)
 }
 
 fn pop_all_registers<T: RegisterType>(

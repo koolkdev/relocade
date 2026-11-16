@@ -30,6 +30,12 @@ impl SegmentReads {
         intent: Intent,
         on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
+        let bytes = body.value(bytes)?;
+        assert_ne!(
+            body.constant_bits(&bytes)?,
+            Some(0),
+            "a segment span must be nonempty"
+        );
         let check = self.check(body, segment, offset, bytes, intent)?;
         if let Some(denied) = check.denied {
             body.if_(denied, |mut fault| {
@@ -46,7 +52,7 @@ impl SegmentReads {
     /// Probes permissions and an offset span without raising an exception.
     /// Fetch windows may fall back to smaller reads; transfers only need the
     /// target predicate, without checking its page or using its linear address.
-    /// The span must be nonempty.
+    /// Empty spans are denied, as for non-faulting memory probes.
     pub(crate) fn check(
         &mut self,
         body: &mut BlockBuilder<'_>,
@@ -56,11 +62,6 @@ impl SegmentReads {
         intent: Intent,
     ) -> Result<SegmentCheck, BuildError> {
         let bytes = body.value(bytes)?;
-        assert_ne!(
-            body.constant_bits(&bytes)?,
-            Some(0),
-            "a segment span must be nonempty"
-        );
         let base = self.base(body, segment)?;
         let denied = match self.profile() {
             ExecutionProfile::Real16 => {
@@ -74,6 +75,7 @@ impl SegmentReads {
                 self.access_denied(body, segment, offset, &bytes, intent)?
             }
         };
+        let denied = bytes.eq(0).or(denied);
         Ok(SegmentCheck {
             linear: base.add(offset),
             denied: (body.constant_bits(&denied)? != Some(0)).then_some(denied),

@@ -48,3 +48,85 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     );
     assert_eq!(module.observe(&input, 1), step_returns(wanted));
 }
+
+#[test]
+fn pusha_checks_the_entire_frame_before_its_first_store() {
+    let code = [0x60];
+    let mut image = image(&code);
+    image.cpu.eip = 0x5000;
+    image.map(5, 0x3000, false);
+    image.cpu.registers.esp = 0xabcd_2008;
+    image.map(2, 0x8000, true);
+    image.data(0x8000, &[0xee; 8]);
+    image.data(0x9ff8, &[0xee; 8]);
+    let mut input = image.input();
+    // The first four pushes are RAM; the remaining four would access MMIO.
+    input.mmio_pages = vec![(1, 0x9000)];
+    input.observe_mmio = true;
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    );
+    assert_eq!(
+        module.observe(&input, 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: image.cpu,
+                ram: &[],
+                exit: Exit::Interpret,
+            }],
+        ),
+    );
+}
+
+#[test]
+fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
+    let code = [0x60];
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_3008;
+    image.map(2, 0xb000, true);
+    image.data(0x9000, &[0xee; 8]);
+    image.data(0xa000, &[0xee; 8]);
+    image.data(0xbff8, &[0xee; 8]);
+    let mut input = image.input();
+    input.mmio_pages = vec![(3, 0x9000)];
+    input.observe_mmio = true;
+    input.mmio_updates = vec![crate::support::step::MmioUpdate {
+        // After AX, route the remaining pushes in this page to RAM at A000.
+        map: vec![(3 * 8, vec![1, 0, 0, 0, 0, 0xa0, 0, 0])],
+        ..Default::default()
+    }];
+    let interpreter = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    )
+    .with_interpreter(interpreter);
+    let mut cpu = retired(&image, code.len());
+    cpu.registers.esp = 0xabcd_2ff8;
+    let mut wanted = expected(
+        &image,
+        &[Step {
+            cpu,
+            ram: &[
+                (0x9006, &[0x11, 0x11]),
+                (0xa000, &[0x44, 0x44, 0xef, 0xbe, 0x22, 0x22]),
+                (0xbff8, &[0x88, 0x88, 0x77, 0x77, 0x66, 0x66, 8, 0x30]),
+            ],
+            exit: Exit::Dispatch(cpu.eip),
+        }],
+    );
+    wanted.events.insert(
+        0,
+        Event::MmioWrite {
+            address: 0x3006,
+            value: vec![0x11, 0x11],
+        },
+    );
+    for module in [interpreter, &module] {
+        assert_eq!(module.observe(&input, 1), step_returns(wanted.clone()));
+    }
+}
