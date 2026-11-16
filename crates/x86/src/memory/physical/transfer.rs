@@ -113,8 +113,8 @@ impl TransferBuilder {
         bytes: &Val<I32>,
         value: &Val<I64>,
     ) -> Result<(), BuildError> {
-        const TRACKED_RAM: u32 = RAM | CODE_PAGE;
-        body.switch(&entry.kind, &[RAM, TRACKED_RAM, MMIO], |mut part, kind| {
+        const RAM_WITH_CODE: u32 = RAM | CODE_PAGE;
+        body.switch(&entry.kind, &[RAM, RAM_WITH_CODE, MMIO], |mut part, kind| {
             match kind {
                 Some(RAM) => part.store_at::<I8>(
                     self.backing,
@@ -122,7 +122,7 @@ impl TransferBuilder {
                     0,
                     value.truncate::<I8>(),
                 ),
-                Some(TRACKED_RAM) => self.code_writer.call(
+                Some(RAM_WITH_CODE) => self.code_writer.call(
                     &mut part,
                     (entry.backing_address(), bytes, value.and(byte_mask(bytes))),
                 ),
