@@ -12,10 +12,14 @@ crate-type = ["cdylib", "rlib"]
 async-channel = { version = "=2.5.0", default-features = false }
 relocade-clock-test-support = { path = "../clock-support" }
 futures-channel = "=0.3.34"
+futures-io = "=0.3.34"
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-wasm-runtime = { path = "../../crates/wasm-runtime" }
 relocade-compiler = { path = "../../crates/compiler" }
 relocade-dos = { path = "../../crates/dos" }
+relocade-parallel = { path = "../../crates/parallel" }
+relocade-pc = { path = "../../crates/pc" }
 relocade-machine = { path = "../../crates/machine" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 relocade-renderer = { path = "../../crates/renderer" }
