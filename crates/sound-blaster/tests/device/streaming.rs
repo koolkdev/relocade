@@ -7,7 +7,7 @@ use std::{future::Future, pin::pin};
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn streaming_refills_dma_halves_and_exits_after_the_current_block() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     hw.memory.view().write(0x100, &[0, 128, 255, 64]).unwrap();
@@ -38,7 +38,7 @@ fn streaming_refills_dma_halves_and_exits_after_the_current_block() {
     let output: Vec<_> = (0..7)
         .map(|index| {
             let mut mono = [0.0];
-            source.generate_samples(index..index + 1, &mut mono);
+            source.generate_samples(recorder.take_events(), index..index + 1, &mut mono);
             mono[0]
         })
         .collect();

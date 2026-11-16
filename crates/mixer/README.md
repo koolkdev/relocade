@@ -11,8 +11,8 @@ with `add_source(gain, callback)` before connecting the activity to the runner:
 
 ```rust,ignore
 let mut mixer = Mixer::new(runner.clock().clone(), config, samples)?;
-let mut source = speaker.audio_source(mixer.timing());
-mixer.add_source(1.0, move |frames, output| source.generate_samples(frames, output));
+let (mut recorder, mut generator) = speaker.audio_source(mixer.timing());
+mixer.add_source(1.0, move |frames, output| generator.generate_samples(recorder.take_events(), frames, output));
 runner.connect(Rc::new(RefCell::new(mixer)), |_| {}).await;
 ```
 

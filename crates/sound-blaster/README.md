@@ -33,20 +33,21 @@ separate guest operation. DSP length and DMA count are independent: exhausted or
 masked DMA pauses consumption without completing the DSP command. Unmasking
 resumes future sample slots. Transfer progress and IRQs require no audio sink.
 Command `0x10` writes one unsigned byte directly to the DAC at guest-selected
-times. Both direct writes and consumed DMA buffers feed `AudioSource`, with
+times. Both direct writes and consumed DMA buffers feed the audio recorder, with
 `0x80` as zero, `0x00` as -1 and `0xff` as 127/128. The DAC holds its last value
 until another sample, mute or reset. The source averages these levels over the
 mixer's frames, preserving duration when the output sample rate differs.
 
-Create a source with `card.audio_source(mixer.timing())` before guest execution. It retains
-owned consumed bytes rather than rereading guest buffers during rendering.
-`source.generate_samples(frames, output)` fills one mono value per frame. It first synchronizes hardware through the shared clock so mixer/device
-wake order cannot omit samples;
-the absolute DSP sample count prevents double consumption. Dropping the source stops
-recording without stopping DMA or IRQs. PC defaults PCM, FM and the speaker to
-unity gain. These independent levels belong to PC audio policy;
-device emulation supplies unscaled samples. The mixer preserves headroom, with
-clamping at platform output, and keeps its bounded, nonblocking submission.
+`card.audio_source(mixer.timing())` returns an `EventRecorder` and `SampleGenerator`.
+Create them before guest execution. `recorder.take_events()` synchronizes DMA
+through the shared clock before transferring owned bytes and DAC changes. Mixer
+and device wake order therefore cannot omit samples; the absolute DSP sample
+count prevents double consumption. `generator.generate_samples(events, frames,
+output)` fills one mono value per frame without accessing the device or guest
+memory, and retains future events across blocks. Dropping the recorder stops
+capture while DMA and IRQs continue and the generator can finish owned events.
+PC defaults PCM, FM and the speaker to unity gain. The mixer preserves headroom,
+with clamping at platform output, and keeps its bounded, nonblocking submission.
 
 Command `0x48` sets the DSP block size minus one, and `0x1c` starts auto-initialize
 playback. Each completed DSP block raises the same latched IRQ and reloads the

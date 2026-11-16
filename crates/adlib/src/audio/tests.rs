@@ -16,7 +16,7 @@ fn dropping_output_releases_recording_but_not_timer_status() {
     io.connect(adlib.clone(), |io| {
         Adlib::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
     });
-    let source = adlib
+    let (mut recorder, mut generator) = adlib
         .borrow_mut()
         .audio_source(
             AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), 48_000).unwrap(),
@@ -24,8 +24,11 @@ fn dropping_output_releases_recording_but_not_timer_status() {
         .unwrap();
     io.write_port(ADDRESS_STATUS_PORT, 1, 0xb0);
     io.write_port(DATA_PORT, 1, 0x31);
-    assert_eq!(source.writes.borrow().len(), 1);
-    drop(source);
+    let events = recorder.take_events();
+    assert_eq!(events.len(), 1);
+    drop(recorder);
+    let mut samples = [0.0; 4];
+    generator.generate_samples(events, 0..4, &mut samples);
     for _ in 0..100 {
         io.write_port(DATA_PORT, 1, 0x11);
         io.write_port(DATA_PORT, 1, 0x31);

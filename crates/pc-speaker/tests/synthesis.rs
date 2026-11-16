@@ -42,13 +42,13 @@ fn fine_frame_grid_preserves_pitch_and_level() {
         750_000_000,
     )
     .unwrap();
-    let mut source = speaker.borrow().audio_source(timing);
+    let (mut recorder, mut source) = speaker.borrow().audio_source(timing);
     advance_to(&driver, 40_000);
 
     // Four native ticks span 4/3 ns. Rounding each elapsed span separately
     // would advance the tone at only 3/4 of its programmed frequency.
     let mut samples = vec![0.0; 10_000];
-    source.generate_samples(0..10_000, &mut samples);
+    source.generate_samples(recorder.take_events(), 0..10_000, &mut samples);
     // Carrying time into a later sample must not amplify that sample.
     assert!(samples.iter().all(|sample| (0.0..=1.0).contains(sample)));
     let edges: Vec<_> = samples
@@ -74,11 +74,11 @@ fn offset_sample_epoch_preserves_level_across_a_pit_write() {
     // The shared audio origin can differ from PIT initialization.
     let start = advance_to(&driver, 2);
     let timing = AudioTiming::new(start, driver.clock().tick_rate(), 1_000_000_000).unwrap();
-    let mut source = speaker.borrow().audio_source(timing);
+    let (mut recorder, mut source) = speaker.borrow().audio_source(timing);
     advance_to(&driver, 4);
     io.write_port(CONTROL_PORT, 1, 0xb6); // OUT2 stays high with GATE2 low.
     advance_to(&driver, 5);
     let mut output = [0.0];
-    source.generate_samples(0..1, &mut output);
+    source.generate_samples(recorder.take_events(), 0..1, &mut output);
     assert_eq!(output, [1.0]);
 }

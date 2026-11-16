@@ -17,13 +17,14 @@ their writes have no effect. Bit 0 is GATE2. The speaker drive is bit 1 AND OUT2
 including direct bit-1 toggling while GATE2 is low. Other system-control and
 refresh/parity functions of this port are outside this crate's initial scope.
 
-With the `audio` feature, `speaker.audio_source(mixer.timing())` records sound-changing writes
-for an execution-local consumer. `source.generate_samples(frames, output)`
+With the `audio` feature, `speaker.audio_source(mixer.timing())` returns an `EventRecorder` and `SampleGenerator`. The recorder captures
+sound-changing writes on the device owner; `take_events()` transfers them to
+`generator.generate_samples(events, frames, output)`, which
 fills one mono value in 0..=1 for each absolute output frame. Frame ranges progress
 forward without overlap. The shared PIT counter
 integrates each sample's high time, preserving fractional input clocks and phase
 while muted or when the consumer skips time. Creating another source replaces
-the observer; dropping the source stops recording.
+the observer; dropping the recorder stops recording while the generator can finish owned events.
 
 The [shared mixer](../mixer/README.md) owns the common sample timeline, gain,
 channel layout, buffering and submission. PC registers the speaker at gain 1.0

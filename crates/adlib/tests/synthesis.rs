@@ -2,7 +2,7 @@ use relocade_frontend::audio::AudioTiming;
 mod common;
 
 use common::write;
-use relocade_adlib::{AudioSource, ADDRESS_STATUS_PORT};
+use relocade_adlib::{EventRecorder, SampleGenerator, ADDRESS_STATUS_PORT};
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{IoBus, Timestamp};
 use std::time::Duration;
@@ -17,7 +17,8 @@ fn time(clock: &ManualClock, frame: usize, rate: u32) -> Timestamp {
 }
 
 fn render_elapsed(
-    source: &mut AudioSource,
+    recorder: &mut EventRecorder,
+    source: &mut SampleGenerator,
     clock: &ManualClock,
     io: &IoBus,
     rate: u32,
@@ -28,7 +29,7 @@ fn render_elapsed(
         assert_eq!(io.read_port(ADDRESS_STATUS_PORT, 1), 0xc6);
         let frame = samples.len() as u64;
         let mut mono = [0.0];
-        source.generate_samples(frame..frame + 1, &mut mono);
+        source.generate_samples(recorder.take_events(), frame..frame + 1, &mut mono);
         samples.push(mono[0]);
     }
 }
@@ -36,7 +37,7 @@ fn render_elapsed(
 fn melody(rate: u32, poll_between_writes: bool) -> Vec<f32> {
     let clock = ManualClock::new();
     let (io, adlib) = common::hardware(clock.clock());
-    let mut source = adlib
+    let (mut recorder, mut source) = adlib
         .borrow_mut()
         .audio_source(
             AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), rate).unwrap(),
@@ -66,12 +67,12 @@ fn melody(rate: u32, poll_between_writes: bool) -> Vec<f32> {
     ] {
         clock.advance_to(clock.at(Duration::from_micros(micros)));
         if poll_between_writes {
-            render_elapsed(&mut source, &clock, &io, rate, &mut samples);
+            render_elapsed(&mut recorder, &mut source, &clock, &io, rate, &mut samples);
         }
         write(&io, 0xb0, key);
     }
     clock.advance_to(clock.at(Duration::from_millis(80)));
-    render_elapsed(&mut source, &clock, &io, rate, &mut samples);
+    render_elapsed(&mut recorder, &mut source, &clock, &io, rate, &mut samples);
     samples
 }
 
@@ -101,7 +102,7 @@ fn short_notes_survive_delayed_mixer_polls_at_both_rates() {
 fn rhythm_register_keys_the_bass_drum_without_a_melodic_key_on() {
     let clock = ManualClock::new();
     let (io, adlib) = common::hardware(clock.clock());
-    let mut source = adlib
+    let (mut recorder, mut source) = adlib
         .borrow_mut()
         .audio_source(
             AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), 48_000).unwrap(),
@@ -130,7 +131,14 @@ fn rhythm_register_keys_the_bass_drum_without_a_melodic_key_on() {
     write(&io, 0xbd, 0x20);
     clock.advance_to(clock.at(Duration::from_millis(80)));
     let mut samples = Vec::new();
-    render_elapsed(&mut source, &clock, &io, 48_000, &mut samples);
+    render_elapsed(
+        &mut recorder,
+        &mut source,
+        &clock,
+        &io,
+        48_000,
+        &mut samples,
+    );
     // Unkeyed rhythm operators retain the core's small PCM quantization residue.
     assert!(peak(&samples, 48_000, 0, 20) < 0.001);
     assert!(peak(&samples, 48_000, 23, 38) > 0.05);

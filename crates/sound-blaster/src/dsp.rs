@@ -4,8 +4,8 @@ mod playback;
 mod protocol;
 
 use crate::{DMA_CHANNEL, IRQ, READ_DATA_PORT, READ_STATUS_PORT, RESET_PORT, WRITE_DATA_PORT};
-pub use dac::AudioSource;
 use dac::Dac;
+pub use dac::{DacSamples, EventRecorder, SampleGenerator};
 use event_listener::Event;
 use futures_lite::future::or;
 use playback::Playback;
@@ -92,7 +92,10 @@ impl Dsp {
         self.playback.advance(context, &mut self.dac);
     }
 
-    pub fn audio_source(device: &Rc<RefCell<Self>>, timing: AudioTiming) -> AudioSource {
+    pub fn audio_source(
+        device: &Rc<RefCell<Self>>,
+        timing: AudioTiming,
+    ) -> (EventRecorder, SampleGenerator) {
         let mut dsp = device.borrow_mut();
         dsp.synchronize();
         dsp.dac.source(timing, Rc::downgrade(device))

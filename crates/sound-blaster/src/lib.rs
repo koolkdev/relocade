@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod dsp;
-pub use dsp::AudioSource;
+pub use dsp::{DacSamples, EventRecorder, SampleGenerator};
 
 use dsp::Dsp;
 use relocade_adlib::Adlib;
@@ -94,8 +94,8 @@ impl SoundBlaster {
     }
 
     /// Captures digital output from now. Replaces any previous source; dropping
-    /// the source releases captured samples while hardware playback continues.
-    pub fn audio_source(&self, timing: AudioTiming) -> AudioSource {
+    /// the recorder releases captured samples while hardware playback continues.
+    pub fn audio_source(&self, timing: AudioTiming) -> (EventRecorder, SampleGenerator) {
         Dsp::audio_source(&self.dsp, timing)
     }
 }

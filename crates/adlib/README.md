@@ -18,16 +18,17 @@ timer controls and status flags.
 
 ## Clocked output
 
-Create `Adlib::audio_source(mixer.timing())` before guest execution and register
-`move |frames, output| source.generate_samples(frames, output)` with the shared mixer.
-The source records native-timestamped writes and applies them before the next
+Create `Adlib::audio_source(mixer.timing())` before guest execution. It returns an
+`EventRecorder` and `SampleGenerator`. On the device owner, call `take_events()`
+and pass the owned batch to `generator.generate_samples(events, frames, output)`.
+The generator retains future writes and applies each write before the next
 OPL core step. The core already runs at the output sample rate, so it produces
 one held value per frame without another elapsed-time resampler. Frame ranges
 progress forward without overlap; skipped frames still advance envelopes.
 
 The mixer must continue polling when muted or when its output channel is full,
 as it does for the PC speaker. This consumes pending writes without tying chip
-progress to platform playback. Dropping the source releases its recording queue;
+progress to platform playback. Dropping the recorder releases its recording queue;
 the device keeps its registers and timer status without retaining further writes.
 A new source replaces the previous recording subscription and starts any current
 voices with fresh envelopes. Timer reads never advance the synthesis core.
