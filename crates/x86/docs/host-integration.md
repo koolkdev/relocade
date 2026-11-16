@@ -1171,7 +1171,10 @@ compilation. Both decoders read the selected form's physical encoding before
 mode rejection.
 PUSHA/PUSHAD honor the specified #GP for low odd SP values 7 through 15. Stack
 faults are reported to the host; exception delivery, double faults and shutdown
-are outside this execution model. ENTER checks actual transfers without requiring
+are outside this execution model. PUSHA prepares a complete direct frame once
+and reuses its backing for all eight stores. A frame that cannot use direct
+backing restarts in the interpreter, which retains ordered per-push checks and
+stack-pointer wrapping. ENTER checks actual transfers without requiring
 backing for its unused allocation; Real16's SP always fits its canonical SS.
 
 These rules follow Intel's Pentium 4 [Volume 3, §15.1 and §9.9.2](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)

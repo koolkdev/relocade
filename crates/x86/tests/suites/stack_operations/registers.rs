@@ -145,6 +145,10 @@ fn fault_progress() -> Vec<Case> {
             .initial_registers(&INPUT).initial_register(Esp, 0x5010)
             .memory(0x5000, &[0xa5; 16], ReadWrite).expect_memory(0x5000, &pushed(0x5010, 4)[16..])
             .fault(0x4ffc, 2),
+        Case::preserving_flags("PUSHAD retains earlier stores when a later slot is read-only", &[0x60])
+            .initial_registers(&INPUT).initial_register(Esp, 0x5010)
+            .memory(0x5000, &[0xa5; 16], ReadWrite).expect_memory(0x5000, &pushed(0x5010, 4)[16..])
+            .memory(0x4ffc, &[0xa5; 4], ReadOnly).fault(0x4ffc, 3),
         Case::preserving_flags("POPAD first split slot preserves entry state", &[0x61])
             .initial_registers(&INPUT).initial_register(Esp, 0x4fff)
             .memory(0x4fff, &[0xa5], ReadOnly).fault(0x5000, 0),

@@ -34,6 +34,7 @@ fn runtime_segment_spans_check_limits_and_wrap() {
             Bits16,
             0x23,
             &[
+                (0x20u32, 0u32, true),
                 (0x20u32, 4u32, false),
                 (0x20, 5, true),
                 (u32::MAX - 1, 4, true),
@@ -113,6 +114,7 @@ fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
     cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     let cpu = cpu.to_bytes().to_vec();
     for (offset, bytes, denied) in [
+        (0u32, 0u32, true),
         (0u32, 0x10000u32, false),
         (1, 0x10000, true),
         (0, 0x10001, true),
@@ -147,4 +149,33 @@ fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
             "offset {offset:x}, bytes {bytes}"
         );
     }
+}
+
+#[test]
+fn constant_empty_span_is_denied_without_faulting() {
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let function = program.function::<fn() -> u32>(move |mut body, ()| {
+        let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
+        let check = access.check(&mut body, &Segment::Ss.into(), &0.into(), 0, Intent::Read)?;
+        body.return_(check.denied.unwrap().unsigned().extend::<I32>())
+    });
+    program.export("probe", function).unwrap();
+    let module = TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "probe".into(),
+        execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
+    });
+    let cpu = CpuState::real_mode().to_bytes().to_vec();
+    assert_eq!(
+        module.observe(&Input::new(&cpu), 1),
+        Observation {
+            events: vec![Event::Return {
+                outcome: Outcome::Returned(vec![Argument::I32(1)]),
+                snapshot: Snapshot { cpu, guest: None },
+            }],
+            guest_unchanged: true,
+            machine_unchanged: true,
+        }
+    );
 }
