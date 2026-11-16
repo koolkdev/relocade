@@ -13,6 +13,7 @@ mod regions;
 mod register_pairs;
 mod segments;
 mod simd;
+mod specialization;
 mod stack;
 mod strings;
 mod transfer;

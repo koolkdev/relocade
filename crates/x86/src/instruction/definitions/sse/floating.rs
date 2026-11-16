@@ -38,8 +38,7 @@ pub(super) fn rounding_for_integer_source(
     // has no MXCSR dependency. Only binary32 conversion needs observed controls.
     Ok(match format {
         BinaryFormat::Binary32 => {
-            let controls = execution.simd_controls()?;
-            execution.specialize_simd_precision(&controls)?;
+            let controls = execution.simd_precision_controls()?;
             controls.rounding()
         }
         BinaryFormat::Binary64 => RoundingMode::new(0.into()),

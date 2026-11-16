@@ -1,6 +1,11 @@
 //! MXCSR controls and sticky status are distinct from the numerical calculation.
 
-use crate::{floating::RoundingMode, simd::SimdExceptions, SimdState};
+use crate::{
+    floating::RoundingMode,
+    simd::SimdExceptions,
+    state::{access::cpu_location, StatePattern},
+    SimdState,
+};
 use relocade_compiler::{Val, I1, I32, I8};
 
 pub(crate) struct Mxcsr(Val<I32>);
@@ -15,22 +20,40 @@ impl Mxcsr {
         self.0.and(SimdState::MXCSR_MASK)
     }
 
-    /// Status flags change as instructions execute; only control settings are
-    /// part of the numerical mode observed by a specializing compiler.
-    pub(crate) fn matches_controls(&self, observed: u32) -> Val<I1> {
+    /// DAZ, exception masks, rounding and FTZ; sticky status flags are excluded.
+    pub(crate) fn control_pattern(mxcsr: u32) -> StatePattern {
         const CONTROLS: u32 = 0xffc0;
-        self.0.and(CONTROLS).eq(observed & CONTROLS)
+        StatePattern::bits(
+            cpu_location!(simd.mxcsr),
+            u64::from(CONTROLS),
+            u64::from(mxcsr),
+        )
     }
 
-    pub(crate) fn preserves_masked_precision(&self, observed: u32) -> Val<I1> {
-        const PRECISION: u32 = 1 << 5;
-        const PRECISION_MASK: u32 = 1 << 12;
-        let masked_precision = PRECISION | PRECISION_MASK;
-        if observed & masked_precision == masked_precision {
-            self.0.and(masked_precision).eq(masked_precision)
-        } else {
-            true.into()
+    /// Controls and optional status facts for operations that can raise precision.
+    pub(crate) fn precision_patterns(mxcsr: u32) -> Vec<StatePattern> {
+        let mut patterns = vec![Self::control_pattern(mxcsr)];
+        if let Some(precision) = Self::masked_precision(mxcsr) {
+            patterns.push(precision);
         }
+        patterns
+    }
+
+    /// Another inexact result cannot change an already-raised, masked precision flag.
+    fn masked_precision(mxcsr: u32) -> Option<StatePattern> {
+        const PRECISION_FLAG: u32 = 1 << 5;
+        const PRECISION_MASK: u32 = 1 << 12;
+        let raised = mxcsr & PRECISION_FLAG != 0;
+        let masked = mxcsr & PRECISION_MASK != 0;
+        let bits = PRECISION_FLAG | PRECISION_MASK;
+        (raised && masked).then(|| {
+            StatePattern::bits(cpu_location!(simd.mxcsr), u64::from(bits), u64::from(bits))
+        })
+    }
+
+    pub(crate) fn nearest_rounding_pattern() -> StatePattern {
+        const ROUNDING_CONTROL: u64 = 0b11 << 13;
+        StatePattern::bits(cpu_location!(simd.mxcsr), ROUNDING_CONTROL, 0)
     }
 
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {

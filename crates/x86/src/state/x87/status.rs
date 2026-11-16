@@ -47,7 +47,7 @@ impl Exception {
 
 #[derive(Clone)]
 pub(super) struct Status {
-    fields: StateFields,
+    pub(super) fields: StateFields,
 }
 
 impl Status {
