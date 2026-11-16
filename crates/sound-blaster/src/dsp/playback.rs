@@ -1,7 +1,7 @@
 use super::dac::Dac;
 use crate::DMA_CHANNEL;
 use relocade_dma::Dma;
-use relocade_machine::{Clock, ClockCursor, IoContext, Memory, Timestamp};
+use relocade_machine::{Clock, IoContext, Memory, Timestamp};
 use relocade_pic::IrqLine;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -29,8 +29,9 @@ impl Mode {
 }
 
 struct Transfer {
-    /// Last elapsed sample boundary, retaining the clock's fractional phase.
-    at: ClockCursor,
+    /// Native anchor and elapsed slots on the DSP sample grid.
+    started_at: Timestamp,
+    samples: u64,
     remaining: u32,
     mode: Mode,
     paused_at: Option<Timestamp>,
@@ -78,7 +79,8 @@ impl Playback {
     pub fn set_time_constant(&mut self, value: u8) {
         self.time_constant = value;
         if let Some(transfer) = &mut self.transfer {
-            transfer.at = transfer.paused_at.unwrap_or_else(|| self.clock.now()).into();
+            transfer.started_at = transfer.paused_at.unwrap_or_else(|| self.clock.now());
+            transfer.samples = 0;
         }
     }
 
@@ -126,7 +128,8 @@ impl Playback {
 
     fn begin(&mut self, count: u32, mode: Mode) {
         self.transfer = Some(Transfer {
-            at: self.clock.now().into(),
+            started_at: self.clock.now(),
+            samples: 0,
             remaining: count,
             mode,
             paused_at: None,
@@ -144,8 +147,9 @@ impl Playback {
     pub fn resume(&mut self) {
         if let Some(transfer) = &mut self.transfer {
             if let Some(paused_at) = transfer.paused_at.take() {
-                let paused = self.clock.duration_since(self.clock.now(), paused_at);
-                transfer.at.advance(&self.clock, paused);
+                let paused = self.clock.now().ticks().wrapping_sub(paused_at.ticks());
+                transfer.started_at =
+                    Timestamp::from_ticks(transfer.started_at.ticks().wrapping_add(paused));
             }
         }
     }
@@ -165,7 +169,11 @@ impl Playback {
     pub fn is_due(&self) -> bool {
         self.transfer.as_ref().is_some_and(|transfer| {
             transfer.paused_at.is_none()
-                && self.clock.duration_since(self.clock.now(), transfer.at) >= self.period()
+                && self.clock.now()
+                    >= self.clock.deadline_after(
+                        transfer.started_at,
+                        sample_delay(self.period(), transfer.samples + 1),
+                    )
         })
     }
 
@@ -177,17 +185,18 @@ impl Playback {
         if transfer.paused_at.is_some() {
             return;
         }
-        let elapsed = self.clock.duration_since(self.clock.now(), transfer.at);
-        let mut due = elapsed.as_nanos() / period.as_nanos();
+        let elapsed = self
+            .clock
+            .duration_between(transfer.started_at, self.clock.now());
+        let completed =
+            u64::try_from(elapsed.as_nanos() / period.as_nanos()).expect("DSP sample count fits");
+        let mut due = completed - transfer.samples;
         if due == 0 {
             return;
         }
-        let remainder = Duration::from_nanos((elapsed.as_nanos() % period.as_nanos()) as u64);
-        let mut last_sample = transfer.at;
-        last_sample.advance(&self.clock, elapsed - remainder);
         let memory = self.memory.view().with_io_context(context);
         while due != 0 {
-            let requested = due.min(u128::from(transfer.remaining)) as usize;
+            let requested = due.min(u64::from(transfer.remaining)) as usize;
             let consumed = if matches!(transfer.mode, Mode::Silence) {
                 requested
             } else {
@@ -196,15 +205,13 @@ impl Playback {
                     .dma
                     .borrow_mut()
                     .read(DMA_CHANNEL, &memory, &mut samples);
-                let mut first_sample = transfer.at;
-                first_sample.advance(&self.clock, period);
                 samples.truncate(consumed);
-                dac.write_samples(first_sample, period, samples);
+                dac.write_samples(transfer.started_at, transfer.samples + 1, period, samples);
                 consumed
             };
-            transfer.at.advance(&self.clock, period * consumed as u32);
+            transfer.samples += consumed as u64;
             transfer.remaining -= consumed as u32;
-            due -= consumed as u128;
+            due -= consumed as u64;
             if transfer.remaining == 0 {
                 // Multiple completed blocks share the DSP's latched IRQ line.
                 self.irq.set_level(true);
@@ -227,7 +234,7 @@ impl Playback {
             }
             if consumed < requested {
                 // Missed DMA slots are discarded before a later unmask/refill.
-                transfer.at = last_sample;
+                transfer.samples = completed;
                 return;
             }
         }
@@ -239,14 +246,32 @@ impl Playback {
             .filter(|t| t.paused_at.is_none())
             .map(|transfer| {
                 if matches!(transfer.mode, Mode::Silence) {
-                    return self
-                        .clock
-                        .add(transfer.at, self.period() * transfer.remaining);
+                    return self.clock.deadline_after(
+                        transfer.started_at,
+                        sample_delay(
+                            self.period(),
+                            transfer.samples + u64::from(transfer.remaining),
+                        ),
+                    );
                 }
                 // Batch elapsed samples at about 1 ms, or sooner for completion.
                 let batch = (1_000 / self.period().as_micros() as u32).max(1);
-                self.clock
-                    .add(transfer.at, self.period() * transfer.remaining.min(batch))
+                self.clock.deadline_after(
+                    transfer.started_at,
+                    sample_delay(
+                        self.period(),
+                        transfer.samples + u64::from(transfer.remaining.min(batch)),
+                    ),
+                )
             })
     }
+}
+
+/// Absolute offset on the DSP sample grid; no per-period deadline rounding.
+pub(super) fn sample_delay(period: Duration, samples: u64) -> Duration {
+    let nanos = period.as_nanos() * u128::from(samples);
+    Duration::new(
+        u64::try_from(nanos / 1_000_000_000).expect("DSP duration fits"),
+        (nanos % 1_000_000_000) as u32,
+    )
 }

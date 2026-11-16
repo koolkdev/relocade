@@ -23,10 +23,12 @@ impl Pc {
         }
         let mut mixer = Mixer::new(self.clock().clone(), config, samples)?;
         if let Some(card) = &self.sound_card {
-            card.add_audio_sources(&mut mixer, config.sample_rate)?;
+            card.add_audio_sources(&mut mixer)?;
         }
-        let mut speaker = self.speaker.borrow().audio_source();
-        mixer.add_source(SPEAKER_GAIN, move |interval| speaker.sample(interval));
+        let mut speaker = self.speaker.borrow().audio_source(mixer.timing());
+        mixer.add_source(SPEAKER_GAIN, move |frames, output| {
+            speaker.generate_samples(frames, output)
+        });
         // Connection belongs to the session even if this await is cancelled.
         self.audio_attached = true;
         self.runner

@@ -9,6 +9,7 @@ publish.workspace = true
 audio = []
 
 [dependencies]
+relocade-frontend = { path = "../frontend", features = ["audio"] }
 relocade-pit = { path = "../pit" }
 relocade-machine = { path = "../machine" }
 

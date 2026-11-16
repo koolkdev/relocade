@@ -18,13 +18,12 @@ timer controls and status flags.
 
 ## Clocked output
 
-Create `Adlib::audio_source(config.sample_rate)` before guest execution and register
-`move |interval| source.sample(interval)` with the shared mixer. The source records
-timestamped register writes and applies each after synthesizing the preceding
-elapsed time. It retains resampler and fractional clock phase across mixer polls;
-the core takes effect at output-sample boundaries. Samples already rendered are
-never changed by a later write. Intervals must move forward, span at least one
-nanosecond and end no later than the current emulation time.
+Create `Adlib::audio_source(mixer.timing())` before guest execution and register
+`move |frames, output| source.generate_samples(frames, output)` with the shared mixer.
+The source records native-timestamped writes and applies them before the next
+OPL core step. The core already runs at the output sample rate, so it produces
+one held value per frame without another elapsed-time resampler. Frame ranges
+progress forward without overlap; skipped frames still advance envelopes.
 
 The mixer must continue polling when muted or when its output channel is full,
 as it does for the PC speaker. This consumes pending writes without tying chip

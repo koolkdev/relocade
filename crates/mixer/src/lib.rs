@@ -3,12 +3,15 @@
 
 use async_channel::Sender;
 use futures_lite::future::or;
-use relocade_machine::{Clock, ClockCursor, Device};
-use std::{cell::RefCell, ops::Range, rc::Rc, time::Duration};
+use relocade_frontend::audio::AudioTiming;
+use relocade_machine::{Clock, Device};
+use std::{cell::RefCell, ops::Range, rc::Rc};
+
+type GenerateSamples = dyn FnMut(Range<u64>, &mut [f32]);
 
 struct Source {
     gain: f32,
-    sample: Box<dyn FnMut(Range<ClockCursor>) -> f32>,
+    generate_samples: Box<GenerateSamples>,
 }
 
 /// Mixes elapsed source samples into one bounded, interleaved PCM stream.
@@ -17,6 +20,7 @@ struct Source {
 pub struct Mixer {
     clock: Clock,
     config: cpal::StreamConfig,
+    timing: AudioTiming,
     samples: Sender<Vec<f32>>,
     sources: Vec<Source>,
 }
@@ -38,7 +42,9 @@ impl Mixer {
         if samples.capacity().is_none() {
             return Err("audio mixer needs a bounded sample channel".into());
         }
+        let timing = AudioTiming::new(clock.now(), clock.tick_rate(), config.sample_rate)?;
         Ok(Self {
+            timing,
             clock,
             config,
             samples,
@@ -46,14 +52,22 @@ impl Mixer {
         })
     }
 
-    /// Adds a mono source before the activity starts. The callback averages its
-    /// signal over each elapsed interval on this mixer's clock, without blocking.
-    /// Intervals retain fractional ticks even when samples outpace guest execution.
-    /// Gains are applied before summing; the result feeds every output channel.
-    pub fn add_source(&mut self, gain: f32, sample: impl FnMut(Range<ClockCursor>) -> f32 + 'static) {
+    /// Timing shared by every source attached to this output.
+    pub fn timing(&self) -> AudioTiming {
+        self.timing
+    }
+
+    /// Adds a mono source before the activity starts. Fill exactly one value per
+    /// requested frame without blocking. All sources receive the same frame grid;
+    /// gains apply before the sum is copied into each output channel.
+    pub fn add_source(
+        &mut self,
+        gain: f32,
+        generate_samples: impl FnMut(Range<u64>, &mut [f32]) + 'static,
+    ) {
         self.sources.push(Source {
             gain,
-            sample: Box::new(sample),
+            generate_samples: Box::new(generate_samples),
         });
     }
 }
@@ -65,19 +79,7 @@ impl Device for Mixer {
         let clock = device.borrow().clock.clone();
         let config = device.borrow().config;
         let samples = device.borrow().samples.clone();
-        let started_at = clock.now();
-        let rate = u64::from(config.sample_rate);
-        let frame_time = |frame: u64| {
-            let mut time = ClockCursor::from(started_at);
-            time.advance(
-                &clock,
-                Duration::new(
-                    frame / rate,
-                    ((frame % rate) * 1_000_000_000).div_ceil(rate) as u32,
-                ),
-            );
-            time
-        };
+        let timing = device.borrow().timing;
         let batch = match config.buffer_size {
             cpal::BufferSize::Fixed(frames) => frames.clamp(1, 256) as usize,
             cpal::BufferSize::Default => 256,
@@ -86,7 +88,7 @@ impl Device for Mixer {
         let mut frames = 0;
         while !samples.is_closed() {
             or(
-                clock.sleep_until(frame_time(frames + batch as u64).deadline()),
+                clock.sleep_until(timing.deadline_for_frame(frames + batch as u64)),
                 samples.closed(),
             )
             .await;
@@ -95,10 +97,13 @@ impl Device for Mixer {
             }
             let mut buffer = vec![0.0; batch * channels];
             for frame in buffer.chunks_exact_mut(channels) {
-                let interval = frame_time(frames)..frame_time(frames + 1);
                 let sample = sources
                     .iter_mut()
-                    .map(|source| source.gain * (source.sample)(interval.clone()))
+                    .map(|source| {
+                        let mut mono = [0.0];
+                        (source.generate_samples)(frames..frames + 1, &mut mono);
+                        source.gain * mono[0]
+                    })
                     .sum();
                 // Preserve headroom until platform output converts the mixed sample.
                 frame.fill(sample);

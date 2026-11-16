@@ -1,33 +1,31 @@
 //! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
 
-use crate::{clocks_at, time_at, Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT};
+use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, ClockCursor, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite,
-    Runner, Timestamp,
+    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
+    Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
 
-/// Channel-2 state at the PIT's consumed position on its supplied clock.
-/// Whole nanoseconds are integrated from device initialization; a native
-/// fraction remains pending. Snapshot times share that same phase for audio.
+/// Channel-2 state at an observed native timestamp on the PIT's clock.
 #[derive(Clone, Debug)]
 pub struct Channel2State {
-    pub at: ClockCursor,
+    pub at: Timestamp,
     pub counter: Counter,
-    /// Fraction of an input clock already elapsed, in billionths. The counter
-    /// has consumed all whole input clocks before this fraction.
-    pub fraction: u32,
+    /// Numerator of the elapsed fraction of an input clock. The denominator is
+    /// the supplied clock's ticks per second; whole input clocks are in `counter`.
+    pub fraction: u64,
 }
 
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit {
     clock: Clock,
-    started_at: Timestamp,
-    updated: ClockCursor,
+    updated: Timestamp,
+    fraction: u64,
     channel0: Counter,
     channel2: Counter,
     channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
@@ -85,8 +83,8 @@ impl Pit {
         let irq = pic.irq(TIMER_IRQ, channel0.output());
         let started_at = clock.now();
         Self {
-            started_at,
-            updated: started_at.into(),
+            updated: started_at,
+            fraction: 0,
             clock,
             channel0,
             channel2: Counter::default(),
@@ -96,7 +94,7 @@ impl Pit {
         }
     }
 
-    /// The timebase shared by hardware access and dependent devices.
+    /// The clock shared by hardware access and dependent devices.
     pub fn clock(&self) -> &Clock {
         &self.clock
     }
@@ -127,12 +125,7 @@ impl Pit {
         Channel2State {
             at: self.updated,
             counter: self.channel2.clone(),
-            fraction: (self
-                .clock
-                .duration_since(self.updated, self.started_at)
-                .as_nanos()
-                * u128::from(crate::INPUT_HZ)
-                % 1_000_000_000) as u32,
+            fraction: self.fraction,
         }
     }
 
@@ -198,11 +191,20 @@ impl Pit {
     }
 
     fn sync_to_clock(&mut self) {
-        let previous = self.updated;
-        self.clock
-            .consume_elapsed(&mut self.updated, self.clock.now());
-        let clocks = clocks_at(self.clock.duration_since(self.updated, self.started_at))
-            - clocks_at(self.clock.duration_since(previous, self.started_at));
+        self.advance_to(self.clock.now());
+    }
+
+    /// Materialize counter state at an observed native reading.
+    pub fn advance_to(&mut self, now: Timestamp) {
+        if now <= self.updated {
+            return;
+        }
+        let ticks = now.ticks().wrapping_sub(self.updated.ticks());
+        let rate = u128::from(self.clock.tick_rate().ticks_per_second().get());
+        let span = u128::from(ticks) * u128::from(INPUT_HZ) + u128::from(self.fraction);
+        let clocks = u64::try_from(span / rate).expect("PIT progress fits in input clocks");
+        self.fraction = (span % rate) as u64;
+        self.updated = now;
         if self
             .channel0
             .next_rising_edge()
@@ -216,6 +218,15 @@ impl Pit {
         self.irq.set_level(self.channel0.output());
         self.channel2.advance(clocks);
     }
+    /// Earliest native reading at or after the next channel-0 transition.
+    pub fn next_deadline(&self) -> Option<Timestamp> {
+        let clocks = self.channel0.next_transition()?;
+        let rate = u128::from(self.clock.tick_rate().ticks_per_second().get());
+        let ticks =
+            (u128::from(clocks) * rate - u128::from(self.fraction)).div_ceil(u128::from(INPUT_HZ));
+        (ticks <= i64::MAX as u128)
+            .then(|| Timestamp::from_ticks(self.updated.ticks().wrapping_add(ticks as u64)))
+    }
 }
 
 impl Device for Pit {
@@ -225,18 +236,7 @@ impl Device for Pit {
         loop {
             let (deadline, changed) = {
                 let device = device.borrow();
-                (
-                    device.channel0.next_transition().map(|clocks| {
-                        clock.add(
-                            device.started_at,
-                            time_at(
-                                clocks_at(clock.duration_since(device.updated, device.started_at))
-                                    + clocks,
-                            ),
-                        )
-                    }),
-                    device.changed.listen(),
-                )
+                (device.next_deadline(), device.changed.listen())
             };
             if let Some(deadline) = deadline {
                 or(clock.sleep_until(deadline), changed).await;

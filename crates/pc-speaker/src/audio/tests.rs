@@ -3,6 +3,7 @@ mod common;
 
 use crate::{AudioSource, Speaker, SPEAKER_CONTROL_PORT};
 use relocade_clock_test_support::ManualClock;
+use relocade_frontend::audio::AudioTiming;
 use relocade_machine::{IoBus, Timestamp};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT as PIT_CONTROL_PORT};
 use std::time::Duration;
@@ -14,8 +15,7 @@ struct Playback {
     source: AudioSource,
     io: IoBus,
     clock: ManualClock,
-    start: Timestamp,
-    rate: u64,
+    timing: AudioTiming,
     frames: u64,
 }
 
@@ -30,34 +30,30 @@ impl Playback {
     fn new(rate: u64) -> Self {
         let clock = ManualClock::new();
         let (io, speaker) = common::hardware(clock.clock());
-        let source = speaker.borrow().audio_source();
+        let timing =
+            AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), rate as u32).unwrap();
+        let source = speaker.borrow().audio_source(timing);
         Self {
-            start: clock.clock().now(),
+            timing,
             source,
             io,
             clock,
-            rate,
             frames: 0,
         }
     }
 
     fn at_frame(&self, frame: u64) -> Timestamp {
-        self.clock.clock().add(
-            self.start,
-            Duration::from_nanos((frame * 1_000_000_000).div_ceil(self.rate)),
-        )
+        self.timing.deadline_for_frame(frame)
     }
 
     fn collect(&mut self, frames: usize) -> Vec<f32> {
         self.clock
             .advance_to(self.at_frame(self.frames + frames as u64));
-        (0..frames)
-            .map(|_| {
-                let interval = self.at_frame(self.frames)..self.at_frame(self.frames + 1);
-                self.frames += 1;
-                self.source.sample(interval)
-            })
-            .collect()
+        let mut output = vec![0.0; frames];
+        self.source
+            .generate_samples(self.frames..self.frames + frames as u64, &mut output);
+        self.frames += frames as u64;
+        output
     }
 }
 
@@ -161,25 +157,19 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     assert!(driver.advance_to_next_deadline());
     let (io, speaker) = common::hardware(clock.clone());
     let start = clock.now();
-    let mut source = speaker.borrow().audio_source();
+    let timing = AudioTiming::new(start, clock.tick_rate(), 1_000_000_000).unwrap();
+    let mut source = speaker.borrow().audio_source(timing);
     io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
 
     let mut control = pin!(clock.sleep_until(Timestamp::from_ticks(6)));
     assert!(control.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
-    // PIT has consumed one nanosecond since initialization: native tick 4.
+    // The change occurs at native tick 6, two thirds through the second frame.
     io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
     let mut end = pin!(clock.sleep_until(Timestamp::from_ticks(10)));
     assert!(end.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
-    // One-nanosecond samples expose phase errors without tolerance assertions.
-    let samples: Vec<_> = (0..3)
-        .map(|frame| {
-            source.sample(
-                clock.add(start, Duration::from_nanos(frame))
-                    ..clock.add(start, Duration::from_nanos(frame + 1)),
-            )
-        })
-        .collect();
-    assert_eq!(samples, [0.0, 1.0, 1.0]);
+    let mut samples = [0.0; 3];
+    source.generate_samples(0..3, &mut samples);
+    assert_eq!(samples, [0.0, 1.0 / 3.0, 1.0]);
 }

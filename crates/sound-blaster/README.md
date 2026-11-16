@@ -36,13 +36,13 @@ Command `0x10` writes one unsigned byte directly to the DAC at guest-selected
 times. Both direct writes and consumed DMA buffers feed `AudioSource`, with
 `0x80` as zero, `0x00` as -1 and `0xff` as 127/128. The DAC holds its last value
 until another sample, mute or reset. The source averages these levels over the
-mixer's intervals, preserving duration when the output sample rate differs.
+mixer's frames, preserving duration when the output sample rate differs.
 
-Create a source with `card.audio_source()` before guest execution. It retains
+Create a source with `card.audio_source(mixer.timing())` before guest execution. It retains
 owned consumed bytes rather than rereading guest buffers during rendering.
-Source reads first synchronize hardware through the shared clock so mixer/device
+`source.generate_samples(frames, output)` fills one mono value per frame. It first synchronizes hardware through the shared clock so mixer/device
 wake order cannot omit samples;
-the same transfer cursor prevents double consumption. Dropping the source stops
+the absolute DSP sample count prevents double consumption. Dropping the source stops
 recording without stopping DMA or IRQs. PC defaults PCM, FM and the speaker to
 unity gain. These independent levels belong to PC audio policy;
 device emulation supplies unscaled samples. The mixer preserves headroom, with

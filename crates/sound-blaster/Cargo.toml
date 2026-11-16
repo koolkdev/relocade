@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+relocade-frontend = { path = "../frontend", features = ["audio"] }
 event-listener = { version = "=5.4.1", default-features = false }
 futures-lite = { version = "=2.6.1", default-features = false }
 relocade-adlib = { path = "../adlib" }

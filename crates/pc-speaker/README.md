@@ -17,10 +17,10 @@ their writes have no effect. Bit 0 is GATE2. The speaker drive is bit 1 AND OUT2
 including direct bit-1 toggling while GATE2 is low. Other system-control and
 refresh/parity functions of this port are outside this crate's initial scope.
 
-With the `audio` feature, `speaker.audio_source()` records sound-changing writes
-for an execution-local consumer. `source.sample(start..end)` averages the digital
-drive over a nonempty elapsed interval on the PIT's clock, producing a mono value
-in 0..=1. Intervals progress forward without overlap. The shared PIT counter
+With the `audio` feature, `speaker.audio_source(mixer.timing())` records sound-changing writes
+for an execution-local consumer. `source.generate_samples(frames, output)`
+fills one mono value in 0..=1 for each absolute output frame. Frame ranges progress
+forward without overlap. The shared PIT counter
 integrates each sample's high time, preserving fractional input clocks and phase
 while muted or when the consumer skips time. Creating another source replaces
 the observer; dropping the source stops recording.

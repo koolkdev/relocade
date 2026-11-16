@@ -1,30 +1,58 @@
-//! Integrates timestamped speaker changes into complete PCM sample intervals.
-
+//! Generate speaker PCM on a shared audio frame grid.
 use crate::Speaker;
-use relocade_machine::{Clock, ClockCursor};
-use relocade_pit::{Channel2State, INPUT_HZ};
+use relocade_frontend::audio::AudioTiming;
+use relocade_pit::{Channel2State, Counter, INPUT_HZ};
 use std::{cell::RefCell, collections::VecDeque, ops::Range, rc::Rc};
 
-struct Signal {
+struct Change {
     state: Channel2State,
     enabled: bool,
 }
 
-impl Signal {
-    /// High time in billionths of one PIT input clock. Advancing while muted
-    /// preserves phase; only the audible contribution becomes zero.
-    /// Keep the cursor on the PIT's consumed nanosecond timeline so fractions
-    /// of a nanosecond remain available for the next update.
-    fn advance_to(&mut self, clock: &Clock, end: ClockCursor) -> u128 {
-        let elapsed = clock.consume_elapsed(&mut self.state.at, end);
-        let span = elapsed.as_nanos() * u128::from(INPUT_HZ) + u128::from(self.state.fraction);
-        let before = u128::from(self.state.counter.output());
-        let high = self.state.counter.advance((span / 1_000_000_000) as u64);
-        let fraction = (span % 1_000_000_000) as u32;
-        let integral = u128::from(high) * 1_000_000_000
-            + u128::from(fraction) * u128::from(self.state.counter.output())
-            - u128::from(self.state.fraction) * before;
-        self.state.fraction = fraction;
+struct Drive {
+    counter: Counter,
+    enabled: bool,
+    // One native tick is sample_rate units; one audio frame is native_rate units.
+    position: i128,
+    // Fraction of a PIT input cycle, with denominator native_rate * sample_rate.
+    fraction: u128,
+    timing: AudioTiming,
+}
+
+impl Drive {
+    fn new(change: Change, timing: AudioTiming) -> Self {
+        Self {
+            position: Self::position(timing, change.state.at),
+            fraction: u128::from(change.state.fraction) * u128::from(timing.sample_rate()),
+            counter: change.state.counter,
+            enabled: change.enabled,
+            timing,
+        }
+    }
+
+    fn position(timing: AudioTiming, at: relocade_machine::Timestamp) -> i128 {
+        i128::from(at.ticks().wrapping_sub(timing.origin().ticks()) as i64)
+            * i128::from(timing.sample_rate())
+    }
+
+    /// High time in PIT phase units, retaining partial input cycles locally.
+    fn advance_to(&mut self, end: i128) -> u128 {
+        if end <= self.position {
+            return 0;
+        }
+        let denominator = u128::from(self.timing.tick_rate().ticks_per_second().get())
+            * u128::from(self.timing.sample_rate());
+        let span = (end - self.position) as u128 * u128::from(INPUT_HZ) + self.fraction;
+        let before = u128::from(self.counter.output());
+        let high = self
+            .counter
+            .advance(u64::try_from(span / denominator).expect("speaker progress fits"));
+        let fraction = span % denominator;
+        let integral = u128::from(high) * denominator
+            + fraction * u128::from(self.counter.output())
+            - self.fraction * before;
+        self.position = end;
+        self.fraction = fraction;
         if self.enabled {
             integral
         } else {
@@ -33,65 +61,67 @@ impl Signal {
     }
 }
 
-/// Clocked mono samples of the speaker's digital drive, in the range 0..=1.
-/// The consumer chooses sample intervals and playback gain.
+/// Mono speaker output in 0..=1, on the output's shared frame grid.
 pub struct AudioSource {
-    clock: Clock,
-    signal: Signal,
-    changes: Rc<RefCell<VecDeque<Signal>>>,
+    drive: Drive,
+    changes: Rc<RefCell<VecDeque<Change>>>,
 }
 
 impl Speaker {
-    /// Records PIT and control writes for clocked audio rendering.
-    /// Replaces any previous source; dropping it stops recording changes.
-    pub fn audio_source(&self) -> AudioSource {
+    /// Records PIT/control writes from the current state. Create sources before
+    /// execution starts, with the same timing used by the mixer.
+    pub fn audio_source(&self, timing: AudioTiming) -> AudioSource {
         let mut pit = self.pit.borrow_mut();
         let changes = Rc::new(RefCell::new(VecDeque::new()));
         let recorded = Rc::downgrade(&changes);
         let control = self.control.clone();
         pit.observe_channel2(move |state| {
             if let Some(changes) = recorded.upgrade() {
-                changes.borrow_mut().push_back(Signal {
+                changes.borrow_mut().push_back(Change {
                     state,
                     enabled: control.get() & 2 != 0,
                 });
             }
         });
-        let signal = changes.borrow_mut().pop_front().unwrap();
+        let initial = changes.borrow_mut().pop_front().unwrap();
         AudioSource {
-            clock: pit.clock().clone(),
-            signal,
+            drive: Drive::new(initial, timing),
             changes,
         }
     }
 }
 
 impl AudioSource {
-    /// Averages the drive over an elapsed interval on the PIT's clock.
-    /// Intervals must progress forward from source creation without overlap.
-    /// Each interval must span at least one nanosecond. Endpoints are rounded
-    /// down on the PIT's nanosecond timeline, retaining fractions between samples.
-    /// Skipped time still advances the counter and consumes control changes.
-    pub fn sample(&mut self, interval: Range<impl Into<ClockCursor>>) -> f32 {
-        self.advance_to(interval.start.into());
-        let start = self.signal.state.at;
-        let integral = self.advance_to(interval.end.into());
-        let duration = self
-            .clock
-            .duration_since(self.signal.state.at, start)
-            .as_nanos();
-        (integral as f64 / (duration * u128::from(INPUT_HZ)) as f64) as f32
+    /// Fill one mono sample per frame. Ranges progress forward without overlap;
+    /// skipped frames advance oscillator phase and consume recorded changes.
+    pub fn generate_samples(&mut self, frames: Range<u64>, output: &mut [f32]) {
+        assert_eq!(
+            frames.end.checked_sub(frames.start),
+            Some(output.len() as u64)
+        );
+        let rate = self.drive.timing.tick_rate().ticks_per_second().get();
+        for (frame, sample) in frames.zip(output) {
+            self.advance_to(i128::from(frame) * i128::from(rate));
+            let integral = self.advance_to(i128::from(frame + 1) * i128::from(rate));
+            *sample = (integral as f64 / (u128::from(rate) * u128::from(INPUT_HZ)) as f64) as f32;
+        }
     }
 
-    fn advance_to(&mut self, end: ClockCursor) -> u128 {
+    fn advance_to(&mut self, end: i128) -> u128 {
+        let timing = self.drive.timing;
         let mut changes = self.changes.borrow_mut();
         let mut integral = 0;
-        while changes.front().is_some_and(|change| change.state.at <= end) {
+        while changes
+            .front()
+            .is_some_and(|change| Drive::position(timing, change.state.at) <= end)
+        {
             let change = changes.pop_front().unwrap();
-            integral += self.signal.advance_to(&self.clock, change.state.at);
-            self.signal = change;
+            integral += self
+                .drive
+                .advance_to(Drive::position(timing, change.state.at));
+            self.drive = Drive::new(change, timing);
         }
-        integral + self.signal.advance_to(&self.clock, end)
+        integral + self.drive.advance_to(end)
     }
 }
 
