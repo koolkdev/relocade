@@ -5,7 +5,7 @@ pub(crate) use clock::Clock;
 pub(crate) mod indos;
 
 use crate::{
-    devices::{BiosConsole, ConsoleInput, DeviceChain, NullDevice, Unavailable},
+    devices::{BiosConsole, ConsoleInput, DeviceChain, NullDevice, Unavailable, LPT_NAMES},
     files::FileSystem,
     memory::AllocationStrategy,
     process::Process,
@@ -40,6 +40,9 @@ impl DosState {
     ) -> Self {
         let devices = DeviceChain::default();
         let console_input = ConsoleInput::new(keyboard.clone());
+        for name in LPT_NAMES {
+            devices.install(Unavailable(name));
+        }
         devices.install(Unavailable(*b"PRN     "));
         devices.install(Unavailable(*b"AUX     "));
         devices.install(BiosConsole::new(memory.clone(), console_input.clone()));

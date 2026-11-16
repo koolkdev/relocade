@@ -9,7 +9,9 @@
 mod builtin;
 mod chain;
 mod input;
+mod parallel;
 pub(crate) use input::{dos_bytes, ConsoleInput, CONTROL_C};
+pub(crate) use parallel::{Lpt, LPT_NAMES};
 
 use crate::DosError;
 pub(crate) use builtin::{BiosConsole, NullDevice, Unavailable};

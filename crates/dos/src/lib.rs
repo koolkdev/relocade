@@ -129,6 +129,15 @@
 //! AH=45h/46h duplicate handles, sharing file positions and allowing redirection.
 //! AH=09h string output follows the current stdout handle, just like AH=40h.
 //! AX=4400h reports file/device information for the object behind a handle.
+//! LPT1 through LPT3 are reserved character-device names. [`Dos::bind_lpt`]
+//! explicitly connects a numbered device to the producer end of a parallel byte
+//! connection; the peripheral consumes its `AsyncRead` end. Handle writes use
+//! this stream directly without invoking INT 17h or changing LPT registers.
+//! The connection preserves byte order and backpressure across DOS, BIOS and
+//! direct-port output. Unbound LPT devices report not ready and reject writes.
+//! Bound LPT writes preserve binary data; reads are unsupported in this forward
+//! transport. Closing a DOS handle does not close the connection. New opens use
+//! the latest binding; existing handles and suspended calls retain their target.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
@@ -488,6 +497,30 @@ impl Dos {
     /// Panics if the driver attributes do not identify a character device.
     pub fn install_driver(&self, driver: impl devices::CharacterDriver + 'static) {
         self.state.devices().install(driver);
+    }
+
+    /// Binds LPT1, LPT2 or LPT3 to an explicitly supplied forward connection.
+    /// Numbering is one-based and independent of the hardware's I/O address.
+    /// New opens use this binding; retained handles keep their previous device.
+    /// This does not bind PRN or replace the standard printer handle.
+    ///
+    /// ```no_run
+    /// # async fn example(pc: relocade_pc::Pc) -> Result<(relocade_dos::Dos, relocade_parallel::centronics::Input), Box<dyn std::error::Error>> {
+    /// let port = pc.parallel_port().expect("configured parallel port");
+    /// let (input, output) = relocade_parallel::Centronics::connect(pc.runner(), &port).await;
+    /// let dos = relocade_dos::Dos::from_pc(pc).await?;
+    /// dos.bind_lpt(1, output)?;
+    /// // Give `input` to the peripheral, which consumes bytes through AsyncRead.
+    /// # Ok((dos, input))
+    /// # }
+    /// ```
+    pub fn bind_lpt(
+        &self,
+        number: u8,
+        output: relocade_parallel::centronics::Output,
+    ) -> Result<(), DosError> {
+        self.install_driver(devices::Lpt::new(number, output)?);
+        Ok(())
     }
 
     /// Resolves a character device by its unpadded DOS name, ignoring ASCII case.

@@ -11,7 +11,9 @@ audio = ["relocade-frontend/audio", "relocade-pc/audio"]
 [dependencies]
 async-channel = { version = "=2.5.0", default-features = false }
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std", "wasmbind"] }
+futures-io = "=0.3.34"
 relocade-bios = { path = "../bios" }
+relocade-parallel = { path = "../parallel" }
 relocade-pc = { path = "../pc" }
 relocade-pc-speaker = { path = "../pc-speaker" }
 relocade-vfs = { path = "../vfs" }
@@ -21,7 +23,6 @@ relocade-vga = { path = "../vga" }
 relocade-frontend = { path = "../frontend", features = ["keyboard", "mouse"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-futures-timer = "=3.0.4"
 relocade-ps2 = { path = "../ps2" }
 relocade-pic = { path = "../pic" }
 pollster = "=1.0.1"
@@ -30,4 +31,6 @@ wgpu.workspace = true
 futures-channel = "=0.3.34"
 
 [dev-dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 relocade-clock-test-support = { path = "../../tests/clock-support" }

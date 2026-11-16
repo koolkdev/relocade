@@ -17,6 +17,7 @@ mod dos;
 mod graphics;
 mod memory;
 mod modules;
+mod parallel;
 mod runner;
 mod vga;
 
@@ -27,6 +28,7 @@ pub use dos::dos_workers;
 pub use graphics::{gpu::gpu_workers, graphics_workers};
 pub use memory::shared_memory;
 pub use modules::compiled_modules;
+pub use parallel::parallel_files;
 pub use runner::runner_workers;
 pub use vga::vga_workers;
 

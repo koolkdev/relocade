@@ -21,6 +21,9 @@ fn device_names_open_and_create_without_creating_vfs_files() {
             (b"C:/DIR/NUL.TXT", 0x80c4),
             (b"aux", 0x80c0),
             (b"PRN:", 0x80c0),
+            (b"LPT1", 0x80c0),
+            (b"lpt2:", 0x80c0),
+            (b"C:\\DIR\\LPT3.TXT", 0x80c0),
         ] {
             // Create-new also opens devices, regardless of an existing filesystem name.
             for function in [0x3d02, 0x3c00, 0x5b00] {
