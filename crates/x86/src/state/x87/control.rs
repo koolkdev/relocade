@@ -184,14 +184,14 @@ impl X87Access<'_, '_> {
             self.body,
             cpu_location!(x87.control.rounding_control),
             3,
-            u32::from(expected.rounding_control),
+            u64::from(expected.rounding_control),
         )?;
         if matches!(specialization, X87Specialization::Arithmetic) {
             self.state.control.fields.assume_bits(
                 self.body,
                 cpu_location!(x87.control.precision_control),
                 3,
-                u32::from(expected.precision_control),
+                u64::from(expected.precision_control),
             )?;
         }
         Ok(())

@@ -27,8 +27,8 @@ impl State<'_> {
             self.system.assume_bits(
                 body,
                 location.clone(),
-                u32::from(u8::MAX),
-                u32::from(size == crate::SegmentDefaultSize::Bits32),
+                u64::from(u8::MAX),
+                u64::from(size == crate::SegmentDefaultSize::Bits32),
             )?;
         }
         Ok(self.system.read(body, location)?.ne(0))
