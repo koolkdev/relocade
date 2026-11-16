@@ -120,8 +120,8 @@ fn physical_jit_operands_do_not_embed_general_transfer_helpers() {
                 for import in imports {
                     let import = import.unwrap();
                     assert!(
-                        !matches!(import.name, "mmioReads" | "mmioWrites"),
-                        "{code:02x?} must hand off before a device transfer",
+                        !matches!(import.name, "mmioReads" | "mmioWrites" | "writeCode"),
+                        "{code:02x?} must hand off before a host memory transfer",
                     );
                 }
             }

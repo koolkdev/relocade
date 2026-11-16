@@ -25,6 +25,93 @@ fn value(observation: &Observation) -> i64 {
 }
 
 #[test]
+fn tracked_pages_keep_reads_direct_and_route_ram_writes_by_backing() {
+    for address in [0x1801, 0x101801, 0x9801] {
+        let mut input = input();
+        input.a20_enabled = false;
+        input.code_pages = vec![0x3000];
+        input
+            .guest
+            .push((0x3801, 0x1122_3344_5566_7788u64.to_le_bytes().to_vec()));
+        input.arguments = vec![Argument::I32(address)];
+        let read = transfer(&input, "read64");
+        assert_eq!(value(&read), 0x1122_3344_5566_7788);
+        assert_eq!(
+            read.events.len(),
+            1,
+            "tracked RAM and ROM reads stay direct"
+        );
+        let written = 0x8877_6655_4433_2211u64;
+        input.arguments.push(Argument::I64(written as i64));
+        let write = transfer(&input, "write64");
+        if address == 0x9801 {
+            assert_eq!(write.events.len(), 1);
+            assert!(write.guest_unchanged, "tracked ROM still ignores writes");
+        } else {
+            assert_eq!(write.events.len(), 2);
+            assert_eq!(
+                write.events[0],
+                Event::CodeWrite {
+                    backing_offset: 0x3801,
+                    value: written.to_le_bytes().to_vec(),
+                }
+            );
+            let Event::Return { snapshot, .. } = write.events.last().unwrap() else {
+                panic!("return")
+            };
+            assert_eq!(
+                snapshot.guest,
+                Some(
+                    written
+                        .to_le_bytes()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, byte)| (0x3801 + index as u32, byte))
+                        .collect()
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn tracked_writes_split_at_backing_page_boundaries() {
+    for tracked in [vec![0x3000], vec![0x3000, 0x5000]] {
+        let mut input = input();
+        input.code_pages = tracked;
+        input.arguments = vec![Argument::I32(0x1fff), Argument::I64(0x0807_0605_0403_0201)];
+        let write = transfer(&input, "write64");
+        let mut events = vec![Event::CodeWrite {
+            backing_offset: 0x3fff,
+            value: vec![1],
+        }];
+        if input.code_pages.len() == 2 {
+            events.push(Event::CodeWrite {
+                backing_offset: 0x5000,
+                value: vec![2, 3, 4, 5, 6, 7, 8],
+            });
+        }
+        assert_eq!(&write.events[..write.events.len() - 1], events);
+        let Event::Return { snapshot, .. } = write.events.last().unwrap() else {
+            panic!("return")
+        };
+        assert_eq!(
+            snapshot.guest,
+            Some(vec![
+                (0x3fff, 1),
+                (0x5000, 2),
+                (0x5001, 3),
+                (0x5002, 4),
+                (0x5003, 5),
+                (0x5004, 6),
+                (0x5005, 7),
+                (0x5006, 8),
+            ])
+        );
+    }
+}
+
+#[test]
 fn prepared_fields_keep_slow_routing_live_after_mmio() {
     let mut program = Program::new();
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));

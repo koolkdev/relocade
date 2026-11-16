@@ -1,6 +1,6 @@
 //! Host-owned routing from physical pages to backing memory or MMIO devices.
 
-use std::{fmt, ops::RangeInclusive};
+use std::{collections::BTreeSet, fmt, ops::RangeInclusive};
 
 pub(super) const PAGE_SHIFT: u32 = 12;
 pub(super) const PAGE_MASK: u32 = PhysicalMemoryMap::PAGE_BYTES - 1;
@@ -8,6 +8,7 @@ pub(super) const UNMAPPED: u32 = 0;
 pub(super) const RAM: u32 = 1;
 pub(super) const ROM: u32 = 2;
 pub(super) const MMIO: u32 = 3;
+pub(super) const CODE_PAGE: u32 = 1 << 2;
 
 /// Index in an execution instance's paired MMIO operation tables.
 /// Zero keeps the range resolver used for unconnected or mixed-device pages.
@@ -91,6 +92,7 @@ impl PhysicalMapping {
 #[derive(Clone, Debug)]
 pub struct PhysicalMemoryMap {
     pages: [PhysicalMapping; Self::PAGE_COUNT],
+    code_pages: BTreeSet<u32>,
     a20_enabled: bool,
 }
 
@@ -148,8 +150,23 @@ impl PhysicalMemoryMap {
         }
         Ok(Self {
             pages,
+            code_pages: BTreeSet::new(),
             a20_enabled: false,
         })
+    }
+
+    /// Marks the backing page containing `backing_offset` as containing tracked code.
+    /// All RAM/ROM aliases receive the flag, including pages hidden by A20.
+    /// Reads and ROM write policy are unchanged; RAM writes use the host callback.
+    /// The host coordinates tracking and installs the updated image while execution
+    /// is stopped. This metadata alone does not invalidate compiled code.
+    pub fn set_code_page(&mut self, backing_offset: u32, contains_code: bool) {
+        let page = backing_offset & !PAGE_MASK;
+        if contains_code {
+            self.code_pages.insert(page);
+        } else {
+            self.code_pages.remove(&page);
+        }
     }
 
     /// Selects the platform A20 gate. New maps disable it. The host installs the
@@ -189,6 +206,7 @@ impl PhysicalMemoryMap {
 
     /// Serializes 272 entries of eight bytes each, followed by the A20 mask. Each entry
     /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
+    /// with bit 2 set on RAM/ROM pages containing tracked code,
     /// followed by a u32 backing-page offset or MMIO handler index. Unmapped
     /// payloads are zero; MMIO index zero selects generic range resolution.
     /// The trailing u32 is FFFFFFFF when A20 is enabled and FFEFFFFF otherwise.
@@ -198,12 +216,18 @@ impl PhysicalMemoryMap {
         let mut bytes = [0; Self::BYTE_LEN];
         let (entries, _) = bytes.as_chunks_mut::<8>();
         for (entry, page) in entries.iter_mut().zip(&self.pages) {
-            let (kind, backing): (u32, u32) = match *page {
+            let (mut kind, backing): (u32, u32) = match *page {
                 PhysicalMapping::Unmapped => (UNMAPPED, 0),
                 PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
                 PhysicalMapping::Rom { backing_offset } => (ROM, backing_offset),
                 PhysicalMapping::Mmio { handler } => (MMIO, handler.index()),
             };
+            if page
+                .backing_offset()
+                .is_some_and(|offset| self.code_pages.contains(&offset))
+            {
+                kind |= CODE_PAGE;
+            }
             entry[..4].copy_from_slice(&kind.to_le_bytes());
             entry[4..].copy_from_slice(&backing.to_le_bytes());
         }

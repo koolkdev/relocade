@@ -3,6 +3,65 @@ use super::{MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap}
 use PhysicalMapping::{Ram, Rom, Unmapped};
 
 #[test]
+fn code_pages_mark_all_backing_aliases_without_changing_routing() {
+    let mut map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            Ram {
+                backing_offset: 0x4000,
+            },
+        ),
+        (
+            0x1000..=0x1fff,
+            Rom {
+                backing_offset: 0x4000,
+            },
+        ),
+        (
+            0x2000..=0x2fff,
+            PhysicalMapping::Mmio {
+                handler: MmioHandlerId::new(0x4000),
+            },
+        ),
+        (
+            0x3000..=0x3fff,
+            Ram {
+                backing_offset: 0x5000,
+            },
+        ),
+        (
+            0x100000..=0x100fff,
+            Ram {
+                backing_offset: 0x4000,
+            },
+        ),
+    ])
+    .unwrap();
+    let original = map.to_bytes();
+    map.set_code_page(0x4123, true);
+    let mut expected = original;
+    for (page, kind) in [(0, 5u32), (1, 6), (0x100, 5)] {
+        expected[page * 8..page * 8 + 4].copy_from_slice(&kind.to_le_bytes());
+    }
+    assert_eq!(map.to_bytes(), expected);
+    assert_eq!(
+        map.get(0x100123),
+        Ram {
+            backing_offset: 0x4123
+        }
+    );
+    assert_eq!(
+        map.get(0x1123),
+        Rom {
+            backing_offset: 0x4123
+        }
+    );
+    assert!(map.fits_backing(0x6000));
+    map.set_code_page(0x4fff, false);
+    assert_eq!(map.to_bytes(), original);
+}
+
+#[test]
 fn mmio_handler_indices_use_the_existing_payload_word() {
     let mapping = PhysicalMapping::Mmio {
         handler: MmioHandlerId::new(7),

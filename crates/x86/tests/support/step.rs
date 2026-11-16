@@ -20,6 +20,8 @@ pub(crate) struct Input {
     pub(crate) guest: Vec<(u32, Vec<u8>)>,
     pub(crate) machine: Vec<(u32, Vec<u8>)>,
     pub(crate) physical_pages: Vec<(u32, u32, bool)>,
+    /// Backing offsets whose pages contain tracked code.
+    pub(crate) code_pages: Vec<u32>,
     pub(crate) a20_enabled: bool,
     pub(crate) mmio_pages: Vec<(u32, u32)>,
     pub(crate) mmio_handlers: Vec<(u32, u32)>,
@@ -41,6 +43,7 @@ impl Input {
             guest: Vec::new(),
             machine: Vec::new(),
             physical_pages: Vec::new(),
+            code_pages: Vec::new(),
             // Most execution fixtures exercise unwrapped physical addressing.
             a20_enabled: true,
             mmio_pages: Vec::new(),
@@ -105,6 +108,10 @@ pub(crate) enum Event {
     },
     MmioWrite {
         address: u32,
+        value: Vec<u8>,
+    },
+    CodeWrite {
+        backing_offset: u32,
         value: Vec<u8>,
     },
     Interpret {

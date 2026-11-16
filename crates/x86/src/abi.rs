@@ -18,6 +18,12 @@ pub const GUEST: Memory = Memory {
     ..Memory::new("relocade", "guest", 1)
 };
 pub const PHYSICAL_MAP: Memory = Memory::new("relocade", "physicalMap", 1);
+/// Writes one through eight bytes within a tracked RAM backing page. The address
+/// is a backing offset after physical translation, and unused value bits are zero.
+/// The embedding performs the write, including any required code invalidation,
+/// before returning. This callback must not reenter guest execution.
+pub type CodeWriteSignature = fn(backing_offset: u32, bytes: u32, value: u64);
+pub const WRITE_CODE: Function<CodeWriteSignature> = Function::new("relocade", "writeCode");
 pub const PAGE_TABLE: Memory = Memory::new(
     "relocade",
     "machine",

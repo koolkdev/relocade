@@ -11,6 +11,7 @@ use relocade_compiler::{
 use super::{Access, Intent};
 use crate::alu::OperandUpdate;
 use table::PhysicalTable;
+use transfer::TransferBuilder;
 
 pub(crate) struct PhysicalMemory {
     backing: Mem,
@@ -23,13 +24,12 @@ impl PhysicalMemory {
     pub(super) fn declare(program: &mut Program) -> Self {
         let backing = program.import_memory(crate::abi::GUEST);
         let table = PhysicalTable::declare(program);
-        let mmio_reader = program.import_table(crate::abi::MMIO_READS);
-        let mmio_writer = program.import_table(crate::abi::MMIO_WRITES);
+        let transfers = TransferBuilder::new(program, backing, table);
         Self {
             backing,
             table,
-            reader: transfer::declare_reader(program, backing, table, mmio_reader),
-            writer: transfer::declare_writer(program, backing, table, mmio_writer),
+            reader: transfers.declare_reader(program),
+            writer: transfers.declare_writer(program),
         }
     }
 
