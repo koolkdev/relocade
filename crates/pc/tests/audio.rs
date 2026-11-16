@@ -114,11 +114,22 @@ async fn exercise_audio_device(sound_card: SoundCard) {
     });
     let timers = timers.spawn_with_peer(worker.wake_peer());
     timeout(ready.recv()).await.unwrap();
-    // Initial queued silence can precede the guest's programming writes.
-    for index in 0..12 {
+    // Worker startup can leave queued silence before the guest's writes.
+    // Discard the first audible block, which may contain only part of the tone.
+    timeout(async {
+        loop {
+            let buffer = buffers.recv().await.unwrap();
+            assert_eq!(buffer.len(), 256);
+            if buffer.iter().any(|&sample| sample != 0.0) {
+                break;
+            }
+        }
+    })
+    .await;
+    for index in 0..11 {
         let buffer = timeout(buffers.recv()).await.unwrap();
         assert_eq!(buffer.len(), 256);
-        if index >= 2 {
+        if index >= 1 {
             match sound_card {
                 SoundCard::AdLib | SoundCard::SoundBlaster2 => {
                     assert!(buffer.iter().all(|sample| (-1.0..=2.0).contains(sample)));

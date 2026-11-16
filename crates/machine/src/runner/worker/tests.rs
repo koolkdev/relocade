@@ -89,20 +89,16 @@ impl Drop for Release {
     }
 }
 
-async fn jobs_accepted_during_startup_are_drained() {
+async fn cancelled_job_thread_startup() {
     let (machine, cpu) = cpu();
-    let (completed, completion) = oneshot::channel();
     let worker = cpu.spawn_with_guest_time(
         || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
         async move |runner| {
-            let jobs = runner.spawn_job_thread();
-            let mut work = std::pin::pin!(jobs.execute(move || completed.send(()).unwrap()));
-            // Submit once, then finish the session without waiting for worker startup.
-            let _ = futures_lite::future::poll_once(work.as_mut()).await;
+            // End the session even if the browser's startup handshake is pending.
+            let _ = futures_lite::future::poll_once(runner.spawn_job_thread()).await;
         },
     );
     worker.join().await.unwrap();
-    completion.await.unwrap();
     machine.shutdown().await.unwrap();
 }
 
@@ -117,7 +113,7 @@ async fn owned_job_cleanup(cancel: bool) {
     let worker = cpu.spawn_with_guest_time(
         || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
         async move |runner| {
-            let jobs = runner.spawn_job_thread();
+            let jobs = runner.spawn_job_thread().await;
             let mut work = std::pin::pin!(jobs.execute(move || {
                 let _cleanup = Dropped(Some(cleanup));
                 started.send(()).unwrap();
@@ -186,7 +182,7 @@ async fn stopping_during_construction_drops_startup_before_joining() {
 #[test]
 fn session_completion_and_cancellation_drain_calculation_jobs() {
     pollster::block_on(async {
-        jobs_accepted_during_startup_are_drained().await;
+        cancelled_job_thread_startup().await;
         owned_job_cleanup(false).await;
         owned_job_cleanup(true).await;
     });
@@ -195,7 +191,7 @@ fn session_completion_and_cancellation_drain_calculation_jobs() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn session_completion_and_cancellation_drain_calculation_jobs() {
-    jobs_accepted_during_startup_are_drained().await;
+    cancelled_job_thread_startup().await;
     owned_job_cleanup(false).await;
     owned_job_cleanup(true).await;
 }

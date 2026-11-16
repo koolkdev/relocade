@@ -52,10 +52,14 @@ image-drawing tools used by the connection and host.
 
 The `audio` feature provides `AudioTiming` and `Sources`. A source collection owns
 one frame grid and lets each device register its recorder and mono generator
-together. `generate_samples(frames, output)` captures events and mixes every
-source once into interleaved PCM. Each source keeps its own gain and synthesis
-state; playback clamps the final mix. This contract uses value types from
-`relocade-time` and has no machine, worker, or playback-backend dependency.
+together. `record(frames, channels)` captures events locally and returns an owned
+`Send` closure that calculates interleaved PCM. Run these calculations in recording
+order. Sources stay on the recording owner; calculations retain generator state
+and reusable mixing scratch space through shared ownership. Only calculations
+lock that state, once per source and once for scratch space per block.
+Dropping sources releases recording handles while captured work can finish
+independently. This interface depends on value types from `relocade-time` and has
+no machine, worker, or playback-backend dependency.
 
 `audio::Config` describes interleaved PCM using sample rate, channels and preferred
 block frames. Playback backends translate their own configuration into these

@@ -1,5 +1,6 @@
 use super::*;
 use relocade_clock_test_support::ManualClock;
+use relocade_machine::worker::JobQueue;
 use std::{
     future::Future,
     pin::{pin, Pin},
@@ -15,6 +16,7 @@ struct Playback {
     clock: ManualClock,
     output: async_channel::Receiver<Vec<f32>>,
     task: Pin<Box<dyn Future<Output = ()>>>,
+    calculations: Pin<Box<dyn Future<Output = ()>>>,
 }
 
 fn config(sample_rate: u32, channels: u16, block_frames: usize) -> Config {
@@ -31,10 +33,12 @@ impl Playback {
         let (samples, output) = async_channel::bounded(1);
         let mut audio = Audio::new(clock.clock(), config, samples).unwrap();
         register(&mut audio.sources);
+        let (queue, jobs) = JobQueue::new();
         Self {
             clock,
             output,
-            task: Box::pin(audio.run()),
+            task: Box::pin(audio.run(jobs)),
+            calculations: Box::pin(queue.run(std::future::pending::<()>())),
         }
     }
 
@@ -44,10 +48,20 @@ impl Playback {
             .poll(&mut Context::from_waker(Waker::noop()))
     }
 
+    fn finish_block(&mut self) {
+        assert!(self
+            .calculations
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending());
+        assert!(self.poll().is_pending());
+    }
+
     fn next_buffer(&mut self) -> Vec<f32> {
         assert!(self.poll().is_pending());
         self.clock.advance_to(self.clock.next_deadline().unwrap());
         assert!(self.poll().is_pending());
+        self.finish_block();
         self.output.try_recv().unwrap()
     }
 }
@@ -103,18 +117,23 @@ fn frames_remain_distinct_below_one_native_tick() {
             }
         },
     );
-    let mut activity = pin!(audio.run());
+    let (queue, jobs) = JobQueue::new();
+    let mut calculations = pin!(queue.run(std::future::pending::<()>()));
+    let mut activity = pin!(audio.run(jobs));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(driver.next_deadline().unwrap().ticks(), 1);
     assert!(driver.advance_to_next_deadline());
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    assert!(output.is_empty());
+    assert!(calculations.as_mut().poll(&mut cx).is_pending());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert_eq!(output.try_recv().unwrap(), [0.0, 1.0, 2.0, 3.0]);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn full_output_keeps_recent_samples_and_closure_releases_sources() {
+fn jobs_preserve_block_order_and_closing_output_cancels_submission() {
     let samples = Arc::new(Mutex::new(0));
     let generated = samples.clone();
     let mut playback = Playback::new(config(1000, 1, 10), |sources| {
@@ -133,14 +152,32 @@ fn full_output_keeps_recent_samples_and_closure_releases_sources() {
     assert!(playback.poll().is_pending());
     playback.clock.advance_by(Duration::from_millis(30));
     assert!(playback.poll().is_pending());
-    assert_eq!(*samples.lock().unwrap(), 30);
+    assert!(playback.poll().is_pending());
+    assert_eq!(*samples.lock().unwrap(), 0);
+    assert!(playback.output.is_empty());
+    // Repeated CPU polls cannot synthesize or enqueue a second block while the
+    // first job is pending. Each completion advances exactly ten frames.
+    for end in [10, 20, 30] {
+        playback.finish_block();
+        assert_eq!(*samples.lock().unwrap(), end);
+    }
     assert_eq!(playback.output.len(), 1);
     assert_eq!(
         playback.output.try_recv().unwrap(),
         (21..=30).map(|n| n as f32).collect::<Vec<_>>()
     );
+    playback.clock.advance_by(Duration::from_millis(10));
+    assert!(playback.poll().is_pending());
     playback.output.close();
     assert!(playback.poll().is_ready());
+    // The accepted calculation still owns its state after the audio task stops.
+    assert_eq!(Arc::strong_count(&samples), 2);
+    assert!(playback
+        .calculations
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_ready());
+    assert_eq!(*samples.lock().unwrap(), 40);
     assert_eq!(Arc::strong_count(&samples), 1);
 }
 

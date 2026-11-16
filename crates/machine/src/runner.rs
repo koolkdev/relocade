@@ -129,10 +129,13 @@ impl Runner {
     }
 
     /// Starts a reusable calculation thread owned by this execution session.
+    /// Returns after the thread binds the session's wake peer. Await during setup
+    /// so browser startup can finish before synchronous guest execution begins.
+    /// The session retains the worker if this startup wait is cancelled.
     /// Each submitted closure owns its inputs and returns its result asynchronously.
     /// The submitting activity can await a result while guest execution continues.
     /// Session shutdown closes admission and drains accepted work before joining.
-    pub fn spawn_job_thread(&self) -> JobExecutor {
+    pub async fn spawn_job_thread(&self) -> JobExecutor {
         let (queue, jobs) = JobQueue::new();
         let (started, ready) = oneshot::channel();
         let worker = Worker::spawn_with(self.wake_peer(), move |peer, stopped| async move {
@@ -141,11 +144,9 @@ impl Runner {
             queue.run(stopped).await;
         });
         self.workers.borrow_mut().push(Box::pin(async move {
-            // Let startup acquire the queue before cancellation so jobs accepted
-            // during setup are drained even if the session ends immediately.
-            let _ = ready.await;
             let _ = worker.stop().await.expect("session job thread cleanup");
         }));
+        ready.await.expect("session job thread startup");
         jobs
     }
 

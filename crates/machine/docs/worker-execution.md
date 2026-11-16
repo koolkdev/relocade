@@ -44,11 +44,13 @@ and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
 main activity drops all device futures on their owner.
 
 `spawn_activity(future).await` starts a service without bus mappings with the
-same first-poll and session lifetime guarantees. `spawn_job_thread()` returns a
+same first-poll and session lifetime guarantees. `spawn_job_thread().await` returns a
 sendable job executor backed by one reusable calculation thread. Jobs own their
 inputs and return results through Rust memory; awaiting one suspends only its
 calling activity. The thread binds the session's wake peer once, so completion
 can interrupt busy guest execution without a JavaScript message per block.
+Await thread startup during setup, before starting guest execution, so the
+browser can deliver the worker's readiness handshake.
 
 Ending or cancelling the session drops local activities, then closes job
 admission, drains accepted calculations and joins their threads. Retained job
@@ -334,8 +336,12 @@ scheduling latency; it is not a real-time deadline. Explicit peer bindings still
 signal synchronously and avoid that extra turn.
 
 PC audio runs as a session activity. It waits for block deadlines, collects
-recorded device events, generates PCM and replaces old output when playback is
-full. Playback callbacks consume that bounded output without driving guest time.
+recorded device events and submits each PCM block to a reusable session-owned job
+thread. The job synthesizes and mixes owned events while guest execution continues.
+One calculation is in flight; completion returns synthesis state for the next
+block. Full output replaces old PCM, and closing output drops recording handles.
+Accepted work finishes before the runner joins the thread. Playback callbacks
+consume bounded output without driving guest time.
 Use `cpu.step()` for bounded instruction tests; service/dispatch tests can request
 an execution interrupt to inspect a completed guest boundary while retaining
 suspended work. See the [connection contract](workers.md#browser-build-and-lifetime).
