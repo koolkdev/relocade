@@ -6,37 +6,12 @@ use futures_util::{
 use relocade_workers::{JobExecutor, Pool, PoolError, Thread};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc, Condvar, Mutex,
+    Arc,
 };
 
-#[derive(Default)]
-struct Gate {
-    open: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl Gate {
-    fn wait(&self) {
-        drop(
-            self.changed
-                .wait_while(self.open.lock().unwrap(), |open| !*open)
-                .unwrap(),
-        );
-    }
-
-    fn release(&self) {
-        *self.open.lock().unwrap() = true;
-        self.changed.notify_all();
-    }
-}
-
-// Release blocked workers even when a coordinator assertion fails.
-struct Release(Arc<Gate>);
-impl Drop for Release {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
+#[path = "support/gate.rs"]
+mod gate;
+use gate::blocking_gate;
 
 #[derive(Default)]
 struct Activity {
@@ -81,27 +56,27 @@ async fn supplied_workers() {
     let (pool, first) = Pool::new(threads).unwrap();
     let second = first.clone();
     let third = first.clone();
-    let gate = Arc::new(Gate::default());
     let activity = Arc::new(Activity::default());
     let make_job = || {
         let (started, ready) = oneshot::channel();
-        let gate = gate.clone();
+        let (release, wait) = blocking_gate();
         let activity = activity.clone();
         (
             move || {
                 let _running = activity.enter();
                 let id = std::thread::current().id();
                 let _ = started.send(id);
-                gate.wait();
+                wait();
                 id
             },
             ready,
+            release,
         )
     };
-    let (a, a_ready) = make_job();
-    let (b, b_ready) = make_job();
-    let (c, mut c_ready) = make_job();
-    let release = Release(gate.clone());
+    let (a, a_ready, a_release) = make_job();
+    let (b, b_ready, b_release) = make_job();
+    let (c, mut c_ready, c_release) = make_job();
+    let release = [a_release, b_release, c_release];
     let clients = async move {
         let control = async {
             let (a, b) = join(a_ready, b_ready).await;
@@ -138,10 +113,9 @@ impl Drop for Released {
 
 async fn cancelled_waiters() {
     let (pool, jobs) = Pool::new(vec![Thread::new()]).unwrap();
-    let gate = Arc::new(Gate::default());
+    let (release, wait) = blocking_gate();
     let released = Arc::new(AtomicBool::new(false));
     let drained = Arc::new(AtomicBool::new(false));
-    let release = Release(gate.clone());
     let captured = Released(released.clone());
     let worker_drained = drained.clone();
     let (started, ready) = oneshot::channel();
@@ -149,7 +123,7 @@ async fn cancelled_waiters() {
         let mut abandoned = Box::pin(jobs.execute(move || {
             let _captured = captured;
             let _ = started.send(());
-            gate.wait();
+            wait();
         }));
         assert!(abandoned.as_mut().now_or_never().is_none());
         ready.await.unwrap();
