@@ -84,15 +84,8 @@ impl Memory {
         cache: Option<&mut PageCache>,
     ) -> Result<Access, BuildError> {
         let bytes = body.value(bytes)?;
-        let probe = |body: &mut BlockBuilder<'_>, cache: Option<&mut PageCache>| match self {
-            Self::Virtual(memory) => {
-                memory.resolve_access(body, start, &bytes, intent, cache, None)
-            }
-            // Physical queries always observe live routing, without the loop page cache.
-            Self::Physical(memory) => memory.resolve_access(body, start, &bytes, intent),
-        };
         let Some(denied) = denied else {
-            return probe(body, cache);
+            return self.resolve_access(body, start, bytes, intent, cache, None);
         };
         let constant_bytes = body.constant_bits(&bytes)?.map(|bytes| bytes as u32);
         let mut next_cache = cache.as_deref().cloned();
@@ -105,7 +98,14 @@ impl Memory {
                 denied,
                 |denied| denied.yield_((true, true, 0, initial_cache.clone())),
                 |mut allowed| {
-                    let access = probe(&mut allowed, next_cache.as_mut())?;
+                    let access = self.resolve_access(
+                        &mut allowed,
+                        start,
+                        &bytes,
+                        intent,
+                        next_cache.as_mut(),
+                        None,
+                    )?;
                     let inputs = next_cache
                         .map(PageCache::into_inputs)
                         .unwrap_or_else(|| initial_cache.clone());
@@ -125,7 +125,8 @@ impl Memory {
         })
     }
 
-    /// Resolves a segment-checked span. Physical routing remains live until each transfer.
+    /// Resolves a segment-checked span. Without a fault handler this is a probe.
+    /// Retained physical mappings must not cross callbacks that can change them.
     pub(crate) fn resolve_access(
         &self,
         body: &mut BlockBuilder<'_>,
@@ -139,22 +140,28 @@ impl Memory {
             Self::Virtual(memory) => {
                 memory.resolve_access(body, start, bytes, intent, cache, on_fault)
             }
-            Self::Physical(_) => {
-                let bytes = body.value(bytes)?;
-                let constant_bytes = body.constant_bits(&bytes)?.map(|bytes| bytes as u32);
-                if on_fault.is_some() {
-                    assert_ne!(constant_bytes, Some(0), "a faulting span must be nonempty");
-                }
-                Ok(Access {
-                    linear: start.clone(),
-                    physical: body.value(0)?,
-                    denied: bytes.eq(0),
-                    unavailable: body.value(true)?,
-                    intent,
-                    constant_bytes,
-                })
-            }
+            Self::Physical(memory) => memory.resolve_access(body, start, bytes, intent),
         }
+    }
+
+    /// Architectural checks have already passed; only live routing can change
+    /// across a device callback. Virtual mappings remain fixed during an entry.
+    pub(crate) fn refresh_access(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        access: &Access,
+    ) -> Result<Access, BuildError> {
+        if self.has_stable_mappings() {
+            return Ok(access.clone());
+        }
+        self.resolve_access(
+            body,
+            &access.linear,
+            access.constant_bytes.expect("a transfer has a fixed width"),
+            access.intent,
+            None,
+            None,
+        )
     }
 
     pub(crate) fn read<T: TransferType>(

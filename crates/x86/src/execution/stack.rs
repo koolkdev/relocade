@@ -71,7 +71,10 @@ impl<T: RegisterType> StackField<'_, T> {
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<Val<T>, BuildError> {
-        self.memory.read(&mut execution.body, &self.access, 0)
+        let access = self
+            .memory
+            .refresh_access(&mut execution.body, &self.access)?;
+        self.memory.read(&mut execution.body, &access, 0)
     }
 
     pub(crate) fn write(
@@ -79,8 +82,10 @@ impl<T: RegisterType> StackField<'_, T> {
         execution: &mut ExecutionBuilder<'_, '_>,
         value: &Val<T>,
     ) -> Result<(), BuildError> {
-        self.memory
-            .write(&mut execution.body, &self.access, 0, value)
+        let access = self
+            .memory
+            .refresh_access(&mut execution.body, &self.access)?;
+        self.memory.write(&mut execution.body, &access, 0, value)
     }
 }
 

@@ -76,15 +76,27 @@ impl StringOperand {
     where
         I32: relocade_compiler::AtLeast<T>,
     {
-        self.write_from(execution, |_| Ok(value.clone()))
+        match &self.relative {
+            Some(range) => {
+                let position = execution.read_address_register(self.index)?;
+                execution.accesses.memory().store(
+                    &mut execution.body,
+                    &range.physical_start.add(position.sub(&range.offset_start)),
+                    value,
+                )
+            }
+            None => execution
+                .memory_at_register::<T>(self.index, self.segment.clone())
+                .write(execution, value),
+        }
     }
 
-    /// Checks the destination before producing a value with observable effects,
-    /// then writes it. Physical routing remains live across that callback.
-    pub(crate) fn write_from<T: RegisterType>(
+    /// Checks the destination before reading the device, then stores the result.
+    /// Physical routing remains live across the device callback.
+    pub(crate) fn write_from_device<T: RegisterType>(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
-        read: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError>,
+        read_device: impl FnOnce(&mut ExecutionBuilder<'_, '_>) -> Result<Val<T>, BuildError>,
     ) -> Result<(), BuildError>
     where
         I32: relocade_compiler::AtLeast<T>,
@@ -94,16 +106,17 @@ impl StringOperand {
             Some(range) => {
                 let position = execution.read_address_register(self.index)?;
                 let address = range.physical_start.add(position.sub(&range.offset_start));
-                let value = read(execution)?;
+                let value = read_device(execution)?;
                 let memory = execution.accesses.memory();
                 memory.store(&mut execution.body, &address, &value)
             }
             None => {
-                let target = execution
-                    .memory_at_register::<T>(self.index, self.segment.clone())
-                    .prepare_write(execution, &[])?;
-                let value = read(execution)?;
-                target.write(execution, value)
+                let address =
+                    execution.memory_address_at_register(self.index, self.segment.clone());
+                let mut target = execution.memory_operand(address, T::BYTES, self.intent, &[])?;
+                let value = read_device(execution)?;
+                target.refresh_routing(execution)?;
+                target.write(execution, 0, value)
             }
         }
     }

@@ -81,6 +81,18 @@ impl MemoryOperand<'_> {
         self.memory
             .atomic_update(&mut execution.body, &self.access, update)
     }
+
+    /// Refreshes physical routing after callbacks may have changed the mapping.
+    /// The operand retains its completed architectural access checks.
+    pub(crate) fn refresh_routing(
+        &mut self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+    ) -> Result<(), BuildError> {
+        self.access = self
+            .memory
+            .refresh_access(&mut execution.body, &self.access)?;
+        Ok(())
+    }
 }
 
 impl<'memory> ExecutionBuilder<'_, 'memory> {
