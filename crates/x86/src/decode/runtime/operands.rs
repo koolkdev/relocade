@@ -170,7 +170,13 @@ where
             OpcodeMap::Primary => &self.decoder.primary_modrm_memory_handlers,
             OpcodeMap::Extended => &self.decoder.extended_modrm_memory_handlers,
         };
-        handlers.tail_call(body, cursor, state, &[form_index.into(), modrm.into()])
+        handlers.tail_call(
+            body,
+            cursor,
+            state,
+            &[form_index.into(), modrm.into()],
+            &self.code_default_is_32_bit,
+        )
     }
 
     fn complete_modrm_instruction(
