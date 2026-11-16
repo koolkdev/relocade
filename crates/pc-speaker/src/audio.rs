@@ -59,6 +59,20 @@ impl Drive {
             0
         }
     }
+
+    fn advance_recorded(&mut self, changes: &mut VecDeque<Change>, end: i128) -> u128 {
+        let timing = self.timing;
+        let mut integral = 0;
+        while changes
+            .front()
+            .is_some_and(|change| Self::position(timing, change.state.at) <= end)
+        {
+            let change = changes.pop_front().unwrap();
+            integral += self.advance_to(Self::position(timing, change.state.at));
+            *self = Self::new(change, timing);
+        }
+        integral + self.advance_to(end)
+    }
 }
 
 /// Mono speaker output in 0..=1, on the output's shared frame grid.
@@ -100,28 +114,15 @@ impl AudioSource {
             Some(output.len() as u64)
         );
         let rate = self.drive.timing.tick_rate().ticks_per_second().get();
+        let mut changes = self.changes.borrow_mut();
+        self.drive
+            .advance_recorded(&mut changes, i128::from(frames.start) * i128::from(rate));
         for (frame, sample) in frames.zip(output) {
-            self.advance_to(i128::from(frame) * i128::from(rate));
-            let integral = self.advance_to(i128::from(frame + 1) * i128::from(rate));
+            let integral = self
+                .drive
+                .advance_recorded(&mut changes, i128::from(frame + 1) * i128::from(rate));
             *sample = (integral as f64 / (u128::from(rate) * u128::from(INPUT_HZ)) as f64) as f32;
         }
-    }
-
-    fn advance_to(&mut self, end: i128) -> u128 {
-        let timing = self.drive.timing;
-        let mut changes = self.changes.borrow_mut();
-        let mut integral = 0;
-        while changes
-            .front()
-            .is_some_and(|change| Drive::position(timing, change.state.at) <= end)
-        {
-            let change = changes.pop_front().unwrap();
-            integral += self
-                .drive
-                .advance_to(Drive::position(timing, change.state.at));
-            self.drive = Drive::new(change, timing);
-        }
-        integral + self.drive.advance_to(end)
     }
 }
 

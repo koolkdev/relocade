@@ -173,3 +173,25 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     source.generate_samples(0..3, &mut samples);
     assert_eq!(samples, [0.0, 1.0 / 3.0, 1.0]);
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn block_partitioning_preserves_tone_and_mid_frame_controls() {
+    let generate = |batch: usize| {
+        let mut playback = Playback::new(44_100);
+        program(&playback.io);
+        playback.clock.advance_by(Duration::from_micros(2_250));
+        playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 1);
+        playback.clock.advance_by(Duration::from_micros(2_500));
+        playback.io.write_port(SPEAKER_CONTROL_PORT, 1, 3);
+        let mut output = Vec::new();
+        while output.len() < 1024 {
+            output.extend(playback.collect(batch.min(1024 - output.len())));
+        }
+        output
+    };
+    let expected = generate(1024);
+    for batch in [1, 7, 128, 256] {
+        assert_eq!(generate(batch), expected);
+    }
+}
