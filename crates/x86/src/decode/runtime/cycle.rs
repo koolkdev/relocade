@@ -26,6 +26,7 @@ impl RuntimeDecoder {
             &DecodeContinuation,
         ) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
+        let code_default_is_32_bit = self.read_code_default(&mut body)?;
         let fetch = cursor.fetch.clone();
         let initial = (
             cursor.instruction_eip(),
@@ -44,6 +45,7 @@ impl RuntimeDecoder {
                     let continuation = DecodeContinuation::Cycle(next);
                     InstructionDecoder {
                         decoder: self,
+                        code_default_is_32_bit: code_default_is_32_bit.clone(),
                         complete_instruction: |body: BlockBuilder<'_>, instruction| {
                             complete_instruction(body, instruction, &continuation)
                         },
@@ -98,6 +100,7 @@ where
         let (extended, form_index, modrm) = body.block::<(I1, I32, I8)>(|body, memory| {
             InstructionDecoder {
                 decoder: self.decoder,
+                code_default_is_32_bit: self.code_default_is_32_bit.clone(),
                 complete_instruction: &self.complete_instruction,
                 memory_continuation: Some(memory),
             }

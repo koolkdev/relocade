@@ -8,7 +8,7 @@ use crate::{
     decode::DecodeState,
     instruction::{
         forms_by_opcode, DecodedFields, DecodedInstruction, Form, Location, OpcodeMap,
-        OperandEncoding, ResolvedForm, SegmentOverride,
+        OperandEncoding, OperandSize, PrefixState, ResolvedForm, SegmentOverride,
     },
     register::{RegisterCode, RegisterSelector},
 };
@@ -19,6 +19,43 @@ impl<C> InstructionDecoder<'_, C>
 where
     C: Fn(BlockBuilder<'_>, DecodedInstruction<Val<I32>, Val<I32>>) -> Result<(), BuildError>,
 {
+    /// Resolve a typed handler only where operand width changes decoding or effects.
+    /// Mandatory 66 selection remains a property of the collected prefix bytes.
+    pub(super) fn decode_form(
+        &self,
+        mut body: BlockBuilder<'_>,
+        form: &Form,
+        prefixes: &PrefixState,
+        complete: impl Fn(BlockBuilder<'_>, ResolvedForm) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        let resolve = |size| {
+            form.resolve_operand_size(prefixes, size)
+                .expect("opcode selection accepted the prefix state")
+        };
+        if !form.uses_operand_size() {
+            return complete(body, resolve(OperandSize::Dword));
+        }
+        let dword = self
+            .code_default_is_32_bit
+            .xor(prefixes.selection().has_operand_override());
+        if let Some(dword) = body.constant_bits(&dword)? {
+            return complete(
+                body,
+                resolve(if dword != 0 {
+                    OperandSize::Dword
+                } else {
+                    OperandSize::Word
+                }),
+            );
+        }
+        body.if_else(
+            dword,
+            |arm| complete(arm, resolve(OperandSize::Dword)),
+            |arm| complete(arm, resolve(OperandSize::Word)),
+        )?;
+        body.trap()
+    }
+
     /// Decodes fields after exact opcode selection for forms without ModRM.
     pub(super) fn decode_opcode_operands(
         &self,
@@ -89,17 +126,16 @@ where
             let rm = Location::Register(
                 RegisterSelector::Runtime(modrm.unsigned().extend::<I32>()).into(),
             );
-            let form = form
-                .resolve(&state.prefixes)
-                .expect("opcode selection accepted the prefix state");
-            self.complete_modrm_instruction(
-                arm,
-                cursor.clone(),
-                &modrm,
-                &form,
-                rm,
-                state.prefixes.segment_override(),
-            )
+            self.decode_form(arm, form, &state.prefixes, |arm, form| {
+                self.complete_modrm_instruction(
+                    arm,
+                    cursor.clone(),
+                    &modrm,
+                    &form,
+                    rm.clone(),
+                    state.prefixes.segment_override(),
+                )
+            })
         })
     }
 
@@ -174,17 +210,20 @@ where
                     let Some(index) = index else {
                         return arm.trap();
                     };
-                    let form = forms[index as usize]
-                        .form
-                        .resolve(&state.prefixes)
-                        .expect("opcode selection accepted the prefix state");
-                    self.complete_modrm_instruction(
+                    self.decode_form(
                         arm,
-                        cursor.clone(),
-                        modrm,
-                        &form,
-                        Location::Memory(address.clone().memory().into()),
-                        state.prefixes.segment_override(),
+                        forms[index as usize].form,
+                        &state.prefixes,
+                        |arm, form| {
+                            self.complete_modrm_instruction(
+                                arm,
+                                cursor.clone(),
+                                modrm,
+                                &form,
+                                Location::Memory(address.clone().memory().into()),
+                                state.prefixes.segment_override(),
+                            )
+                        },
                     )
                 })?;
                 body.trap()

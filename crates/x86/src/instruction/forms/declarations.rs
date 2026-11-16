@@ -227,9 +227,12 @@ impl Declaration<'_> {
         } else {
             OperandEncoding::None
         };
-        let handlers = SizedHandlers {
-            word: bind_handler(self.handlers.word, bindings),
-            dword: bind_handler(self.handlers.dword, bindings),
+        let handlers = match self.handlers {
+            SizedHandlers::Fixed(handler) => SizedHandlers::Fixed(bind_handler(handler, bindings)),
+            SizedHandlers::OperandSize { word, dword } => SizedHandlers::OperandSize {
+                word: bind_handler(word, bindings),
+                dword: bind_handler(dword, bindings),
+            },
         };
         let ends_block = !self.effects.is_empty();
         Form {

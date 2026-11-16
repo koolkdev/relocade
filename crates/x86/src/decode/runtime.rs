@@ -16,7 +16,7 @@ use crate::{
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
     memory::Memory,
     segment::SegmentDefaultSize,
-    state::{exit, Cpu},
+    state::{exit, Cpu, State},
     ExecutionProfile,
 };
 
@@ -53,6 +53,7 @@ pub(crate) struct RuntimeDecoder {
     profile: ExecutionProfile,
     entry: Func,
     default_size: SegmentDefaultSize,
+    code_default: Option<SegmentDefaultSize>,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
     extended_modrm_memory_handlers: DecodeHandlers,
@@ -61,6 +62,8 @@ pub(crate) struct RuntimeDecoder {
 /// Decodes instructions in one function scope with its completion policy.
 struct InstructionDecoder<'decoder, C> {
     decoder: &'decoder RuntimeDecoder,
+    // CS.D before operand/address size overrides.
+    code_default_is_32_bit: Val<I1>,
     complete_instruction: C,
     // Carries the extended-map selector, form index and ModRM to memory decoding.
     memory_continuation: Option<Label<(I1, I32, I8)>>,
@@ -72,6 +75,7 @@ impl RuntimeDecoder {
         cpu: Arc<Cpu>,
         memory: Arc<Memory>,
         profile: ExecutionProfile,
+        code_default: Option<SegmentDefaultSize>,
         before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>
             + Send
             + Sync
@@ -101,6 +105,7 @@ impl RuntimeDecoder {
             profile,
             entry,
             default_size,
+            code_default,
             opcode_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::Opcode,
@@ -128,12 +133,14 @@ impl RuntimeDecoder {
             handlers.define(
                 program,
                 decoder.clone(),
-                move |decoder, body, cursor, state| {
+                move |decoder, mut body, cursor, state| {
                     let continuation = DecodeContinuation::Entry(completed);
                     let form_index = body.parameter::<I32>(2)?;
                     let modrm = body.parameter::<I8>(3)?;
+                    let code_default_is_32_bit = decoder.read_code_default(&mut body)?;
                     InstructionDecoder {
                         decoder,
+                        code_default_is_32_bit,
                         memory_continuation: None,
                         complete_instruction: |body: BlockBuilder<'_>, instruction| {
                             complete_instruction(body, instruction, &continuation)
@@ -155,7 +162,7 @@ impl RuntimeDecoder {
             decoder.opcode_handlers.define(
                 program,
                 decoder.clone(),
-                move |decoder, body, cursor, state| {
+                move |decoder, mut body, cursor, state| {
                     let opcode = body.parameter::<I8>(2)?;
                     if cursor.physical_start().is_some() {
                         decoder.decode_cycle(
@@ -167,9 +174,11 @@ impl RuntimeDecoder {
                             &*complete_instruction,
                         )
                     } else {
+                        let code_default_is_32_bit = decoder.read_code_default(&mut body)?;
                         let continuation = DecodeContinuation::Entry(completed);
                         InstructionDecoder {
                             decoder,
+                            code_default_is_32_bit,
                             memory_continuation: None,
                             complete_instruction: |body: BlockBuilder<'_>, instruction| {
                                 complete_instruction(body, instruction, &continuation)
@@ -202,6 +211,10 @@ impl RuntimeDecoder {
 
     fn fetch(&self) -> InstructionFetch<'_> {
         InstructionFetch::new(&self.cpu, &self.memory, self.profile)
+    }
+
+    fn read_code_default(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
+        State::new(&self.cpu).code_default_is_32_bit(body, self.code_default)
     }
 
     /// Every private decoder entry carries the execution policy in parameter zero.
