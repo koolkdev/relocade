@@ -5,6 +5,7 @@ use frame::{enter_frame, leave_frame};
 use super::*;
 use crate::address::RegisterValue;
 use crate::flags::image;
+use crate::memory::Intent;
 use crate::register::{Gpr32, RegisterType};
 use crate::ExecutionProfile;
 
@@ -120,19 +121,19 @@ where
 fn pop_all_registers<T: RegisterType>(
     execution: &mut ExecutionBuilder<'_, '_>,
 ) -> Result<(), BuildError> {
-    let mut pointer = execution.stack_pointer()?;
-    for register in Gpr32::ALL.into_iter().rev() {
-        let frame = pointer.pop_frame(execution, T::BYTES, T::BYTES)?;
-        // The discarded SP/ESP slot still requires segment and page checks.
-        let field = frame.field::<T>(execution, 0)?;
+    let pointer = execution.stack_pointer()?;
+    let mut stack = pointer.check_access::<T>(execution, 8, Intent::Read)?;
+    execution.guard_accesses(true, [&mut stack.access])?;
+    for (index, register) in Gpr32::ALL.into_iter().rev().enumerate() {
+        // The discarded SP/ESP slot is checked without reading it.
+        let field = stack.field::<T>(execution, index as u32)?;
         if register != Gpr32::Esp {
             let value = field.read(execution)?;
             // Earlier restores survive a later fault, while ESP stays at entry.
             TypedLocation::<T>::register(register).write(execution, value)?;
         }
-        pointer = frame.next_pointer();
     }
-    pointer.commit(execution)
+    pointer.advance(8 * T::BYTES).commit(execution)
 }
 
 fn push_flags<T: RegisterType>(execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError>

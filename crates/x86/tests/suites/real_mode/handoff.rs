@@ -82,6 +82,37 @@ fn pusha_checks_the_entire_frame_before_its_first_store() {
 }
 
 #[test]
+fn popa_checks_the_entire_frame_before_restoring_registers() {
+    let code = [0x61];
+    let mut image = image(&code);
+    image.cpu.eip = 0x5000;
+    image.map(5, 0x3000, false);
+    image.cpu.registers.esp = 0xabcd_1ff8;
+    image.map(1, 0x9000, true);
+    image.data(0x9ff8, &[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0, 0]);
+    let mut input = image.input();
+    // Later slots need MMIO; none of the earlier RAM values may be restored yet.
+    input.mmio_pages = vec![(2, 0x8000)];
+    input.observe_mmio = true;
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    );
+    assert_eq!(
+        module.observe(&input, 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: image.cpu,
+                ram: &[],
+                exit: Exit::Interpret,
+            }],
+        ),
+    );
+}
+
+#[test]
 fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
     let code = [0x60];
     let mut image = image(&code);
