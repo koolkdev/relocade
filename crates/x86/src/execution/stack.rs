@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use relocade_compiler::{BuildError, Val, I32};
 
 use crate::{
-    memory::{Access, Intent, Memory},
+    memory::{Access, Intent},
     register::{Gpr32, RegisterType},
     segment::Segment,
 };
@@ -15,9 +15,7 @@ use super::ExecutionBuilder;
 /// A frame that fits SS, with its prospective pointer change still uncommitted.
 /// Paging may follow other architectural checks, such as a far CALL target limit.
 pub(crate) struct StackFrame {
-    linear: Val<I32>,
-    checked_bytes: Val<I32>,
-    intent: Intent,
+    access: Access,
     pointer: StackPointer,
     adjustment: Val<I32>,
 }
@@ -26,18 +24,23 @@ impl StackFrame {
     /// Prepares a typed field inside the segment-checked frame. Protected mode
     /// also checks its page access. Callers prepare every write field before
     /// storing any of them; field order determines which page fault wins.
-    pub(crate) fn field<'module, T: RegisterType>(
+    pub(crate) fn field<T: RegisterType>(
         &self,
-        execution: &mut ExecutionBuilder<'_, 'module>,
+        execution: &mut ExecutionBuilder<'_, '_>,
         offset: u32,
-    ) -> Result<StackField<'module, T>, BuildError> {
-        if let Some(bytes) = execution.body.constant_bits(&self.checked_bytes)? {
-            assert!(u64::from(offset) + u64::from(T::BYTES) <= bytes);
-        }
+    ) -> Result<StackField<T>, BuildError> {
         let memory = execution.accesses.memory();
-        let access = execution.resolve_access(&self.linear.add(offset), T::BYTES, self.intent)?;
+        let access = memory.resolve_field::<T>(
+            &mut execution.body,
+            &self.access,
+            offset,
+            &mut |body, exception| {
+                execution
+                    .state
+                    .fault(body, &execution.eip, execution.completed, exception)
+            },
+        )?;
         Ok(StackField {
-            memory,
             access,
             marker: PhantomData,
         })
@@ -60,21 +63,20 @@ impl StackFrame {
 }
 
 /// A typed field with a complete access proof. Slot padding is not transferred.
-pub(crate) struct StackField<'module, T: RegisterType> {
-    memory: &'module Memory,
+pub(crate) struct StackField<T: RegisterType> {
     access: Access,
     marker: PhantomData<T>,
 }
 
-impl<T: RegisterType> StackField<'_, T> {
+impl<T: RegisterType> StackField<T> {
     pub(crate) fn read(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<Val<T>, BuildError> {
-        let access = self
-            .memory
-            .refresh_access(&mut execution.body, &self.access)?;
-        self.memory.read(&mut execution.body, &access, 0)
+        execution
+            .accesses
+            .memory()
+            .read(&mut execution.body, &self.access, 0)
     }
 
     pub(crate) fn write(
@@ -82,10 +84,10 @@ impl<T: RegisterType> StackField<'_, T> {
         execution: &mut ExecutionBuilder<'_, '_>,
         value: &Val<T>,
     ) -> Result<(), BuildError> {
-        let access = self
-            .memory
-            .refresh_access(&mut execution.body, &self.access)?;
-        self.memory.write(&mut execution.body, &access, 0, value)
+        execution
+            .accesses
+            .memory()
+            .write(&mut execution.body, &self.access, 0, value)
     }
 }
 
@@ -152,10 +154,16 @@ impl StackPointer {
         let offset = self.advance(&adjustment).offset();
         let intent = Intent::Write;
         let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
-        Ok(StackFrame {
-            linear,
+        let access = execution.accesses.memory().check_access(
+            &mut execution.body,
+            &linear,
             checked_bytes,
             intent,
+            None,
+            None,
+        )?;
+        Ok(StackFrame {
+            access,
             pointer: self,
             adjustment,
         })
@@ -173,10 +181,16 @@ impl StackPointer {
         let checked_bytes = execution.body.value(checked_bytes)?;
         let intent = Intent::Read;
         let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
-        Ok(StackFrame {
-            linear,
+        let access = execution.accesses.memory().check_access(
+            &mut execution.body,
+            &linear,
             checked_bytes,
             intent,
+            None,
+            None,
+        )?;
+        Ok(StackFrame {
+            access,
             pointer: self,
             adjustment: slot_bytes.into(),
         })

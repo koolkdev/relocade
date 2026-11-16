@@ -45,8 +45,8 @@ fn native_update<T: MemoryInt>(
 
 impl VirtualMemory {
     /// Returns the value observed by this complete read-modify-write operation.
-    /// Naturally aligned scalar operands fit one page, so their native path
-    /// does not inspect scattered backing. Translation preserves page offsets.
+    /// A native atomic needs aligned, direct backing. Field views may retain
+    /// scattered routing from a larger span even when the field itself is aligned.
     pub(crate) fn atomic_update<T: MemoryInt + crate::memory::TransferType>(
         &self,
         body: &mut BlockBuilder<'_>,
@@ -59,11 +59,11 @@ impl VirtualMemory {
             Some(T::BYTES),
             "an atomic update covers its complete checked operand"
         );
-        if T::BYTES == 1 {
-            return native_update(body, self.guest, &access.physical, update);
-        }
         body.if_value::<T>(
-            access.linear.and(T::BYTES - 1).eq(0),
+            access
+                .unavailable
+                .eq(false)
+                .and(access.linear.and(T::BYTES - 1).eq(0)),
             |mut aligned| {
                 let previous = native_update(&mut aligned, self.guest, &access.physical, update)?;
                 aligned.yield_(previous)

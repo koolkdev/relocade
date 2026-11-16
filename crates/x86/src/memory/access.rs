@@ -22,11 +22,29 @@ pub(crate) struct Access {
     pub(crate) physical: Val<I32>,
     pub(crate) denied: Val<I1>,
     pub(crate) unavailable: Val<I1>,
-    pub(super) intent: Intent,
+    pub(crate) intent: Intent,
     pub(super) constant_bytes: Option<u32>,
 }
 
 impl Access {
+    /// A field view reuses the span's resolution. Dynamic offsets must stay
+    /// within that span; callers establish those bounds with their loop limits.
+    pub(crate) fn field<T: MemoryType>(
+        &self,
+        offset: impl Into<Val<I32>>,
+    ) -> Result<Self, BuildError> {
+        let offset = offset.into();
+        if let (Some(bytes), Some(offset)) = (self.constant_bytes, offset.constant_bits()?) {
+            assert!(offset + u64::from(T::BYTES) <= u64::from(bytes));
+        }
+        Ok(Self {
+            linear: self.linear.add(&offset),
+            physical: self.physical.add(offset),
+            constant_bytes: Some(T::BYTES),
+            ..self.clone()
+        })
+    }
+
     /// Permitted spans that need scattered transfer. Denied spans have no
     /// transferable backing classification.
     pub(super) fn scattered(&self) -> Val<I1> {

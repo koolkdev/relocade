@@ -75,8 +75,10 @@ fn physical_fields_reuse_the_span_lookup() {
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
     let function = program.function::<fn(u32) -> u64>(move |mut body, (address,)| {
         let access = memory.resolve_access(&mut body, &address, 8, Intent::Read, None, None)?;
-        let low = memory.read::<I32>(&mut body, &access, 0)?;
-        let high = memory.read::<I32>(&mut body, &access, 4)?;
+        let low = access.field::<I32>(0)?;
+        let high = access.field::<I32>(4)?;
+        let low = memory.read::<I32>(&mut body, &low, 0)?;
+        let high = memory.read::<I32>(&mut body, &high, 0)?;
         body.return_(
             low.unsigned()
                 .extend::<I64>()
