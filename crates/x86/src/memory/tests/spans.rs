@@ -27,14 +27,21 @@ fn field_module() -> TestModule {
             )?;
             let word = memory.read::<I16>(&mut body, &access, 0)?;
             let dword = memory.read::<I32>(&mut body, &access, 2)?;
-            let byte = memory.read::<I8>(&mut body, &access, 5)?;
-            memory.write::<I8>(&mut body, &access, 5, &0x7au32.into())?;
-            let replaced = memory.read::<I8>(&mut body, &access, 5)?;
+            let tail = access.field::<I8>(5)?;
+            let byte = memory.read::<I8>(&mut body, &tail, 0)?;
+            memory.write::<I8>(&mut body, &tail, 0, &0x79u32.into())?;
+            let previous = memory.atomic_update::<I8>(
+                &mut body,
+                &tail,
+                &crate::alu::OperandUpdate::Add(1.into()),
+            )?;
+            let replaced = memory.read::<I8>(&mut body, &tail, 0)?;
             AccessResult::value(
                 body,
                 word.eq(0x2211)
                     .and(dword.eq(0x6655_4433))
                     .and(byte.eq(0x66))
+                    .and(previous.eq(0x79))
                     .and(replaced.eq(0x7a))
                     .unsigned()
                     .extend::<I64>(),

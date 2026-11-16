@@ -31,8 +31,10 @@ fn prepared_fields_keep_slow_routing_live_after_mmio() {
     let function = program.function::<fn() -> u64>(move |mut body, ()| {
         let access =
             memory.resolve_access(&mut body, &0x1fff.into(), 2, Intent::Read, None, None)?;
-        memory.read::<I8>(&mut body, &access, 0)?;
-        let value = memory.read::<I8>(&mut body, &access, 1)?;
+        let first = access.field::<I8>(0)?;
+        let second = access.field::<I8>(1)?;
+        memory.read::<I8>(&mut body, &first, 0)?;
+        let value = memory.read::<I8>(&mut body, &second, 0)?;
         body.return_(value.unsigned().extend::<I64>())
     });
     program.export("read", function).unwrap();

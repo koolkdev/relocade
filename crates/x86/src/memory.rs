@@ -144,6 +144,37 @@ impl Memory {
         }
     }
 
+    /// Reuses a successful span probe. A denied probe checks this field alone,
+    /// so a later field's fault cannot erase earlier architectural progress.
+    pub(crate) fn resolve_field<T: MemoryType>(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        access: &Access,
+        offset: u32,
+        on_fault: &mut FaultHandler<'_>,
+    ) -> Result<Access, BuildError> {
+        let mut field = access.field::<T>(offset)?;
+        let (unavailable, physical) = body.if_value::<(I1, I32)>(
+            &access.denied,
+            |mut denied| {
+                let checked = self.resolve_access(
+                    &mut denied,
+                    &field.linear,
+                    T::BYTES,
+                    field.intent,
+                    None,
+                    Some(on_fault),
+                )?;
+                denied.yield_((checked.unavailable, checked.physical))
+            },
+            |allowed| allowed.yield_((&field.unavailable, &field.physical)),
+        )?;
+        field.denied = false.into();
+        field.unavailable = unavailable;
+        field.physical = physical;
+        Ok(field)
+    }
+
     /// Architectural checks have already passed; only live routing can change
     /// across a device callback. Virtual mappings remain fixed during an entry.
     pub(crate) fn refresh_access(
