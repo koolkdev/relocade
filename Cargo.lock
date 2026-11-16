@@ -2424,6 +2424,8 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "relocade-renderer",
+ "relocade-time",
+ "wasm-bindgen-test",
  "web-time",
  "wgpu",
  "winit",

@@ -14,3 +14,6 @@ pub mod keyboard;
 
 #[cfg(feature = "mouse")]
 pub mod mouse;
+
+#[cfg(feature = "audio")]
+pub mod audio;
