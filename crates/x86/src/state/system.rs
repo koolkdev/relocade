@@ -16,22 +16,15 @@ pub(crate) struct DescriptorTableValues {
 }
 
 impl State<'_> {
-    /// A supplied default is established by the entry's existing profile admission.
+    /// Entry assumptions can make the loaded CS default constant.
     pub(crate) fn code_default_is_32_bit(
         &mut self,
         body: &mut BlockBuilder<'_>,
-        known: Option<crate::SegmentDefaultSize>,
     ) -> Result<Val<I1>, BuildError> {
-        let location = cpu_location!(segments.cs.big);
-        if let Some(size) = known {
-            self.fields.assume_bits(
-                body,
-                location.clone(),
-                u64::from(u8::MAX),
-                u64::from(size == crate::SegmentDefaultSize::Bits32),
-            )?;
-        }
-        Ok(self.fields.read(body, location)?.ne(0))
+        Ok(self
+            .fields
+            .read(body, cpu_location!(segments.cs.big))?
+            .ne(0))
     }
 
     pub(crate) fn protection_enabled(

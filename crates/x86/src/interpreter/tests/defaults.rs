@@ -19,7 +19,7 @@ fn interpreter() -> &'static TestModule {
                 std::mem::size_of::<u8>(),
             )
         });
-        let bytes = super::super::build(profile, assumptions, None)
+        let bytes = super::super::build(profile, assumptions)
             .unwrap()
             .compile()
             .unwrap();

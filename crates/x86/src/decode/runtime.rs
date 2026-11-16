@@ -14,8 +14,7 @@ use relocade_compiler::{
 
 use crate::{
     execution::ExecutionModule,
-    instruction::{DecodedInstruction, OpcodeMap, PrefixState},
-    segment::SegmentDefaultSize,
+    instruction::{DecodedInstruction, OpcodeMap},
     state::exit,
 };
 
@@ -49,8 +48,6 @@ impl DecodeContinuation {
 pub(crate) struct RuntimeDecoder {
     module: ExecutionModule,
     entry: Func,
-    default_size: SegmentDefaultSize,
-    code_default: Option<SegmentDefaultSize>,
     opcode_handlers: DecodeHandlers,
     primary_modrm_memory_handlers: DecodeHandlers,
     extended_modrm_memory_handlers: DecodeHandlers,
@@ -70,7 +67,6 @@ impl RuntimeDecoder {
     pub(crate) fn new(
         program: &mut Program,
         module: ExecutionModule,
-        code_default: Option<SegmentDefaultSize>,
         before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>
             + Send
             + Sync
@@ -84,7 +80,6 @@ impl RuntimeDecoder {
             + Sync
             + 'static,
     ) -> Result<Arc<Self>, BuildError> {
-        let default_size = SegmentDefaultSize::for_profile(module.target.profile);
         let before_next_instruction = Arc::new(before_next_instruction);
         let complete_instruction = Arc::new(complete_instruction);
         let signature = Signature {
@@ -97,27 +92,15 @@ impl RuntimeDecoder {
         let decoder = Arc::new(Self {
             module,
             entry,
-            default_size,
-            code_default,
-            opcode_handlers: DecodeHandlers::declare(
-                program,
-                DecodePoint::Opcode,
-                default_size,
-                code_default,
-                true,
-            ),
+            opcode_handlers: DecodeHandlers::declare(program, DecodePoint::Opcode, true),
             primary_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Primary),
-                default_size,
-                code_default,
                 false,
             ),
             extended_modrm_memory_handlers: DecodeHandlers::declare(
                 program,
                 DecodePoint::MemoryOperand(OpcodeMap::Extended),
-                default_size,
-                code_default,
                 false,
             ),
         });
@@ -208,9 +191,7 @@ impl RuntimeDecoder {
     }
 
     fn read_code_default(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
-        self.module
-            .state()
-            .code_default_is_32_bit(body, self.code_default)
+        self.module.state().code_default_is_32_bit(body)
     }
 
     /// Every private decoder entry carries the execution policy in parameter zero.
@@ -257,10 +238,7 @@ impl RuntimeDecoder {
         self.opcode_handlers.tail_call(
             body,
             &cursor,
-            DecodeState {
-                prefixes: PrefixState::new(self.default_size),
-                ..DecodeState::default()
-            },
+            DecodeState::default(),
             &[(&opcode).into()],
             &code_default_is_32_bit,
         )

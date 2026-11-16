@@ -96,7 +96,7 @@ where
         cursor: RuntimeCursor<'_>,
         opcode: &Val<I8>,
     ) -> Result<(), BuildError> {
-        let prefixes = PrefixState::new(self.decoder.default_size);
+        let prefixes = PrefixState::default();
         let (extended, form_index, modrm) = body.block::<(I1, I32, I8)>(|body, memory| {
             InstructionDecoder {
                 decoder: self.decoder,

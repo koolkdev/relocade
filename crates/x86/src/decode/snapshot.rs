@@ -3,10 +3,10 @@ mod address;
 use super::DecodeState;
 
 use crate::{
+    address::AddressSize,
     instruction::{
         DecodedFields, DecodedInstruction, FieldWidth, ImmediateWidth, Location, OperandEncoding,
-        Prefix, PrefixState, ResolvedForm, SegmentOverride, EXTENDED_OPCODE_ESCAPE,
-        MAX_INSTRUCTION_BYTES,
+        Prefix, ResolvedForm, SegmentOverride, EXTENDED_OPCODE_ESCAPE, MAX_INSTRUCTION_BYTES,
     },
     register::{RegisterCode, RegisterSelector},
     segment::{Segment, SegmentDefaultSize},
@@ -16,6 +16,7 @@ use crate::{
 /// Decoded encoding inputs can move between threads before binding creates IR values.
 pub(crate) struct SnapshotInstruction {
     form: ResolvedForm,
+    address_size: AddressSize,
     fields: DecodedFields<u32, RegisterCode, SnapshotRm>,
     segment_override: Option<Segment>,
     pub(crate) eip: u32,
@@ -46,7 +47,7 @@ impl SnapshotInstruction {
             &self
                 .segment_override
                 .map_or(SegmentOverride::None, SegmentOverride::Fixed),
-            self.form.address_size().mask(),
+            self.address_size.mask(),
         )
     }
 }
@@ -75,10 +76,7 @@ pub(crate) fn snapshot(
         instruction_eip,
         offset: 0,
     };
-    let mut state = DecodeState {
-        prefixes: PrefixState::new(default_size),
-        ..DecodeState::default()
-    };
+    let mut state = DecodeState::default();
     let mut segment_override = None;
     let mut opcode = loop {
         let byte = cursor.byte()?;
@@ -120,8 +118,10 @@ pub(crate) fn snapshot(
     } else {
         (first, None)
     };
+    let operand_size = state.prefixes.selection().operand_size(default_size);
+    let address_size = state.prefixes.selection().address_size(default_size);
     let form = form
-        .resolve(&state.prefixes)
+        .resolve(&state.prefixes, operand_size)
         .expect("the prefix state admits this form");
     let mut fields = match form.encoding().operands {
         OperandEncoding::None => DecodedFields::default(),
@@ -129,11 +129,15 @@ pub(crate) fn snapshot(
             register: Some(RegisterCode::from_bits(opcode)),
             ..DecodedFields::default()
         },
-        OperandEncoding::ModRm => {
-            cursor.modrm_fields(&form, modrm.expect("the selected encoding has ModRM"))?
-        }
+        OperandEncoding::ModRm => cursor.modrm_fields(
+            address_size,
+            modrm.expect("the selected encoding has ModRM"),
+        )?,
         OperandEncoding::AbsoluteOffset => DecodedFields {
-            absolute_offset: Some(cursor.integer(form.address_width())?),
+            absolute_offset: Some(cursor.integer(match address_size {
+                AddressSize::Bits16 => FieldWidth::Word,
+                AddressSize::Bits32 => FieldWidth::Dword,
+            })?),
             ..DecodedFields::default()
         },
     };
@@ -146,6 +150,7 @@ pub(crate) fn snapshot(
     Ok((
         SnapshotInstruction {
             form,
+            address_size,
             fields,
             segment_override,
             eip: instruction_eip,
@@ -200,13 +205,13 @@ impl SnapshotCursor<'_> {
 
     fn modrm_fields(
         &mut self,
-        form: &ResolvedForm,
+        address_size: AddressSize,
         modrm: u8,
     ) -> Result<DecodedFields<u32, RegisterCode, SnapshotRm>, BlockError> {
         let rm = if modrm >> 6 == 3 {
             SnapshotRm::Register(RegisterCode::from_bits(modrm))
         } else {
-            SnapshotRm::Memory(self.decode_address(modrm, form.address_size())?)
+            SnapshotRm::Memory(self.decode_address(modrm, address_size)?)
         };
         Ok(DecodedFields {
             modrm: Some(u32::from(modrm)),

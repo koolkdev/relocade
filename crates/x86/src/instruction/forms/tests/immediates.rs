@@ -6,7 +6,7 @@ use super::*;
 fn two_immediates_bind_in_encoded_order_with_independent_physical_widths() {
     let form = unprefixed_form(OpcodeMap::Primary, 0xea, None);
     for (prefixes, offset_bytes) in [(word_prefixes(), 2), (PrefixState::default(), 4)] {
-        let resolved = form.resolve(&prefixes).unwrap();
+        let resolved = resolve_32_bit_code(form, &prefixes).unwrap();
         let encoding = resolved.encoding();
         assert_eq!(
             resolved
@@ -87,13 +87,16 @@ fn immediates_bind_after_location_operands() {
                 immediates: [Some(0x9234_5678u32), two.then_some(0xf327)],
                 ..DecodedFields::default()
             };
-            let decoded = form.resolve(&PrefixState::default()).unwrap().bind(
-                fields,
-                0x1000,
-                0x1007,
-                &crate::instruction::SegmentOverride::None,
-                u32::MAX,
-            );
+            let decoded = form
+                .resolve(&PrefixState::default(), OperandSize::Dword)
+                .unwrap()
+                .bind(
+                    fields,
+                    0x1000,
+                    0x1007,
+                    &crate::instruction::SegmentOverride::None,
+                    u32::MAX,
+                );
             if two {
                 assert!(matches!(
                     decoded.instruction.call,
@@ -130,7 +133,7 @@ fn immediate_encoding_keeps_fixed_widths_and_signed_bytes_distinct() {
             (word_prefixes(), word_bytes),
             (PrefixState::default(), dword_bytes),
         ] {
-            let resolved = form.resolve(&prefixes).unwrap();
+            let resolved = resolve_32_bit_code(form, &prefixes).unwrap();
             let encoding = resolved.encoding();
             assert!(encoding.immediates[1].is_none());
             let field = encoding.immediates[0].unwrap();

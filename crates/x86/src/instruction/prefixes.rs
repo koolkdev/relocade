@@ -74,26 +74,16 @@ impl Prefix {
 
 /// Prefix facts that select instruction forms and specialize decoder entries.
 /// This configuration contains no function-local IR values.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) struct FormSelection {
-    default_size: SegmentDefaultSize,
     operand_size_override: bool,
     address_size_override: bool,
     group1: Option<Group1Prefix>,
 }
 
 impl FormSelection {
-    pub(crate) fn new(default_size: SegmentDefaultSize) -> Self {
-        Self {
-            default_size,
-            operand_size_override: false,
-            address_size_override: false,
-            group1: None,
-        }
-    }
-
     /// Enumerates size and group-1 states. Segment identity travels with execution.
-    pub(crate) fn combinations(default_size: SegmentDefaultSize) -> impl Iterator<Item = Self> {
+    pub(crate) fn combinations() -> impl Iterator<Item = Self> {
         [
             None,
             Some(Group1Prefix::F0),
@@ -106,7 +96,6 @@ impl FormSelection {
                 operand_size_override: bits & 1 != 0,
                 address_size_override: bits & 2 != 0,
                 group1,
-                ..Self::new(default_size)
             })
         })
     }
@@ -118,16 +107,16 @@ impl FormSelection {
         }
     }
 
-    pub(crate) fn operand_size(&self) -> OperandSize {
-        if (self.default_size == SegmentDefaultSize::Bits16) ^ self.operand_size_override {
+    pub(crate) fn operand_size(&self, default_size: SegmentDefaultSize) -> OperandSize {
+        if (default_size == SegmentDefaultSize::Bits16) ^ self.operand_size_override {
             OperandSize::Word
         } else {
             OperandSize::Dword
         }
     }
 
-    pub(crate) fn address_size(&self) -> AddressSize {
-        if (self.default_size == SegmentDefaultSize::Bits16) ^ self.address_size_override {
+    pub(crate) fn address_size(&self, default_size: SegmentDefaultSize) -> AddressSize {
+        if (default_size == SegmentDefaultSize::Bits16) ^ self.address_size_override {
             AddressSize::Bits16
         } else {
             AddressSize::Bits32
@@ -145,26 +134,16 @@ impl FormSelection {
     pub(crate) fn group1(&self) -> Option<Group1Prefix> {
         self.group1
     }
-
-    pub(crate) fn same_form_selection(&self, other: &Self) -> bool {
-        self.operand_size() == other.operand_size()
-            && self.address_size() == other.address_size()
-            && self.group1 == other.group1
-    }
 }
 
 /// Collected prefixes, including a segment override that may be a runtime value.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct PrefixState {
     selection: FormSelection,
     segment_override: SegmentOverride,
 }
 
 impl PrefixState {
-    pub(crate) fn new(default_size: SegmentDefaultSize) -> Self {
-        FormSelection::new(default_size).prefixes()
-    }
-
     pub(crate) fn selection(&self) -> &FormSelection {
         &self.selection
     }
@@ -188,11 +167,5 @@ impl PrefixState {
     pub(crate) fn with_segment_override(mut self, segment_override: SegmentOverride) -> Self {
         self.segment_override = segment_override;
         self
-    }
-}
-
-impl Default for PrefixState {
-    fn default() -> Self {
-        Self::new(SegmentDefaultSize::Bits32)
     }
 }

@@ -26,7 +26,7 @@ impl DecodeState {
 
     fn forms(&self) -> impl Iterator<Item = &'static Form> + Clone {
         let prefixes = self.prefixes.clone();
-        opcode_forms(self.map).filter(move |form| form.resolve(&prefixes).is_some())
+        opcode_forms(self.map).filter(move |form| form.accepts_prefixes(&prefixes))
     }
 
     /// Reject an unsupported map before requesting its selector byte.

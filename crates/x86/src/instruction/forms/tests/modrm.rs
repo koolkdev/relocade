@@ -102,7 +102,7 @@ fn register_only_forms_admit_both_register_fields_without_overlapping_memory() {
     let prefixes = PrefixState::default();
     for opcode in [0x12, 0x16] {
         let forms: Vec<_> = opcode_forms(OpcodeMap::Extended)
-            .filter(|form| form.matches(opcode) && form.resolve(&prefixes).is_some())
+            .filter(|form| form.matches(opcode) && form.accepts_prefixes(&prefixes))
             .collect();
         assert_eq!(forms.len(), 2);
         let register = forms.iter().find(|form| !form.accepts_memory_rm()).unwrap();
