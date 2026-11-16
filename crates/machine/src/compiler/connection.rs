@@ -1,6 +1,6 @@
 use super::{compile, BlockRequest, CompilerService, Endpoint, FunctionRequest, Reply};
 use crate::{
-    worker::{self, ChannelError, PoolHandle, ReceiverEndpoint, Sender, Transfer, WakePeer},
+    worker::{self, ChannelError, JobExecutor, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
@@ -76,7 +76,7 @@ impl Start {
     pub(super) async fn serve(
         mut self,
         compiler: &relocade_wasm_runtime::Compiler,
-        jobs: &PoolHandle,
+        jobs: &JobExecutor,
     ) {
         let mut peer = self.peer.bind();
         let result = async {

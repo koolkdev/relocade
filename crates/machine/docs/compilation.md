@@ -38,6 +38,10 @@ construction, placement and Wasm emission use pool jobs. The service compiles th
 emitted Wasm with its backend compiler and returns the module. The pool limits
 concurrent Rust jobs; backend engine parallelism remains separate.
 
+The compiler's optional `workers` feature adapts the generic `JobExecutor` to
+`CompileExecutor`. Machine compilation and interpreter asset generation enable
+that integration; `relocade-workers` has no dependency on the compiler.
+
 Each connection has an async request loop on the service worker. Connections keep
 their memory sources and ordered request streams independent while sharing
 compilation capacity. CPU creation stays synchronous; connections and requests can

@@ -4,10 +4,10 @@
 //! task through startup, cooperative shutdown and cleanup. [`Transfer`] defines
 //! how each message's fields cross threads.
 //!
-//! [`Pool`] schedules synchronous jobs on caller-supplied workers. Its sendable
-//! [`PoolHandle`] implements `relocade_compiler::CompileExecutor` when the
-//! `compiler` feature is enabled. Browser builds require threaded Wasm; use
-//! the configuration in `tools/web-build.mjs`.
+//! [`JobQueue`] runs calculations on its owning thread; [`Pool`] distributes
+//! them across caller-supplied workers. Both return a [`JobExecutor`] for
+//! submitting owned calculations. Browser builds require threaded Wasm; use the
+//! configuration in `tools/web-build.mjs`.
 #![deny(unsafe_code)]
 
 #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
@@ -28,6 +28,7 @@ pub use parallelism::available_parallelism;
 
 mod channel;
 mod executor;
+mod jobs;
 mod pool;
 mod thread;
 mod transfer;
@@ -35,7 +36,8 @@ mod wake;
 mod worker;
 pub use channel::{channel, channel_endpoints, ChannelError, Receiver, ReceiverEndpoint, Sender};
 pub use executor::Executor;
-pub use pool::{Pool, PoolError, PoolHandle};
+pub use jobs::{JobExecutor, JobQueue};
+pub use pool::{Pool, PoolError};
 pub use thread::Thread;
 pub use transfer::Transfer;
 #[doc(hidden)]

@@ -65,7 +65,7 @@ async fn compile(
     memory: &Memory,
     target: ExecutionTarget,
     request: connection::Compilation,
-    jobs: &crate::worker::PoolHandle,
+    jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
