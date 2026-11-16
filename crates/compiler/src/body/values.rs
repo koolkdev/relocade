@@ -154,6 +154,17 @@ impl<P: Phase> ValueTable<P> {
         initial_bits(self, value).union(self.phase.bits(value))
     }
 
+    /// Retained facts supplement literal and zero-width folding. Every physical
+    /// bit must be known, including unused logical upper bits.
+    pub(crate) fn constant_carrier_bits(&self, value: usize) -> Option<u64> {
+        let known = self.phase.bits(value);
+        if known == Bits::default() {
+            None
+        } else {
+            known.known(self.values[value].ty.carrier().mask())
+        }
+    }
+
     /// Store proof bits separately so ordinary values keep their compact layout.
     pub(crate) fn refined_alias(&mut self, source: usize, block: BlockId, known: Bits) -> usize {
         let assumption = if known == Bits::default() {

@@ -169,8 +169,12 @@ impl<P: Phase> Folder<'_, P> {
         expression
             .try_map(|&input| {
                 let value = self.values[input];
-                let ValueDefinition::Literal(bits) = value.definition else {
-                    return Err(());
+                let bits = match value.definition {
+                    ValueDefinition::Literal(bits) => bits,
+                    _ if value.ty.is_integer() => {
+                        self.values.constant_carrier_bits(input).ok_or(())?.into()
+                    }
+                    _ => return Err(()),
                 };
                 Ok(TypedLiteral {
                     ty: value.ty,
@@ -197,9 +201,11 @@ impl<P: Phase> Folder<'_, P> {
         });
         let id = self.values.expression_result(id, component);
         if self.values.bounds[id].unsigned == 0 {
-            self.values.literal(ty, 0)
-        } else {
-            id
+            return self.values.literal(ty, 0);
         }
+        if let Some(bits) = self.values.constant_carrier_bits(id) {
+            return self.values.carrier_literal(ty, bits);
+        }
+        id
     }
 }
