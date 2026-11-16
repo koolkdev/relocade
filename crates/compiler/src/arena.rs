@@ -39,11 +39,16 @@ impl FunctionArena {
     pub(super) fn literal(&self, ty: Type, bits: impl Into<Literal>) -> Result<usize, BuildError> {
         self.with_open(|table| table.literal(ty, bits))
     }
-    pub(super) fn constant_literal(&self, value: usize) -> Result<Option<Literal>, BuildError> {
-        self.with_graph(|graph| match graph.values[value].definition {
-            ValueDefinition::Literal(bits) => Some(bits),
-            _ => None,
-        })
+    pub(crate) fn constant_literal(&self, value: usize) -> Result<Option<Literal>, BuildError> {
+        let arena = self.0.borrow();
+        let values = &arena.as_ref().ok_or(BuildError::BodyClosed)?.graph.values;
+        if let ValueDefinition::Literal(bits) = values[value].definition {
+            return Ok(Some(bits));
+        }
+        Ok(values
+            .known_bits(value)
+            .known(values[value].ty.mask())
+            .map(Literal::from))
     }
     pub(crate) fn resolve_unbound(
         &self,

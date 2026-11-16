@@ -1,19 +1,16 @@
 //! Physical known bits attached to explicit definitions.
 use crate::{
-    bitwise::BitwiseOp,
     body::{ValueDefinition, ValueTable},
     expression::{
-        BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
-        UnaryOp as Unary,
+        BinaryOp as Binary, CompareOp as Compare, TernaryOp as Ternary, UnaryOp as Unary,
     },
-    integer::{self, CompareOp, ShiftOp},
+    integer::{self, CompareOp},
     Expression, Type,
 };
-mod bits;
 mod predicate;
 mod range;
-pub(super) use bits::Bits;
-use bits::{infer_bits, initial_bits};
+pub(super) use crate::body::Bits;
+use crate::body::{infer_bits, initial_bits};
 pub(super) use predicate::{identify as predicate, Predicate};
 use range::Range;
 
@@ -90,7 +87,7 @@ pub(super) fn infer_with(
     id: usize,
     get: impl Fn(usize) -> Summary,
 ) -> Summary {
-    let mut bits = infer_bits(values, id, &get);
+    let mut bits = infer_bits(values, id, |input| get(input).bits);
     if !matches!(
         values[id].ty,
         Type::I1 | Type::I8 | Type::I16 | Type::I32 | Type::I64

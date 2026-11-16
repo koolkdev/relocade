@@ -8,8 +8,10 @@ use std::hash::BuildHasher;
 use super::{BlockItem, Value, ValueDefinition};
 use crate::{Expression, Type};
 
+mod bits;
 mod bounds;
 mod definitions;
+pub(crate) use bits::{infer_bits, initial_bits, Bits};
 pub(crate) use bounds::BitBounds;
 pub(crate) use definitions::Definitions;
 #[cfg(test)]
@@ -18,14 +20,50 @@ mod tests;
 /// Construction shares immutable recipes; SSA gives each calculation its own definition.
 pub(crate) trait Phase: Default {
     const INTERN_EXPRESSIONS: bool;
-    fn record(&mut self, _value: Value) {}
+    fn record(_values: &mut ValueTable<Self>, _index: usize) {}
+    fn bits(&self, _index: usize) -> Bits {
+        Bits::default()
+    }
     fn compact(&mut self, _retained: &[Option<usize>]) {}
 }
 
 #[derive(Default)]
-pub(crate) struct Recipes;
+pub(crate) struct Recipes {
+    // Missing or zero indices use the value's literal and physical bounds.
+    facts: Vec<u32>,
+    bits: Vec<Bits>,
+}
 impl Phase for Recipes {
     const INTERN_EXPRESSIONS: bool = true;
+
+    fn record(values: &mut ValueTable<Self>, index: usize) {
+        let value = values[index];
+        if !value.ty.is_integer() || !matches!(value.definition, ValueDefinition::Expression(_)) {
+            return;
+        }
+        let base = initial_bits(values, index);
+        let known = infer_bits(values, index, |input| values.known_bits(input));
+        if known == base {
+            return;
+        }
+        values.phase.bits.push(known);
+        let fact =
+            u32::try_from(values.phase.bits.len()).expect("construction fact index fits u32");
+        values.phase.facts.resize(index, 0);
+        values.phase.facts.push(fact);
+    }
+
+    fn bits(&self, index: usize) -> Bits {
+        match self.facts.get(index).copied().unwrap_or(0) {
+            0 => Bits::default(),
+            fact => self.bits[fact as usize - 1],
+        }
+    }
+
+    fn compact(&mut self, _retained: &[Option<usize>]) {
+        self.facts = Vec::new();
+        self.bits = Vec::new();
+    }
 }
 
 #[derive(Default)]
@@ -103,6 +141,11 @@ impl<P: Phase> ValueTable<P> {
         })
     }
 
+    /// Intrinsic facts about this definition, available without traversing its inputs.
+    pub(crate) fn known_bits(&self, value: usize) -> Bits {
+        initial_bits(self, value).union(self.phase.bits(value))
+    }
+
     /// Pure results are allocated together, with the expression in the first slot.
     pub(crate) fn expression_results(&self, producer: usize) -> std::ops::Range<usize> {
         let ValueDefinition::Expression(expression) = self.values[producer].definition else {
@@ -165,8 +208,8 @@ impl<P: Phase> ValueTable<P> {
     pub(crate) fn push_with_bounds(&mut self, value: Value, bounds: BitBounds) -> usize {
         let index = self.values.len();
         self.bounds.push(bounds);
-        self.phase.record(value);
         self.values.push(value);
+        P::record(self, index);
         if let ValueDefinition::Expression(expression) = value.definition {
             for (component, ty) in expression.result_types(value.ty).enumerate().skip(1) {
                 self.push(Value {

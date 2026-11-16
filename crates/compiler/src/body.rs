@@ -9,6 +9,7 @@ mod ssa;
 mod values;
 pub(super) use operation::{CallTarget, Operation, OperationKind};
 pub(super) use producer::{BlockItem, Effect, EffectId};
+pub(crate) use values::{infer_bits, initial_bits, Bits};
 pub(super) use values::{BitBounds, ValueTable};
 pub(crate) use values::{Definitions, Phase, Recipes};
 pub(super) type SsaGraph = FunctionGraph<Definitions>;
