@@ -1,6 +1,6 @@
 //! One guest-time boundary for cooperative yields and optional host pacing.
 
-use crate::{Clock, ClockCursor, Sleep, Timestamp};
+use crate::{Clock, Schedule, Sleep, Timestamp};
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -11,15 +11,15 @@ use std::{
 
 pub(super) struct ExecutionSlice {
     duration: Duration,
-    end: Cell<ClockCursor>,
+    end: Cell<Schedule>,
     paced: bool,
     wait: RefCell<Option<Sleep>>,
 }
 
 impl ExecutionSlice {
     pub(super) fn new(clock: &Clock, duration: Duration, paced: bool) -> Self {
-        let mut end = ClockCursor::from(clock.now());
-        end.advance(clock, duration);
+        let mut end = clock.schedule(clock.now());
+        end.advance(duration);
         Self {
             duration,
             end: Cell::new(end),
@@ -58,16 +58,13 @@ impl ExecutionSlice {
         }
         // Advance from the retained boundary to preserve the slice grid even
         // when a CPU checkpoint overshoots by a fractional nanosecond.
-        let elapsed = clock.duration_since(now, end).as_nanos();
+        let elapsed = end.elapsed_until(now).as_nanos();
         let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
-        end.advance(
-            clock,
-            Duration::new(
-                (whole / 1_000_000_000) as u64,
-                (whole % 1_000_000_000) as u32,
-            ),
-        );
-        end.advance(clock, self.duration);
+        end.advance(Duration::new(
+            (whole / 1_000_000_000) as u64,
+            (whole % 1_000_000_000) as u32,
+        ));
+        end.advance(self.duration);
         self.end.set(end);
         Poll::Ready(())
     }

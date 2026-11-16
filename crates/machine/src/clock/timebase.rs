@@ -23,7 +23,12 @@ impl Timebase {
     ) -> Option<ClockCursor> {
         let ticks = self.fractional_ticks(duration)? + u128::from(cursor.fraction);
         Some(ClockCursor {
-            time: Timestamp(cursor.time.0.wrapping_add((ticks / NANOS_PER_SECOND) as u64)),
+            time: Timestamp::from_ticks(
+                cursor
+                    .time
+                    .ticks()
+                    .wrapping_add((ticks / NANOS_PER_SECOND) as u64),
+            ),
             fraction: (ticks % NANOS_PER_SECOND) as u32,
         })
     }
@@ -48,7 +53,7 @@ impl Timebase {
         let fraction = (ticks % NANOS_PER_SECOND) as u32;
         let borrow = u64::from(time.fraction < fraction);
         Some(ClockCursor {
-            time: Timestamp(time.time.0.wrapping_sub(whole).wrapping_sub(borrow)),
+            time: Timestamp::from_ticks(time.time.ticks().wrapping_sub(whole).wrapping_sub(borrow)),
             fraction: ((u64::from(time.fraction) + borrow * NANOS_PER_SECOND as u64)
                 - u64::from(fraction)) as u32,
         })
@@ -58,7 +63,7 @@ impl Timebase {
         if time < earlier {
             return 0;
         }
-        u128::from(time.time.0.wrapping_sub(earlier.time.0)) * NANOS_PER_SECOND
+        u128::from(time.time.ticks().wrapping_sub(earlier.time.ticks())) * NANOS_PER_SECOND
             + u128::from(time.fraction)
             - u128::from(earlier.fraction)
     }
@@ -69,7 +74,10 @@ impl Timebase {
 
     /// Cross-clock deadlines must not fire before their source time.
     pub(super) fn duration_until(self, time: ClockCursor, earlier: ClockCursor) -> Duration {
-        duration(self.elapsed(time, earlier).div_ceil(u128::from(self.0.get())))
+        duration(
+            self.elapsed(time, earlier)
+                .div_ceil(u128::from(self.0.get())),
+        )
     }
 
     pub(super) fn consume_elapsed(self, cursor: &mut ClockCursor, time: ClockCursor) -> Duration {

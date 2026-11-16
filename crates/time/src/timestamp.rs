@@ -6,11 +6,10 @@
 /// clocks are unrelated, even if their numerical values happen to match.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct Timestamp(pub(super) u64);
+pub struct Timestamp(pub(crate) u64);
 
 impl Timestamp {
-    /// Constructs a reading in a [`super::ClockSource`]'s native units.
-    /// Clock consumers obtain readings from [`super::Clock::now`] instead.
+    /// Constructs a position from a clock's native tick counter.
     pub const fn from_ticks(ticks: u64) -> Self {
         Self(ticks)
     }

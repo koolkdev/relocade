@@ -37,7 +37,12 @@ impl HostTime {
                 let paused = self.paused_at.take().expect("host time was paused");
                 // Both coordinates belong to the host clock. Preserve even a
                 // sub-nanosecond pause without converting it through Duration.
-                mapping.host.0 = mapping.host.0.wrapping_add(now.0.wrapping_sub(paused.0));
+                mapping.host = Timestamp::from_ticks(
+                    mapping
+                        .host
+                        .ticks()
+                        .wrapping_add(now.ticks().wrapping_sub(paused.ticks())),
+                );
             }
             None => self.mapping = Some(Mapping { host: now, guest }),
         }
