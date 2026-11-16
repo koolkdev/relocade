@@ -1,18 +1,23 @@
 //! Profile requirements shared by state specialization and runtime admission.
 use super::{Segment, SegmentDefaultSize};
-use crate::{state::StateAssumption, ExecutionProfile, SegmentRegister, Segments};
+use crate::{
+    state::{access, ExecutionContext, StatePattern},
+    ExecutionProfile, SegmentRegister, Segments,
+};
 pub use relocade_x86_profile::SegmentProfile;
 use std::mem::offset_of;
 
-pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<StateAssumption> {
-    let base = Segments::offset(segment);
+pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<StatePattern> {
+    let base = offset_of!(ExecutionContext, cpu) + Segments::offset(segment);
     let mut requirements = Vec::new();
     macro_rules! field {
         ($field:ident, $expected:expr) => {
-            requirements.push(StateAssumption::field(
-                base + offset_of!(SegmentRegister, $field),
-                |cache: &SegmentRegister| &cache.$field,
-                $expected,
+            requirements.push(StatePattern::field(
+                access::location(
+                    (base + offset_of!(SegmentRegister, $field)) as u32,
+                    |cache: &SegmentRegister| &cache.$field,
+                ),
+                u64::from($expected),
             ));
         };
     }
@@ -33,7 +38,7 @@ pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<St
                     Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
                 )
             {
-                field!(base, 0);
+                field!(base, 0u32);
                 field!(limit, u32::MAX);
                 attribute!(usable, true);
                 attribute!(readable, true);

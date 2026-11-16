@@ -31,7 +31,7 @@ pub(in crate::state) fn register_location<T: RegisterType>(register: Register<T>
     }
 }
 
-pub(in crate::state) trait CpuField {
+pub(crate) trait CpuField {
     type Int: MemoryInt;
 }
 
@@ -72,9 +72,9 @@ pub(in crate::state) fn store<T: CpuField>(
     body.store_at::<T::Int>(memory, displacement, offset, value)
 }
 
-pub(in crate::state) fn location<T: CpuField>(
+pub(crate) fn location<Record, T: CpuField>(
     offset: u32,
-    _field: fn(&CpuState) -> &T,
+    _field: fn(&Record) -> &T,
 ) -> Location<T::Int>
 where
     T::Int: SsaType,
@@ -122,4 +122,5 @@ macro_rules! cpu_store {
     };
 }
 
-pub(in crate::state) use {cpu_load, cpu_location, cpu_store};
+pub(crate) use cpu_location;
+pub(in crate::state) use {cpu_load, cpu_store};

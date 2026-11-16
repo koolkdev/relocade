@@ -1,5 +1,9 @@
 //! Retain state fields in SSA and synchronize overlapping memory accesses.
 
+mod pattern;
+
+pub(crate) use pattern::StatePattern;
+
 use super::TrackedValue;
 use std::marker::PhantomData;
 
@@ -40,7 +44,7 @@ impl<T: SsaType> Location<T> {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct LocationKey {
     offset: u32,
     bytes: u32,
@@ -256,8 +260,8 @@ impl StateFields {
         &mut self,
         body: &mut BlockBuilder<'_>,
         location: Location<T>,
-        mask: impl Into<Val<T>>,
-        expected: impl Into<Val<T>>,
+        mask: u64,
+        expected: u64,
     ) -> Result<(), BuildError> {
         let Address::Fixed(offset) = location.address else {
             unreachable!("state assumptions require a fixed field")
@@ -266,12 +270,11 @@ impl StateFields {
             offset,
             bytes: T::BYTES,
         };
-        let mask = mask.into();
-        let expected = expected.into().and(&mask);
+        let expected = expected & mask;
         let full_field_mask = u64::MAX >> (u64::BITS - T::BYTES * u8::BITS);
         // An admitted whole field needs no initial snapshot load. Overlapping
         // retained values still use the normal synchronization path below.
-        if body.constant_bits(&mask)? == Some(full_field_mask)
+        if mask & full_field_mask == full_field_mask
             && self
                 .definitions
                 .iter()
@@ -279,14 +282,16 @@ impl StateFields {
         {
             self.definitions.push(Definition {
                 location: key,
-                value: T::retain(TrackedValue::new(body, expected)?),
+                value: T::retain(TrackedValue::new(
+                    body,
+                    Val::<I64>::from(expected).truncate::<T>(),
+                )?),
                 first_write: None,
             });
             return Ok(());
         }
         let value = self.read(body, location)?;
-        let keep = mask.xor(Val::<I64>::from(u64::MAX).truncate::<T>());
-        let refined = value.and(keep).or(expected);
+        let refined = body.assume_bits(value, mask, expected)?;
         let entry = self
             .definitions
             .iter_mut()
