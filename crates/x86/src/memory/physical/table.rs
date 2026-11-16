@@ -4,7 +4,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
     physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
-    DirectRange, Intent, PhysicalMemoryMap,
+    Access, Intent, PhysicalMemoryMap,
 };
 
 #[derive(Clone, Copy)]
@@ -56,20 +56,24 @@ impl PhysicalTable {
     }
 
     /// One-page windows need no second lookup and never retain a device mapping.
-    pub(super) fn direct_range(
+    pub(super) fn resolve_access(
         self,
         body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
         bytes: impl Into<Val<I32>>,
         intent: Intent,
-    ) -> Result<DirectRange, BuildError> {
+    ) -> Result<Access, BuildError> {
         let bytes = body.value(bytes)?;
         let entry = self.lookup(body, address)?;
         let allowed = match intent {
             Intent::Read | Intent::ReadOrExecute | Intent::Fetch => entry.readable(),
             Intent::Write => entry.kind.eq(RAM),
         };
-        Ok(DirectRange {
+        Ok(Access {
+            linear: address.clone(),
+            denied: bytes.eq(0),
+            intent,
+            constant_bytes: body.constant_bits(&bytes)?.map(|bytes| bytes as u32),
             unavailable: allowed
                 .eq(false)
                 .or(bytes.eq(0))
