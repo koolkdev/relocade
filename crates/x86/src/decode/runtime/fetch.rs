@@ -5,7 +5,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 use crate::{
     memory::{Intent, Memory, PageCache},
     segment::Segment,
-    state::{exit, Cpu, SegmentReads},
+    state::{exit, Cpu, State},
     ExecutionProfile,
 };
 
@@ -20,7 +20,7 @@ pub(crate) struct FetchWindow {
 pub(crate) struct InstructionFetch<'module> {
     pub(super) memory: &'module Memory,
     cpu: &'module Cpu,
-    segments: SegmentReads,
+    state: State<'module>,
 }
 
 impl<'module> InstructionFetch<'module> {
@@ -32,7 +32,7 @@ impl<'module> InstructionFetch<'module> {
         Self {
             memory,
             cpu,
-            segments: SegmentReads::new(cpu, profile),
+            state: State::new(cpu).with_profile(profile),
         }
     }
 
@@ -56,9 +56,10 @@ impl<'module> InstructionFetch<'module> {
         bytes: u32,
         cache: Option<&mut PageCache>,
     ) -> Result<FetchWindow, BuildError> {
-        let segment = self
-            .segments
-            .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
+        let segment =
+            self.state
+                .segments()
+                .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
         let direct = self.memory.check_access(
             body,
             &segment.linear,
@@ -79,7 +80,7 @@ impl<'module> InstructionFetch<'module> {
         body: &mut BlockBuilder<'_>,
         eip: &Val<I32>,
     ) -> Result<Val<I8>, BuildError> {
-        let linear = self.segments.translate(
+        let linear = self.state.segments().translate(
             body,
             &Segment::Cs.into(),
             eip,

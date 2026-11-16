@@ -30,7 +30,8 @@ impl<'body> ExecutionBuilder<'body, '_> {
     /// Environment controls leave these fields unchanged, except for FNOP.
     pub(crate) fn record_x87_instruction(&mut self) -> Result<(), BuildError> {
         let selector = self
-            .segments
+            .state
+            .segments()
             .read_selector(&mut self.body, &Segment::Cs.into())?;
         let opcode = self
             .x87_opcode
@@ -48,7 +49,8 @@ impl<'body> ExecutionBuilder<'body, '_> {
     ) -> Result<(), BuildError> {
         self.record_x87_instruction()?;
         let selector = self
-            .segments
+            .state
+            .segments()
             .read_selector(&mut self.body, operand.segment())?;
         self.x87().record_data(operand.offset(), selector)
     }

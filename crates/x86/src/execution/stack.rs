@@ -227,7 +227,8 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn stack_pointer(&mut self) -> Result<StackPointer, BuildError> {
         let esp = self.state.read_register(&mut self.body, Gpr32::Esp)?;
         let mask = self
-            .segments
+            .state
+            .segments()
             .big(&mut self.body, &Segment::Ss.into())?
             .select(u32::MAX, 0xffffu32);
         Ok(StackPointer { esp, mask })

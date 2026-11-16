@@ -158,7 +158,7 @@ impl ExecutionBuilder<'_, '_> {
         let memory = self.accesses.memory();
         let mut resolved = Vec::with_capacity(N);
         for (operand, start) in operands.iter().zip(starts) {
-            let segment = self.segments.check(
+            let segment = self.state.segments().check(
                 &mut self.body,
                 &operand.segment,
                 &start,

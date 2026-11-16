@@ -34,7 +34,7 @@ use crate::instruction::{self, DecodedInstruction, SegmentOverride};
 use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
-use crate::state::{exit, SegmentReads, State};
+use crate::state::{exit, State};
 use crate::{exception::ExceptionValues, CpuState, ExecutionProfile};
 use transfer::Transfer;
 
@@ -45,7 +45,6 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     body: BlockBuilder<'body>,
     state: State<'module>,
     accesses: Accesses<'module>,
-    segments: SegmentReads,
     cpu_features: Val<I32>,
     segment_override: SegmentOverride,
     address_mask: Val<I32>,
@@ -73,12 +72,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         let target = module.target;
         let state = State::new(&module.cpu)
             .with_instruction_budgets(target.instruction_budgets)
-            .with_control_profile(target.profile);
+            .with_profile(target.profile);
         Ok(Self {
             body,
             state,
             accesses: module.memory.accesses(),
-            segments: SegmentReads::new(&module.cpu, target.profile),
             cpu_features: target.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_mask: u32::MAX.into(),
@@ -200,7 +198,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.segments.profile()
+        self.state.profile()
     }
 
     /// Retired instructions, including this entry's unpublished progress.
@@ -311,17 +309,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         bytes: impl Into<Val<I32>>,
         intent: Intent,
     ) -> Result<Val<I32>, BuildError> {
-        self.segments.translate(
-            &mut self.body,
-            segment,
-            offset,
-            bytes,
-            intent,
-            |fault_body, exception| {
-                self.state
-                    .fault(fault_body, &self.eip, self.completed, exception)
-            },
-        )
+        let check = self
+            .state
+            .segments()
+            .check(&mut self.body, segment, offset, bytes, intent)?;
+        check.translate(&mut self.body, segment, |body, exception| {
+            self.state.fault(body, &self.eip, self.completed, exception)
+        })
     }
 
     fn resolve_access(

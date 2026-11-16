@@ -183,6 +183,7 @@ pub(crate) struct StateFields {
     // Live fixed definitions never overlap; an exact replacement needs no flush.
     definitions: Vec<Definition>,
     writes: usize,
+    entry_assumptions: Vec<StatePattern>,
 }
 
 impl StateFields {
@@ -198,7 +199,16 @@ impl StateFields {
             base,
             definitions: Vec::new(),
             writes: 0,
+            entry_assumptions: Vec::new(),
         }
+    }
+
+    /// Admission guarantees these facts at entry. Reads consume only the matching
+    /// field's assumptions; writes discard assumptions for overlapping fields.
+    pub(crate) fn with_entry_assumptions(mut self, assumptions: Vec<StatePattern>) -> Self {
+        assert!(self.definitions.is_empty());
+        self.entry_assumptions = assumptions;
+        self
     }
 
     pub(crate) fn read<T: SsaType>(
@@ -218,6 +228,14 @@ impl StateFields {
             offset,
             bytes: T::BYTES,
         };
+        while let Some(index) = self
+            .entry_assumptions
+            .iter()
+            .position(|pattern| pattern.location == location)
+        {
+            let pattern = self.entry_assumptions.remove(index);
+            pattern.apply(body, self)?;
+        }
         if let Some(entry) = self
             .definitions
             .iter()
@@ -235,23 +253,6 @@ impl StateFields {
             first_write: None,
         });
         Ok(value)
-    }
-
-    /// Returns a retained fixed field without introducing a memory read.
-    pub(crate) fn retained<T: SsaType>(&self, location: &Location<T>) -> Option<&Val<T>> {
-        let Address::Fixed(offset) = location.address else {
-            return None;
-        };
-        self.definitions
-            .iter()
-            .find(|entry| {
-                entry.location
-                    == LocationKey {
-                        offset,
-                        bytes: T::BYTES,
-                    }
-            })
-            .map(|entry| T::retained(&entry.value).value())
     }
 
     /// Retains bits established by a guard or entry admission without a guest write.
@@ -306,6 +307,12 @@ impl StateFields {
         location: Location<T>,
         value: impl Into<Val<T>>,
     ) -> Result<(), BuildError> {
+        let span = match &location.address {
+            Address::Fixed(offset) => Span::new(*offset, T::BYTES),
+            Address::Indexed { span, .. } => *span,
+        };
+        self.entry_assumptions
+            .retain(|pattern| !span.overlaps(pattern.location.span()));
         let offset = match location.address {
             Address::Fixed(offset) => offset,
             Address::Indexed { span, displacement } => {

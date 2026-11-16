@@ -1,4 +1,4 @@
-//! Segment identities, loaded caches, and host descriptor-table resolution.
+//! Segment identities, access checks, and host descriptor-table resolution.
 
 mod access;
 mod descriptor;
@@ -11,6 +11,7 @@ mod tables;
 
 use relocade_compiler::{Val, I1, I16, I32};
 
+pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use packed::Descriptor;
