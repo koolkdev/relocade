@@ -2,6 +2,40 @@ use relocade_vfs::MemoryFileSystem;
 use std::io::ErrorKind;
 
 #[test]
+fn usage_sums_current_file_lengths_without_counting_retained_versions() {
+    let mut fs = MemoryFileSystem::new();
+    fs.create_dir_all("DATA/SAVE").unwrap();
+    let file = fs.create_new("DATA/SAVE/FILE").unwrap();
+    assert_eq!(fs.used_bytes(), 0);
+
+    file.write_at(b"abc", 0).unwrap();
+    let duplicate = file.clone();
+    let _reader = fs.open("DATA/SAVE/FILE").unwrap();
+    assert_eq!(fs.used_bytes(), 3);
+    duplicate.write_at(b"z", 8).unwrap();
+    assert_eq!(fs.used_bytes(), 9); // Includes the zero-filled gap.
+    file.set_len(2).unwrap();
+    assert_eq!(fs.used_bytes(), 2);
+    fs.replace_file("OTHER", b"data".to_vec()).unwrap();
+    assert_eq!(fs.used_bytes(), 6);
+
+    fs.rename_file("DATA/SAVE/FILE", "MOVED").unwrap();
+    assert_eq!(fs.used_bytes(), 6);
+    fs.rename_file("OTHER", "MOVED").unwrap();
+    assert_eq!(fs.used_bytes(), 4);
+    file.set_len(100).unwrap(); // A replaced file is no longer part of the filesystem.
+    assert_eq!(fs.used_bytes(), 4);
+
+    let old = fs.open_read_write("MOVED").unwrap();
+    let replacement = fs.replace_file("MOVED", b"new".to_vec()).unwrap();
+    old.set_len(200).unwrap();
+    assert_eq!(fs.used_bytes(), 3);
+    fs.remove_file("MOVED").unwrap();
+    replacement.set_len(300).unwrap();
+    assert_eq!(fs.used_bytes(), 0);
+}
+
+#[test]
 fn directories_exist_independently_and_exclude_files() {
     let mut fs = MemoryFileSystem::new();
     assert!(fs.is_dir(""));

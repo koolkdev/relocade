@@ -6,6 +6,8 @@
 //! and share contents; guest layers maintain cursors and sharing rules.
 //! [`Drives`] mounts these filesystems by drive letter, independently of DOS or
 //! Win32 path parsing. It starts empty and does not choose a current drive.
+//! [`MemoryFileSystem::used_bytes`] sums the logical lengths of current files.
+//! The memory filesystem does not impose a virtual capacity or allocation geometry.
 //!
 //! ```
 //! use relocade_vfs::MemoryFileSystem;
