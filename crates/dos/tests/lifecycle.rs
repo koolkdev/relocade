@@ -5,8 +5,8 @@ mod vectors;
 use common::{error, path_service, service, success, SERVICE_PROGRAM};
 use relocade_bios::KeyMode;
 use relocade_dos::{
-    Configuration, FileAccess, LaunchError, LoadError, ProcessStatus, ServiceError, SoundCard,
-    VideoCard,
+    Configuration, FileAccess, InitializationError, LaunchError, LoadError, ParallelPort,
+    ProcessStatus, ServiceError, SoundCard, VideoCard,
 };
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::{
@@ -16,6 +16,30 @@ use std::{
     rc::Rc,
     task::{Context, Poll, Waker},
 };
+
+#[test]
+fn dos_preserves_pc_configuration_errors_without_installing_services() {
+    pollster::block_on(async {
+        let (clock, _timers) = relocade_machine::timer_service();
+        let (runner, _host, machine) = common::runner(clock.clock()).await;
+        let memory = runner.memory();
+        let configuration = Configuration {
+            sound_card: SoundCard::SoundBlaster2,
+            parallel_port: Some(ParallelPort::default()),
+            ..Default::default()
+        };
+        let expected = configuration.validate().unwrap_err();
+        let result = pin!(relocade_dos::Dos::with_configuration(runner, configuration))
+            .poll(&mut Context::from_waker(Waker::noop()));
+        assert!(matches!(
+            result,
+            Poll::Ready(Err(InitializationError::Validation(message))) if message == expected
+        ));
+        assert_eq!(memory.view().read_u32(0x21 * 4).unwrap(), 0);
+        assert_eq!(memory.view().read_u8(0xfff0).unwrap(), 0);
+        machine.shutdown().await.unwrap();
+    });
+}
 
 #[test]
 fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
@@ -36,6 +60,7 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
                     Configuration {
                         sound_card: SoundCard::None,
                         video_card: VideoCard::Dispi,
+                        ..Default::default()
                     },
                 )
                 .await

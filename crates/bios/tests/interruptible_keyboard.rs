@@ -2,7 +2,7 @@
 mod execution;
 use relocade_bios::{video::VideoFirmware, KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
-    real_mode_interrupt::Interrupts, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
+    real_mode_interrupt::Interrupts, Clock, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
     Memory,
 };
 use relocade_vga::DispiAdapter;
@@ -55,7 +55,7 @@ impl Device for Timer {
     }
 }
 
-async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<DispiAdapter>>) {
+async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<DispiAdapter>>, Clock) {
     let map = PhysicalMemoryMap::new([
         (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
         (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
@@ -70,7 +70,8 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
     let (clock, _timers) = relocade_machine::timer_service();
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.into())));
+    let clock: Clock = clock.into();
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
     let io = IoBus::default();
     io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(timer.clone(), |_| {});
@@ -89,12 +90,14 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
             conventional_memory_kib: 640,
             math_coprocessor: true,
             pointing_device: false,
+            parallel_ports: [0; 3],
         },
         &VideoFirmware::Dispi(vga.clone()),
     );
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(
         &mut interrupts,
+        relocade_bios::Parallel::new(clock.clone(), []),
         keyboard.clone(),
         VideoFirmware::Dispi(vga.clone()),
         None,
@@ -124,7 +127,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
             ],
         )
         .unwrap();
-    (cpu, keyboard, vga)
+    (cpu, keyboard, vga, clock)
 }
 
 fn pending(future: impl Future) {
@@ -136,7 +139,7 @@ fn pending(future: impl Future) {
 
 async fn clock_during_wait() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard, _) = machine(&timer).await;
+    let (mut cpu, keyboard, _, _) = machine(&timer).await;
     let state = cpu.cpu_state();
     let memory = cpu.memory();
     let entry = memory.view().read_u32(0x16 * 4).unwrap();
@@ -202,7 +205,7 @@ async fn clock_during_wait() {
 
 async fn ready_services() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard, _) = machine(&timer).await;
+    let (mut cpu, keyboard, _, _) = machine(&timer).await;
     // After the keyboard read and clock query, query video state before looping.
     cpu.memory()
         .view()
@@ -226,7 +229,7 @@ async fn ready_services() {
 
 async fn abandon_during_irq() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard, _) = machine(&timer).await;
+    let (mut cpu, keyboard, _, _) = machine(&timer).await;
     let state = cpu.cpu_state();
     // STI; JMP to self. Live ISR IF must differ from the outer wrapper's saved IF.
     cpu.memory()
@@ -249,11 +252,12 @@ async fn abandon_during_irq() {
 
 async fn bios_timer_rollover() {
     let timer = Rc::new(RefCell::new(Timer::default()));
-    let (mut cpu, keyboard, vga) = machine(&timer).await;
+    let (mut cpu, keyboard, vga, clock) = machine(&timer).await;
     // Restore BIOS vectors instead of the fixture's guest IRQ0 handler.
     let mut interrupts = Interrupts::new(&mut cpu);
     relocade_bios::register_interrupts(
         &mut interrupts,
+        relocade_bios::Parallel::new(clock.clone(), []),
         keyboard.clone(),
         VideoFirmware::Dispi(vga),
         None,

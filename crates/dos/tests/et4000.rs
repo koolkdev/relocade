@@ -21,6 +21,7 @@ fn selected_et4000_runs_banked_graphics_cursor_and_text_through_dos() {
                         Configuration {
                             video_card: VideoCard::Et4000Ax,
                             sound_card: SoundCard::None,
+                            ..Default::default()
                         },
                     )
                     .await

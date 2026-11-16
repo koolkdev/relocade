@@ -2297,6 +2297,7 @@ dependencies = [
  "relocade-clock-test-support",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-parallel",
  "relocade-pic",
  "relocade-ps2",
  "relocade-vga",
@@ -2486,6 +2487,7 @@ name = "relocade-pc"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "futures-io",
  "futures-lite",
  "futures-timer",
  "pollster",
@@ -2495,6 +2497,7 @@ dependencies = [
  "relocade-dma",
  "relocade-frontend",
  "relocade-machine",
+ "relocade-parallel",
  "relocade-pc-speaker",
  "relocade-pic",
  "relocade-pit",

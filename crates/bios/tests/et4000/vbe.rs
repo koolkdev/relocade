@@ -24,6 +24,7 @@ impl Firmware {
         let mut interrupts = Interrupts::new(&mut cpu);
         relocade_bios::register_interrupts(
             &mut interrupts,
+            relocade_bios::Parallel::new(self.clock.clone(), []),
             Keyboard::new(self.memory.clone()),
             self.firmware.clone(),
             None,
