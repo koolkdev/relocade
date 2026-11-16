@@ -21,9 +21,11 @@ The launcher itself creates no workers. CPU/device execution and application
 policy stay with its consumer; the optional graphics host owns its worker.
 
 With the `audio` feature, `audio::Audio` opens default CPAL output on main and
-returns its `StreamConfig` and an ordinary `async_channel::Sender<Vec<f32>>`.
+returns an audio `Config` and an ordinary `async_channel::Sender<Vec<f32>>`.
+The config contains sample rate, channel count and preferred block frames;
+CPAL's device configuration stays in the application.
 The producer runs on its existing owner, such as a machine device activity.
-Frontend has no audio contract.
+The format and source-generation contracts live in `relocade-frontend::audio`.
 
 ```rust,ignore
 let (audio, config, samples) = relocade_app::audio::Audio::open(report_audio_error)?;

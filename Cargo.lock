@@ -2377,7 +2377,6 @@ version = "0.0.0"
 dependencies = [
  "async-channel",
  "chrono",
- "cpal",
  "futures-channel",
  "futures-timer",
  "pollster",
@@ -2471,24 +2470,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "relocade-mixer"
-version = "0.0.0"
-dependencies = [
- "async-channel",
- "cpal",
- "futures-lite",
- "relocade-clock-test-support",
- "relocade-frontend",
- "relocade-machine",
- "wasm-bindgen-test",
-]
-
-[[package]]
 name = "relocade-pc"
 version = "0.0.0"
 dependencies = [
  "async-channel",
- "cpal",
  "futures-lite",
  "futures-timer",
  "pollster",
@@ -2498,7 +2483,6 @@ dependencies = [
  "relocade-dma",
  "relocade-frontend",
  "relocade-machine",
- "relocade-mixer",
  "relocade-pc-speaker",
  "relocade-pic",
  "relocade-pit",
@@ -2579,8 +2563,6 @@ dependencies = [
 name = "relocade-sound-blaster"
 version = "0.0.0"
 dependencies = [
- "async-channel",
- "cpal",
  "event-listener",
  "futures-lite",
  "relocade-adlib",
@@ -2588,7 +2570,6 @@ dependencies = [
  "relocade-dma",
  "relocade-frontend",
  "relocade-machine",
- "relocade-mixer",
  "relocade-pic",
  "relocade-x86",
  "wasm-bindgen-test",

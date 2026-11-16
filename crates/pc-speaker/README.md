@@ -17,7 +17,7 @@ their writes have no effect. Bit 0 is GATE2. The speaker drive is bit 1 AND OUT2
 including direct bit-1 toggling while GATE2 is low. Other system-control and
 refresh/parity functions of this port are outside this crate's initial scope.
 
-With the `audio` feature, `speaker.audio_source(mixer.timing())` returns an `EventRecorder` and `SampleGenerator`. The recorder captures
+With the `audio` feature, `speaker.audio_source(timing)` returns an `EventRecorder` and `SampleGenerator`. The recorder captures
 sound-changing writes on the device owner; `take_events()` transfers them to
 `generator.generate_samples(events, frames, output)`, which
 fills one mono value in 0..=1 for each absolute output frame. Frame ranges progress
@@ -26,12 +26,12 @@ integrates each sample's high time, preserving fractional input clocks and phase
 while muted or when the consumer skips time. Creating another source replaces
 the observer; dropping the recorder stops recording while the generator can finish owned events.
 
-The [shared mixer](../mixer/README.md) owns the common sample timeline, gain,
-channel layout, buffering and submission. The speaker registers itself at gain 1.0
-alongside its other sources on the execution worker. Applications attach CPAL's configuration
-and bounded PCM sender through `pc.attach_audio(config, samples).await` or
-`dos.attach_audio(config, samples).await`. The speaker itself owns no output
-channel or asynchronous playback activity.
+[PC audio](../pc/README.md) supplies the frame grid and schedules PCM blocks.
+The speaker registers its recorder and generator through the shared `Sources`
+collection at unity gain. Applications pass `relocade_frontend::audio::Config`
+and a bounded PCM sender to `pc.attach_audio(config, samples).await` or
+`dos.attach_audio(config, samples).await`. The speaker owns no output channel
+or asynchronous playback activity.
 
 Sound-changing writes append timestamped counter states and the speaker enable
 bit to a local queue. Synthesis consumes every change at its position within the

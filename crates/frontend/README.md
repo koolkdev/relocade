@@ -56,3 +56,7 @@ together. `generate_samples(frames, output)` captures events and mixes every
 source once into interleaved PCM. Each source keeps its own gain and synthesis
 state; playback clamps the final mix. This contract uses value types from
 `relocade-time` and has no machine, worker, or playback-backend dependency.
+
+`audio::Config` describes interleaved PCM using sample rate, channels and preferred
+block frames. Playback backends translate their own configuration into these
+values, keeping backend types out of guest environments.

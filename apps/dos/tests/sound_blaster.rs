@@ -1,7 +1,7 @@
 #[path = "sound_blaster/program.rs"]
 mod program;
 
-use relocade_app::audio::cpal::{BufferSize, StreamConfig};
+use relocade_app::audio::Config;
 use relocade_clock_test_support::ManualClock;
 use relocade_dos::{Configuration, Dos, LoadOptions, SoundCard};
 use relocade_machine::{worker::wake_connection, Memory, Runner};
@@ -69,10 +69,10 @@ async fn exercise() {
                 .unwrap();
                 let (samples, output) = async_channel::bounded(1);
                 dos.attach_audio(
-                    StreamConfig {
+                    Config {
                         channels: 1,
                         sample_rate: 8_000,
-                        buffer_size: BufferSize::Fixed(32),
+                        block_frames: 32,
                     },
                     samples,
                 )

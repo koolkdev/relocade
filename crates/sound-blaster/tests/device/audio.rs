@@ -153,31 +153,13 @@ fn direct_dac_and_mute_share_the_sample_timeline() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn full_and_closed_output_do_not_block_dma_or_irqs() {
+fn taking_events_synchronizes_dma_and_dropping_recorder_keeps_irqs_active() {
     let hw = Hardware::new();
-    let (samples, output) = async_channel::bounded(1);
-    let mut mixer = relocade_mixer::Mixer::new(
-        hw.clock.clock(),
-        cpal::StreamConfig {
-            channels: 1,
-            sample_rate: 10_000,
-            buffer_size: cpal::BufferSize::Fixed(2),
-        },
-        samples,
-    )
-    .unwrap();
     let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
-    mixer.sources().add_source(
-        0.4,
-        move || recorder.take_events(),
-        move |events, frames, output| source.generate_samples(events, frames, output),
-    );
-    let mut mixing = pin!(relocade_mixer::Mixer::run(Rc::new(RefCell::new(mixer))));
     let mut activity = pin!(SoundBlaster::run(hw.card.clone()));
     let mut cx = Context::from_waker(Waker::noop());
-    assert!(mixing.as_mut().poll(&mut cx).is_pending());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
     hw.memory
         .view()
@@ -186,16 +168,16 @@ fn full_and_closed_output_do_not_block_dma_or_irqs() {
     hw.program_dma(0x100, 5);
     hw.command(&[0xd1, 0x40, 156, 0x14, 5, 0]);
     hw.clock.advance_by(Duration::from_micros(600));
-    // Rendering may be polled before the device's own activity.
-    assert!(mixing.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(output.len(), 1);
-    assert_eq!(output.try_recv().unwrap(), [0.4 * 127.0 / 128.0, 0.0]);
+    // Event capture synchronizes hardware before its own activity is polled.
+    let events = recorder.take_events();
+    let mut output = [0.0; 2];
+    source.generate_samples(events, 4..6, &mut output);
+    assert_eq!(output, [127.0 / 128.0, 0.0]);
     assert_eq!(hw.dma_word(relocade_dma::ADDRESS_PORTS[1]), 0x106);
     assert_eq!(hw.io.poll_interrupt(&mut cx), Poll::Ready(0x0f));
     hw.io.read_port(READ_STATUS_PORT, 1);
     relocade_pic::end_of_interrupt(&hw.io, IRQ);
-    output.close();
-    assert!(mixing.as_mut().poll(&mut cx).is_ready());
+    drop(recorder);
 
     hw.program_dma(0x100, 0);
     hw.command(&[0x14, 0, 0]);

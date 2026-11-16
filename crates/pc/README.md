@@ -88,15 +88,25 @@ consumer; `vga()` and `speaker()` retain devices on the execution owner, and
 `sound_card()` borrows the card's common interface. Platform windows, rendering and
 audio outputs remain with the embedding application.
 
-With the `audio` feature, `pc.attach_audio(config, samples).await` connects one
-CPAL configuration and bounded `async_channel::Sender<Vec<f32>>` to the
-[shared mixer](../mixer/README.md). PC supplies its emulation clock and registers
-the speaker, FM and digital PCM at unity gain. These independent defaults live
-in PC audio policy: installing another source does not reduce an existing
-source's volume. The mixer preserves headroom when summing; platform
-output clamps the final sample to `-1..=1`. Simultaneous peaks can therefore clip.
-The mixer owns timing, gains, buffering and submission.
-The runner owns the activity, and the application owns platform playback.
+With the `audio` feature, `pc.attach_audio(config, samples).await` takes a
+`relocade_frontend::audio::Config` and bounded `async_channel::Sender<Vec<f32>>`.
+The application translates playback settings into sample rate, channels and a
+preferred block size. PC owns scheduling and submission. Devices register their
+own sources through `Sources`; Sound Blaster supplies its FM and DAC outputs.
+The source collection owns event capture, synthesis state, gains and reusable
+mixing scratch space.
+
+One `AudioTiming` defines frame zero, the native tick rate and the output sample
+rate. The block generator advances absolute frame ranges. Its deadline is the
+rounded timestamp of the block end; sample generation retains positions within
+frames. Block sizes are clamped to 1–256 frames. The audio activity captures
+elapsed events and generates each block when its deadline is due. A full output
+queue replaces its oldest block; closing output releases the activity and its
+recorders. The runner owns the activity, and the application owns playback.
+
+Each source defaults independently to unity gain. Mixing retains headroom and
+platform output clamps the final sample to `-1..=1`, so simultaneous peaks can
+clip. Installing another source does not change existing source levels.
 Attachment is allowed once per PC; AdLib supports 8–192 kHz. Attach before guest
 execution to capture the complete note timeline. See the
 [AdLib core and license notes](../adlib/README.md) for compatibility limits and

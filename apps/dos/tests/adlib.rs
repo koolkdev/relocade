@@ -1,4 +1,4 @@
-use relocade_app::audio::cpal::{BufferSize, StreamConfig};
+use relocade_app::audio::Config;
 use relocade_clock_test_support::ManualClock;
 use relocade_dos::Dos;
 use relocade_machine::{worker::wake_connection, Memory, Runner};
@@ -123,10 +123,10 @@ async fn exercise() {
                 // depending on a platform playback device or an AudioWorklet.
                 let (samples, buffers) = async_channel::bounded(1);
                 dos.attach_audio(
-                    StreamConfig {
+                    Config {
                         channels: 1,
                         sample_rate: 48_000,
-                        buffer_size: BufferSize::Fixed(256),
+                        block_frames: 256,
                     },
                     samples,
                 )

@@ -1,7 +1,5 @@
 use async_channel::Sender;
-#[cfg(not(target_arch = "wasm32"))]
-use relocade_app::audio::cpal::BufferSize;
-use relocade_app::audio::cpal::StreamConfig;
+use relocade_app::audio::Config;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -17,16 +15,16 @@ pub struct Output {
 }
 
 impl Output {
-    pub fn open() -> (Self, StreamConfig, Sender<Vec<f32>>) {
+    pub fn open() -> (Self, Config, Sender<Vec<f32>>) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // ALSA null consumes without pacing. This fixture consumes at the
             // configured rate; CPAL's native callback has its own app tests.
             let (sender, samples) = async_channel::bounded(16);
-            let config = StreamConfig {
+            let config = Config {
                 channels: 1,
                 sample_rate: 48_000,
-                buffer_size: BufferSize::Fixed(256),
+                block_frames: 256,
             };
             (Self { samples }, config, sender)
         }

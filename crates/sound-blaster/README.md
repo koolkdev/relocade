@@ -36,9 +36,9 @@ Command `0x10` writes one unsigned byte directly to the DAC at guest-selected
 times. Both direct writes and consumed DMA buffers feed the audio recorder, with
 `0x80` as zero, `0x00` as -1 and `0xff` as 127/128. The DAC holds its last value
 until another sample, mute or reset. The source averages these levels over the
-mixer's frames, preserving duration when the output sample rate differs.
+output frames, preserving duration when the output sample rate differs.
 
-`card.audio_source(mixer.timing())` returns an `EventRecorder` and `SampleGenerator`.
+`card.audio_source(timing)` returns an `EventRecorder` and `SampleGenerator`.
 Create them before guest execution. `recorder.take_events()` synchronizes DMA
 through the shared clock before transferring owned bytes and DAC changes. Mixer
 and device wake order therefore cannot omit samples; the absolute DSP sample
@@ -47,8 +47,8 @@ output)` fills one mono value per frame without accessing the device or guest
 memory, and retains future events across blocks. Dropping the recorder stops
 capture while DMA and IRQs continue and the generator can finish owned events.
 `card.add_audio_sources(sources)` registers its FM and DAC generators at unity
-gain; PC does not enumerate the card's components. The mixer preserves headroom,
-with clamping at platform output, and keeps its bounded, nonblocking submission.
+gain; PC does not enumerate the card's components. The source collection preserves headroom, with clamping at platform output. PC
+owns bounded, nonblocking submission.
 
 Command `0x48` sets the DSP block size minus one, and `0x1c` starts auto-initialize
 playback. Each completed DSP block raises the same latched IRQ and reloads the
