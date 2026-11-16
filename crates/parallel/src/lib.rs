@@ -10,6 +10,9 @@
 //! are not modeled.
 #![forbid(unsafe_code)]
 
+pub mod centronics;
+pub use centronics::Centronics;
+
 use event_listener::Event;
 use relocade_machine::{Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner};
 use relocade_pic::IrqLine;
