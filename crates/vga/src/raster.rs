@@ -1,21 +1,21 @@
 use crate::timing::Timing;
-use relocade_machine::{Clock, ClockCursor, Timestamp};
+use relocade_machine::{Clock, TickRate, Timestamp};
 use std::{cell::Cell, rc::Rc};
 
 const VERTICAL_RETRACE: u8 = 1 << 3;
 
 /// Exact position at `updated`, with shared status valid until its next update.
 /// Observations between events leave the position lazy. Timing changes materialize
-/// it through whole nanoseconds at `observed` before remapping the counters.
+/// it through the native reading at `observed` before remapping the counters.
 pub(super) struct Raster {
-    clock: Clock,
+    tick_rate: TickRate,
     timing: Timing,
-    updated: ClockCursor,
+    updated: Timestamp,
     dot: u64,
     // Independent horizontal phase survives an interlaced half-line field boundary.
     horizontal_dot: u64,
     /// Fractional dot position in the units maintained by `Timing`.
-    dot_remainder: u64,
+    dot_remainder: u128,
     pub retrace_count: u64,
     next_retrace: Option<Timestamp>,
     pub status: Rc<RasterStatus>,
@@ -34,7 +34,10 @@ pub(super) struct RasterStatus {
 impl RasterStatus {
     pub fn observe_now(&self) -> bool {
         let now = self.clock.now();
-        let due = self.next_update.get().is_some_and(|deadline| now >= deadline);
+        let due = self
+            .next_update
+            .get()
+            .is_some_and(|deadline| now >= deadline);
         if due {
             self.observed.set(now);
         }
@@ -61,9 +64,9 @@ impl Raster {
     pub fn new(clock: Clock, timing: Timing) -> Self {
         let now = clock.now();
         let mut raster = Self {
-            clock: clock.clone(),
+            tick_rate: clock.tick_rate(),
             timing,
-            updated: now.into(),
+            updated: now,
             dot: 0,
             horizontal_dot: 0,
             dot_remainder: 0,
@@ -89,24 +92,23 @@ impl Raster {
         completed
     }
 
-    /// Integrate through whole elapsed nanoseconds, retaining the native
-    /// fraction for the next update. Programming takes effect at this consumed
-    /// position. Stopped clocks still consume time without advancing the beam.
+    /// Advance native ticks into dot clocks. Programming takes effect at the
+    /// observed tick; any fraction of a dot stays in the beam's phase.
+    /// Stopped oscillators consume observations without advancing the beam.
     fn advance_to(&mut self, now: Timestamp) -> Option<Timestamp> {
         let timing = self.timing;
-        let elapsed = self.clock.consume_elapsed(&mut self.updated, now);
-        if elapsed.is_zero() {
+        if now <= self.updated {
             return None;
         }
+        let ticks = now.ticks().wrapping_sub(self.updated.ticks());
+        self.updated = now;
         if !timing.clock_running() {
             return None;
         }
-        let dots = timing.elapsed_dots(elapsed, &mut self.dot_remainder);
+        let dots = timing.elapsed_dots(ticks, self.tick_rate, &mut self.dot_remainder);
         let frame_dots = timing.frame_dots();
         let completed = self
             .next_retrace
-            // The deadline is rounded to a tick; the consumed phase can lag
-            // that reading by a fraction of a nanosecond after crossing the edge.
             .filter(|deadline| now >= *deadline)
             .map(|_| {
                 let boundary = timing.retrace_dot().expect("Running capture boundary");
@@ -118,10 +120,11 @@ impl Raster {
                     .checked_add(u64::try_from(frames).expect("Display frame count fits in u64"))
                     .expect("Display frame sequence exhausted");
                 let since_latest_boundary = (advanced % u128::from(frame_dots)) as u64;
-                self.clock.sub(
-                    self.updated,
-                    timing.elapsed_for_dots(since_latest_boundary, self.dot_remainder),
-                )
+                Timestamp::from_ticks(self.updated.ticks().wrapping_sub(timing.elapsed_for_dots(
+                    since_latest_boundary,
+                    self.tick_rate,
+                    self.dot_remainder,
+                )))
             });
         self.dot = ((u128::from(self.dot) + dots) % u128::from(frame_dots)) as u64;
         self.horizontal_dot =
@@ -144,7 +147,7 @@ impl Raster {
         self.advance_to(self.status.observed.get());
         self.timing = new;
         if old.reset_active || new.reset_active {
-            self.updated = self.status.observed.get().into();
+            self.updated = self.status.observed.get();
             self.dot = 0;
             self.horizontal_dot = 0;
             self.dot_remainder = 0;
@@ -178,7 +181,7 @@ impl Raster {
     /// the lifetime retrace count so consumers can wait across mode switches.
     pub fn restart(&mut self, timing: Timing) {
         self.timing = timing;
-        self.updated = self.status.observed.get().into();
+        self.updated = self.status.observed.get();
         self.dot = 0;
         self.horizontal_dot = 0;
         self.dot_remainder = 0;
@@ -208,10 +211,13 @@ impl Raster {
         if dots == 0 {
             dots = total;
         }
-        self.clock.checked_add(
-            self.updated,
-            self.timing.remaining_for_dots(dots, self.dot_remainder),
-        )
+        self.deadline_in_dots(dots)
+    }
+
+    fn deadline_in_dots(&self, dots: u64) -> Option<Timestamp> {
+        self.timing
+            .remaining_for_dots(dots, self.tick_rate, self.dot_remainder)
+            .map(|ticks| Timestamp::from_ticks(self.updated.ticks().wrapping_add(ticks)))
     }
 
     pub fn in_retrace(&self) -> bool {
@@ -225,12 +231,7 @@ impl Raster {
         let next_status = self
             .timing
             .next_status_in_dots(self.dot, self.horizontal_dot)
-            .and_then(|dots| {
-                self.clock.checked_add(
-                    self.updated,
-                    self.timing.remaining_for_dots(dots, self.dot_remainder),
-                )
-            });
+            .and_then(|dots| self.deadline_in_dots(dots));
         // Internal captures still advance latches and blink when external sync
         // is suppressed, independently of the observable status bits.
         self.status

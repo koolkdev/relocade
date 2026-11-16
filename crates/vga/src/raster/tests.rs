@@ -33,15 +33,15 @@ fn observations_reuse_status_and_phase_until_the_next_edge() {
         assert_eq!(raster.update_to(controller.at(dots(count))), None);
         assert_eq!(raster.status.input_status_1(), 0);
         // Avoiding phase materialization is the optimization being protected.
-        assert_eq!(raster.updated, ClockCursor::from(origin));
+        assert_eq!(raster.updated, origin);
         assert_eq!(raster.dot, 0);
         assert_eq!(raster.next_retrace_at(), Some(retrace));
     }
     raster.update_to(controller.at(dots(640) - Duration::from_nanos(1)));
-    assert_eq!(raster.updated, ClockCursor::from(origin));
+    assert_eq!(raster.updated, origin);
     raster.update_to(controller.at(dots(640)));
     assert_eq!(raster.status.input_status_1(), 1);
-    assert_eq!(raster.updated, ClockCursor::from(controller.at(dots(640))));
+    assert_eq!(raster.updated, controller.at(dots(640)));
     assert_eq!(
         raster.status.next_update.get(),
         Some(controller.at(dots(800)))
@@ -100,18 +100,18 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     let status = raster.status.clone();
     let stopped_at = controller.at(dots(100));
     raster.update_to(stopped_at);
-    assert_eq!(raster.updated, ClockCursor::from(origin));
+    assert_eq!(raster.updated, origin);
     registers.miscellaneous = 0x4b; // Disconnected oscillator; preserve counters.
     raster.set_timing(Timing::vga(&registers));
-    assert_eq!(raster.updated, ClockCursor::from(stopped_at));
+    assert_eq!(raster.updated, stopped_at);
     assert_eq!(raster.dot, 100);
     assert_eq!(status.next_update.get(), None);
     let resumed_at = controller.at(Duration::from_secs(1));
     raster.update_to(resumed_at);
-    assert_eq!(raster.updated, ClockCursor::from(stopped_at));
+    assert_eq!(raster.updated, stopped_at);
     registers.miscellaneous = 0x43;
     raster.set_timing(Timing::vga(&registers));
-    assert_eq!(raster.updated, ClockCursor::from(resumed_at));
+    assert_eq!(raster.updated, resumed_at);
     assert_eq!(raster.dot, 100);
     // Original fractional progress survives the pause.
     let edge = clock.add(resumed_at, dots(640) - dots(100));
@@ -138,17 +138,15 @@ fn fractional_phase_survives_programming_until_an_explicit_restart() {
     assert!(driver.advance_to_next_deadline());
     let mut timing = Timing::vga(&Registers::default());
     let mut raster = Raster::new(clock.clone(), timing);
-    let edge = clock.add(clock.now(), dots(640));
+    let native_period = (640u64 * 3_000_000_000).div_ceil(25_175_000);
+    let edge = Timestamp::from_ticks(1 + native_period);
     assert_eq!(raster.status.next_update.get(), Some(edge));
 
     raster.update_to(Timestamp::from_ticks(edge.ticks() - 1));
     timing.vertical_total += 1;
     raster.set_timing(timing);
     assert_eq!(raster.status.input_status_1(), 0);
-    assert_eq!(
-        raster.updated,
-        ClockCursor::from(clock.sub(edge, Duration::from_nanos(1)))
-    );
+    assert_eq!(raster.updated, Timestamp::from_ticks(edge.ticks() - 1));
     assert_eq!(raster.status.next_update.get(), Some(edge));
     raster.update_to(edge);
     assert_eq!(raster.status.input_status_1(), 1);
@@ -156,10 +154,10 @@ fn fractional_phase_survives_programming_until_an_explicit_restart() {
     let restart = Timestamp::from_ticks(edge.ticks() + 1);
     raster.update_to(restart);
     raster.restart(timing);
-    assert_eq!(raster.updated, ClockCursor::from(restart));
+    assert_eq!(raster.updated, restart);
     assert_eq!(
         raster.status.next_update.get(),
-        Some(clock.add(restart, dots(640)))
+        Some(Timestamp::from_ticks(restart.ticks() + native_period))
     );
 
     timing.reset_active = true;
@@ -168,10 +166,10 @@ fn fractional_phase_survives_programming_until_an_explicit_restart() {
     raster.update_to(released);
     timing.reset_active = false;
     raster.set_timing(timing);
-    assert_eq!(raster.updated, ClockCursor::from(released));
+    assert_eq!(raster.updated, released);
     assert_eq!(
         raster.status.next_update.get(),
-        Some(clock.add(released, dots(640)))
+        Some(Timestamp::from_ticks(released.ticks() + native_period))
     );
 }
 

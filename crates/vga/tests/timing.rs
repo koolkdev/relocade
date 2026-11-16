@@ -369,12 +369,20 @@ fn native_guest_deadlines_reach_status_edges_through_the_connected_bus() {
     let start = clock.now();
     let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
     let bus = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
-    for (count, status) in [(639, 0), (640, 1), (800, 0), (412 * 800, 9), (414 * 800, 1)] {
-        let deadline = clock.add(start, dots(count, 25_175_000));
-        // Service a cold edge one native tick late. The following cached edge
-        // must still follow the original raster phase.
-        let fraction = u64::from(count == 640 || count == 412 * 800);
-        let mut wait = pin!(clock.sleep_until(Timestamp::from_ticks(deadline.ticks() + fraction)));
+    // The native clock and dot clock have the same rate: each tick is one dot.
+    // Converting through whole nanoseconds would move these observations later.
+    for (count, status) in [
+        (639, 0),
+        (641, 1), // Observe the first display edge one tick late.
+        (799, 1),
+        (800, 0), // The cached edge must retain the original raster phase.
+        (412 * 800 - 1, 1),
+        (412 * 800 + 1, 9), // Also observe the retrace start one tick late.
+        (414 * 800 - 1, 9),
+        (414 * 800, 1),
+    ] {
+        let deadline = Timestamp::from_ticks(start.ticks().wrapping_add(count));
+        let mut wait = pin!(clock.sleep_until(deadline));
         assert!(wait
             .as_mut()
             .poll(&mut Context::from_waker(Waker::noop()))
