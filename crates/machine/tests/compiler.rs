@@ -20,6 +20,9 @@ mod linking;
 #[path = "compiler/invalidation.rs"]
 mod invalidation;
 
+#[path = "compiler/capture.rs"]
+mod capture;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

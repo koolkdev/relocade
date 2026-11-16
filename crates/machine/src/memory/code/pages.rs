@@ -45,15 +45,27 @@ impl<'a> Pages<'a> {
     }
 
     async fn capture_pending(&self) {
+        // Retained pages already intercept writes, so only new registrations
+        // need a stopped CPU boundary.
+        self.pending.borrow_mut().retain(|&backing| {
+            if let Some(page) = self
+                .memory
+                .code
+                .capture_tracked(&self.memory.backing, backing)
+            {
+                self.captured.borrow_mut().insert(backing, Rc::new(page));
+                false
+            } else {
+                true
+            }
+        });
+        if self.pending.borrow().is_empty() {
+            return;
+        }
         let _paused = self.memory.execution.pause(|| {}).await;
         // Keep requests queued while waiting, including if this read is dropped.
         for backing in self.pending.take() {
-            let page = self
-                .memory
-                .code
-                .lock()
-                .unwrap()
-                .capture(&self.memory.backing, backing);
+            let page = self.memory.code.capture(&self.memory.backing, backing);
             self.captured.borrow_mut().insert(backing, Rc::new(page));
         }
     }

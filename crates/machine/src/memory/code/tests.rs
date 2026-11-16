@@ -1,6 +1,7 @@
 use super::*;
 use crate::MachineConfig;
-use futures_lite::future::block_on;
+use futures_lite::future::{block_on, poll_once};
+use futures_util::FutureExt;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{
     future::Future,
@@ -95,4 +96,56 @@ fn batched_reads_wake_every_waiter_for_shared_pages() {
     let reader = memory.code_reader();
     let bytes = block_on(reader.read(ranges)).unwrap();
     assert_eq!(bytes, (0..64).map(|value| vec![value]).collect::<Vec<_>>());
+}
+
+#[test]
+fn retained_pages_can_be_captured_again_while_a_cpu_is_active() {
+    let memory = setup();
+    let reader = memory.code_reader();
+    block_on(reader.read([(0x100, 1)])).unwrap();
+    let source = reader.finish([(0x100, 1)]);
+    let member = memory.execution.member();
+    let _active = member.try_enter().unwrap();
+    memory.view().write(0x100, &[42]).unwrap();
+    let reader = memory.code_reader();
+    {
+        let mut read = pin!(reader.read([(0x100, 1)]));
+        // Allow the batch to gather; it must then finish without pausing the CPU.
+        assert!(block_on(poll_once(read.as_mut())).is_none());
+        let bytes = read
+            .now_or_never()
+            .expect("retained pages do not pause CPUs")
+            .unwrap();
+        assert_eq!(bytes, [[42]]);
+    }
+    assert!(source.has_recorded_writes());
+    assert!(!reader.finish([(0x100, 1)]).has_recorded_writes());
+}
+
+#[test]
+fn page_markers_follow_captures_and_retained_sources() {
+    let memory = setup();
+    let original = memory.code_memory_map().1.to_bytes();
+    let reader = memory.code_reader();
+    block_on(reader.read([(0xfff, 2)])).unwrap();
+    let captured_revision = memory.code_revision();
+    let captured = memory.code_memory_map().1.to_bytes();
+    assert_eq!(&captured[..4], &5u32.to_le_bytes());
+    assert_eq!(&captured[8..12], &5u32.to_le_bytes());
+
+    let source = reader.finish([(0xfff, 1)]);
+    assert!(memory.code_revision() > captured_revision);
+    let source_map = memory.code_memory_map().1.to_bytes();
+    assert_eq!(&source_map[..4], &5u32.to_le_bytes());
+    assert_eq!(
+        &source_map[8..12],
+        &1u32.to_le_bytes(),
+        "read-ahead is released"
+    );
+
+    let retained = source.clone();
+    drop(source);
+    assert_eq!(memory.code_memory_map().1.to_bytes(), source_map);
+    drop(retained);
+    assert_eq!(memory.code_memory_map().1.to_bytes(), original);
 }
