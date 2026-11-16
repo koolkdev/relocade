@@ -42,6 +42,7 @@ impl Execution {
             execution: self,
             _serial: serial,
         };
+        self.wake_members();
         interrupt();
         poll_fn(|cx| {
             self.drained.register(cx.waker());
@@ -54,6 +55,19 @@ impl Execution {
         .await;
         self.drained.take();
         paused
+    }
+
+    fn wake_members(&self) {
+        let members: Vec<_> = self
+            .members
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        for member in members {
+            member.wake();
+        }
     }
 }
 
@@ -78,7 +92,12 @@ impl Member {
                 Ordering::SeqCst,
                 Ordering::SeqCst,
             ) {
-                Ok(_) => return Some(Active(self.execution.clone())),
+                Ok(_) => {
+                    return Some(Active {
+                        execution: self.execution.clone(),
+                        wake: self.resumed.clone(),
+                    })
+                }
                 Err(current) => state = current,
             }
         }
@@ -86,28 +105,26 @@ impl Member {
 
     /// Attempts entry and arranges a wakeup on resumption if paused.
     pub(crate) fn poll_enter(&self, cx: &mut Context<'_>) -> Poll<Active> {
-        if let Some(active) = self.try_enter() {
-            self.resumed.take();
-            return Poll::Ready(active);
-        }
+        // Retain the executor waker through the turn so a capture request can
+        // interrupt busy execution through its existing worker connection.
         self.resumed.register(cx.waker());
-        // Release may race with registering the waiter.
         match self.try_enter() {
-            Some(active) => {
-                self.resumed.take();
-                Poll::Ready(active)
-            }
+            Some(active) => Poll::Ready(active),
             None => Poll::Pending,
         }
     }
 }
 
-pub(crate) struct Active(Arc<Execution>);
+pub(crate) struct Active {
+    execution: Arc<Execution>,
+    wake: Arc<AtomicWaker>,
+}
 
 impl Drop for Active {
     fn drop(&mut self) {
-        if self.0.state.fetch_sub(1, Ordering::SeqCst) == (PAUSED | 1) {
-            self.0.drained.wake();
+        self.wake.take();
+        if self.execution.state.fetch_sub(1, Ordering::SeqCst) == (PAUSED | 1) {
+            self.execution.drained.wake();
         }
     }
 }
@@ -121,17 +138,7 @@ impl Drop for Paused<'_> {
     fn drop(&mut self) {
         self.execution.drained.take();
         self.execution.state.fetch_and(!PAUSED, Ordering::SeqCst);
-        let members: Vec<_> = self
-            .execution
-            .members
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect();
-        for member in members {
-            member.wake();
-        }
+        self.execution.wake_members();
     }
 }
 

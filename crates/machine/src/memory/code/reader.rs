@@ -1,10 +1,9 @@
 use super::{CodeSource, Memory, PageVersion, Source, Span, PAGE_BYTES};
 use crate::memory::{resolve::Spans, MemoryError};
-use relocade_wasm_runtime::WasmSharedMemory;
 use relocade_x86::PhysicalMapping;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{atomic::Ordering, Arc},
+    sync::Arc,
 };
 
 struct Page {
@@ -54,19 +53,8 @@ impl<'a> CodeReader<'a> {
             };
             let page = backing / PAGE_BYTES * PAGE_BYTES;
             let snapshot = self.pages.entry(page).or_insert_with(|| {
-                let mut registry = self.memory.code.lock().unwrap();
-                let current = registry.retain_page(page);
-                let captured = current.load(Ordering::Acquire);
-                let mut bytes = vec![0; PAGE_BYTES as usize];
-                self.memory.backing.read(page, &mut bytes);
-                Page {
-                    version: PageVersion {
-                        backing: page,
-                        captured,
-                        current,
-                    },
-                    bytes: bytes.into_boxed_slice(),
-                }
+                let (version, bytes) = self.memory.code.capture(&self.memory.backing, page);
+                Page { version, bytes }
             });
             let offset = (backing - page) as usize;
             output[copied..copied + span.len]
@@ -111,7 +99,7 @@ impl<'a> CodeReader<'a> {
             .map(|(_, page)| page.version)
             .collect();
         let source = Arc::new(Source { blocks, pages });
-        self.memory.code.lock().unwrap().register(&source);
+        self.memory.code.register(&source);
         CodeSource {
             registry: self.memory.code.clone(),
             source,

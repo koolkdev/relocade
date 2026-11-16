@@ -23,9 +23,7 @@ fn aliases_share_capture_versions_and_sources_retain_only_emitted_bytes() {
     assert_eq!(reader.read(0x100100, 3).unwrap(), [1, 2, 3]);
     let source = reader.finish([(0x100, 3)]);
     assert!(source.ranges().eq(std::iter::once(0x100..0x103)));
-    assert!(source
-        .backing_ranges()
-        .eq(std::iter::once(0x1100..0x1103)));
+    assert!(source.backing_ranges().eq(std::iter::once(0x1100..0x1103)));
     assert!(source.has_recorded_writes());
     assert_eq!(memory.code_sources_at(0x1101).len(), 1);
     assert!(memory.code_sources_at(0x1103).is_empty());
@@ -52,4 +50,32 @@ fn versions_follow_tracked_pages_and_leave_other_pages_alone() {
     assert!(!replacement.has_recorded_writes());
     assert_eq!(memory.code_sources_at(0x1100).len(), 2);
     assert!(!source.belongs_to(&setup()));
+}
+
+#[test]
+fn page_markers_follow_captures_and_retained_sources() {
+    let memory = setup();
+    let original = memory.code_memory_map().1.to_bytes();
+    let mut reader = memory.code_reader();
+    reader.read(0xfff, 2).unwrap();
+    let captured_revision = memory.code_revision();
+    let captured = memory.code_memory_map().1.to_bytes();
+    assert_eq!(&captured[..4], &5u32.to_le_bytes());
+    assert_eq!(&captured[8..12], &5u32.to_le_bytes());
+
+    let source = reader.finish([(0xfff, 1)]);
+    assert!(memory.code_revision() > captured_revision);
+    let source_map = memory.code_memory_map().1.to_bytes();
+    assert_eq!(&source_map[..4], &5u32.to_le_bytes());
+    assert_eq!(
+        &source_map[8..12],
+        &1u32.to_le_bytes(),
+        "read-ahead is released"
+    );
+
+    let retained = source.clone();
+    drop(source);
+    assert_eq!(memory.code_memory_map().1.to_bytes(), source_map);
+    drop(retained);
+    assert_eq!(memory.code_memory_map().1.to_bytes(), original);
 }

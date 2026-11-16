@@ -6,7 +6,6 @@ pub(crate) mod execution;
 
 use crate::{CompilerService, CpuConfig, CpuStateAccess, MachineConfig, Memory, Result};
 use futures_util::future::join_all;
-use std::sync::Arc;
 
 /// Owns guest memory, every CPU's state and their compiler connection lifetimes.
 /// CPU handles grant execution access once; the machine retains state after the
@@ -15,7 +14,6 @@ pub struct Machine {
     memory: Memory,
     cpus: Vec<CpuStateAccess>,
     compiler_connections: Vec<crate::compiler::Connection>,
-    execution: Arc<execution::Execution>,
 }
 
 impl Machine {
@@ -27,7 +25,6 @@ impl Machine {
             memory,
             cpus: Vec::new(),
             compiler_connections: Vec::new(),
-            execution: Arc::default(),
         })
     }
 
@@ -78,7 +75,8 @@ impl Machine {
     /// and does not include standalone CPUs created through [`crate::Cpu::new`].
     /// Request from the machine owner, outside a CPU execution or service poll.
     pub async fn pause_cpus(&self) -> impl Drop + '_ {
-        self.execution
+        self.memory
+            .execution
             .pause(|| {
                 for cpu in &self.cpus {
                     cpu.interrupt_handle().request();

@@ -67,6 +67,7 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
+    let paused = memory.execution.pause(|| {}).await;
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
@@ -86,6 +87,7 @@ async fn compile(
                     instruction_limit: block.instruction_limit,
                 })
                 .collect();
+            drop(paused);
             let blocks = x86.compile_blocks_with(&snapshots, jobs).await?;
             let addresses = requests.iter().map(|block| block.address).collect();
             (blocks, addresses)
@@ -123,6 +125,7 @@ async fn compile(
                     return Err(error.into());
                 }
             }
+            drop(paused);
             (module.compile_with(jobs).await?, addresses)
         }
     };
