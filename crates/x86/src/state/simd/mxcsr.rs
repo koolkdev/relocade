@@ -1,6 +1,11 @@
 //! MXCSR controls and sticky status are distinct from the numerical calculation.
 
-use crate::{floating::RoundingMode, simd::SimdExceptions, SimdState};
+use crate::{
+    floating::RoundingMode,
+    simd::SimdExceptions,
+    state::{access::cpu_location, StatePattern},
+    SimdState,
+};
 use relocade_compiler::{Val, I1, I32, I8};
 
 pub(crate) struct Mxcsr(Val<I32>);
@@ -15,22 +20,31 @@ impl Mxcsr {
         self.0.and(SimdState::MXCSR_MASK)
     }
 
-    /// Status flags change as instructions execute; only control settings are
-    /// part of the numerical mode observed by a specializing compiler.
-    pub(crate) fn matches_controls(&self, observed: u32) -> Val<I1> {
+    pub(crate) fn control_pattern(observed: u32) -> StatePattern {
         const CONTROLS: u32 = 0xffc0;
-        self.0.and(CONTROLS).eq(observed & CONTROLS)
+        StatePattern::bits(
+            cpu_location!(simd.mxcsr),
+            u64::from(CONTROLS),
+            u64::from(observed),
+        )
     }
 
-    pub(crate) fn preserves_masked_precision(&self, observed: u32) -> Val<I1> {
+    pub(crate) fn precision_pattern(observed: u32) -> Option<StatePattern> {
         const PRECISION: u32 = 1 << 5;
         const PRECISION_MASK: u32 = 1 << 12;
         let masked_precision = PRECISION | PRECISION_MASK;
-        if observed & masked_precision == masked_precision {
-            self.0.and(masked_precision).eq(masked_precision)
-        } else {
-            true.into()
-        }
+        (observed & masked_precision == masked_precision).then(|| {
+            StatePattern::bits(
+                cpu_location!(simd.mxcsr),
+                u64::from(masked_precision),
+                u64::from(masked_precision),
+            )
+        })
+    }
+
+    pub(crate) fn nearest_rounding_pattern() -> StatePattern {
+        const ROUNDING_CONTROL: u64 = 0b11 << 13;
+        StatePattern::bits(cpu_location!(simd.mxcsr), ROUNDING_CONTROL, 0)
     }
 
     pub(crate) fn denormals_are_zero(&self) -> Val<I1> {

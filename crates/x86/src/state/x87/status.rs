@@ -46,8 +46,8 @@ impl Exception {
 }
 
 #[derive(Clone)]
-pub(super) struct Status {
-    fields: StateFields,
+pub(in crate::state) struct Status {
+    pub(in crate::state) fields: StateFields,
 }
 
 impl Status {

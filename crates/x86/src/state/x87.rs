@@ -13,7 +13,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{ssa::StateFields, x87::ExtendedValue};
 
-use super::{access::cpu_location, X87State};
+use super::{access::cpu_location, StatePattern, X87State};
 pub(crate) use control::Exception;
 
 #[derive(Clone, Copy)]
@@ -24,11 +24,39 @@ pub(crate) enum X87Specialization {
     Arithmetic,
 }
 
+impl X87Specialization {
+    pub(crate) fn pattern(self, observed: &X87State) -> Vec<StatePattern> {
+        // RC selects rounding for every specialized operation.
+        let mut pattern = vec![StatePattern::bits(
+            cpu_location!(x87.control.rounding_control),
+            0b11,
+            u64::from(observed.control.rounding_control),
+        )];
+        if matches!(self, Self::Arithmetic) {
+            // PC also selects the arithmetic result's significand precision.
+            pattern.push(StatePattern::bits(
+                cpu_location!(x87.control.precision_control),
+                0b11,
+                u64::from(observed.control.precision_control),
+            ));
+            if observed.control.precision_mask & observed.status.precision & 1 != 0 {
+                // Masked, already-set PE needs no sticky-status update. C1 and
+                // the numerical result still follow their normal rounding rules.
+                pattern.extend([
+                    StatePattern::bits(cpu_location!(x87.control.precision_mask), 1, 1),
+                    StatePattern::bits(cpu_location!(x87.status.precision), 1, 1),
+                ]);
+            }
+        }
+        pattern
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct X87Tracker {
     metadata: StateFields,
-    control: control::Control,
-    status: status::Status,
+    pub(super) control: control::Control,
+    pub(super) status: status::Status,
     registers: registers::Registers,
 }
 
@@ -100,37 +128,6 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
-    pub(crate) fn specialization_condition(
-        &mut self,
-        observed: &X87State,
-        specialization: X87Specialization,
-    ) -> Result<Val<I1>, BuildError> {
-        let mut condition =
-            self.state
-                .control
-                .matches_controls(self.body, &observed.control, specialization)?;
-        if matches!(specialization, X87Specialization::Arithmetic)
-            && observed.control.precision_mask & observed.status.precision & 1 != 0
-        {
-            // A masked, already-set PE cannot change on another inexact result.
-            // Guard both facts so repeated exception calculations fold away while
-            // C1 and the numerical result keep their normal rounding behavior.
-            condition = condition
-                .and(
-                    self.state
-                        .control
-                        .unmasked(self.body, Exception::Precision)?
-                        .eq(false),
-                )
-                .and(
-                    self.state
-                        .status
-                        .exception_raised(self.body, Exception::Precision)?,
-                );
-        }
-        Ok(condition)
-    }
-
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {
         self.state.control.word(self.body)
     }

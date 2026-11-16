@@ -1,7 +1,7 @@
 //! Masked field values shared by admission, guards and retained state.
 
 use super::{Address, Location, LocationKey, SsaType, StateFields};
-use relocade_compiler::{BlockBuilder, BuildError, IntType, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, IntType, Val, I1, I16, I32, I64, I8};
 
 /// Describes bits of one scalar field, independently of how they are established.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -41,6 +41,35 @@ impl StatePattern {
         let mut encoded = [0; size_of::<u64>()];
         encoded[..bytes].copy_from_slice(&record[start..start + bytes]);
         u64::from_le_bytes(encoded) & self.mask == self.expected
+    }
+
+    pub(crate) fn within_record(self, offset: usize, bytes: usize) -> bool {
+        let start = self.location.offset as usize;
+        start >= offset && start + self.location.bytes as usize <= offset + bytes
+    }
+
+    /// Reads the current retained value, including unpublished guest writes.
+    pub(crate) fn matches(
+        self,
+        body: &mut BlockBuilder<'_>,
+        fields: &mut StateFields,
+    ) -> Result<Val<I1>, BuildError> {
+        let offset = self.location.offset;
+        macro_rules! matches {
+            ($ty:ty) => {
+                fields
+                    .read(body, Location::<$ty>::new(offset))?
+                    .and(Val::<I64>::from(self.mask).truncate::<$ty>())
+                    .eq(Val::<I64>::from(self.expected).truncate::<$ty>())
+            };
+        }
+        Ok(match self.location.bytes {
+            1 => matches!(I8),
+            2 => matches!(I16),
+            4 => matches!(I32),
+            8 => matches!(I64),
+            _ => unreachable!("state patterns have scalar storage widths"),
+        })
     }
 
     /// The caller establishes these bits by admission or a guard on this path.

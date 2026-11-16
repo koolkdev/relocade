@@ -33,8 +33,7 @@ fn convert<T: BinaryEncoding>(
     source: XmmLocation,
     rounding: IntegerRounding,
 ) -> Result<(), BuildError> {
-    let controls = execution.simd_controls()?;
-    execution.specialize_simd_precision(&controls)?;
+    let controls = execution.simd_precision_controls()?;
     let rounding = rounding.mode(&controls);
     let source = source.read::<V128>(execution, VectorAlignment::Aligned)?;
     let result = PackedFloatOperand::new(T::FORMAT, source, controls.denormals_are_zero())

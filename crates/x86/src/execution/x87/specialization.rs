@@ -15,17 +15,9 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         specialization: X87Specialization,
     ) -> Result<(), BuildError> {
-        self.if_can_fallback(|jit| {
-            let Some(observed) = jit.observed_cpu else {
-                return Ok(());
-            };
-            let condition = jit
-                .x87()
-                .specialization_condition(&observed.x87, specialization)?;
-            jit.guard(condition)?;
-            jit.x87()
-                .assume_controls(&observed.x87.control, specialization)
-        })?;
+        if let Some(observed) = self.observed_cpu {
+            self.specialize_state(&specialization.pattern(&observed.x87))?;
+        }
         Ok(())
     }
 
