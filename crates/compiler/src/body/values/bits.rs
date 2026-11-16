@@ -1,46 +1,55 @@
 //! Known physical bits and direct operation transfers.
-use super::*;
+use crate::{
+    bitwise::BitwiseOp,
+    body::{ValueDefinition, ValueTable},
+    expression::{
+        BinaryOp as Binary, CompareOp as Compare, ShiftOp as Shift, TernaryOp as Ternary,
+        UnaryOp as Unary,
+    },
+    integer::{self, CompareOp, ShiftOp},
+    Expression, Type,
+};
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub(in crate::ssa) struct Bits {
-    pub(in crate::ssa) zero: u64,
-    pub(in crate::ssa) one: u64,
+pub(crate) struct Bits {
+    pub(crate) zero: u64,
+    pub(crate) one: u64,
 }
 
 impl Bits {
-    pub(in crate::ssa) fn constant(value: u64, mask: u64) -> Self {
+    pub(crate) fn constant(value: u64, mask: u64) -> Self {
         Self {
             zero: !value & mask,
             one: value & mask,
         }
     }
-    pub(in crate::ssa) fn known(self, mask: u64) -> Option<u64> {
+    pub(crate) fn known(self, mask: u64) -> Option<u64> {
         ((self.zero | self.one) & mask == mask).then_some(self.one & mask)
     }
-    pub(in crate::ssa) fn intersect(self, other: Self) -> Self {
+    pub(crate) fn intersect(self, other: Self) -> Self {
         Self {
             zero: self.zero & other.zero,
             one: self.one & other.one,
         }
     }
-    pub(in crate::ssa) fn restrict(self, mask: u64) -> Self {
+    pub(crate) fn restrict(self, mask: u64) -> Self {
         Self {
             zero: self.zero & mask,
             one: self.one & mask,
         }
     }
-    pub(in crate::ssa) fn union(self, other: Self) -> Self {
+    pub(crate) fn union(self, other: Self) -> Self {
         Self {
             zero: self.zero | other.zero,
             one: self.one | other.one,
         }
     }
-    pub(in crate::ssa) fn conflicts(self, other: Self) -> bool {
+    pub(crate) fn conflicts(self, other: Self) -> bool {
         (self.zero & other.one) | (self.one & other.zero) != 0
     }
 }
 
-pub(super) fn initial_bits(values: &ValueTable<impl crate::body::Phase>, id: usize) -> Bits {
+pub(crate) fn initial_bits(values: &ValueTable<impl crate::body::Phase>, id: usize) -> Bits {
     let value = values[id];
     if !matches!(
         value.ty,
@@ -58,10 +67,10 @@ pub(super) fn initial_bits(values: &ValueTable<impl crate::body::Phase>, id: usi
     }
 }
 
-pub(super) fn infer_bits(
+pub(crate) fn infer_bits(
     values: &ValueTable<impl crate::body::Phase>,
     id: usize,
-    get: impl Fn(usize) -> Summary,
+    bits: impl Fn(usize) -> Bits,
 ) -> Bits {
     let base = initial_bits(values, id);
     let ty = values[id].ty;
@@ -69,7 +78,6 @@ pub(super) fn infer_bits(
         return base;
     }
     let mask = ty.carrier().mask();
-    let bits = |id: usize| get(id).bits;
     let ValueDefinition::Expression(expression) = values[id].definition else {
         return base;
     };

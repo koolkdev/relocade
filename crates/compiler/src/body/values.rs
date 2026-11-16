@@ -8,8 +8,10 @@ use std::hash::BuildHasher;
 use super::{BlockItem, Value, ValueDefinition};
 use crate::{Expression, Type};
 
+mod bits;
 mod bounds;
 mod definitions;
+pub(crate) use bits::{infer_bits, initial_bits, Bits};
 pub(crate) use bounds::BitBounds;
 pub(crate) use definitions::Definitions;
 #[cfg(test)]
