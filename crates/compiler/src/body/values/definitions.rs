@@ -11,7 +11,7 @@ pub(crate) struct Definitions {
 impl Phase for Definitions {
     const INTERN_EXPRESSIONS: bool = false;
 
-    fn record(&mut self, value: Value) {
+    fn record(&mut self, _index: usize, value: Value) {
         self.blocks.push(match value.definition {
             ValueDefinition::Parameter { block, .. }
             | ValueDefinition::RefinedAlias { block, .. } => NonZeroUsize::new(block.0 + 1),

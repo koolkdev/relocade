@@ -20,14 +20,50 @@ mod tests;
 /// Construction shares immutable recipes; SSA gives each calculation its own definition.
 pub(crate) trait Phase: Default {
     const INTERN_EXPRESSIONS: bool;
-    fn record(&mut self, _value: Value) {}
+    fn record(&mut self, _index: usize, _value: Value) {}
     fn compact(&mut self, _retained: &[Option<usize>]) {}
 }
 
 #[derive(Default)]
-pub(crate) struct Recipes;
+pub(crate) struct Recipes {
+    // Allocated only when construction introduces the first explicit fact.
+    refined: Vec<bool>,
+}
 impl Phase for Recipes {
     const INTERN_EXPRESSIONS: bool = true;
+
+    fn record(&mut self, index: usize, value: Value) {
+        if self.refined.is_empty() {
+            if !matches!(
+                value.definition,
+                ValueDefinition::RefinedAlias {
+                    assumption: Some(_),
+                    ..
+                }
+            ) {
+                return;
+            }
+            self.refined.resize(index, false);
+        }
+        let refined = match value.definition {
+            ValueDefinition::RefinedAlias {
+                source, assumption, ..
+            } => assumption.is_some() || self.refined[source],
+            ValueDefinition::Expression(expression) => {
+                expression.inputs().any(|&input| self.refined[input])
+            }
+            ValueDefinition::Result {
+                producer: BlockItem::Evaluate(producer),
+                ..
+            } => self.refined[producer],
+            _ => false,
+        };
+        self.refined.push(refined);
+    }
+
+    fn compact(&mut self, _retained: &[Option<usize>]) {
+        self.refined = Vec::new();
+    }
 }
 
 #[derive(Default)]
@@ -222,7 +258,7 @@ impl<P: Phase> ValueTable<P> {
     pub(crate) fn push_with_bounds(&mut self, value: Value, bounds: BitBounds) -> usize {
         let index = self.values.len();
         self.bounds.push(bounds);
-        self.phase.record(value);
+        self.phase.record(index, value);
         self.values.push(value);
         if let ValueDefinition::Expression(expression) = value.definition {
             for (component, ty) in expression.result_types(value.ty).enumerate().skip(1) {
@@ -254,6 +290,12 @@ impl<P: Phase> ValueTable<P> {
             self.hash_builder.hash_one(self.values[index])
         });
         index
+    }
+}
+
+impl ValueTable<Recipes> {
+    pub(crate) fn depends_on_assumption(&self, value: usize) -> bool {
+        self.phase.refined.get(value).copied().unwrap_or(false)
     }
 }
 

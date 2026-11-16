@@ -201,3 +201,24 @@ fn loop_assumptions_describe_each_iterations_current_value() {
         assert_eq!(run.call(&mut store, count).unwrap(), 3 + 4 * count);
     }
 }
+
+#[test]
+fn partial_queries_can_learn_more_bits_later() {
+    let mut program = Program::new();
+    let run = program.function::<fn(u32, u32) -> u32>(|body, (left, right)| {
+        let low = body.assume_bits(left, 0x7f, 1)?;
+        let high = right.shl(7);
+        let combined = low.or(high);
+        let same = body.assume_bits(&combined, 1, 1)?;
+        assert!(same.same_expression(&combined));
+        assert_eq!(body.constant_bits(combined.and(1))?, Some(1));
+        assert_eq!(body.constant_bits(combined.and(0x7f))?, Some(1));
+        assert_eq!(body.constant_bits(combined.and(0xff))?, None);
+        assert_eq!(body.constant_bits(&combined)?, None);
+        body.return_(combined)
+    });
+    program.export("run", run).unwrap();
+    Validator::new()
+        .validate_all(&program.compile().unwrap())
+        .unwrap();
+}

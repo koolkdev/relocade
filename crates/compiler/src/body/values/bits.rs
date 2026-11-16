@@ -92,73 +92,80 @@ pub(crate) fn infer_bits(
         return base;
     };
     let inferred = match expression {
-        Expression::Unary { operator, input } => {
-            let a = bits(input);
-            match operator {
-                Unary::Convert => a,
-                Unary::LowBits { bits } => a.restrict(integer::low_mask(bits)).union(Bits {
-                    zero: mask & !integer::low_mask(bits),
+        Expression::Unary { operator, input } => match operator {
+            Unary::Convert => bits(input),
+            Unary::LowBits { bits: width } => {
+                bits(input).restrict(integer::low_mask(width)).union(Bits {
+                    zero: mask & !integer::low_mask(width),
                     one: 0,
-                }),
-                Unary::ZeroTest { nonzero } => {
-                    let source_mask = values[input].ty.carrier().mask();
-                    if a.one != 0 {
-                        Bits::constant(u64::from(nonzero), mask)
-                    } else if a.zero & source_mask == source_mask {
-                        Bits::constant(u64::from(!nonzero), mask)
-                    } else {
-                        base
-                    }
-                }
-                Unary::SignExtend { input_type } => {
-                    let low = integer::low_mask(input_type.bits());
-                    let sign = 1 << (input_type.bits() - 1);
-                    a.restrict(low).union(Bits {
-                        zero: if a.zero & sign != 0 { mask & !low } else { 0 },
-                        one: if a.one & sign != 0 { mask & !low } else { 0 },
-                    })
-                }
-                _ => base,
+                })
             }
-        }
+            Unary::ZeroTest { nonzero } => {
+                let a = bits(input);
+                let source_mask = values[input].ty.carrier().mask();
+                if a.one != 0 {
+                    Bits::constant(u64::from(nonzero), mask)
+                } else if a.zero & source_mask == source_mask {
+                    Bits::constant(u64::from(!nonzero), mask)
+                } else {
+                    base
+                }
+            }
+            Unary::SignExtend { input_type } => {
+                let a = bits(input);
+                let low = integer::low_mask(input_type.bits());
+                let sign = 1 << (input_type.bits() - 1);
+                a.restrict(low).union(Bits {
+                    zero: if a.zero & sign != 0 { mask & !low } else { 0 },
+                    one: if a.one & sign != 0 { mask & !low } else { 0 },
+                })
+            }
+            _ => base,
+        },
         Expression::Binary {
             operator,
             left,
             right,
-        } => {
-            let a = bits(left);
-            let b = bits(right);
-            match operator {
-                Binary::Bitwise(BitwiseOp::And) => Bits {
-                    zero: a.zero | b.zero,
-                    one: a.one & b.one,
-                },
-                Binary::Bitwise(BitwiseOp::Or) => Bits {
-                    zero: a.zero & b.zero,
-                    one: a.one | b.one,
-                },
-                Binary::Bitwise(BitwiseOp::Xor) => Bits {
-                    zero: (a.zero & b.zero) | (a.one & b.one),
-                    one: (a.zero & b.one) | (a.one & b.zero),
-                },
-                Binary::Compare(Compare::Integer(operator)) => {
-                    compare(operator, a, b, values[left].ty.carrier(), left == right)
-                        .map(|truth| Bits::constant(u64::from(truth), mask))
-                        .unwrap_or(base)
+        } => match operator {
+            Binary::Bitwise(operator) => {
+                let a = bits(left);
+                let b = bits(right);
+                match operator {
+                    BitwiseOp::And => Bits {
+                        zero: a.zero | b.zero,
+                        one: a.one & b.one,
+                    },
+                    BitwiseOp::Or => Bits {
+                        zero: a.zero & b.zero,
+                        one: a.one | b.one,
+                    },
+                    BitwiseOp::Xor => Bits {
+                        zero: (a.zero & b.zero) | (a.one & b.one),
+                        one: (a.zero & b.one) | (a.one & b.zero),
+                    },
                 }
-                Binary::Integer(operator @ (integer::BinaryOp::Add | integer::BinaryOp::Sub)) => {
-                    let common = (a.zero | a.one) & (b.zero | b.one);
-                    let low = integer::low_mask(common.trailing_ones() as u8);
-                    let value = if operator == integer::BinaryOp::Add {
-                        a.one.wrapping_add(b.one)
-                    } else {
-                        a.one.wrapping_sub(b.one)
-                    };
-                    Bits::constant(value, low)
-                }
-                _ => base,
             }
-        }
+            Binary::Compare(Compare::Integer(operator)) => {
+                let a = bits(left);
+                let b = bits(right);
+                compare(operator, a, b, values[left].ty.carrier(), left == right)
+                    .map(|truth| Bits::constant(u64::from(truth), mask))
+                    .unwrap_or(base)
+            }
+            Binary::Integer(operator @ (integer::BinaryOp::Add | integer::BinaryOp::Sub)) => {
+                let a = bits(left);
+                let b = bits(right);
+                let common = (a.zero | a.one) & (b.zero | b.one);
+                let low = integer::low_mask(common.trailing_ones() as u8);
+                let value = if operator == integer::BinaryOp::Add {
+                    a.one.wrapping_add(b.one)
+                } else {
+                    a.one.wrapping_sub(b.one)
+                };
+                Bits::constant(value, low)
+            }
+            _ => base,
+        },
         Expression::Shift {
             operator: Shift::Scalar(operator),
             value,
