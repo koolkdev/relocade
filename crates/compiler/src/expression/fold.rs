@@ -200,12 +200,11 @@ impl<P: Phase> Folder<'_, P> {
             definition: ValueDefinition::Expression(expression),
         });
         let id = self.values.expression_result(id, component);
-        if ty.is_integer() {
-            if let Some(bits) = self.values.constant_carrier_bits(id) {
-                return self.values.carrier_literal(ty, bits);
-            }
-        } else if self.values.bounds[id].unsigned == 0 {
+        if self.values.bounds[id].unsigned == 0 {
             return self.values.literal(ty, 0);
+        }
+        if let Some(bits) = self.values.constant_carrier_bits(id) {
+            return self.values.carrier_literal(ty, bits);
         }
         id
     }

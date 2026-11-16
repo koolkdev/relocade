@@ -29,7 +29,7 @@ pub(crate) trait Phase: Default {
 
 #[derive(Default)]
 pub(crate) struct Recipes {
-    // Zero denotes facts already described by the literal or physical bounds.
+    // Missing or zero indices use the value's literal and physical bounds.
     facts: Vec<u32>,
     bits: Vec<Bits>,
 }
@@ -44,17 +44,17 @@ impl Phase for Recipes {
                 ValueDefinition::Expression(_) | ValueDefinition::RefinedAlias { .. }
             )
         {
-            values.phase.facts.push(0);
             return;
         }
         let base = initial_bits(values, index);
         let known = infer_bits(values, index, |input| values.known_bits(input));
-        let fact = if known == base {
-            0
-        } else {
-            values.phase.bits.push(known);
-            u32::try_from(values.phase.bits.len()).expect("construction fact index fits u32")
-        };
+        if known == base {
+            return;
+        }
+        values.phase.bits.push(known);
+        let fact =
+            u32::try_from(values.phase.bits.len()).expect("construction fact index fits u32");
+        values.phase.facts.resize(index, 0);
         values.phase.facts.push(fact);
     }
 
@@ -154,20 +154,15 @@ impl<P: Phase> ValueTable<P> {
         initial_bits(self, value).union(self.phase.bits(value))
     }
 
-    /// Folding must establish every physical bit, including unused logical upper bits.
+    /// Retained facts supplement literal and zero-width folding. Every physical
+    /// bit must be known, including unused logical upper bits.
     pub(crate) fn constant_carrier_bits(&self, value: usize) -> Option<u64> {
-        if let Some(bits) = self.values[value].scalar_literal() {
-            return Some(bits);
+        let known = self.phase.bits(value);
+        if known == Bits::default() {
+            None
+        } else {
+            known.known(self.values[value].ty.carrier().mask())
         }
-        if self.bounds[value].unsigned == 0 {
-            return Some(0);
-        }
-        let bits = self.phase.bits(value);
-        if bits == Bits::default() {
-            return None;
-        }
-        bits.union(initial_bits(self, value))
-            .known(self.values[value].ty.carrier().mask())
     }
 
     /// Store proof bits separately so ordinary values keep their compact layout.
