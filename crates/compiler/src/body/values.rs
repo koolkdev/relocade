@@ -5,7 +5,7 @@ use hashbrown::HashTable;
 use rustc_hash::FxBuildHasher;
 use std::hash::BuildHasher;
 
-use super::{BlockItem, Value, ValueDefinition};
+use super::{BlockId, BlockItem, Value, ValueDefinition};
 use crate::{Expression, Type};
 
 mod bits;
@@ -34,6 +34,7 @@ impl Phase for Recipes {
 pub(crate) struct ValueTable<P: Phase = Recipes> {
     pub(crate) values: Vec<Value>,
     pub(crate) bounds: Vec<BitBounds>,
+    assumptions: Vec<Bits>,
     interned: HashTable<usize>,
     hash_builder: FxBuildHasher,
     phase: P,
@@ -61,9 +62,11 @@ impl<P: Phase> ValueTable<P> {
                 ValueDefinition::RefinedAlias {
                     source: input,
                     block,
+                    assumption,
                 } => ValueDefinition::RefinedAlias {
                     source: remapping.value(input),
                     block,
+                    assumption,
                 },
                 ValueDefinition::Expression(expression) => {
                     ValueDefinition::Expression(expression.map(|&input| remapping.value(input)))
@@ -103,6 +106,58 @@ impl<P: Phase> ValueTable<P> {
             expression,
             component,
         })
+    }
+
+    /// Store proof bits separately so ordinary values keep their compact layout.
+    pub(crate) fn refined_alias(&mut self, source: usize, block: BlockId, known: Bits) -> usize {
+        let assumption = if known == Bits::default() {
+            None
+        } else {
+            self.assumptions.push(known);
+            std::num::NonZeroUsize::new(self.assumptions.len())
+        };
+        self.push(Value {
+            ty: self.values[source].ty,
+            definition: ValueDefinition::RefinedAlias {
+                source,
+                block,
+                assumption,
+            },
+        })
+    }
+
+    pub(crate) fn refinement_bits(&self, value: usize) -> Bits {
+        match self.values[value].definition {
+            ValueDefinition::RefinedAlias {
+                assumption: Some(index),
+                ..
+            } => self.assumptions[index.get() - 1],
+            _ => Bits::default(),
+        }
+    }
+
+    /// A calculated value or proof alias is placed where its consumers need it.
+    pub(crate) fn recipe(&self, id: usize) -> Option<usize> {
+        if matches!(
+            self.values[id].definition,
+            ValueDefinition::RefinedAlias { .. }
+        ) {
+            Some(id)
+        } else {
+            self.expression(id).map(|result| result.producer)
+        }
+    }
+
+    pub(crate) fn recipe_inputs(&self, id: usize) -> impl DoubleEndedIterator<Item = usize> {
+        let mut inputs = [None; 3];
+        if let ValueDefinition::RefinedAlias { source, .. } = self.values[id].definition {
+            inputs[0] = Some(source);
+        } else if let Some(result) = self.expression(id) {
+            for (slot, &input) in inputs.iter_mut().zip(result.expression.inputs()) {
+                *slot = Some(input);
+            }
+        }
+        inputs.into_iter().flatten()
     }
 
     /// Pure results are allocated together, with the expression in the first slot.

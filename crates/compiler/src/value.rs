@@ -189,6 +189,7 @@ impl<T: ValueType> Val<T> {
 impl<T: IntType> Val<T> {
     /// Returns the zero-extended logical bits known during construction.
     /// Standalone calculations use the same folding rules as body expressions.
+    /// Explicit value assumptions contribute known bits during construction.
     /// Runtime values and constants discovered only during placement return `None`.
     /// Recorded construction errors and closed bodies return an error.
     ///

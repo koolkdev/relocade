@@ -70,7 +70,7 @@ pub(crate) fn initial_bits(values: &ValueTable<impl crate::body::Phase>, id: usi
 pub(crate) fn infer_bits(
     values: &ValueTable<impl crate::body::Phase>,
     id: usize,
-    bits: impl Fn(usize) -> Bits,
+    mut bits: impl FnMut(usize) -> Bits,
 ) -> Bits {
     let base = initial_bits(values, id);
     let ty = values[id].ty;
@@ -78,6 +78,16 @@ pub(crate) fn infer_bits(
         return base;
     }
     let mask = ty.carrier().mask();
+    if let ValueDefinition::RefinedAlias { source, .. } = values[id].definition {
+        let prior = base.union(bits(source));
+        let known = values.refinement_bits(id);
+        return if prior.conflicts(known) {
+            prior
+        } else {
+            prior.union(known)
+        }
+        .restrict(mask);
+    }
     let ValueDefinition::Expression(expression) = values[id].definition else {
         return base;
     };
@@ -131,15 +141,11 @@ pub(crate) fn infer_bits(
                     zero: (a.zero & b.zero) | (a.one & b.one),
                     one: (a.zero & b.one) | (a.one & b.zero),
                 },
-                Binary::Compare(Compare::Integer(operator)) => compare(
-                    operator,
-                    a,
-                    b,
-                    values[left].ty.carrier().mask(),
-                    left == right,
-                )
-                .map(|truth| Bits::constant(u64::from(truth), mask))
-                .unwrap_or(base),
+                Binary::Compare(Compare::Integer(operator)) => {
+                    compare(operator, a, b, values[left].ty.carrier(), left == right)
+                        .map(|truth| Bits::constant(u64::from(truth), mask))
+                        .unwrap_or(base)
+                }
                 Binary::Integer(operator @ (integer::BinaryOp::Add | integer::BinaryOp::Sub)) => {
                     let common = (a.zero | a.one) & (b.zero | b.one);
                     let low = integer::low_mask(common.trailing_ones() as u8);
@@ -199,7 +205,11 @@ pub(crate) fn infer_bits(
     base.union(inferred.restrict(mask))
 }
 
-fn compare(operator: CompareOp, a: Bits, b: Bits, mask: u64, same: bool) -> Option<bool> {
+fn compare(operator: CompareOp, a: Bits, b: Bits, ty: Type, same: bool) -> Option<bool> {
+    let mask = ty.mask();
+    if let (Some(left), Some(right)) = (a.known(mask), b.known(mask)) {
+        return Some(integer::compare(ty, operator, left, right));
+    }
     if same {
         return Some(matches!(
             operator,

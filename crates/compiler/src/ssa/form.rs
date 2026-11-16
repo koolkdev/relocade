@@ -73,13 +73,13 @@ pub(super) fn build(
         }
         for &item in &block.items {
             for input in graph.inputs(item) {
-                if graph.values.expression(input).is_some() {
+                if graph.values.recipe(input).is_some() {
                     demands[input].add(BlockId(index), dominators);
                 }
             }
         }
         for input in block.exit.inputs() {
-            if graph.values.expression(input).is_some() {
+            if graph.values.recipe(input).is_some() {
                 demands[input].add(BlockId(index), dominators);
             }
         }
@@ -88,12 +88,12 @@ pub(super) fn build(
     let mut scheduled = vec![Vec::new(); graph.blocks.len()];
     for id in (0..original).rev() {
         let sites = std::mem::take(&mut demands[id]).choose(&mut coverage);
-        if let Some(result) = graph.values.expression(id) {
+        if let Some(producer) = graph.values.recipe(id) {
             for site in sites {
-                scheduled[site.0].push(result.producer);
-                for &input in result.expression.inputs() {
+                scheduled[site.0].push(producer);
+                for input in graph.values.recipe_inputs(id) {
                     debug_assert!(input < id);
-                    if graph.values.expression(input).is_some() {
+                    if graph.values.recipe(input).is_some() {
                         demands[input].add(site, dominators);
                     }
                 }
@@ -239,7 +239,7 @@ impl Formation<'_> {
             if self.bindings[id].is_some() {
                 continue;
             }
-            let Some(result) = self.source.expression(id) else {
+            let Some(producer) = self.source.recipe(id) else {
                 assert!(
                     matches!(self.source[id].definition, ValueDefinition::Literal(_)),
                     "SSA operand has an available definition"
@@ -249,20 +249,29 @@ impl Formation<'_> {
                 continue;
             };
             assert!(
-                here[result.producer] == block.0 + 1,
+                here[producer] == block.0 + 1,
                 "a demanded calculation has a planned definition"
             );
             if !ready {
                 pending.push((id, true));
                 pending.extend(
-                    result
-                        .expression
-                        .inputs()
+                    self.source
+                        .recipe_inputs(id)
                         .rev()
-                        .map(|&input| (input, false)),
+                        .map(|input| (input, false)),
                 );
                 continue;
             }
+            if let ValueDefinition::RefinedAlias { source, .. } = self.source[id].definition {
+                let value = self.graph.values.refined_alias(
+                    self.bindings[source].unwrap(),
+                    block,
+                    self.source.refinement_bits(id),
+                );
+                self.define(id, value);
+                continue;
+            }
+            let result = self.source.expression(id).unwrap();
             let expression = result
                 .expression
                 .map(|&input| self.bindings[input].unwrap());
