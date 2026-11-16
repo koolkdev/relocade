@@ -3,10 +3,10 @@
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I8};
 
 use crate::{
+    execution::ExecutionModule,
     memory::{Intent, Memory, PageCache},
     segment::Segment,
     state::{exit, Cpu, State},
-    ExecutionProfile,
 };
 
 /// A speculative instruction window. Only an available window permits direct reads.
@@ -24,15 +24,11 @@ pub(crate) struct InstructionFetch<'module> {
 }
 
 impl<'module> InstructionFetch<'module> {
-    pub(crate) fn new(
-        cpu: &'module Cpu,
-        memory: &'module Memory,
-        profile: ExecutionProfile,
-    ) -> Self {
+    pub(crate) fn new(module: &'module ExecutionModule) -> Self {
         Self {
-            memory,
-            cpu,
-            state: State::new(cpu).with_profile(profile),
+            memory: &module.memory,
+            cpu: &module.cpu,
+            state: module.state(),
         }
     }
 

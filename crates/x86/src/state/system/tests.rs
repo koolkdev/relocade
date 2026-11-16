@@ -70,7 +70,8 @@ fn admitted_modes_fold_privilege_and_timestamp_predicates() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::new(&cpu).with_profile(profile);
+            let mut state =
+                State::for_entry(&cpu, profile, &crate::profile::entry_assumptions(profile));
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;
@@ -96,7 +97,11 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
-        let mut state = State::new(&cpu).with_profile(SegmentProfile::Flat32.into());
+        let mut state = State::for_entry(
+            &cpu,
+            SegmentProfile::Flat32.into(),
+            &crate::profile::entry_assumptions(SegmentProfile::Flat32.into()),
+        );
         let selector = state
             .segments()
             .read_selector(&mut body, &crate::Segment::Cs.into())?;

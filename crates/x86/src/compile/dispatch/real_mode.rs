@@ -16,7 +16,11 @@ pub(super) fn lookup(
 ) -> TypedFunc<fn() -> u32> {
     program.function::<fn() -> u32>(move |mut body, ()| {
         let eip = cpu.read_eip(&mut body)?;
-        let mut state = State::new(&cpu).with_profile(ExecutionProfile::Real16);
+        let mut state = State::for_entry(
+            &cpu,
+            ExecutionProfile::Real16,
+            &crate::profile::entry_assumptions(ExecutionProfile::Real16),
+        );
         body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
         let cs = state
             .segments()
@@ -38,7 +42,11 @@ pub(super) fn define_call_resolver(
         body.if_(eip.unsigned().ge(0x10000), |body| {
             body.return_((EntryTable::INTERPRETER_SLOT, true))
         })?;
-        let mut state = State::new(&cpu).with_profile(ExecutionProfile::Real16);
+        let mut state = State::for_entry(
+            &cpu,
+            ExecutionProfile::Real16,
+            &crate::profile::entry_assumptions(ExecutionProfile::Real16),
+        );
         let cs = state
             .segments()
             .read_selector(&mut body, &Segment::Cs.into())?;

@@ -77,13 +77,16 @@ impl<'cpu> State<'cpu> {
         }
     }
 
-    /// The existing entry admission maintains the profile until dispatch.
-    pub(crate) fn with_profile(mut self, profile: crate::ExecutionProfile) -> Self {
-        self.profile = Some(profile);
-        self.fields = self
-            .fields
-            .with_entry_assumptions(crate::profile::entry_assumptions(profile));
-        self
+    /// Each function starts with fresh retained values under the same entry guarantees.
+    pub(crate) fn for_entry(
+        cpu: &'cpu Cpu,
+        profile: crate::ExecutionProfile,
+        assumptions: &[StatePattern],
+    ) -> Self {
+        let mut state = Self::new(cpu);
+        state.profile = Some(profile);
+        state.fields = state.fields.with_entry_assumptions(assumptions.to_vec());
+        state
     }
 
     pub(crate) fn profile(&self) -> crate::ExecutionProfile {
