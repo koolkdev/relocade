@@ -46,6 +46,8 @@ fn selected_et4000_runs_banked_graphics_cursor_and_text_through_dos() {
                         0x26, 0xc7, 0x06, 0, 0, 0x78, 0x56, // First word of bank one.
                         0xbb, 1, 0, 0xb8, 5, 0x4f, 0xcd, 0x10, // Read window -> bank one.
                         0x26, 0xa1, 0, 0, 0xa3, 6, 5, // Save the banked read.
+                        0xbb, 0, 0, 0xba, 15, 0, 0xb8, 5, 0x4f, 0xcd,
+                        0x10, // Keep read bank 1 and write bank 15 during cursor drawing.
                         0x31, 0xc0, 0xcd, 0x33, 0xa3, 8,
                         5, // Reset the resident mouse driver.
                         0xb9, 0, 1, 0xba, 102, 0, 0xb8, 4, 0, 0xcd,
@@ -75,7 +77,7 @@ fn selected_et4000_runs_banked_graphics_cursor_and_text_through_dos() {
                     assert_eq!(memory.view().read_u16(base + 0x412).unwrap(), 640);
                     assert_eq!(memory.view().read_u16(base + 0x506).unwrap(), 0x5678);
                     assert_eq!(memory.view().read_u16(base + 0x508).unwrap(), 0xffff);
-                    assert_eq!(io.read_port(0x3cd, 1), 0x11);
+                    assert_eq!(io.read_port(0x3cd, 1), 0x1f);
                     {
                         let mut display = display.borrow_mut();
                         let frame = display.framebuffer();
@@ -111,7 +113,7 @@ fn selected_et4000_runs_banked_graphics_cursor_and_text_through_dos() {
                     );
                     assert_eq!(
                         io.read_port(0x3cd, 1),
-                        0x11,
+                        0x1f,
                         "cursor access preserves CPU banks"
                     );
                     assert_eq!(

@@ -67,8 +67,8 @@ setup: changes and removals are preserved by passing those entries to later
 launches. DOS copies exactly what the caller supplies. `BLASTER` describes the
 installed settings, and changing its value does not reconfigure the card.
 
-`VideoCard::Dispi` is currently the only video choice. The same configuration
-route is available to native and browser Rust callers. `dos.video_card()` exposes
+The same video-card configuration route is available to native and browser Rust
+callers. `dos.video_card()` exposes
 the card's frame delivery and native framebuffer access, which the DOS mouse
 driver uses to draw its cursor and restore the pixels underneath it.
 
