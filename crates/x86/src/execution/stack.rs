@@ -1,6 +1,7 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
 mod access;
+pub(crate) use access::StackAccess;
 
 use std::marker::PhantomData;
 

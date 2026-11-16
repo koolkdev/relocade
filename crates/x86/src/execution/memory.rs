@@ -153,16 +153,6 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
             .write_masked(&mut self.body, &operand.access, &value, &mask)
     }
 
-    /// Reads a linear address without applying a data segment or address-size wrap.
-    /// System-table accesses still use the profile's ordinary memory routing.
-    pub(crate) fn read_linear_memory<T: MemoryInt + TransferType>(
-        &mut self,
-        linear: impl Into<Val<I32>>,
-    ) -> Result<Val<T>, BuildError> {
-        let access = self.resolve_access(&linear.into(), T::BYTES, Intent::Read)?;
-        self.accesses.memory().read(&mut self.body, &access, 0)
-    }
-
     pub(super) fn read_memory<T: TransferType>(
         &mut self,
         address: MemoryAddress<impl Into<Val<I32>>>,

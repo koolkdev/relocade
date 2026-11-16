@@ -121,8 +121,15 @@ fn stack_bounds(frontend: Frontend) {
         input.mmio_pages = vec![(0, 0x7000), (0x2f, 0x9000)];
         input.observe_mmio = true;
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(
             module.observe(&input, 1),
@@ -193,7 +200,8 @@ fn conditional_entry(frontend: Frontend) {
             &[]
         };
         let expect = match frontend {
-            Frontend::Block => expected,
+            Frontend::Block if !overflow => expected,
+            Frontend::Block => expected_steps,
             Frontend::Interpreter => expected_steps,
         };
         let mut wanted = expect(
@@ -232,8 +240,15 @@ fn conditional_entry(frontend: Frontend) {
             );
         }
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         assert_eq!(module.observe( &input, 1), wanted,
             "INTO tests lazy OF, performs word transfers in order, and skips all entry effects when clear");
@@ -251,15 +266,31 @@ fn aliased_vector(frontend: Frontend) {
     let mut cpu = entered(&image, 1);
     cpu.segments.cs = cache(Segment::Cs, 0);
     cpu.eip = 0x1001;
-    sequences(frontend).check(
-        "the return IP and CS overwrite vector 3 before the target is loaded",
-        &code,
-        &image,
-        &[Step {
-            cpu,
-            ram: &[(0x700c, &[1, 0x10, 0, 0, 0xd7, 0x5f])],
-            exit: Exit::Dispatch(0x1001),
-        }],
+    let module = match frontend {
+        Frontend::Block => TestModule::new(
+            &relocade_x86::Compiler::new(ExecutionProfile::Real16)
+                .compile_block(image.cpu.eip, &code, 1)
+                .unwrap(),
+        ),
+        Frontend::Interpreter => {
+            TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+        }
+    };
+    let expect = match frontend {
+        Frontend::Block => expected,
+        Frontend::Interpreter => expected_steps,
+    };
+    assert_eq!(
+        module.observe(&image.input(), 1),
+        expect(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[(0x700c, &[1, 0x10, 0, 0, 0xd7, 0x5f])],
+                exit: Exit::Dispatch(0x1001),
+            }]
+        ),
+        "the preflight must stay compiled and load vector 3 after the pushes",
     );
 }
 test_frontends!(stack_aliases_vector_table, aliased_vector);
