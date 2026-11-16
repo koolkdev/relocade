@@ -1,13 +1,87 @@
 //! Real-mode entry shared by software INT, faults and acknowledged external requests.
 
-use super::{CodeTarget, ExecutionBuilder};
+use super::{stack::StackAccess, CodeTarget, ExecutionBuilder};
 use crate::{
     flags::{image, Flag},
+    memory::{Access, Intent},
     real_mode::{FarPointer, InterruptFrame},
     ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, ExecutionProfile,
     Segment,
 };
 use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I8};
+
+/// The stack and IVT share one availability decision; a slow transfer can
+/// change routing for later transfers in either span.
+struct InterruptEntry {
+    stack: StackAccess,
+    vector: Access,
+}
+
+impl InterruptEntry {
+    fn check(
+        execution: &mut ExecutionBuilder<'_, '_>,
+        vector: &Val<I8>,
+        condition: impl Into<Val<I1>>,
+    ) -> Result<Self, BuildError> {
+        let bytes = InterruptFrame::BYTE_LEN as u32;
+        let mut stack = execution
+            .stack_pointer()?
+            .advance(0u32.wrapping_sub(bytes))
+            .check_access::<I16>(execution, 3, Intent::Write)?;
+        let address = vector
+            .unsigned()
+            .extend::<I32>()
+            .mul(FarPointer::BYTE_LEN as u32);
+        let mut vector = execution.accesses.memory().check_access(
+            &mut execution.body,
+            &address,
+            FarPointer::BYTE_LEN as u32,
+            Intent::Read,
+            None,
+            None,
+        )?;
+        execution.guard_accesses(condition, [&mut stack.access, &mut vector])?;
+        Ok(Self { stack, vector })
+    }
+
+    fn enter(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        return_ip: Val<I32>,
+    ) -> Result<Val<I32>, BuildError> {
+        // A slow entry still checks the complete frame before its first write.
+        let bytes = InterruptFrame::BYTE_LEN as u32;
+        let pointer = execution.stack_pointer()?.advance(0u32.wrapping_sub(bytes));
+        execution.translate(&Segment::Ss.into(), &pointer.offset(), bytes, Intent::Write)?;
+        let flags = image::read_stack_image::<I16>(execution)?;
+        let cs = execution.read_segment_selector(Segment::Cs)?;
+        self.stack
+            .field::<I16>(execution, InterruptFrame::FLAGS_OFFSET / 2)?
+            .write(execution, &flags)?;
+        execution.write_flag(Flag::IF, false)?;
+        execution.write_flag(Flag::TF, false)?;
+        execution.write_flag(Flag::AC, false)?;
+        self.stack
+            .field::<I16>(execution, InterruptFrame::CS_OFFSET / 2)?
+            .write(execution, &cs)?;
+        self.stack
+            .field::<I16>(execution, InterruptFrame::IP_OFFSET / 2)?
+            .write(execution, &return_ip.truncate::<I16>())?;
+
+        // Read after the pushes: the stack may alias the conventional real IVT.
+        let memory = execution.accesses.memory();
+        let selector = memory.read::<I16>(
+            &mut execution.body,
+            &self.vector,
+            FarPointer::SEGMENT_OFFSET,
+        )?;
+        let offset = memory.read::<I16>(&mut execution.body, &self.vector, 0)?;
+        let target = CodeTarget::resolve(execution, offset, &selector)?;
+        target.check_limit(execution)?;
+        pointer.commit(execution)?;
+        target.commit(execution)
+    }
+}
 
 /// The caller has published the fault's restart boundary. Instruction faults
 /// tail-call the module's entry helper; entry failures and unsupported delivery
@@ -39,32 +113,19 @@ impl ExecutionBuilder<'_, '_> {
         vector: Val<I8>,
         return_ip: Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
-        // Real-mode entry always saves three words, including a prefixed INT.
-        let bytes = InterruptFrame::BYTE_LEN as u32;
-        let frame = self.push_frame(bytes, bytes)?;
-        let flags_slot = frame.field::<I16>(self, InterruptFrame::FLAGS_OFFSET)?;
-        let cs_slot = frame.field::<I16>(self, InterruptFrame::CS_OFFSET)?;
-        let ip_slot = frame.field::<I16>(self, InterruptFrame::IP_OFFSET)?;
-        let flags = image::read_stack_image::<I16>(self)?;
-        let cs = self.read_segment_selector(Segment::Cs)?;
-        flags_slot.write(self, &flags)?;
-        self.write_flag(Flag::IF, false)?;
-        self.write_flag(Flag::TF, false)?;
-        self.write_flag(Flag::AC, false)?;
-        cs_slot.write(self, &cs)?;
-        ip_slot.write(self, &return_ip.truncate::<I16>())?;
+        let entry = InterruptEntry::check(self, &vector, true)?;
+        entry.enter(self, return_ip)
+    }
 
-        // Read after the pushes: the stack may alias the conventional real IVT.
-        let address = vector
-            .unsigned()
-            .extend::<I32>()
-            .mul(FarPointer::BYTE_LEN as u32);
-        let selector = self.read_linear_memory::<I16>(address.add(FarPointer::SEGMENT_OFFSET))?;
-        let offset = self.read_linear_memory::<I16>(address)?;
-        let target = CodeTarget::resolve(self, offset, &selector)?;
-        target.check_limit(self)?;
-        frame.commit(self, 0)?;
-        target.commit(self)
+    /// Access guards stay outside the taken arm so they can restart the instruction.
+    pub(crate) fn enter_interrupt_if(
+        &mut self,
+        condition: Val<I1>,
+        vector: Val<I8>,
+        return_ip: Val<I32>,
+    ) -> Result<(), BuildError> {
+        let entry = InterruptEntry::check(self, &vector, &condition)?;
+        self.dispatch_if(condition, |taken| entry.enter(taken, return_ip))
     }
 
     /// Publishes the ISR position without executing it or retiring an instruction.

@@ -113,6 +113,35 @@ fn popa_checks_the_entire_frame_before_restoring_registers() {
 }
 
 #[test]
+fn interrupt_preflight_checks_the_vector_before_writing_the_stack() {
+    for (code, vector) in [([0xcc], 3), ([0xce], 4)] {
+        let mut image = super::interrupts::interrupt_image(&code, vector);
+        image.cpu.flags.bytes.of = 1;
+        image.data(0x8000, &[0xee; 6]);
+        let mut input = image.input();
+        input.physical_pages.retain(|&(page, _, _)| page != 0);
+        input.mmio_pages = vec![(0, 0x7000)];
+        input.observe_mmio = true;
+        let module = TestModule::new(
+            &crate::Compiler::new(ExecutionProfile::Real16)
+                .compile_block(image.cpu.eip, &code, 1)
+                .unwrap(),
+        );
+        assert_eq!(
+            module.observe(&input, 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit: Exit::Interpret,
+                }],
+            ),
+        );
+    }
+}
+
+#[test]
 fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
     let code = [0x60];
     let mut image = image(&code);
