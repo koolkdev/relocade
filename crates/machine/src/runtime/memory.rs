@@ -77,10 +77,9 @@ impl RuntimeMemory {
         let (revision, map) = self.guest.code_memory_map();
         let bytes = map.to_bytes();
         let mut mapping = wasm.memory(&self.mapping);
-        for (page, entry) in bytes[..relocade_x86::PhysicalMemoryMap::A20_MASK_OFFSET]
-            .chunks_exact(8)
-            .enumerate()
-        {
+        let (entries, _) =
+            bytes[..relocade_x86::PhysicalMemoryMap::A20_MASK_OFFSET].as_chunks::<8>();
+        for (page, entry) in entries.iter().enumerate() {
             // Routing payloads include live CPU-local MMIO handler indices.
             // Only the kind/flags word belongs to code-page publication.
             mapping.write(page as u32 * 8, &entry[..4]);
