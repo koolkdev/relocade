@@ -81,7 +81,7 @@ impl Adlib {
     fn update_timers(&mut self) -> Timestamp {
         let now = self.clock.now();
         for timer in &mut self.timers {
-            timer.update(&self.clock, now);
+            timer.update(now);
         }
         now
     }

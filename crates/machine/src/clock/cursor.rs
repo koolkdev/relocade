@@ -22,7 +22,11 @@ impl From<Timestamp> for ClockCursor {
 impl ClockCursor {
     /// Earliest native tick at or after this position.
     pub fn deadline(self) -> Timestamp {
-        Timestamp(self.time.0.wrapping_add(u64::from(self.fraction != 0)))
+        Timestamp::from_ticks(
+            self.time
+                .ticks()
+                .wrapping_add(u64::from(self.fraction != 0)),
+        )
     }
 
     /// Advances the ideal position without rounding to an instruction tick.

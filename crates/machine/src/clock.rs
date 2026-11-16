@@ -5,13 +5,13 @@ mod driver;
 mod guest;
 mod host;
 mod timebase;
-mod timestamp;
+
 pub use cursor::ClockCursor;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
+pub use relocade_time::{Schedule, TickRate, Timestamp};
 use timebase::Timebase;
-pub use timestamp::Timestamp;
 pub use web_time::Instant;
 
 use std::{
@@ -83,6 +83,38 @@ impl Clock {
         self.source.now()
     }
 
+    /// Copies the immutable conversion scale; this value can cross threads.
+    pub fn tick_rate(&self) -> TickRate {
+        TickRate::new(self.timebase.0)
+    }
+
+    /// Calculates the first native tick at or after the requested time.
+    pub fn deadline_after(&self, start: Timestamp, delay: Duration) -> Timestamp {
+        self.tick_rate().deadline_after(start, delay)
+    }
+
+    pub fn checked_deadline_after(&self, start: Timestamp, delay: Duration) -> Option<Timestamp> {
+        self.tick_rate().checked_deadline_after(start, delay)
+    }
+
+    pub fn deadline_before(&self, end: Timestamp, delay: Duration) -> Timestamp {
+        self.tick_rate().deadline_before(end, delay)
+    }
+
+    pub fn checked_deadline_before(&self, end: Timestamp, delay: Duration) -> Option<Timestamp> {
+        self.tick_rate().checked_deadline_before(end, delay)
+    }
+
+    /// Measures a single interval in whole nanoseconds.
+    pub fn duration_between(&self, start: Timestamp, end: Timestamp) -> Duration {
+        self.tick_rate().duration_between(start, end)
+    }
+
+    /// Retains periodic phase while publishing integer deadlines.
+    pub fn schedule(&self, start: Timestamp) -> Schedule {
+        Schedule::new(self.tick_rate(), start)
+    }
+
     /// Rounds a position plus a duration up to a native tick. Repeating timers
     /// advance a [`ClockCursor`] to retain fractional phase between deadlines.
     /// Panics if the duration exceeds half the counter range.
@@ -91,7 +123,11 @@ impl Clock {
             .expect("clock interval fits in half the counter range")
     }
 
-    pub fn checked_add(&self, time: impl Into<ClockCursor>, duration: Duration) -> Option<Timestamp> {
+    pub fn checked_add(
+        &self,
+        time: impl Into<ClockCursor>,
+        duration: Duration,
+    ) -> Option<Timestamp> {
         self.timebase.checked_add(time.into(), duration)
     }
 
@@ -102,7 +138,11 @@ impl Clock {
             .expect("clock interval fits in half the counter range")
     }
 
-    pub fn checked_sub(&self, time: impl Into<ClockCursor>, duration: Duration) -> Option<Timestamp> {
+    pub fn checked_sub(
+        &self,
+        time: impl Into<ClockCursor>,
+        duration: Duration,
+    ) -> Option<Timestamp> {
         self.timebase.checked_sub(time.into(), duration)
     }
 

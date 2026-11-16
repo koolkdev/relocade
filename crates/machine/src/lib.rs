@@ -56,7 +56,7 @@ extern crate self as relocade_machine;
 
 pub use clock::{
     timer_service, Clock, ClockCursor, ClockSource, GuestTimeDriver, HostTimerDriver, Instant,
-    Sleep, TimerHandle, Timestamp,
+    Schedule, Sleep, TickRate, TimerHandle, Timestamp,
 };
 pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService, FunctionRequest};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};

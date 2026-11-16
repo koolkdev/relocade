@@ -1,4 +1,4 @@
-use relocade_machine::{Clock, ClockCursor, Timestamp};
+use relocade_machine::{Clock, Schedule, Timestamp};
 use std::time::Duration;
 
 /// Reloading eight-bit timer. Masking clears its flag without stopping its count.
@@ -6,23 +6,23 @@ pub(super) struct Timer {
     pub reload: u8,
     pub overflow: bool,
     masked: bool,
-    tick: Duration,
-    deadline: Option<ClockCursor>,
+    count_period: Duration,
+    schedule: Option<Schedule>,
 }
 
 impl Timer {
-    pub fn new(tick_micros: u64) -> Self {
+    pub fn new(count_period_micros: u64) -> Self {
         Self {
             reload: 0,
             overflow: false,
             masked: false,
-            tick: Duration::from_micros(tick_micros),
-            deadline: None,
+            count_period: Duration::from_micros(count_period_micros),
+            schedule: None,
         }
     }
 
     fn period(&self) -> Duration {
-        self.tick * (256 - u32::from(self.reload))
+        self.count_period * (256 - u32::from(self.reload))
     }
 
     pub fn control(&mut self, clock: &Clock, now: Timestamp, start: bool, masked: bool) {
@@ -30,28 +30,28 @@ impl Timer {
         if masked {
             self.overflow = false;
         }
-        match (start, self.deadline) {
+        match (start, self.schedule) {
             (true, None) => {
-                let mut deadline = ClockCursor::from(now);
-                deadline.advance(clock, self.period());
-                self.deadline = Some(deadline);
+                let mut schedule = clock.schedule(now);
+                schedule.advance(self.period());
+                self.schedule = Some(schedule);
             }
-            (false, _) => self.deadline = None,
+            (false, _) => self.schedule = None,
             _ => {}
         }
     }
 
-    pub fn update(&mut self, clock: &Clock, now: Timestamp) {
-        let Some(mut deadline) = self.deadline.filter(|deadline| deadline.deadline() <= now) else {
+    pub fn update(&mut self, now: Timestamp) {
+        let Some(mut schedule) = self.schedule.filter(|schedule| schedule.deadline() <= now) else {
             return;
         };
         self.overflow |= !self.masked;
         // Reload writes affect the next overflow. Skip elapsed periods in one
         // step, retaining the original timer phase even after a long idle gap.
-        let elapsed = clock.duration_since(now, deadline);
+        let elapsed = schedule.elapsed_until(now);
         let period = self.period();
         let remainder = Duration::from_nanos((elapsed.as_nanos() % period.as_nanos()) as u64);
-        deadline.advance(clock, elapsed - remainder + period);
-        self.deadline = Some(deadline);
+        schedule.advance(elapsed - remainder + period);
+        self.schedule = Some(schedule);
     }
 }

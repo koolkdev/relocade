@@ -150,7 +150,7 @@ fn mapped_waits_retain_fractional_ticks_across_lag_recovery() {
     for tick in [80, 60, 39] {
         host.set(host.get() + Duration::from_micros(20_400));
         driver.synchronize(None);
-        assert_eq!(driver.next_deadline(), Some(Timestamp(tick)));
+        assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(tick)));
     }
     assert!(driver.advance_to_next_deadline());
     assert!(wait.as_mut().poll(&mut cx).is_ready());
@@ -225,12 +225,12 @@ fn native_deadlines_and_elapsed_time_cross_tick_wrap() {
     let clock = driver.clock();
     let start = clock.now();
     let deadline = clock.add(start, Duration::from_millis(250));
-    assert_eq!(deadline, Timestamp(1));
+    assert_eq!(deadline, Timestamp::from_ticks(1));
     assert!(deadline > start);
     let mut wait = pin!(clock.sleep_until(deadline));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(wait.as_mut().poll(&mut cx).is_pending());
-    driver.advance_to(Timestamp(0));
+    driver.advance_to(Timestamp::from_ticks(0));
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     driver.advance_to_next_deadline();
     assert!(wait.as_mut().poll(&mut cx).is_ready());
@@ -249,22 +249,22 @@ fn native_deadlines_and_elapsed_time_cross_tick_wrap() {
 fn periodic_scheduling_rounds_deadlines_without_accumulating_error() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(10).unwrap());
     let clock = driver.clock();
-    let mut phase = ClockCursor::from(clock.now());
+    let mut phase = clock.schedule(clock.now());
     let mut cx = Context::from_waker(Waker::noop());
     // Each period is 2.5 instructions. Rounding the period itself would give
     // 3, 6, 9, 12 and permanently slow the timer.
     for tick in [3, 5, 8, 10] {
-        phase.advance(&clock, Duration::from_millis(250));
-        assert_eq!(phase.deadline(), Timestamp(tick));
+        phase.advance(Duration::from_millis(250));
+        assert_eq!(phase.deadline(), Timestamp::from_ticks(tick));
         let mut wait = pin!(clock.sleep_until(phase.deadline()));
         assert!(wait.as_mut().poll(&mut cx).is_pending());
-        driver.advance_to(Timestamp(tick - 1));
+        driver.advance_to(Timestamp::from_ticks(tick - 1));
         assert!(wait.as_mut().poll(&mut cx).is_pending());
         driver.advance_to_next_deadline();
         assert!(wait.as_mut().poll(&mut cx).is_ready());
     }
     assert_eq!(
-        clock.duration_since(phase, Timestamp(0)),
+        clock.duration_between(Timestamp::from_ticks(0), phase.deadline()),
         Duration::from_secs(1)
     );
 }
@@ -274,21 +274,24 @@ fn periodic_scheduling_rounds_deadlines_without_accumulating_error() {
 fn elapsed_consumption_retains_fractions_at_coarse_and_fine_tick_rates() {
     for rate in [3, 3_000_000_000] {
         let driver = GuestTimeDriver::new(NonZeroU64::new(rate).unwrap());
-        driver.advance_to(Timestamp(1));
+        driver.advance_to(Timestamp::from_ticks(1));
         let clock = driver.clock();
         let start = clock.now();
         let mut cursor = ClockCursor::from(start);
         let mut total = Duration::ZERO;
         for reading in 2..=7 {
-            driver.advance_to(Timestamp(reading));
+            driver.advance_to(Timestamp::from_ticks(reading));
             total += clock.consume_elapsed(&mut cursor, clock.now());
             assert_eq!(total, clock.duration_since(clock.now(), start));
         }
         let expected = if rate == 3 { 2_000_000_000 } else { 2 };
         assert_eq!(total, Duration::from_nanos(expected));
-        assert_eq!(cursor, ClockCursor::from(Timestamp(7)));
+        assert_eq!(cursor, ClockCursor::from(Timestamp::from_ticks(7)));
         assert_eq!(clock.consume_elapsed(&mut cursor, start), Duration::ZERO);
-        assert_eq!(cursor, ClockCursor::from(Timestamp(7)));
-        assert_eq!(clock.checked_duration_since(start, Timestamp(7)), None);
+        assert_eq!(cursor, ClockCursor::from(Timestamp::from_ticks(7)));
+        assert_eq!(
+            clock.checked_duration_since(start, Timestamp::from_ticks(7)),
+            None
+        );
     }
 }

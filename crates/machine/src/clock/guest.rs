@@ -80,7 +80,7 @@ impl GuestTimeDriver {
             host.resume(now);
         }
         let cpu_state = cpu.cpu_state();
-        state.offset = now.0.wrapping_sub(cpu_state.instruction_count());
+        state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {
             state: cpu_state,
             target: cpu.instruction_target(),
@@ -158,7 +158,9 @@ impl GuestTimeDriver {
             let mut state = self.0.borrow_mut();
             let now = state.now();
             if deadline > now {
-                state.offset = state.offset.wrapping_add(deadline.0.wrapping_sub(now.0));
+                state.offset = state
+                    .offset
+                    .wrapping_add(deadline.ticks().wrapping_sub(now.ticks()));
             }
         }
         self.notify_due();
@@ -175,14 +177,17 @@ impl Drop for BindingGuard<'_> {
             host.pause();
         }
         state.cpu.take().unwrap().target.set(None);
-        state.offset = now.0;
+        state.offset = now.ticks();
     }
 }
 
 impl State {
     fn now(&self) -> Timestamp {
-        let count = self.cpu.as_ref().map_or(0, |cpu| cpu.state.instruction_count());
-        Timestamp(count.wrapping_add(self.offset))
+        let count = self
+            .cpu
+            .as_ref()
+            .map_or(0, |cpu| cpu.state.instruction_count());
+        Timestamp::from_ticks(count.wrapping_add(self.offset))
     }
 
     fn refresh_target(&mut self) {
@@ -194,7 +199,7 @@ impl State {
             .map(|wait| wait.deadline.deadline())
             .chain(cpu.yield_deadline)
             .min();
-        let target = deadline.map(|deadline| deadline.max(now).0.wrapping_sub(self.offset));
+        let target = deadline.map(|deadline| deadline.max(now).ticks().wrapping_sub(self.offset));
         cpu.target.set(target);
     }
 }

@@ -2456,6 +2456,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-derive",
  "relocade-interpreter",
+ "relocade-time",
  "relocade-wasm-runtime",
  "relocade-workers",
  "relocade-x86",
@@ -2593,6 +2594,13 @@ version = "0.0.0"
 dependencies = [
  "wasm-encoder 0.254.0",
  "wasmtime",
+]
+
+[[package]]
+name = "relocade-time"
+version = "0.0.0"
+dependencies = [
+ "wasm-bindgen-test",
 ]
 
 [[package]]

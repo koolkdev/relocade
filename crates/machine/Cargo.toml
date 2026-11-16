@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+relocade-time = { path = "../time" }
 relocade-derive = { path = "../derive" }
 futures-channel = "=0.3.34"
 futures-lite = { version = "=2.6.1", default-features = false }

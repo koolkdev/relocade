@@ -1,12 +1,16 @@
 # Shared time and waits
 
+`relocade-time` owns `Timestamp`, `TickRate` and `Schedule`. These are ordinary
+values with no live clock, thread affinity or host/guest synchronization policy.
+`Clock::tick_rate()` copies the immutable scale for calculations.
+
 `Clock` is a clonable, execution-local value that owns a timeline and creates
 owned deadline waits. Devices and services use the same concrete API:
 
 ```rust,ignore
 let now: Timestamp = clock.now();
-let deadline = clock.add(now, Duration::from_millis(2));
-let elapsed = clock.duration_since(now, earlier);
+let deadline = clock.deadline_after(now, Duration::from_millis(2));
+let elapsed = clock.duration_between(earlier, now);
 if clock.now() >= deadline {
     // Update the device at its next observable boundary.
 }
@@ -43,20 +47,20 @@ consumed position. Raster timing and PIT counters use this operation; PIT snapsh
 and audio frames share its phase. An explicit device restart establishes a new
 phase from `now()`. No clock origin or rounding parameter is needed by consumers.
 One-shot timers use `add` and comparisons directly; DOS mouse speed measures one
-packet interval with `checked_duration_since`. Repeating timers advance a retained
-cursor, rounding only when arming the next wait:
+packet interval with `checked_duration_since`. Repeating timers own a `Schedule`, which retains phase while exposing integer
+deadlines:
 
 ```rust,ignore
-let mut next = ClockCursor::from(clock.now());
+let mut next = clock.schedule(clock.now());
 loop {
-    next.advance(&clock, period);
+    next.advance(period);
     clock.sleep_until(next.deadline()).await;
     device.tick();
 }
 ```
 
 A period of 2.5 ticks produces deadlines 3, 5, 8, 10. Fractional phase belongs to
-these cursors; reads and armed deadlines remain integer ticks. Mixer intervals
+`Schedule`; reads and armed deadlines remain integer ticks. Mixer intervals
 also retain fractional ticks, so the audio sample rate can exceed the guest tick
 rate without producing empty sample intervals.
 

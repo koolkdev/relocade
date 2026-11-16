@@ -42,7 +42,7 @@ impl ClockSource for TimerHandle {
     }
 
     fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
-        Some(Timestamp(
+        Some(Timestamp::from_ticks(
             time.saturating_duration_since(self.origin).as_nanos() as u64,
         ))
     }
@@ -53,7 +53,8 @@ impl ClockSource for TimerHandle {
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         let deadline = self.origin
-            + Timebase::NANOSECONDS.duration_since(deadline.into(), Timestamp(0).into());
+            + Timebase::NANOSECONDS
+                .duration_since(deadline.into(), Timestamp::from_ticks(0).into());
         let handle = self.clone();
         Sleep::new(async move {
             let (complete, completed) = oneshot::channel();
