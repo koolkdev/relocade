@@ -62,11 +62,11 @@ pub struct AppHost {
 impl AppHost {
     /// Opens default output and retains it until the window starts closing.
     /// Native playback starts immediately; browsers wait for user activation.
-    /// Pass the returned CPAL configuration and bounded sender to the producer.
+    /// Pass the returned PCM configuration and bounded sender to the producer.
     #[cfg(feature = "audio")]
     pub fn open_audio(
         &mut self,
-    ) -> Result<(cpal::StreamConfig, async_channel::Sender<Vec<f32>>), String> {
+    ) -> Result<(crate::audio::Config, async_channel::Sender<Vec<f32>>), String> {
         let mut state = self.state.borrow_mut();
         if state.phase != Phase::Running {
             return Err("The application is closing".into());

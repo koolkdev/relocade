@@ -1,4 +1,5 @@
 use relocade_clock_test_support::ManualClock;
+use relocade_frontend::audio::Config;
 use relocade_machine::{worker::wake_connection, Device, Hook, PortRead, PortWrite, Runner};
 use relocade_pc::{Configuration, Pc, SoundCard};
 use relocade_sound_blaster::{READ_DATA_PORT, READ_STATUS_PORT, RESET_PORT, WRITE_DATA_PORT};
@@ -52,7 +53,14 @@ fn wait_irq(code: &mut Vec<u8>, count: u8) {
     code.extend_from_slice(&[0x80, 0x3e, 0, 7, count, 0x75, 0xf9]);
 }
 
-async fn exercise(capture: bool) {
+#[derive(Clone, Copy)]
+enum Output {
+    Disabled,
+    Collect,
+    Closed,
+}
+
+async fn exercise(playback: Output) {
     let clock = ManualClock::new();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
@@ -87,17 +95,20 @@ async fn exercise(capture: bool) {
                     );
                 });
                 let (samples, output) = async_channel::bounded(8);
-                if capture {
+                if !matches!(playback, Output::Disabled) {
                     pc.attach_audio(
-                        cpal::StreamConfig {
+                        Config {
                             channels: 1,
                             sample_rate: 10_000,
-                            buffer_size: cpal::BufferSize::Fixed(2),
+                            block_frames: 2,
                         },
                         samples,
                     )
                     .await
                     .unwrap();
+                    if matches!(playback, Output::Closed) {
+                        output.close();
+                    }
                 }
                 let memory = pc.cpu().memory();
                 memory.view().write(0x2000, &[0, 128, 255, 128]).unwrap();
@@ -159,7 +170,7 @@ async fn exercise(capture: bool) {
                 let mut result = [0; 4];
                 memory.view().read(0x700, &mut result).unwrap();
                 assert_eq!(result, [2, 0xaa, 2, 1]);
-                if capture {
+                if matches!(playback, Output::Collect) {
                     let mut pcm = Vec::new();
                     for _ in 0..3 {
                         pcm.extend(output.recv().await.unwrap());
@@ -177,14 +188,16 @@ async fn exercise(capture: bool) {
 #[test]
 fn guest_detects_and_restarts_sound_blaster_playback() {
     pollster::block_on(async {
-        exercise(false).await;
-        exercise(true).await;
+        exercise(Output::Disabled).await;
+        exercise(Output::Collect).await;
+        exercise(Output::Closed).await;
     });
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn guest_detects_and_restarts_sound_blaster_playback() {
-    exercise(false).await;
-    exercise(true).await;
+    exercise(Output::Disabled).await;
+    exercise(Output::Collect).await;
+    exercise(Output::Closed).await;
 }

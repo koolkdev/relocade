@@ -333,14 +333,12 @@ resources. The host event loop must remain responsive. This fallback adds host
 scheduling latency; it is not a real-time deadline. Explicit peer bindings still
 signal synchronously and avoid that extra turn.
 
-Audio synthesis remains a device activity on execution. When CPAL consumes a
-buffer, the bounded channel wakes the pending sample submission. The ordinary
-executor waker then interrupts busy guest execution directly on native targets,
-or through the host relay from an unbound browser AudioWorklet. Neither audio nor
-the relay needs a refill timer or polling loop. Use `cpu.step()` for bounded
-instruction tests; service/dispatch tests can request an explicit execution interrupt
-to inspect a completed guest boundary while retaining suspended work. See the
-[connection contract](workers.md#browser-build-and-lifetime).
+PC audio runs as a session activity. It waits for block deadlines, collects
+recorded device events, generates PCM and replaces old output when playback is
+full. Playback callbacks consume that bounded output without driving guest time.
+Use `cpu.step()` for bounded instruction tests; service/dispatch tests can request
+an execution interrupt to inspect a completed guest boundary while retaining
+suspended work. See the [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
 When the whole session is waiting, including for Wasm compilation, the executor

@@ -83,7 +83,7 @@ errors remain visible even when startup ends before the endpoints arrive.
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
 configuration and bounded Rust PCM sender go to the execution worker.
 `Dos::with_configuration` creates the selected hardware;
-`dos.attach_audio(config, samples).await` connects its mixer.
+`dos.attach_audio(config, samples).await` connects its audio source collection.
 Guest writes to PIT channel 2 and port 0x61 drive the speaker; writes to ports
 0x388/0x389 drive OPL2 music when installed. Sound Blaster DSP/DMA effects feed
 the same output stream alongside FM and the speaker.
@@ -162,7 +162,7 @@ does not open CPAL or load a game binary.
 `cargo test -p relocade-dos-app --test adlib` executes authored COM programs through
 the production PC/DOS setup. One detects AdLib without attached output; another
 plays AdLib, combined AdLib/speaker, speaker alone and silence across DOS keyboard
-waits. A controlled emulation clock drives captured mixer PCM. This fixture also
+waits. A controlled emulation clock drives captured PCM. This fixture also
 runs in browser CI without using CPAL playback.
 
 `cargo test -p relocade-dos-app --test audio` runs a COM program that enables the
@@ -170,7 +170,7 @@ speaker, waits for a DOS key, then disables the speaker and waits again. A paced
 PCM receiver checks tone and silence while execution remains active. The browser
 suite uses CPAL's actual AudioWorklet and waits for fresh analyser samples on the
 audio clock, with a bounded timeout and playback diagnostics. Output lifecycle
-and backpressure remain covered by the app audio and PC mixer tests. The bundled
+and backpressure remain covered by the app audio and PC audio tests. The bundled
 application test separately checks click/key activation and console input. These
 automated checks do not establish physical speaker playback or long-term clock accuracy.
 

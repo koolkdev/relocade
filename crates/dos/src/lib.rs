@@ -289,7 +289,7 @@ impl Dos {
     #[cfg(feature = "audio")]
     pub async fn attach_audio(
         &mut self,
-        config: cpal::StreamConfig,
+        config: relocade_frontend::audio::Config,
         samples: async_channel::Sender<Vec<f32>>,
     ) -> Result<(), String> {
         self.pc.attach_audio(config, samples).await

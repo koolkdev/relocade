@@ -1,6 +1,7 @@
 //! CPAL output fed by ordinary bounded Rust sample buffers.
 
 pub use cpal;
+pub use relocade_frontend::audio::Config;
 
 use async_channel::{Receiver, Sender};
 use cpal::{
@@ -21,17 +22,25 @@ pub struct Audio {
 }
 
 impl Audio {
-    /// Opens the default device and returns its CPAL configuration and a bounded
+    /// Opens the default device and returns its PCM configuration and a bounded
     /// Rust sender. Each buffer contains interleaved f32 frames. The channel holds
     /// 16 buffers; the producer chooses and bounds each buffer's size.
     pub fn open(
         on_error: impl FnMut(cpal::Error) + Send + 'static,
-    ) -> Result<(Self, cpal::StreamConfig, Sender<Vec<f32>>), cpal::Error> {
+    ) -> Result<(Self, Config, Sender<Vec<f32>>), cpal::Error> {
         let device = host()?
             .default_output_device()
             .ok_or_else(|| cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable))?;
         let config = device.default_output_config()?;
         let stream_config = config.config();
+        let output_config = Config {
+            sample_rate: stream_config.sample_rate,
+            channels: stream_config.channels,
+            block_frames: match stream_config.buffer_size {
+                cpal::BufferSize::Fixed(frames) => frames as usize,
+                cpal::BufferSize::Default => 256,
+            },
+        };
         let (submission, receiver) = async_channel::bounded(16);
         let reader = Buffers {
             receiver,
@@ -84,7 +93,7 @@ impl Audio {
                 playing,
                 submission: submission.clone(),
             },
-            stream_config,
+            output_config,
             submission,
         ))
     }

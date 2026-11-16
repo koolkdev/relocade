@@ -1,3 +1,4 @@
+use relocade_frontend::audio::Config;
 use relocade_machine::{timer_service, Device};
 use relocade_pc::{Configuration, Pc, SoundCard};
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
@@ -82,11 +83,31 @@ async fn exercise_audio_device(sound_card: SoundCard) {
         ]);
         memory.view().write(0x1000, &code).unwrap();
         pc.cpu().cpu_state().set_eip(0x1000);
-        let config = cpal::StreamConfig {
+        let config = Config {
             channels: 1,
             sample_rate: 48_000,
-            buffer_size: cpal::BufferSize::Fixed(256),
+            block_frames: 4096,
         };
+        if sound_card == SoundCard::None {
+            for invalid in [
+                Config {
+                    sample_rate: 0,
+                    ..config
+                },
+                Config {
+                    sample_rate: 1_000_000_001,
+                    ..config
+                },
+                Config {
+                    channels: 0,
+                    ..config
+                },
+            ] {
+                assert!(pc.attach_audio(invalid, samples.clone()).await.is_err());
+            }
+            let (unbounded, _receiver) = async_channel::unbounded();
+            assert!(pc.attach_audio(config, unbounded).await.is_err());
+        }
         pc.attach_audio(config, samples.clone()).await.unwrap();
         assert!(pc.attach_audio(config, samples).await.is_err());
         panic!("busy guest unexpectedly returned: {:?}", pc.run().await);
@@ -119,7 +140,7 @@ async fn exercise_audio_device(sound_card: SoundCard) {
     assert!(timeout(worker.stop()).await.unwrap().is_none());
     assert!(
         buffers.is_closed(),
-        "session shutdown drops the mixer's sender"
+        "session shutdown drops the audio worker's sender"
     );
     timeout(timers.join()).await.unwrap();
     machine.shutdown().await.unwrap();
