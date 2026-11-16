@@ -178,7 +178,7 @@ impl StackPointer {
         let offset = self.advance(&adjustment).offset();
         let intent = Intent::Write;
         let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
-        let access = execution.accesses.memory().check_access(
+        let mut access = execution.accesses.memory().check_access(
             &mut execution.body,
             &linear,
             checked_bytes,
@@ -186,6 +186,7 @@ impl StackPointer {
             None,
             None,
         )?;
+        execution.specialize_access(&mut access)?;
         Ok(StackFrame {
             access,
             pointer: self,
@@ -205,7 +206,7 @@ impl StackPointer {
         let checked_bytes = execution.body.value(checked_bytes)?;
         let intent = Intent::Read;
         let linear = execution.translate(&Segment::Ss.into(), &offset, &checked_bytes, intent)?;
-        let access = execution.accesses.memory().check_access(
+        let mut access = execution.accesses.memory().check_access(
             &mut execution.body,
             &linear,
             checked_bytes,
@@ -213,6 +214,7 @@ impl StackPointer {
             None,
             None,
         )?;
+        execution.specialize_access(&mut access)?;
         Ok(StackFrame {
             access,
             pointer: self,

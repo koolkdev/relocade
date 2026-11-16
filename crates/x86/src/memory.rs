@@ -244,18 +244,6 @@ impl Memory {
         }
     }
 
-    pub(crate) fn store<T: MemoryType>(
-        &self,
-        body: &mut BlockBuilder<'_>,
-        backing: &Val<I32>,
-        value: &Val<T>,
-    ) -> Result<(), BuildError> {
-        match self {
-            Self::Virtual(memory) => memory.store(body, backing, value),
-            Self::Physical(memory) => memory.store(body, backing, value),
-        }
-    }
-
     fn backing(&self) -> Mem {
         match self {
             Self::Virtual(memory) => memory.guest,

@@ -1,9 +1,9 @@
-//! A handoff interpreter supplies the imports required by its own memory model.
+//! Physical JIT fallback preserves restart state and supplies interpreter imports.
 
 use super::*;
 use crate::support::{
     machine::{expected, step_returns},
-    step::{Event, TestModule},
+    step::{Event, Input, TestModule},
 };
 use relocade_compiler::Program;
 
@@ -275,4 +275,62 @@ fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
     for module in [interpreter, &module] {
         assert_eq!(module.observe(&input, 1), step_returns(wanted.clone()));
     }
+}
+
+fn block(image: &Image, code: &[u8], instructions: u32) -> TestModule {
+    TestModule::new(
+        &relocade_x86::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, code, instructions)
+            .unwrap(),
+    )
+}
+
+fn expect_handoff(module: &TestModule, image: &Image, input: &Input, cpu: CpuState) {
+    assert_eq!(
+        module.observe(input, 1),
+        expected(
+            image,
+            &[Step {
+                cpu,
+                ram: &[],
+                exit: Exit::Interpret,
+            }],
+        ),
+    );
+}
+
+#[test]
+fn mmio_handoff_preserves_completed_instructions_without_reading_the_device() {
+    // MOV CX,42; PUSH word [2000]. The push must not consume its MMIO source.
+    let code = [0xb9, 42, 0, 0xff, 0x36, 0, 0x20];
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_3002;
+    image.map(3, 0x9000, true);
+    image.data(0x8000, &[0x34, 0x12]);
+    image.data(0x9000, &[0xee; 2]);
+    let mut input = image.input();
+    input.mmio_pages = vec![(2, 0x8000)];
+    input.observe_mmio = true;
+    let mut cpu = retired(&image, 3);
+    cpu.registers.ecx = (cpu.registers.ecx & 0xffff_0000) | 42;
+    expect_handoff(&block(&image, &code, 2), &image, &input, cpu);
+}
+
+#[test]
+fn rep_checks_both_spans_before_copying_the_first_element() {
+    let code = [0xf3, 0xa4]; // REP MOVSB.
+    let mut image = image(&code);
+    image.cpu.flags.bytes.df = 0;
+    image.cpu.registers.ecx = 3;
+    image.cpu.registers.esi = 0x2ffe;
+    image.cpu.registers.edi = 0x4000;
+    image.map(2, 0x8000, false);
+    image.map(4, 0xa000, true);
+    image.data(0x8ffe, &[0x11, 0x22]);
+    image.data(0x9000, &[0x33]);
+    image.data(0xa000, &[0xee; 3]);
+    let mut input = image.input();
+    input.mmio_pages = vec![(3, 0x9000)];
+    input.observe_mmio = true;
+    expect_handoff(&block(&image, &code, 1), &image, &input, image.cpu);
 }

@@ -18,12 +18,14 @@ impl ExecutionBuilder<'_, '_> {
             .relative
             .as_ref()
             .expect("a repeated copy needs resolved operands")
-            .physical_start;
+            .access
+            .physical;
         let destination = &destination
             .relative
             .as_ref()
             .expect("a repeated copy needs resolved operands")
-            .physical_start;
+            .access
+            .physical;
         let bytes = count.mul(T::BYTES);
         // Modular distances also cover spans ending exactly at 2^32. The range
         // proof already excludes wrapping physical spans.
@@ -60,7 +62,8 @@ impl ExecutionBuilder<'_, '_> {
             .relative
             .as_ref()
             .expect("a repeated fill needs a resolved operand")
-            .physical_start;
+            .access
+            .physical;
         let memory = self.accesses.memory();
         self.body.if_(count.ne(0), |mut nonempty| {
             memory.fill(&mut nonempty, destination, value, &count.mul(T::BYTES))

@@ -132,7 +132,9 @@ impl<'memory> ExecutionBuilder<'_, 'memory> {
         &mut self,
         address: MemoryAddress<Val<I32>>,
     ) -> Result<(), BuildError> {
-        self.memory_operand(address, 1, Intent::ReadOrExecute, &[])?;
+        let offset = address::resolve(&mut self.body, &mut self.state, address.offset, &[])?;
+        let linear = self.translate(&address.segment, &offset, 1, Intent::ReadOrExecute)?;
+        self.resolve_access(&linear, 1, Intent::ReadOrExecute)?;
         self.memory_fence();
         Ok(())
     }

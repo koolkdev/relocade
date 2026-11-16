@@ -237,6 +237,9 @@ fn repeated_copy_remapping(frontend: Frontend) {
             )
             .unwrap(),
         )
+        .with_interpreter(TestModule::interpreter_with_profile(
+            ExecutionProfile::Real16,
+        ))
     });
     let module = block
         .as_ref()
@@ -260,6 +263,9 @@ fn repeated_copy_remapping(frontend: Frontend) {
             bytes: 1,
         },
     );
-    assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
+    assert_eq!(
+        module.observe(&input, 1),
+        TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+    );
 }
 test_frontends!(repeated_copy_uses_live_mappings, repeated_copy_remapping);

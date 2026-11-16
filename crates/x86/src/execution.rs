@@ -299,7 +299,9 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             linear.and(span.alignment - 1).ne(0),
             ExceptionValues::general_protection(0),
         )?;
-        self.resolve_access(&linear, span.bytes, intent)
+        let mut access = self.resolve_access(&linear, span.bytes, intent)?;
+        self.specialize_access(&mut access)?;
+        Ok(access)
     }
 
     fn translate(
@@ -338,6 +340,13 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
                     .fault(fault_body, &self.eip, self.completed, exception)
             },
         )
+    }
+
+    fn specialize_access(&mut self, access: &mut Access) -> Result<(), BuildError> {
+        if !self.accesses.memory().has_stable_mappings() {
+            self.guard_accesses(true, [access])?;
+        }
+        Ok(())
     }
 
     fn checkpoint(&mut self) -> Result<(), BuildError> {

@@ -108,8 +108,21 @@ DMA or another processor.
 ## Generated access and fetch
 
 Segment checks establish physical table bounds before lookup, including for
-speculative fetch windows. A small inline check handles direct accesses within
-one RAM/ROM page. Routing,
+speculative fetch windows. The JIT guards complete operand spans: reads must fit
+one RAM/ROM page and writes must fit one RAM page. Successful guards retain the
+backing address for direct loads and stores. A failed guard publishes completed
+instructions and restarts the current instruction in the interpreter, before
+consuming device input or changing its destination.
+
+Repeated strings and multi-transfer stack operations check their full spans
+before their first transfer. ENTER checks its pushes and display separately;
+interrupt entry checks its stack frame and IVT entry. Their loads and stores
+remain in architectural order, including when the spans alias. String port I/O
+currently uses the interpreter because device callbacks can change mappings
+between transfers. The interpreter retains per-element REP progress,
+architectural fault ordering and live routing.
+
+An inline check handles interpreter accesses within one RAM/ROM page. Routing,
 splitting and partial transfer assembly share one reader and one writer per
 module, created only when used. Helpers are Wasm functions; host calls occur only
 in their MMIO branches. Separate snapshot modules each contain their own helpers.

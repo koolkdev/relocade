@@ -34,8 +34,15 @@ fn transfers(frontend: Frontend) {
         image.map(2, 0x8000, true);
         image.data(0x8000, &[0x5a; 64]);
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, code, 8, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, code, 8, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
         let mut input = image.input();
         let count = if repeat { 3 } else { 1 };
@@ -94,7 +101,7 @@ fn transfers(frontend: Frontend) {
         wanted.events.splice(0..0, events);
         assert_eq!(
             module.observe(&input, 1),
-            module.expected(wanted.clone()),
+            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone()),
             "{code:02x?}"
         );
     }
@@ -117,9 +124,14 @@ fn faults(frontend: Frontend) {
             image.map(0xf, 0x8000, true);
             image.data(0x8ffe, &[0x34, 0x12]);
             let module = match frontend {
-                Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
+                Frontend::Block => blocks
+                    .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                    .clone()
+                    .with_interpreter(TestModule::interpreter_with_profile(
+                        ExecutionProfile::Real16,
+                    )),
                 Frontend::Interpreter => {
-                    TestModule::interpreter_with_profile(ExecutionProfile::Real16)
+                    TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
                 }
             };
             let mut input = image.input();
@@ -158,7 +170,11 @@ fn faults(frontend: Frontend) {
                 }],
             );
             wanted.events.splice(0..0, events);
-            assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
+            assert_eq!(
+                module.observe(&input, 1),
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16)
+                    .expected(wanted.clone())
+            );
         }
     }
 }
@@ -225,10 +241,20 @@ fn segments_and_mmio(frontend: Frontend) {
         );
         wanted.events.splice(0..0, events);
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks
+                .get(&image.cpu, &code, 8, ExecutionProfile::Real16)
+                .clone()
+                .with_interpreter(TestModule::interpreter_with_profile(
+                    ExecutionProfile::Real16,
+                )),
+            Frontend::Interpreter => {
+                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+            }
         };
-        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
+        assert_eq!(
+            module.observe(&input, 1),
+            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+        );
     }
     // A 16-bit index wraps between complete elements, preserving its high word.
     let code = [0xf3, 0x6d];
@@ -266,10 +292,20 @@ fn segments_and_mmio(frontend: Frontend) {
         ],
     );
     let module = match frontend {
-        Frontend::Block => blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16),
-        Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+        Frontend::Block => blocks
+            .get(&image.cpu, &code, 8, ExecutionProfile::Real16)
+            .clone()
+            .with_interpreter(TestModule::interpreter_with_profile(
+                ExecutionProfile::Real16,
+            )),
+        Frontend::Interpreter => {
+            TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
+        }
     };
-    assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
+    assert_eq!(
+        module.observe(&input, 1),
+        TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+    );
 }
 test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 
