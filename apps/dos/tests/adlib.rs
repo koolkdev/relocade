@@ -119,9 +119,9 @@ async fn exercise() {
                 assert_eq!(memory.view().read_u8(base + 0x401).unwrap(), 0x06);
                 assert_eq!(memory.view().read_u8(base + 0x402).unwrap(), 0xc6);
 
-                // Capture the production mixer output on both native and Wasm, without
+                // Capture production audio output on both native and Wasm, without
                 // depending on a platform playback device or an AudioWorklet.
-                let (samples, buffers) = async_channel::bounded(1);
+                let (samples, buffers) = async_channel::bounded(8);
                 dos.attach_audio(
                     Config {
                         channels: 1,
@@ -137,11 +137,19 @@ async fn exercise() {
                 let base = u32::from(dos.process().unwrap().psp_segment()) << 4;
                 memory.view().write_u8(base + 0x400, 0).unwrap();
                 let mut run = pin!(dos.run());
+                let mut received_blocks = 0;
                 for stage in 1..=4 {
                     wait_for_stage(run.as_mut(), &memory, base, stage).await;
                     // Advance settled audio while the process remains in its DOS read.
                     clock.advance_by(Duration::from_millis(40));
-                    let buffer = buffers.recv().await.unwrap();
+                    // A 40 ms jump completes seven or eight 256-frame blocks.
+                    // Wait for that exact timeline position before checking settled sound.
+                    let complete_blocks = u32::from(stage) * 40 * 48 / 256;
+                    let mut buffer = Vec::new();
+                    while received_blocks < complete_blocks {
+                        buffer = buffers.recv().await.unwrap();
+                        received_blocks += 1;
+                    }
                     assert_eq!(buffer.len(), 256);
                     let low = buffer.iter().copied().fold(f32::INFINITY, f32::min);
                     let high = buffer.iter().copied().fold(f32::NEG_INFINITY, f32::max);

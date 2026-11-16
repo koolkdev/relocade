@@ -30,9 +30,7 @@ fn registered_sources_include_both_fm_and_digital_output() {
             hw.command(&[0xd1, 0x10, 0xc0]); // Held DAC output of +0.5.
         }
         hw.clock.advance_by(Duration::from_millis(40));
-        let mut output = vec![0.0; 400];
-        sources.generate_samples(0..400, &mut output);
-        output
+        sources.record(0..400, 1)()
     });
     let low = fm.iter().copied().fold(f32::INFINITY, f32::min);
     let high = fm.iter().copied().fold(f32::NEG_INFINITY, f32::max);

@@ -100,9 +100,17 @@ One `AudioTiming` defines frame zero, the native tick rate and the output sample
 rate. The block generator advances absolute frame ranges. Its deadline is the
 rounded timestamp of the block end; sample generation retains positions within
 frames. Block sizes are clamped to 1–256 frames. The audio activity captures
-elapsed events and generates each block when its deadline is due. A full output
+elapsed events when a block is due, then submits synthesis and mixing to one
+session-owned job thread. Only one block is in flight, returning PCM samples.
+Generator state and mixing scratch space stay in shared allocations between jobs;
+their locks are taken only by calculations and remain uncontended. The CPU worker
+keeps device registers, DMA,
+interrupts and event recording, and continues guest execution while awaiting the
+result. A full output
 queue replaces its oldest block; closing output releases the activity and its
-recorders. The runner owns the activity, and the application owns playback.
+recorders. An accepted job can finish with its owned events after cancellation.
+Session shutdown drains accepted work before joining the job thread. The runner
+owns the activity and job thread; the application owns playback.
 
 Each source defaults independently to unity gain. Mixing retains headroom and
 platform output clamps the final sample to `-1..=1`, so simultaneous peaks can

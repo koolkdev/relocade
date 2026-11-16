@@ -1,5 +1,8 @@
 use relocade_frontend::audio::{AudioTiming, Config, Sources};
-use relocade_machine::Timestamp;
+use relocade_machine::{
+    worker::{JobExecutor, PoolError},
+    Timestamp,
+};
 
 /// Retains output frame progress separately from scheduling and playback.
 pub(super) struct BlockGenerator {
@@ -24,11 +27,16 @@ impl BlockGenerator {
             .deadline_for_frame(self.next_frame + self.frames as u64)
     }
 
-    pub fn generate_samples(&mut self, sources: &mut Sources) -> Vec<f32> {
+    pub async fn generate_samples(
+        &mut self,
+        sources: &mut Sources,
+        jobs: &JobExecutor,
+    ) -> Result<Vec<f32>, PoolError> {
         let end = self.next_frame + self.frames as u64;
-        let mut output = vec![0.0; self.frames * self.channels];
-        sources.generate_samples(self.next_frame..end, &mut output);
+        let samples = jobs
+            .execute(sources.record(self.next_frame..end, self.channels))
+            .await?;
         self.next_frame = end;
-        output
+        Ok(samples)
     }
 }

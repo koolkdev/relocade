@@ -2,7 +2,7 @@ use crate::Pc;
 use async_channel::Sender;
 use futures_lite::future::or;
 use relocade_frontend::audio::{AudioTiming, Config, Sources};
-use relocade_machine::Clock;
+use relocade_machine::{worker::JobExecutor, Clock};
 
 mod generation;
 use generation::BlockGenerator;
@@ -16,7 +16,7 @@ struct Audio {
 }
 
 impl Pc {
-    /// Attaches one bounded PCM stream on the shared audio frame grid.
+    /// Attaches one bounded PCM stream with synthesis on a reusable job thread.
     /// Attach before guest execution to capture the complete note timeline.
     pub async fn attach_audio(
         &mut self,
@@ -31,9 +31,10 @@ impl Pc {
             card.add_audio_sources(&mut audio.sources)?;
         }
         self.speaker.borrow().add_audio_sources(&mut audio.sources);
-        // The activity belongs to the session before this await.
+        let jobs = self.runner.spawn_job_thread().await;
+        // The activity and job thread belong to the session before this await.
         self.audio_attached = true;
-        self.runner.spawn_activity(audio.run()).await;
+        self.runner.spawn_activity(audio.run(jobs)).await;
         Ok(())
     }
 }
@@ -55,7 +56,7 @@ impl Audio {
         })
     }
 
-    async fn run(mut self) {
+    async fn run(mut self, jobs: JobExecutor) {
         while !self.samples.is_closed() {
             or(
                 self.clock.sleep_until(self.generator.deadline()),
@@ -65,7 +66,15 @@ impl Audio {
             if self.samples.is_closed() {
                 return;
             }
-            let buffer = self.generator.generate_samples(&mut self.sources);
+            let calculation = self.generator.generate_samples(&mut self.sources, &jobs);
+            let result = or(async { calculation.await.ok() }, async {
+                self.samples.closed().await;
+                None
+            })
+            .await;
+            let Some(buffer) = result else {
+                return;
+            };
             // A stalled playback consumer keeps recent PCM without blocking hardware.
             if self.samples.force_send(buffer).is_err() {
                 return;
