@@ -65,7 +65,7 @@ impl Protocol {
             return true;
         } else if self.reset_high {
             self.reset_high = false;
-            self.ready_at = Some(clock.add(clock.now(), INITIALIZATION_TIME));
+            self.ready_at = Some(clock.deadline_after(clock.now(), INITIALIZATION_TIME));
         }
         false
     }

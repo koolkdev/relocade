@@ -33,17 +33,17 @@ impl ManualClock {
 
     /// Position a fixed duration after this controlled clock's start.
     pub fn at(&self, duration: Duration) -> Timestamp {
-        self.clock().add(ORIGIN, duration)
+        self.clock().deadline_after(ORIGIN, duration)
     }
 
     pub fn elapsed(&self, time: Timestamp) -> Duration {
-        self.clock().duration_since(time, ORIGIN)
+        self.clock().duration_between(ORIGIN, time)
     }
 
     pub fn advance_by(&self, duration: Duration) {
         let due = {
             let mut state = self.0.lock().unwrap();
-            let now = self.clock().add(state.now, duration);
+            let now = self.clock().deadline_after(state.now, duration);
             state.advance_to(now)
         };
         Self::notify(due);
@@ -63,7 +63,7 @@ impl ManualClock {
     }
 
     pub fn host_time(&self, time: Timestamp) -> Instant {
-        self.0.lock().unwrap().origin + self.clock().duration_since(time, ORIGIN)
+        self.0.lock().unwrap().origin + self.clock().duration_between(ORIGIN, time)
     }
 
     /// Earliest polled sleep, excluding cancelled waits.

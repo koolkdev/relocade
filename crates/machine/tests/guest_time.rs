@@ -4,7 +4,7 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, ClockCursor, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
+    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -40,12 +40,10 @@ async fn progress() {
         memory.view().write(0x100, &[0x90; 10]).unwrap();
         let cpu = runner.cpu();
         let start = clock.now();
-        let fractional_deadline = clock.add(start, Duration::from_nanos(333_333_334));
+        let fractional_deadline = clock.deadline_after(start, Duration::from_nanos(333_333_334));
         let binding = driver.bind(cpu, std::task::Waker::noop());
         // Each instruction contributes exactly a third of a second, including
-        // across counter wrap. Repeated consumption accounts for every ns.
-        let mut consumed = ClockCursor::from(start);
-        let mut elapsed = Duration::ZERO;
+        // across counter wrap. Measurements are relative to the native origin.
         for nanos in [
             333_333_333,
             666_666_666,
@@ -56,23 +54,24 @@ async fn progress() {
         ] {
             cpu.step();
             let reading = clone.now();
-            elapsed += clock.consume_elapsed(&mut consumed, reading);
             assert_eq!(
-                clock.duration_since(reading, start),
+                clock.duration_between(start, reading),
                 Duration::from_nanos(nanos)
             );
-            assert_eq!(elapsed, Duration::from_nanos(nanos));
             assert_eq!(reading >= fractional_deadline, nanos > 333_333_333);
             assert_eq!(driver.clock().now(), reading);
         }
         assert_eq!(cpu.cpu_state().instruction_count(), 4);
         drop(binding);
         cpu.step();
-        assert_eq!(clock.now(), clock.add(start, Duration::from_secs(2)));
+        assert_eq!(
+            clock.now(),
+            clock.deadline_after(start, Duration::from_secs(2))
+        );
         let _binding = driver.bind(cpu, std::task::Waker::noop());
         cpu.step();
         assert_eq!(
-            clock.duration_since(clock.now(), start),
+            clock.duration_between(start, clock.now()),
             Duration::from_nanos(2_333_333_333)
         );
         // Idle advancement rounds 7.5 instructions up to tick 8 without retiring
@@ -82,7 +81,7 @@ async fn progress() {
             pin::pin,
             task::{Context, Waker},
         };
-        let deadline = clock.add(start, Duration::from_millis(2500));
+        let deadline = clock.deadline_after(start, Duration::from_millis(2500));
         let mut wait = pin!(clock.sleep_until(deadline));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(wait.as_mut().poll(&mut cx).is_pending());
@@ -94,7 +93,7 @@ async fn progress() {
         cpu.step();
         cpu.step();
         assert_eq!(
-            clock.duration_since(clock.now(), start),
+            clock.duration_between(start, clock.now()),
             Duration::from_nanos(3_333_333_333)
         );
     });
@@ -169,14 +168,14 @@ async fn callback_observation() {
             .unwrap();
         }
         assert_eq!(cpu.step(), ExecutionExit::StepComplete);
-        driver.synchronize(Some(clock.add(start, Duration::from_millis(4))));
+        driver.synchronize(Some(clock.deadline_after(start, Duration::from_millis(4))));
         assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
         let observed = device.borrow().observed.unwrap();
-        assert!(observed >= clock.add(start, Duration::from_millis(1)));
-        assert!(observed <= clock.add(start, Duration::from_millis(4)));
+        assert!(observed >= clock.deadline_after(start, Duration::from_millis(1)));
+        assert!(observed <= clock.deadline_after(start, Duration::from_millis(4)));
         assert_eq!(
             driver.clock().now(),
-            clock.add(start, Duration::from_millis(4))
+            clock.deadline_after(start, Duration::from_millis(4))
         );
     }
 }
@@ -196,7 +195,7 @@ async fn subnanosecond_progress() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     let clock = driver.clock();
     let start = clock.now();
-    let deadline = clock.add(start, Duration::from_nanos(1));
+    let deadline = clock.deadline_after(start, Duration::from_nanos(1));
     let mut cpu = support::create_cpu(configuration(0)).await.unwrap();
     cpu.memory().view().write(0x100, &[0x90; 3]).unwrap();
     let _binding = driver.bind(&cpu, std::task::Waker::noop());
@@ -205,7 +204,7 @@ async fn subnanosecond_progress() {
         assert!(clock.now() > start);
         assert_eq!(clock.now() >= deadline, count == 3);
         assert_eq!(
-            clock.duration_since(clock.now(), start),
+            clock.duration_between(start, clock.now()),
             Duration::from_nanos(u64::from(count == 3))
         );
     }
@@ -222,7 +221,7 @@ async fn subnanosecond_progress() {
     assert!(wait.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         driver.next_deadline(),
-        Some(clock.add(sleep_start, Duration::from_nanos(1)))
+        Some(clock.deadline_after(sleep_start, Duration::from_nanos(1)))
     );
     for count in 1..=3 {
         cpu.step();

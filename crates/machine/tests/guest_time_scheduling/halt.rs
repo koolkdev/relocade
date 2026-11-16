@@ -41,7 +41,7 @@ async fn paced_halt() {
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            let deadline = clock.add(start, Duration::from_millis(10));
+            let deadline = clock.deadline_after(start, Duration::from_millis(10));
             let device = Rc::new(RefCell::new(TimerIrq {
                 clock: runner.clock().clone(),
                 deadline,
@@ -77,7 +77,7 @@ async fn paced_halt() {
             assert_eq!(state.instruction_count(), 3); // STI; HLT; IRET.
             assert_eq!(
                 runner.clock().now(),
-                clock.add(start, Duration::from_millis(11))
+                clock.deadline_after(start, Duration::from_millis(11))
             );
         },
     );

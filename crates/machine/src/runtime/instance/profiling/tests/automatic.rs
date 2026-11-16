@@ -80,7 +80,7 @@ async fn automatic() {
                     .collect();
                 let deadline = runner
                     .clock()
-                    .add(runner.clock().now(), Duration::from_secs(5));
+                    .deadline_after(runner.clock().now(), Duration::from_secs(5));
                 loop {
                     let retired = runner.cpu().cpu_state().instruction_count();
                     slice(&mut runner).await;

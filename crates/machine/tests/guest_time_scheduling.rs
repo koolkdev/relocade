@@ -99,7 +99,7 @@ async fn unpaced_slice_overshoot() {
                 // must shorten the next allowance instead of shifting the timebase.
                 assert_eq!(samples, [4, 6, 10]);
                 assert_eq!(
-                    runner.clock().duration_since(runner.clock().now(), start),
+                    runner.clock().duration_between(start, runner.clock().now()),
                     elapsed
                 );
             },
@@ -161,11 +161,11 @@ async fn deadlines_and_final_exit() {
                 let device = Rc::new(RefCell::new(Deadlines {
                     clock: runner.clock().clone(),
                     deadlines: if final_exit {
-                        vec![clock.add(start, Duration::from_millis(3))]
+                        vec![clock.deadline_after(start, Duration::from_millis(3))]
                     } else {
                         vec![
-                            clock.add(start, Duration::from_micros(500)),
-                            clock.add(start, Duration::from_millis(5)),
+                            clock.deadline_after(start, Duration::from_micros(500)),
+                            clock.deadline_after(start, Duration::from_millis(5)),
                         ]
                     },
                     observed: Vec::new(),
@@ -193,7 +193,7 @@ async fn deadlines_and_final_exit() {
                     device.borrow().observed,
                     expected
                         .into_iter()
-                        .map(|millis| clock.add(start, Duration::from_millis(millis)))
+                        .map(|millis| clock.deadline_after(start, Duration::from_millis(millis)))
                         .collect::<Vec<_>>()
                 );
             },
@@ -260,7 +260,12 @@ async fn retained_service() {
             );
             assert_eq!(started.get(), 1);
             assert!(device.borrow().wakes >= 5);
-            assert!(runner.clock().now() >= runner.clock().add(start, Duration::from_millis(5)));
+            assert!(
+                runner.clock().now()
+                    >= runner
+                        .clock()
+                        .deadline_after(start, Duration::from_millis(5))
+            );
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
         },
     );
@@ -283,7 +288,7 @@ async fn unpaced_idle_service() {
         async |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
-            let deadline = clock.add(start, Duration::from_millis(10));
+            let deadline = clock.deadline_after(start, Duration::from_millis(10));
             prepare_cpu(&mut runner, &[0x90]).await;
             let cpu = runner.cpu();
             let exit = cpu.exit_handle();

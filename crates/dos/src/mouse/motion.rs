@@ -94,7 +94,7 @@ impl Acceleration {
         let now = clock.now();
         let previous = self.previous.replace(now);
         let Some(elapsed) =
-            previous.and_then(|previous| clock.checked_duration_since(now, previous))
+            previous.and_then(|previous| clock.checked_duration_between(previous, now))
         else {
             return false;
         };

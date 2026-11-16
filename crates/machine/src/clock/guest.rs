@@ -3,13 +3,16 @@
 #[cfg(test)]
 mod tests;
 
+mod deadline;
+use deadline::MappedDeadline;
+
 mod host;
 use host::HostTime;
 
 mod wait;
 use wait::{Source, Wait};
 
-use super::{Clock, Timebase, Timestamp};
+use super::{Clock, TickRate, Timestamp};
 use crate::{Cpu, CpuStateAccess, InstructionTarget};
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
@@ -25,7 +28,7 @@ use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
-    timebase: Timebase,
+    tick_rate: TickRate,
     // While bound, guest ticks are the published instruction count plus this
     // offset. While paused, the offset holds the frozen reading.
     offset: u64,
@@ -44,7 +47,7 @@ struct Binding {
 impl GuestTimeDriver {
     pub fn new(instructions_per_second: NonZeroU64) -> Self {
         Self(Rc::new(RefCell::new(State {
-            timebase: Timebase(instructions_per_second),
+            tick_rate: TickRate::new(instructions_per_second),
             offset: 0,
             cpu: None,
             waits: Vec::new(),
@@ -54,7 +57,7 @@ impl GuestTimeDriver {
 
     pub(crate) fn with_host_clock(self, clock: Clock) -> Self {
         let mut state = self.0.borrow_mut();
-        state.host = Some(HostTime::new(clock, state.timebase));
+        state.host = Some(HostTime::new(clock, state.tick_rate));
         drop(state);
         self
     }
@@ -132,13 +135,14 @@ impl GuestTimeDriver {
             let mut state = self.0.borrow_mut();
             let now = state.now();
             let lag = state.host.as_mut().and_then(|host| host.discard_lag(now));
-            let timebase = state.timebase;
+            let tick_rate = state.tick_rate;
             let due = state
                 .waits
                 .extract_if(.., |wait| {
                     if let Some(lag) = lag.filter(|_| wait.host_sync) {
-                        wait.deadline = timebase
-                            .checked_retreat(wait.deadline, lag)
+                        wait.deadline = wait
+                            .deadline
+                            .subtract(tick_rate, lag)
                             .unwrap_or_else(|| now.into());
                     }
                     wait.deadline.deadline() <= now

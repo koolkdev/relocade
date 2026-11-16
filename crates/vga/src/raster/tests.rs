@@ -114,9 +114,9 @@ fn clock_reprogramming_materializes_lazy_phase_and_excludes_stopped_time() {
     assert_eq!(raster.updated, resumed_at);
     assert_eq!(raster.dot, 100);
     // Original fractional progress survives the pause.
-    let edge = clock.add(resumed_at, dots(640) - dots(100));
+    let edge = clock.deadline_after(resumed_at, dots(640) - dots(100));
     assert_eq!(status.next_update.get(), Some(edge));
-    raster.update_to(clock.sub(edge, Duration::from_nanos(1)));
+    raster.update_to(clock.deadline_before(edge, Duration::from_nanos(1)));
     assert_eq!(status.input_status_1(), 0);
     raster.update_to(edge);
     assert_eq!(status.input_status_1(), 1);

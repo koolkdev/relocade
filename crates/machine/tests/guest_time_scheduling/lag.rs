@@ -47,7 +47,7 @@ async fn busy_lag_limit() {
                 assert_eq!(runner.cpu().cpu_state().instruction_count(), instructions);
                 assert_eq!(
                     runner.clock().now(),
-                    clock.add(start, Duration::from_millis(instructions))
+                    clock.deadline_after(start, Duration::from_millis(instructions))
                 );
             },
         );
@@ -86,7 +86,7 @@ async fn pending_input_recovery() {
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: clock.clone(),
                 deadlines: [2, 6]
-                    .map(|ms| clock.add(start, Duration::from_millis(ms)))
+                    .map(|ms| clock.deadline_after(start, Duration::from_millis(ms)))
                     .to_vec(),
                 observed: Vec::new(),
                 exit: None,
@@ -107,18 +107,26 @@ async fn pending_input_recovery() {
                     advancing_host.host_time(advancing_host.at(Duration::from_millis(90))),
                 );
                 let unpolled_input = clock.sync();
-                let old_output = clock.sync_to_host(clock.add(start, Duration::from_millis(6)));
-                let mut fixed = clock.sleep_until(clock.add(start, Duration::from_millis(6)));
+                let old_output =
+                    clock.sync_to_host(clock.deadline_after(start, Duration::from_millis(6)));
+                let mut fixed =
+                    clock.sleep_until(clock.deadline_after(start, Duration::from_millis(6)));
                 assert!(poll_once(&mut input).await.is_none());
                 assert!(poll_once(&mut fixed).await.is_none());
 
                 input.await;
-                assert_eq!(clock.now(), clock.add(start, Duration::from_millis(4)));
+                assert_eq!(
+                    clock.now(),
+                    clock.deadline_after(start, Duration::from_millis(4))
+                );
                 assert!(poll_once(unpolled_input).await.is_some());
                 assert!(poll_once(old_output).await.is_some());
                 assert!(poll_once(&mut fixed).await.is_none());
                 fixed.await;
-                assert_eq!(clock.now(), clock.add(start, Duration::from_millis(6)));
+                assert_eq!(
+                    clock.now(),
+                    clock.deadline_after(start, Duration::from_millis(6))
+                );
                 clock.sync_to_host(clock.now()).await;
                 exit.request();
             })])
@@ -131,11 +139,15 @@ async fn pending_input_recovery() {
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert_eq!(
                 runner.clock().now(),
-                runner.clock().add(start, Duration::from_millis(6))
+                runner
+                    .clock()
+                    .deadline_after(start, Duration::from_millis(6))
             );
             assert_eq!(
                 device.borrow().observed,
-                [2, 6].map(|ms| runner.clock().add(start, Duration::from_millis(ms)))
+                [2, 6].map(|ms| runner
+                    .clock()
+                    .deadline_after(start, Duration::from_millis(ms)))
             );
         },
     );
