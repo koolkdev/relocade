@@ -3,7 +3,7 @@
 mod state_fields;
 mod tracked_value;
 
-pub(super) use state_fields::{Location, SsaType, StateFields};
+pub(super) use state_fields::{Location, SsaType, StateFields, StatePattern};
 pub(super) use tracked_value::TrackedValue;
 
 #[cfg(test)]

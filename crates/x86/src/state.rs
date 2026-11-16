@@ -1,5 +1,4 @@
-mod access;
-mod assumptions;
+pub(crate) mod access;
 mod context;
 mod cpu;
 pub(super) mod exit;
@@ -12,7 +11,7 @@ mod simd;
 mod system;
 pub(crate) mod x87;
 
-pub(crate) use assumptions::StateAssumption;
+pub(crate) use crate::ssa::StatePattern;
 pub use context::ExecutionContext;
 pub(super) use cpu::Cpu;
 pub use exit::{

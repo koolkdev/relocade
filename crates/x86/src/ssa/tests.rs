@@ -92,7 +92,7 @@ fn whole_field_admission_is_replaced_by_overlapping_writes() {
     let emitted = accesses(|body, state| {
         let word = Location::<I32>::new(4);
         state
-            .assume_bits(body, word.clone(), u32::MAX, 0x4433_2211)
+            .assume_bits(body, word.clone(), u64::from(u32::MAX), 0x4433_2211)
             .unwrap();
         let admitted = state.read(body, word.clone()).unwrap();
         assert_eq!(body.constant_bits(&admitted).unwrap(), Some(0x4433_2211));

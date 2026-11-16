@@ -56,7 +56,11 @@ impl SegmentRegister {
                     && crate::segment::profile::assumptions(profile.into(), segment)
                         .iter()
                         .all(|requirement| {
-                            requirement.matches_record(&self.to_bytes(), Segments::offset(segment))
+                            requirement.matches_record(
+                                &self.to_bytes(),
+                                offset_of!(crate::state::ExecutionContext, cpu)
+                                    + Segments::offset(segment),
+                            )
                         })
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),

@@ -3,21 +3,19 @@
 pub use relocade_x86_profile::ExecutionProfile;
 
 use crate::{
-    state::{cr0, cr4, StateAssumption},
+    state::{access::cpu_location, cr0, cr4, StatePattern},
     CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
 };
-use std::mem::offset_of;
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
 /// restrictions remain in CPU admission until their transitions are implemented.
-pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StateAssumption> {
+pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {
     macro_rules! require_bits {
         ($($field:ident).+, $mask:expr, $expected:expr) => {
-            StateAssumption::bits(
-                offset_of!(CpuState, $($field).+),
-                |cpu: &CpuState| &cpu.$($field).+,
-                $mask,
-                $expected,
+            StatePattern::bits(
+                cpu_location!($($field).+),
+                u64::from($mask),
+                u64::from($expected),
             )
         };
     }
@@ -28,8 +26,8 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StateAssumpt
             cr0::PROTECTION_ENABLE,
             if protected { cr0::PROTECTION_ENABLE } else { 0 }
         ),
-        require_bits!(flags.bytes.vm, FlagBytes::BOOLEAN_MASK, 0),
-        require_bits!(cr4, cr4::TIMESTAMP_DISABLE, 0),
+        require_bits!(flags.bytes.vm, FlagBytes::BOOLEAN_MASK, 0u8),
+        require_bits!(cr4, cr4::TIMESTAMP_DISABLE, 0u32),
     ];
     if protected {
         requirements.push(require_bits!(
