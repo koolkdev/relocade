@@ -1,47 +1,20 @@
-//! Segment fields retain state values until a segment-changing entry dispatches.
-use super::{Cpu, ExecutionContext, SegmentRegister, Segments};
+//! Loaded segment fields use the retained state borrowed by segment access.
+use super::SegmentAccess;
+use crate::state::{ExecutionContext, SegmentRegister, Segments};
 use crate::{
     segment::{Segment, SegmentSelection},
-    ssa::{Location, SsaType, StateFields},
-    ExecutionProfile,
+    ssa::{Location, SsaType},
 };
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 use std::mem::{offset_of, size_of};
 
-/// Cloning forks retained state for a descendant path. Segment writes end the entry.
-#[derive(Clone)]
-pub(crate) struct SegmentReads {
-    profile: ExecutionProfile,
-    fields: StateFields,
-    initialized: bool,
-}
-
-impl SegmentReads {
-    pub(crate) fn new(cpu: &Cpu, profile: ExecutionProfile) -> Self {
-        Self {
-            profile,
-            fields: StateFields::new(cpu.memory()),
-            initialized: false,
-        }
-    }
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.profile
-    }
-
+impl SegmentAccess<'_> {
     fn read_field<T: SsaType>(
         &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
         offset: usize,
     ) -> Result<Val<T>, BuildError> {
-        if !self.initialized {
-            for segment in Segment::ALL {
-                for requirement in crate::segment::profile::assumptions(self.profile, segment) {
-                    requirement.apply(body, &mut self.fields)?;
-                }
-            }
-            self.initialized = true;
-        }
         let location = |segment| {
             Location::<T>::new(
                 (offset_of!(ExecutionContext, cpu) + Segments::offset(segment) + offset) as u32,
@@ -55,14 +28,10 @@ impl SegmentReads {
         }
         // A default DS/SS choice can share a value established for both fields.
         if segment.is_ds_or_ss() {
-            if let Some((ds, ss)) = self
-                .fields
-                .retained(&location(Segment::Ds))
-                .zip(self.fields.retained(&location(Segment::Ss)))
-            {
-                if ds.same_expression(ss) {
-                    return body.value(ds);
-                }
+            let ds = self.fields.read(body, location(Segment::Ds))?;
+            let ss = self.fields.read(body, location(Segment::Ss))?;
+            if ds.same_expression(&ss) {
+                return Ok(ds);
             }
         }
         let stride = size_of::<SegmentRegister>() as u32;
@@ -79,9 +48,9 @@ impl SegmentReads {
 }
 
 macro_rules! read_field {
-    ($name:ident, $stored:ty, $ty:ty $(, $convert:ident($argument:expr))?) => {
-        impl SegmentReads {
-            pub(crate) fn $name(
+    ($visibility:vis $name:ident, $stored:ty, $ty:ty $(, $convert:ident($argument:expr))?) => {
+        impl SegmentAccess<'_> {
+            $visibility fn $name(
                 &mut self,
                 body: &mut BlockBuilder<'_>,
                 segment: &SegmentSelection,
@@ -94,16 +63,16 @@ macro_rules! read_field {
         }
     };
 }
-read_field!(base, I32, I32);
-read_field!(limit, I32, I32);
-read_field!(usable, I8, I1, ne(0));
-read_field!(readable, I8, I1, ne(0));
-read_field!(writable, I8, I1, ne(0));
-read_field!(executable, I8, I1, ne(0));
-read_field!(expand_down, I8, I1, ne(0));
-read_field!(big, I8, I1, ne(0));
+read_field!(pub(super) base, I32, I32);
+read_field!(pub(super) limit, I32, I32);
+read_field!(pub(super) usable, I8, I1, ne(0));
+read_field!(pub(super) readable, I8, I1, ne(0));
+read_field!(pub(super) writable, I8, I1, ne(0));
+read_field!(pub(super) executable, I8, I1, ne(0));
+read_field!(pub(super) expand_down, I8, I1, ne(0));
+read_field!(pub(crate) big, I8, I1, ne(0));
 
-impl SegmentReads {
+impl SegmentAccess<'_> {
     pub(crate) fn read_selector(
         &mut self,
         body: &mut BlockBuilder<'_>,

@@ -9,8 +9,14 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let cpu = Cpu::declare(&mut program);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
-            let mut access = SegmentReads::new(&cpu, profile);
-            let check = access.check(&mut body, &segment.into(), &offset, bytes, Intent::Write)?;
+            let mut state = State::new(&cpu).with_profile(profile);
+            let check = state.segments().check(
+                &mut body,
+                &segment.into(),
+                &offset,
+                bytes,
+                Intent::Write,
+            )?;
             body.return_((
                 check.linear,
                 check.denied.unwrap().unsigned().extend::<I32>(),
@@ -156,8 +162,11 @@ fn constant_empty_span_is_denied_without_faulting() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
-        let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
-        let check = access.check(&mut body, &Segment::Ss.into(), &0.into(), 0, Intent::Read)?;
+        let mut state = State::new(&cpu).with_profile(ExecutionProfile::Real16);
+        let check =
+            state
+                .segments()
+                .check(&mut body, &Segment::Ss.into(), &0.into(), 0, Intent::Read)?;
         body.return_(check.denied.unwrap().unsigned().extend::<I32>())
     });
     program.export("probe", function).unwrap();

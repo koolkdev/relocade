@@ -53,7 +53,9 @@ impl ExecutionBuilder<'_, '_> {
         &mut self,
         segment: Segment,
     ) -> Result<Val<I16>, BuildError> {
-        self.segments.read_selector(&mut self.body, &segment.into())
+        self.state
+            .segments()
+            .read_selector(&mut self.body, &segment.into())
     }
 
     /// Resolves the selector without installing its cache. Code offsets require

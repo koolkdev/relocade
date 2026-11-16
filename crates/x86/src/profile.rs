@@ -39,6 +39,15 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
     requirements
 }
 
+/// Field facts guaranteed by admission to this execution profile.
+pub(crate) fn entry_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {
+    let mut assumptions = control_assumptions(profile);
+    for segment in crate::Segment::ALL {
+        assumptions.extend(crate::segment::profile::assumptions(profile, segment));
+    }
+    assumptions
+}
+
 /// The processor model and execution assumptions required by a compiled entry.
 ///
 /// Use the complete value in cache and direct-link keys. Blocks and their fallback

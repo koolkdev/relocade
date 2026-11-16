@@ -64,7 +64,7 @@ impl StackPointer {
         let offset = self.offset();
         let last_slot = bytes.sub(T::BYTES);
         let contiguous = offset.add(&last_slot).eq(self.advance(last_slot).offset());
-        let segment = execution.segments.check(
+        let segment = execution.state.segments().check(
             &mut execution.body,
             &Segment::Ss.into(),
             &offset,

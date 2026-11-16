@@ -1,4 +1,4 @@
-use crate::state::SegmentReads;
+use crate::state::State;
 use crate::test_step::AccessResult;
 use crate::{
     memory::Intent,
@@ -29,11 +29,11 @@ fn translation(
             .results,
         },
         move |mut body| {
-            let mut access = SegmentReads::new(&cpu, profile);
+            let mut state = State::new(&cpu).with_profile(profile);
             let choice = body.parameter::<I32>(0)?;
             let offset = body.parameter::<I32>(1)?;
             let linear = match selection {
-                Some(selection) => access.translate(
+                Some(selection) => state.segments().translate(
                     &mut body,
                     &selection(choice),
                     &offset,
@@ -132,19 +132,19 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
         let function = program
             .function::<fn(u32) -> (u32, u32, u16, bool, bool, bool, bool, bool, bool)>(
                 move |mut body, _| {
-                    let mut access = SegmentReads::new(&cpu, SegmentProfile::Flat32.into());
+                    let mut state = State::new(&cpu).with_profile(SegmentProfile::Flat32.into());
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
-                    let base = access.base(&mut body, &index)?;
-                    let limit = access.limit(&mut body, &index)?;
-                    let selector = access.read_selector(&mut body, &index)?;
+                    let base = state.segments().base(&mut body, &index)?;
+                    let limit = state.segments().limit(&mut body, &index)?;
+                    let selector = state.segments().read_selector(&mut body, &index)?;
                     let attributes = [
-                        access.usable(&mut body, &index)?,
-                        access.readable(&mut body, &index)?,
-                        access.writable(&mut body, &index)?,
-                        access.executable(&mut body, &index)?,
-                        access.expand_down(&mut body, &index)?,
-                        access.big(&mut body, &index)?,
+                        state.segments().usable(&mut body, &index)?,
+                        state.segments().readable(&mut body, &index)?,
+                        state.segments().writable(&mut body, &index)?,
+                        state.segments().executable(&mut body, &index)?,
+                        state.segments().expand_down(&mut body, &index)?,
+                        state.segments().big(&mut body, &index)?,
                     ];
                     body.return_((base, limit, selector, attributes))
                 },
@@ -178,15 +178,15 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
-        let mut access = SegmentReads::new(&cpu, ExecutionProfile::Real16);
-        let first = access.base(&mut body, &Segment::Ds.into())?;
+        let mut state = State::new(&cpu).with_profile(ExecutionProfile::Real16);
+        let first = state.segments().base(&mut body, &Segment::Ds.into())?;
         let condition = body.parameter::<I32>(0)?.eq(0);
         body.if_(condition, |mut arm| {
-            let mut nested = access.clone();
-            let second = nested.base(&mut arm, &Segment::Ds.into())?;
+            let mut nested = state.clone();
+            let second = nested.segments().base(&mut arm, &Segment::Ds.into())?;
             arm.return_((&first, second.add(1)))
         })?;
-        let second = access.base(&mut body, &Segment::Ds.into())?;
+        let second = state.segments().base(&mut body, &Segment::Ds.into())?;
         body.return_((first, second.add(2)))
     });
     program.export("read", function).unwrap();
