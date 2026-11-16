@@ -1,5 +1,6 @@
 mod common;
 
+use relocade_frontend::audio::AudioTiming;
 use relocade_machine::{GuestTimeDriver, Timestamp};
 use relocade_pc_speaker::{Speaker, SPEAKER_CONTROL_PORT};
 use relocade_pit::{CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
@@ -28,25 +29,26 @@ fn advance_to(driver: &GuestTimeDriver, ticks: u64) -> Timestamp {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn fractional_sample_intervals_preserve_pitch_and_level() {
+fn fine_frame_grid_preserves_pitch_and_level() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     let (io, speaker) = common::hardware(driver.clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
     io.write_port(CHANNEL_2_PORT, 1, 2);
     io.write_port(CHANNEL_2_PORT, 1, 0);
     io.write_port(SPEAKER_CONTROL_PORT, 1, 3);
-    let mut source = speaker.borrow().audio_source();
+    let timing = AudioTiming::new(
+        driver.clock().now(),
+        driver.clock().tick_rate(),
+        750_000_000,
+    )
+    .unwrap();
+    let mut source = speaker.borrow().audio_source(timing);
     advance_to(&driver, 40_000);
 
     // Four native ticks span 4/3 ns. Rounding each elapsed span separately
     // would advance the tone at only 3/4 of its programmed frequency.
-    let samples: Vec<_> = (0..10_000)
-        .map(|frame| {
-            source.sample(
-                Timestamp::from_ticks(frame * 4)..Timestamp::from_ticks((frame + 1) * 4),
-            )
-        })
-        .collect();
+    let mut samples = vec![0.0; 10_000];
+    source.generate_samples(0..10_000, &mut samples);
     // Carrying time into a later sample must not amplify that sample.
     assert!(samples.iter().all(|sample| (0.0..=1.0).contains(sample)));
     let edges: Vec<_> = samples
@@ -69,12 +71,14 @@ fn offset_sample_epoch_preserves_level_across_a_pit_write() {
     let (io, speaker) = common::hardware(driver.clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
     io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
-    let mut source = speaker.borrow().audio_source();
-
-    // The mixer can start between the PIT's consumed nanoseconds.
+    // The shared audio origin can differ from PIT initialization.
     let start = advance_to(&driver, 2);
+    let timing = AudioTiming::new(start, driver.clock().tick_rate(), 1_000_000_000).unwrap();
+    let mut source = speaker.borrow().audio_source(timing);
     advance_to(&driver, 4);
     io.write_port(CONTROL_PORT, 1, 0xb6); // OUT2 stays high with GATE2 low.
-    let end = advance_to(&driver, 5);
-    assert_eq!(source.sample(start..end), 1.0);
+    advance_to(&driver, 5);
+    let mut output = [0.0];
+    source.generate_samples(0..1, &mut output);
+    assert_eq!(output, [1.0]);
 }

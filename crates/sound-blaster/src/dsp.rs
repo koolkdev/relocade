@@ -1,3 +1,4 @@
+use relocade_frontend::audio::AudioTiming;
 mod dac;
 mod playback;
 mod protocol;
@@ -91,11 +92,10 @@ impl Dsp {
         self.playback.advance(context, &mut self.dac);
     }
 
-    pub fn audio_source(device: &Rc<RefCell<Self>>) -> AudioSource {
+    pub fn audio_source(device: &Rc<RefCell<Self>>, timing: AudioTiming) -> AudioSource {
         let mut dsp = device.borrow_mut();
         dsp.synchronize();
-        let clock = dsp.clock.clone();
-        dsp.dac.source(clock, Rc::downgrade(device))
+        dsp.dac.source(timing, Rc::downgrade(device))
     }
 
     fn synchronize(&mut self) {

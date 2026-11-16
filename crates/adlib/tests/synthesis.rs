@@ -1,3 +1,4 @@
+use relocade_frontend::audio::AudioTiming;
 mod common;
 
 use common::write;
@@ -23,18 +24,24 @@ fn render_elapsed(
     samples: &mut Vec<f32>,
 ) {
     while time(clock, samples.len() + 1, rate) <= clock.clock().now() {
-        let start = time(clock, samples.len(), rate);
-        let end = time(clock, samples.len() + 1, rate);
         // Polling status alongside output must not advance synthesis twice.
         assert_eq!(io.read_port(ADDRESS_STATUS_PORT, 1), 0xc6);
-        samples.push(source.sample(start..end));
+        let frame = samples.len() as u64;
+        let mut mono = [0.0];
+        source.generate_samples(frame..frame + 1, &mut mono);
+        samples.push(mono[0]);
     }
 }
 
 fn melody(rate: u32, poll_between_writes: bool) -> Vec<f32> {
     let clock = ManualClock::new();
     let (io, adlib) = common::hardware(clock.clock());
-    let mut source = adlib.borrow_mut().audio_source(rate).unwrap();
+    let mut source = adlib
+        .borrow_mut()
+        .audio_source(
+            AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), rate).unwrap(),
+        )
+        .unwrap();
     for (register, value) in [
         (0x20, 0x21),
         (0x23, 0x21),
@@ -94,7 +101,12 @@ fn short_notes_survive_delayed_mixer_polls_at_both_rates() {
 fn rhythm_register_keys_the_bass_drum_without_a_melodic_key_on() {
     let clock = ManualClock::new();
     let (io, adlib) = common::hardware(clock.clock());
-    let mut source = adlib.borrow_mut().audio_source(48_000).unwrap();
+    let mut source = adlib
+        .borrow_mut()
+        .audio_source(
+            AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), 48_000).unwrap(),
+        )
+        .unwrap();
     for (register, value) in [
         (0x30, 0x21),
         (0x33, 0x21),

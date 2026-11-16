@@ -2253,6 +2253,7 @@ version = "0.0.0"
 dependencies = [
  "nuked-opl3",
  "relocade-clock-test-support",
+ "relocade-frontend",
  "relocade-machine",
  "wasm-bindgen-test",
 ]
@@ -2477,6 +2478,7 @@ dependencies = [
  "cpal",
  "futures-lite",
  "relocade-clock-test-support",
+ "relocade-frontend",
  "relocade-machine",
  "wasm-bindgen-test",
 ]
@@ -2513,6 +2515,7 @@ version = "0.0.0"
 dependencies = [
  "pollster",
  "relocade-clock-test-support",
+ "relocade-frontend",
  "relocade-machine",
  "relocade-pic",
  "relocade-pit",
@@ -2583,6 +2586,7 @@ dependencies = [
  "relocade-adlib",
  "relocade-clock-test-support",
  "relocade-dma",
+ "relocade-frontend",
  "relocade-machine",
  "relocade-mixer",
  "relocade-pic",

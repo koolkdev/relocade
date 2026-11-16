@@ -59,70 +59,63 @@ impl Playback {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn sources_sum_with_gains_on_the_same_sample_intervals() {
+fn sources_sum_with_gains_on_the_same_frames() {
     let mut playback = Playback::new(config(1_000, 2, 4));
-    let clock = playback.clock.clock();
-    let start = clock.now();
-    let intervals = Rc::new(RefCell::new(Vec::new()));
-    let recorded = intervals.clone();
-    playback.mixer.borrow_mut().add_source(0.5, move |interval| {
-        recorded.borrow_mut().push(interval.clone());
-        if clock.duration_since(interval.start, start).as_millis().is_multiple_of(2) {
-            1.0
-        } else {
-            -1.0
-        }
-    });
-    let other_intervals = Rc::new(RefCell::new(Vec::new()));
-    let recorded = other_intervals.clone();
-    playback.mixer.borrow_mut().add_source(2.0, move |interval| {
-        recorded.borrow_mut().push(interval);
-        0.5
-    });
-    playback.mixer.borrow_mut().add_source(1.0, |_| 0.0);
+    let frames = Rc::new(RefCell::new(Vec::new()));
+    let recorded = frames.clone();
+    playback
+        .mixer
+        .borrow_mut()
+        .add_source(0.5, move |frames, output| {
+            recorded.borrow_mut().extend(frames.clone());
+            for (frame, sample) in frames.zip(output) {
+                *sample = if frame.is_multiple_of(2) { 1.0 } else { -1.0 };
+            }
+        });
+    let other_frames = Rc::new(RefCell::new(Vec::new()));
+    let recorded = other_frames.clone();
+    playback
+        .mixer
+        .borrow_mut()
+        .add_source(2.0, move |frames, output| {
+            recorded.borrow_mut().extend(frames);
+            output.fill(0.5);
+        });
+    playback
+        .mixer
+        .borrow_mut()
+        .add_source(1.0, |_, output| output.fill(0.0));
     assert_eq!(
         playback.next_buffer(),
         [1.5, 1.5, 0.5, 0.5, 1.5, 1.5, 0.5, 0.5]
     );
-    assert_eq!(*intervals.borrow(), *other_intervals.borrow());
-    for (index, interval) in intervals.borrow().iter().enumerate() {
-        let clock = playback.clock.clock();
-        assert_eq!(
-            interval.start.deadline(),
-            clock.add(start, Duration::from_millis(index as u64))
-        );
-        assert_eq!(
-            interval.end.deadline(),
-            clock.add(start, Duration::from_millis(index as u64 + 1))
-        );
-    }
+    assert_eq!(*frames.borrow(), *other_frames.borrow());
+    assert_eq!(*frames.borrow(), [0, 1, 2, 3]);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn sample_intervals_do_not_depend_on_batch_size() {
+fn frame_grid_does_not_depend_on_batch_size() {
     for batch in [1, 7, 128, 256] {
         let mut playback = Playback::new(config(44_100, 1, batch));
-        let clock = playback.clock.clock();
-        let start = clock.now();
-        let intervals = Rc::new(RefCell::new(Vec::new()));
-        let recorded = intervals.clone();
-        playback.mixer.borrow_mut().add_source(1.0, move |interval| {
-            recorded.borrow_mut().push(interval);
-            0.0
-        });
-        while intervals.borrow().len() < 1024 {
+        let timing = playback.mixer.borrow().timing();
+        let frames = Rc::new(RefCell::new(Vec::new()));
+        let recorded = frames.clone();
+        playback
+            .mixer
+            .borrow_mut()
+            .add_source(1.0, move |frames, output| {
+                recorded.borrow_mut().extend(frames);
+                output.fill(0.0);
+            });
+        while frames.borrow().len() < 1024 {
             playback.next_buffer();
         }
-        let clock = playback.clock.clock();
-        for (index, interval) in intervals.borrow().iter().take(1024).enumerate() {
+        for (index, &frame) in frames.borrow().iter().take(1024).enumerate() {
+            assert_eq!(frame, index as u64);
             assert_eq!(
-                clock.duration_since(interval.start, start).as_nanos(),
-                (index as u128 * 1_000_000_000).div_ceil(44_100)
-            );
-            assert_eq!(
-                clock.duration_since(interval.end, start).as_nanos(),
-                ((index as u128 + 1) * 1_000_000_000).div_ceil(44_100)
+                timing.deadline_for_frame(frame).ticks(),
+                timing.origin().ticks() + (frame * 1_000_000_000).div_ceil(44_100)
             );
         }
     }
@@ -130,20 +123,16 @@ fn sample_intervals_do_not_depend_on_batch_size() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn sample_intervals_keep_their_duration_below_one_guest_tick() {
+fn frames_remain_distinct_below_one_guest_tick() {
     use relocade_machine::GuestTimeDriver;
     use std::{num::NonZeroU64, pin::pin};
-
     let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
-    let clock = driver.clock();
     let (samples, output) = async_channel::bounded(1);
-    let mut mixer = Mixer::new(clock.clone(), config(4000, 1, 4), samples).unwrap();
-    let intervals = Rc::new(RefCell::new(Vec::new()));
-    let recorded = intervals.clone();
-    mixer.add_source(1.0, move |interval| {
-        let elapsed = clock.duration_since(interval.end, interval.start);
-        recorded.borrow_mut().push(elapsed);
-        elapsed.as_secs_f32() * 4000.0
+    let mut mixer = Mixer::new(driver.clock(), config(4000, 1, 4), samples).unwrap();
+    mixer.add_source(1.0, |frames, output| {
+        for (frame, sample) in frames.zip(output) {
+            *sample = frame as f32;
+        }
     });
     let mut activity = pin!(Mixer::run(Rc::new(RefCell::new(mixer))));
     let mut cx = Context::from_waker(Waker::noop());
@@ -151,10 +140,7 @@ fn sample_intervals_keep_their_duration_below_one_guest_tick() {
     assert_eq!(driver.next_deadline().unwrap().ticks(), 1);
     assert!(driver.advance_to_next_deadline());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(*intervals.borrow(), vec![Duration::from_micros(250); 4]);
-    for sample in output.try_recv().unwrap() {
-        assert!((sample - 1.0).abs() < 1e-6);
-    }
+    assert_eq!(output.try_recv().unwrap(), [0.0, 1.0, 2.0, 3.0]);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -163,10 +149,15 @@ fn full_output_keeps_recent_samples_and_advances_sources() {
     let mut playback = Playback::new(config(1_000, 1, 10));
     let samples = Rc::new(RefCell::new(0));
     let rendered = samples.clone();
-    playback.mixer.borrow_mut().add_source(1.0, move |_| {
-        *rendered.borrow_mut() += 1;
-        *rendered.borrow() as f32
-    });
+    playback
+        .mixer
+        .borrow_mut()
+        .add_source(1.0, move |_, output| {
+            for sample in output {
+                *rendered.borrow_mut() += 1;
+                *sample = *rendered.borrow() as f32;
+            }
+        });
     assert!(playback.poll().is_pending());
     playback.clock.advance_by(Duration::from_millis(30));
     assert!(playback.poll().is_pending());

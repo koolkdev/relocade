@@ -1,5 +1,6 @@
 use crate::{Adlib, ADDRESS_STATUS_PORT, DATA_PORT};
 use relocade_clock_test_support::ManualClock;
+use relocade_frontend::audio::AudioTiming;
 use relocade_machine::IoBus;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -15,7 +16,12 @@ fn dropping_output_releases_recording_but_not_timer_status() {
     io.connect(adlib.clone(), |io| {
         Adlib::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
     });
-    let source = adlib.borrow_mut().audio_source(48_000).unwrap();
+    let source = adlib
+        .borrow_mut()
+        .audio_source(
+            AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), 48_000).unwrap(),
+        )
+        .unwrap();
     io.write_port(ADDRESS_STATUS_PORT, 1, 0xb0);
     io.write_port(DATA_PORT, 1, 0x31);
     assert_eq!(source.writes.borrow().len(), 1);

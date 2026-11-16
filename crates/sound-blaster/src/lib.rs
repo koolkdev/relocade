@@ -7,6 +7,7 @@ pub use dsp::AudioSource;
 use dsp::Dsp;
 use relocade_adlib::Adlib;
 use relocade_dma::Dma;
+use relocade_frontend::audio::AudioTiming;
 use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Memory, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, rc::Rc};
@@ -94,8 +95,8 @@ impl SoundBlaster {
 
     /// Captures digital output from now. Replaces any previous source; dropping
     /// the source releases captured samples while hardware playback continues.
-    pub fn audio_source(&self) -> AudioSource {
-        Dsp::audio_source(&self.dsp)
+    pub fn audio_source(&self, timing: AudioTiming) -> AudioSource {
+        Dsp::audio_source(&self.dsp, timing)
     }
 }
 

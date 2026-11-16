@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+relocade-frontend = { path = "../frontend", features = ["audio"] }
 nuked-opl3 = { version = "=0.1.0", default-features = false }
 relocade-machine = { path = "../machine" }
 

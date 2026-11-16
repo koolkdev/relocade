@@ -1,12 +1,15 @@
 use super::*;
 use relocade_dma::{ADDRESS_PORTS, MODE_PORT};
+use relocade_frontend::audio::AudioTiming;
 use std::{future::Future, pin::pin};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn streaming_refills_dma_halves_and_exits_after_the_current_block() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source();
+    let mut source = hw.card.borrow().audio_source(
+        AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
+    );
     hw.memory.view().write(0x100, &[0, 128, 255, 64]).unwrap();
     hw.program_dma(0x100, 3);
     hw.io.write_port(MODE_PORT, 1, 0x59); // DMA loops over four bytes.
@@ -34,10 +37,9 @@ fn streaming_refills_dma_halves_and_exits_after_the_current_block() {
 
     let output: Vec<_> = (0..7)
         .map(|index| {
-            source.sample(
-                hw.clock.at(Duration::from_micros(index * 100))
-                    ..hw.clock.at(Duration::from_micros((index + 1) * 100)),
-            )
+            let mut mono = [0.0];
+            source.generate_samples(index..index + 1, &mut mono);
+            mono[0]
         })
         .collect();
     assert_eq!(output, [0.0, -1.0, 0.0, 127.0 / 128.0, -0.5, -0.5, 0.5]);
