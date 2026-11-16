@@ -79,6 +79,10 @@ pub(super) fn prepare(
         }
     }
     while let Some(value) = work.pop_front() {
+        if let ValueDefinition::RefinedAlias { source, .. } = graph.values[value].definition {
+            update(source, demands[value], &mut demands, &mut work);
+            continue;
+        }
         match graph.producer_of(value) {
             Some(producer @ BlockItem::Evaluate(_)) => {
                 let demand = demands[value];

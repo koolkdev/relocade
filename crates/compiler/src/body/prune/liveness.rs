@@ -64,6 +64,8 @@ pub(super) fn prune(
                 continue;
             }
             pending.extend(graph.inputs(producer));
+        } else if let ValueDefinition::RefinedAlias { source, .. } = graph.values[id].definition {
+            pending.push(source);
         } else if matches!(
             graph.values[id].definition,
             ValueDefinition::Parameter { .. }

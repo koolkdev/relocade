@@ -1,4 +1,5 @@
 //! Function construction, pending blocks and definition publication.
+mod assumptions;
 mod construction;
 pub(super) use construction::BuildBody;
 mod typed;
@@ -204,9 +205,9 @@ impl BlockBuilder<'_> {
     }
 
     /// Returns the zero-extended logical bits of an integer constant known during
-    /// construction. Admits literals and calculations with the same ownership and
-    /// branch visibility checks as [`Self::value`]. Runtime values and constants
-    /// discovered later during placement return `None`.
+    /// construction, including explicit value assumptions. Admits literals and
+    /// calculations with the ownership and branch visibility checks of [`Self::value`].
+    /// Runtime values and constants discovered later during placement return `None`.
     pub fn constant_bits<T: IntType>(
         &self,
         operand: impl Into<Val<T>>,

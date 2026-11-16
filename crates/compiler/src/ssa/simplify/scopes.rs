@@ -111,13 +111,9 @@ impl<'a> Scopes<'a> {
     }
 
     pub(super) fn refine(&mut self, graph: &mut SsaGraph, source: usize) -> usize {
-        let refined = graph.values.push(Value {
-            ty: graph.values[source].ty,
-            definition: ValueDefinition::RefinedAlias {
-                source,
-                block: self.block,
-            },
-        });
+        let refined = graph
+            .values
+            .refined_alias(source, self.block, Bits::default());
         self.extend(graph.values.len());
         let root = self.root(source);
         self.roots[refined] = root;
