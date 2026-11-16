@@ -3,7 +3,7 @@
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Val, I1, I32};
 
 use super::super::{
-    physical_map::{MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
+    physical_map::{CODE_PAGE, MMIO, PAGE_MASK, PAGE_SHIFT, RAM, ROM},
     Access, Intent, PhysicalMemoryMap,
 };
 
@@ -21,7 +21,8 @@ pub(super) struct Entry {
 
 impl Entry {
     pub(super) fn readable(&self) -> Val<I1> {
-        self.kind.eq(RAM).or(self.kind.eq(ROM))
+        let kind = self.kind.and(!CODE_PAGE);
+        kind.eq(RAM).or(kind.eq(ROM))
     }
 
     pub(super) fn backing_address(&self) -> Val<I32> {
@@ -86,14 +87,15 @@ impl PhysicalTable {
         })
     }
 
-    /// MMIO requests retain their span across pages using the same handler. Ordinary
-    /// backing uses single bytes in the slow loop. Every iteration observes
-    /// routing after any preceding callback.
+    /// MMIO requests retain their span across pages using the same handler.
+    /// Tracked writes stop at each page; direct backing uses single bytes in the
+    /// slow loop. Every iteration observes routing after any preceding callback.
     pub(super) fn transfer_bytes(
         self,
         body: &mut BlockBuilder<'_>,
         entry: &Entry,
         remaining: &Val<I32>,
+        intent: Intent,
     ) -> Result<Val<I32>, BuildError> {
         let address = &entry.address;
         let in_page = Val::<I32>::from(PhysicalMemoryMap::PAGE_BYTES).sub(address.and(PAGE_MASK));
@@ -120,6 +122,10 @@ impl PhysicalTable {
             },
             |within| within.yield_(remaining),
         )?;
-        Ok(entry.kind.eq(MMIO).select(count, 1))
+        let callback = match intent {
+            Intent::Write => entry.kind.eq(MMIO).or(entry.kind.eq(RAM | CODE_PAGE)),
+            _ => entry.kind.eq(MMIO),
+        };
+        Ok(callback.select(count, 1))
     }
 }

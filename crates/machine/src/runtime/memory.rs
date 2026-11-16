@@ -3,7 +3,9 @@
 use super::{ExecutionInterrupt, Result};
 use crate::{CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
-use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    FunctionRef, Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess,
+};
 use relocade_x86::abi;
 
 /// Retained CPU and guest storage, plus private mapping storage.
@@ -18,6 +20,7 @@ pub(super) struct RuntimeMemory {
     pub(crate) guest: GuestMemory,
     guest_import: Memory,
     pub(crate) mapping: Memory,
+    code_write: FunctionRef<super::WasmRuntime, abi::CodeWriteSignature>,
 }
 
 impl RuntimeMemory {
@@ -40,6 +43,16 @@ impl RuntimeMemory {
             ..abi::PHYSICAL_MAP
         })?;
         wasm.memory(&mapping).write(0, &mapping_bytes);
+        let write_guest = guest.clone();
+        let code_write = FunctionRef::new(
+            &mut wasm.context(),
+            move |_, (backing, bytes, value): (u32, u32, u64)| {
+                write_guest
+                    .view()
+                    .write_backing(backing, &value.to_le_bytes()[..bytes as usize])
+                    .expect("tracked RAM fits backing");
+            },
+        );
         Ok(Self {
             config,
             context,
@@ -49,21 +62,20 @@ impl RuntimeMemory {
             guest,
             guest_import,
             mapping,
+            code_write,
         })
     }
 
     pub fn configuration(&self) -> &CpuConfig {
         &self.config
     }
-    /// Binds the CPU, guest backing and physical translation memory.
-    pub fn imports<'a, B: WasmBackend<Memory = Memory> + 'a>(
-        &'a self,
-        wasm: &B,
-    ) -> [Import<'a, B>; 3] {
+    /// Binds CPU storage, guest memory, physical routing and tracked writes.
+    pub fn imports<'a>(&'a self, wasm: &super::WasmRuntime) -> [Import<'a, super::WasmRuntime>; 4] {
         [
             wasm.bind(abi::EXECUTION_CONTEXT, &self.context),
             wasm.bind(abi::GUEST, &self.guest_import),
             wasm.bind(abi::PHYSICAL_MAP, &self.mapping),
+            self.code_write.import(abi::WRITE_CODE),
         ]
     }
 }

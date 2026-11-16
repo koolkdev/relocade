@@ -25,6 +25,8 @@ async fn check_guest_memory() {
     ])
     .unwrap();
     map.set_a20_enabled(false);
+    // Guest stores must reach the tracked-write callback at the backing offset.
+    map.set_code_page(0x2000, true);
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {

@@ -300,6 +300,42 @@ fn expect_handoff(module: &TestModule, image: &Image, input: &Input, cpu: CpuSta
 }
 
 #[test]
+fn tracked_stack_write_hands_off_before_effects_and_completes_in_the_interpreter() {
+    let code = [0x68, 0x34, 0x12]; // PUSH 1234.
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_2002;
+    image.map(2, 0x8000, true);
+    image.data(0x8000, &[0xee; 2]);
+    let mut input = image.input();
+    input.code_pages = vec![0x3000, 0x8000];
+    let module = block(&image, &code, 1);
+    expect_handoff(&module, &image, &input, image.cpu);
+
+    let mut cpu = retired(&image, code.len());
+    cpu.registers.esp = 0xabcd_2000;
+    let mut wanted = expected(
+        &image,
+        &[Step {
+            cpu,
+            ram: &[(0x8000, &[0x34, 0x12])],
+            exit: Exit::Dispatch(cpu.eip),
+        }],
+    );
+    wanted.events.insert(
+        0,
+        Event::CodeWrite {
+            backing_offset: 0x8000,
+            value: vec![0x34, 0x12],
+        },
+    );
+    let interpreter = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = module.with_interpreter(interpreter);
+    for module in [interpreter, &module] {
+        assert_eq!(module.observe(&input, 1), step_returns(wanted.clone()));
+    }
+}
+
+#[test]
 fn mmio_handoff_preserves_completed_instructions_without_reading_the_device() {
     // MOV CX,42; PUSH word [2000]. The push must not consume its MMIO source.
     let code = [0xb9, 42, 0, 0xff, 0x36, 0, 0x20];

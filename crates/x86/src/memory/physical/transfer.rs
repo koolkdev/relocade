@@ -5,7 +5,10 @@ use relocade_compiler::{
 };
 
 use super::{
-    super::physical_map::{MMIO, RAM},
+    super::{
+        physical_map::{CODE_PAGE, MMIO, RAM},
+        Intent,
+    },
     table::{Entry, PhysicalTable},
 };
 
@@ -25,7 +28,7 @@ pub(super) fn declare_reader(
         let value = body.loop_::<(I32, I64), I64>((0, 0), |mut part, labels, (done, value)| {
             let current = address.add(&done);
             let entry = table.lookup(&mut part, &current)?;
-            let count = table.transfer_bytes(&mut part, &entry, &bytes.sub(&done))?;
+            let count = table.transfer_bytes(&mut part, &entry, &bytes.sub(&done), Intent::Read)?;
             let read = read_part(backing, mmio_reader, &mut part, &entry, &count)?;
             let value = value.or(read.and(byte_mask(&count)).shl(done.shl(3)));
             let next = done.add(count);
@@ -73,13 +76,23 @@ pub(super) fn declare_writer(
     table: PhysicalTable,
     mmio_writer: Table,
 ) -> TypedFunc<fn(u32, u32, u64)> {
+    let code_writer = crate::abi::WRITE_CODE.import(program);
     program.function::<fn(u32, u32, u64)>(move |mut body, (address, bytes, value)| {
         body.loop_::<I32, ()>(0, |mut part, labels, done| {
             let current = address.add(&done);
             let entry = table.lookup(&mut part, &current)?;
-            let count = table.transfer_bytes(&mut part, &entry, &bytes.sub(&done))?;
+            let count =
+                table.transfer_bytes(&mut part, &entry, &bytes.sub(&done), Intent::Write)?;
             let shifted = value.unsigned().shr(done.shl(3));
-            write_part(backing, mmio_writer, &mut part, &entry, &count, &shifted)?;
+            write_part(
+                backing,
+                mmio_writer,
+                code_writer,
+                &mut part,
+                &entry,
+                &count,
+                &shifted,
+            )?;
             let next = done.add(count);
             part.branch_if(next.eq(&bytes), &labels.exit, ())?;
             part.branch(&labels.again, next)
@@ -91,6 +104,7 @@ pub(super) fn declare_writer(
 fn write_part(
     backing: Mem,
     callback: Table,
+    code_writer: TypedFunc<crate::abi::CodeWriteSignature>,
     body: &mut BlockBuilder<'_>,
     entry: &Entry,
     bytes: &Val<I32>,
@@ -110,9 +124,25 @@ fn write_part(
             )
         },
         |mut ordinary| {
-            ordinary.if_(entry.kind.eq(RAM), |mut ram| {
-                ram.store_at::<I8>(backing, entry.backing_address(), 0, value.truncate::<I8>())
-            })
+            ordinary.if_else(
+                entry.kind.eq(RAM | CODE_PAGE),
+                |mut code| {
+                    code_writer.call(
+                        &mut code,
+                        (entry.backing_address(), bytes, value.and(byte_mask(bytes))),
+                    )
+                },
+                |mut direct| {
+                    direct.if_(entry.kind.eq(RAM), |mut ram| {
+                        ram.store_at::<I8>(
+                            backing,
+                            entry.backing_address(),
+                            0,
+                            value.truncate::<I8>(),
+                        )
+                    })
+                },
+            )
         },
     )
 }

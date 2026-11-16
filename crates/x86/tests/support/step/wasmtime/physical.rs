@@ -41,11 +41,32 @@ pub(super) fn register(
     });
     let mut map = PhysicalMemoryMap::new(backing.chain(devices)).unwrap();
     map.set_a20_enabled(input.a20_enabled);
+    for &backing in &input.code_pages {
+        map.set_code_page(backing, true);
+    }
     let image = map.to_bytes();
     let table = Memory::new(&mut *store, MemoryType::new(1, None)).unwrap();
     table.write(&mut *store, 0, &image).unwrap();
     linker
         .define(&*store, "relocade", "physicalMap", table)
+        .unwrap();
+    let code_guest = guest.clone();
+    linker
+        .func_wrap(
+            "relocade",
+            "writeCode",
+            move |mut caller: Caller<'_, ExecutionEvents>, backing: u32, bytes: u32, value: u64| {
+                assert!((1..=8).contains(&bytes));
+                assert!(bytes <= 4096 - (backing & 4095));
+                assert!(bytes == 8 || value >> (bytes * 8) == 0);
+                let value = &value.to_le_bytes()[..bytes as usize];
+                caller.data_mut().events.push(Event::CodeWrite {
+                    backing_offset: backing,
+                    value: value.to_vec(),
+                });
+                code_guest.write(backing, value);
+            },
+        )
         .unwrap();
     let devices: Arc<BTreeMap<u32, u32>> = Arc::new(input.mmio_pages.iter().copied().collect());
     let observe = input.observe_mmio;
