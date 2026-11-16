@@ -22,6 +22,7 @@ pub(crate) use control::CodeTarget;
 pub(crate) use memory::{MemoryOperand, OperandSpan};
 pub(crate) use module::ExecutionModule;
 pub(crate) use operands::WriteTarget;
+pub(crate) use stack::{StackAccess, StackPointer};
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
