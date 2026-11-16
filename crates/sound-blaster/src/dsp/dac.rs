@@ -10,7 +10,8 @@ use std::{
     time::Duration,
 };
 
-struct Samples {
+/// Owned DAC bytes with a native origin and device sample period.
+pub struct DacSamples {
     origin: Timestamp,
     first_sample: u64,
     period: Duration,
@@ -18,19 +19,24 @@ struct Samples {
     consumed: usize,
 }
 
-/// Held DAC output on the shared audio frame grid.
-pub struct AudioSource {
+/// Collects DAC changes and synchronizes DMA on the device owner.
+pub struct EventRecorder {
     device: Weak<RefCell<Dsp>>,
+    samples: Rc<RefCell<VecDeque<DacSamples>>>,
+}
+
+/// Held DAC output with owned events and no DSP or guest-memory access.
+pub struct SampleGenerator {
     timing: AudioTiming,
     next_frame: u64,
     value: f64,
-    samples: Rc<RefCell<VecDeque<Samples>>>,
+    samples: VecDeque<DacSamples>,
 }
 
 pub(super) struct Dac {
     enabled: bool,
     output: u8,
-    samples: Weak<RefCell<VecDeque<Samples>>>,
+    samples: Weak<RefCell<VecDeque<DacSamples>>>,
 }
 
 impl Default for Dac {
@@ -81,16 +87,22 @@ impl Dac {
         }
     }
 
-    pub fn source(&mut self, timing: AudioTiming, device: Weak<RefCell<Dsp>>) -> AudioSource {
+    pub fn source(
+        &mut self,
+        timing: AudioTiming,
+        device: Weak<RefCell<Dsp>>,
+    ) -> (EventRecorder, SampleGenerator) {
         let samples = Rc::new(RefCell::new(VecDeque::new()));
         self.samples = Rc::downgrade(&samples);
-        AudioSource {
-            device,
-            timing,
-            next_frame: 0,
-            value: pcm(self.level()),
-            samples,
-        }
+        (
+            EventRecorder { device, samples },
+            SampleGenerator {
+                timing,
+                next_frame: 0,
+                value: pcm(self.level()),
+                samples: VecDeque::new(),
+            },
+        )
     }
 
     fn level(&self) -> u8 {
@@ -103,7 +115,7 @@ impl Dac {
 
     fn record(&self, origin: Timestamp, first_sample: u64, period: Duration, bytes: Vec<u8>) {
         if let Some(samples) = self.samples.upgrade() {
-            samples.borrow_mut().push_back(Samples {
+            samples.borrow_mut().push_back(DacSamples {
                 origin,
                 first_sample,
                 period,
@@ -118,11 +130,29 @@ impl Dac {
     }
 }
 
-impl AudioSource {
-    /// Fill one mono sample per frame. Consumed DMA bytes are owned here;
+impl EventRecorder {
+    /// Synchronizes DMA through now, then transfers copied bytes and DAC changes.
+    /// Device and audio activities can wake in either order, so capture must
+    /// synchronize hardware before sample generation starts.
+    pub fn take_events(&mut self) -> VecDeque<DacSamples> {
+        if let Some(device) = self.device.upgrade() {
+            device.borrow_mut().synchronize();
+        }
+        std::mem::take(&mut *self.samples.borrow_mut())
+    }
+}
+
+impl SampleGenerator {
+    /// Applies events covering the requested range and fills one sample per frame.
+    /// Consumed DMA bytes are owned here;
     /// generation never rereads memory. Future changes stay queued even when
     /// the rounded wakeup has already observed them on the execution worker.
-    pub fn generate_samples(&mut self, frames: Range<u64>, output: &mut [f32]) {
+    pub fn generate_samples(
+        &mut self,
+        events: VecDeque<DacSamples>,
+        frames: Range<u64>,
+        output: &mut [f32],
+    ) {
         assert_eq!(
             frames.end.checked_sub(frames.start),
             Some(output.len() as u64)
@@ -131,12 +161,8 @@ impl AudioSource {
             frames.start >= self.next_frame,
             "DAC frames must progress forward"
         );
-        if let Some(device) = self.device.upgrade() {
-            // Device and mixer may wake in either order. Capture through now
-            // before using the timeline; this synchronization owns DMA reads.
-            device.borrow_mut().synchronize();
-        }
-        let mut samples = self.samples.borrow_mut();
+        self.samples.extend(events);
+        let samples = &mut self.samples;
         for (frame, sample) in frames.clone().zip(output) {
             let mut offset = 0.0;
             let mut integral = 0.0;
@@ -183,7 +209,7 @@ mod tests {
             )
             .unwrap();
             let mut dac = Dac::default();
-            let mut source = dac.source(timing, Weak::new());
+            let (mut recorder, mut source) = dac.source(timing, Weak::new());
             dac.set_enabled(timing.origin(), true);
             // DMA bytes at 125us and 250us cannot be represented as native ticks.
             dac.write_samples(timing.origin(), 1, Duration::from_micros(125), vec![0, 255]);
@@ -193,7 +219,11 @@ mod tests {
             let mut output = [0.0; 5];
             for (index, chunk) in output.chunks_mut(batch).enumerate() {
                 let start = (index * batch) as u64;
-                source.generate_samples(start..start + chunk.len() as u64, chunk);
+                source.generate_samples(
+                    recorder.take_events(),
+                    start..start + chunk.len() as u64,
+                    chunk,
+                );
             }
             assert_eq!(
                 output,

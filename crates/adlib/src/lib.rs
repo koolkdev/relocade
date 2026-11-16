@@ -4,10 +4,9 @@
 mod opl2;
 pub use opl2::Opl2;
 mod audio;
-pub use audio::AudioSource;
+pub use audio::{EventRecorder, RegisterWrite, SampleGenerator};
 mod timer;
 
-use audio::RegisterWrite;
 use relocade_machine::{
     Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
 };

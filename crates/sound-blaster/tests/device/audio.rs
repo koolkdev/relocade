@@ -6,7 +6,7 @@ use std::{future::Future, pin::pin, task::Poll};
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn timed_silence_zeros_the_dac_and_completes_without_consuming_dma() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     hw.program_dma(0x100, 3);
@@ -29,7 +29,7 @@ fn timed_silence_zeros_the_dac_and_completes_without_consuming_dma() {
     let output: Vec<_> = (0..4)
         .map(|index| {
             let mut mono = [0.0];
-            source.generate_samples(index..index + 1, &mut mono);
+            source.generate_samples(recorder.take_events(), index..index + 1, &mut mono);
             mono[0]
         })
         .collect();
@@ -40,7 +40,7 @@ fn timed_silence_zeros_the_dac_and_completes_without_consuming_dma() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn dma_reprogramming_preserves_samples_from_the_old_buffer() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     hw.memory.view().write(0x100, &[0; 4]).unwrap();
@@ -53,7 +53,7 @@ fn dma_reprogramming_preserves_samples_from_the_old_buffer() {
     let output: Vec<_> = (0..5)
         .map(|index| {
             let mut mono = [0.0];
-            source.generate_samples(index..index + 1, &mut mono);
+            source.generate_samples(recorder.take_events(), index..index + 1, &mut mono);
             mono[0]
         })
         .collect();
@@ -65,22 +65,18 @@ fn dma_reprogramming_preserves_samples_from_the_old_buffer() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn consumed_pcm_survives_guest_buffer_reuse() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     hw.memory.view().write(0x100, &[0, 128, 255, 128]).unwrap();
     hw.program_dma(0x100, 3);
     hw.command(&[0xd1, 0x40, 156, 0x14, 3, 0]);
     hw.clock.advance_by(Duration::from_micros(500));
-    hw.io.read_port(WRITE_STATUS_PORT, 1);
+    let events = recorder.take_events();
+    drop(recorder);
     hw.memory.view().write(0x100, &[128; 4]).unwrap();
-    let output: Vec<_> = (0..5)
-        .map(|index| {
-            let mut mono = [0.0];
-            source.generate_samples(index..index + 1, &mut mono);
-            mono[0]
-        })
-        .collect();
+    let mut output = [0.0; 5];
+    source.generate_samples(events, 0..5, &mut output);
     assert_eq!(output, [0.0, -1.0, 0.0, 127.0 / 128.0, 0.0]);
     assert_eq!(hw.dma_word(relocade_dma::ADDRESS_PORTS[1]), 0x104);
 }
@@ -89,7 +85,7 @@ fn consumed_pcm_survives_guest_buffer_reuse() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn direct_dac_and_mute_share_the_sample_timeline() {
     let hw = Hardware::new();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     hw.command(&[0xd1, 0x10, 0]);
@@ -105,7 +101,7 @@ fn direct_dac_and_mute_share_the_sample_timeline() {
     let output: Vec<_> = (0..4)
         .map(|index| {
             let mut mono = [0.0];
-            source.generate_samples(index..index + 1, &mut mono);
+            source.generate_samples(recorder.take_events(), index..index + 1, &mut mono);
             mono[0]
         })
         .collect();
@@ -127,11 +123,11 @@ fn full_and_closed_output_do_not_block_dma_or_irqs() {
         samples,
     )
     .unwrap();
-    let mut source = hw.card.borrow().audio_source(
+    let (mut recorder, mut source) = hw.card.borrow().audio_source(
         AudioTiming::new(hw.clock.clock().now(), hw.clock.clock().tick_rate(), 10_000).unwrap(),
     );
     mixer.add_source(0.4, move |frames, output| {
-        source.generate_samples(frames, output)
+        source.generate_samples(recorder.take_events(), frames, output)
     });
     let mut mixing = pin!(relocade_mixer::Mixer::run(Rc::new(RefCell::new(mixer))));
     let mut activity = pin!(SoundBlaster::run(hw.card.clone()));

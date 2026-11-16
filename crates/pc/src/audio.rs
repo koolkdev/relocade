@@ -25,9 +25,9 @@ impl Pc {
         if let Some(card) = &self.sound_card {
             card.add_audio_sources(&mut mixer)?;
         }
-        let mut speaker = self.speaker.borrow().audio_source(mixer.timing());
+        let (mut recorder, mut speaker) = self.speaker.borrow().audio_source(mixer.timing());
         mixer.add_source(SPEAKER_GAIN, move |frames, output| {
-            speaker.generate_samples(frames, output)
+            speaker.generate_samples(recorder.take_events(), frames, output)
         });
         // Connection belongs to the session even if this await is cancelled.
         self.audio_attached = true;

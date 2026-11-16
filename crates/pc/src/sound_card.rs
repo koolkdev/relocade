@@ -31,9 +31,9 @@ impl SoundCard for Rc<RefCell<Adlib>> {
 
     #[cfg(feature = "audio")]
     fn add_audio_sources(&self, mixer: &mut relocade_mixer::Mixer) -> Result<(), String> {
-        let mut source = self.borrow_mut().audio_source(mixer.timing())?;
+        let (mut recorder, mut source) = self.borrow_mut().audio_source(mixer.timing())?;
         mixer.add_source(FM_GAIN, move |frames, output| {
-            source.generate_samples(frames, output)
+            source.generate_samples(recorder.take_events(), frames, output)
         });
         Ok(())
     }
@@ -47,9 +47,9 @@ impl SoundCard for Rc<RefCell<SoundBlaster>> {
     #[cfg(feature = "audio")]
     fn add_audio_sources(&self, mixer: &mut relocade_mixer::Mixer) -> Result<(), String> {
         self.borrow().adlib().add_audio_sources(mixer)?;
-        let mut pcm = self.borrow().audio_source(mixer.timing());
+        let (mut recorder, mut pcm) = self.borrow().audio_source(mixer.timing());
         mixer.add_source(PCM_GAIN, move |frames, output| {
-            pcm.generate_samples(frames, output)
+            pcm.generate_samples(recorder.take_events(), frames, output)
         });
         Ok(())
     }

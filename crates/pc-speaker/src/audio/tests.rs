@@ -1,7 +1,7 @@
 #[path = "../../tests/common/mod.rs"]
 mod common;
 
-use crate::{AudioSource, Speaker, SPEAKER_CONTROL_PORT};
+use crate::{EventRecorder, SampleGenerator, Speaker, SPEAKER_CONTROL_PORT};
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::audio::AudioTiming;
 use relocade_machine::{IoBus, Timestamp};
@@ -12,7 +12,8 @@ use std::time::Duration;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct Playback {
-    source: AudioSource,
+    recorder: EventRecorder,
+    source: SampleGenerator,
     io: IoBus,
     clock: ManualClock,
     timing: AudioTiming,
@@ -32,9 +33,10 @@ impl Playback {
         let (io, speaker) = common::hardware(clock.clock());
         let timing =
             AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), rate as u32).unwrap();
-        let source = speaker.borrow().audio_source(timing);
+        let (recorder, source) = speaker.borrow().audio_source(timing);
         Self {
             timing,
+            recorder,
             source,
             io,
             clock,
@@ -50,8 +52,11 @@ impl Playback {
         self.clock
             .advance_to(self.at_frame(self.frames + frames as u64));
         let mut output = vec![0.0; frames];
-        self.source
-            .generate_samples(self.frames..self.frames + frames as u64, &mut output);
+        self.source.generate_samples(
+            self.recorder.take_events(),
+            self.frames..self.frames + frames as u64,
+            &mut output,
+        );
         self.frames += frames as u64;
         output
     }
@@ -158,7 +163,7 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     let (io, speaker) = common::hardware(clock.clone());
     let start = clock.now();
     let timing = AudioTiming::new(start, clock.tick_rate(), 1_000_000_000).unwrap();
-    let mut source = speaker.borrow().audio_source(timing);
+    let (mut recorder, mut source) = speaker.borrow().audio_source(timing);
     io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
 
     let mut control = pin!(clock.sleep_until(Timestamp::from_ticks(6)));
@@ -170,7 +175,7 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     assert!(end.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline());
     let mut samples = [0.0; 3];
-    source.generate_samples(0..3, &mut samples);
+    source.generate_samples(recorder.take_events(), 0..3, &mut samples);
     assert_eq!(samples, [0.0, 1.0 / 3.0, 1.0]);
 }
 

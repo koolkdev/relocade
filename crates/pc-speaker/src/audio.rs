@@ -4,7 +4,8 @@ use relocade_frontend::audio::AudioTiming;
 use relocade_pit::{Channel2State, Counter, INPUT_HZ};
 use std::{cell::RefCell, collections::VecDeque, ops::Range, rc::Rc};
 
-struct Change {
+/// A native-timestamped PIT snapshot and speaker enable state.
+pub struct SpeakerState {
     state: Channel2State,
     enabled: bool,
 }
@@ -20,7 +21,7 @@ struct Drive {
 }
 
 impl Drive {
-    fn new(change: Change, timing: AudioTiming) -> Self {
+    fn new(change: SpeakerState, timing: AudioTiming) -> Self {
         Self {
             position: Self::position(timing, change.state.at),
             fraction: u128::from(change.state.fraction) * u128::from(timing.sample_rate()),
@@ -60,7 +61,7 @@ impl Drive {
         }
     }
 
-    fn advance_recorded(&mut self, changes: &mut VecDeque<Change>, end: i128) -> u128 {
+    fn advance_recorded(&mut self, changes: &mut VecDeque<SpeakerState>, end: i128) -> u128 {
         let timing = self.timing;
         let mut integral = 0;
         while changes
@@ -75,52 +76,75 @@ impl Drive {
     }
 }
 
-/// Mono speaker output in 0..=1, on the output's shared frame grid.
-pub struct AudioSource {
+/// Collects PIT and control changes on the device owner.
+pub struct EventRecorder {
+    changes: Rc<RefCell<VecDeque<SpeakerState>>>,
+}
+
+/// Mono speaker synthesis with owned events and no live PIT or clock.
+pub struct SampleGenerator {
     drive: Drive,
-    changes: Rc<RefCell<VecDeque<Change>>>,
+    changes: VecDeque<SpeakerState>,
 }
 
 impl Speaker {
     /// Records PIT/control writes from the current state. Create sources before
     /// execution starts, with the same timing used by the mixer.
-    pub fn audio_source(&self, timing: AudioTiming) -> AudioSource {
+    pub fn audio_source(&self, timing: AudioTiming) -> (EventRecorder, SampleGenerator) {
         let mut pit = self.pit.borrow_mut();
         let changes = Rc::new(RefCell::new(VecDeque::new()));
         let recorded = Rc::downgrade(&changes);
         let control = self.control.clone();
         pit.observe_channel2(move |state| {
             if let Some(changes) = recorded.upgrade() {
-                changes.borrow_mut().push_back(Change {
+                changes.borrow_mut().push_back(SpeakerState {
                     state,
                     enabled: control.get() & 2 != 0,
                 });
             }
         });
         let initial = changes.borrow_mut().pop_front().unwrap();
-        AudioSource {
-            drive: Drive::new(initial, timing),
-            changes,
-        }
+        (
+            EventRecorder { changes },
+            SampleGenerator {
+                drive: Drive::new(initial, timing),
+                changes: VecDeque::new(),
+            },
+        )
     }
 }
 
-impl AudioSource {
-    /// Fill one mono sample per frame. Ranges progress forward without overlap;
-    /// skipped frames advance oscillator phase and consume recorded changes.
-    pub fn generate_samples(&mut self, frames: Range<u64>, output: &mut [f32]) {
+impl EventRecorder {
+    /// Transfers recorded changes in order. Dropping the recorder stops capture.
+    pub fn take_events(&mut self) -> VecDeque<SpeakerState> {
+        std::mem::take(&mut *self.changes.borrow_mut())
+    }
+}
+
+impl SampleGenerator {
+    /// Applies recorded changes and fills one mono sample per frame. Events must
+    /// cover the requested range; future changes stay queued. Ranges progress
+    /// forward without overlap; skipped frames advance oscillator phase and
+    /// consume recorded changes.
+    pub fn generate_samples(
+        &mut self,
+        events: VecDeque<SpeakerState>,
+        frames: Range<u64>,
+        output: &mut [f32],
+    ) {
         assert_eq!(
             frames.end.checked_sub(frames.start),
             Some(output.len() as u64)
         );
         let rate = self.drive.timing.tick_rate().ticks_per_second().get();
-        let mut changes = self.changes.borrow_mut();
+        self.changes.extend(events);
+        let changes = &mut self.changes;
         self.drive
-            .advance_recorded(&mut changes, i128::from(frames.start) * i128::from(rate));
+            .advance_recorded(changes, i128::from(frames.start) * i128::from(rate));
         for (frame, sample) in frames.zip(output) {
             let integral = self
                 .drive
-                .advance_recorded(&mut changes, i128::from(frame + 1) * i128::from(rate));
+                .advance_recorded(changes, i128::from(frame + 1) * i128::from(rate));
             *sample = (integral as f64 / (u128::from(rate) * u128::from(INPUT_HZ)) as f64) as f32;
         }
     }
