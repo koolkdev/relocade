@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::ExceptionValues, memory::Intent, state::SegmentReads, ExecutionProfile};
+use crate::{exception::ExceptionValues, memory::Intent, state::State, ExecutionProfile};
 
 use super::{Segment, SegmentSelection};
 
@@ -15,7 +15,7 @@ pub(crate) struct SegmentCheck {
     pub(crate) denied: Option<Val<I1>>,
 }
 
-impl SegmentReads {
+impl State<'_> {
     /// The runtime maintains profile compatibility throughout execution, including
     /// when segment loads replace a cache.
     /// Known flat data segments need no cache reads or segment guards.
@@ -31,16 +31,7 @@ impl SegmentReads {
         on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<Val<I32>, BuildError> {
         let check = self.check(body, segment, offset, bytes, intent)?;
-        if let Some(denied) = check.denied {
-            body.if_(denied, |mut fault| {
-                fault.if_else(
-                    segment.index().eq(Segment::Ss as u32),
-                    |arm| on_fault(arm, ExceptionValues::stack_fault(0)),
-                    |arm| on_fault(arm, ExceptionValues::general_protection(0)),
-                )
-            })?;
-        }
-        Ok(check.linear)
+        check.translate(body, segment, on_fault)
     }
 
     /// Probes permissions and an offset span without raising an exception.
@@ -123,5 +114,25 @@ impl SegmentReads {
         Ok(permitted
             .and(expand_down.select(down_range, expand_up))
             .eq(0))
+    }
+}
+
+impl SegmentCheck {
+    pub(crate) fn translate(
+        self,
+        body: &mut BlockBuilder<'_>,
+        segment: &SegmentSelection,
+        on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
+    ) -> Result<Val<I32>, BuildError> {
+        if let Some(denied) = self.denied {
+            body.if_(denied, |mut fault| {
+                fault.if_else(
+                    segment.index().eq(Segment::Ss as u32),
+                    |arm| on_fault(arm, ExceptionValues::stack_fault(0)),
+                    |arm| on_fault(arm, ExceptionValues::general_protection(0)),
+                )
+            })?;
+        }
+        Ok(self.linear)
     }
 }

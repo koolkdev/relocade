@@ -1,6 +1,6 @@
 mod captured;
 
-use super::{Location, StateFields};
+use super::{Location, StateFields, StatePattern};
 use relocade_compiler::{
     BlockBuilder, MemoryImport, Program, Signature, Type, Val, I16, I32, I64, I8,
 };
@@ -300,4 +300,60 @@ fn qword_reads_are_retained_and_only_the_latest_definition_is_published() {
         emitted,
         [Access::LoadQword(32), Access::StoreQword(32, Some(13))]
     );
+}
+
+#[test]
+fn entry_patterns_wait_for_their_field_and_writes_replace_them() {
+    let emitted = accesses(|body, state| {
+        *state = state.clone().with_entry(vec![
+            StatePattern::field(Location::<I32>::new(4), 7),
+            StatePattern::bits(Location::<I16>::new(8), 3, 2),
+            StatePattern::field(Location::<I32>::new(12), 9),
+        ]);
+        let admitted = state.read(body, Location::<I32>::new(4)).unwrap();
+        assert_eq!(body.constant_bits(&admitted).unwrap(), Some(7));
+        // A partial write before the first read invalidates the wider entry fact.
+        state.define(body, Location::<I8>::new(8), 3).unwrap();
+        let changed = state.read(body, Location::<I16>::new(8)).unwrap();
+        assert_eq!(body.constant_bits(changed.and(3)).unwrap(), None);
+        state.define(body, Location::<I32>::new(12), 11).unwrap();
+        let replaced = state.read(body, Location::<I32>::new(12)).unwrap();
+        assert_eq!(body.constant_bits(&replaced).unwrap(), Some(11));
+        state.publish(body).unwrap();
+        admitted
+            .add(changed.unsigned().extend::<I32>())
+            .add(replaced)
+    });
+    assert_eq!(emitted.len(), 3);
+    assert!(emitted.contains(&Access::StoreByte(8, Some(3))));
+    assert!(emitted.contains(&Access::Store(12, Some(11))));
+    let load = emitted
+        .iter()
+        .position(|access| *access == Access::LoadWord(8))
+        .unwrap();
+    let store = emitted
+        .iter()
+        .position(|access| *access == Access::StoreByte(8, Some(3)))
+        .unwrap();
+    assert!(store < load);
+}
+
+#[test]
+fn indexed_writes_discard_unread_entry_patterns_in_their_span() {
+    let emitted = accesses(|body, state| {
+        *state = state.clone().with_entry(vec![
+            StatePattern::field(Location::<I32>::new(16), 7),
+            StatePattern::field(Location::<I32>::new(24), 9),
+        ]);
+        let offset = body.parameter::<I32>(0).unwrap().and(1).shl(2);
+        state
+            .define(body, Location::<I32>::indexed(16, 8, offset), 11)
+            .unwrap();
+        let changed = state.read(body, Location::<I32>::new(16)).unwrap();
+        let disjoint = state.read(body, Location::<I32>::new(24)).unwrap();
+        assert_eq!(body.constant_bits(&changed).unwrap(), None);
+        assert_eq!(body.constant_bits(&disjoint).unwrap(), Some(9));
+        changed.add(disjoint)
+    });
+    assert_eq!(emitted, [Access::Store(16, Some(11)), Access::Load(16)]);
 }

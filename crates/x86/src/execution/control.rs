@@ -18,7 +18,7 @@ impl ExecutionBuilder<'_, '_> {
         let Ok(bytes) = u32::try_from(bytes) else {
             return self.guard(false);
         };
-        let check = self.segments.check(
+        let check = self.state.check(
             &mut self.body,
             &Segment::Cs.into(),
             &self.eip,
@@ -78,7 +78,7 @@ impl ExecutionBuilder<'_, '_> {
         target: &Val<I32>,
         taken: Option<&Val<I1>>,
     ) -> Result<(), BuildError> {
-        let check = self.segments.check(
+        let check = self.state.check(
             &mut self.body,
             &Segment::Cs.into(),
             target,

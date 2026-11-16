@@ -25,7 +25,6 @@ pub use layout::{
 };
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
-pub(crate) use segments::SegmentReads;
 pub(crate) use simd::Mxcsr;
 pub(crate) use system::DescriptorTableValues;
 pub(crate) use x87::X87Access;
@@ -47,8 +46,8 @@ pub(super) struct State<'cpu> {
     instruction_budgets: bool,
     registers: StateFields,
     simd: StateFields,
-    system: StateFields,
-    control_profile: Option<crate::ExecutionProfile>,
+    fields: StateFields,
+    profile: Option<crate::ExecutionProfile>,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -71,11 +70,25 @@ impl<'cpu> State<'cpu> {
             instruction_budgets: true,
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
-            system: StateFields::new(cpu.memory()),
-            control_profile: None,
+            fields: StateFields::new(cpu.memory()),
+            profile: None,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
+    }
+
+    /// The existing entry admission maintains the profile until dispatch.
+    pub(crate) fn with_profile(mut self, profile: crate::ExecutionProfile) -> Self {
+        self.profile = Some(profile);
+        self.fields = self
+            .fields
+            .with_entry(crate::profile::entry_pattern(profile));
+        self
+    }
+
+    pub(crate) fn profile(&self) -> crate::ExecutionProfile {
+        self.profile
+            .expect("segment access requires an admitted profile")
     }
 
     pub(super) fn with_instruction_budgets(mut self, enabled: bool) -> Self {
