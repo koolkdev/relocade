@@ -7,12 +7,12 @@ publish.workspace = true
 autotests = false
 
 [dependencies]
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 relocade-x86-profile = { path = "../x86-profile" }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 
 [dev-dependencies]
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 pollster = "=1.0.1"
 relocade-interpreter = { path = "../interpreter" }
 relocade-workers = { path = "../workers" }

@@ -5,8 +5,11 @@ mod discover;
 #[cfg(test)]
 mod tests;
 
-use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::{real_mode::FarPointer, BlockError};
+use super::{
+    block::{decode::DecodedBlock, module::BlockModule},
+    BlockCompileError, BlockEntry, CompiledBlocks, Compiler,
+};
+use crate::{real_mode::FarPointer, BlockError, ExecutionTarget};
 use relocade_compiler::CompileExecutor;
 
 /// The identity of a guest function entry during compilation.
@@ -51,6 +54,21 @@ impl Default for FunctionLimits {
 }
 
 impl Compiler {
+    /// Discovers a function using asynchronous code reads. Waiting for a read
+    /// retains decoded instructions and the remaining exploration limits.
+    pub async fn discover_function(
+        &self,
+        entry: CodeAddress,
+        limits: FunctionLimits,
+        read: impl AsyncFnMut(u32, &mut [u8]) -> usize,
+    ) -> Result<DiscoveredFunction, BlockError> {
+        Ok(DiscoveredFunction {
+            entry,
+            target: self.target,
+            blocks: discover::blocks_with(entry.eip(), self.target, limits, read).await?,
+        })
+    }
+
     /// Starts a shared module for independently discovered function candidates.
     /// Each function supplies its own code reader, allowing distinct CS mappings.
     pub fn function_module(&self) -> FunctionModule<'_> {
@@ -122,6 +140,14 @@ impl Compiler {
     }
 }
 
+/// Decoded function blocks ready to be added to a module for the same target.
+/// Discovery retains instructions without constructing their IR bodies.
+pub struct DiscoveredFunction {
+    entry: CodeAddress,
+    target: ExecutionTarget,
+    blocks: Vec<DecodedBlock>,
+}
+
 /// Independently discovered functions sharing one module, imports and helpers.
 /// Function readers and entry addresses remain the caller's responsibility.
 pub struct FunctionModule<'a> {
@@ -145,7 +171,25 @@ impl FunctionModule<'_> {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
+        let decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
+        self.append(entry, decoded)
+    }
+
+    /// Adds a completed discovery without reading or decoding its instructions again.
+    /// Panics if discovery used a different execution target from this module.
+    pub fn add_discovered_function(
+        &mut self,
+        function: DiscoveredFunction,
+    ) -> Result<&[BlockEntry], BlockError> {
+        assert_eq!(function.target, self.module.compiler.target);
+        self.append(function.entry, function.blocks)
+    }
+
+    fn append(
+        &mut self,
+        entry: CodeAddress,
+        mut decoded: Vec<DecodedBlock>,
+    ) -> Result<&[BlockEntry], BlockError> {
         if self.functions != 0 {
             for block in &mut decoded {
                 block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);

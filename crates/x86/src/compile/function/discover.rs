@@ -5,13 +5,27 @@ use crate::{
     instruction::MAX_INSTRUCTION_BYTES,
     BlockError, ExecutionTarget, SegmentDefaultSize,
 };
+use futures_util::FutureExt;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub(super) fn blocks(
     start_eip: u32,
     target: ExecutionTarget,
-    mut limits: FunctionLimits,
+    limits: FunctionLimits,
     mut read: impl FnMut(u32, &mut [u8]) -> usize,
+) -> Result<Vec<DecodedBlock>, BlockError> {
+    blocks_with(start_eip, target, limits, async |eip, output: &mut [u8]| {
+        read(eip, output)
+    })
+    .now_or_never()
+    .expect("a synchronous code reader does not suspend")
+}
+
+pub(super) async fn blocks_with(
+    start_eip: u32,
+    target: ExecutionTarget,
+    mut limits: FunctionLimits,
+    mut read: impl AsyncFnMut(u32, &mut [u8]) -> usize,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
     if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
         return Err(BlockError::ZeroFunctionLimit);
@@ -37,7 +51,7 @@ pub(super) fn blocks(
             {
                 break;
             }
-            let bytes = window.at(eip, &mut read);
+            let bytes = window.at(eip, &mut read).await;
             if bytes.is_empty() {
                 break;
             }
@@ -136,7 +150,7 @@ impl Default for Window {
 }
 
 impl Window {
-    fn at(&mut self, eip: u32, read: &mut impl FnMut(u32, &mut [u8]) -> usize) -> &[u8] {
+    async fn at(&mut self, eip: u32, read: &mut impl AsyncFnMut(u32, &mut [u8]) -> usize) -> &[u8] {
         let offset = eip.wrapping_sub(self.start) as usize;
         let available = self.len.saturating_sub(offset);
         let needed = MAX_INSTRUCTION_BYTES as usize;
@@ -153,7 +167,8 @@ impl Window {
             let count = read(
                 eip.wrapping_add(self.len as u32),
                 &mut self.bytes[self.len..capacity],
-            );
+            )
+            .await;
             assert!(
                 count <= capacity - self.len,
                 "code reader exceeded its buffer"

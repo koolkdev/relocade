@@ -1,9 +1,18 @@
 use super::MemoryError;
 use crate::{IoBus, MachineConfig, Memory};
+use futures_util::FutureExt;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
 fn allocate(map: PhysicalMemoryMap) -> Memory {
     Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
+}
+
+fn code_prefix(memory: &Memory, address: u32, output: &mut [u8]) -> usize {
+    memory
+        .code_reader()
+        .read_prefix(address, output)
+        .now_or_never()
+        .unwrap()
 }
 
 #[test]
@@ -28,12 +37,17 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     memory.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
     assert_eq!(
-        backing.code_reader().read(0xffe, 4).unwrap(),
-        [1, 2, 0xaa, 0xbb]
+        backing
+            .code_reader()
+            .read([(0xffe, 4)])
+            .now_or_never()
+            .unwrap()
+            .unwrap(),
+        [[1, 2, 0xaa, 0xbb]]
     );
-    assert_eq!(backing.code_reader().read_prefix(0xffe, &mut bytes), 4);
+    assert_eq!(code_prefix(&backing, 0xffe, &mut bytes), 4);
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
-    assert_eq!(backing.code_reader().read_prefix(0, &mut bytes), 4);
+    assert_eq!(code_prefix(&backing, 0, &mut bytes), 4);
     // Scalar accesses use little-endian order across the same RAM/ROM boundary.
     assert_eq!(memory.read_u16(0xfff).unwrap(), 0xaa02);
     memory.write_u16(0xfff, 0x7856).unwrap();
@@ -45,9 +59,9 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     memory.read(0x1ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xcc, 0xdd, 0xff, 0xff]);
     bytes.fill(0x77);
-    assert_eq!(backing.code_reader().read_prefix(0x1ffe, &mut bytes), 2);
+    assert_eq!(code_prefix(&backing, 0x1ffe, &mut bytes), 2);
     assert_eq!(bytes, [0xcc, 0xdd, 0x77, 0x77]);
-    assert_eq!(backing.code_reader().read_prefix(0x3000, &mut bytes), 0);
+    assert_eq!(code_prefix(&backing, 0x3000, &mut bytes), 0);
     memory.write(0x2ffe, &[1, 2, 3, 4]).unwrap();
     memory.read(0x2ffe, &mut bytes).unwrap();
     assert_eq!(bytes, [0xff; 4]);
@@ -156,8 +170,13 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         memory.write_u32(0x100000, 0x1234_565a).unwrap();
         assert_eq!(memory.read_u32(0x100000).unwrap(), 0x1234_565a);
         assert_eq!(
-            backing.code_reader().read(0x100000, 4).unwrap(),
-            [0x5a, 0x56, 0x34, 0x12]
+            backing
+                .code_reader()
+                .read([(0x100000, 4)])
+                .now_or_never()
+                .unwrap()
+                .unwrap(),
+            [[0x5a, 0x56, 0x34, 0x12]]
         );
         let mut byte = [0];
         memory

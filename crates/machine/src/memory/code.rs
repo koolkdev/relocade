@@ -1,9 +1,11 @@
 //! Shared instruction sources and the backing pages retained by their snapshots.
 
+mod pages;
 mod reader;
 pub(crate) use reader::CodeReader;
 
 use super::Memory;
+use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use std::{
     collections::BTreeMap,
     ops::Range,
@@ -34,10 +36,16 @@ struct Span {
     bytes: Box<[u8]>,
 }
 
+#[derive(Clone)]
 struct PageVersion {
     backing: u32,
     captured: u64,
     current: Arc<AtomicU64>,
+}
+
+struct CapturedPage {
+    version: PageVersion,
+    bytes: Box<[u8]>,
 }
 
 impl CodeSource {
@@ -86,6 +94,22 @@ struct Page {
 }
 
 impl CodeRegistry {
+    // The registry lock covers both copying bytes and reading their generation.
+    fn capture(&mut self, memory: &SharedMemory, backing: u32) -> CapturedPage {
+        let current = self.retain_page(backing);
+        let captured = current.load(Ordering::Acquire);
+        let mut bytes = vec![0; PAGE_BYTES as usize];
+        memory.read(backing, &mut bytes);
+        CapturedPage {
+            version: PageVersion {
+                backing,
+                captured,
+                current,
+            },
+            bytes: bytes.into_boxed_slice(),
+        }
+    }
+
     fn retain_page(&mut self, backing: u32) -> Arc<AtomicU64> {
         let page = self.pages.entry(backing).or_insert_with(|| Page {
             generation: Weak::new(),
@@ -158,7 +182,6 @@ impl Memory {
     }
 
     pub(super) fn write_storage(&self, backing: u32, bytes: &[u8]) {
-        use relocade_wasm_runtime::WasmSharedMemory;
         // Capture and host writes serialize through the same owner. The version
         // changes before releasing the lock, after all bytes have been written.
         let mut registry = self.code.lock().unwrap();
