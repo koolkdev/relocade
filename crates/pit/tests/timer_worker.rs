@@ -33,7 +33,9 @@ impl Reports {
         self.ready.take().unwrap().send(()).unwrap();
         // Do not deliver the measured interrupts before the host enters its
         // synchronous wait; a delayed host callback must not bypass this test.
-        let deadline = self.clock.add(self.clock.now(), Duration::from_secs(2));
+        let deadline = self
+            .clock
+            .deadline_after(self.clock.now(), Duration::from_secs(2));
         while !self.host_busy.load(Ordering::Acquire) && self.clock.now() < deadline {
             std::hint::spin_loop();
         }
@@ -154,7 +156,7 @@ async fn timer_interrupts() -> Result<(), String> {
     start.send(()).unwrap();
     running.await.unwrap();
     host_busy.store(true, Ordering::Release);
-    let deadline = warmup.add(warmup.now(), Duration::from_secs(2));
+    let deadline = warmup.deadline_after(warmup.now(), Duration::from_secs(2));
     while count.load(Ordering::Acquire) < INTERRUPTS && warmup.now() < deadline {
         std::hint::spin_loop();
     }

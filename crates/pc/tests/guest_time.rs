@@ -69,8 +69,10 @@ async fn pit_interrupts() {
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
             // PIT deadlines must drive eight approximately 2 ms periods
             // without an execution slice duration.
-            assert!(pc.clock().now() >= pc.clock().add(start, Duration::from_millis(14)));
-            assert!(pc.clock().now() < pc.clock().add(start, Duration::from_millis(20)));
+            assert!(
+                pc.clock().now() >= pc.clock().deadline_after(start, Duration::from_millis(14))
+            );
+            assert!(pc.clock().now() < pc.clock().deadline_after(start, Duration::from_millis(20)));
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -141,7 +143,7 @@ async fn keyboard_after_overdue_pit() {
             (
                 state.ax(),
                 elapsed_ticks,
-                pc.clock().duration_since(pc.clock().now(), start),
+                pc.clock().duration_between(start, pc.clock().now()),
             )
         })
     );

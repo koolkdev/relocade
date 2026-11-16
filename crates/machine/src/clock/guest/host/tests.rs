@@ -9,7 +9,7 @@ fn correspondence_rounds_deadlines_forward_and_preserves_fractional_pauses() {
     driver.advance_to(Timestamp::from_ticks(10));
     let mut host = HostTime::new(
         driver.clock(),
-        Timebase(NonZeroU64::new(7_000_000_000).unwrap()),
+        TickRate::new(NonZeroU64::new(7_000_000_000).unwrap()),
     );
     host.resume(Timestamp::from_ticks(20));
 
@@ -27,12 +27,12 @@ fn correspondence_rounds_deadlines_forward_and_preserves_fractional_pauses() {
         Some(Timestamp::from_ticks(7))
     );
     assert_eq!(
-        host.sync_deadline(None).map(ClockCursor::deadline),
+        host.sync_deadline(None).map(MappedDeadline::deadline),
         Some(Timestamp::from_ticks(20))
     );
     driver.advance_to(Timestamp::from_ticks(11));
     assert_eq!(
-        host.sync_deadline(None).map(ClockCursor::deadline),
+        host.sync_deadline(None).map(MappedDeadline::deadline),
         Some(Timestamp::from_ticks(27))
     );
 
@@ -49,7 +49,7 @@ fn correspondence_rounds_deadlines_forward_and_preserves_fractional_pauses() {
         Some(Timestamp::from_ticks(12))
     );
     assert_eq!(
-        host.sync_deadline(None).map(ClockCursor::deadline),
+        host.sync_deadline(None).map(MappedDeadline::deadline),
         Some(Timestamp::from_ticks(27))
     );
 }

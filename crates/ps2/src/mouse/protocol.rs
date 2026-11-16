@@ -199,7 +199,7 @@ impl Protocol {
 
     pub fn deadline(&self) -> Option<Timestamp> {
         (self.streaming() && self.transmission.idle() && self.motion.pending()).then(|| {
-            self.clock.add(
+            self.clock.deadline_after(
                 self.sampled_at,
                 Duration::from_nanos(1_000_000_000_u64.div_ceil(u64::from(self.sample_rate))),
             )

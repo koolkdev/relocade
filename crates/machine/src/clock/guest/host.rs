@@ -1,14 +1,14 @@
 //! Host/guest correspondence, excluding pauses and excessive execution lag.
 
-use super::super::Timebase;
-use crate::{Clock, ClockCursor, Instant, Sleep, Timestamp};
+use super::MappedDeadline;
+use crate::{Clock, Instant, Sleep, TickRate, Timestamp};
 use std::time::Duration;
 
 const MAX_LAG: Duration = Duration::from_millis(20);
 
 pub(super) struct HostTime {
     clock: Clock,
-    guest_timebase: Timebase,
+    guest_rate: TickRate,
     mapping: Option<Mapping>,
     paused_at: Option<Timestamp>,
     pub(super) discarded_lag: Duration,
@@ -20,10 +20,10 @@ struct Mapping {
 }
 
 impl HostTime {
-    pub(super) fn new(clock: Clock, guest_timebase: Timebase) -> Self {
+    pub(super) fn new(clock: Clock, guest_rate: TickRate) -> Self {
         Self {
             clock,
-            guest_timebase,
+            guest_rate,
             mapping: None,
             paused_at: None,
             discarded_lag: Duration::ZERO,
@@ -57,17 +57,17 @@ impl HostTime {
     /// Guest time and device timers do not advance.
     pub(super) fn discard_lag(&mut self, guest: Timestamp) -> Option<Duration> {
         let mapped = self.host_time(guest)?;
-        let lag = self.clock.duration_since(self.clock.now(), mapped);
+        let lag = self.clock.duration_between(mapped, self.clock.now());
         if lag <= MAX_LAG {
             return None;
         }
         let mapping = self.mapping.as_mut().unwrap();
-        mapping.host = self.clock.add(mapping.host, lag);
+        mapping.host = self.clock.deadline_after(mapping.host, lag);
         self.discarded_lag += lag;
         Some(lag)
     }
 
-    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<ClockCursor> {
+    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<MappedDeadline> {
         if self.paused_at.is_some() {
             return None;
         }
@@ -76,11 +76,12 @@ impl HostTime {
             Some(time) => self.clock.source.host_timestamp(time)?,
             None => self.clock.now(),
         };
-        self.guest_timebase.checked_advance(
-            mapping.guest.into(),
+        MappedDeadline::after(
+            mapping.guest,
+            self.guest_rate,
             self.clock
-                .timebase
-                .duration_until(host_time.into(), mapping.host.into()),
+                .tick_rate()
+                .duration_between_ceil(mapping.host, host_time),
         )
     }
 
@@ -90,16 +91,14 @@ impl HostTime {
         }
         let mapping = self.mapping.as_ref()?;
         if guest >= mapping.guest {
-            self.clock.checked_add(
+            self.clock.checked_deadline_after(
                 mapping.host,
-                self.guest_timebase
-                    .duration_until(guest.into(), mapping.guest.into()),
+                self.guest_rate.duration_between_ceil(mapping.guest, guest),
             )
         } else {
-            self.clock.checked_sub(
+            self.clock.checked_deadline_before(
                 mapping.host,
-                self.guest_timebase
-                    .duration_since(mapping.guest.into(), guest.into()),
+                self.guest_rate.duration_between(guest, mapping.guest),
             )
         }
     }

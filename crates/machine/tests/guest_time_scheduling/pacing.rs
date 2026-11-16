@@ -33,7 +33,7 @@ async fn late_host_wake() {
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
                 deadlines: [2, 4, 6, 8, 10, 12]
-                    .map(|millis| clock.add(start, Duration::from_millis(millis)))
+                    .map(|millis| clock.deadline_after(start, Duration::from_millis(millis)))
                     .to_vec(),
                 observed: Vec::new(),
                 exit: None,
@@ -50,7 +50,7 @@ async fn late_host_wake() {
                 .borrow()
                 .observed
                 .iter()
-                .map(|time| clock.duration_since(*time, start))
+                .map(|time| clock.duration_between(start, *time))
                 .collect::<Vec<_>>();
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             observed
@@ -93,7 +93,8 @@ impl Device for ReplacedDeadline {
         let start = clock.now();
         let replace = device.borrow_mut().replace.take().unwrap();
         {
-            let old = pin!(clock.sleep_until(clock.add(start, Duration::from_millis(15))));
+            let old =
+                pin!(clock.sleep_until(clock.deadline_after(start, Duration::from_millis(15))));
             match select(old, pin!(replace)).await {
                 Either::Right((Ok(()), _)) => {}
                 _ => panic!("the old deadline must be replaced before it fires"),
@@ -102,7 +103,7 @@ impl Device for ReplacedDeadline {
         device
             .borrow_mut()
             .observed
-            .push(clock.duration_since(clock.now(), start));
+            .push(clock.duration_between(start, clock.now()));
         device
             .borrow_mut()
             .replaced
@@ -111,12 +112,12 @@ impl Device for ReplacedDeadline {
             .send(())
             .unwrap();
         clock
-            .sleep_until(clock.add(start, Duration::from_millis(5)))
+            .sleep_until(clock.deadline_after(start, Duration::from_millis(5)))
             .await;
         device
             .borrow_mut()
             .observed
-            .push(clock.duration_since(clock.now(), start));
+            .push(clock.duration_between(start, clock.now()));
         device.borrow().exit.as_ref().unwrap().request();
     }
 }
@@ -187,7 +188,7 @@ async fn cancelled_run_rebinds() {
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
-                deadlines: vec![clock.add(start, Duration::from_millis(10))],
+                deadlines: vec![clock.deadline_after(start, Duration::from_millis(10))],
                 observed: Vec::new(),
                 exit: None,
                 exit_after_waits: true,
@@ -205,7 +206,9 @@ async fn cancelled_run_rebinds() {
             resumed.await.unwrap();
             assert_eq!(
                 runner.clock().now(),
-                runner.clock().add(start, Duration::from_millis(4))
+                runner
+                    .clock()
+                    .deadline_after(start, Duration::from_millis(4))
             );
             assert_eq!(
                 runner.run_cpu().await,
@@ -213,7 +216,7 @@ async fn cancelled_run_rebinds() {
             );
             assert_eq!(
                 device.borrow().observed,
-                [clock.add(start, Duration::from_millis(10))]
+                [clock.deadline_after(start, Duration::from_millis(10))]
             );
         },
     );
@@ -347,7 +350,7 @@ async fn ready_service_during_pacing() {
             let start = clock.now();
             let device = Rc::new(RefCell::new(Deadlines {
                 clock: runner.clock().clone(),
-                deadlines: vec![clock.add(start, Duration::from_millis(10))],
+                deadlines: vec![clock.deadline_after(start, Duration::from_millis(10))],
                 observed: Vec::new(),
                 exit: None,
                 exit_after_waits: false,
@@ -375,7 +378,9 @@ async fn ready_service_during_pacing() {
             );
             assert_eq!(
                 runner.clock().now(),
-                runner.clock().add(start, Duration::from_millis(4))
+                runner
+                    .clock()
+                    .deadline_after(start, Duration::from_millis(4))
             );
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert!(device.borrow().observed.is_empty());

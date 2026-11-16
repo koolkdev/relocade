@@ -1,4 +1,4 @@
-use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep, Timebase, Timestamp};
+use super::{driver, Clock, ClockSource, HostTimerDriver, Instant, Sleep, TickRate, Timestamp};
 use futures_channel::{mpsc, oneshot};
 
 /// Transferable access to the host timer service. Construct a local [`Clock`]
@@ -53,8 +53,7 @@ impl ClockSource for TimerHandle {
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         let deadline = self.origin
-            + Timebase::NANOSECONDS
-                .duration_since(deadline.into(), Timestamp::from_ticks(0).into());
+            + TickRate::NANOSECONDS.duration_between(Timestamp::from_ticks(0), deadline);
         let handle = self.clone();
         Sleep::new(async move {
             let (complete, completed) = oneshot::channel();

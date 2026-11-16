@@ -25,30 +25,29 @@ Host and guest timelines are independent.
 The clock owns its fixed scale; the host timer source owns its host origin.
 `Instant`, re-exported from `web_time`, is used only for external host events.
 
-`Clock::add` and `sub` round their result toward the future to a native tick;
-their checked forms return `None` for durations beyond half the counter range.
-`now()` returns the source's native position without converting it to a duration.
-`duration_since` subtracts native readings, then rounds the actual elapsed time
-down to whole nanoseconds. It saturates at zero; `checked_duration_since` instead
-returns `None` for reversed readings. Ordinary comparisons retain native precision.
+`deadline_after` and `deadline_before` round toward the future to a native tick;
+their checked forms reject durations beyond half the counter range. `now()`
+returns native progress without any duration conversion. `duration_between(start,
+end)` measures a single interval in whole nanoseconds, returning zero for reversed
+readings; its checked form returns `None` instead.
 
-Repeated integration uses `consume_elapsed` with a saved fractional cursor:
+Devices that count their own cycles take native observations directly:
 
 ```rust,ignore
-let mut updated = ClockCursor::from(clock.now());
-// At each observation:
-let elapsed = clock.consume_elapsed(&mut updated, clock.now());
-device.advance(elapsed);
+pit.advance_to(clock.now());
+if let Some(deadline) = pit.next_deadline() {
+    clock.sleep_until(deadline).await;
+}
 ```
 
-The clock advances `updated` only by the returned duration, retaining any native
-fraction for the next observation. State and derived deadlines refer to this
-consumed position. Raster timing and PIT counters use this operation; PIT snapshots
-and audio frames share its phase. An explicit device restart establishes a new
-phase from `now()`. No clock origin or rounding parameter is needed by consumers.
-One-shot timers use `add` and comparisons directly; DOS mouse speed measures one
-packet interval with `checked_duration_since`. Repeating timers own a `Schedule`, which retains phase while exposing integer
-deadlines:
+PIT and VGA multiply elapsed native ticks by their oscillator rate, divide by the
+native tick rate, and retain the division remainder in device state. They convert
+back only when scheduling a wake. Device snapshots describe the observed native
+timestamp and the device's own phase; there is no shared fractional position or
+elapsed-consumption cursor.
+
+Repeating duration-based timers use `Schedule`, which retains the requested phase
+and exposes only integer deadlines:
 
 ```rust,ignore
 let mut next = clock.schedule(clock.now());
@@ -60,9 +59,14 @@ loop {
 ```
 
 A period of 2.5 ticks produces deadlines 3, 5, 8, 10. Fractional phase belongs to
-`Schedule`; reads and armed deadlines remain integer ticks. Mixer intervals
-also retain fractional ticks, so the audio sample rate can exceed the guest tick
-rate without producing empty sample intervals.
+`Schedule`; reads and armed deadlines remain integer ticks.
+
+Audio uses absolute frame ranges and the frontend's immutable `AudioTiming`.
+Frame zero starts at a native timestamp, with a fixed native tick rate and output
+sample rate. `deadline_for_frame(end_frame)` rounds the block wake once; sources
+place changes within the exact frame grid and retain changes beyond the block end.
+A frame need not span a whole native tick. PIT waveform phase and DAC playback
+periods stay with their respective sources; FM runs at the output sample rate.
 
 A relative sleep captures the full duration from the native reading. For example,
 at three billion instructions per second, a one-nanosecond sleep always requires
@@ -77,8 +81,8 @@ clock does not promise an executor yield or a browser event-loop turn.
 
 `ClockSource` supplies `now() -> Timestamp` and `sleep_until(Timestamp) -> Sleep`.
 Its immutable, nonzero `ticks_per_second()` defaults to one billion. Sources construct
-coordinates with `Timestamp::from_ticks` and interpret them with `ticks`; device
-consumers do neither. `Clock::new(source)` captures the scale and wraps the source
+coordinates with `Timestamp::from_ticks` and interpret them with `ticks`. Devices
+use native differences only with the matching `TickRate`. `Clock::new(source)` captures the scale and wraps the source
 behind the common consumer API. `Sleep::new(future)` owns its wait state.
 
 Sources preserve monotonic readings and first-poll registration/drop cancellation.

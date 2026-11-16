@@ -1,17 +1,13 @@
-//! Clonable timebases and owned deadline waits.
+//! Clock readings, integer deadlines and owned waits.
 
-mod cursor;
 mod driver;
 mod guest;
 mod host;
-mod timebase;
 
-pub use cursor::ClockCursor;
 pub use driver::HostTimerDriver;
 pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
 pub use relocade_time::{Schedule, TickRate, Timestamp};
-use timebase::Timebase;
 pub use web_time::Instant;
 
 use std::{
@@ -29,7 +25,7 @@ use std::{
 #[derive(Clone)]
 pub struct Clock {
     source: Rc<dyn ClockSource>,
-    timebase: Timebase,
+    tick_rate: TickRate,
 }
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
@@ -72,7 +68,7 @@ impl Clock {
     /// Wraps a source behind the common consumer API.
     pub fn new(source: impl ClockSource + 'static) -> Self {
         Self {
-            timebase: Timebase(source.ticks_per_second()),
+            tick_rate: TickRate::new(source.ticks_per_second()),
             source: Rc::new(source),
         }
     }
@@ -85,7 +81,7 @@ impl Clock {
 
     /// Copies the immutable conversion scale; this value can cross threads.
     pub fn tick_rate(&self) -> TickRate {
-        TickRate::new(self.timebase.0)
+        self.tick_rate
     }
 
     /// Calculates the first native tick at or after the requested time.
@@ -110,76 +106,13 @@ impl Clock {
         self.tick_rate().duration_between(start, end)
     }
 
+    pub fn checked_duration_between(&self, start: Timestamp, end: Timestamp) -> Option<Duration> {
+        self.tick_rate().checked_duration_between(start, end)
+    }
+
     /// Retains periodic phase while publishing integer deadlines.
     pub fn schedule(&self, start: Timestamp) -> Schedule {
         Schedule::new(self.tick_rate(), start)
-    }
-
-    /// Rounds a position plus a duration up to a native tick. Repeating timers
-    /// advance a [`ClockCursor`] to retain fractional phase between deadlines.
-    /// Panics if the duration exceeds half the counter range.
-    pub fn add(&self, time: impl Into<ClockCursor>, duration: Duration) -> Timestamp {
-        self.checked_add(time, duration)
-            .expect("clock interval fits in half the counter range")
-    }
-
-    pub fn checked_add(
-        &self,
-        time: impl Into<ClockCursor>,
-        duration: Duration,
-    ) -> Option<Timestamp> {
-        self.timebase.checked_add(time.into(), duration)
-    }
-
-    /// Subtracts a duration, rounding the result toward the future.
-    /// Panics if the duration exceeds half the counter range.
-    pub fn sub(&self, time: impl Into<ClockCursor>, duration: Duration) -> Timestamp {
-        self.checked_sub(time, duration)
-            .expect("clock interval fits in half the counter range")
-    }
-
-    pub fn checked_sub(
-        &self,
-        time: impl Into<ClockCursor>,
-        duration: Duration,
-    ) -> Option<Timestamp> {
-        self.timebase.checked_sub(time.into(), duration)
-    }
-
-    /// Actual elapsed time, rounded down to whole nanoseconds. Returns zero
-    /// when `earlier` is later than `time`. Both readings must belong to this clock.
-    /// Repeated integration uses [`Self::consume_elapsed`] to retain fractions.
-    pub fn duration_since(
-        &self,
-        time: impl Into<ClockCursor>,
-        earlier: impl Into<ClockCursor>,
-    ) -> Duration {
-        self.timebase.duration_since(time.into(), earlier.into())
-    }
-
-    pub fn checked_duration_since(
-        &self,
-        time: impl Into<ClockCursor>,
-        earlier: impl Into<ClockCursor>,
-    ) -> Option<Duration> {
-        let time = time.into();
-        let earlier = earlier.into();
-        (time >= earlier).then(|| self.duration_since(time, earlier))
-    }
-
-    /// Consumes whole nanoseconds through `time`, advancing `cursor` only by
-    /// the returned duration. A fractional remainder stays behind for the next
-    /// update. Earlier observations leave the cursor unchanged.
-    ///
-    /// Initialize with `ClockCursor::from(clock.now())` when the activity starts.
-    /// Device state and its next deadline describe this consumed position, not the
-    /// later observation. This keeps updates independent of observation frequency.
-    pub fn consume_elapsed(
-        &self,
-        cursor: &mut ClockCursor,
-        time: impl Into<ClockCursor>,
-    ) -> Duration {
-        self.timebase.consume_elapsed(cursor, time.into())
     }
 
     /// Waits for the host time corresponding to a timestamp from this clock.
@@ -207,7 +140,7 @@ impl Clock {
 
     /// Captures the deadline now, even if the returned future is polled later.
     pub fn sleep(&self, duration: Duration) -> Sleep {
-        self.sleep_until(self.add(self.now(), duration))
+        self.sleep_until(self.deadline_after(self.now(), duration))
     }
 
     /// Waits on a timestamp from this clock's timebase. Registration happens on
