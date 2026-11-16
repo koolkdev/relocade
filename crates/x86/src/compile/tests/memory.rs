@@ -56,46 +56,55 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
 }
 
 #[test]
-fn pushad_reuses_one_span_check_for_all_eight_stores() {
+fn all_register_stack_transfers_reuse_one_span_check() {
     use wasmparser::Operator;
 
-    let block = Compiler::new(SegmentProfile::Flat32)
-        .compile_block(0x1000, &[0x60], 1)
-        .unwrap();
-    let mut memories = Vec::new();
-    let mut page_reads = 0;
-    let mut guest_stores = 0;
-    for payload in Parser::new(0).parse_all(&block.bytes) {
-        match payload.unwrap() {
-            Payload::ImportSection(imports) => {
-                for import in imports {
-                    let import = import.unwrap();
-                    if matches!(import.ty, TypeRef::Memory(_)) {
-                        memories.push(import.name);
+    for (opcode, loads, stores) in [(0x60, 0, 8), (0x61, 7, 0)] {
+        let block = Compiler::new(SegmentProfile::Flat32)
+            .compile_block(0x1000, &[opcode], 1)
+            .unwrap();
+        let mut memories = Vec::new();
+        let mut page_reads = 0;
+        let mut guest_loads = 0;
+        let mut guest_stores = 0;
+        for payload in Parser::new(0).parse_all(&block.bytes) {
+            match payload.unwrap() {
+                Payload::ImportSection(imports) => {
+                    for import in imports {
+                        let import = import.unwrap();
+                        if matches!(import.ty, TypeRef::Memory(_)) {
+                            memories.push(import.name);
+                        }
                     }
                 }
-            }
-            Payload::CodeSectionEntry(body) => {
-                for operator in body.get_operators_reader().unwrap() {
-                    match operator.unwrap() {
-                        Operator::I32Load { memarg }
-                            if memories[memarg.memory as usize] == "machine" =>
-                        {
-                            page_reads += 1;
+                Payload::CodeSectionEntry(body) => {
+                    for operator in body.get_operators_reader().unwrap() {
+                        match operator.unwrap() {
+                            Operator::I32Load { memarg }
+                                if memories[memarg.memory as usize] == "machine" =>
+                            {
+                                page_reads += 1;
+                            }
+                            Operator::I32Load { memarg }
+                                if memories[memarg.memory as usize] == "guest" =>
+                            {
+                                guest_loads += 1;
+                            }
+                            Operator::I32Store { memarg }
+                                if memories[memarg.memory as usize] == "guest" =>
+                            {
+                                guest_stores += 1;
+                            }
+                            _ => {}
                         }
-                        Operator::I32Store { memarg }
-                            if memories[memarg.memory as usize] == "guest" =>
-                        {
-                            guest_stores += 1;
-                        }
-                        _ => {}
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
+        // At most two page checks serve all transfers; POPAD discards the ESP slot.
+        assert_eq!(page_reads, 2, "opcode {opcode:02x}");
+        assert_eq!(guest_loads, loads, "opcode {opcode:02x}");
+        assert_eq!(guest_stores, stores, "opcode {opcode:02x}");
     }
-    // A frame touches at most two pages. Both are checked before its eight stores.
-    assert_eq!(page_reads, 2);
-    assert_eq!(guest_stores, 8);
 }
