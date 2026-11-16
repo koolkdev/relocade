@@ -46,6 +46,9 @@ fn disjoint_masks_fold_during_construction() {
         assert_eq!(body.constant_bits(upper.add(7_u64).and(3_u64))?, Some(3));
         assert_eq!(body.constant_bits(upper.or(2_u64).and(3_u64))?, Some(2));
         assert_eq!(body.constant_bits(input.and(!1_u64).and(3_u64))?, None);
+        let aligned = input.shl(7).or(1_u64).add(1_u64);
+        assert_eq!(body.constant_bits(aligned.and(0x7f_u64))?, Some(2));
+        assert_eq!(body.constant_bits(aligned.and(0xff_u64))?, None);
         // Narrow views keep the upper carrier bits until explicitly masked.
         let byte = input.truncate::<I32>().truncate::<I8>().and(0xfc);
         assert_eq!(body.constant_bits(byte.and(3))?, Some(0));

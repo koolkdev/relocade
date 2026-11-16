@@ -20,49 +20,54 @@ mod tests;
 /// Construction shares immutable recipes; SSA gives each calculation its own definition.
 pub(crate) trait Phase: Default {
     const INTERN_EXPRESSIONS: bool;
-    fn record(&mut self, _index: usize, _value: Value) {}
+    fn record(_values: &mut ValueTable<Self>, _index: usize) {}
+    fn bits(&self, _index: usize) -> Bits {
+        Bits::default()
+    }
     fn compact(&mut self, _retained: &[Option<usize>]) {}
 }
 
 #[derive(Default)]
 pub(crate) struct Recipes {
-    // Allocated only when construction introduces the first explicit fact.
-    refined: Vec<bool>,
+    // Zero denotes facts already described by the literal or physical bounds.
+    facts: Vec<u32>,
+    bits: Vec<Bits>,
 }
 impl Phase for Recipes {
     const INTERN_EXPRESSIONS: bool = true;
 
-    fn record(&mut self, index: usize, value: Value) {
-        if self.refined.is_empty() {
-            if !matches!(
+    fn record(values: &mut ValueTable<Self>, index: usize) {
+        let value = values[index];
+        if !value.ty.is_integer()
+            || !matches!(
                 value.definition,
-                ValueDefinition::RefinedAlias {
-                    assumption: Some(_),
-                    ..
-                }
-            ) {
-                return;
-            }
-            self.refined.resize(index, false);
+                ValueDefinition::Expression(_) | ValueDefinition::RefinedAlias { .. }
+            )
+        {
+            values.phase.facts.push(0);
+            return;
         }
-        let refined = match value.definition {
-            ValueDefinition::RefinedAlias {
-                source, assumption, ..
-            } => assumption.is_some() || self.refined[source],
-            ValueDefinition::Expression(expression) => {
-                expression.inputs().any(|&input| self.refined[input])
-            }
-            ValueDefinition::Result {
-                producer: BlockItem::Evaluate(producer),
-                ..
-            } => self.refined[producer],
-            _ => false,
+        let base = initial_bits(values, index);
+        let known = infer_bits(values, index, |input| values.known_bits(input));
+        let fact = if known == base {
+            0
+        } else {
+            values.phase.bits.push(known);
+            u32::try_from(values.phase.bits.len()).expect("construction fact index fits u32")
         };
-        self.refined.push(refined);
+        values.phase.facts.push(fact);
+    }
+
+    fn bits(&self, index: usize) -> Bits {
+        match self.facts.get(index).copied().unwrap_or(0) {
+            0 => Bits::default(),
+            fact => self.bits[fact as usize - 1],
+        }
     }
 
     fn compact(&mut self, _retained: &[Option<usize>]) {
-        self.refined = Vec::new();
+        self.facts = Vec::new();
+        self.bits = Vec::new();
     }
 }
 
@@ -142,6 +147,27 @@ impl<P: Phase> ValueTable<P> {
             expression,
             component,
         })
+    }
+
+    /// Intrinsic facts about this definition, available without traversing its inputs.
+    pub(crate) fn known_bits(&self, value: usize) -> Bits {
+        initial_bits(self, value).union(self.phase.bits(value))
+    }
+
+    /// Folding must establish every physical bit, including unused logical upper bits.
+    pub(crate) fn constant_carrier_bits(&self, value: usize) -> Option<u64> {
+        if let Some(bits) = self.values[value].scalar_literal() {
+            return Some(bits);
+        }
+        if self.bounds[value].unsigned == 0 {
+            return Some(0);
+        }
+        let bits = self.phase.bits(value);
+        if bits == Bits::default() {
+            return None;
+        }
+        bits.union(initial_bits(self, value))
+            .known(self.values[value].ty.carrier().mask())
     }
 
     /// Store proof bits separately so ordinary values keep their compact layout.
@@ -258,8 +284,8 @@ impl<P: Phase> ValueTable<P> {
     pub(crate) fn push_with_bounds(&mut self, value: Value, bounds: BitBounds) -> usize {
         let index = self.values.len();
         self.bounds.push(bounds);
-        self.phase.record(index, value);
         self.values.push(value);
+        P::record(self, index);
         if let ValueDefinition::Expression(expression) = value.definition {
             for (component, ty) in expression.result_types(value.ty).enumerate().skip(1) {
                 self.push(Value {
@@ -290,12 +316,6 @@ impl<P: Phase> ValueTable<P> {
             self.hash_builder.hash_one(self.values[index])
         });
         index
-    }
-}
-
-impl ValueTable<Recipes> {
-    pub(crate) fn depends_on_assumption(&self, value: usize) -> bool {
-        self.phase.refined.get(value).copied().unwrap_or(false)
     }
 }
 

@@ -1,5 +1,5 @@
 //! Definition locations stay aligned with SSA value allocation and compaction.
-use super::{Phase, Value, ValueDefinition, ValueTable};
+use super::{Phase, ValueDefinition, ValueTable};
 use crate::body::BlockId;
 use std::num::NonZeroUsize;
 
@@ -11,8 +11,8 @@ pub(crate) struct Definitions {
 impl Phase for Definitions {
     const INTERN_EXPRESSIONS: bool = false;
 
-    fn record(&mut self, _index: usize, value: Value) {
-        self.blocks.push(match value.definition {
+    fn record(values: &mut ValueTable<Self>, index: usize) {
+        values.phase.blocks.push(match values[index].definition {
             ValueDefinition::Parameter { block, .. }
             | ValueDefinition::RefinedAlias { block, .. } => NonZeroUsize::new(block.0 + 1),
             _ => None,

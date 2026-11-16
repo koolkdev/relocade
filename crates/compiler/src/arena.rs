@@ -8,7 +8,6 @@ use crate::{
     value::UnboundExpression,
     BuildError, Expression, Type,
 };
-use rustc_hash::FxHashMap;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 mod facts;
@@ -19,8 +18,6 @@ struct Construction {
     graph: FunctionGraph,
     unbound: HashMap<UnboundExpression, usize>,
     scopes: Vec<usize>,
-    // Queries need a fact cache only after construction introduces assumptions.
-    facts: Option<FxHashMap<usize, facts::CachedBits>>,
 }
 
 impl FunctionArena {
@@ -29,7 +26,6 @@ impl FunctionArena {
             graph: FunctionGraph::new(),
             unbound: HashMap::new(),
             scopes: vec![0],
-            facts: None,
         }))))
     }
     pub(super) fn same_body(&self, other: &Self) -> bool {
@@ -231,11 +227,7 @@ impl FunctionArena {
         self.with_open(|table| crate::expression::normalize(table, input))
     }
     fn with_open(&self, build: impl FnOnce(&mut ValueTable) -> usize) -> Result<usize, BuildError> {
-        let mut arena = self.0.borrow_mut();
-        let arena = arena.as_mut().ok_or(BuildError::BodyClosed)?;
-        let first = arena.graph.values.len();
-        let value = build(&mut arena.graph.values);
-        Ok(arena.fold_assumed_constant(value, first))
+        self.with_graph(|graph| build(&mut graph.values))
     }
     fn with_graph<R>(&self, build: impl FnOnce(&mut FunctionGraph) -> R) -> Result<R, BuildError> {
         let mut arena = self.0.borrow_mut();
