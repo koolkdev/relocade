@@ -1,7 +1,13 @@
 //! Shared CPU declarations and architectural entry helpers for generated modules.
 
 use super::{calls::CallLinks, ExecutionBuilder};
-use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
+use crate::{
+    abi,
+    memory::Memory,
+    runtime::Runtime,
+    state::{Cpu, StateAssumption},
+    ExecutionProfile, ExecutionTarget,
+};
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -13,6 +19,7 @@ pub(crate) struct ExecutionModule {
     pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
+    pub(crate) assumptions: Arc<[StateAssumption]>,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
 }
 
@@ -25,6 +32,7 @@ impl ExecutionModule {
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
             target,
+            assumptions: crate::profile::state_assumptions(target.profile),
             interrupt: None,
         };
         if target.profile == ExecutionProfile::Real16 {

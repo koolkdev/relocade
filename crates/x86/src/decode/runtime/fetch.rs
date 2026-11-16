@@ -32,7 +32,7 @@ impl<'module> InstructionFetch<'module> {
         Self {
             memory,
             cpu,
-            segments: SegmentReads::new(cpu, profile),
+            segments: SegmentReads::new(cpu, profile, crate::profile::state_assumptions(profile)),
         }
     }
 

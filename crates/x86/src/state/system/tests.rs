@@ -1,9 +1,82 @@
 use crate::{
-    state::{Cpu, State},
+    state::{Cpu, SegmentReads, State, StateAssumption},
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
     CompiledModule, CpuState, ExecutionProfile, SegmentProfile,
 };
 use relocade_compiler::{Program, I32};
+use std::{mem::offset_of, sync::Arc};
+
+#[test]
+fn partial_entry_assumptions_leave_other_fields_live() {
+    let assumptions: Arc<[StateAssumption]> = [
+        StateAssumption::bits(
+            offset_of!(CpuState, cr0),
+            |cpu: &CpuState| &cpu.cr0,
+            crate::state::cr0::PROTECTION_ENABLE,
+            crate::state::cr0::PROTECTION_ENABLE,
+        ),
+        StateAssumption::field(
+            offset_of!(CpuState, segments.cs.big),
+            |cpu: &CpuState| &cpu.segments.cs.big,
+            0,
+        ),
+        StateAssumption::field(
+            offset_of!(CpuState, segments.ds.base),
+            |cpu: &CpuState| &cpu.segments.ds.base,
+            0x4000,
+        ),
+    ]
+    .into();
+    let mut program = Program::new();
+    let cpu = Cpu::declare(&mut program);
+    let observe = program.function::<fn() -> [u32; 4]>(move |mut body, ()| {
+        let mut state = State::new(&cpu).with_assumptions(assumptions.clone());
+        let mut segments = SegmentReads::new(
+            &cpu,
+            SegmentProfile::Segmented32.into(),
+            assumptions.clone(),
+        );
+        let code = state.code_default_is_32_bit(&mut body, None)?;
+        let base = segments.base(&mut body, &crate::Segment::Ds.into())?;
+        assert_eq!(body.constant_bits(&code)?, Some(0));
+        assert_eq!(body.constant_bits(&base)?, Some(0x4000));
+        let cpl = state.privilege_level(&mut body)?;
+        let stack = segments.big(&mut body, &crate::Segment::Ss.into())?;
+        assert_eq!(body.constant_bits(&cpl)?, None);
+        assert_eq!(body.constant_bits(&stack)?, None);
+        body.return_([
+            code.unsigned().extend::<I32>(),
+            cpl.unsigned().extend::<I32>(),
+            base,
+            stack.unsigned().extend::<I32>(),
+        ])
+    });
+    program.export("observe", observe).unwrap();
+    let module = TestModule::from_bytes(&program.compile().unwrap(), "observe", None);
+    for (cpl, stack) in [(1, 0), (3, 1)] {
+        let mut cpu = CpuState::default();
+        cpu.segments.cs.big = 0;
+        cpu.segments.cs.selector = cpl;
+        cpu.segments.ds.base = 0x4000;
+        cpu.segments.ss.big = stack;
+        let bytes = cpu.to_bytes();
+        let observed = module.observe(&Input::new(&bytes), 1);
+        let [Event::Return { outcome, snapshot }] = observed.events.as_slice() else {
+            panic!("unexpected events: {:?}", observed.events);
+        };
+        assert_eq!(
+            *outcome,
+            Outcome::Returned(
+                [0, i32::from(cpl), 0x4000, i32::from(stack)]
+                    .into_iter()
+                    .map(Argument::I32)
+                    .collect()
+            )
+        );
+        assert_eq!(snapshot.cpu, bytes);
+        assert!(observed.guest_unchanged && observed.machine_unchanged);
+    }
+}
 
 #[test]
 fn predicates_read_live_control_bits_without_changing_the_snapshot() {
@@ -70,7 +143,8 @@ fn admitted_modes_fold_privilege_and_timestamp_predicates() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::new(&cpu).with_control_profile(profile);
+            let mut state =
+                State::new(&cpu).with_assumptions(crate::profile::state_assumptions(profile));
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;

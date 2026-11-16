@@ -1,27 +1,36 @@
 //! Segment fields retain state values until a segment-changing entry dispatches.
-use super::{Cpu, ExecutionContext, SegmentRegister, Segments};
+use super::{
+    assumptions::apply_pending, Cpu, ExecutionContext, SegmentRegister, Segments, StateAssumption,
+};
 use crate::{
     segment::{Segment, SegmentSelection},
     ssa::{Location, SsaType, StateFields},
     ExecutionProfile,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
-use std::mem::{offset_of, size_of};
+use std::{
+    mem::{offset_of, size_of},
+    sync::Arc,
+};
 
 /// Cloning forks retained state for a descendant path. Segment writes end the entry.
 #[derive(Clone)]
 pub(crate) struct SegmentReads {
     profile: ExecutionProfile,
     fields: StateFields,
-    initialized: bool,
+    assumptions: Option<Arc<[StateAssumption]>>,
 }
 
 impl SegmentReads {
-    pub(crate) fn new(cpu: &Cpu, profile: ExecutionProfile) -> Self {
+    pub(crate) fn new(
+        cpu: &Cpu,
+        profile: ExecutionProfile,
+        assumptions: Arc<[StateAssumption]>,
+    ) -> Self {
         Self {
             profile,
             fields: StateFields::new(cpu.memory()),
-            initialized: false,
+            assumptions: Some(assumptions),
         }
     }
     pub(crate) fn profile(&self) -> ExecutionProfile {
@@ -34,14 +43,7 @@ impl SegmentReads {
         segment: &SegmentSelection,
         offset: usize,
     ) -> Result<Val<T>, BuildError> {
-        if !self.initialized {
-            for segment in Segment::ALL {
-                for requirement in crate::segment::profile::assumptions(self.profile, segment) {
-                    requirement.apply(body, &mut self.fields)?;
-                }
-            }
-            self.initialized = true;
-        }
+        apply_pending(body, &mut self.fields, &mut self.assumptions)?;
         let location = |segment| {
             Location::<T>::new(
                 (offset_of!(ExecutionContext, cpu) + Segments::offset(segment) + offset) as u32,

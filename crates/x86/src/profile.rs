@@ -6,11 +6,20 @@ use crate::{
     state::{cr0, cr4, StateAssumption},
     CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
 };
-use std::mem::offset_of;
+use std::{mem::offset_of, sync::Arc};
+
+/// Entry guarantees maintained by the current profile's admission and transitions.
+pub(crate) fn state_assumptions(profile: ExecutionProfile) -> Arc<[StateAssumption]> {
+    let mut assumptions = control_assumptions(profile);
+    for segment in crate::Segment::ALL {
+        assumptions.extend(crate::segment::profile::assumptions(profile, segment));
+    }
+    assumptions.into()
+}
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
 /// restrictions remain in CPU admission until their transitions are implemented.
-pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StateAssumption> {
+fn control_assumptions(profile: ExecutionProfile) -> Vec<StateAssumption> {
     macro_rules! require_bits {
         ($($field:ident).+, $mask:expr, $expected:expr) => {
             StateAssumption::bits(

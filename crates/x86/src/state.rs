@@ -49,7 +49,7 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     simd: StateFields,
     system: StateFields,
-    control_profile: Option<crate::ExecutionProfile>,
+    assumptions: Option<std::sync::Arc<[StateAssumption]>>,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -73,7 +73,7 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             system: StateFields::new(cpu.memory()),
-            control_profile: None,
+            assumptions: None,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
@@ -82,6 +82,23 @@ impl<'cpu> State<'cpu> {
     pub(super) fn with_instruction_budgets(mut self, enabled: bool) -> Self {
         self.instruction_budgets = enabled;
         self
+    }
+
+    /// Callers establish these guarantees at entry and maintain them until dispatch.
+    pub(crate) fn with_assumptions(
+        mut self,
+        assumptions: std::sync::Arc<[StateAssumption]>,
+    ) -> Self {
+        self.assumptions = Some(assumptions);
+        self
+    }
+
+    fn system_fields(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+    ) -> Result<&mut StateFields, BuildError> {
+        assumptions::apply_pending(body, &mut self.system, &mut self.assumptions)?;
+        Ok(&mut self.system)
     }
 
     /// Installs a segment after all instruction checks. Only publication and

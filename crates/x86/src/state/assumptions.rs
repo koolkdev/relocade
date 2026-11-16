@@ -3,7 +3,24 @@
 use super::ExecutionContext;
 use crate::ssa::{Location, StateFields};
 use relocade_compiler::{BlockBuilder, BuildError, I16, I32, I64, I8};
-use std::mem::{offset_of, size_of};
+use std::{
+    mem::{offset_of, size_of},
+    sync::Arc,
+};
+
+/// Establish entry guarantees on first use, then retain the resulting SSA values.
+pub(super) fn apply_pending(
+    body: &mut BlockBuilder<'_>,
+    fields: &mut StateFields,
+    pending: &mut Option<Arc<[StateAssumption]>>,
+) -> Result<(), BuildError> {
+    if let Some(assumptions) = pending.take() {
+        for assumption in assumptions.iter() {
+            assumption.apply(body, fields)?;
+        }
+    }
+    Ok(())
+}
 
 /// A requirement on scalar bytes in the CPU snapshot, in its encoded byte order.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
