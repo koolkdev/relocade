@@ -59,6 +59,9 @@ impl Drop for Input {
 /// They do not change data/control latches or synthesize STROBE/ACK. Flushing
 /// waits for direct output to be read. Closing this writer flushes it and prevents
 /// further direct writes; the port remains connected and the reader remains open.
+/// Clones share the connection's capacity and byte order. Each writer closes
+/// independently; cloning a closed writer leaves the clone closed as well.
+#[derive(Clone)]
 pub struct Output {
     pub(super) device: Rc<RefCell<Centronics>>,
     pub(super) closed: bool,

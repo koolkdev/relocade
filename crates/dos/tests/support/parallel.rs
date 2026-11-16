@@ -1,7 +1,10 @@
 use futures_io::AsyncRead;
 use futures_util::future::join;
 use relocade_clock_test_support::ManualClock;
-use relocade_dos::{devices::CharacterDriver, Dos, DosError, RunError};
+use relocade_dos::{
+    devices::{CharacterDriver, Printer},
+    Dos, DosError, RunError,
+};
 use relocade_machine::{worker::wake_connection, yield_now, FarPointer, Hook, Runner};
 use relocade_parallel::{centronics::Input, Centronics};
 use relocade_pc::{Configuration, ParallelPort, Pc};
@@ -91,16 +94,19 @@ fn pending(dos: &mut Dos) {
     panic!("DOS did not reach its LPT wait");
 }
 
-struct Replacement(Rc<RefCell<Vec<u8>>>);
+struct Replacement {
+    name: [u8; 8],
+    output: Rc<RefCell<Vec<u8>>>,
+}
 
 impl CharacterDriver for Replacement {
     fn name(&self) -> [u8; 8] {
-        *b"LPT1    "
+        self.name
     }
 
     fn write<'a>(&'a self, bytes: &'a [u8]) -> relocade_dos::devices::DriverFuture<'a, usize> {
         Box::pin(async move {
-            self.0.borrow_mut().extend_from_slice(bytes);
+            self.output.borrow_mut().extend_from_slice(bytes);
             Ok(bytes.len())
         })
     }
@@ -122,7 +128,15 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     let port = pc.parallel_port().unwrap();
     let (mut input, output) = Centronics::connect(pc.runner(), &port).await;
     let mut dos = Dos::from_pc(pc).await.unwrap();
-    dos.bind_lpt(number, output).unwrap();
+    dos.bind_lpt(number, output.clone()).unwrap();
+    // A numbered LPT binding leaves PRN unavailable until its driver is installed.
+    let unbound_printer = dos.device(b"PRN").unwrap();
+    assert_eq!(unbound_printer.name(), *b"PRN     ");
+    assert!(!unbound_printer.output_ready().await.unwrap());
+    assert_eq!(unbound_printer.write(b"X").await, Err(DosError::AccessDenied));
+    if number == 1 {
+        dos.install_driver(Printer::new(output.clone()));
+    }
     dos.launch_com(&[0xcd, 0x21], Default::default()).unwrap();
     let address = base(&dos);
     let exit_address = FarPointer {
@@ -160,10 +174,27 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     );
     error(service(&mut dos, 0x4000, unbound, 1, 0x400).await, 5);
     success(service(&mut dos, 0x3e00, unbound, 0, 0).await);
-    let prn = open(&mut dos, b"PRN", 1).await;
-    error(service(&mut dos, 0x4000, prn, 1, 0x400).await, 5);
-    error(service(&mut dos, 0x4000, 4, 1, 0x400).await, 5);
-    success(service(&mut dos, 0x3e00, prn, 0, 0).await);
+    let prn = open(&mut dos, b"PRN", 2).await;
+    if number == 1 {
+        // PRN and process startup handle 4 use the explicitly installed driver.
+        error(service(&mut dos, 0x3f00, prn, 1, 0x400).await, 5);
+        memory.view().write(address + 0x400, b"\t\x1a").unwrap();
+        for destination in [prn, 4] {
+            assert_eq!(
+                success(service(&mut dos, 0x4407, destination, 0, 0).await) as u8,
+                0xff
+            );
+            prepare(&mut dos, 0x21, 0x4000, destination, 2, 0x400);
+            pending(&mut dos);
+            let (state, received) = join(finish(&mut dos), read(&mut input, 2)).await;
+            assert_eq!(success(state), 2);
+            assert_eq!(received, b"\t\x1a");
+        }
+    } else {
+        error(service(&mut dos, 0x4000, prn, 1, 0x400).await, 5);
+        error(service(&mut dos, 0x4000, 4, 1, 0x400).await, 5);
+        success(service(&mut dos, 0x3e00, prn, 0, 0).await);
+    }
 
     // The numbered DOS binding is explicit and independent of the
     // hardware address or first BIOS slot used by this fixture.
@@ -196,7 +227,10 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     memory.view().write(address + 0x400, b"edit").unwrap();
     let replacement = Rc::new(RefCell::new(Vec::new()));
     if number == 1 {
-        dos.install_driver(Replacement(replacement.clone()));
+        dos.install_driver(Replacement {
+            name: *b"LPT1    ",
+            output: replacement.clone(),
+        });
     }
     let (state, received) = join(finish(&mut dos), read(&mut input, 4)).await;
     assert_eq!(success(state), 4);
@@ -209,9 +243,18 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     memory.view().write_u32(0x17 * 4, original_int17).unwrap();
 
     if number == 3 {
-        // LPT3 really receives output, rather than aliasing PRN or LPT1.
+        // PRN can explicitly share LPT3's connection while LPT1 is unavailable.
         let lpt1 = open(&mut dos, b"LPT1", 1).await;
         error(service(&mut dos, 0x4000, lpt1, 1, 0x400).await, 5);
+        dos.install_driver(Printer::new(output));
+        let installed_prn = open(&mut dos, b"prn.dat:", 1).await;
+        assert_eq!(
+            success(service(&mut dos, 0x4000, installed_prn, 1, 0x400).await),
+            1
+        );
+        assert_eq!(read(&mut input, 1).await, b"e");
+        // Handle 4 was opened before installation and retains the unavailable driver.
+        error(service(&mut dos, 0x4000, 4, 1, 0x400).await, 5);
         return;
     }
     let latest = open(&mut dos, b"LPT1", 1).await;
@@ -221,6 +264,36 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     );
     assert_eq!(&*replacement.borrow(), b"e");
     success(service(&mut dos, 0x3e00, latest, 0, 0).await);
+
+    let current_prn = open(&mut dos, b"prn.dat:", 1).await;
+    assert_eq!(
+        success(service(&mut dos, 0x4000, current_prn, 1, 0x400).await),
+        1
+    );
+    // Even a fresh PRN open retains the configured connection after LPT1 changes.
+    assert_eq!(read(&mut input, 1).await, b"e");
+    assert_eq!(&*replacement.borrow(), b"e");
+    let replacement_printer = Rc::new(RefCell::new(Vec::new()));
+    dos.install_driver(Replacement {
+        name: *b"PRN     ",
+        output: replacement_printer.clone(),
+    });
+    let latest_prn = open(&mut dos, b"PRN", 1).await;
+    assert_eq!(
+        success(service(&mut dos, 0x4000, latest_prn, 1, 0x400).await),
+        1
+    );
+    assert_eq!(&*replacement_printer.borrow(), b"e");
+    for destination in [prn, current_prn, 4] {
+        assert_eq!(
+            success(service(&mut dos, 0x4000, destination, 1, 0x400).await),
+            1
+        );
+        assert_eq!(read(&mut input, 1).await, b"e");
+    }
+    for destination in [prn, current_prn, latest_prn] {
+        success(service(&mut dos, 0x3e00, destination, 0, 0).await);
+    }
     // Existing handles and their duplicates still use the shared stream.
     let duplicate = success(service(&mut dos, 0x4500, handle, 0, 0).await);
     success(service(&mut dos, 0x3e00, handle, 0, 0).await);
@@ -272,14 +345,16 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     assert_eq!(io.read_port(0x278, 1), 0x5a);
     assert_eq!(io.read_port(0x27a, 1), 0xec);
     drop(input);
-    assert_eq!(
-        success(service(&mut dos, 0x4407, duplicate, 0, 0).await) as u8,
-        0
-    );
-    error(
-        service(&mut dos, 0x4000, duplicate, 1, 0x400).await,
-        DosError::WriteFault.code(),
-    );
+    for destination in [duplicate, 4] {
+        assert_eq!(
+            success(service(&mut dos, 0x4407, destination, 0, 0).await) as u8,
+            0
+        );
+        error(
+            service(&mut dos, 0x4000, destination, 1, 0x400).await,
+            DosError::WriteFault.code(),
+        );
+    }
 }
 
 pub async fn parallel_file_access() -> Result<(), String> {

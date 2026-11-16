@@ -128,6 +128,7 @@ fn strobe_wakes_the_reader_and_preserves_the_byte_until_consumed() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn direct_output_and_port_transfers_share_capacity_and_order() {
     let mut hardware = Hardware::new();
+    let mut cloned_output = hardware.output.clone();
     let flag = Arc::new(Woken::default());
     let waker = Waker::from(flag.clone());
     let mut cx = Context::from_waker(&waker);
@@ -138,11 +139,12 @@ fn direct_output_and_port_transfers_share_capacity_and_order() {
     assert_eq!(hardware.io.read_port(0x37a, 1), 0xec);
     assert_eq!(hardware.io.read_port(0x379, 1), 0x5f); // BUSY without ACK.
     assert!(!hardware.output.ready());
-    assert!(write(&mut hardware.output, &mut cx, b"B").is_pending());
+    assert!(!cloned_output.ready());
+    assert!(write(&mut cloned_output, &mut cx, b"B").is_pending());
     flag.0.store(false, Ordering::SeqCst);
     assert_eq!(read(&mut hardware.input, &mut cx), Poll::Ready(Some(b'A')));
     assert!(flag.0.swap(false, Ordering::SeqCst));
-    assert_eq!(write(&mut hardware.output, &mut cx, b"B"), Poll::Ready(1));
+    assert_eq!(write(&mut cloned_output, &mut cx, b"B"), Poll::Ready(1));
     assert_eq!(read(&mut hardware.input, &mut cx), Poll::Ready(Some(b'B')));
     hardware.strobe(b'C');
     assert!(write(&mut hardware.output, &mut cx, b"D").is_pending());
@@ -268,6 +270,7 @@ fn acknowledgement_completes_and_interrupts_without_guest_io() {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn close_flushes_direct_output_while_session_shutdown_ends_the_reader() {
     let mut hardware = Hardware::new();
+    let mut cloned_output = hardware.output.clone();
     let flag = Arc::new(Woken::default());
     let waker = Waker::from(flag.clone());
     let mut cx = Context::from_waker(&waker);
@@ -280,6 +283,10 @@ fn close_flushes_direct_output_while_session_shutdown_ends_the_reader() {
     assert_eq!(close(&mut hardware.output, &mut cx), Poll::Ready(()));
     let failed = Pin::new(&mut hardware.output).poll_write(&mut cx, b"B");
     assert!(matches!(failed, Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe));
+    assert!(!hardware.output.clone().ready());
+    assert!(cloned_output.ready());
+    assert_eq!(write(&mut cloned_output, &mut cx, b"B"), Poll::Ready(1));
+    assert_eq!(read(&mut hardware.input, &mut cx), Poll::Ready(Some(b'B')));
     hardware.strobe(b'C');
     drop(activity);
     assert_eq!(read(&mut hardware.input, &mut cx), Poll::Ready(Some(b'C')));

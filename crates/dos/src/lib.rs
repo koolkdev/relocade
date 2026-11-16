@@ -138,6 +138,12 @@
 //! Bound LPT writes preserve binary data; reads are unsupported in this forward
 //! transport. Closing a DOS handle does not close the connection. New opens use
 //! the latest binding; existing handles and suspended calls retain their target.
+//! PRN is reserved and unavailable until a printer driver is installed.
+//! [`devices::Printer`] uses an explicitly supplied parallel byte connection;
+//! setup can share the LPT1 connection to select the usual DOS printer route.
+//! Each process opens standard printer handle 4 through PRN. Installing a new
+//! printer driver affects future opens and launches; existing handles keep their
+//! binding. Numbered LPT bindings and the PRN driver are configured independently.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
 //! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
@@ -502,7 +508,9 @@ impl Dos {
     /// Binds LPT1, LPT2 or LPT3 to an explicitly supplied forward connection.
     /// Numbering is one-based and independent of the hardware's I/O address.
     /// New opens use this binding; retained handles keep their previous device.
-    /// This does not bind PRN or replace the standard printer handle.
+    /// To use the same connection for PRN, install [`devices::Printer`] with a
+    /// clone of its output. Process launches open printer handle 4 through PRN;
+    /// binding an LPT device does not install or replace the printer driver.
     ///
     /// ```no_run
     /// # async fn example(pc: relocade_pc::Pc) -> Result<(relocade_dos::Dos, relocade_parallel::centronics::Input), Box<dyn std::error::Error>> {
