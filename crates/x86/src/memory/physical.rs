@@ -55,9 +55,8 @@ impl PhysicalMemory {
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
         let address = access.linear.add(offset);
-        let direct = self.resolve_access(body, &address, T::BYTES, Intent::Read)?;
         body.if_value::<T>(
-            direct.unavailable,
+            &access.unavailable,
             |mut slow| {
                 let value = T::read_parts(|offset, bytes| {
                     self.reader.call(&mut slow, (address.add(offset), bytes))
@@ -65,7 +64,7 @@ impl PhysicalMemory {
                 slow.yield_(value)
             },
             |mut direct_body| {
-                let value = self.load::<T>(&mut direct_body, &direct.physical, 0)?;
+                let value = self.load::<T>(&mut direct_body, &access.physical, offset)?;
                 direct_body.yield_(value)
             },
         )
@@ -81,16 +80,17 @@ impl PhysicalMemory {
         assert!(matches!(access.intent, Intent::Write));
         access.check_field::<T>(offset);
         let address = access.linear.add(offset);
-        let direct = self.resolve_access(body, &address, T::BYTES, Intent::Write)?;
         body.if_else(
-            direct.unavailable,
+            &access.unavailable,
             |mut slow| {
                 T::write_parts(value, |offset, bytes, part| {
                     self.writer
                         .call(&mut slow, (address.add(offset), bytes, part))
                 })
             },
-            |mut direct_body| direct_body.store_at::<T>(self.backing, direct.physical, 0, value),
+            |mut direct_body| {
+                direct_body.store_at::<T>(self.backing, &access.physical, offset, value)
+            },
         )
     }
 

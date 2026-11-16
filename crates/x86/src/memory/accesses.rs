@@ -9,7 +9,8 @@ use crate::exception::ExceptionValues;
 /// Virtual mappings must stay fixed until this execution path leaves generated code.
 /// Clones inherit dominating proofs; proofs from a child must not escape its region.
 /// Guest bytes are always transferred anew, including through physical aliases.
-/// Physical accesses retain no routing proofs because MMIO callbacks may remap them.
+/// Physical mappings are not cached between operands; individual direct spans
+/// can be reused while no callback can change their routing.
 #[derive(Clone)]
 pub(crate) struct Accesses<'memory> {
     memory: &'memory Memory,

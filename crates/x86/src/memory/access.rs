@@ -15,6 +15,7 @@ pub(super) type FaultHandler<'handler> =
 /// always unavailable for direct transfer. Otherwise, `unavailable` identifies
 /// scattered virtual backing or physical routing resolved at transfer time.
 /// Non-faulting callers must guard transfers with `!denied`.
+/// Direct physical backing is reusable until a callback can change routing.
 #[derive(Clone)]
 pub(crate) struct Access {
     pub(super) linear: Val<I32>,

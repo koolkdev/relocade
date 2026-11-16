@@ -19,7 +19,8 @@ where
             Intent::Write,
         )],
         |execution, operands| {
-            operands[0].write_from(execution, |execution| execution.read_port::<T>(&port))?;
+            operands[0]
+                .write_from_device(execution, |execution| execution.read_port::<T>(&port))?;
             advance_indices(execution, &[Gpr32::Edi], &stride)
         },
         |_, _, _| Ok(false.into()),

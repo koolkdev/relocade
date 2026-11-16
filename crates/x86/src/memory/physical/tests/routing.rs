@@ -24,6 +24,62 @@ fn value(observation: &Observation) -> i64 {
     value
 }
 
+#[test]
+fn prepared_fields_keep_slow_routing_live_after_mmio() {
+    let mut program = Program::new();
+    let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+    let function = program.function::<fn() -> u64>(move |mut body, ()| {
+        let access =
+            memory.resolve_access(&mut body, &0x1fff.into(), 2, Intent::Read, None, None)?;
+        memory.read::<I8>(&mut body, &access, 0)?;
+        let value = memory.read::<I8>(&mut body, &access, 1)?;
+        body.return_(value.unsigned().extend::<I64>())
+    });
+    program.export("read", function).unwrap();
+    let module = TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "read".into(),
+        execution_target: None,
+    });
+    let mut input = input();
+    input.mmio_pages = vec![(1, 0x3000)];
+    input.guest.push((0x7000, vec![0x42]));
+    input.mmio_updates = vec![MmioUpdate {
+        map: vec![(2 * 8, vec![1, 0, 0, 0, 0, 0x70, 0, 0])],
+        ..Default::default()
+    }];
+    assert_eq!(value(&module.observe(&input, 1)), 0x42);
+}
+
+#[test]
+fn routing_can_be_refreshed_after_a_device_callback() {
+    let mut program = Program::new();
+    let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
+    let function = program.function::<fn() -> u64>(move |mut body, ()| {
+        let ram = memory.resolve_access(&mut body, &0x2000.into(), 1, Intent::Read, None, None)?;
+        let device =
+            memory.resolve_access(&mut body, &0x8000.into(), 1, Intent::Read, None, None)?;
+        memory.read::<I8>(&mut body, &device, 0)?;
+        let ram = memory.refresh_access(&mut body, &ram)?;
+        let value = memory.read::<I8>(&mut body, &ram, 0)?;
+        body.return_(value.unsigned().extend::<I64>())
+    });
+    program.export("read", function).unwrap();
+    let module = TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "read".into(),
+        execution_target: None,
+    });
+    let mut input = input();
+    input.mmio_pages = vec![(8, 0x6000)];
+    input.guest.push((0x7000, vec![0x42]));
+    input.mmio_updates = vec![MmioUpdate {
+        map: vec![(2 * 8, vec![1, 0, 0, 0, 0, 0x70, 0, 0])],
+        ..Default::default()
+    }];
+    assert_eq!(value(&module.observe(&input, 1)), 0x42);
+}
+
 fn mixed() {
     for mmio_first in [false, true] {
         for first_bytes in [1, 3, 5, 7] {
