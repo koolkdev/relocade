@@ -239,6 +239,32 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
     assert_eq!(io.read_port(0x278, 1), 0xa5);
     assert_eq!(io.read_port(0x27a, 1), 0xee);
     assert!(retained.output_ready().await.unwrap());
+    if number == 1 {
+        // AH=05h retains standard handle 4 despite the new LPT1 registration.
+        for byte in payload {
+            let state = service(&mut dos, 0x05aa, 0x1234, 0x5678, u16::from(byte)).await;
+            assert_eq!(success(state), 0x0500 | u16::from(byte));
+            assert_eq!(read(&mut input, 1).await, [byte]);
+        }
+        // The second byte suspends until the first is consumed, without
+        // changing the port's data/control registers or calling INT 17h.
+        retained.write(b"P").await.unwrap();
+        prepare(&mut dos, 0x21, 0x05aa, 0x1234, 0x5678, 0x9abc);
+        dos.cpu().cpu_state().set_eax(0xdead05aa);
+        dos.cpu().cpu_state().set_eflags(0x647);
+        pending(&mut dos);
+        assert!(dos.cpu().cpu_state().interrupts_enabled());
+        let (state, received) = join(finish(&mut dos), read(&mut input, 2)).await;
+        assert_eq!(received, b"P\xbc");
+        assert_eq!(state.registers.eax, 0xdead05bc);
+        assert_eq!(state.registers.ebx as u16, 0x1234);
+        assert_eq!(state.registers.ecx as u16, 0x5678);
+        assert_eq!(state.registers.edx as u16, 0x9abc);
+        assert_eq!(state.flags.eflags(), 0x647);
+        assert!(replacement.borrow().is_empty());
+        assert_eq!(io.read_port(0x278, 1), 0xa5);
+        assert_eq!(io.read_port(0x27a, 1), 0xee);
+    }
     assert_eq!(memory.view().read_u8(address + 0x500).unwrap(), 0);
     memory.view().write_u32(0x17 * 4, original_int17).unwrap();
 
@@ -355,6 +381,8 @@ async fn exercise(runner: Runner, clock: &ManualClock, number: u8) {
             DosError::WriteFault.code(),
         );
     }
+    // Unlike AH=40h, the legacy printer call has no error result on reader loss.
+    assert_eq!(success(service(&mut dos, 0x05aa, 0, 0, 0x7f).await), 0x057f);
 }
 
 pub async fn parallel_file_access() -> Result<(), String> {

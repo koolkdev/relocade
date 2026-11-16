@@ -4,7 +4,7 @@ use super::{
     control::Request,
     io::{self, Input},
 };
-use crate::{DosError, ServiceError};
+use crate::{files::standard_handle, DosError, ServiceError};
 use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_dispatch},
     CpuContext, FarPointer,
@@ -65,6 +65,34 @@ pub(super) async fn write_character(
         }
         input.write(call, request, byte).await;
         return if byte == b'\t' { b' ' } else { byte };
+    }
+}
+
+/// AH=05h sends DL through standard printer handle 4 without cooked output.
+#[interrupt(context(call), args(byte = dl), returns { byte => { al = byte } })]
+pub(super) async fn write_printer(
+    call: &mut CpuContext<'_>,
+    request: &mut Request<'_>,
+    byte: u8,
+) -> u8 {
+    loop {
+        let input = Input::new(request.services);
+        if input.break_pending().await {
+            request.handle_break(call).await;
+            continue;
+        }
+        let output = request
+            .services
+            .process
+            .files()
+            .writable_handle(standard_handle::PRINTER);
+        input.status(call, request).await;
+        if let Ok(output) = output {
+            // Retain the destination across waits. This legacy service has no
+            // error return; AH=40h exposes failures to callers that need them.
+            let _ = output.write(&[byte]).await;
+        }
+        return byte;
     }
 }
 

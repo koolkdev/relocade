@@ -140,6 +140,17 @@ fn driver_errors_reach_handles_while_dos_character_output_ignores_them() {
         );
         assert_eq!(success(&service(&mut dos, 0x0900, 0, 0, 0x400)), 0x0924);
 
+        success(&service(&mut dos, 0x4600, 1, 4, 0));
+        for flags in [0x202, 0x647] {
+            dos.cpu().cpu_state().set_eflags(flags);
+            let state = service(&mut dos, 0x05aa, 0x1234, 0x5678, 0x9a58);
+            assert_eq!(state.registers.eax as u16, 0x0558);
+            assert_eq!(state.registers.ebx as u16, 0x1234);
+            assert_eq!(state.registers.ecx as u16, 0x5678);
+            assert_eq!(state.registers.edx as u16, 0x9a58);
+            assert_eq!(state.flags.eflags(), flags);
+        }
+
         input.borrow_mut().clear();
         input.borrow_mut().extend(b"B\r");
         dos.cpu()

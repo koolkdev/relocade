@@ -49,10 +49,10 @@ fn break_setting_is_queryable_exchangeable_and_persistent() {
 }
 
 #[test]
-fn checked_console_services_use_the_default_terminating_handler() {
+fn checked_character_services_use_the_default_terminating_handler() {
     pollster::block_on(async {
         for function in [
-            0x0100, 0x0200, 0x0800, 0x0900, 0x0a00, 0x0b00, 0x3f00, 0x4000,
+            0x0100, 0x0200, 0x0500, 0x0800, 0x0900, 0x0a00, 0x0b00, 0x3f00, 0x4000,
         ] {
             let mut dos = session().await;
             dos.cpu()
@@ -242,7 +242,7 @@ fn returning_break_handler_restarts_line_editing_and_repeats_the_requested_flush
 #[test]
 fn break_restart_observes_callback_changes_to_redirection_and_guest_buffers() {
     pollster::block_on(async {
-        for function in [0x0a00, 0x3f00, 0x4000] {
+        for function in [0x0500, 0x0a00, 0x3f00, 0x4000] {
             let mut dos = session().await;
             dos.mount_file(
                 "IN.BIN",
@@ -275,9 +275,13 @@ fn break_restart_observes_callback_changes_to_redirection_and_guest_buffers() {
                                 )
                                 .unwrap();
                             call.cpu.set_ax(0x4600);
-                            call.cpu
-                                .set_bx(if function == 0x4000 { output } else { input });
-                            call.cpu.set_cx(u16::from(function == 0x4000));
+                            let (source, destination) = match function {
+                                0x0500 => (output, 4),
+                                0x4000 => (output, 1),
+                                _ => (input, 0),
+                            };
+                            call.cpu.set_bx(source);
+                            call.cpu.set_cx(destination);
                             call.call_interrupt(0x21).await;
                             assert!(!call.cpu.carry());
                             if function == 0x0a00 {
@@ -305,7 +309,7 @@ fn break_restart_observes_callback_changes_to_redirection_and_guest_buffers() {
                 )
                 .unwrap();
             dos.stdin()
-                .write_all(if function == 0x4000 {
+                .write_all(if matches!(function, 0x0500 | 0x4000) {
                     &b"\x03"[..]
                 } else {
                     b"ab\x03"
@@ -315,6 +319,10 @@ fn break_restart_observes_callback_changes_to_redirection_and_guest_buffers() {
             let mut bytes = [0; 5];
             dos.cpu().memory().view().read(0x10400, &mut bytes).unwrap();
             match function {
+                0x0500 => {
+                    assert_eq!(result.registers.eax as u16, 0x0500);
+                    assert_eq!(dos.read_file("OUT.BIN").unwrap(), [0]);
+                }
                 0x0a00 => {
                     assert_eq!(bytes, [3, 2, b'X', b'Y', b'\r']);
                     assert_eq!(dos.read_file("OUT.BIN").unwrap(), b"XY\x07\r");
@@ -331,7 +339,7 @@ fn break_restart_observes_callback_changes_to_redirection_and_guest_buffers() {
             }
             assert_eq!(
                 common::output(dos.stdout()),
-                if function == 0x4000 {
+                if matches!(function, 0x0500 | 0x4000) {
                     &b"^C\r\n"[..]
                 } else {
                     b"ab^C\r\n"
@@ -372,7 +380,7 @@ fn checked_status_and_output_peek_redirected_input_without_skipping_ordinary_byt
         let handle = common::success(&common::path_service(&mut dos, b"IN.TXT", 0x3d00, 0));
         service(&mut dos, 0x4600, handle, 0, 0);
         install(&mut dos, &[0xcf]);
-        for function in [0x0b00, 0x0200, 0x0900, 0x4000] {
+        for function in [0x0b00, 0x0200, 0x0500, 0x0900, 0x4000] {
             service(&mut dos, 0x4200, handle, 0, 0);
             dos.cpu().memory().view().write(0x10400, b"X$").unwrap();
             let cpu = service(
@@ -380,7 +388,7 @@ fn checked_status_and_output_peek_redirected_input_without_skipping_ordinary_byt
                 function,
                 1,
                 1,
-                if function == 0x0200 {
+                if matches!(function, 0x0200 | 0x0500) {
                     u16::from(b'X')
                 } else {
                     0x400
@@ -391,7 +399,7 @@ fn checked_status_and_output_peek_redirected_input_without_skipping_ordinary_byt
             }
             assert_eq!(
                 common::output(dos.stdout()),
-                if function == 0x0b00 {
+                if matches!(function, 0x0b00 | 0x0500) {
                     &b"^C\r\n"[..]
                 } else {
                     &b"^C\r\nX"[..]

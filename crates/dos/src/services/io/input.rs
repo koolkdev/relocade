@@ -4,7 +4,7 @@ use super::wait::{notify_idle, wait_for_input};
 use crate::{
     console::{CharacterOutput, LineEditor},
     devices::CONTROL_C,
-    files::Handle,
+    files::{standard_handle, Handle},
     services::{control::Request, Services},
     DosError,
 };
@@ -24,7 +24,11 @@ pub(in crate::services) struct Input<'a> {
 
 impl<'a> Input<'a> {
     pub(in crate::services) fn new(services: &'a Services<'a>) -> Self {
-        let source = services.process.files().handle(0).cloned();
+        let source = services
+            .process
+            .files()
+            .handle(standard_handle::INPUT)
+            .cloned();
         let output = services.stdout();
         Self {
             services,
