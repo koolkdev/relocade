@@ -5,10 +5,10 @@ use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I8};
 use crate::{
     floating::RoundingMode,
     ssa::{Location, StateFields},
-    state::{access::cpu_location, X87Control},
+    state::access::cpu_location,
 };
 
-use super::{X87Access, X87Specialization};
+use super::X87Access;
 
 /// Maskable exceptions share bit positions in the architectural control and
 /// status words. Stack fault is a status condition, not a seventh exception mask.
@@ -46,7 +46,7 @@ impl Exception {
 
 #[derive(Clone)]
 pub(super) struct Control {
-    fields: StateFields,
+    pub(super) fields: StateFields,
 }
 
 impl Control {
@@ -69,26 +69,6 @@ impl Control {
     pub(super) fn precision(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I8>, BuildError> {
         self.fields
             .read(body, cpu_location!(x87.control.precision_control))
-    }
-
-    pub(super) fn matches_controls(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        expected: &X87Control,
-        specialization: X87Specialization,
-    ) -> Result<Val<I1>, BuildError> {
-        let rounding = self
-            .fields
-            .read(body, cpu_location!(x87.control.rounding_control))?;
-        let matches = rounding.and(3).eq(u32::from(expected.rounding_control & 3));
-        Ok(match specialization {
-            X87Specialization::Rounding => matches,
-            X87Specialization::Arithmetic => matches.and(
-                self.precision(body)?
-                    .and(3)
-                    .eq(u32::from(expected.precision_control & 3)),
-            ),
-        })
     }
 
     pub(super) fn unmasked(
@@ -173,30 +153,6 @@ impl Control {
 }
 
 impl X87Access<'_, '_> {
-    /// The execution owner has guarded these controls on this path. Retaining
-    /// them in the state lets numerical builders use ordinary constant folding.
-    pub(crate) fn assume_controls(
-        &mut self,
-        expected: &X87Control,
-        specialization: X87Specialization,
-    ) -> Result<(), BuildError> {
-        self.state.control.fields.assume_bits(
-            self.body,
-            cpu_location!(x87.control.rounding_control),
-            3,
-            u64::from(expected.rounding_control),
-        )?;
-        if matches!(specialization, X87Specialization::Arithmetic) {
-            self.state.control.fields.assume_bits(
-                self.body,
-                cpu_location!(x87.control.precision_control),
-                3,
-                u64::from(expected.precision_control),
-            )?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn rounding(&mut self) -> Result<RoundingMode, BuildError> {
         self.state.control.rounding(self.body)
     }

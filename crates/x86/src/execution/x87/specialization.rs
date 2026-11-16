@@ -1,4 +1,4 @@
-//! x87 admission keeps restart guards and their continuation facts together.
+//! x87 restart guards keep fallback and continuation facts together.
 
 use relocade_compiler::{BuildError, Val, I1};
 
@@ -9,23 +9,14 @@ use crate::{
 };
 
 impl ExecutionBuilder<'_, '_> {
-    /// Guards the requested controls before refining their retained state values.
-    /// Arithmetic also preserves the state's optional already-set PE guard.
+    /// Guards the observed x87 preferences before retaining their facts.
     pub(crate) fn specialize_x87(
         &mut self,
         specialization: X87Specialization,
     ) -> Result<(), BuildError> {
-        self.if_can_fallback(|jit| {
-            let Some(observed) = jit.observed_cpu else {
-                return Ok(());
-            };
-            let condition = jit
-                .x87()
-                .specialization_condition(&observed.x87, specialization)?;
-            jit.guard(condition)?;
-            jit.x87()
-                .assume_controls(&observed.x87.control, specialization)
-        })?;
+        if let Some(observed) = self.observed_cpu {
+            self.specialize_state(&specialization.patterns(&observed.x87))?;
+        }
         Ok(())
     }
 

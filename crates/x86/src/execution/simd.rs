@@ -17,40 +17,29 @@ impl ExecutionBuilder<'_, '_> {
     /// Numerical operations can use observed controls only after a restart
     /// guard establishes them. Architectural state reads remain unguarded.
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
-        let controls = self.read_mxcsr()?;
-        self.if_can_fallback(|jit| {
-            if let Some(observed) = jit.observed_cpu {
-                jit.guard(controls.matches_controls(observed.simd.mxcsr))?;
-            }
-            Ok(())
-        })?;
-        Ok(controls)
+        if let Some(observed) = self.observed_cpu {
+            self.specialize_state(&[Mxcsr::control_pattern(observed.simd.mxcsr)])?;
+        }
+        self.read_mxcsr()
     }
 
-    /// Establish arithmetic controls before operand access. Generic blocks admit
-    /// nearest rounding; observed blocks already guard their recorded controls.
+    /// Operations that can raise precision need the controls and may also assume
+    /// the precision flag is already set and masked. Guard before reading operands.
+    pub(crate) fn simd_precision_controls(&mut self) -> Result<Mxcsr, BuildError> {
+        if let Some(observed) = self.observed_cpu {
+            self.specialize_state(&Mxcsr::precision_patterns(observed.simd.mxcsr))?;
+        }
+        self.read_mxcsr()
+    }
+
+    /// Generic arithmetic blocks prefer nearest rounding. Observed blocks use
+    /// the recorded rounding mode; interpreters retain all modes.
     pub(crate) fn simd_arithmetic_controls(&mut self) -> Result<Mxcsr, BuildError> {
-        let controls = self.simd_controls()?;
-        self.specialize_simd_precision(&controls)?;
-        self.if_can_fallback(|jit| {
-            if jit.observed_cpu.is_none() {
-                jit.guard(controls.bits().and(0x6000).eq(0))?;
-            }
-            Ok(())
-        })?;
-        Ok(controls)
-    }
-
-    /// Precision-producing operations can discard exactness work when masked
-    /// PE is already set. Establish this before reading instruction operands.
-    pub(crate) fn specialize_simd_precision(&mut self, controls: &Mxcsr) -> Result<(), BuildError> {
-        self.if_can_fallback(|jit| {
-            if let Some(observed) = jit.observed_cpu {
-                jit.guard(controls.preserves_masked_precision(observed.simd.mxcsr))?;
-            }
-            Ok(())
-        })?;
-        Ok(())
+        if self.observed_cpu.is_some() {
+            return self.simd_precision_controls();
+        }
+        self.specialize_state(&[Mxcsr::nearest_rounding_pattern()])?;
+        self.read_mxcsr()
     }
 
     /// Requires interpreter fallback. Guard the candidate's numerical domain

@@ -6,6 +6,7 @@ mod flags;
 mod layout;
 #[cfg(test)]
 mod observation;
+mod patterns;
 mod simd;
 mod system;
 pub(crate) mod x87;

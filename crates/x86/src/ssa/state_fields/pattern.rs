@@ -1,7 +1,7 @@
 //! Masked field values shared by admission, guards and retained state.
 
 use super::{Address, Location, LocationKey, SsaType, StateFields};
-use relocade_compiler::{BlockBuilder, BuildError, IntType, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, IntType, Val, I1, I16, I32, I64, I8};
 
 /// Describes bits of one scalar field, independently of how they are established.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -41,6 +41,38 @@ impl StatePattern {
         let mut encoded = [0; size_of::<u64>()];
         encoded[..bytes].copy_from_slice(&record[start..start + bytes]);
         u64::from_le_bytes(encoded) & self.mask == self.expected
+    }
+
+    pub(crate) fn within_record(self, offset: usize, bytes: usize) -> bool {
+        let start = self.location.offset as usize;
+        start >= offset && start + self.location.bytes as usize <= offset + bytes
+    }
+
+    /// Reads the current retained value, including unpublished guest writes.
+    pub(crate) fn matches(
+        self,
+        body: &mut BlockBuilder<'_>,
+        fields: &mut StateFields,
+    ) -> Result<Val<I1>, BuildError> {
+        match self.location.bytes {
+            1 => self.matches_field::<I8>(body, fields),
+            2 => self.matches_field::<I16>(body, fields),
+            4 => self.matches_field::<I32>(body, fields),
+            8 => self.matches_field::<I64>(body, fields),
+            _ => unreachable!("state patterns have scalar storage widths"),
+        }
+    }
+
+    fn matches_field<T: SsaType + IntType>(
+        self,
+        body: &mut BlockBuilder<'_>,
+        fields: &mut StateFields,
+    ) -> Result<Val<I1>, BuildError> {
+        let value = fields.read(body, Location::<T>::new(self.location.offset))?;
+        let mask = Val::<I64>::from(self.mask).truncate::<T>();
+        let masked = value.and(mask);
+        let expected = Val::<I64>::from(self.expected).truncate::<T>();
+        Ok(masked.eq(expected))
     }
 
     /// The caller establishes these bits by admission or a guard on this path.

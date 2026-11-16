@@ -3,26 +3,20 @@
 mod control;
 mod environment;
 mod mmx;
+mod patterns;
 mod registers;
 mod status;
 
 pub(crate) use environment::EnvironmentMode;
+pub(crate) use patterns::X87Specialization;
 pub(crate) use status::ConditionCode;
 
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Val, I1, I16, I32};
 
 use crate::{ssa::StateFields, x87::ExtendedValue};
 
-use super::{access::cpu_location, X87State};
+use super::access::cpu_location;
 pub(crate) use control::Exception;
-
-#[derive(Clone, Copy)]
-pub(crate) enum X87Specialization {
-    /// Rounding control alone, for operations independent of PC.
-    Rounding,
-    /// Precision and rounding, plus PM and PE when both were observed set.
-    Arithmetic,
-}
 
 #[derive(Clone)]
 pub(crate) struct X87Tracker {
@@ -100,37 +94,6 @@ pub(crate) struct X87Access<'state, 'body> {
 }
 
 impl X87Access<'_, '_> {
-    pub(crate) fn specialization_condition(
-        &mut self,
-        observed: &X87State,
-        specialization: X87Specialization,
-    ) -> Result<Val<I1>, BuildError> {
-        let mut condition =
-            self.state
-                .control
-                .matches_controls(self.body, &observed.control, specialization)?;
-        if matches!(specialization, X87Specialization::Arithmetic)
-            && observed.control.precision_mask & observed.status.precision & 1 != 0
-        {
-            // A masked, already-set PE cannot change on another inexact result.
-            // Guard both facts so repeated exception calculations fold away while
-            // C1 and the numerical result keep their normal rounding behavior.
-            condition = condition
-                .and(
-                    self.state
-                        .control
-                        .unmasked(self.body, Exception::Precision)?
-                        .eq(false),
-                )
-                .and(
-                    self.state
-                        .status
-                        .exception_raised(self.body, Exception::Precision)?,
-                );
-        }
-        Ok(condition)
-    }
-
     pub(crate) fn control_word(&mut self) -> Result<Val<I16>, BuildError> {
         self.state.control.word(self.body)
     }
