@@ -10,26 +10,14 @@ fn transfers(fill: bool) -> TestModule {
     let memory = Memory::declare(&mut program, ExecutionProfile::Real16);
     let function = program.function::<fn(u32, u32, u32) -> u64>(
         move |mut body, (destination, source, bytes)| {
-            let destination = memory.check_direct_access(
-                &mut body,
-                &destination,
-                &bytes,
-                Intent::Write,
-                None,
-                None,
-            )?;
+            let destination =
+                memory.check_access(&mut body, &destination, &bytes, Intent::Write, None, None)?;
             body.if_(&destination.unavailable, |denied| denied.return_(0u64))?;
             if fill {
                 memory.fill::<I16>(&mut body, &destination.physical, &0x2211.into(), &bytes)?;
             } else {
-                let source = memory.check_direct_access(
-                    &mut body,
-                    &source,
-                    &bytes,
-                    Intent::Read,
-                    None,
-                    None,
-                )?;
+                let source =
+                    memory.check_access(&mut body, &source, &bytes, Intent::Read, None, None)?;
                 body.if_(&source.unavailable, |denied| denied.return_(0u64))?;
                 memory.copy(&mut body, &destination.physical, &source.physical, &bytes)?;
             }

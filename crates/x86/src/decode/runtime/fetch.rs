@@ -59,7 +59,7 @@ impl<'module> InstructionFetch<'module> {
         let segment = self
             .segments
             .check(body, &Segment::Cs.into(), eip, bytes, Intent::Fetch)?;
-        let direct = self.memory.check_direct_access(
+        let direct = self.memory.check_access(
             body,
             &segment.linear,
             bytes,

@@ -31,12 +31,6 @@ pub(crate) enum Memory {
     Physical(PhysicalMemory),
 }
 
-/// A non-faulting probe result. Backing is usable only when the span is available.
-pub(crate) struct DirectRange {
-    pub(crate) unavailable: Val<I1>,
-    pub(crate) physical: Val<I32>,
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum Intent {
     Fetch,
@@ -78,10 +72,9 @@ impl Memory {
         }
     }
 
-    /// Probes direct backing after the caller's eligibility check. A true
-    /// `denied` condition skips lookup and preserves the cache without faulting.
-    /// With `None`, the caller has already established the span's eligibility.
-    pub(crate) fn check_direct_access(
+    /// Non-faulting access query after the caller's span eligibility checks.
+    /// A denied span skips lookup; otherwise the complete result can be reused.
+    pub(crate) fn check_access(
         &self,
         body: &mut BlockBuilder<'_>,
         start: &Val<I32>,
@@ -89,45 +82,46 @@ impl Memory {
         intent: Intent,
         denied: Option<Val<I1>>,
         cache: Option<&mut PageCache>,
-    ) -> Result<DirectRange, BuildError> {
+    ) -> Result<Access, BuildError> {
         let bytes = body.value(bytes)?;
         let probe = |body: &mut BlockBuilder<'_>, cache: Option<&mut PageCache>| match self {
             Self::Virtual(memory) => {
-                let access = memory.resolve_access(body, start, &bytes, intent, cache, None)?;
-                Ok(DirectRange {
-                    unavailable: access.unavailable,
-                    physical: access.physical,
-                })
+                memory.resolve_access(body, start, &bytes, intent, cache, None)
             }
-            // MMIO callbacks can change routing during an entry. Physical
-            // lookups always read live metadata rather than the loop page cache.
-            Self::Physical(memory) => memory.check_direct_access(body, start, &bytes, intent),
+            // Physical queries always observe live routing, without the loop page cache.
+            Self::Physical(memory) => memory.resolve_access(body, start, &bytes, intent),
         };
         let Some(denied) = denied else {
             return probe(body, cache);
         };
+        let constant_bytes = body.constant_bits(&bytes)?.map(|bytes| bytes as u32);
         let mut next_cache = cache.as_deref().cloned();
         let initial_cache = next_cache
             .clone()
             .map(PageCache::into_inputs)
             .unwrap_or_else(|| PageCache::EMPTY.map(Into::into));
-        let (unavailable, physical, cache_inputs) = body.if_value::<(I1, I32, PageCacheInputs)>(
-            denied,
-            |denied| denied.yield_((true, 0, initial_cache.clone())),
-            |mut allowed| {
-                let direct = probe(&mut allowed, next_cache.as_mut())?;
-                let inputs = next_cache
-                    .map(PageCache::into_inputs)
-                    .unwrap_or_else(|| initial_cache.clone());
-                allowed.yield_((direct.unavailable, direct.physical, inputs))
-            },
-        )?;
+        let (denied, unavailable, physical, cache_inputs) = body
+            .if_value::<(I1, I1, I32, PageCacheInputs)>(
+                denied,
+                |denied| denied.yield_((true, true, 0, initial_cache.clone())),
+                |mut allowed| {
+                    let access = probe(&mut allowed, next_cache.as_mut())?;
+                    let inputs = next_cache
+                        .map(PageCache::into_inputs)
+                        .unwrap_or_else(|| initial_cache.clone());
+                    allowed.yield_((access.denied, access.unavailable, access.physical, inputs))
+                },
+            )?;
         if let Some(cache) = cache {
             *cache = PageCache::from_inputs(cache_inputs);
         }
-        Ok(DirectRange {
-            unavailable,
+        Ok(Access {
+            linear: start.clone(),
             physical,
+            denied,
+            unavailable,
+            intent,
+            constant_bytes,
         })
     }
 

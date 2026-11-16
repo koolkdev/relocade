@@ -8,7 +8,7 @@ use relocade_compiler::{
     BlockBuilder, BuildError, Mem, MemoryInt, MemoryType, Program, TypedFunc, Val, I32,
 };
 
-use super::{Access, DirectRange, Intent};
+use super::{Access, Intent};
 use crate::alu::OperandUpdate;
 use table::PhysicalTable;
 
@@ -37,14 +37,14 @@ impl PhysicalMemory {
         self.backing
     }
 
-    pub(super) fn check_direct_access(
+    pub(super) fn resolve_access(
         &self,
         body: &mut BlockBuilder<'_>,
         address: &Val<I32>,
         bytes: impl Into<Val<I32>>,
         intent: Intent,
-    ) -> Result<DirectRange, BuildError> {
-        self.table.direct_range(body, address, bytes, intent)
+    ) -> Result<Access, BuildError> {
+        self.table.resolve_access(body, address, bytes, intent)
     }
 
     pub(super) fn read<T: TransferType>(
@@ -55,7 +55,7 @@ impl PhysicalMemory {
     ) -> Result<Val<T>, BuildError> {
         access.check_field::<T>(offset);
         let address = access.linear.add(offset);
-        let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Read)?;
+        let direct = self.resolve_access(body, &address, T::BYTES, Intent::Read)?;
         body.if_value::<T>(
             direct.unavailable,
             |mut slow| {
@@ -81,7 +81,7 @@ impl PhysicalMemory {
         assert!(matches!(access.intent, Intent::Write));
         access.check_field::<T>(offset);
         let address = access.linear.add(offset);
-        let direct = self.check_direct_access(body, &address, T::BYTES, Intent::Write)?;
+        let direct = self.resolve_access(body, &address, T::BYTES, Intent::Write)?;
         body.if_else(
             direct.unavailable,
             |mut slow| {
