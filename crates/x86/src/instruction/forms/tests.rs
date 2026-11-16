@@ -234,6 +234,7 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
                     0x1000,
                     0x1002,
                     prefixes.segment_override(),
+                    prefixes.selection().address_size().mask(),
                 );
                 assert!(matches!(
                     decoded.instruction.call,
@@ -313,6 +314,7 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
                 0x1000,
                 0x1001,
                 prefixes.segment_override(),
+                prefixes.selection().address_size().mask(),
             );
             assert!(!decoded.instruction.ends_block());
             assert!(matches!(
@@ -369,7 +371,7 @@ fn effective_addresses_bind_separately_from_memory_operands() {
             register: Some(RegisterSelector::Fixed(RegisterCode::from_bits(2))),
             rm: Some(Location::Memory(
                 EffectiveAddress {
-                    size: crate::address::AddressSize::Bits32,
+                    mask: u32::MAX,
                     base: None,
                     index: None,
                     displacement: 0x12345678u32,
@@ -384,6 +386,7 @@ fn effective_addresses_bind_separately_from_memory_operands() {
             0x1000,
             0x1006,
             prefixes.segment_override(),
+            prefixes.selection().address_size().mask(),
         );
         assert!(matches!(
             address.instruction.call,
@@ -400,6 +403,7 @@ fn effective_addresses_bind_separately_from_memory_operands() {
             0x1000,
             0x1006,
             prefixes.segment_override(),
+            prefixes.selection().address_size().mask(),
         );
         assert!(matches!(
             load.instruction.call,

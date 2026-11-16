@@ -175,7 +175,7 @@ pub(super) fn map_location<V: Into<Val<I32>>>(location: Location<V>) -> Location
 
 fn map_address<V: Into<Val<I32>>>(address: EffectiveAddress<V>) -> EffectiveAddress<Val<I32>> {
     EffectiveAddress {
-        size: address.size,
+        mask: address.mask.into(),
         base: address.base,
         index: address.index.map(|index| IndexTerm {
             register: index.register,

@@ -104,8 +104,68 @@ impl<'memory> RuntimeCursor<'memory> {
         }
     }
 
-    fn mark_conditional_offset(&mut self) {
-        self.fixed_offset = None;
+    fn after_variable_fields(&self, consumed: Val<I32>, maximum_bytes: u32) -> Self {
+        let mut cursor = self.clone();
+        cursor.fixed_offset = None;
+        cursor.maximum_offset += maximum_bytes;
+        cursor.offset = consumed;
+        cursor
+    }
+
+    /// Reads and advances only when present; an absent byte has value zero.
+    pub(super) fn byte_if(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        present: &Val<I1>,
+    ) -> Result<Val<I8>, BuildError> {
+        if let Some(present) = body.constant_bits(present)? {
+            return if present != 0 {
+                self.byte(body)
+            } else {
+                Ok(0.into())
+            };
+        }
+        let (value, consumed) = body.if_value::<(I8, I32)>(
+            present,
+            |mut body| {
+                let mut cursor = self.clone();
+                let value = cursor.byte(&mut body)?;
+                body.yield_((value, cursor.offset))
+            },
+            |body| body.yield_((0, &self.offset)),
+        )?;
+        *self = self.after_variable_fields(consumed, 1);
+        Ok(value)
+    }
+
+    /// An absolute address has the effective address width, independently of data width.
+    pub(super) fn address_offset(
+        &mut self,
+        body: &mut BlockBuilder<'_>,
+        dword: &Val<I1>,
+    ) -> Result<Val<I32>, BuildError> {
+        if let Some(dword) = body.constant_bits(dword)? {
+            return self.integer(
+                body,
+                if dword != 0 {
+                    FieldWidth::Dword
+                } else {
+                    FieldWidth::Word
+                },
+            );
+        }
+        let read = |mut body: BlockBuilder<'_>, width| {
+            let mut cursor = self.clone();
+            let value = cursor.integer(&mut body, width)?;
+            body.yield_((value, cursor.offset))
+        };
+        let (value, consumed) = body.if_value::<(I32, I32)>(
+            dword,
+            |body| read(body, FieldWidth::Dword),
+            |body| read(body, FieldWidth::Word),
+        )?;
+        *self = self.after_variable_fields(consumed, FieldWidth::Dword.bytes());
+        Ok(value)
     }
 
     pub(super) fn read_immediates(
@@ -151,7 +211,7 @@ impl<'memory> RuntimeCursor<'memory> {
         body: &mut BlockBuilder<'_>,
         mode: &Val<I8>,
         no_base: &Val<I1>,
-        width: FieldWidth,
+        dword: &Val<I1>,
     ) -> Result<Val<I32>, BuildError> {
         let has_full_displacement = mode.eq(2).or(no_base);
         let has_byte_displacement = mode.eq(1);
@@ -159,7 +219,7 @@ impl<'memory> RuntimeCursor<'memory> {
             &has_full_displacement,
             |mut full_body| {
                 let mut cursor = self.clone();
-                let value = cursor.integer(&mut full_body, width)?;
+                let value = cursor.address_offset(&mut full_body, dword)?;
                 full_body.yield_((value, cursor.offset))
             },
             |mut short_displacement_body| {
@@ -175,9 +235,12 @@ impl<'memory> RuntimeCursor<'memory> {
                 short_displacement_body.yield_(result)
             },
         )?;
-        self.mark_conditional_offset();
-        self.maximum_offset += width.bytes();
-        self.offset = next_offset;
+        let maximum_width = if body.constant_bits(dword)? == Some(0) {
+            FieldWidth::Word
+        } else {
+            FieldWidth::Dword
+        };
+        *self = self.after_variable_fields(next_offset, maximum_width.bytes());
         Ok(value)
     }
 }

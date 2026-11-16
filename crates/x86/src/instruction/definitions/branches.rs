@@ -146,7 +146,7 @@ where
     let displacement = displacement.read(execution)?;
     // Address size selects the counter; operand size only narrows a taken target.
     let count = execution.read_address_register(Gpr32::Ecx)?;
-    let count = execution.address_size().wrap(count.sub(1));
+    let count = execution.wrap_address(count.sub(1));
     let mut taken = count.ne(0);
     if let Some(condition) = loop_condition {
         taken = taken.and(execution.condition(condition)?);
