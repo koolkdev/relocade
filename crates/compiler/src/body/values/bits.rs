@@ -78,6 +78,16 @@ pub(crate) fn infer_bits(
         return base;
     }
     let mask = ty.carrier().mask();
+    if let ValueDefinition::RefinedAlias { source, .. } = values[id].definition {
+        let prior = base.union(bits(source));
+        let known = values.refinement_bits(id);
+        return if prior.conflicts(known) {
+            prior
+        } else {
+            prior.union(known)
+        }
+        .restrict(mask);
+    }
     let ValueDefinition::Expression(expression) = values[id].definition else {
         return base;
     };

@@ -49,6 +49,7 @@ pub(super) enum ValueDefinition {
     RefinedAlias {
         source: usize,
         block: BlockId,
+        assumption: Option<std::num::NonZeroUsize>,
     },
     Parameter {
         block: BlockId,
