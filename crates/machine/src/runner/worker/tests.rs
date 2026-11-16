@@ -3,6 +3,10 @@ use crate::{CpuConfig, Error, Machine, MachineConfig};
 use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
 
+#[path = "../../../../workers/tests/support/gate.rs"]
+mod gate;
+use gate::blocking_gate;
+
 fn cpu() -> (Machine, CpuHandle) {
     let mut machine =
         Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
@@ -60,35 +64,6 @@ async fn stopped_startup() {
     machine.shutdown().await.unwrap();
 }
 
-#[derive(Default)]
-struct Gate {
-    open: std::sync::Mutex<bool>,
-    changed: std::sync::Condvar,
-}
-
-impl Gate {
-    fn wait(&self) {
-        drop(
-            self.changed
-                .wait_while(self.open.lock().unwrap(), |open| !*open)
-                .unwrap(),
-        );
-    }
-
-    fn release(&self) {
-        *self.open.lock().unwrap() = true;
-        self.changed.notify_all();
-    }
-}
-
-struct Release(std::sync::Arc<Gate>);
-
-impl Drop for Release {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
-
 async fn cancelled_job_thread_startup() {
     let (machine, cpu) = cpu();
     let worker = cpu.spawn_with_guest_time(
@@ -108,8 +83,7 @@ async fn owned_job_cleanup(cancel: bool) {
     let (started, ready) = oneshot::channel();
     let (finish, finished) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
-    let gate = std::sync::Arc::new(Gate::default());
-    let release = Release(gate.clone());
+    let (release, wait) = blocking_gate();
     let worker = cpu.spawn_with_guest_time(
         || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
         async move |runner| {
@@ -117,7 +91,7 @@ async fn owned_job_cleanup(cancel: bool) {
             let mut work = std::pin::pin!(jobs.execute(move || {
                 let _cleanup = Dropped(Some(cleanup));
                 started.send(()).unwrap();
-                gate.wait();
+                wait();
             }));
             assert!(futures_lite::future::poll_once(work.as_mut())
                 .await

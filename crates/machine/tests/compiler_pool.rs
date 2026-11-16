@@ -3,36 +3,10 @@
 use futures_channel::oneshot;
 use futures_util::future::join;
 use relocade_workers::{Pool, Thread};
-use std::sync::{Arc, Condvar, Mutex};
 
-#[derive(Default)]
-struct Gate {
-    open: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl Gate {
-    fn wait(&self) {
-        drop(
-            self.changed
-                .wait_while(self.open.lock().unwrap(), |open| !*open)
-                .unwrap(),
-        );
-    }
-
-    fn release(&self) {
-        *self.open.lock().unwrap() = true;
-        self.changed.notify_all();
-    }
-}
-
-// Release blocked workers even when a coordinator assertion fails.
-struct Release(Arc<Gate>);
-impl Drop for Release {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
+#[path = "../../workers/tests/support/gate.rs"]
+mod gate;
+use gate::blocking_gate;
 
 async fn concurrent_compilations() {
     use relocade_compiler::Program;
@@ -77,18 +51,18 @@ async fn concurrent_ir_construction() {
         );
     }
     let (pool, executor) = Pool::new(threads).unwrap();
-    let gate = Arc::new(Gate::default());
-    let release = Release(gate.clone());
+    let mut releases = Vec::new();
     let mut program = Program::new();
     let mut started = Vec::new();
     for name in ["first", "second"] {
         let (sender, receiver) = oneshot::channel();
         started.push(receiver);
-        let gate = gate.clone();
+        let (release, wait) = blocking_gate();
+        releases.push(release);
         let function = program.function::<fn(u32) -> u32>(move |mut body, (input,)| {
             let local = std::rc::Rc::new(input.add(1));
             let _ = sender.send(std::thread::current().id());
-            gate.wait();
+            wait();
             let result = body.block::<I32>(|block, label| block.branch(&label, local.as_ref()))?;
             body.return_(result)
         });
@@ -98,7 +72,7 @@ async fn concurrent_ir_construction() {
         let ids = futures_util::future::try_join_all(started).await.unwrap();
         assert_ne!(ids[0], ids[1], "IR bodies overlap on distinct workers");
         assert!(ids.iter().all(|id| supplied.contains(id)));
-        drop(release);
+        drop(releases);
     };
     let compilation = async move { program.compile_with(&executor).await.unwrap() };
     let ((), (bytes, ())) = join(pool.run(), join(compilation, control)).await;
