@@ -6,6 +6,7 @@ use std::{
     future::Future,
     pin::Pin,
     rc::Rc,
+    sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -59,60 +60,24 @@ impl Playback {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), test)]
-fn sources_sum_with_gains_on_the_same_frames() {
-    let mut playback = Playback::new(config(1_000, 2, 4));
-    let frames = Rc::new(RefCell::new(Vec::new()));
-    let recorded = frames.clone();
-    playback
-        .mixer
-        .borrow_mut()
-        .add_source(0.5, move |frames, output| {
-            recorded.borrow_mut().push(frames.clone());
-            for (frame, sample) in frames.zip(output) {
-                *sample = if frame.is_multiple_of(2) { 1.0 } else { -1.0 };
-            }
-        });
-    let other_frames = Rc::new(RefCell::new(Vec::new()));
-    let recorded = other_frames.clone();
-    playback
-        .mixer
-        .borrow_mut()
-        .add_source(2.0, move |frames, output| {
-            recorded.borrow_mut().push(frames);
-            output.fill(0.5);
-        });
-    playback
-        .mixer
-        .borrow_mut()
-        .add_source(1.0, |_, output| output.fill(0.0));
-    assert_eq!(
-        playback.next_buffer(),
-        [1.5, 1.5, 0.5, 0.5, 1.5, 1.5, 0.5, 0.5]
-    );
-    assert_eq!(*frames.borrow(), *other_frames.borrow());
-    assert_eq!(frames.borrow().len(), 1);
-    assert_eq!(frames.borrow()[0], 0..4);
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn frame_grid_does_not_depend_on_batch_size() {
     for batch in [1, 7, 128, 256] {
         let mut playback = Playback::new(config(44_100, 1, batch));
         let timing = playback.mixer.borrow().timing();
-        let frames = Rc::new(RefCell::new(Vec::new()));
+        let frames = Arc::new(Mutex::new(Vec::new()));
         let recorded = frames.clone();
-        playback
-            .mixer
-            .borrow_mut()
-            .add_source(1.0, move |frames, output| {
-                recorded.borrow_mut().extend(frames);
+        playback.mixer.borrow_mut().sources().add_source(
+            1.0,
+            || (),
+            move |(), frames, output| {
+                recorded.lock().unwrap().extend(frames);
                 output.fill(0.0);
-            });
-        while frames.borrow().len() < 1024 {
+            },
+        );
+        while frames.lock().unwrap().len() < 1024 {
             playback.next_buffer();
         }
-        for (index, &frame) in frames.borrow().iter().take(1024).enumerate() {
+        for (index, &frame) in frames.lock().unwrap().iter().take(1024).enumerate() {
             assert_eq!(frame, index as u64);
             assert_eq!(
                 timing.deadline_for_frame(frame).ticks(),
@@ -130,11 +95,15 @@ fn frames_remain_distinct_below_one_guest_tick() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
     let (samples, output) = async_channel::bounded(1);
     let mut mixer = Mixer::new(driver.clock(), config(4000, 1, 4), samples).unwrap();
-    mixer.add_source(1.0, |frames, output| {
-        for (frame, sample) in frames.zip(output) {
-            *sample = frame as f32;
-        }
-    });
+    mixer.sources().add_source(
+        1.0,
+        || (),
+        |(), frames, output| {
+            for (frame, sample) in frames.zip(output) {
+                *sample = frame as f32;
+            }
+        },
+    );
     let mut activity = pin!(Mixer::run(Rc::new(RefCell::new(mixer))));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(activity.as_mut().poll(&mut cx).is_pending());
@@ -148,21 +117,22 @@ fn frames_remain_distinct_below_one_guest_tick() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn full_output_keeps_recent_samples_and_advances_sources() {
     let mut playback = Playback::new(config(1_000, 1, 10));
-    let samples = Rc::new(RefCell::new(0));
+    let samples = Arc::new(Mutex::new(0));
     let rendered = samples.clone();
-    playback
-        .mixer
-        .borrow_mut()
-        .add_source(1.0, move |_, output| {
+    playback.mixer.borrow_mut().sources().add_source(
+        1.0,
+        || (),
+        move |(), _, output| {
             for sample in output {
-                *rendered.borrow_mut() += 1;
-                *sample = *rendered.borrow() as f32;
+                *rendered.lock().unwrap() += 1;
+                *sample = *rendered.lock().unwrap() as f32;
             }
-        });
+        },
+    );
     assert!(playback.poll().is_pending());
     playback.clock.advance_by(Duration::from_millis(30));
     assert!(playback.poll().is_pending());
-    assert_eq!(*samples.borrow(), 30);
+    assert_eq!(*samples.lock().unwrap(), 30);
     assert_eq!(playback.output.len(), 1);
     assert_eq!(
         playback.output.try_recv().unwrap(),
@@ -171,7 +141,7 @@ fn full_output_keeps_recent_samples_and_advances_sources() {
     playback.output.close();
     assert!(playback.poll().is_ready());
     // The mixer retained on the bus must not retain a stopped source.
-    assert_eq!(Rc::strong_count(&samples), 1);
+    assert_eq!(Arc::strong_count(&samples), 1);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -93,6 +93,21 @@ impl SoundBlaster {
         self.adlib.clone()
     }
 
+    /// Registers this card's FM and DAC sources at independent unity gain.
+    pub fn add_audio_sources(
+        &self,
+        sources: &mut relocade_frontend::audio::Sources,
+    ) -> Result<(), String> {
+        self.adlib.borrow_mut().add_audio_sources(sources)?;
+        let (mut recorder, mut generator) = self.audio_source(sources.timing());
+        sources.add_source(
+            1.0,
+            move || recorder.take_events(),
+            move |events, frames, output| generator.generate_samples(events, frames, output),
+        );
+        Ok(())
+    }
+
     /// Captures digital output from now. Replaces any previous source; dropping
     /// the recorder releases captured samples while hardware playback continues.
     pub fn audio_source(&self, timing: AudioTiming) -> (EventRecorder, SampleGenerator) {

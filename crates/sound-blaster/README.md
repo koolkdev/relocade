@@ -46,7 +46,8 @@ count prevents double consumption. `generator.generate_samples(events, frames,
 output)` fills one mono value per frame without accessing the device or guest
 memory, and retains future events across blocks. Dropping the recorder stops
 capture while DMA and IRQs continue and the generator can finish owned events.
-PC defaults PCM, FM and the speaker to unity gain. The mixer preserves headroom,
+`card.add_audio_sources(sources)` registers its FM and DAC generators at unity
+gain; PC does not enumerate the card's components. The mixer preserves headroom,
 with clamping at platform output, and keeps its bounded, nonblocking submission.
 
 Command `0x48` sets the DSP block size minus one, and `0x1c` starts auto-initialize

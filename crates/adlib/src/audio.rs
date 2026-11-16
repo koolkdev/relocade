@@ -25,6 +25,20 @@ pub struct SampleGenerator {
 }
 
 impl Adlib {
+    /// Registers this device's output at unity gain on the shared frame grid.
+    pub fn add_audio_sources(
+        &mut self,
+        sources: &mut relocade_frontend::audio::Sources,
+    ) -> Result<(), String> {
+        let (mut recorder, mut generator) = self.audio_source(sources.timing())?;
+        sources.add_source(
+            1.0,
+            move || recorder.take_events(),
+            move |events, frames, output| generator.generate_samples(events, frames, output),
+        );
+        Ok(())
+    }
+
     /// Starts synthesis from current registers on the output's frame grid.
     /// Create before guest execution to retain the complete note timeline.
     /// A later attachment starts current voices with fresh envelopes.
