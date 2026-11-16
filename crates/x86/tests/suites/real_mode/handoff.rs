@@ -142,6 +142,92 @@ fn interrupt_preflight_checks_the_vector_before_writing_the_stack() {
 }
 
 #[test]
+fn enter_preflight_preserves_overlapping_display_reads() {
+    let code = [0xc8, 0, 0, 2];
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_2010;
+    image.cpu.registers.ebp = 0x1234_2010;
+    image.map(2, 0x8000, true);
+    image.data(0x8000, &[0xee; 16]);
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    );
+    let mut cpu = retired(&image, code.len());
+    cpu.registers.esp = 0xabcd_200a;
+    cpu.registers.ebp = 0x1234_200e;
+    assert_eq!(
+        module.observe(&image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[(0x800a, &[0x0e, 0x20, 0x10, 0x20, 0x10, 0x20])],
+                exit: Exit::Dispatch(cpu.eip),
+            }]
+        ),
+    );
+}
+
+#[test]
+fn enter_level_one_needs_no_display_backing() {
+    let code = [0xc8, 0, 0, 1];
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_2010;
+    image.cpu.registers.ebp = 0x1234_4000;
+    image.map(2, 0x8000, true);
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    );
+    let mut cpu = retired(&image, code.len());
+    cpu.registers.esp = 0xabcd_200c;
+    cpu.registers.ebp = 0x1234_200e;
+    assert_eq!(
+        module.observe(&image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu,
+                ram: &[(0x800c, &[0x0e, 0x20, 0, 0x40])],
+                exit: Exit::Dispatch(cpu.eip),
+            }]
+        ),
+    );
+}
+
+#[test]
+fn enter_checks_display_backing_before_the_first_push() {
+    let code = [0xc8, 0, 0, 2];
+    let mut image = image(&code);
+    image.cpu.registers.esp = 0xabcd_2010;
+    image.cpu.registers.ebp = 0x1234_3002;
+    image.map(2, 0x8000, true);
+    image.data(0x8000, &[0xee; 16]);
+    let mut input = image.input();
+    input.mmio_pages = vec![(3, 0x9000)];
+    input.observe_mmio = true;
+    let module = TestModule::new(
+        &crate::Compiler::new(ExecutionProfile::Real16)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap(),
+    );
+    assert_eq!(
+        module.observe(&input, 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: image.cpu,
+                ram: &[],
+                exit: Exit::Interpret,
+            }]
+        ),
+    );
+}
+
+#[test]
 fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
     let code = [0x60];
     let mut image = image(&code);
