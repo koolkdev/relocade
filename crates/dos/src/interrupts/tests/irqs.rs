@@ -41,7 +41,8 @@ impl Device for Irq {
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     let (clock, _timers) = timer_service();
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.into())));
+    let clock: relocade_machine::Clock = clock.into();
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
     let io = IoBus::default();
     io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(irq.clone(), |_| {});
@@ -78,12 +79,19 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
             conventional_memory_kib: 640,
             math_coprocessor: true,
             pointing_device: false,
+            parallel_ports: [0; 3],
         },
         &VideoFirmware::Dispi(vga.clone()),
     );
     let mut interrupts = relocade_machine::real_mode_interrupt::Interrupts::new(&mut cpu);
     crate::interrupts::register_interrupts(&mut interrupts, dos.clone());
-    relocade_bios::register_interrupts(&mut interrupts, keyboard, VideoFirmware::Dispi(vga), None);
+    relocade_bios::register_interrupts(
+        &mut interrupts,
+        relocade_bios::Parallel::new(clock, []),
+        keyboard,
+        VideoFirmware::Dispi(vga),
+        None,
+    );
     interrupts.install().await.unwrap();
     let psp = com::load(
         &mut cpu.context(),

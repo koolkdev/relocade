@@ -2,8 +2,15 @@
 //!
 //! INT 11h/12h return the equipment word and conventional-memory size directly
 //! from guest RAM at 0040:0010 and 0040:0013, initialized from PC configuration.
-//! No disk, COM or LPT devices are connected. INT 13h reports absent drives;
-//! INT 14h/17h return unchanged, following IBM BIOS's zero-port-address case.
+//! Configured parallel-port addresses occupy 0040:0008–000D; equipment bits
+//! 14–15 count installed adapters independently of attached peripherals.
+//! No disk or COM devices are connected. INT 13h reports absent drives;
+//! INT 14h returns unchanged. INT 17h sends a byte (AH=00h), initializes the
+//! interface (AH=01h), or reads status (AH=02h) through the configured port's
+//! I/O registers. An LPT slot without a configured adapter or an unsupported
+//! request returns unchanged. Readiness waits use the adapter's notifications.
+//! BDA timeout bytes at 0040:0078–007A default to 20 and count emulated seconds;
+//! zero performs a single readiness check. No printer device is synthesized.
 //! INT 10h sets text modes 00h–03h and 07h with output, cursors, pages and scrolling.
 //! Mode 07h uses the VGA monochrome palette, nine-dot cells and B0000 aperture.
 //! Graphics modes 04h–06h and 0Dh–13h program VGA for direct guest pixel
@@ -75,6 +82,7 @@ mod information;
 pub mod interrupts;
 mod keyboard;
 mod mouse;
+mod parallel;
 mod screen;
 pub mod video;
 
@@ -82,6 +90,7 @@ pub use information::Configuration;
 pub use interrupts::register_interrupts;
 pub use keyboard::{KeyMode, KeyStroke, Keyboard, PhysicalKeyboard, ShiftState};
 pub use mouse::Mouse;
+pub use parallel::Parallel;
 use relocade_machine::{IoBus, MemoryView};
 pub use screen::write_text;
 
@@ -99,6 +108,7 @@ pub fn initialize(
     configuration: Configuration,
     video: &video::VideoFirmware,
 ) {
+    parallel::initialize(memory, io, configuration.parallel_ports);
     information::initialize(memory, configuration);
     video::initialize(memory, io, video);
     clock::initialize(memory);

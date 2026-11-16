@@ -6,7 +6,7 @@ use relocade_machine::{
     worker::wake_connection,
     FarPointer, Hook, Runner,
 };
-use relocade_pc::{Configuration, Pc, VideoCard};
+use relocade_pc::{Configuration, ParallelPort, Pc, VideoCard};
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
 use std::time::Duration;
 
@@ -43,7 +43,10 @@ async fn bios_for_video_card(video_card: VideoCard) {
                 )
                 .await
                 .unwrap();
+                assert!(pc.parallel_port().is_none());
                 let memory = pc.cpu().memory();
+                assert_eq!(memory.view().read_u16(0x408).unwrap(), 0);
+                assert_eq!(memory.view().read_u16(0x410).unwrap() & 0xc000, 0);
                 // PC startup installs neither a DOS vector nor DOS allocation metadata.
                 assert_eq!(memory.view().read_u32(0x21 * 4).unwrap(), 0);
                 assert_eq!(memory.view().read_u8(0xfff0).unwrap(), 0);
@@ -140,6 +143,79 @@ async fn bios_for_video_card(video_card: VideoCard) {
                     u32::from_le_bytes(*b"VESA")
                 );
                 assert_eq!(memory.view().read_u32(0x21 * 4).unwrap(), 0);
+            },
+        )
+        .await
+        .expect("PC guest timed out");
+    machine.shutdown().await.unwrap();
+}
+
+async fn configured_parallel_port() {
+    let clock = ManualClock::default();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let prepared = machine
+        .create_cpu(relocade_pc::configuration::cpu(), None)
+        .unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::new(clock.clock(), prepared, endpoint)
+        .await
+        .unwrap();
+    runner
+        .run(
+            futures_timer::Delay::new(Duration::from_secs(30)),
+            async |runner| {
+                let mut pc = Pc::with_configuration(
+                    runner,
+                    Configuration {
+                        parallel_port: Some(ParallelPort {
+                            base: 0x278,
+                            irq: 5,
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert!(pc.parallel_port().is_some());
+                let memory = pc.cpu().memory();
+                let io = pc.cpu().context().io.clone();
+                assert_eq!(memory.view().read_u16(0x408).unwrap(), 0x278);
+                assert_eq!(memory.view().read_u32(0x40a).unwrap(), 0);
+                assert_eq!(memory.view().read_u8(0x478).unwrap(), 20);
+                assert_eq!(io.read_port(0x27a, 1), 0xec);
+                assert_eq!(io.read_port(0x378, 1), 0xff);
+                assert_ne!(io.read_port(0x21, 1) & 0x20, 0, "IRQ5 starts masked");
+                let code = [
+                    0x8b, 0x16, 8, 4, // MOV DX,[0408]: discover LPT1's address.
+                    0xb0, 0xa5, 0xee, // MOV AL,A5; OUT DX,AL.
+                    0x42, 0xec, 0xa2, 0, 7, // INC DX; IN AL,DX; save empty-port status.
+                    0xcd, 0x11, 0xa3, 2, 7, // INT 11; save equipment word.
+                    0xeb, 0, // Dispatch to the exit hook after the stores.
+                ];
+                memory.view().write(0x1000, &code).unwrap();
+                let exit = pc.cpu().exit_handle();
+                pc.cpu()
+                    .install([Hook::host(0x1000 + code.len() as u32, async move || {
+                        exit.request();
+                    })])
+                    .await
+                    .unwrap();
+                let state = pc.cpu().cpu_state();
+                state.set_eip(0x1000);
+                state.set_sp(0x8000);
+                assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
+                assert_eq!(io.read_port(0x278, 1), 0xa5);
+                assert_eq!(io.read_port(0x27a, 1), 0xec);
+                assert_eq!(memory.view().read_u8(0x700).unwrap(), 0x7f);
+                assert_eq!(memory.view().read_u16(0x702).unwrap() & 0xc000, 0x4000);
+                io.write_port(0x21, 1, 0xdc); // Unmask the configured IRQ5.
+                io.write_port(0x27a, 1, 0x1c); // Enable the port's ACK gate.
+                assert_eq!(
+                    io.poll_interrupt(
+                        &mut std::task::Context::from_waker(std::task::Waker::noop())
+                    ),
+                    std::task::Poll::Ready(0x0d)
+                );
             },
         )
         .await
@@ -271,6 +347,18 @@ fn pc_initializes_hardware_and_bios_without_dos() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_initializes_hardware_and_bios_without_dos() {
     bios_without_dos().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pc_advertises_and_connects_a_parallel_adapter_without_a_peripheral() {
+    pollster::block_on(configured_parallel_port());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn pc_advertises_and_connects_a_parallel_adapter_without_a_peripheral() {
+    configured_parallel_port().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

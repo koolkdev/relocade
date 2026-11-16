@@ -19,12 +19,14 @@ relocade-dma = { path = "../dma" }
 relocade-frontend = { path = "../frontend", features = ["keyboard", "mouse"] }
 relocade-machine = { path = "../machine" }
 relocade-pc-speaker = { path = "../pc-speaker" }
+relocade-parallel = { path = "../parallel" }
 relocade-pic = { path = "../pic" }
 relocade-pit = { path = "../pit" }
 relocade-vga = { path = "../vga" }
 relocade-x86 = { path = "../x86" }
 
 [dev-dependencies]
+futures-io = "=0.3.34"
 relocade-clock-test-support = { path = "../../tests/clock-support" }
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 

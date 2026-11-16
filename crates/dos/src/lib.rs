@@ -195,7 +195,9 @@ pub use files::FileAccess;
 pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
-pub use relocade_pc::{configuration, video_card, Configuration, SoundCard, VideoCard};
+pub use relocade_pc::{
+    configuration, video_card, Configuration, InitializationError, ParallelPort, SoundCard, VideoCard,
+};
 use relocade_pc::{
     sound_card::{Settings as SoundCardSettings, SoundBlasterModel},
     Pc,
@@ -214,18 +216,21 @@ pub struct Dos {
 impl Dos {
     /// Creates a BIOS-initialized PC and installs DOS services on it.
     /// Launch a program before executing DOS services.
-    pub async fn new(runner: Runner) -> relocade_machine::Result<Self> {
+    pub async fn new(runner: Runner) -> Result<Self, InitializationError> {
         Self::with_configuration(runner, Configuration::default()).await
     }
 
     /// Creates a PC with the selected hardware and installs DOS services on it.
     /// Hardware selection persists across process launches and does not depend
     /// on attaching host audio output.
+    /// Invalid PC resources return [`InitializationError::Validation`] before
+    /// hardware or DOS services are installed.
     pub async fn with_configuration(
         runner: Runner,
         configuration: Configuration,
-    ) -> relocade_machine::Result<Self> {
-        Self::from_pc(Pc::with_configuration(runner, configuration).await?).await
+    ) -> Result<Self, InitializationError> {
+        let pc = Pc::with_configuration(runner, configuration).await?;
+        Ok(Self::from_pc(pc).await?)
     }
 
     /// Installs the DOS allocator, console devices, filesystem and interrupt

@@ -10,6 +10,54 @@ use std::{cell::RefCell, rc::Rc};
 pub struct Configuration {
     pub sound_card: SoundCard,
     pub video_card: VideoCard,
+    pub parallel_port: Option<ParallelPort>,
+}
+
+impl Configuration {
+    /// Checks parallel-port address bounds, IRQ selection and the Sound Blaster
+    /// IRQ conflict before connecting hardware. PC construction also calls this.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(port) = self.parallel_port {
+            if port.base == 0 || port.base > u16::MAX - 2 {
+                return Err(format!(
+                    "parallel-port base {:#06x} must be nonzero and leave room for three registers",
+                    port.base
+                ));
+            }
+            if !matches!(port.irq, 5 | 7) {
+                return Err(format!(
+                    "parallel port does not support IRQ{}; choose IRQ5 or IRQ7",
+                    port.irq
+                ));
+            }
+            if port.irq == 7 && self.sound_card == SoundCard::SoundBlaster2 {
+                return Err(
+                    "parallel port and Sound Blaster both use IRQ7; choose IRQ5 for the parallel port"
+                        .into(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One SPP adapter, assigned the first BIOS LPT slot regardless of its address.
+/// This installs the port with an unconnected connector. IRQ5 and IRQ7 are
+/// supported; IRQ7 cannot be shared with the current Sound Blaster model.
+/// The base must be nonzero and leave room for three consecutive registers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParallelPort {
+    pub base: u16,
+    pub irq: u8,
+}
+
+impl Default for ParallelPort {
+    fn default() -> Self {
+        Self {
+            base: 0x378,
+            irq: 7,
+        }
+    }
 }
 
 /// The video card and matching firmware to initialize before guest execution.

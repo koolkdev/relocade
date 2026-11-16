@@ -17,6 +17,7 @@ mod vbe;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 struct Firmware {
+    clock: Clock,
     memory: Memory,
     io: IoBus,
     card: Rc<RefCell<Et4000Ax>>,
@@ -41,7 +42,7 @@ impl Firmware {
         ])
         .unwrap();
         let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
-        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock)));
+        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.clone())));
         let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
         let firmware = VideoFirmware::Et4000Ax(card.clone());
         relocade_bios::initialize(
@@ -51,10 +52,12 @@ impl Firmware {
                 conventional_memory_kib: 640,
                 math_coprocessor: true,
                 pointing_device: false,
+                parallel_ports: [0; 3],
             },
             &firmware,
         );
         Self {
+            clock,
             memory,
             io,
             card,

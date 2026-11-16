@@ -1,7 +1,7 @@
 //! BIOS interrupt registration and shared return handling.
 
 use crate::video::VideoFirmware;
-use crate::{clock, disk, information, keyboard, mouse::Mouse, video, Keyboard, BIOS_SEGMENT};
+use crate::{clock, disk, information, keyboard, mouse::Mouse, video, Keyboard, Parallel, BIOS_SEGMENT};
 use relocade_machine::{
     real_mode_interrupt::{self, interrupt_handler, Interrupts},
     CpuContext, FarPointer,
@@ -86,6 +86,10 @@ const RETURN_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
     offset: 0xffd0,
 };
+const PARALLEL_ENTRY: FarPointer = FarPointer {
+    segment: BIOS_SEGMENT,
+    offset: 0xffe0,
+};
 
 const KEYBOARD_IRQ_ENTRY: FarPointer = FarPointer {
     segment: BIOS_SEGMENT,
@@ -104,10 +108,12 @@ const EXCEPTION_ENTRIES: FarPointer = FarPointer {
 /// The keyboard is retained by its handler and may be shared with console input.
 /// Video retains the firmware selected for the card connected to the CPU's I/O bus.
 /// An optional mouse owns BIOS state and waits on the connected PS/2 controller.
+/// Parallel firmware retains the connected adapters and the machine's clock.
 /// BIOS services and IRQ handlers enable live IF while their work runs. IRQ
 /// completion disables IF and acknowledges the PIC before returning through IRET.
 pub fn register_interrupts(
     interrupts: &mut Interrupts<'_>,
+    parallel: Parallel,
     keyboard: Keyboard,
     video: VideoFirmware,
     mouse: Option<Mouse>,
@@ -162,11 +168,14 @@ pub fn register_interrupts(
         },
     );
     interrupts.register_interrupt(CONTROL_BREAK, BREAK_CALLBACK_ENTRY, async |_| {});
-    // No COM/LPT devices are connected. IBM BIOS returns unchanged for a port
-    // with a zero base address.
-    for vector in [SERIAL, PRINTER] {
-        interrupts.register_interrupt(vector, RETURN_ENTRY, async |_| {});
-    }
+    // No COM devices are connected; the zero-base case returns unchanged.
+    interrupts.register_interrupt(SERIAL, RETURN_ENTRY, async |_| {});
+    register_service(
+        interrupts,
+        PRINTER,
+        PARALLEL_ENTRY,
+        interrupt_handler!(parallel.dispatch),
+    );
     register_irq(
         interrupts,
         TIMER_IRQ,

@@ -10,6 +10,7 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["std
 relocade-ps2 = { path = "../ps2" }
 bitflags = "=2.13.1"
 relocade-pic = { path = "../pic" }
+relocade-parallel = { path = "../parallel" }
 relocade-machine = { path = "../machine" }
 relocade-vga = { path = "../vga" }
 relocade-x86 = { path = "../x86" }

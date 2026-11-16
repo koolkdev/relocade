@@ -29,6 +29,7 @@ let pc = Pc::with_configuration(
     Configuration {
         sound_card: SoundCard::None,
         video_card: VideoCard::Dispi,
+        ..Default::default()
     },
 ).await?;
 ```
@@ -54,11 +55,59 @@ DSP detection, single-cycle and auto-initialize DMA playback with IRQ7, direct
 DAC output, high-speed playback and timed silence are available. The guest
 installs its handler and unmasks IRQ7. OPL3, recording and ADPCM are not implemented.
 
+`Configuration::parallel_port` defaults to `None`. Set it to
+`Some(ParallelPort { base: 0x378, irq: 7 })` to install an output-only SPP adapter.
+`ParallelPort` is exported by `relocade_pc`; its default selects those values.
+IRQ5 is also supported; use it when Sound Blaster occupies IRQ7. The IRQ starts
+masked in the PIC. `Configuration::validate()` checks the parallel base/range,
+IRQ selection and Sound Blaster IRQ conflict without starting a PC.
+`Pc::with_configuration` performs the same validation before installing hardware
+and returns `InitializationError::Validation(String)` with a diagnostic identifying
+the invalid resource and its rejected value. A base of zero is reserved for absent
+BIOS ports, and all three registers must fit in the 16-bit I/O address space.
+Other initialization failures retain the underlying error in
+`InitializationError::Machine`. `Dos::with_configuration` propagates both categories.
+
+`pc.parallel_port()` retains the port; its `attach` callback
+receives each logical output change and an input driver for status and IRQs.
+For byte delivery, create a connection while execution is stopped:
+
+```rust,ignore
+let port = pc.parallel_port().expect("configured parallel port");
+let (input, output) = relocade_parallel::Centronics::connect(pc.runner(), &port).await;
+```
+
+The peripheral owns `input`, a `futures_io::AsyncRead` stream. Higher-level
+services can write to `output` through `futures_io::AsyncWrite` without changing
+port registers. Both paths share device readiness and one pending-byte slot.
+The input end exposes `set_status` and optional INIT/control notifications through
+`on_control`. Other protocols can use the port's signals directly. There is no
+attached device by default, and data writes only change the latch. Firmware
+advertises LPT1 in the BIOS data area
+at `0040:0008` and in INT 11h's equipment count, even with nothing connected.
+Changing its base to `0x278` does not change that logical LPT slot.
+
 The firmware has no disk, serial or printer backend. INT 13h/AH=15h reports no
 drive (AH=0, carry clear); AH=08h fails with AH=07h and DL=0. Other commands,
 including EDD probes, fail with AH=01h and carry set. AH=01h reads the previous
 floppy/hard-disk status from the BIOS data area. No disk transfers occur.
-INT 14h/17h return unchanged, as IBM BIOS does for a zero COM/LPT base address.
+INT 14h returns unchanged. INT 17h supports send, initialize and status through
+the configured LPT registers. The live BIOS table resolves each slot to a
+configured adapter; a missing adapter or unsupported request returns unchanged.
+Sending to an unconnected port reports a timeout without strobing.
+The timeout bytes at `0040:0078`–`007A` default to 20. Firmware interprets each
+unit as one emulated second; zero checks once. Firmware awaits the adapter's
+readiness notification or a single timeout on the PC's clock, admitting
+interrupts while waiting. There is no periodic readiness polling.
+STROBE and INIT are logical control transitions. The Centronics adapter acknowledges
+only after the peripheral reads the captured byte and STROBE is released,
+holding ACK active for five emulated microseconds before raising the enabled IRQ.
+INT 17h returns the current status after strobing; delivery may still be pending.
+INIT drops an unread port transfer and resets the handshake, preserving bytes
+already accepted by direct output. Dropping the reader marks the device offline
+and fails subsequent direct writes. Session shutdown ends the stream after any
+pending byte is drained. Electrical setup/hold timing is not enforced, and these
+transport events do not define a print job.
 DOS can replace these vectors; unrelated vectors and IVT data pointers are not
 filled with a universal fallback.
 

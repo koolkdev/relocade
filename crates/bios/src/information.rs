@@ -15,17 +15,25 @@ pub(crate) const DISPLAY_MASK: u8 = 0x30;
 pub(crate) const MONOCHROME_DISPLAY: u8 = 0x30;
 
 /// Hardware facts supplied by the PC when initializing its BIOS.
-/// The video BIOS supplies VGA; diskette, serial and parallel devices
-/// are not installed by this BIOS. Their equipment fields start clear.
+/// The video BIOS supplies VGA; diskette and serial equipment fields start clear.
 pub struct Configuration {
     pub conventional_memory_kib: u16,
     pub math_coprocessor: bool,
     pub pointing_device: bool,
+    /// Base addresses in BIOS LPT order. Zero marks an absent port; an installed
+    /// adapter counts as equipment even when its connector is empty.
+    pub parallel_ports: [u16; 3],
 }
 
 pub(crate) fn initialize(memory: &mut MemoryView<'_>, configuration: Configuration) {
     // Display bits 00 identify EGA/VGA. An x87 is independent of peripheral IRQs.
-    let equipment = (u16::from(configuration.pointing_device) << 2)
+    let parallel_count = configuration
+        .parallel_ports
+        .iter()
+        .filter(|&&base| base != 0)
+        .count() as u16;
+    let equipment = (parallel_count << 14)
+        | (u16::from(configuration.pointing_device) << 2)
         | if configuration.math_coprocessor {
             MATH_COPROCESSOR
         } else {

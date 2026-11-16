@@ -28,6 +28,7 @@ use relocade_dos::{Configuration, SoundCard, VideoCard};
 relocade_dos_app::run_with_configuration(Configuration {
     sound_card: SoundCard::SoundBlaster2,
     video_card: VideoCard::Dispi,
+    ..Default::default()
 })?;
 ```
 
