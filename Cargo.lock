@@ -2821,6 +2821,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-win32"
+version = "0.0.0"
+dependencies = [
+ "relocade-derive",
+ "relocade-x86",
+]
+
+[[package]]
 name = "relocade-workers"
 version = "0.0.0"
 dependencies = [

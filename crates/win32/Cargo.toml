@@ -1,0 +1,10 @@
+[package]
+name = "relocade-win32"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+relocade-derive = { path = "../derive" }
+relocade-x86 = { path = "../x86" }

@@ -10,6 +10,15 @@ mod interrupt;
 mod interrupt_dispatch;
 mod transfer;
 mod wasm_abi;
+mod win32_args;
+
+/// Derives the guest stack layout of a Microsoft x86 parameter record.
+#[proc_macro_derive(Win32Args)]
+pub fn derive_win32_args(input: TokenStream) -> TokenStream {
+    win32_args::expand(&parse_macro_input!(input as DeriveInput))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 #[proc_macro_derive(Transfer, attributes(transfer))]
 pub fn derive_transfer(input: TokenStream) -> TokenStream {
