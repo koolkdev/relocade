@@ -20,7 +20,7 @@ fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
 
 fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     discover::blocks(
-        0x1000,
+        CodeAddress::CsRelative(0x1000),
         SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
         limits,
@@ -28,7 +28,7 @@ fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     )
     .unwrap()
     .into_iter()
-    .map(|block| (block.entry.start_eip, block.entry.byte_len))
+    .map(|block| (block.entry.address.eip(), block.entry.byte_len))
     .collect()
 }
 
@@ -39,7 +39,7 @@ fn snapshots_and_discovered_blocks_record_their_decode_width() {
     let code = [0xb8, 0x34, 0x12, 0xc3, 0x90, 0xc3];
     let starts = [(0x1000, Bits16), (0x2000, Bits32)];
     let snapshots = starts.map(|(eip, code_default_size)| BlockSnapshot {
-        start_eip: eip,
+        address: CodeAddress::CsRelative(eip),
         code_default_size,
         bytes: &code,
         instruction_limit: 1,
@@ -59,7 +59,7 @@ fn snapshots_and_discovered_blocks_record_their_decode_width() {
         blocks
             .entries
             .into_iter()
-            .map(|block| (block.start_eip, block.code_default_size, block.byte_len))
+            .map(|block| (block.address.eip(), block.code_default_size, block.byte_len))
             .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -87,7 +87,7 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
     let snapshots: Vec<_> = [(0, 1), (1, 3), (4, 5), (9, 2), (11, 1)]
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
-            start_eip: 0x1000 + offset as u32,
+            address: CodeAddress::CsRelative(0x1000 + offset as u32),
             code_default_size: SegmentDefaultSize::Bits32,
             bytes: &code[offset..offset + len],
             instruction_limit: 10,
@@ -206,7 +206,7 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
         },
     ] {
         let result = discover::blocks(
-            0,
+            CodeAddress::CsRelative(0),
             SegmentDefaultSize::Bits32,
             compiler.target(),
             limits,
@@ -233,7 +233,7 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
     let snapshots: Vec<_> = [(0, 6), (6, 2), (8, 1)]
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
-            start_eip: 0x1000 + offset as u32,
+            address: CodeAddress::CsRelative(0x1000 + offset as u32),
             code_default_size: SegmentDefaultSize::Bits32,
             bytes: &code[offset..offset + len],
             instruction_limit: 2,
@@ -279,7 +279,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     let mut copied = 0;
     let mut source = reader(u32::MAX - 10, &code);
     let blocks = discover::blocks(
-        u32::MAX - 10,
+        CodeAddress::CsRelative(u32::MAX - 10),
         SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
         FunctionLimits::default(),
@@ -294,7 +294,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     assert_eq!(
         blocks
             .iter()
-            .map(|block| (block.entry.start_eip, block.entry.byte_len))
+            .map(|block| (block.entry.address.eip(), block.entry.byte_len))
             .collect::<Vec<_>>(),
         [(245, 5), (u32::MAX - 10, 256)],
     );

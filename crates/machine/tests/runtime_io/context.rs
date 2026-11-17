@@ -77,7 +77,7 @@ async fn check_forwarding() {
         if compiled {
             let code_default_size = cpu.cpu_state().code_default_size();
             let snapshots = [0, 7, 11].map(|offset| BlockSnapshot {
-                start_eip: 0x100 + offset as u32,
+                address: relocade_x86::CodeAddress::CsRelative(0x100 + offset as u32),
                 code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 8,
@@ -87,7 +87,7 @@ async fn check_forwarding() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    key: entry.start_eip,
+                    key: entry.address.eip(),
                     export: &entry.export,
                 })
                 .collect();

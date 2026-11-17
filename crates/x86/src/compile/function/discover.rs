@@ -1,4 +1,4 @@
-use super::FunctionLimits;
+use super::{CodeAddress, FunctionLimits};
 use crate::{
     compile::block::decode::DecodedBlock,
     decode::{snapshot, SnapshotInstruction},
@@ -8,7 +8,7 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub(super) fn blocks(
-    start_eip: u32,
+    origin: CodeAddress,
     code_default_size: SegmentDefaultSize,
     target: ExecutionTarget,
     mut limits: FunctionLimits,
@@ -17,6 +17,7 @@ pub(super) fn blocks(
     if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
         return Err(BlockError::ZeroFunctionLimit);
     }
+    let start_eip = origin.eip();
     let mut pending = VecDeque::from([start_eip]);
     let mut entries = BTreeSet::from([start_eip]);
     let mut instructions = BTreeMap::<u32, SnapshotInstruction>::new();
@@ -89,7 +90,7 @@ pub(super) fn blocks(
     // into their final blocks also splits backward targets without decoding again.
     let mut blocks = Vec::new();
     for &entry in &entries {
-        let mut block = DecodedBlock::new(entry, code_default_size);
+        let mut block = DecodedBlock::new(origin.with_eip(entry), code_default_size);
         let mut eip = entry;
         while let Some(instruction) = instructions.remove(&eip) {
             eip = instruction.fallthrough_eip;
@@ -100,14 +101,14 @@ pub(super) fn blocks(
             }
             if block.instructions.len() == limits.block_instructions as usize {
                 blocks.push(block);
-                block = DecodedBlock::new(eip, code_default_size);
+                block = DecodedBlock::new(origin.with_eip(eip), code_default_size);
             }
         }
         if !block.instructions.is_empty() {
             blocks.push(block);
         }
     }
-    blocks.sort_unstable_by_key(|block| block.entry.start_eip);
+    blocks.sort_unstable_by_key(|block| block.entry.address.eip());
     Ok(blocks)
 }
 

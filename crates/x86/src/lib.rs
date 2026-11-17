@@ -112,7 +112,7 @@ pub enum BlockError {
     },
     /// Two snapshots would export the same CS-relative entry.
     DuplicateBlock {
-        address: u32,
+        address: CodeAddress,
     },
     /// A selected instruction is incomplete. `available` counts the snapshot
     /// bytes remaining from that instruction's start, including any prefixes.
@@ -152,7 +152,7 @@ impl fmt::Display for BlockError {
                 )
             }
             Self::DuplicateBlock { address } => {
-                write!(formatter, "duplicate block entry at {address:#x}")
+                write!(formatter, "duplicate block entry at {address}")
             }
             Self::TruncatedInstruction { address, available } => write!(
                 formatter,

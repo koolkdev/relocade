@@ -6,7 +6,7 @@ pub(super) mod module;
 
 pub use error::BlockCompileError;
 
-use super::Compiler;
+use super::{CodeAddress, Compiler};
 use crate::{
     BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentDefaultSize,
     SegmentProfile,
@@ -18,7 +18,7 @@ use relocade_compiler::CompileExecutor;
 /// The bytes must match readable guest memory when the resulting block executes.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockSnapshot<'a> {
-    pub start_eip: u32,
+    pub address: CodeAddress,
     /// Loaded CS.D used to decode these bytes.
     pub code_default_size: SegmentDefaultSize,
     pub bytes: &'a [u8],
@@ -29,8 +29,8 @@ pub struct BlockSnapshot<'a> {
 /// One exported block and the instruction bytes on which it depends.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockEntry {
-    /// CS-relative offset at which the snapshot was taken.
-    pub start_eip: u32,
+    /// Guest location at which the snapshot was taken.
+    pub address: CodeAddress,
     /// CS.D used to decode the captured instructions.
     pub code_default_size: SegmentDefaultSize,
     /// Bytes consumed from the snapshot, excluding any unused suffix.
@@ -133,7 +133,7 @@ impl Compiler {
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
         let mut blocks = self.compile_blocks(&[BlockSnapshot {
-            start_eip,
+            address: CodeAddress::CsRelative(start_eip),
             code_default_size: SegmentDefaultSize::for_profile(self.target.profile),
             bytes,
             instruction_limit,
@@ -151,7 +151,7 @@ impl Compiler {
 
     /// Compiles independently callable snapshot blocks into one module.
     /// Entries share the compiler's target, observations, imports and helpers.
-    /// An empty slice produces a module without exports. Repeated starting EIPs
+    /// An empty slice produces a module without exports. Repeated guest addresses
     /// return [`BlockError::DuplicateBlock`].
     ///
     /// Each block stops at the ordinary [`compile_block_from_bytes`] boundary,
@@ -170,15 +170,15 @@ impl Compiler {
     /// from this batch.
     ///
     /// ```
-    /// use relocade_x86::{BlockSnapshot, Compiler, SegmentDefaultSize, SegmentProfile};
+    /// use relocade_x86::{BlockSnapshot, CodeAddress, Compiler, SegmentDefaultSize, SegmentProfile};
     /// let compiler = Compiler::new(SegmentProfile::Flat32);
     /// let code_default_size = SegmentDefaultSize::Bits32;
     /// let module = compiler.compile_blocks(&[
     ///     BlockSnapshot {
-    ///         start_eip: 0x1000, code_default_size, bytes: &[0xb8, 42, 0, 0, 0], instruction_limit: 1,
+    ///         address: CodeAddress::CsRelative(0x1000), code_default_size, bytes: &[0xb8, 42, 0, 0, 0], instruction_limit: 1,
     ///     },
     ///     BlockSnapshot {
-    ///         start_eip: 0x2000, code_default_size, bytes: &[0xeb, 0xfe], instruction_limit: 1,
+    ///         address: CodeAddress::CsRelative(0x2000), code_default_size, bytes: &[0xeb, 0xfe], instruction_limit: 1,
     ///     },
     /// ])?;
     /// assert_eq!(module.entries[0].export, "block_1000");

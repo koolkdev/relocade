@@ -6,26 +6,8 @@ mod discover;
 mod tests;
 
 use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::{real_mode::FarPointer, BlockError, SegmentDefaultSize};
+use crate::{BlockError, CodeAddress, SegmentDefaultSize};
 use relocade_compiler::CompileExecutor;
-
-/// The identity of a guest function entry during compilation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CodeAddress {
-    /// A CS-relative EIP whose segment is determined at execution time.
-    CsRelative(u32),
-    /// A fixed real-mode CS:IP, used to identify shared call-table targets.
-    RealMode(FarPointer),
-}
-
-impl CodeAddress {
-    fn eip(self) -> u32 {
-        match self {
-            Self::CsRelative(eip) => eip,
-            Self::RealMode(address) => u32::from(address.offset),
-        }
-    }
-}
 
 /// Whole-function exploration caps and the size of each emitted block.
 /// Exceeding an exploration cap rejects the candidate before IR construction;
@@ -150,7 +132,7 @@ impl FunctionModule<'_> {
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
         let mut decoded = discover::blocks(
-            entry.eip(),
+            entry,
             code_default_size,
             self.module.compiler.target,
             limits,

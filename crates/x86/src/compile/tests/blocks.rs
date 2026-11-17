@@ -5,9 +5,9 @@ use crate::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
-    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CompiledBlocks, Compiler, CpuFeature,
-    CpuModel, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentDefaultSize,
-    SegmentProfile,
+    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CodeAddress, CompiledBlocks,
+    Compiler, CpuFeature, CpuModel, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile,
+    SegmentDefaultSize, SegmentProfile,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -16,25 +16,25 @@ fn entries_report_consumed_spans_in_input_order() {
     let code_default_size = SegmentDefaultSize::Bits32;
     let snapshots = [
         BlockSnapshot {
-            start_eip: u32::MAX,
+            address: CodeAddress::CsRelative(u32::MAX),
             code_default_size,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
-            start_eip: 0x1000,
+            address: CodeAddress::CsRelative(0x1000),
             code_default_size,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
-            start_eip: 0x1001,
+            address: CodeAddress::CsRelative(0x1001),
             code_default_size,
             bytes: &[0x90, 0xeb, 0xfd, 0x0f],
             instruction_limit: 10,
         },
         BlockSnapshot {
-            start_eip: 1,
+            address: CodeAddress::CsRelative(1),
             code_default_size,
             bytes: &[0x0f, 0x0b, 0x0f],
             instruction_limit: 10,
@@ -46,25 +46,25 @@ fn entries_report_consumed_spans_in_input_order() {
         blocks.entries,
         [
             BlockEntry {
-                start_eip: u32::MAX,
+                address: CodeAddress::CsRelative(u32::MAX),
                 code_default_size,
                 byte_len: 2,
                 export: "block_ffffffff".into()
             },
             BlockEntry {
-                start_eip: 0x1000,
+                address: CodeAddress::CsRelative(0x1000),
                 code_default_size,
                 byte_len: 1,
                 export: "block_1000".into()
             },
             BlockEntry {
-                start_eip: 0x1001,
+                address: CodeAddress::CsRelative(0x1001),
                 code_default_size,
                 byte_len: 3,
                 export: "block_1001".into()
             },
             BlockEntry {
-                start_eip: 1,
+                address: CodeAddress::CsRelative(1),
                 code_default_size,
                 byte_len: 2,
                 export: "block_1".into()
@@ -135,7 +135,7 @@ fn the_target_code_width_folds_the_destination_guard() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let bytes = [0xb8, 0x34, 0x12];
     let snapshot = BlockSnapshot {
-        start_eip: 0x1000,
+        address: CodeAddress::CsRelative(0x1000),
         code_default_size: size,
         bytes: &bytes,
         instruction_limit: 1,
@@ -158,7 +158,7 @@ fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
         let blocks = compile_without_code_default(
             &compiler,
             BlockSnapshot {
-                start_eip: 0x1000,
+                address: CodeAddress::CsRelative(0x1000),
                 code_default_size: required,
                 bytes: &code,
                 instruction_limit: 1,
@@ -197,18 +197,44 @@ fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
 }
 
 #[test]
+fn real_mode_entries_split_only_at_boundaries_in_their_own_segment() {
+    let snapshots = [(0x10, 0), (0x20, 0), (0x20, 1)].map(|(segment, eip)| BlockSnapshot {
+        address: CodeAddress::RealMode { segment, eip },
+        code_default_size: SegmentDefaultSize::Bits16,
+        bytes: &[0x90, 0x90],
+        instruction_limit: 2,
+    });
+    let blocks = Compiler::new(ExecutionProfile::Real16)
+        .compile_blocks(&snapshots)
+        .unwrap();
+    let entries: Vec<_> = blocks
+        .entries
+        .iter()
+        .map(|block| (block.export.as_str(), block.byte_len))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("block_0010:0000", 2),
+            ("block_0020:0000", 1),
+            ("block_0020:0001", 2)
+        ]
+    );
+}
+
+#[test]
 fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
     let code_default_size = SegmentDefaultSize::Bits32;
     let blocks = Compiler::new(SegmentProfile::Flat32)
         .compile_blocks(&[
             BlockSnapshot {
-                start_eip: 0x1000,
+                address: CodeAddress::CsRelative(0x1000),
                 code_default_size,
                 bytes: &[0xb8, 0x90, 0x90, 0x90, 0x90],
                 instruction_limit: 1,
             },
             BlockSnapshot {
-                start_eip: 0x1002,
+                address: CodeAddress::CsRelative(0x1002),
                 code_default_size,
                 bytes: &[0x90],
                 instruction_limit: 1,
@@ -230,21 +256,23 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
     Validator::new().validate_all(&empty.bytes).unwrap();
 
     let first = BlockSnapshot {
-        start_eip: 0x1000,
+        address: CodeAddress::CsRelative(0x1000),
         code_default_size,
         bytes: &[0x90],
         instruction_limit: 1,
     };
     assert_eq!(
         compiler.compile_blocks(&[first, first]).err(),
-        Some(BlockError::DuplicateBlock { address: 0x1000 })
+        Some(BlockError::DuplicateBlock {
+            address: CodeAddress::CsRelative(0x1000)
+        })
     );
     assert_eq!(
         compiler
             .compile_blocks(&[
                 first,
                 BlockSnapshot {
-                    start_eip: 0x2000,
+                    address: CodeAddress::CsRelative(0x2000),
                     code_default_size,
                     bytes: &[0xb8],
                     instruction_limit: 1,
@@ -272,7 +300,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
         assert!(matches!(
             compiler.compile_blocks_with(&[first, first], &jobs).await,
             Err(BlockCompileError::Block(BlockError::DuplicateBlock {
-                address: 0x1000
+                address: CodeAddress::CsRelative(0x1000)
             }))
         ));
         assert!(matches!(
@@ -290,25 +318,25 @@ fn entry_boundaries() {
     let code_default_size = SegmentDefaultSize::Bits16;
     let snapshots = [
         BlockSnapshot {
-            start_eip: 0x1000,
+            address: CodeAddress::CsRelative(0x1000),
             code_default_size,
             bytes: &[0xb8, 0x34, 0x12, 0xbb, 0x78, 0x56], // MOV AX,1234; MOV BX,5678
             instruction_limit: 2,
         },
         BlockSnapshot {
-            start_eip: 0x1003,
+            address: CodeAddress::CsRelative(0x1003),
             code_default_size,
             bytes: &[0xbb, 0x78, 0x56],
             instruction_limit: 1,
         },
         BlockSnapshot {
-            start_eip: 0x2000,
+            address: CodeAddress::CsRelative(0x2000),
             code_default_size,
             bytes: &[0x0f, 0x44, 0xc0],
             instruction_limit: 1,
         },
         BlockSnapshot {
-            start_eip: 0xffff,
+            address: CodeAddress::CsRelative(0xffff),
             code_default_size,
             bytes: &[0x89, 0xc0],
             instruction_limit: 1,
@@ -325,13 +353,13 @@ fn entry_boundaries() {
         module.entry.clone_from(&entry.export);
         let mut image = Image::empty();
         image.cpu = CpuState {
-            eip: snapshot.start_eip,
+            eip: snapshot.address.eip(),
             instruction_count: 17,
             ..CpuState::real_mode()
         };
-        image.map(snapshot.start_eip >> 12, 0x3000, false);
-        image.map((snapshot.start_eip >> 12) + 1, 0x4000, false);
-        image.data(0x3000 + (snapshot.start_eip & 0xfff), snapshot.bytes);
+        image.map(snapshot.address.eip() >> 12, 0x3000, false);
+        image.map((snapshot.address.eip() >> 12) + 1, 0x4000, false);
+        image.data(0x3000 + (snapshot.address.eip() & 0xfff), snapshot.bytes);
         if index == 2 {
             image.cpu.registers.esp = 0x8006;
             image.map(0, 0x7000, false);
@@ -421,13 +449,13 @@ fn shared_memory_helpers() {
         let blocks = compiler
             .compile_blocks(&[
                 BlockSnapshot {
-                    start_eip: 0x1000,
+                    address: CodeAddress::CsRelative(0x1000),
                     code_default_size,
                     bytes: code,
                     instruction_limit: 2,
                 },
                 BlockSnapshot {
-                    start_eip: 0x1100,
+                    address: CodeAddress::CsRelative(0x1100),
                     code_default_size,
                     bytes: code,
                     instruction_limit: 2,
@@ -462,7 +490,7 @@ fn shared_memory_helpers() {
             module.entry.clone_from(&entry.export);
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
-            image.cpu.eip = entry.start_eip;
+            image.cpu.eip = entry.address.eip();
             let physical = profile == ExecutionProfile::Real16;
             // Physical JIT operands fit one page; virtual accesses also exercise
             // the shared helpers for scattered backing across a page boundary.
@@ -472,7 +500,7 @@ fn shared_memory_helpers() {
                 image.initialize_real_mode();
             }
             image.map(1, 0x1000, false);
-            image.data(entry.start_eip, code);
+            image.data(entry.address.eip(), code);
             for (page, frame) in [(2, 0x4000), (3, 0x6000), (4, 0x8000), (5, 0xa000)] {
                 image.map(page, frame, true);
             }
