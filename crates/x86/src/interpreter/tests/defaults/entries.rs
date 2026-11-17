@@ -159,7 +159,8 @@ fn cs_reload_changes_fetch_base_and_default_for_the_next_entry() {
         test_step::SegmentResolution, DescriptorTables, Segment, SegmentDescriptor,
         SegmentDescriptorKind, SegmentLimit,
     };
-    let mut image = Image::new(&[0xea, 0x00, 0x02, 0, 0, 0x27, 0]);
+    let far_jump = [0xea, 0x00, 0x02, 0, 0, 0x27, 0];
+    let mut image = Image::new(&far_jump);
     image.cpu = CpuState::protected_mode(Bits32, Bits32);
     image.cpu.eip = 0x1000;
     image.cpu.registers.eax = 0xaaaa_aaaa;
@@ -208,4 +209,25 @@ fn cs_reload_changes_fetch_base_and_default_for_the_next_entry() {
         expected.instruction_count = count;
         assert_eq!(snapshot.cpu, expected.to_bytes());
     }
+
+    // Enter through a 32-bit snapshot, then execute the first instruction in the
+    // new CS through the mixed-width interpreter, using the same CPU and RAM.
+    let blocks = crate::Compiler::new(crate::SegmentProfile::Segmented32)
+        .compile_blocks(&[crate::BlockSnapshot {
+            cs: image.cpu.segments.cs,
+            start_eip: image.cpu.eip,
+            bytes: &far_jump,
+            instruction_limit: 1,
+        }])
+        .unwrap();
+    let linked = TestModule::from_bytes(&blocks.bytes, &blocks.entries[0].export, None)
+        .with_interpreter(interpreter());
+    let observation = linked.observe(&input, 1);
+    let [Event::ResolveSegment { .. }, Event::Return { outcome, snapshot }] =
+        observation.events.as_slice()
+    else {
+        panic!("unexpected handoff events: {:?}", observation.events);
+    };
+    assert_eq!(*outcome, returned(crate::ExecutionExit::StepComplete));
+    assert_eq!(snapshot.cpu, expected.to_bytes());
 }

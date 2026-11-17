@@ -66,6 +66,7 @@ impl<'a> BlockModule<'a> {
             .collect();
         let mut call_sites = BTreeMap::new();
         if self.compiler.target.profile == ExecutionProfile::Real16 {
+            let code_default = entry.code_default(self.compiler.target.profile);
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
@@ -74,7 +75,11 @@ impl<'a> BlockModule<'a> {
                         };
                         (u32::from(cs.selector) << 16) | eip
                     }
-                    Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
+                    // Real-mode far calls reload a 16-bit CS.
+                    Some(CallTarget::Far { selector, offset })
+                        if code_default == crate::SegmentDefaultSize::Bits16
+                            && offset <= 0xffff =>
+                    {
                         (u32::from(selector) << 16) | offset
                     }
                     _ => continue,

@@ -269,6 +269,26 @@ fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
 }
 
 #[test]
+fn a_far_call_reserves_a_link_only_when_the_new_cs_keeps_its_decode_width() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let cs = SegmentRegister::real_mode(Segment::Cs, 0x20);
+    for (big, call, targets) in [
+        (0, &[0x9a, 0, 2, 0x10, 0][..], &[0x0010_0200u32][..]),
+        (1, &[0x66, 0x9a, 0, 2, 0x10, 0], &[]),
+    ] {
+        let mut module = compiler.function_module();
+        let entry = CodeAddress::InSegment {
+            cs: SegmentRegister { big, ..cs },
+            eip: 0x100,
+        };
+        module
+            .add_function(entry, limits(), reader(0x100, call))
+            .unwrap();
+        assert_eq!(module.compile().unwrap().call_targets, targets);
+    }
+}
+
+#[test]
 fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let mut module = compiler.function_module();

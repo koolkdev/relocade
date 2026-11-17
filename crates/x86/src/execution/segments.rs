@@ -20,6 +20,10 @@ impl ResolvedSegment {
         &self.values.limit
     }
 
+    pub(super) fn default_is_32_bit(&self) -> &Val<I1> {
+        &self.values.big
+    }
+
     /// Installs the selector and cache after all instruction guards. Only
     /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
