@@ -2,7 +2,7 @@ use crate::{Access, DirEntry, EntryKind, Metadata};
 use blocking::Unblock;
 use cap_std::{ambient_authority, fs};
 use std::{
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
@@ -25,7 +25,7 @@ pub(crate) async fn selected_file(path: PathBuf) -> io::Result<(String, File)> {
     let file = blocking::unblock(move || {
         regular_file(fs::File::open_ambient_with(
             path,
-            &file_options(Access::ReadOnly),
+            &file_options(Access::ReadOnly, false),
             ambient_authority(),
         )?)
     })
@@ -82,24 +82,41 @@ pub(crate) async fn open_file(
     directory: &mut Directory,
     name: String,
     access: Access,
+    create: bool,
 ) -> io::Result<File> {
     directory
-        .with_mut(move |directory| regular_file(directory.open_with(name, &file_options(access))?))
+        .with_mut(move |directory| {
+            regular_file(directory.open_with(name, &file_options(access, create))?)
+        })
         .await
 }
 
 pub(crate) async fn open_directory(
     directory: &mut Directory,
     name: String,
+    create: bool,
 ) -> io::Result<Directory> {
     directory
-        .with_mut(move |directory| directory.open_dir(name).map(Unblock::new))
+        .with_mut(move |directory| {
+            if create {
+                match directory.create_dir(&name) {
+                    Err(error) if error.kind() != io::ErrorKind::AlreadyExists => {
+                        return Err(error)
+                    }
+                    _ => {}
+                }
+            }
+            directory.open_dir(name).map(Unblock::new)
+        })
         .await
 }
 
-fn file_options(access: Access) -> fs::OpenOptions {
+fn file_options(access: Access, create: bool) -> fs::OpenOptions {
     let mut options = fs::OpenOptions::new();
-    options.read(true).write(access == Access::ReadWrite);
+    options
+        .read(true)
+        .write(access == Access::ReadWrite)
+        .create(create);
     #[cfg(unix)]
     {
         use fs::OpenOptionsExt;
@@ -153,4 +170,24 @@ fn metadata(stat: fs::Metadata, kind: EntryKind) -> Metadata {
         modified: stat.modified().ok().map(|time| time.into_std()),
         created: stat.created().ok().map(|time| time.into_std()),
     }
+}
+
+pub(crate) async fn write_file(
+    file: &mut File,
+    offset: u64,
+    bytes: Vec<u8>,
+    replace: bool,
+) -> io::Result<()> {
+    file.with_mut(move |file| {
+        file.seek(SeekFrom::Start(offset))?;
+        if replace {
+            file.set_len(0)?;
+        }
+        file.write_all(&bytes)
+    })
+    .await
+}
+
+pub(crate) async fn set_len(file: &mut File, length: u64) -> io::Result<()> {
+    file.with_mut(move |file| file.set_len(length)).await
 }
