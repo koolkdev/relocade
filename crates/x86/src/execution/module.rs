@@ -18,7 +18,7 @@ pub(crate) struct ExecutionModule {
     pub(super) entries: Arc<BTreeMap<u32, Func>>,
     pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
-    pub(crate) target: ExecutionTarget,
+    pub(super) target: ExecutionTarget,
     entry_assumptions: Arc<[StatePattern]>,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
 }

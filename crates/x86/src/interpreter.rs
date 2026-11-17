@@ -64,17 +64,12 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
-    build(
-        profile,
-        crate::profile::entry_assumptions(profile),
-        Some(crate::SegmentDefaultSize::for_profile(profile)),
-    )
+    build(profile, crate::profile::entry_assumptions(profile))
 }
 
 fn build(
     profile: ExecutionProfile,
     entry_assumptions: Vec<StatePattern>,
-    code_default: Option<crate::SegmentDefaultSize>,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
@@ -93,7 +88,6 @@ fn build(
     let decoder = RuntimeDecoder::new(
         &mut program,
         execution.clone(),
-        code_default,
         move |body| {
             let single_step = RuntimeDecoder::single_step(body)?;
             body.if_(single_step, |mut body| {

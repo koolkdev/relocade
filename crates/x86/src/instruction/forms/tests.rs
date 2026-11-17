@@ -18,6 +18,13 @@ fn word_prefixes() -> PrefixState {
     PrefixState::default().with_prefix(Prefix::OperandSize)
 }
 
+fn resolve_32_bit_code(form: &Form, prefixes: &PrefixState) -> Option<ResolvedForm> {
+    let operand_size = prefixes
+        .selection()
+        .operand_size(crate::SegmentDefaultSize::Bits32);
+    form.resolve(prefixes, operand_size)
+}
+
 fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'static Form {
     let mut candidates = opcode_forms(map).filter(|form| {
         form.matches(opcode)
@@ -41,12 +48,11 @@ fn unprefixed_form(map: OpcodeMap, opcode: u8, extension: Option<u8>) -> &'stati
 #[test]
 fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
-        for prefixes in
-            crate::instruction::FormSelection::combinations(crate::SegmentDefaultSize::Bits32)
-                .map(crate::instruction::FormSelection::prefixes)
+        for prefixes in crate::instruction::FormSelection::combinations()
+            .map(crate::instruction::FormSelection::prefixes)
         {
             for (opcode, candidates) in
-                forms_by_opcode(opcode_forms(map).filter(|form| form.resolve(&prefixes).is_some()))
+                forms_by_opcode(opcode_forms(map).filter(|form| form.accepts_prefixes(&prefixes)))
             {
                 let has_modrm = candidates[0].encoding.has_modrm();
                 for form in &candidates {
@@ -82,10 +88,9 @@ fn admitted_opcode_candidates_share_a_decode_layout_and_never_overlap() {
 fn catalog_bindings_select_declared_fields() {
     for map in [OpcodeMap::Primary, OpcodeMap::Extended] {
         for form in opcode_forms(map) {
-            for resolved in
-                crate::instruction::FormSelection::combinations(crate::SegmentDefaultSize::Bits32)
-                    .map(crate::instruction::FormSelection::prefixes)
-                    .filter_map(|prefixes| form.resolve(&prefixes))
+            for resolved in crate::instruction::FormSelection::combinations()
+                .map(crate::instruction::FormSelection::prefixes)
+                .filter_map(|prefixes| resolve_32_bit_code(form, &prefixes))
             {
                 let bindings = match resolved.call {
                     HandlerCall::Nullary { .. } => vec![],
@@ -225,7 +230,7 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
         ));
         for code in 0..8 {
             for prefixes in [word_prefixes(), PrefixState::default()] {
-                let decoded = form.resolve(&prefixes).unwrap().bind(
+                let decoded = resolve_32_bit_code(form, &prefixes).unwrap().bind(
                     DecodedFields {
                         register: Some(RegisterSelector::Fixed(RegisterCode::from_bits(code))),
                         immediates: [Some(0x7au32), None],
@@ -234,7 +239,10 @@ fn opcode_register_ranges_cover_exactly_eight_codes_and_bind_each_register() {
                     0x1000,
                     0x1002,
                     prefixes.segment_override(),
-                    prefixes.selection().address_size().mask(),
+                    prefixes
+                        .selection()
+                        .address_size(crate::SegmentDefaultSize::Bits32)
+                        .mask(),
                 );
                 assert!(matches!(
                     decoded.instruction.call,
@@ -309,12 +317,15 @@ fn flag_transfer_forms_bind_ah_without_encoded_operand_fields() {
         let form = unprefixed_form(OpcodeMap::Primary, opcode, None);
         assert!(matches!(form.encoding.operands, OperandEncoding::None));
         for prefixes in [word_prefixes(), PrefixState::default()] {
-            let decoded = form.resolve(&prefixes).unwrap().bind(
+            let decoded = resolve_32_bit_code(form, &prefixes).unwrap().bind(
                 DecodedFields::<u32>::default(),
                 0x1000,
                 0x1001,
                 prefixes.segment_override(),
-                prefixes.selection().address_size().mask(),
+                prefixes
+                    .selection()
+                    .address_size(crate::SegmentDefaultSize::Bits32)
+                    .mask(),
             );
             assert!(!decoded.instruction.ends_block());
             assert!(matches!(
@@ -381,12 +392,15 @@ fn effective_addresses_bind_separately_from_memory_operands() {
             )),
             ..DecodedFields::default()
         };
-        let address = lea.resolve(&prefixes).unwrap().bind(
+        let address = resolve_32_bit_code(lea, &prefixes).unwrap().bind(
             fields(),
             0x1000,
             0x1006,
             prefixes.segment_override(),
-            prefixes.selection().address_size().mask(),
+            prefixes
+                .selection()
+                .address_size(crate::SegmentDefaultSize::Bits32)
+                .mask(),
         );
         assert!(matches!(
             address.instruction.call,
@@ -398,12 +412,15 @@ fn effective_addresses_bind_separately_from_memory_operands() {
                 ..
             }
         ));
-        let load = mov.resolve(&prefixes).unwrap().bind(
+        let load = resolve_32_bit_code(mov, &prefixes).unwrap().bind(
             fields(),
             0x1000,
             0x1006,
             prefixes.segment_override(),
-            prefixes.selection().address_size().mask(),
+            prefixes
+                .selection()
+                .address_size(crate::SegmentDefaultSize::Bits32)
+                .mask(),
         );
         assert!(matches!(
             load.instruction.call,

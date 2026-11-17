@@ -16,8 +16,8 @@ use super::{
     handlers::{HandlerCall, SizedHandlers},
     Availability, Group1Prefix, OperandSize, PrefixState, Requirements,
 };
+use crate::flags::Condition;
 use crate::register::NamedRegister;
-use crate::{address::AddressSize, flags::Condition};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) enum OpcodeMap {
@@ -137,9 +137,15 @@ pub(crate) struct Form {
 }
 
 impl Form {
-    /// Resolve prefix meaning before either decoder reads operand fields.
-    pub(crate) fn resolve(&self, prefixes: &PrefixState) -> Option<ResolvedForm> {
-        self.resolve_operand_size(prefixes, prefixes.selection().operand_size())
+    /// Prefix bytes select a form independently of operand and address widths.
+    pub(crate) fn accepts_prefixes(&self, prefixes: &PrefixState) -> bool {
+        match self.prefix {
+            PrefixRule::Modifiers(required) => match prefixes.selection().group1() {
+                Some(Group1Prefix::F0) => self.lockable,
+                prefix => required == prefix,
+            },
+            PrefixRule::OpcodeSelector(required) => required.matches(prefixes),
+        }
     }
 
     /// Fixed-width forms share their decoder body across both code defaults.
@@ -152,25 +158,18 @@ impl Form {
                 .any(|width| matches!(width, Some(ImmediateWidth::OperandSize)))
     }
 
-    pub(crate) fn resolve_operand_size(
+    /// Select the handler and immediate widths after the decoder resolves operand size.
+    pub(crate) fn resolve(
         &self,
         prefixes: &PrefixState,
         operand_size: super::OperandSize,
     ) -> Option<ResolvedForm> {
-        let accepts_prefix = match self.prefix {
-            PrefixRule::Modifiers(required) => match prefixes.selection().group1() {
-                Some(Group1Prefix::F0) => self.lockable,
-                prefix => required == prefix,
-            },
-            PrefixRule::OpcodeSelector(required) => required.matches(prefixes),
-        };
-        if !accepts_prefix {
+        if !self.accepts_prefixes(prefixes) {
             return None;
         }
         Some(ResolvedForm {
             form: *self,
             operand_size,
-            address_size: prefixes.selection().address_size(),
             call: self.handlers.resolve(operand_size),
             locked: prefixes.selection().group1() == Some(Group1Prefix::F0),
         })
@@ -196,12 +195,11 @@ impl Form {
     }
 }
 
-/// Physical fetch widths and the concrete handler are selected from the prefix state.
+/// Operand-sized immediate widths and the concrete instruction handler.
 #[derive(Clone)]
 pub(crate) struct ResolvedForm {
     form: Form,
     operand_size: OperandSize,
-    address_size: AddressSize,
     call: HandlerBinding,
     locked: bool,
 }
@@ -273,17 +271,6 @@ impl ResolvedForm {
 
     pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
         self.form.ends_block || self.form.requirements.known_fault(target).is_some()
-    }
-
-    pub(crate) fn address_size(&self) -> AddressSize {
-        self.address_size
-    }
-
-    pub(crate) fn address_width(&self) -> FieldWidth {
-        match self.address_size {
-            AddressSize::Bits16 => FieldWidth::Word,
-            AddressSize::Bits32 => FieldWidth::Dword,
-        }
     }
 
     pub(crate) fn encoding(&self) -> Encoding {

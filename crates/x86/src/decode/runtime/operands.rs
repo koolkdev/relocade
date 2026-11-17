@@ -39,7 +39,7 @@ where
         complete: impl Fn(BlockBuilder<'_>, ResolvedForm) -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
         let resolve = |size| {
-            form.resolve_operand_size(prefixes, size)
+            form.resolve(prefixes, size)
                 .expect("opcode selection accepted the prefix state")
         };
         if !form.uses_operand_size() {
