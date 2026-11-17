@@ -1,5 +1,6 @@
 use super::{pages::Pages, CodeSource, Memory, Source, Span, PAGE_BYTES};
 use crate::memory::{resolve::Spans, MemoryError};
+use futures_util::future::join_all;
 use relocade_x86::PhysicalMapping;
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -22,7 +23,7 @@ impl<'a> CodeReader<'a> {
         &self,
         ranges: impl IntoIterator<Item = (u32, usize)>,
     ) -> Result<Vec<Vec<u8>>, MemoryError> {
-        let mut buffers = Vec::new();
+        let mut reads = Vec::new();
         for (address, len) in ranges {
             for span in Spans::new(self.memory.config.memory_map(), address, len)? {
                 if !matches!(
@@ -32,11 +33,13 @@ impl<'a> CodeReader<'a> {
                     return Err(MemoryError::NotRamOrRom);
                 }
             }
-            let mut bytes = vec![0; len];
-            self.read_prefix(address, &mut bytes).await;
-            buffers.push(bytes);
+            reads.push(async move {
+                let mut bytes = vec![0; len];
+                assert_eq!(self.read_prefix(address, &mut bytes).await, len);
+                bytes
+            });
         }
-        Ok(buffers)
+        Ok(join_all(reads).await)
     }
 
     /// Copies captured RAM/ROM bytes across page boundaries. MMIO and holes end

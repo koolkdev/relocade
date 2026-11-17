@@ -159,6 +159,57 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
     assert_eq!(result.unwrap(), Some(()));
 }
 
+async fn discover_across_pages(compiler: &relocade_machine::CompilerService) {
+    let map =
+        PhysicalMemoryMap::new([(0..=0x2fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let mut machine = Machine::new(MachineConfig::new(0x3000, map).unwrap()).unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState::real_mode(),
+    )
+    .unwrap();
+    let memory = machine.memory();
+    memory.view().write(0x100, &[0xe9, 0xfd, 0x1e]).unwrap(); // JMP 2000
+    memory.view().write(0x2000, &[0xb8, 42, 0, 0xc3]).unwrap(); // MOV AX,42; RET
+    memory.view().write(0x300, &[0xc3]).unwrap();
+    memory.view().write(0x400, &[0xf1]).unwrap(); // Unsupported candidate
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        compiler
+            .request_functions(
+                target,
+                [0x100, 0x400, 0x300]
+                    .into_iter()
+                    .map(|offset| FunctionRequest {
+                        entry: FarPointer { segment: 0, offset },
+                        limits: FunctionLimits::default(),
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        assert_eq!(
+            code.blocks()
+                .iter()
+                .map(|block| (block.start_eip, block.byte_len))
+                .collect::<Vec<_>>(),
+            [(0x100, 3), (0x2000, 4), (0x300, 1)],
+            "request order survives a later page capture and a failed candidate"
+        );
+        assert_eq!(
+            code.source().ranges().collect::<Vec<_>>(),
+            [0x100..0x103, 0x2000..0x2004, 0x300..0x301]
+        );
+        assert!(memory.code_sources_at(0x400).is_empty());
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
 async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
     machine
@@ -320,4 +371,16 @@ fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
     compilation::run(execute_batch).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn discovery_resumes_across_pages_without_reordering_functions() {
+    pollster::block_on(compilation::run(discover_across_pages));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn discovery_resumes_across_pages_without_reordering_functions() {
+    compilation::run(discover_across_pages).await;
 }
