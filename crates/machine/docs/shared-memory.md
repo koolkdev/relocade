@@ -121,12 +121,19 @@ bytes used by emitted blocks, excluding gaps and read-ahead. Its `CodeSource`
 registration remains alive until the compilation and its last installation are
 dropped. `Memory::code_sources_at` queries those dependencies by backing address.
 
-Memory-view writes update the generations of retained source pages under the same
-lock used to validate the emitted bytes at registration and installation. Generated RAM stores do not use this lock or update these
-generations. `CodeSource::has_recorded_writes` therefore reports recorded host writes;
-it does not prove that a compilation is current. Callers must still keep code stable
-during compilation and installation and explicitly retire code before changing it.
-Raw writes through `Memory::backing` bypass this metadata as well.
+Registration validates the emitted bytes against shared backing after compilation.
+If a module needs any new backing pages, memory pauses the machine CPUs once,
+then checks the bytes and publishes all new markers under the memory writer lock.
+If all pages are already tracked, no CPU pause is needed. Reads during discovery
+never change guest write routing. The markers cover every RAM alias; each CPU
+refreshes its private map before resuming execution.
+
+Memory-view writes and guest stores to tracked RAM advance the page generation.
+If a generation changed before installation, the CPU checks the exact instruction
+bytes under the writer lock before publishing any entries. A change elsewhere on
+the page does not reject the module. Automatic retirement after installation is
+not implemented: retire installed code before changing it. Standalone CPUs sharing
+the backing and direct writes through `Memory::backing` need external coordination.
 
 ## Devices
 

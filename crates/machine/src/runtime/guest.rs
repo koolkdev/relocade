@@ -39,6 +39,7 @@ impl Cpu {
         if self.halted {
             return ExecutionExit::Halted;
         }
+        self.instance.refresh_code_pages();
         let exit = self.instance.step();
         self.finish_guest_exit(exit)
     }

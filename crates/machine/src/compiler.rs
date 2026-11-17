@@ -16,7 +16,7 @@ use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
-/// Keep bytes and mappings stable until its result arrives or the machine shuts down.
+/// Registration rejects changes to the emitted instruction bytes.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockRequest {
     pub address: u32,
@@ -27,7 +27,7 @@ pub struct BlockRequest {
 
 /// One clean real-mode function candidate. Its blocks are discovered by x86 on
 /// the compiler service, without reading code on the submitting CPU.
-/// Interior host hooks and mutable code require separate admission/invalidation.
+/// Candidates must have no interior host hooks.
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionRequest {
     pub entry: FarPointer,
@@ -133,6 +133,6 @@ async fn compile(
             .map(|(&address, block)| (address, block.byte_len)),
     );
     let module = compiler.compile(&blocks.bytes).await?;
-    let source = memory.register_code(instructions)?;
+    let source = memory.register_code(instructions).await?;
     Ok(CompiledCode::new(module, addresses, blocks, source))
 }

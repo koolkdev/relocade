@@ -54,13 +54,13 @@ impl Endpoint {
 
 impl CompilerClient {
     /// Queues compilation for this target using the machine's shared guest memory.
-    /// Keep code and mappings stable until the result arrives or the machine shuts down.
+    /// Changed instruction bytes can return `Error::StaleCompilation`.
     pub fn request(&self, target: ExecutionTarget, blocks: Vec<BlockRequest>) -> Result<()> {
         self.submit(target, Compilation::Blocks(blocks))
     }
 
     /// Queues clean real-mode function candidates for one shared module. Callees
-    /// are not followed. Keep code, mappings and each entry's CS addressing stable;
+    /// are not followed. Keep mappings and each entry's CS addressing stable;
     /// candidates must have no interior host hooks or registered execution boundaries.
     /// Discovery failures omit individual functions. If none produce blocks, the
     /// first discovery error is returned, or an empty module for unreadable entries.
