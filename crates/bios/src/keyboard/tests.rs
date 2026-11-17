@@ -1,8 +1,58 @@
 use super::*;
 use relocade_machine::MachineConfig;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
+use std::task::{Context, Waker};
 
 mod enhanced;
+
+#[test]
+fn cancelling_one_read_keeps_other_readers_registered() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use std::task::Wake;
+
+    #[derive(Default)]
+    struct ReadWake(AtomicBool);
+
+    impl Wake for ReadWake {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let key = KeyStroke {
+        character: b'a',
+        scan_code: 0x1e,
+    };
+    for cancel_first in [true, false] {
+        let (keyboard, _) = keyboard();
+        let mut cancelled = Box::pin(keyboard.read_key(KeyMode::Legacy));
+        let mut remaining = std::pin::pin!(keyboard.read_key(KeyMode::Enhanced));
+        let wake = Arc::new(ReadWake::default());
+        let waker = Waker::from(wake.clone());
+        let mut reads = [
+            (cancelled.as_mut(), Waker::noop()),
+            (remaining.as_mut(), &waker),
+        ];
+        if !cancel_first {
+            reads.reverse();
+        }
+        for (read, waker) in reads {
+            assert!(read.poll(&mut Context::from_waker(waker)).is_pending());
+        }
+        drop(cancelled);
+
+        assert!(keyboard.store_key(key));
+        assert!(wake.0.load(Ordering::Relaxed));
+        assert_eq!(
+            remaining.as_mut().poll(&mut Context::from_waker(&waker)),
+            Poll::Ready(key)
+        );
+        assert_eq!(keyboard.peek_key(KeyMode::Enhanced), None);
+    }
+}
 
 fn keyboard() -> (Keyboard, Memory) {
     let map =
@@ -50,11 +100,14 @@ fn guest_ring_and_shift_edits_are_authoritative() {
         None,
         "guest can flush the buffer"
     );
+    let mut read = std::pin::pin!(keyboard.read_key(KeyMode::Enhanced));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(read.as_mut().poll(&mut cx).is_pending());
     memory.view().write_u16(0x420, 0x2c5a).unwrap();
     memory.view().write_u16(0x41c, 0x22).unwrap();
     assert_eq!(
-        keyboard.try_read_key(KeyMode::Enhanced),
-        Some(KeyStroke {
+        read.as_mut().poll(&mut cx),
+        Poll::Ready(KeyStroke {
             character: b'Z',
             scan_code: 0x2c
         })
