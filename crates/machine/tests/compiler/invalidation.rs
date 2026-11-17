@@ -95,8 +95,10 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
             .request(
                 target,
                 vec![BlockRequest {
-                    address: 0x200,
-                    start_eip: 0x200,
+                    entry: FarPointer {
+                        segment: 0,
+                        offset: 0x200,
+                    },
                     byte_len: 3,
                     instruction_limit: 1,
                 }],

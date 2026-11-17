@@ -2,7 +2,7 @@
 
 use crate::{CodeSource, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, CompiledBlocks, ExecutionTarget};
+use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, ExecutionTarget, SegmentDefaultSize};
 use std::ops::Range;
 
 /// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
@@ -15,7 +15,6 @@ pub struct CompiledCode {
 
 #[derive(Clone)]
 pub struct Description {
-    pub(super) addresses: Vec<u32>,
     pub(super) ranges: Vec<Range<u64>>,
     pub(super) blocks: Vec<BlockEntry>,
     pub(super) call_targets: Vec<u32>,
@@ -24,17 +23,11 @@ pub struct Description {
 }
 
 impl CompiledCode {
-    pub(crate) fn new(
-        module: Module,
-        addresses: Vec<u32>,
-        blocks: CompiledBlocks,
-        source: CodeSource,
-    ) -> Self {
+    pub(crate) fn new(module: Module, blocks: CompiledBlocks, source: CodeSource) -> Self {
         Self {
             module,
             description: Description {
-                ranges: ranges(&addresses, &blocks.entries),
-                addresses,
+                ranges: merged_ranges(source.ranges()),
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
                 target: blocks.execution_target,
@@ -79,20 +72,6 @@ impl CompiledCode {
         self.install_entries(cpu, true)
     }
 
-    fn entry_key(&self, index: usize) -> Result<u32> {
-        let eip = self.description.blocks[index].address.eip();
-        let offset = u16::try_from(eip).map_err(|_| ConfigurationError::IncompatibleCpu)?;
-        let base = self.description.addresses[index]
-            .checked_sub(eip)
-            .filter(|base| base & 15 == 0 && *base <= 0xffff0)
-            .ok_or(ConfigurationError::IncompatibleCpu)?;
-        Ok(FarPointer {
-            segment: (base >> 4) as u16,
-            offset,
-        }
-        .packed())
-    }
-
     fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
         if cpu.cpu_state().execution_target() != self.description.target {
             return Err(Error::CompilationTarget);
@@ -100,25 +79,26 @@ impl CompiledCode {
         if !self.source().belongs_to(&cpu.memory()) {
             return Err(crate::Error::CompilationMemory);
         }
-        let entries: Vec<_> = self
-            .description
-            .blocks
-            .iter()
-            .enumerate()
-            // Out-of-range continuations retain their internal fetch guards,
-            // but have no 16:16 identity to publish in the real-mode map.
-            .filter(|(_, block)| block.address.eip() <= u32::from(u16::MAX))
-            .map(|(index, block)| {
-                Ok(DispatchEntry {
-                    key: self.entry_key(index)?,
+        let mut entries = Vec::new();
+        for block in self.blocks() {
+            let CodeAddress::RealMode { segment, eip } = block.address else {
+                return Err(ConfigurationError::IncompatibleCpu.into());
+            };
+            if block.code_default_size != SegmentDefaultSize::Bits16 {
+                return Err(ConfigurationError::IncompatibleCpu.into());
+            }
+            // A discovered continuation beyond IP=FFFF has no real-mode dispatch key.
+            let Ok(offset) = u16::try_from(eip) else {
+                continue;
+            };
+            let key = FarPointer { segment, offset }.packed();
+            if !missing_only || !cpu.has_entry(key) {
+                entries.push(DispatchEntry {
+                    key,
                     export: &block.export,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let entries: Vec<_> = entries
-            .into_iter()
-            .filter(|entry| !missing_only || !cpu.has_entry(entry.key))
-            .collect();
+                });
+            }
+        }
         if entries.is_empty() {
             return Ok(());
         }
@@ -126,24 +106,8 @@ impl CompiledCode {
     }
 }
 
-fn ranges(addresses: &[u32], blocks: &[BlockEntry]) -> Vec<Range<u64>> {
-    const END: u64 = 1 << 32;
-    let mut ranges = Vec::new();
-    for (&address, block) in addresses.iter().zip(blocks) {
-        let start = u64::from(address);
-        let len = block.byte_len as u64;
-        if len >= END {
-            return std::iter::once(0..END).collect();
-        }
-        if len == 0 {
-            continue;
-        }
-        let end = start + len;
-        ranges.push(start..end.min(END));
-        if end > END {
-            ranges.push(0..end - END);
-        }
-    }
+fn merged_ranges(ranges: impl Iterator<Item = Range<u64>>) -> Vec<Range<u64>> {
+    let mut ranges: Vec<_> = ranges.collect();
     ranges.sort_unstable_by_key(|range| range.start);
     let mut merged: Vec<Range<u64>> = Vec::new();
     for range in ranges {
@@ -164,18 +128,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn coverage_merges_neighbors_but_preserves_gaps_and_address_wrap() {
-        let blocks: Vec<_> = [4, 3, 2, 4]
-            .into_iter()
-            .map(|byte_len| BlockEntry {
-                code_default_size: relocade_x86::SegmentDefaultSize::Bits16,
-                address: relocade_x86::CodeAddress::CsRelative(0),
-                byte_len,
-                export: String::new(),
-            })
-            .collect();
+    fn coverage_merges_adjacent_source_spans_and_preserves_gaps() {
+        let spans = [
+            0x100..0x104,
+            0x104..0x107,
+            0x110..0x112,
+            0xffff_fffe..0x1_0000_0000,
+            0..2,
+        ];
         assert_eq!(
-            ranges(&[0x100, 0x104, 0x110, u32::MAX - 1], &blocks),
+            merged_ranges(spans.into_iter()),
             [0..2, 0x100..0x107, 0x110..0x112, 0xffff_fffe..0x1_0000_0000]
         );
     }

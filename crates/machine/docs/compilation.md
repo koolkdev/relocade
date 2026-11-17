@@ -52,9 +52,12 @@ The service owns compilation and delivery. Hotness, candidate selection, code
 validity, installation, and future module caching or sharing between CPUs belong
 to the Machine runtime and its execution owners.
 
-`CompilerClient` is a single-owner request/result stream. `request` immediately
-queues the execution target, addresses and compilation bounds. `recv` returns
-results in that connection's request order, including compilation errors.
+`CompilerClient` is a single-owner request/result stream. Each `BlockRequest`
+supplies a real-mode `FarPointer` and compilation bounds. The worker reads the
+bytes at that CS:IP and the runtime installs the result under the same CS:IP,
+even if the CPU changes segments before delivery. Two far pointers can share
+instruction bytes and have separate dispatch entries. `recv` returns results in
+that connection's request order, including compilation errors.
 Dropping a receive wait preserves the next result.
 The runtime can queue several requests and receive their results as it runs.
 
