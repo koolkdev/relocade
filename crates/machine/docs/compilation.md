@@ -58,8 +58,10 @@ results in that connection's request order, including compilation errors.
 Dropping a receive wait preserves the next result.
 The runtime can queue several requests and receive their results as it runs.
 
-The worker uses `Memory::read_code` to copy mapped RAM/ROM directly from shared
-backing, including A20 aliases. It shares address resolution with ordinary memory
+The worker reads private copies of mapped RAM/ROM pages from shared backing,
+including A20 aliases. Before sending the result, it validates and registers
+only the instruction bytes used by the emitted blocks. A changed instruction
+rejects the result; automatic compilation can retry if its roots get hot again. It shares address resolution with ordinary memory
 views and requires no CPU or device bus. MMIO, holes and overflowing ranges are
 rejected before capture allocation. `CompiledCode::install` checks the full
 execution target and uses the existing CPU imports, dispatch and hook replacement

@@ -122,7 +122,7 @@ registration remains alive until the compilation and its last installation are
 dropped. `Memory::code_sources_at` queries those dependencies by backing address.
 
 Memory-view writes update the generations of retained source pages under the same
-lock used to capture them. Generated RAM stores do not use this lock or update these
+lock used to validate the emitted bytes at registration and installation. Generated RAM stores do not use this lock or update these
 generations. `CodeSource::has_recorded_writes` therefore reports recorded host writes;
 it does not prove that a compilation is current. Callers must still keep code stable
 during compilation and installation and explicitly retire code before changing it.

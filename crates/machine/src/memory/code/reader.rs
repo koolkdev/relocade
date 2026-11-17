@@ -1,22 +1,14 @@
-use super::{CodeSource, Memory, PageVersion, Source, Span, PAGE_BYTES};
+use super::{InstructionBytes, Memory, Span, PAGE_BYTES};
 use crate::memory::{resolve::Spans, MemoryError};
 use relocade_wasm_runtime::WasmSharedMemory;
 use relocade_x86::PhysicalMapping;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::{atomic::Ordering, Arc},
-};
-
-struct Page {
-    version: PageVersion,
-    bytes: Box<[u8]>,
-}
+use std::collections::BTreeMap;
 
 /// One copy per backing page, reused across discovery reads and aliases.
 /// Only emitted instruction spans survive completion of the reader.
 pub(crate) struct CodeReader<'a> {
     memory: &'a Memory,
-    pages: BTreeMap<u32, Page>,
+    pages: BTreeMap<u32, Box<[u8]>>,
 }
 
 impl<'a> CodeReader<'a> {
@@ -54,67 +46,38 @@ impl<'a> CodeReader<'a> {
             };
             let page = backing / PAGE_BYTES * PAGE_BYTES;
             let snapshot = self.pages.entry(page).or_insert_with(|| {
-                let mut registry = self.memory.code.lock().unwrap();
-                let current = registry.retain_page(page);
-                let captured = current.load(Ordering::Acquire);
                 let mut bytes = vec![0; PAGE_BYTES as usize];
                 self.memory.backing.read(page, &mut bytes);
-                Page {
-                    version: PageVersion {
-                        backing: page,
-                        captured,
-                        current,
-                    },
-                    bytes: bytes.into_boxed_slice(),
-                }
+                bytes.into_boxed_slice()
             });
             let offset = (backing - page) as usize;
-            output[copied..copied + span.len]
-                .copy_from_slice(&snapshot.bytes[offset..offset + span.len]);
+            output[copied..copied + span.len].copy_from_slice(&snapshot[offset..offset + span.len]);
             copied += span.len;
         }
         copied
     }
 
-    pub(crate) fn finish(self, blocks: impl IntoIterator<Item = (u32, usize)>) -> CodeSource {
-        let mut used = BTreeSet::new();
-        let blocks = blocks
-            .into_iter()
-            .map(|(address, len)| {
-                let mut linear = address;
-                Spans::new(self.memory.config.memory_map(), address, len)
-                    .expect("decoded instruction range")
-                    .map(|span| {
-                        let backing = match span.mapping {
-                            PhysicalMapping::Ram { backing_offset }
-                            | PhysicalMapping::Rom { backing_offset } => backing_offset,
-                            _ => unreachable!("decoded instructions came from backing"),
-                        };
-                        let page = backing / PAGE_BYTES * PAGE_BYTES;
-                        used.insert(page);
-                        let offset = (backing - page) as usize;
-                        let source = Span {
-                            address: linear,
-                            backing,
-                            bytes: self.pages[&page].bytes[offset..offset + span.len].into(),
-                        };
-                        linear = linear.wrapping_add(span.len as u32);
-                        source
-                    })
-                    .collect()
-            })
-            .collect();
-        let pages = self
-            .pages
-            .into_iter()
-            .filter(|(page, _)| used.contains(page))
-            .map(|(_, page)| page.version)
-            .collect();
-        let source = Arc::new(Source { blocks, pages });
-        self.memory.code.lock().unwrap().register(&source);
-        CodeSource {
-            registry: self.memory.code.clone(),
-            source,
+    pub(crate) fn finish(self, blocks: impl IntoIterator<Item = (u32, usize)>) -> InstructionBytes {
+        let mut spans = Vec::new();
+        for (mut address, len) in blocks {
+            for span in Spans::new(self.memory.config.memory_map(), address, len)
+                .expect("decoded instruction range")
+            {
+                let backing = match span.mapping {
+                    PhysicalMapping::Ram { backing_offset }
+                    | PhysicalMapping::Rom { backing_offset } => backing_offset,
+                    _ => unreachable!("decoded instructions came from backing"),
+                };
+                let offset = (backing % PAGE_BYTES) as usize;
+                let page = &self.pages[&(backing - offset as u32)];
+                spans.push(Span {
+                    address,
+                    backing,
+                    bytes: page[offset..offset + span.len].into(),
+                });
+                address = address.wrapping_add(span.len as u32);
+            }
         }
+        InstructionBytes { spans }
     }
 }

@@ -160,6 +160,14 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 ])
                 .await
                 .unwrap();
+                let memory = cpu.memory();
+                memory.view().write(0x100101, &[0xff]).unwrap();
+                assert!(matches!(
+                    code.install(cpu),
+                    Err(relocade_machine::Error::StaleCompilation)
+                ));
+                assert_eq!(cpu.compiled_modules_at(0x100).count(), 0);
+                memory.view().write(0x101, &[value as u8]).unwrap();
                 code.install(cpu).unwrap();
                 assert_eq!(
                     runner.run_cpu().await,
