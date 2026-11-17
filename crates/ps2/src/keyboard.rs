@@ -1,6 +1,6 @@
 //! Keyboard commands, physical scanning, bounded buffering and typematic timing.
 
-mod matrix;
+mod physical_keys;
 
 use crate::{
     controller::{Controller, Port},
@@ -8,7 +8,7 @@ use crate::{
     scancodes,
 };
 use futures_util::{pin_mut, select_biased, FutureExt};
-use matrix::Matrix;
+use physical_keys::PhysicalKeys;
 use relocade_frontend::keyboard::{KeyCode, KeyboardEvents};
 use relocade_machine::{yield_now, Clock, Timestamp};
 use std::{
@@ -33,7 +33,7 @@ pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Contr
     Keyboard {
         next_scan: clock.now(),
         clock,
-        matrix: Matrix::new(events),
+        physical_keys: PhysicalKeys::new(events),
         controller,
         last_sent: RESEND,
         scans: VecDeque::new(),
@@ -51,7 +51,7 @@ pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Contr
 
 struct Keyboard<'a> {
     clock: Clock,
-    matrix: Matrix,
+    physical_keys: PhysicalKeys,
     next_scan: Timestamp,
     controller: &'a Controller,
     last_sent: u8,
@@ -184,7 +184,7 @@ impl Keyboard<'_> {
                     }
                 }
                 .fuse();
-                let input = self.matrix.next(&self.clock, self.next_scan).fuse();
+                let input = self.physical_keys.next(&self.clock, self.next_scan).fuse();
                 let timer = async {
                     if let Some(repeat) = self.repeat {
                         self.clock.sleep_until(repeat.deadline).await;
@@ -245,7 +245,7 @@ impl Keyboard<'_> {
 
     fn pause(&mut self) {
         if self.paused.is_none() {
-            self.paused = Some(self.matrix.held.clone());
+            self.paused = Some(self.physical_keys.held.clone());
         }
         self.repeat = None;
     }
@@ -253,13 +253,13 @@ impl Keyboard<'_> {
     fn resume(&mut self) {
         if let Some(before) = self.paused.take() {
             if self.scanning {
-                self.matrix.rescan(before);
+                self.physical_keys.rescan(before);
             }
         }
     }
 
     fn emit(&mut self, key: KeyCode, pressed: bool) -> usize {
-        let bytes = scancodes::sequence(key, pressed, self.set, &self.matrix.held);
+        let bytes = scancodes::sequence(key, pressed, self.set, &self.physical_keys.held);
         let count = bytes.len();
         // Admit whole sequences so an overflow cannot leave a dangling prefix.
         if self.scans.len() + count <= 16 {

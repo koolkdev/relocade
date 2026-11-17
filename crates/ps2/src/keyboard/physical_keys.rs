@@ -11,14 +11,14 @@ use std::{
     future::pending,
 };
 
-pub(super) struct Matrix {
+pub(super) struct PhysicalKeys {
     events: Option<KeyboardEvents>,
-    // Pending matrix changes from a snapshot or command rescan.
+    // Key transitions queued by a snapshot or command rescan.
     changes: VecDeque<(KeyCode, bool)>,
     pub(super) held: BTreeSet<KeyCode>,
 }
 
-impl Matrix {
+impl PhysicalKeys {
     pub(super) fn new(events: KeyboardEvents) -> Self {
         Self {
             events: Some(events),
