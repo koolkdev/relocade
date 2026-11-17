@@ -30,6 +30,8 @@ fn key(code: KeyCode, pressed: bool) -> KeyboardEvent {
 
 fn event(controller: &mut Fixture, event: KeyboardEvent) {
     controller.event(event);
+    // Protocol tests send separate physical changes, including eight-byte Pause.
+    controller.advance_by(Duration::from_millis(10));
 }
 
 fn drain(controller: &mut Fixture) -> Vec<u8> {
@@ -380,6 +382,9 @@ fn unread_output_is_preserved_when_queued_input_overflows_the_keyboard() {
         controller.queue_event(key(KeyCode::KeyA, false));
     }
     controller.settle();
+    for _ in 0..100 {
+        controller.advance_by(Duration::from_millis(1));
+    }
     // The unread B make stays in the controller. Sixteen keyboard bytes fit
     // five set-2 make/break pairs and one make; excess input reports overrun.
     let mut expected = vec![0x30];
@@ -389,6 +394,31 @@ fn unread_output_is_preserved_when_queued_input_overflows_the_keyboard() {
     event(&mut controller, key(KeyCode::KeyA, true));
     event(&mut controller, key(KeyCode::KeyA, false));
     assert_eq!(drain(&mut controller), [0x1e, 0x9e]);
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn a_late_scan_spaces_queued_changes_from_the_actual_device_time() {
+    let (mut controller, _) = controller();
+    controller.event(key(KeyCode::ArrowUp, true));
+    assert_eq!(drain(&mut controller), [0xe0, 0x48]);
+    controller.queue_event(key(KeyCode::ArrowUp, false));
+    controller.queue_event(key(KeyCode::ArrowUp, true));
+    controller.advance(Duration::from_millis(1));
+    assert!(drain(&mut controller).is_empty());
+    controller.data(0xee);
+    assert_eq!(
+        drain(&mut controller),
+        [0xee],
+        "commands can interrupt a scan wait"
+    );
+    controller.advance(Duration::from_millis(20));
+    assert_eq!(drain(&mut controller), [0xe0, 0xc8]);
+    // The three raw release bytes reserve 20–23 ms, including the F0 prefix.
+    controller.advance(Duration::from_millis(22));
+    assert!(drain(&mut controller).is_empty());
+    controller.advance(Duration::from_millis(23));
+    assert_eq!(drain(&mut controller), [0xe0, 0x48]);
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -411,6 +441,8 @@ fn finishing_an_option_exchange_rescans_keys_released_while_scanning_was_paused(
     let (mut controller, _) = controller();
     event(&mut controller, key(KeyCode::ShiftLeft, true));
     assert_eq!(drain(&mut controller), [0x2a]);
+    event(&mut controller, key(KeyCode::KeyA, true));
+    assert_eq!(drain(&mut controller), [0x1e]);
     controller.data(0xed);
     assert_eq!(drain(&mut controller), [0xfa]);
     event(&mut controller, KeyboardEvent::FocusLost);
@@ -418,7 +450,14 @@ fn finishing_an_option_exchange_rescans_keys_released_while_scanning_was_paused(
     controller.data(0xfe); // Retrying the ACK preserves the suspended exchange.
     assert_eq!(drain(&mut controller), [0xfa]);
     controller.data(0);
-    assert_eq!(drain(&mut controller), [0xfa, 0xaa]);
+    let ack_and_first_release = drain(&mut controller);
+    assert_eq!(ack_and_first_release.len(), 2);
+    assert_eq!(ack_and_first_release[0], 0xfa);
+    controller.advance_by(Duration::from_millis(2));
+    let mut releases = vec![ack_and_first_release[1]];
+    releases.extend(drain(&mut controller));
+    releases.sort_unstable();
+    assert_eq!(releases, [0x9e, 0xaa]);
     controller.advance(Duration::from_secs(1));
     assert!(drain(&mut controller).is_empty());
 }

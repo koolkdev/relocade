@@ -1,13 +1,16 @@
 //! Keyboard commands, physical scanning, bounded buffering and typematic timing.
 
+mod matrix;
+
 use crate::{
     controller::{Controller, Port},
     protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
-use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
-use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
-use relocade_machine::{Clock, Timestamp};
+use futures_util::{pin_mut, select_biased, FutureExt};
+use matrix::Matrix;
+use relocade_frontend::keyboard::{KeyCode, KeyboardEvents};
+use relocade_machine::{yield_now, Clock, Timestamp};
 use std::{
     collections::{BTreeSet, VecDeque},
     future::pending,
@@ -23,18 +26,16 @@ const ENABLE_SCANNING: u8 = 0xf4;
 const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
 const RESET: u8 = 0xff;
+// Budget one millisecond per raw scan byte when admitting queued key changes.
+const SCAN_BYTE_TIME: Duration = Duration::from_millis(1);
 
-pub(super) async fn run(
-    clock: Clock,
-    events: LocalBoxStream<'static, KeyboardEvent>,
-    controller: &Controller,
-) {
+pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Controller) {
     Keyboard {
+        next_scan: clock.now(),
         clock,
-        events: Some(events),
+        matrix: Matrix::new(events),
         controller,
         last_sent: RESEND,
-        held: BTreeSet::new(),
         scans: VecDeque::new(),
         overflow: false,
         paused: None,
@@ -50,10 +51,10 @@ pub(super) async fn run(
 
 struct Keyboard<'a> {
     clock: Clock,
-    events: Option<LocalBoxStream<'static, KeyboardEvent>>,
+    matrix: Matrix,
+    next_scan: Timestamp,
     controller: &'a Controller,
     last_sent: u8,
-    held: BTreeSet<KeyCode>,
     scans: VecDeque<u8>,
     overflow: bool,
     // Physical keys at the last scan before a command suspended scanning.
@@ -183,13 +184,7 @@ impl Keyboard<'_> {
                     }
                 }
                 .fuse();
-                let event = async {
-                    match self.events.as_mut() {
-                        Some(events) => events.next().await,
-                        None => pending().await,
-                    }
-                }
-                .fuse();
+                let input = self.matrix.next(&self.clock, self.next_scan).fuse();
                 let timer = async {
                     if let Some(repeat) = self.repeat {
                         self.clock.sleep_until(repeat.deadline).await;
@@ -198,11 +193,11 @@ impl Keyboard<'_> {
                     }
                 }
                 .fuse();
-                pin_mut!(command, output, event, timer);
+                pin_mut!(command, output, input, timer);
                 select_biased! {
                     value = command => Wake::Command(value),
                     () = output => Wake::Sent,
-                    event = event => Wake::Event(event),
+                    change = input => Wake::Input(change),
                     () = timer => Wake::Repeat,
                 }
             };
@@ -218,74 +213,28 @@ impl Keyboard<'_> {
                     }
                     return Ok(());
                 }
-                Wake::Event(event) => {
-                    if event.is_none() {
-                        self.events = None;
+                Wake::Input(change) => {
+                    if let Some((key, pressed)) = change {
+                        if self.scanning && self.paused.is_none() {
+                            self.scan(key, pressed, self.clock.now());
+                        }
+                        if !pressed && self.repeat.is_some_and(|repeat| repeat.key == key) {
+                            self.repeat = None;
+                        }
                     }
-                    self.event(event.unwrap_or(KeyboardEvent::FocusLost));
+                    // Ignored events and changes during commands can also arrive in bursts.
+                    yield_now().await;
                 }
                 Wake::Repeat => self.repeat(),
             }
         }
     }
 
-    fn event(&mut self, event: KeyboardEvent) {
-        use KeyCode::*;
-        let now = self.clock.now();
-        match event {
-            KeyboardEvent::Key {
-                physical_key: PhysicalKey::Code(key),
-                state,
-                ..
-            } => {
-                self.key(key, state == ElementState::Pressed, now);
-            }
-            KeyboardEvent::FocusLost => {
-                for key in self.held.clone() {
-                    self.key(key, false, now);
-                }
-            }
-            KeyboardEvent::Modifiers(modifiers) => {
-                for (active, left, right) in [
-                    (modifiers.shift_key(), ShiftLeft, ShiftRight),
-                    (modifiers.control_key(), ControlLeft, ControlRight),
-                    (modifiers.alt_key(), AltLeft, AltRight),
-                    (modifiers.super_key(), SuperLeft, SuperRight),
-                ] {
-                    if !active {
-                        self.key(left, false, now);
-                        self.key(right, false, now);
-                    } else if !self.held.contains(&left) && !self.held.contains(&right) {
-                        self.key(left, true, now);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn key(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
-        if !scancodes::supported(key) {
-            return;
-        }
-        let changed = if pressed {
-            self.held.insert(key)
-        } else {
-            self.held.remove(&key)
-        };
-        if !changed {
-            return;
-        } // The guest's typematic settings own repetition.
-        if self.scanning && self.paused.is_none() {
-            self.scan(key, pressed, now);
-        }
-        if !pressed && self.repeat.is_some_and(|repeat| repeat.key == key) {
-            self.repeat = None;
-        }
-    }
-
     fn scan(&mut self, key: KeyCode, pressed: bool, now: Timestamp) {
-        self.emit(key, pressed);
+        let bytes = self.emit(key, pressed);
+        self.next_scan = self
+            .clock
+            .deadline_after(now, SCAN_BYTE_TIME * bytes as u32);
         if pressed && scancodes::repeatable(key) {
             self.repeat = Some(Repeat {
                 key,
@@ -296,36 +245,29 @@ impl Keyboard<'_> {
 
     fn pause(&mut self) {
         if self.paused.is_none() {
-            self.paused = Some(self.held.clone());
+            self.paused = Some(self.matrix.held.clone());
         }
         self.repeat = None;
     }
 
     fn resume(&mut self) {
-        let now = self.clock.now();
         if let Some(before) = self.paused.take() {
             if self.scanning {
-                // Rescan the physical matrix: a release during an option or ID
-                // exchange must not leave a previously reported modifier stuck.
-                let held = self.held.clone();
-                for key in before.difference(&held) {
-                    self.scan(*key, false, now);
-                }
-                for key in held.difference(&before) {
-                    self.scan(*key, true, now);
-                }
+                self.matrix.rescan(before);
             }
         }
     }
 
-    fn emit(&mut self, key: KeyCode, pressed: bool) {
-        let bytes = scancodes::sequence(key, pressed, self.set, &self.held);
+    fn emit(&mut self, key: KeyCode, pressed: bool) -> usize {
+        let bytes = scancodes::sequence(key, pressed, self.set, &self.matrix.held);
+        let count = bytes.len();
         // Admit whole sequences so an overflow cannot leave a dangling prefix.
-        if self.scans.len() + bytes.len() <= 16 {
+        if self.scans.len() + count <= 16 {
             self.scans.extend(bytes);
         } else {
             self.overflow = true;
         }
+        count
     }
 
     fn delay(&self) -> Duration {
@@ -380,7 +322,7 @@ struct CommandReplaced(u8);
 
 enum Wake {
     Command(u8),
-    Event(Option<KeyboardEvent>),
+    Input(Option<(KeyCode, bool)>),
     Repeat,
     Sent,
 }

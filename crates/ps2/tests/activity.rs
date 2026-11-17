@@ -101,10 +101,12 @@ async fn connected_activity() {
                 )))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x2a);
+            clock.advance_by(Duration::from_millis(1));
             input
                 .unbounded_send(InputEvent::new(key(KeyCode::KeyA, false)))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
+            clock.advance_by(Duration::from_millis(1));
             input
                 .unbounded_send(InputEvent::new(key(KeyCode::KeyA, true)))
                 .unwrap();
@@ -112,14 +114,15 @@ async fn connected_activity() {
                 .unbounded_send(InputEvent::new(key(KeyCode::KeyB, false)))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x30, "host repeat was suppressed");
+            clock.advance_by(Duration::from_millis(1));
             input
                 .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
                 .unwrap();
-            let mut releases = [
-                next_byte(&io).await,
-                next_byte(&io).await,
-                next_byte(&io).await,
-            ];
+            let mut releases = Vec::new();
+            for _ in 0..3 {
+                releases.push(next_byte(&io).await);
+                clock.advance_by(Duration::from_millis(2));
+            }
             releases.sort();
             assert_eq!(releases, [0x9e, 0xaa, 0xb0]);
             no_output(&io).await;

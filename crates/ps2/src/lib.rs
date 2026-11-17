@@ -84,11 +84,7 @@ impl Device for Ps2Controller {
         };
         futures_util::future::join3(
             controller.run(),
-            keyboard::run(
-                clock.clone(),
-                input::synchronized(clock.clone(), events),
-                &controller,
-            ),
+            keyboard::run(clock.clone(), events, &controller),
             mouse::run(
                 clock.clone(),
                 input::synchronized(clock, mouse_events),

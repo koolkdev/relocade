@@ -1,5 +1,6 @@
 use crate::common;
 use relocade_bios::KeyMode;
+use relocade_clock_test_support::ManualClock;
 use relocade_dos::Dos;
 use relocade_frontend::input::InputEvent;
 use relocade_machine::IoBus;
@@ -8,21 +9,22 @@ use relocade_x86::ExecutionExit;
 #[path = "keyboard_hardware/control_break.rs"]
 mod control_break;
 
-// Freeze time so these tests isolate IRQ1 while the production runner drives
-// controller firmware, keyboard firmware and guest execution.
+// Tests control device time to isolate IRQ1 while the runner drives the PC.
 type KeyboardDos = Dos;
 
-fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
+fn with_hardware(check: impl AsyncFnOnce(KeyboardDos, ManualClock) + Send + 'static) {
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
+    let time = ManualClock::new();
+    let device_time = time.clone();
     let worker = prepared.spawn_with_clock(
-        || relocade_clock_test_support::ManualClock::new().clock(),
+        move || device_time.clock(),
         async move |runner| {
             let dos = Dos::new(runner).await.unwrap();
-            check(dos).await;
+            check(dos, time).await;
         },
     );
     assert_eq!(pollster::block_on(worker.join()).unwrap(), Some(()));
@@ -51,7 +53,7 @@ async fn inject_scan(io: &IoBus, byte: u8) {
 
 #[test]
 fn cli_allows_guest_port_polling_without_bios_consuming_the_scan_byte() {
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, _| {
         dos.launch_com(
             &[
                 0xfa, // CLI: firmware progress must not require guest IF.
@@ -87,7 +89,7 @@ async fn guest_returns(dos: &mut KeyboardDos) {
 
 #[test]
 fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, _| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         dos.cpu().cpu_state().set_eflags(0x202);
         let segment = dos.process().unwrap().psp_segment();
@@ -159,7 +161,7 @@ fn replacing_irq1_owns_scan_consumption_and_guest_eoi_releases_the_next_irq() {
 
 #[test]
 fn a_guest_irq1_hook_chains_to_bios_and_wakes_both_input_services() {
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, _| {
         dos.launch_com(
             &[0xcd, 0x16, 0xeb, 0xfe, 0xcd, 0x21, 0xeb, 0xfe],
             Default::default(),
@@ -221,7 +223,7 @@ fn bios_translates_a_scan_already_read_by_a_guest_irq1_hook() {
         FarPointer,
     };
 
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, _| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         let segment = dos.process().unwrap().psp_segment();
         let base = u32::from(segment) << 4;
@@ -281,7 +283,7 @@ fn pending_irq1_does_not_consume_auxiliary_output() {
         AUXILIARY_OUTPUT, DATA_PORT, INPUT_BUFFER_FULL, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT,
     };
 
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, _| {
         dos.launch_com(&[0xeb, 0xfe], Default::default()).unwrap();
         dos.cpu().cpu_state().set_eflags(0x202);
         let io = dos.cpu().context().io.clone();
@@ -311,7 +313,7 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
     };
     use relocade_machine::Hook;
 
-    with_hardware(async |mut dos| {
+    with_hardware(async |mut dos, time| {
         // Wait for the requested number of IRQs before reaching the stop hook.
         let program = [
             0xa1, 0, 3, // AX = IRQ count.
@@ -386,6 +388,7 @@ fn reading_then_chaining_irq1_preserves_extended_key_make_and_break() {
             assert_eq!(memory.view().read_u16(base + 0x300).unwrap(), count);
             assert_eq!(memory.view().read_u16(base + 0x49a).unwrap(), held);
             assert_eq!(state.sp(), stack, "both interrupt frames returned");
+            time.advance_by(std::time::Duration::from_millis(2));
         }
         let mut scans = [0; 4];
         memory.view().read(base + 0x302, &mut scans).unwrap();

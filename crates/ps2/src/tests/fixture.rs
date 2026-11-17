@@ -148,4 +148,9 @@ impl Fixture {
         self.clock.advance_to(self.clock.at(now));
         self.settle();
     }
+
+    pub fn advance_by(&mut self, duration: Duration) {
+        self.clock.advance_by(duration);
+        self.settle();
+    }
 }
