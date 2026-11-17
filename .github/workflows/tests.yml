@@ -141,6 +141,25 @@ jobs:
           npm --prefix tests/browser run test:runner
           npm --prefix tests/browser test
 
+  desktop-file-picker:
+    name: File picker (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: file-picker-${{ matrix.os }}
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Run native file picker tests
+        run: cargo test -p relocade-file-picker --lib --locked
+
   clippy:
     name: Workspace Clippy
     runs-on: ubuntu-latest

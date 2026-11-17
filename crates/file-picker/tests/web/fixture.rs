@@ -1,6 +1,16 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(inline_js = r#"
+export function nextDownload() {
+    return new Promise(resolve => {
+        document.addEventListener("click", event => {
+            event.preventDefault();
+            const link = event.target;
+            resolve(fetch(link.href).then(async response =>
+                [link.download, new Uint8Array(await response.arrayBuffer())]));
+        }, { once: true, capture: true });
+    });
+}
 export async function directoryHandle() {
     const root = await navigator.storage.getDirectory();
     return root.getDirectoryHandle(`relocade-${crypto.randomUUID()}`, { create: true });
@@ -101,6 +111,8 @@ export function holdNextRead() {
 }
 "#)]
 extern "C" {
+    #[wasm_bindgen(js_name = nextDownload)]
+    pub fn next_download() -> js_sys::Promise<js_sys::Array>;
     #[wasm_bindgen(js_name = directoryHandle)]
     pub async fn directory_handle() -> JsValue;
     #[wasm_bindgen(js_name = removeDirectory)]

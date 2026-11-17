@@ -6,6 +6,10 @@ use std::{
     path::PathBuf,
 };
 
+#[path = "native/save.rs"]
+mod save;
+pub(crate) use save::save_file;
+
 pub(crate) type Directory = Unblock<fs::Dir>;
 pub(crate) type File = Unblock<fs::File>;
 

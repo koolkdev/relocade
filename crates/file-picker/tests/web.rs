@@ -21,6 +21,21 @@ use fixture::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
+async fn saving_supplies_the_suggested_name_and_binary_contents_to_the_browser() {
+    let download = next_download();
+    let submitted = relocade_file_picker::save_file("output.bin", vec![0, 0xff, 42])
+        .await
+        .unwrap();
+    assert_eq!(submitted, Some(()));
+    let file = wasm_bindgen_futures::JsFuture::from(download).await.unwrap();
+    assert_eq!(file.get(0).as_string().unwrap(), "output.bin");
+    assert_eq!(
+        js_sys::Uint8Array::new(&file.get(1)).to_vec(),
+        [0, 0xff, 42]
+    );
+}
+
+#[wasm_bindgen_test]
 async fn rust_worker_reads_selected_file_and_metadata() {
     let files = FileService::new();
     complete_file_picker(false, 946_684_800_123.0);
