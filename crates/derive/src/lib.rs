@@ -11,6 +11,15 @@ mod interrupt_dispatch;
 mod transfer;
 mod wasm_abi;
 mod win32_args;
+mod win32_export;
+
+/// Binds an ordinary Rust service to a Microsoft x86 DLL export.
+#[proc_macro_attribute]
+pub fn win32_export(args: TokenStream, item: TokenStream) -> TokenStream {
+    win32_export::expand(args.into(), parse_macro_input!(item as syn::ItemFn))
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// Derives the guest stack layout of a Microsoft x86 parameter record.
 #[proc_macro_derive(Win32Args)]
