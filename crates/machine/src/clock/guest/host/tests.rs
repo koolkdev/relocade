@@ -26,15 +26,7 @@ fn correspondence_rounds_deadlines_forward_and_preserves_fractional_pauses() {
         host.host_time(Timestamp::from_ticks(13)),
         Some(Timestamp::from_ticks(7))
     );
-    assert_eq!(
-        host.sync_deadline(None).map(MappedDeadline::deadline),
-        Some(Timestamp::from_ticks(20))
-    );
     driver.advance_to(Timestamp::from_ticks(11));
-    assert_eq!(
-        host.sync_deadline(None).map(MappedDeadline::deadline),
-        Some(Timestamp::from_ticks(27))
-    );
 
     // Two separate 1/3 ns pauses shift the host anchor by exactly two ticks.
     host.pause();
@@ -47,9 +39,5 @@ fn correspondence_rounds_deadlines_forward_and_preserves_fractional_pauses() {
     assert_eq!(
         host.host_time(Timestamp::from_ticks(20)),
         Some(Timestamp::from_ticks(12))
-    );
-    assert_eq!(
-        host.sync_deadline(None).map(MappedDeadline::deadline),
-        Some(Timestamp::from_ticks(27))
     );
 }

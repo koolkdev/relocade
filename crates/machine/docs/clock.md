@@ -86,10 +86,9 @@ use native differences only with the matching `TickRate`. `Clock::new(source)` c
 behind the common consumer API. `Sleep::new(future)` owns its wait state.
 
 Sources preserve monotonic readings and first-poll registration/drop cancellation.
-Host sources implement `host_timestamp(Instant)` to translate external event times,
-clamping events before their origin to its initial coordinate. The optional
-`sync(Option<Instant>)` captures a mapped host deadline; `None` samples the
-configured host clock. Sources without a correspondence complete immediately.
+Host sources progress independently of execution; guest sources advance with
+published CPU retirement or controlled idle advancement. Host pacing uses
+`sync_to_host(timestamp)` without moving guest time or changing device deadlines.
 
 `Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
 parameter. Controllers expose the separate capabilities to drive timers or
@@ -106,7 +105,7 @@ in application builds. Its `clock()` uses the same public `ClockSource` interfac
 `next_deadline()` observes the earliest polled, uncancelled sleep. Advancing to
 an earlier timestamp leaves time unchanged. Cloned controllers share time and can
 move between workers; consumer clocks remain local. Each controller starts at zero on its own timeline. `at(duration)` constructs a
-fixture deadline, and `host_now()` supplies external input timestamps.
+fixture deadline.
 
 ## Emulated guest time
 
@@ -252,22 +251,13 @@ exact native pause duration; repeated cancellation cannot grant another slice.
 The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
-### Synchronizing external work
-
-`clock.sync().await` captures the current host time once, maps it to guest time
-and awaits that guest deadline. Earlier device deadlines and IRQ opportunities
-remain part of normal execution. If guest time has already reached that point,
-the wait completes immediately; it never rewinds time or waits for the host.
-Burst pacing separately limits execution ahead of host time.
-Conversions between host and guest timelines round deadlines toward the future,
-so a fractional native offset cannot cause an early wake. This rounding stays
-inside the correspondence; elapsed-duration measurements still round down.
+### Live input and output
 
 Live keyboard and mouse events arrive at the execution owner without timestamps.
 Each device processes its events in order. Keyboard repeat and mouse sampling
 use the device clock.
 
-Output goes in the opposite direction. In the device's async task, await the
+For output, the device's async task awaits the
 ordinary local `Sleep` returned by `clock.sync_to_host(time)` before publishing
 to another worker:
 

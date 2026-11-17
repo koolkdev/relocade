@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_machine::{Clock, ClockSource, Instant, Sleep, Timestamp};
+use relocade_machine::{Clock, ClockSource, Sleep, Timestamp};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -12,7 +12,6 @@ use std::{
 pub struct ManualClock(Arc<Mutex<State>>);
 
 struct State {
-    origin: Instant,
     now: Timestamp,
     waits: Vec<Wait>,
 }
@@ -56,16 +55,6 @@ impl ManualClock {
         Self::notify(due);
     }
 
-    /// External host instant corresponding to the controlled reading. Use this
-    /// for timestamped input fixtures; device deadlines use the clock directly.
-    pub fn host_now(&self) -> Instant {
-        self.host_time(self.clock().now())
-    }
-
-    pub fn host_time(&self, time: Timestamp) -> Instant {
-        self.0.lock().unwrap().origin + self.clock().duration_between(ORIGIN, time)
-    }
-
     /// Earliest polled sleep, excluding cancelled waits.
     pub fn next_deadline(&self) -> Option<Timestamp> {
         let mut state = self.0.lock().unwrap();
@@ -83,13 +72,6 @@ impl ManualClock {
 impl ClockSource for ManualClock {
     fn now(&self) -> Timestamp {
         self.0.lock().unwrap().now
-    }
-
-    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
-        let state = self.0.lock().unwrap();
-        Some(Timestamp::from_ticks(
-            time.saturating_duration_since(state.origin).as_nanos() as u64,
-        ))
     }
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
@@ -124,7 +106,6 @@ impl State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            origin: Instant::now(),
             now: ORIGIN,
             waits: Vec::new(),
         }

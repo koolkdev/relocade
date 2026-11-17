@@ -1,17 +1,16 @@
 //! Owned sleep registration and synchronous cancellation.
 
-use super::{MappedDeadline, State};
-use crate::{ClockSource, Instant, Sleep, Timestamp};
+use super::State;
+use crate::{ClockSource, Sleep, Timestamp};
 use futures_channel::oneshot;
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone)]
 pub(super) struct Source(pub(super) Rc<RefCell<State>>);
 
 pub(super) struct Wait {
     pub(super) token: Rc<()>,
-    pub(super) deadline: MappedDeadline,
-    pub(super) host_sync: bool,
+    pub(super) deadline: Timestamp,
     pub(super) complete: oneshot::Sender<()>,
 }
 
@@ -62,35 +61,11 @@ impl ClockSource for Source {
             .unwrap_or_else(|| Sleep::new(async {}))
     }
 
-    fn sync(&self, host_time: Option<Instant>) -> Sleep {
-        let state = self.0.borrow();
-        let Some(host) = &state.host else {
-            return Sleep::new(async {});
-        };
-        match host.sync_deadline(host_time) {
-            Some(deadline) => self.wait(deadline, Some(host.discarded_lag)),
-            None => Sleep::new(async {}),
-        }
-    }
-
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
-        self.wait(deadline.into(), None)
-    }
-}
-
-impl Source {
-    fn wait(&self, mut deadline: MappedDeadline, captured_lag: Option<Duration>) -> Sleep {
         let source = self.clone();
         Sleep::new(async move {
             let now = source.now();
-            if let Some(captured) = captured_lag {
-                // Recovery can happen between constructing and polling this wait.
-                let discarded = source.0.borrow().host.as_ref().unwrap().discarded_lag - captured;
-                deadline = deadline
-                    .subtract(source.0.borrow().tick_rate, discarded)
-                    .unwrap_or_else(|| now.into());
-            }
-            if deadline.deadline() <= now {
+            if deadline <= now {
                 return;
             }
             let (complete, completed) = oneshot::channel();
@@ -104,7 +79,6 @@ impl Source {
                 state.waits.push(Wait {
                     token,
                     deadline,
-                    host_sync: captured_lag.is_some(),
                     complete,
                 });
                 state.refresh_target();
