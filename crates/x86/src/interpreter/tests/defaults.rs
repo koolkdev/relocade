@@ -41,6 +41,36 @@ fn step(image: &Image) -> CpuState {
 }
 
 #[test]
+fn fxsave_and_fxrstor_use_the_live_code_pointer_width() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    for (size, profile) in [
+        (Bits16, SegmentProfile::Segmented16),
+        (Bits32, SegmentProfile::Segmented32),
+    ] {
+        for modrm in [0x00, 0x08] {
+            // FXSAVE and FXRSTOR
+            let mut image = Image::new(&[0x0f, 0xae, modrm]);
+            image.cpu = CpuState::protected_mode(size, Bits32);
+            image.cpu.eip = 0x1000;
+            // Both [BX+SI] and [EAX] address the same FX image.
+            image.cpu.registers.ebx = 0x4000;
+            image.cpu.registers.eax = 0x4000;
+            image.cpu.x87.instruction_offset = 0x1234_5678;
+            image.cpu.x87.data_offset = 0x89ab_cdef;
+            image.map(4, 0x8000, true);
+            image.data(0x8008, &0xfedc_ba98u32.to_le_bytes());
+            image.data(0x8010, &0x7654_3210u32.to_le_bytes());
+            let input = image.input();
+            let fixed = TestModule::interpreter_with_profile(profile).observe(&input, 1);
+            assert!(
+                matches!(fixed.events.as_slice(), [Event::Return { outcome, .. }] if *outcome == returned(ExecutionExit::StepComplete))
+            );
+            assert_eq!(interpreter().observe(&input, 1), fixed);
+        }
+    }
+}
+
+#[test]
 fn live_code_defaults_and_repeated_operand_overrides() {
     for (default, prefixes, expected_eax, length) in [
         (SegmentDefaultSize::Bits16, &[][..], 0xaaaa_1234, 3),
