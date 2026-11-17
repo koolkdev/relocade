@@ -9,7 +9,7 @@ const packages = [
     "relocade-wasm-bindings", "relocade-wasm-runtime", "relocade-workers", "relocade-time", "relocade-frontend", "relocade-machine",
     "relocade-bios", "relocade-pc", "relocade-pit", "relocade-dma", "relocade-pic", "relocade-ps2",
     "relocade-pc-speaker", "relocade-parallel", "relocade-renderer", "relocade-adlib", "relocade-sound-blaster",
-    "relocade-vga", "relocade-app", "relocade-browser-tests", "relocade-dos-app",
+    "relocade-vga", "relocade-app", "relocade-file-picker", "relocade-browser-tests", "relocade-dos-app",
 ];
 const features = "relocade-vga/renderer,relocade-app/graphics,relocade-app/audio,relocade-frontend/audio,relocade-pc/audio";
 
