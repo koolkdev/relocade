@@ -5,17 +5,13 @@ mod protocol;
 mod transmission;
 
 use crate::controller::{Controller, Port};
-use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
+use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
 use protocol::Protocol;
-use relocade_frontend::mouse::MouseEvent;
-use relocade_machine::Clock;
+use relocade_frontend::mouse::{MouseEvent, MouseEvents};
+use relocade_machine::{yield_now, Clock};
 use std::future::pending;
 
-pub(super) async fn run(
-    clock: Clock,
-    events: LocalBoxStream<'static, MouseEvent>,
-    controller: &Controller,
-) {
+pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
     let mut protocol = Protocol::new(clock.clone());
     let mut events = Some(events);
     loop {
@@ -60,6 +56,8 @@ pub(super) async fn run(
                     events = None;
                 }
                 protocol.event(event.unwrap_or(MouseEvent::FocusLost));
+                // Bound the work per poll when the host has queued more motion.
+                yield_now().await;
             }
             Wake::Sample => protocol.sample(),
         }

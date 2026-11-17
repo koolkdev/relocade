@@ -6,12 +6,9 @@ The application owns its windows, workers and presentation. Each adapter owns
 translation into the guest's behavior. The crate creates no workers or windows.
 
 The `keyboard` feature provides owned `KeyboardEvent` messages and ordinary Rust
-channel endpoints. Keyboard and mouse channels carry `InputEvent<T>`, containing
-`host_time: web_time::Instant` and the original `event: T`. Producers construct
-`InputEvent::new(event)` immediately before enqueueing, so time spent waiting in
-the channel does not change the event's timestamp. Controlled producers can
-supply a timestamp explicitly. In threaded browser builds, `web_time` includes
-each worker's performance time origin, making these host instants comparable.
+channel endpoints. Each keyboard or mouse channel preserves the order of its
+events. The execution owner receives live input at its current time. The device
+controls when a key change or a mouse report reaches guest software.
 
 Keyboard events preserve physical and logical keys, location, text,
 press/release state, repeat and modifiers using winit's types. Focus loss releases

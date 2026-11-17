@@ -2,7 +2,6 @@
 
 use futures_channel::oneshot;
 use relocade_dos::Dos;
-use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
@@ -132,26 +131,26 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     );
     let (mouse, keyboard) = host_inputs.recv_timeout(Duration::from_secs(30)).unwrap();
     mouse
-        .unbounded_send(InputEvent::new(MouseEvent::Button {
+        .unbounded_send(MouseEvent::Button {
             button: MouseButton::Left,
             state: ElementState::Pressed,
-        }))
+        })
         .unwrap();
     mouse
-        .unbounded_send(InputEvent::new(MouseEvent::Motion {
+        .unbounded_send(MouseEvent::Motion {
             delta_x: 7.0,
             delta_y: 3.0,
-        }))
+        })
         .unwrap();
     keyboard
-        .unbounded_send(InputEvent::new(KeyboardEvent::Key {
+        .unbounded_send(KeyboardEvent::Key {
             physical_key: KeyCode::KeyA.into(),
             logical_key: Key::Character("a".into()),
             location: KeyLocation::Standard,
             text: Some("a".into()),
             state: ElementState::Pressed,
             repeat: false,
-        }))
+        })
         .unwrap();
     resume.send(()).unwrap();
     pollster::block_on(async {

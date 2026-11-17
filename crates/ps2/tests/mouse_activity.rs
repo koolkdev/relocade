@@ -1,7 +1,6 @@
 mod common;
 
 use relocade_clock_test_support::ManualClock;
-use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
@@ -79,28 +78,28 @@ async fn connected_mouse_and_keyboard() {
             assert_eq!(next(&io).await, (true, 0xfa));
             input
                 .mouse
-                .unbounded_send(InputEvent::new(MouseEvent::Button {
+                .unbounded_send(MouseEvent::Button {
                     button: MouseButton::Left,
                     state: ElementState::Pressed,
-                }))
+                })
                 .unwrap();
             input
                 .mouse
-                .unbounded_send(InputEvent::new(MouseEvent::Motion {
+                .unbounded_send(MouseEvent::Motion {
                     delta_x: 2.0,
                     delta_y: -3.0,
-                }))
+                })
                 .unwrap();
             input
                 .keyboard
-                .unbounded_send(InputEvent::new(KeyboardEvent::Key {
+                .unbounded_send(KeyboardEvent::Key {
                     physical_key: KeyCode::KeyA.into(),
                     logical_key: Key::Character("a".into()),
                     location: KeyLocation::Standard,
                     text: Some("a".into()),
                     state: ElementState::Pressed,
                     repeat: false,
-                }))
+                })
                 .unwrap();
             for _ in 0..4 {
                 relocade_machine::yield_now().await;
@@ -119,13 +118,10 @@ async fn connected_mouse_and_keyboard() {
                 }
                 assert_eq!(mouse, packet);
                 assert_eq!(keyboard, [key]);
-                input
-                    .mouse
-                    .unbounded_send(InputEvent::new(MouseEvent::FocusLost))
-                    .unwrap();
+                input.mouse.unbounded_send(MouseEvent::FocusLost).unwrap();
                 input
                     .keyboard
-                    .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
+                    .unbounded_send(KeyboardEvent::FocusLost)
                     .unwrap();
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
@@ -154,36 +150,9 @@ async fn connected_mouse_and_keyboard_keep_independent_irq_sources() {
     connected_mouse_and_keyboard().await;
 }
 
-// Protocol tests control time directly. This source supplies input synchronization
-// in the same timebase, leaving host/guest conversion to the machine clock tests.
-struct InputTime {
-    clock: ManualClock,
-    disconnected_at: relocade_machine::Timestamp,
-}
-
-impl relocade_machine::ClockSource for InputTime {
-    fn now(&self) -> relocade_machine::Timestamp {
-        self.clock.clock().now()
-    }
-    fn sleep_until(&self, at: relocade_machine::Timestamp) -> relocade_machine::Sleep {
-        self.clock.clock().sleep_until(at)
-    }
-    fn sync(&self, at: Option<relocade_machine::Instant>) -> relocade_machine::Sleep {
-        self.sleep_until(
-            at.and_then(|at| self.clock.host_timestamp(at))
-                .unwrap_or(self.disconnected_at),
-        )
-    }
-}
-
-async fn queued_mouse_timestamps() {
+async fn queued_mouse_input() {
     let clock = ManualClock::default();
-    let start = clock.host_now();
-    let (runner, _host, machine) = common::runner(relocade_machine::Clock::new(InputTime {
-        clock: clock.clone(),
-        disconnected_at: clock.at(Duration::from_millis(25)),
-    }))
-    .await;
+    let (runner, _host, machine) = common::runner(clock.clock()).await;
     assert_eq!(
         runner
             .run(pending::<()>(), async |runner| {
@@ -200,108 +169,61 @@ async fn queued_mouse_timestamps() {
                 assert_eq!(next(&io).await, (true, 0xfa));
                 input
                     .mouse
-                    .unbounded_send(InputEvent {
-                        host_time: start + Duration::from_millis(1),
-                        event: MouseEvent::Button {
-                            button: MouseButton::Left,
-                            state: ElementState::Pressed,
-                        },
+                    .unbounded_send(MouseEvent::Button {
+                        button: MouseButton::Left,
+                        state: ElementState::Pressed,
+                    })
+                    .unwrap();
+                input
+                    .mouse
+                    .unbounded_send(MouseEvent::Motion {
+                        delta_x: 2.0,
+                        delta_y: -3.0,
                     })
                     .unwrap();
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
-                assert_eq!(
-                    clock.next_deadline(),
-                    Some(clock.at(Duration::from_millis(1)))
-                );
-                // New events arrive while the first event's sync is still pending.
-                for (at, event) in [
-                    (
-                        2,
-                        MouseEvent::Motion {
-                            delta_x: 2.0,
-                            delta_y: -3.0,
-                        },
-                    ),
-                    (
-                        12,
-                        MouseEvent::Motion {
-                            delta_x: 4.0,
-                            delta_y: -1.0,
-                        },
-                    ),
-                    (
-                        13,
-                        MouseEvent::Button {
-                            button: MouseButton::Left,
-                            state: ElementState::Released,
-                        },
-                    ),
-                ] {
-                    input
-                        .mouse
-                        .unbounded_send(InputEvent {
-                            host_time: start + Duration::from_millis(at),
-                            event,
-                        })
-                        .unwrap();
-                }
-                for _ in 0..4 {
-                    relocade_machine::yield_now().await;
-                }
-                assert_eq!(
-                    clock.next_deadline(),
-                    Some(clock.at(Duration::from_millis(1)))
-                );
-                clock.advance_to(clock.at(Duration::from_millis(5)));
-                for _ in 0..4 {
-                    relocade_machine::yield_now().await;
-                }
+                // Motion is already accumulated and its first sample is due at 10 ms.
                 assert_eq!(
                     clock.next_deadline(),
                     Some(clock.at(Duration::from_millis(10)))
                 );
                 clock.advance_to(clock.at(Duration::from_millis(10)));
-                // The sample timer and each output selection cancel the input waiter,
-                // but must retain the event due at 12 ms inside the persistent stream.
-                for byte in [9, 2, 3] {
+                assert_eq!(next(&io).await, (true, 9));
+                // Queue the next transitions while the previous packet is still
+                // being transmitted. Its remaining coordinates stay intact.
+                for event in [
+                    MouseEvent::Motion {
+                        delta_x: 4.0,
+                        delta_y: -1.0,
+                    },
+                    MouseEvent::Button {
+                        button: MouseButton::Left,
+                        state: ElementState::Released,
+                    },
+                    MouseEvent::Motion {
+                        delta_x: 1.0,
+                        delta_y: 1.0,
+                    },
+                ] {
+                    input.mouse.unbounded_send(event).unwrap();
+                }
+                for byte in [2, 3] {
                     assert_eq!(next(&io).await, (true, byte));
                 }
-                input
-                    .mouse
-                    .unbounded_send(InputEvent {
-                        host_time: start + Duration::from_millis(14),
-                        event: MouseEvent::Motion {
-                            delta_x: 1.0,
-                            delta_y: 1.0,
-                        },
-                    })
-                    .unwrap();
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
                 assert_eq!(
                     clock.next_deadline(),
-                    Some(clock.at(Duration::from_millis(12)))
+                    Some(clock.at(Duration::from_millis(20)))
                 );
-                clock.advance_to(clock.at(Duration::from_millis(14)));
-                for _ in 0..4 {
-                    relocade_machine::yield_now().await;
-                }
                 clock.advance_to(clock.at(Duration::from_millis(20)));
                 for byte in [8, 5, 0] {
                     assert_eq!(next(&io).await, (true, byte));
                 }
                 drop(input.mouse);
-                for _ in 0..4 {
-                    relocade_machine::yield_now().await;
-                }
-                assert_eq!(
-                    clock.next_deadline(),
-                    Some(clock.at(Duration::from_millis(25)))
-                );
-                clock.advance_to(clock.at(Duration::from_millis(25)));
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
                 }
@@ -319,11 +241,11 @@ async fn queued_mouse_timestamps() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn queued_mouse_input_keeps_timestamps_across_samples_and_cancelled_waiters() {
-    pollster::block_on(queued_mouse_timestamps());
+fn queued_mouse_input_preserves_packets_and_release_at_device_time() {
+    pollster::block_on(queued_mouse_input());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn queued_mouse_input_keeps_timestamps_across_samples_and_cancelled_waiters() {
-    queued_mouse_timestamps().await;
+async fn queued_mouse_input_preserves_packets_and_release_at_device_time() {
+    queued_mouse_input().await;
 }
