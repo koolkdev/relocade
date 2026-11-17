@@ -42,24 +42,9 @@ pub trait ClockSource {
         NonZeroU64::new(1_000_000_000).unwrap()
     }
 
-    /// Maps an external host event into this source's timeline. Host sources
-    /// clamp events before their origin to the origin. Sources without a host
-    /// correspondence leave the default; their input synchronization is immediate.
-    fn host_timestamp(&self, _time: Instant) -> Option<Timestamp> {
-        None
-    }
-
     /// Captures a local wait on the configured host timebase. Sources without
     /// an active correspondence complete immediately.
     fn sync_to_host(&self, _time: Timestamp) -> Sleep {
-        Sleep::new(async {})
-    }
-
-    /// Captures a host-to-source deadline. Guest lag recovery may shorten it.
-    /// `None` samples the configured host clock now; `Some` supplies an external
-    /// host `Instant`, translated through the host source's `host_timestamp`.
-    /// Sources without a host mapping complete immediately.
-    fn sync(&self, _host_time: Option<Instant>) -> Sleep {
         Sleep::new(async {})
     }
 }
@@ -148,25 +133,6 @@ impl Clock {
     /// complete immediately, so awaiting a sleep does not promise an executor yield.
     pub fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         self.source.sleep_until(deadline)
-    }
-
-    /// Waits until guest time reaches the host's current mapped time, captured
-    /// now. A guest already ahead completes immediately. This is a guest timer,
-    /// not a host pacing wait; later host progress does not extend its deadline.
-    /// Discarding excessive guest lag shortens this wait with the shared mapping.
-    /// Host clocks, unpaced guest clocks and clocks outside a CPU run do not wait.
-    pub fn sync(&self) -> Sleep {
-        self.source.sync(None)
-    }
-
-    /// Like [`Self::sync`], using the external host instant at which an input
-    /// event was enqueued. The current host/guest correspondence is captured now. Guest lag recovery shortens
-    /// pending waits, including ones that have not yet been polled.
-    /// It does not reconstruct past mappings: input first consumed after a pause
-    /// uses the resumed correspondence, while an ordinary pause leaves an
-    /// already-created wait unchanged.
-    pub fn sync_to(&self, host_time: Instant) -> Sleep {
-        self.source.sync(Some(host_time))
     }
 }
 

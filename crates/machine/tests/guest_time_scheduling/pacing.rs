@@ -337,7 +337,6 @@ async fn busy_bursts() {
 
 async fn ready_service_during_pacing() {
     let (host, mut armed, source) = host();
-    let host_event_start = host.host_now();
     let host_time = host.clone();
     let (complete, completion) = oneshot::channel();
     let setup = configuration();
@@ -359,15 +358,12 @@ async fn ready_service_during_pacing() {
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
-            let clock = runner.clock().clone();
             let cpu = runner.cpu();
             cpu.install([Hook::host(0x100, async move || {
                 let completion = completion.borrow_mut().take().unwrap();
                 completion.await.unwrap();
-                // Guest time is ahead of the host while this pacing wait remains
-                // unresolved. Synchronization must not wait for host progress.
-                clock.sync().await;
-                clock.sync_to(host_event_start).await;
+                // A ready host service can complete while guest execution is
+                // still waiting for its next host pacing boundary.
                 exit.request();
             })])
             .await

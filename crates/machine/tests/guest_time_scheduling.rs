@@ -2,7 +2,7 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Instant, Runner, Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Runner, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -431,8 +431,7 @@ mod halt;
 mod host;
 #[path = "guest_time_scheduling/lag.rs"]
 mod lag;
+#[path = "guest_time_scheduling/output.rs"]
+mod output;
 #[path = "guest_time_scheduling/pacing.rs"]
 mod pacing;
-
-#[path = "guest_time_scheduling/sync.rs"]
-mod sync;

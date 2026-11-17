@@ -151,20 +151,3 @@ fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
 async fn an_idle_worker_accepts_requests_and_stops_with_surviving_handles() {
     idle_worker().await;
 }
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn host_clock_maps_external_events_to_its_own_timeline() {
-    use relocade_machine::{ClockSource, Instant};
-    let before = Instant::now();
-    let (handle, _driver) = timer_service();
-    let clock = handle.clock();
-    let now = clock.now();
-    let after = Instant::now();
-    assert!(handle.host_timestamp(before).unwrap() <= now);
-    assert!(now <= handle.host_timestamp(after).unwrap());
-    assert_eq!(
-        handle.host_timestamp(before),
-        Some(relocade_machine::Timestamp::from_ticks(0))
-    );
-}

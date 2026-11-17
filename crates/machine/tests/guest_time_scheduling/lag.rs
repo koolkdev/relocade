@@ -70,7 +70,7 @@ async fn busy_lag_limit() {
     }
 }
 
-async fn pending_input_recovery() {
+async fn device_deadlines_during_recovery() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let advancing_host = host.clone();
@@ -100,26 +100,19 @@ async fn pending_input_recovery() {
             cpu.install([Hook::host(0x100, async move || {
                 let arrival = arrival.borrow_mut().take().unwrap();
                 arrival.await.unwrap();
-                // Advance inside the service so both sync waits capture the old
-                // mapping before the scheduler can recover at its next checkpoint.
+                // Capture an output wait before the scheduler recovers its pacing
+                // correspondence at the next stopped boundary.
                 advancing_host.advance_by(Duration::from_millis(100));
-                let mut input = clock.sync_to(
-                    advancing_host.host_time(advancing_host.at(Duration::from_millis(90))),
-                );
-                let unpolled_input = clock.sync();
                 let old_output =
                     clock.sync_to_host(clock.deadline_after(start, Duration::from_millis(6)));
                 let mut fixed =
                     clock.sleep_until(clock.deadline_after(start, Duration::from_millis(6)));
-                assert!(poll_once(&mut input).await.is_none());
                 assert!(poll_once(&mut fixed).await.is_none());
 
-                input.await;
                 assert_eq!(
                     clock.now(),
                     clock.deadline_after(start, Duration::from_millis(4))
                 );
-                assert!(poll_once(unpolled_input).await.is_some());
                 assert!(poll_once(old_output).await.is_some());
                 assert!(poll_once(&mut fixed).await.is_none());
                 fixed.await;
@@ -182,12 +175,12 @@ async fn busy_execution_discards_lag_only_beyond_twenty_milliseconds() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn recovery_releases_pending_input_without_advancing_device_deadlines() {
-    pollster::block_on(pending_input_recovery());
+fn recovery_preserves_device_deadlines_and_captured_output_waits() {
+    pollster::block_on(device_deadlines_during_recovery());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn recovery_releases_pending_input_without_advancing_device_deadlines() {
-    pending_input_recovery().await;
+async fn recovery_preserves_device_deadlines_and_captured_output_waits() {
+    device_deadlines_during_recovery().await;
 }
