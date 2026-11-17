@@ -1,7 +1,6 @@
 mod common;
 
 use relocade_clock_test_support::ManualClock;
-use relocade_frontend::input::InputEvent;
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState,
 };
@@ -77,9 +76,7 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.
             assert_eq!(next_byte(&io).await, 0xfa);
-            input
-                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, false)))
-                .unwrap();
+            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
             clock.advance_to(clock.at(Duration::from_millis(249)));
             no_output(&io).await;
@@ -88,33 +85,21 @@ async fn connected_activity() {
             clock.advance_to(clock.at(Duration::from_millis(4000)));
             assert_eq!(next_byte(&io).await, 0x1e);
             no_output(&io).await; // Late scheduling produces one repeat, not a burst.
-            input
-                .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
-                .unwrap();
+            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
             assert_eq!(next_byte(&io).await, 0x9e);
             clock.advance_to(clock.at(Duration::from_millis(5000)));
             no_output(&io).await;
 
             input
-                .unbounded_send(InputEvent::new(KeyboardEvent::Modifiers(
-                    ModifiersState::SHIFT,
-                )))
+                .unbounded_send(KeyboardEvent::Modifiers(ModifiersState::SHIFT))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x2a);
-            input
-                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, false)))
-                .unwrap();
+            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
-            input
-                .unbounded_send(InputEvent::new(key(KeyCode::KeyA, true)))
-                .unwrap();
-            input
-                .unbounded_send(InputEvent::new(key(KeyCode::KeyB, false)))
-                .unwrap();
+            input.unbounded_send(key(KeyCode::KeyA, true)).unwrap();
+            input.unbounded_send(key(KeyCode::KeyB, false)).unwrap();
             assert_eq!(next_byte(&io).await, 0x30, "host repeat was suppressed");
-            input
-                .unbounded_send(InputEvent::new(KeyboardEvent::FocusLost))
-                .unwrap();
+            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
             let mut releases = [
                 next_byte(&io).await,
                 next_byte(&io).await,
@@ -139,4 +124,56 @@ fn connected_keyboard_delivers_events_and_clock_driven_repeats() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn connected_keyboard_delivers_events_and_clock_driven_repeats() {
     connected_activity().await;
+}
+
+async fn queued_key_transitions() {
+    let clock = ManualClock::default();
+    let (runner, _host, machine) = common::runner(clock.clock()).await;
+    let result = runner
+        .run(pending::<()>(), async |runner| {
+            let pic = Pic::initialize(&runner).await;
+            pic.unmask_irq(KEYBOARD_IRQ);
+            let (input, _) = connect(&runner, &pic).await;
+            let io = runner.io();
+            // Four extended-key taps need twenty raw set-2 bytes. Consuming
+            // the whole input burst before servicing IRQs would overrun the FIFO.
+            for _ in 0..4 {
+                for state in [ElementState::Pressed, ElementState::Released] {
+                    input
+                        .keyboard
+                        .unbounded_send(KeyboardEvent::Key {
+                            physical_key: KeyCode::ArrowUp.into(),
+                            logical_key: Key::Character("ש".into()),
+                            location: KeyLocation::Standard,
+                            text: None,
+                            state,
+                            repeat: false,
+                        })
+                        .unwrap();
+                }
+            }
+            for _ in 0..4 {
+                for byte in [0xe0, 0x48, 0xe0, 0xc8] {
+                    assert_eq!(next_byte(&io).await, byte);
+                }
+            }
+            drop(input);
+            no_output(&io).await;
+            assert_eq!(clock.clock().now(), clock.at(Duration::ZERO));
+        })
+        .await;
+    assert_eq!(result, Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn queued_key_releases_allow_irq_consumption_between_inputs() {
+    pollster::block_on(queued_key_transitions());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn queued_key_releases_allow_irq_consumption_between_inputs() {
+    queued_key_transitions().await;
 }

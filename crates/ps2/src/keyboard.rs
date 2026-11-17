@@ -5,9 +5,11 @@ use crate::{
     protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
-use futures_util::{pin_mut, select_biased, stream::LocalBoxStream, FutureExt, StreamExt};
-use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
-use relocade_machine::{Clock, Timestamp};
+use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
+use relocade_frontend::keyboard::{
+    ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
+};
+use relocade_machine::{yield_now, Clock, Timestamp};
 use std::{
     collections::{BTreeSet, VecDeque},
     future::pending,
@@ -24,11 +26,7 @@ const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
 const RESET: u8 = 0xff;
 
-pub(super) async fn run(
-    clock: Clock,
-    events: LocalBoxStream<'static, KeyboardEvent>,
-    controller: &Controller,
-) {
+pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Controller) {
     Keyboard {
         clock,
         events: Some(events),
@@ -50,7 +48,7 @@ pub(super) async fn run(
 
 struct Keyboard<'a> {
     clock: Clock,
-    events: Option<LocalBoxStream<'static, KeyboardEvent>>,
+    events: Option<KeyboardEvents>,
     controller: &'a Controller,
     last_sent: u8,
     held: BTreeSet<KeyCode>,
@@ -223,6 +221,9 @@ impl Keyboard<'_> {
                         self.events = None;
                     }
                     self.event(event.unwrap_or(KeyboardEvent::FocusLost));
+                    // Give the guest and other devices a turn between live inputs,
+                    // including when the channel already contains more transitions.
+                    yield_now().await;
                 }
                 Wake::Repeat => self.repeat(),
             }

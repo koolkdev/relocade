@@ -145,14 +145,9 @@ resend. The motion module owns fractional conversion, counters and button latche
 The shared 8042 and PIC continue to own port backpressure, byte-source IRQs and
 interrupt arbitration.
 
-Physical keyboard and mouse messages carry their host enqueue time. Each firmware
-stream retains its received event while `clock.sync_to(input.host_time)` waits for
-guest time to reach that point. Device commands and timers remain pollable; losing
-a firmware selection does not discard the event or restart its deadline. Later
-input stays queued in order. Mouse movement continues to accumulate in the existing
-relative counters as events become due; button and focus events retain queue order.
-Stream closure synchronizes its observation time before releasing held input.
-
-Host clocks and unpaced guest clocks deliver input immediately. The existing
-execution notification interrupts running guest code or wakes a pacing wait;
-it carries no timestamp and grants no additional burst credit.
+Live keyboard and mouse channels carry event values in arrival order. Firmware
+applies each event at its current emulated time, without waiting for a mapped host
+timestamp. Each input yields cooperatively before another event is consumed so
+queued transitions leave opportunities for guest execution and other device work.
+Mouse sampling and keyboard typematic still follow their device clocks. Input
+closure releases held keys or buttons through the same device path.
