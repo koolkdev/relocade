@@ -75,7 +75,9 @@ async fn check_forwarding() {
         memory.view().write(0x100, &code).unwrap();
         let mut cpu = Cpu::new(memory, config.cpu, io.clone()).await.unwrap();
         if compiled {
+            let cs = cpu.cpu_state().segment(relocade_x86::Segment::Cs);
             let snapshots = [0, 7, 11].map(|offset| BlockSnapshot {
+                cs,
                 start_eip: 0x100 + offset as u32,
                 bytes: &code[offset..],
                 instruction_limit: 8,
@@ -85,7 +87,7 @@ async fn check_forwarding() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    key: entry.start_eip,
+                    key: entry.address.eip(),
                     export: &entry.export,
                 })
                 .collect();

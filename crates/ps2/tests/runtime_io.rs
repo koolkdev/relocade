@@ -46,8 +46,10 @@ async fn guest_port_io() {
                 runner.memory().view().write(0x100, &code).unwrap();
                 if compiled {
                     let compiler = Compiler::new(ExecutionProfile::Real16);
+                    let cs = runner.cpu().cpu_state().segment(relocade_x86::Segment::Cs);
                     let snapshots =
                         [0, 2, 4, 6, 8, 12, 14, 18, 20, 24].map(|offset| BlockSnapshot {
+                            cs,
                             start_eip: 0x100 + offset as u32,
                             bytes: &code[offset..],
                             instruction_limit: if matches!(offset, 8 | 14 | 20) { 2 } else { 1 },
@@ -57,7 +59,7 @@ async fn guest_port_io() {
                         .entries
                         .iter()
                         .map(|entry| DispatchEntry {
-                            key: entry.start_eip,
+                            key: entry.address.eip(),
                             export: &entry.export,
                         })
                         .collect();

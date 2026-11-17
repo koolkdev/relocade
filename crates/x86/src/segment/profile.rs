@@ -7,7 +7,11 @@ use crate::{
 pub use relocade_x86_profile::SegmentProfile;
 use std::mem::offset_of;
 
-pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<StatePattern> {
+pub(crate) fn assumptions(
+    profile: ExecutionProfile,
+    segment: Segment,
+    code_default_size: SegmentDefaultSize,
+) -> Vec<StatePattern> {
     let base = offset_of!(ExecutionContext, cpu) + Segments::offset(segment);
     let mut requirements = Vec::new();
     macro_rules! field {
@@ -29,7 +33,9 @@ pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<St
     match profile {
         ExecutionProfile::Real16 => {
             field!(limit, u32::from(u16::MAX));
-            attribute!(big, false);
+            if segment != Segment::Cs {
+                attribute!(big, false);
+            }
         }
         ExecutionProfile::Protected(profile) => {
             if profile == SegmentProfile::Flat32
@@ -49,13 +55,10 @@ pub(crate) fn assumptions(profile: ExecutionProfile, segment: Segment) -> Vec<St
                     attribute!(big, true);
                 }
             }
-            if segment == Segment::Cs {
-                attribute!(
-                    big,
-                    SegmentDefaultSize::for_profile(profile.into()) == SegmentDefaultSize::Bits32
-                );
-            }
         }
+    }
+    if segment == Segment::Cs {
+        attribute!(big, code_default_size == SegmentDefaultSize::Bits32);
     }
     requirements
 }

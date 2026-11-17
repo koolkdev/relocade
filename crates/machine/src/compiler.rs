@@ -14,13 +14,11 @@ use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
-/// An instruction range at the dispatch linear address `CS.base + start_eip`.
-/// On the supported Real16 target this is also the physical address before A20.
+/// One real-mode CS:IP and the bounds of the bytes to capture at that address.
 /// Keep bytes and mappings stable until its result arrives or the machine shuts down.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockRequest {
-    pub address: u32,
-    pub start_eip: u32,
+    pub entry: FarPointer,
     pub byte_len: usize,
     pub instruction_limit: u32,
 }
@@ -67,6 +65,9 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
+    if target.profile != ExecutionProfile::Real16 {
+        return Err(crate::ConfigurationError::UnsupportedMode.into());
+    }
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
@@ -75,32 +76,33 @@ async fn compile(
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
                 .iter()
-                .map(|block| reader.read(block.address, block.byte_len))
+                .map(|block| reader.read(block.entry.address(), block.byte_len))
                 .collect::<std::result::Result<_, _>>()?;
             let snapshots: Vec<_> = requests
                 .iter()
                 .zip(&captured)
                 .map(|(block, bytes)| BlockSnapshot {
-                    start_eip: block.start_eip,
+                    cs: relocade_x86::SegmentRegister::real_mode(
+                        relocade_x86::Segment::Cs,
+                        block.entry.segment,
+                    ),
+                    start_eip: u32::from(block.entry.offset),
                     bytes,
                     instruction_limit: block.instruction_limit,
                 })
                 .collect();
             let blocks = x86.compile_blocks_with(&snapshots, jobs).await?;
-            let addresses = requests.iter().map(|block| block.address).collect();
+            let addresses = requests.iter().map(|block| block.entry.address()).collect();
             (blocks, addresses)
         }
         connection::Compilation::Functions(requests) => {
-            if target.profile != ExecutionProfile::Real16 {
-                return Err(crate::ConfigurationError::UnsupportedMode.into());
-            }
             let mut module = x86.function_module();
             let mut addresses = Vec::new();
             let mut first_error = None;
             for request in requests {
                 let base = request.entry.segment_base();
                 match module.add_function(
-                    CodeAddress::RealMode(request.entry),
+                    CodeAddress::from(request.entry),
                     request.limits,
                     |eip, buffer| {
                         let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
@@ -111,7 +113,7 @@ async fn compile(
                     },
                 ) {
                     Ok(entries) => {
-                        addresses.extend(entries.iter().map(|block| base + block.start_eip));
+                        addresses.extend(entries.iter().map(|block| base + block.address.eip()));
                     }
                     Err(error) => {
                         first_error.get_or_insert(error);

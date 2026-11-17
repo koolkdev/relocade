@@ -20,15 +20,51 @@ fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
 
 fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     discover::blocks(
-        0x1000,
+        CodeAddress::CsRelative(0x1000),
         Compiler::new(SegmentProfile::Flat32).target(),
         limits,
         reader(0x1000, code),
     )
     .unwrap()
     .into_iter()
-    .map(|block| (block.entry.start_eip, block.entry.byte_len))
+    .map(|block| (block.entry.address.eip(), block.entry.byte_len))
     .collect()
+}
+
+#[test]
+fn snapshots_and_functions_use_each_requested_code_segment() {
+    let compiler = Compiler::new(SegmentProfile::Segmented32);
+    let code = [0xb8, 0x34, 0x12, 0xc3, 0x90, 0xc3];
+    let segments = [0, 1].map(|big| crate::SegmentRegister {
+        big,
+        ..crate::SegmentRegister::flat_code32(0x1b)
+    });
+    let addresses = segments.map(|cs| CodeAddress::InSegment { cs, eip: 0x1000 });
+    let snapshots = segments.map(|cs| BlockSnapshot {
+        cs,
+        start_eip: 0x1000,
+        bytes: &code,
+        instruction_limit: 1,
+    });
+    let blocks = compiler.compile_blocks(&snapshots).unwrap();
+    let mut functions = compiler.function_module();
+    for address in addresses {
+        functions
+            .add_function(address, FunctionLimits::default(), reader(0x1000, &code))
+            .unwrap();
+    }
+    let entries = |compiled: &crate::CompiledBlocks| {
+        compiled
+            .entries
+            .iter()
+            .map(|b| (b.address, b.byte_len))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(entries(&blocks), [(addresses[0], 3), (addresses[1], 5)]);
+    assert_eq!(
+        entries(&functions.compile().unwrap()),
+        [(addresses[0], 4), (addresses[1], 6)]
+    );
 }
 
 #[test]
@@ -40,12 +76,22 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         0xc3, 0x90, // RET; unused NOP must not be decoded
     ];
     let compiler = Compiler::new(SegmentProfile::Flat32);
-    let actual = compiler
-        .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, &code))
+    let mut functions = compiler.function_module();
+    functions
+        .add_function(
+            CodeAddress::InSegment {
+                cs: crate::CpuState::default().segments.cs,
+                eip: 0x1000,
+            },
+            FunctionLimits::default(),
+            reader(0x1000, &code),
+        )
         .unwrap();
+    let actual = functions.compile().unwrap();
     let snapshots: Vec<_> = [(0, 1), (1, 3), (4, 5), (9, 2), (11, 1)]
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
+            cs: crate::CpuState::default().segments.cs,
             start_eip: 0x1000 + offset as u32,
             bytes: &code[offset..offset + len],
             instruction_limit: 10,
@@ -163,9 +209,12 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
             ..limits
         },
     ] {
-        let result = discover::blocks(0, compiler.target(), limits, |_, _| {
-            panic!("zero bounds must not read")
-        });
+        let result = discover::blocks(
+            CodeAddress::CsRelative(0),
+            compiler.target(),
+            limits,
+            |_, _| panic!("zero bounds must not read"),
+        );
         assert!(matches!(result, Err(BlockError::ZeroFunctionLimit)));
     }
 }
@@ -174,9 +223,13 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
 fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries() {
     let code = [0xb8, 1, 0, 0, 0, 0x90, 0x90, 0x90, 0xc3];
     let compiler = Compiler::new(SegmentProfile::Flat32);
-    let actual = compiler
-        .compile_function(
-            0x1000,
+    let mut functions = compiler.function_module();
+    functions
+        .add_function(
+            CodeAddress::InSegment {
+                cs: crate::CpuState::default().segments.cs,
+                eip: 0x1000,
+            },
             FunctionLimits {
                 block_instructions: 2,
                 ..FunctionLimits::default()
@@ -184,9 +237,11 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
             reader(0x1000, &code),
         )
         .unwrap();
+    let actual = functions.compile().unwrap();
     let snapshots: Vec<_> = [(0, 6), (6, 2), (8, 1)]
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
+            cs: crate::CpuState::default().segments.cs,
             start_eip: 0x1000 + offset as u32,
             bytes: &code[offset..offset + len],
             instruction_limit: 2,
@@ -232,7 +287,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     let mut copied = 0;
     let mut source = reader(u32::MAX - 10, &code);
     let blocks = discover::blocks(
-        u32::MAX - 10,
+        CodeAddress::CsRelative(u32::MAX - 10),
         Compiler::new(SegmentProfile::Flat32).target(),
         FunctionLimits::default(),
         |eip, output| {
@@ -246,7 +301,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     assert_eq!(
         blocks
             .iter()
-            .map(|block| (block.entry.start_eip, block.entry.byte_len))
+            .map(|block| (block.entry.address.eip(), block.entry.byte_len))
             .collect::<Vec<_>>(),
         [(245, 5), (u32::MAX - 10, 256)],
     );

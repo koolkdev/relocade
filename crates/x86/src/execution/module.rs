@@ -58,6 +58,14 @@ impl ExecutionModule {
             .with_instruction_budgets(self.target.instruction_budgets)
     }
 
+    pub(crate) fn for_code_default(mut self, size: crate::SegmentDefaultSize) -> Self {
+        if size != crate::SegmentDefaultSize::for_profile(self.target.profile) {
+            self.entry_assumptions =
+                crate::profile::entry_assumptions_for_code(self.target.profile, size).into();
+        }
+        self
+    }
+
     pub(crate) fn with_function(
         &self,
         entries: BTreeMap<u32, Func>,

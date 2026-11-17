@@ -6,26 +6,8 @@ mod discover;
 mod tests;
 
 use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::{real_mode::FarPointer, BlockError};
+use crate::{BlockError, CodeAddress};
 use relocade_compiler::CompileExecutor;
-
-/// The identity of a guest function entry during compilation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CodeAddress {
-    /// A CS-relative EIP whose segment is determined at execution time.
-    CsRelative(u32),
-    /// A fixed real-mode CS:IP, used to identify shared call-table targets.
-    RealMode(FarPointer),
-}
-
-impl CodeAddress {
-    fn eip(self) -> u32 {
-        match self {
-            Self::CsRelative(eip) => eip,
-            Self::RealMode(address) => u32::from(address.offset),
-        }
-    }
-}
 
 /// Whole-function exploration caps and the size of each emitted block.
 /// Exceeding an exploration cap rejects the candidate before IR construction;
@@ -136,7 +118,7 @@ impl FunctionModule<'_> {
     /// Exports are unique even when functions use the same EIP in different code
     /// segments. Code validity follows [`Compiler::compile_function`].
     ///
-    /// [`CodeAddress::RealMode`] lets external near calls share table slots with
+    /// A captured real-mode CS lets external near calls share table slots with
     /// other calls to the same CS:IP. The embedding must enter these blocks with
     /// that CS. [`CodeAddress::CsRelative`] keeps external near calls resolved at runtime.
     pub fn add_function(
@@ -145,7 +127,7 @@ impl FunctionModule<'_> {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
+        let mut decoded = discover::blocks(entry, self.module.compiler.target, limits, read)?;
         if self.functions != 0 {
             for block in &mut decoded {
                 block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);

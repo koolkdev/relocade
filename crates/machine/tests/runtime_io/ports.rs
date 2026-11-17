@@ -75,7 +75,9 @@ async fn guest_carriers() {
         let mut cpu = Cpu::new(memory, config.cpu, io.clone()).await.unwrap();
         cpu.cpu_state().set_dx(0xffff);
         if compiled {
+            let cs = cpu.cpu_state().segment(relocade_x86::Segment::Cs);
             let snapshots = [0, 1].map(|offset| BlockSnapshot {
+                cs,
                 start_eip: 0x100 + offset as u32,
                 bytes: &code[offset..],
                 instruction_limit: 1,
@@ -85,7 +87,7 @@ async fn guest_carriers() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    key: entry.start_eip,
+                    key: entry.address.eip(),
                     export: &entry.export,
                 })
                 .collect();

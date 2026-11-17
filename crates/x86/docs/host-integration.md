@@ -30,12 +30,13 @@ compiler decides which imports and helpers to retain from the generated bodies.
 Implicit accesses such as stack operations use the same owner as explicit memory
 operands. Instruction declarations do not predict memory usage.
 
-`compile_blocks(&[BlockSnapshot { start_eip, bytes, instruction_limit }, ...])`
-compiles several independently callable entries in one module. `CompiledBlocks`
-reports each entry's starting EIP, export name and exact consumed byte length in
-input order. Starting EIPs are CS-relative and advance with 32-bit wrapping.
-Repeated starts are rejected; an empty batch produces a module without exports.
-Supplied starts end other blocks only when reached between instructions. The caller
+`compile_blocks(&[BlockSnapshot { cs, start_eip, bytes, instruction_limit }, ...])`
+compiles several independently callable entries in one module. Every block snapshot carries its loaded CS and starting EIP. The CS supplies
+the decode default. The low-level `compile_block` convenience accepts raw bytes
+at an offset using its fixed profile.
+Each exported entry retains its original address and exact consumed byte length.
+Duplicate starts and instruction boundaries are scoped to the same loaded CS.
+Offsets advance with 32-bit wrapping. An empty batch produces no exports. The caller
 must limit snapshots at registered execution boundaries absent from the batch.
 Every entry still publishes state and dispatches at its boundary, even when the
 successor is another entry in the same module.

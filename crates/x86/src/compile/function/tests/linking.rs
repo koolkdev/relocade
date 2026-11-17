@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    real_mode::FarPointer,
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
@@ -41,10 +42,10 @@ fn compile(start: u32, code: &[u8]) -> TestModule {
 fn links_keep_valid_paths_and_dispatch_undecodable_destinations() {
     let code = [
         0xb8, 1, 0, // MOV AX,1
-        0xe3, 5,    // JCXZ 100A
+        0xe3, 5, // JCXZ 100A
         0xbb, 42, 0, // MOV BX,42
         0xeb, 0x76, // JMP 1080
-        0xf1,       // Unsupported destination
+        0xf1, // Unsupported destination
     ];
     let module = compile(0x1000, &code);
     for count in [0, 1] {
@@ -285,7 +286,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     ] {
         module
             .add_function(
-                CodeAddress::RealMode(FarPointer {
+                CodeAddress::from(FarPointer {
                     segment: cs,
                     offset: start,
                 }),
@@ -306,7 +307,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     let mut local = compiler.function_module();
     local
         .add_function(
-            CodeAddress::RealMode(FarPointer {
+            CodeAddress::from(FarPointer {
                 segment: 0x10,
                 offset: 0x100,
             }),

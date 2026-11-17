@@ -4,7 +4,7 @@ pub use relocade_x86_profile::ExecutionProfile;
 
 use crate::{
     state::{access::cpu_location, cr0, cr4, StatePattern},
-    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
+    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel, SegmentDefaultSize,
 };
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
@@ -41,9 +41,20 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
 
 /// Field facts guaranteed by admission to this execution profile.
 pub(crate) fn entry_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {
+    entry_assumptions_for_code(profile, SegmentDefaultSize::for_profile(profile))
+}
+
+pub(crate) fn entry_assumptions_for_code(
+    profile: ExecutionProfile,
+    code_default_size: SegmentDefaultSize,
+) -> Vec<StatePattern> {
     let mut assumptions = control_assumptions(profile);
     for segment in crate::Segment::ALL {
-        assumptions.extend(crate::segment::profile::assumptions(profile, segment));
+        assumptions.extend(crate::segment::profile::assumptions(
+            profile,
+            segment,
+            code_default_size,
+        ));
     }
     assumptions
 }

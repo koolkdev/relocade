@@ -80,7 +80,7 @@ impl CompiledCode {
     }
 
     fn entry_key(&self, index: usize) -> Result<u32> {
-        let eip = self.description.blocks[index].start_eip;
+        let eip = self.description.blocks[index].address.eip();
         let offset = u16::try_from(eip).map_err(|_| ConfigurationError::IncompatibleCpu)?;
         let base = self.description.addresses[index]
             .checked_sub(eip)
@@ -107,7 +107,7 @@ impl CompiledCode {
             .enumerate()
             // Out-of-range continuations retain their internal fetch guards,
             // but have no 16:16 identity to publish in the real-mode map.
-            .filter(|(_, block)| block.start_eip <= u32::from(u16::MAX))
+            .filter(|(_, block)| block.address.eip() <= u32::from(u16::MAX))
             .map(|(index, block)| {
                 Ok(DispatchEntry {
                     key: self.entry_key(index)?,
@@ -168,7 +168,7 @@ mod tests {
         let blocks: Vec<_> = [4, 3, 2, 4]
             .into_iter()
             .map(|byte_len| BlockEntry {
-                start_eip: 0,
+                address: relocade_x86::CodeAddress::CsRelative(0),
                 byte_len,
                 export: String::new(),
             })

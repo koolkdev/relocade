@@ -190,7 +190,9 @@ async fn check_device_access() {
             view.write(0x100, &code).unwrap();
             if compiled {
                 // OUT and IN each end a block; install all three captured entries.
+                let cs = cpu.cpu_state().segment(relocade_x86::Segment::Cs);
                 let snapshots = [0, 19, 21].map(|offset| BlockSnapshot {
+                    cs,
                     start_eip: 0x100 + offset as u32,
                     bytes: &code[offset..],
                     instruction_limit: 7,
@@ -200,7 +202,7 @@ async fn check_device_access() {
                     .entries
                     .iter()
                     .map(|entry| DispatchEntry {
-                        key: entry.start_eip,
+                        key: entry.address.eip(),
                         export: &entry.export,
                     })
                     .collect();

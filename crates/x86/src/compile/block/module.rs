@@ -18,9 +18,18 @@ pub(in crate::compile) struct BlockModule<'a> {
 impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn build(
         compiler: &'a Compiler,
-        blocks: Vec<DecodedBlock>,
+        mut blocks: Vec<DecodedBlock>,
     ) -> Result<Self, BlockError> {
         let mut module = Self::new(compiler);
+        // Equal EIPs in different segments can share a Wasm module.
+        if blocks.len() > 1 {
+            let mut offsets = std::collections::HashSet::new();
+            for (index, block) in blocks.iter_mut().enumerate() {
+                if !offsets.insert(block.entry.address.eip()) {
+                    block.entry.export.push_str(&format!("_entry_{index}"));
+                }
+            }
+        }
         let blocks = module.declare_blocks(blocks);
         module.define_blocks(blocks, module.execution.clone())?;
         Ok(module)
@@ -53,17 +62,17 @@ impl<'a> BlockModule<'a> {
         // functions in this module may use the same EIP under different segments.
         let entries: BTreeMap<_, _> = blocks
             .iter()
-            .map(|(block, function)| (block.entry.start_eip, *function))
+            .map(|(block, function)| (block.entry.address.eip(), *function))
             .collect();
         let mut call_sites = BTreeMap::new();
         if self.compiler.target.profile == ExecutionProfile::Real16 {
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
-                        let CodeAddress::RealMode(address) = entry else {
+                        let CodeAddress::InSegment { cs, .. } = entry else {
                             continue;
                         };
-                        (u32::from(address.segment) << 16) | eip
+                        (u32::from(cs.selector) << 16) | eip
                     }
                     Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
                         (u32::from(selector) << 16) | offset
@@ -113,9 +122,15 @@ impl<'a> BlockModule<'a> {
         module: ExecutionModule,
     ) -> Result<BlockEntry, BlockError> {
         let observed_cpu = self.compiler.observed_cpu;
+        let module = module.for_code_default(
+            block
+                .entry
+                .address
+                .code_default(self.compiler.target.profile),
+        );
         self.program.define(function, move |body| {
             let mut execution = module
-                .builder(body, block.entry.start_eip)?
+                .builder(body, block.entry.address.eip())?
                 .with_interpreter_fallback()
                 .with_observed_cpu(observed_cpu.as_ref());
             execution.guard_fetch_span(block.entry.byte_len)?;

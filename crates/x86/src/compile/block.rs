@@ -6,7 +6,7 @@ pub(super) mod module;
 
 pub use error::BlockCompileError;
 
-use super::Compiler;
+use super::{CodeAddress, Compiler};
 use crate::{BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentProfile};
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
@@ -15,19 +15,29 @@ use relocade_compiler::CompileExecutor;
 /// The bytes must match readable guest memory when the resulting block executes.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockSnapshot<'a> {
+    pub cs: crate::SegmentRegister,
     pub start_eip: u32,
     pub bytes: &'a [u8],
     /// Nonzero maximum number of instructions to decode from this snapshot.
     pub instruction_limit: u32,
 }
 
+impl BlockSnapshot<'_> {
+    fn address(&self) -> CodeAddress {
+        CodeAddress::InSegment {
+            cs: self.cs,
+            eip: self.start_eip,
+        }
+    }
+}
+
 /// One exported block and the instruction bytes on which it depends.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockEntry {
-    /// CS-relative EIP required when entering this export.
-    pub start_eip: u32,
+    /// The original CS and offset required when entering this export.
+    pub address: CodeAddress,
     /// Bytes consumed from the snapshot, excluding any unused suffix.
-    /// Offsets advance from `start_eip` with 32-bit wrapping.
+    /// Offsets advance from the entry EIP with 32-bit wrapping.
     pub byte_len: usize,
     /// Name of the export using [`crate::abi::ExecutionSignature`].
     pub export: String,
@@ -42,8 +52,7 @@ pub struct CompiledBlocks {
     /// Calls from every function in this module share slots for equal targets.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
-    /// Required target for every entry and its interpreter fallback.
-    /// The host also maintains each entry's code bytes and mapping validity.
+    /// Shared execution policy. Each entry retains the segment used to decode it.
     pub execution_target: ExecutionTarget,
 }
 
@@ -126,25 +135,27 @@ impl Compiler {
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
-        let mut blocks = self.compile_blocks(&[BlockSnapshot {
-            start_eip,
+        let block = decode::DecodedBlock::new(CodeAddress::CsRelative(start_eip)).decode(
             bytes,
             instruction_limit,
-        }])?;
-        let entry = blocks
+            self.target,
+            &Default::default(),
+        )?;
+        let mut module = BlockModule::build(self, vec![block])?;
+        let entry = module
             .entries
             .pop()
             .expect("one snapshot exports one block");
         Ok(CompiledModule {
-            bytes: blocks.bytes,
+            bytes: module.program.compile()?,
             entry: entry.export,
-            execution_target: Some(blocks.execution_target),
+            execution_target: Some(self.target),
         })
     }
 
     /// Compiles independently callable snapshot blocks into one module.
     /// Entries share the compiler's target, observations, imports and helpers.
-    /// An empty slice produces a module without exports; repeated starting EIPs
+    /// An empty slice produces a module without exports. Repeated addresses in the same CS
     /// return [`BlockError::DuplicateBlock`].
     ///
     /// Each block stops at the ordinary [`compile_block_from_bytes`] boundary,
@@ -163,14 +174,15 @@ impl Compiler {
     /// from this batch.
     ///
     /// ```
-    /// use relocade_x86::{BlockSnapshot, Compiler, SegmentProfile};
+    /// use relocade_x86::{BlockSnapshot, CpuState, Compiler, SegmentProfile};
     /// let compiler = Compiler::new(SegmentProfile::Flat32);
+    /// let cs = CpuState::default().segments.cs;
     /// let module = compiler.compile_blocks(&[
     ///     BlockSnapshot {
-    ///         start_eip: 0x1000, bytes: &[0xb8, 42, 0, 0, 0], instruction_limit: 1,
+    ///         cs, start_eip: 0x1000, bytes: &[0xb8, 42, 0, 0, 0], instruction_limit: 1,
     ///     },
     ///     BlockSnapshot {
-    ///         start_eip: 0x2000, bytes: &[0xeb, 0xfe], instruction_limit: 1,
+    ///         cs, start_eip: 0x2000, bytes: &[0xeb, 0xfe], instruction_limit: 1,
     ///     },
     /// ])?;
     /// assert_eq!(module.entries[0].export, "block_1000");

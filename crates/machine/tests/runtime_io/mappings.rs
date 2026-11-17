@@ -40,9 +40,11 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
     memory.view().write(0x100, code).unwrap();
     let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
     if compiled {
+        let cs = cpu.cpu_state().segment(relocade_x86::Segment::Cs);
         let snapshots: Vec<_> = entries
             .iter()
             .map(|&offset| BlockSnapshot {
+                cs,
                 start_eip: 0x100 + offset as u32,
                 bytes: &code[offset..],
                 instruction_limit: 16,
@@ -53,7 +55,7 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
             .entries
             .iter()
             .map(|entry| DispatchEntry {
-                key: entry.start_eip,
+                key: entry.address.eip(),
                 export: &entry.export,
             })
             .collect();

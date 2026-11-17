@@ -10,23 +10,28 @@ use wasmparser::{Parser, Payload, Validator};
 
 #[test]
 fn entries_report_consumed_spans_in_input_order() {
+    let cs = CpuState::default().segments.cs;
     let snapshots = [
         BlockSnapshot {
+            cs,
             start_eip: u32::MAX,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
+            cs,
             start_eip: 0x1000,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
+            cs,
             start_eip: 0x1001,
             bytes: &[0x90, 0xeb, 0xfd, 0x0f],
             instruction_limit: 10,
         },
         BlockSnapshot {
+            cs,
             start_eip: 1,
             bytes: &[0x0f, 0x0b, 0x0f],
             instruction_limit: 10,
@@ -38,22 +43,22 @@ fn entries_report_consumed_spans_in_input_order() {
         blocks.entries,
         [
             BlockEntry {
-                start_eip: u32::MAX,
+                address: crate::CodeAddress::InSegment { cs, eip: u32::MAX },
                 byte_len: 2,
                 export: "block_ffffffff".into()
             },
             BlockEntry {
-                start_eip: 0x1000,
+                address: crate::CodeAddress::InSegment { cs, eip: 0x1000 },
                 byte_len: 1,
                 export: "block_1000".into()
             },
             BlockEntry {
-                start_eip: 0x1001,
+                address: crate::CodeAddress::InSegment { cs, eip: 0x1001 },
                 byte_len: 3,
                 export: "block_1001".into()
             },
             BlockEntry {
-                start_eip: 1,
+                address: crate::CodeAddress::InSegment { cs, eip: 1 },
                 byte_len: 2,
                 export: "block_1".into()
             },
@@ -78,14 +83,17 @@ fn entries_report_consumed_spans_in_input_order() {
 
 #[test]
 fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
+    let cs = CpuState::default().segments.cs;
     let blocks = Compiler::new(SegmentProfile::Flat32)
         .compile_blocks(&[
             BlockSnapshot {
+                cs,
                 start_eip: 0x1000,
                 bytes: &[0xb8, 0x90, 0x90, 0x90, 0x90],
                 instruction_limit: 1,
             },
             BlockSnapshot {
+                cs,
                 start_eip: 0x1002,
                 bytes: &[0x90],
                 instruction_limit: 1,
@@ -98,6 +106,7 @@ fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
 
 #[test]
 fn empty_input_is_valid_and_compilation_errors_are_reported() {
+    let cs = CpuState::default().segments.cs;
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
@@ -106,6 +115,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
     Validator::new().validate_all(&empty.bytes).unwrap();
 
     let first = BlockSnapshot {
+        cs,
         start_eip: 0x1000,
         bytes: &[0x90],
         instruction_limit: 1,
@@ -119,6 +129,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
             .compile_blocks(&[
                 first,
                 BlockSnapshot {
+                    cs,
                     start_eip: 0x2000,
                     bytes: &[0xb8],
                     instruction_limit: 1,
@@ -161,23 +172,28 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
 fn entry_boundaries() {
     let compiler = Compiler::new(ExecutionProfile::Real16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
+    let cs = CpuState::real_mode().segments.cs;
     let snapshots = [
         BlockSnapshot {
+            cs,
             start_eip: 0x1000,
             bytes: &[0xb8, 0x34, 0x12, 0xbb, 0x78, 0x56], // MOV AX,1234; MOV BX,5678
             instruction_limit: 2,
         },
         BlockSnapshot {
+            cs,
             start_eip: 0x1003,
             bytes: &[0xbb, 0x78, 0x56],
             instruction_limit: 1,
         },
         BlockSnapshot {
+            cs,
             start_eip: 0x2000,
             bytes: &[0x0f, 0x44, 0xc0],
             instruction_limit: 1,
         },
         BlockSnapshot {
+            cs,
             start_eip: 0xffff,
             bytes: &[0x89, 0xc0],
             instruction_limit: 1,
@@ -279,6 +295,13 @@ fn function_count(bytes: &[u8]) -> u32 {
 
 fn shared_memory_helpers() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+        let cs = if profile == ExecutionProfile::Real16 {
+            CpuState::real_mode()
+        } else {
+            CpuState::default()
+        }
+        .segments
+        .cs;
         let compiler = Compiler::new(profile);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
         let code: &[u8] = if profile == ExecutionProfile::Real16 {
@@ -289,11 +312,13 @@ fn shared_memory_helpers() {
         let blocks = compiler
             .compile_blocks(&[
                 BlockSnapshot {
+                    cs,
                     start_eip: 0x1000,
                     bytes: code,
                     instruction_limit: 2,
                 },
                 BlockSnapshot {
+                    cs,
                     start_eip: 0x1100,
                     bytes: code,
                     instruction_limit: 2,
@@ -328,7 +353,7 @@ fn shared_memory_helpers() {
             module.entry.clone_from(&entry.export);
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
-            image.cpu.eip = entry.start_eip;
+            image.cpu.eip = entry.address.eip();
             let physical = profile == ExecutionProfile::Real16;
             // Physical JIT operands fit one page; virtual accesses also exercise
             // the shared helpers for scattered backing across a page boundary.
@@ -338,7 +363,7 @@ fn shared_memory_helpers() {
                 image.initialize_real_mode();
             }
             image.map(1, 0x1000, false);
-            image.data(entry.start_eip, code);
+            image.data(entry.address.eip(), code);
             for (page, frame) in [(2, 0x4000), (3, 0x6000), (4, 0x8000), (5, 0xa000)] {
                 image.map(page, frame, true);
             }

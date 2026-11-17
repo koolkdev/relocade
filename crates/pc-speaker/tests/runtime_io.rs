@@ -49,7 +49,9 @@ async fn guest_port_io() {
         .unwrap();
         let mut cpu = Cpu::new(memory, config, io).await.unwrap();
         if compiled {
+            let cs = cpu.cpu_state().segment(relocade_x86::Segment::Cs);
             let snapshots = [0, 4, 8, 12, 16, 18, 22, 24].map(|offset| BlockSnapshot {
+                cs,
                 start_eip: 0x100 + offset as u32,
                 bytes: &code[offset..],
                 instruction_limit: 2,
@@ -59,7 +61,7 @@ async fn guest_port_io() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    key: entry.start_eip,
+                    key: entry.address.eip(),
                     export: &entry.export,
                 })
                 .collect();

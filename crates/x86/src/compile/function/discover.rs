@@ -1,14 +1,14 @@
-use super::FunctionLimits;
+use super::{CodeAddress, FunctionLimits};
 use crate::{
     compile::block::decode::DecodedBlock,
     decode::{snapshot, SnapshotInstruction},
     instruction::MAX_INSTRUCTION_BYTES,
-    BlockError, ExecutionTarget, SegmentDefaultSize,
+    BlockError, ExecutionTarget,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub(super) fn blocks(
-    start_eip: u32,
+    origin: CodeAddress,
     target: ExecutionTarget,
     mut limits: FunctionLimits,
     mut read: impl FnMut(u32, &mut [u8]) -> usize,
@@ -16,6 +16,8 @@ pub(super) fn blocks(
     if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
         return Err(BlockError::ZeroFunctionLimit);
     }
+    let start_eip = origin.eip();
+    let code_default_size = origin.code_default(target.profile);
     let mut pending = VecDeque::from([start_eip]);
     let mut entries = BTreeSet::from([start_eip]);
     let mut instructions = BTreeMap::<u32, SnapshotInstruction>::new();
@@ -44,17 +46,16 @@ pub(super) fn blocks(
             if limits.instructions == 0 || limits.bytes == 0 {
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
-            let (instruction, _) =
-                match snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile)) {
-                    Ok(decoded) => decoded,
-                    Err(error) if instructions.is_empty() => return Err(error),
-                    Err(
-                        BlockError::TruncatedInstruction { .. }
-                        | BlockError::InstructionTooLong { .. }
-                        | BlockError::UnsupportedInstruction { .. },
-                    ) => break,
-                    Err(error) => return Err(error),
-                };
+            let (instruction, _) = match snapshot(bytes, eip, code_default_size) {
+                Ok(decoded) => decoded,
+                Err(error) if instructions.is_empty() => return Err(error),
+                Err(
+                    BlockError::TruncatedInstruction { .. }
+                    | BlockError::InstructionTooLong { .. }
+                    | BlockError::UnsupportedInstruction { .. },
+                ) => break,
+                Err(error) => return Err(error),
+            };
             let len = instruction.fallthrough_eip.wrapping_sub(eip);
             if instructions
                 .range(eip..)
@@ -89,7 +90,7 @@ pub(super) fn blocks(
     // into their final blocks also splits backward targets without decoding again.
     let mut blocks = Vec::new();
     for &entry in &entries {
-        let mut block = DecodedBlock::new(entry);
+        let mut block = DecodedBlock::new(origin.with_eip(entry));
         let mut eip = entry;
         while let Some(instruction) = instructions.remove(&eip) {
             eip = instruction.fallthrough_eip;
@@ -100,14 +101,14 @@ pub(super) fn blocks(
             }
             if block.instructions.len() == limits.block_instructions as usize {
                 blocks.push(block);
-                block = DecodedBlock::new(eip);
+                block = DecodedBlock::new(origin.with_eip(eip));
             }
         }
         if !block.instructions.is_empty() {
             blocks.push(block);
         }
     }
-    blocks.sort_unstable_by_key(|block| block.entry.start_eip);
+    blocks.sort_unstable_by_key(|block| block.entry.address.eip());
     Ok(blocks)
 }
 

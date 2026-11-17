@@ -46,7 +46,7 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
             assert_eq!(
                 code.blocks()
                     .iter()
-                    .map(|b| (b.start_eip, b.byte_len))
+                    .map(|b| (b.address.eip(), b.byte_len))
                     .collect::<Vec<_>>(),
                 [(0, 3), (3, 3), (6, 3), (9, 5)]
             );
@@ -112,7 +112,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             assert_eq!(
                 code.blocks()
                     .iter()
-                    .map(|block| (block.start_eip, block.byte_len))
+                    .map(|block| (block.address.eip(), block.byte_len))
                     .collect::<Vec<_>>(),
                 [(0, 8), (8, 2), (0, 2)]
             );

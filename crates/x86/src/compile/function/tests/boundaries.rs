@@ -14,7 +14,7 @@ fn decode_failures_preserve_valid_prefixes_and_other_branches() {
 
         let mut branch = vec![
             0x75, 3,    // JNZ 1005, explored before the fallthrough
-            0x40,       // INC EAX
+            0x40, // INC EAX
             0xff, 0xe0, // JMP EAX
         ];
         branch.extend(suffix);
@@ -78,7 +78,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
         let mut bytes = code.to_vec();
         bytes.extend([0x90, 0xc3]); // NOP; RET after the execution boundary
         let blocks = discover::blocks(
-            0x1000,
+            CodeAddress::CsRelative(0x1000),
             target,
             FunctionLimits::default(),
             reader(0x1000, &bytes),
@@ -87,7 +87,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
         assert_eq!(
             blocks
                 .iter()
-                .map(|block| (block.entry.start_eip, block.entry.byte_len))
+                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
                 .collect::<Vec<_>>(),
             [(0x1000, code.len()), (0x1000 + code.len() as u32, 2)],
             "{code:02x?}",
@@ -107,15 +107,20 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         let mut bytes = call.to_vec();
         bytes.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
         let mut read = reader(0x1000, &bytes);
-        let blocks = discover::blocks(0x1000, target, FunctionLimits::default(), |eip, output| {
-            assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
-            read(eip, output)
-        })
+        let blocks = discover::blocks(
+            CodeAddress::CsRelative(0x1000),
+            target,
+            FunctionLimits::default(),
+            |eip, output| {
+                assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
+                read(eip, output)
+            },
+        )
         .unwrap();
         assert_eq!(
             blocks
                 .iter()
-                .map(|block| (block.entry.start_eip, block.entry.byte_len))
+                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
                 .collect::<Vec<_>>(),
             [(0x1000, call.len()), (0x1000 + call.len() as u32, 2)],
             "{call:02x?}",
@@ -156,7 +161,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
         let mut bytes = code.to_vec();
         bytes.extend([0x90, 0xc3]); // A valid suffix exposes accidental exploration.
         let blocks = discover::blocks(
-            0x1000,
+            CodeAddress::CsRelative(0x1000),
             Compiler::new(profile).target(),
             FunctionLimits::default(),
             reader(0x1000, &bytes),
@@ -171,12 +176,20 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
 fn discovered_continuations_preserve_snapshot_entry_spans() {
     let code = [0xec, 0x8e, 0xd8, 0x8e, 0xd0, 0x0f, 0xa2, 0xc3];
     let compiler = Compiler::new(ExecutionProfile::Real16);
-    let actual = compiler
-        .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, &code))
+    let cs = crate::CpuState::real_mode().segments.cs;
+    let mut functions = compiler.function_module();
+    functions
+        .add_function(
+            CodeAddress::InSegment { cs, eip: 0x1000 },
+            FunctionLimits::default(),
+            reader(0x1000, &code),
+        )
         .unwrap();
+    let actual = functions.compile().unwrap();
     let snapshots: Vec<_> = [(0, 1), (1, 2), (3, 2), (5, 2), (7, 1)]
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
+            cs,
             start_eip: 0x1000 + offset as u32,
             bytes: &code[offset..offset + len],
             instruction_limit: 1,

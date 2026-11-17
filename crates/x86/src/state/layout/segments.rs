@@ -14,7 +14,7 @@ use crate::{CpuMode, CpuState, ExecutionProfile, PrivilegeLevel, Segment, Segmen
 /// A default record is all zero and unusable. These records describe loaded
 /// state; constructing one does not perform descriptor or privilege checks.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct SegmentRegister {
     pub base: u32,
     /// Inclusive byte limit, after applying descriptor granularity.
@@ -53,15 +53,19 @@ impl SegmentRegister {
             ExecutionProfile::Protected(profile) => {
                 (segment != Segment::Cs
                     || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
-                    && crate::segment::profile::assumptions(profile.into(), segment)
-                        .iter()
-                        .all(|requirement| {
-                            requirement.matches_record(
-                                &self.to_bytes(),
-                                offset_of!(crate::state::ExecutionContext, cpu)
-                                    + Segments::offset(segment),
-                            )
-                        })
+                    && crate::segment::profile::assumptions(
+                        profile.into(),
+                        segment,
+                        SegmentDefaultSize::for_profile(profile.into()),
+                    )
+                    .iter()
+                    .all(|requirement| {
+                        requirement.matches_record(
+                            &self.to_bytes(),
+                            offset_of!(crate::state::ExecutionContext, cpu)
+                                + Segments::offset(segment),
+                        )
+                    })
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
         }
