@@ -1,7 +1,13 @@
 //! Shared CPU declarations and architectural entry helpers for generated modules.
 
 use super::{calls::CallLinks, ExecutionBuilder};
-use crate::{abi, memory::Memory, runtime::Runtime, state::Cpu, ExecutionProfile, ExecutionTarget};
+use crate::{
+    abi,
+    memory::Memory,
+    runtime::Runtime,
+    state::{Cpu, State, StatePattern},
+    ExecutionProfile, ExecutionTarget,
+};
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -12,12 +18,17 @@ pub(crate) struct ExecutionModule {
     pub(super) entries: Arc<BTreeMap<u32, Func>>,
     pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
-    pub(super) target: ExecutionTarget,
+    pub(crate) target: ExecutionTarget,
+    entry_assumptions: Arc<[StatePattern]>,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
 }
 
 impl ExecutionModule {
-    pub(crate) fn declare(program: &mut Program, target: ExecutionTarget) -> Self {
+    pub(crate) fn declare(
+        program: &mut Program,
+        target: ExecutionTarget,
+        entry_assumptions: Vec<StatePattern>,
+    ) -> Self {
         let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
             memory: Arc::new(Memory::declare(program, target.profile)),
@@ -25,6 +36,7 @@ impl ExecutionModule {
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
             target,
+            entry_assumptions: entry_assumptions.into(),
             interrupt: None,
         };
         if target.profile == ExecutionProfile::Real16 {
@@ -39,6 +51,11 @@ impl ExecutionModule {
             ));
         }
         module
+    }
+
+    pub(crate) fn state(&self) -> State<'_> {
+        State::for_entry(&self.cpu, self.target.profile, &self.entry_assumptions)
+            .with_instruction_budgets(self.target.instruction_budgets)
     }
 
     pub(crate) fn with_function(

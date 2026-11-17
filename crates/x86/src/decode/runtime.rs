@@ -13,11 +13,10 @@ use relocade_compiler::{
 };
 
 use crate::{
+    execution::ExecutionModule,
     instruction::{DecodedInstruction, OpcodeMap, PrefixState},
-    memory::Memory,
     segment::SegmentDefaultSize,
-    state::{exit, Cpu, State},
-    ExecutionProfile,
+    state::exit,
 };
 
 use super::DecodeState;
@@ -48,9 +47,7 @@ impl DecodeContinuation {
 
 /// Declares runtime decoding entries and builds their instruction paths.
 pub(crate) struct RuntimeDecoder {
-    cpu: Arc<Cpu>,
-    memory: Arc<Memory>,
-    profile: ExecutionProfile,
+    module: ExecutionModule,
     entry: Func,
     default_size: SegmentDefaultSize,
     code_default: Option<SegmentDefaultSize>,
@@ -72,9 +69,7 @@ struct InstructionDecoder<'decoder, C> {
 impl RuntimeDecoder {
     pub(crate) fn new(
         program: &mut Program,
-        cpu: Arc<Cpu>,
-        memory: Arc<Memory>,
-        profile: ExecutionProfile,
+        module: ExecutionModule,
         code_default: Option<SegmentDefaultSize>,
         before_next_instruction: impl Fn(&mut BlockBuilder<'_>) -> Result<(), BuildError>
             + Send
@@ -89,7 +84,7 @@ impl RuntimeDecoder {
             + Sync
             + 'static,
     ) -> Result<Arc<Self>, BuildError> {
-        let default_size = crate::SegmentDefaultSize::for_profile(profile);
+        let default_size = SegmentDefaultSize::for_profile(module.target.profile);
         let before_next_instruction = Arc::new(before_next_instruction);
         let complete_instruction = Arc::new(complete_instruction);
         let signature = Signature {
@@ -100,9 +95,7 @@ impl RuntimeDecoder {
         let exact = program.declare(signature.clone());
         let completed = program.declare(signature);
         let decoder = Arc::new(Self {
-            cpu,
-            memory,
-            profile,
+            module,
             entry,
             default_size,
             code_default,
@@ -211,11 +204,13 @@ impl RuntimeDecoder {
     }
 
     fn fetch(&self) -> InstructionFetch<'_> {
-        InstructionFetch::new(&self.cpu, &self.memory, self.profile)
+        InstructionFetch::new(&self.module)
     }
 
     fn read_code_default(&self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
-        State::new(&self.cpu).code_default_is_32_bit(body, self.code_default)
+        self.module
+            .state()
+            .code_default_is_32_bit(body, self.code_default)
     }
 
     /// Every private decoder entry carries the execution policy in parameter zero.

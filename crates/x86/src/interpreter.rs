@@ -3,8 +3,10 @@
 use relocade_compiler::{BuildError, Program};
 
 use crate::{
-    decode::RuntimeDecoder, execution::ExecutionModule, state::State, CpuModel, ExecutionProfile,
-    ExecutionTarget,
+    decode::RuntimeDecoder,
+    execution::ExecutionModule,
+    state::{State, StatePattern},
+    CpuModel, ExecutionProfile, ExecutionTarget,
 };
 
 /// Builds one interpreter program exporting both `run` and `step`.
@@ -64,12 +66,14 @@ pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program
     let profile = profile.into();
     build(
         profile,
+        crate::profile::entry_assumptions(profile),
         Some(crate::SegmentDefaultSize::for_profile(profile)),
     )
 }
 
 fn build(
     profile: ExecutionProfile,
+    entry_assumptions: Vec<StatePattern>,
     code_default: Option<crate::SegmentDefaultSize>,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
@@ -82,14 +86,13 @@ fn build(
             cpu_model: CpuModel::default(),
             instruction_budgets: true,
         },
+        entry_assumptions,
     );
     execution.export_entries(&mut program)?;
     let before_cpu = execution.cpu.clone();
     let decoder = RuntimeDecoder::new(
         &mut program,
-        execution.cpu.clone(),
-        execution.memory.clone(),
-        profile,
+        execution.clone(),
         code_default,
         move |body| {
             let single_step = RuntimeDecoder::single_step(body)?;

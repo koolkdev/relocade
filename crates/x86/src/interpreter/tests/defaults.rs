@@ -11,12 +11,20 @@ use std::sync::LazyLock;
 
 fn interpreter() -> &'static TestModule {
     static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
-        let bytes = super::super::build(SegmentProfile::Segmented32.into(), None)
+        let profile = SegmentProfile::Segmented32.into();
+        let mut assumptions = crate::profile::entry_assumptions(profile);
+        assumptions.retain(|pattern| {
+            !pattern.within_record(
+                std::mem::offset_of!(crate::ExecutionContext, cpu.segments.cs.big),
+                std::mem::size_of::<u8>(),
+            )
+        });
+        let bytes = super::super::build(profile, assumptions, None)
             .unwrap()
             .compile()
             .unwrap();
-        // Only the decoder's CS default varies; execution keeps supported
-        // protected-mode caches, privilege and memory routing.
+        // CS.D is live in decoding and execution. Other mode, privilege and
+        // memory assumptions still describe supported protected-mode execution.
         TestModule::from_bytes(&bytes, crate::abi::STEP.name, None)
     });
     &MODULE

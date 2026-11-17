@@ -29,7 +29,8 @@ fn translation(
             .results,
         },
         move |mut body| {
-            let mut state = State::new(&cpu).with_profile(profile);
+            let mut state =
+                State::for_entry(&cpu, profile, &crate::profile::entry_assumptions(profile));
             let choice = body.parameter::<I32>(0)?;
             let offset = body.parameter::<I32>(1)?;
             let linear = match selection {
@@ -132,7 +133,11 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
         let function = program
             .function::<fn(u32) -> (u32, u32, u16, bool, bool, bool, bool, bool, bool)>(
                 move |mut body, _| {
-                    let mut state = State::new(&cpu).with_profile(SegmentProfile::Flat32.into());
+                    let mut state = State::for_entry(
+                        &cpu,
+                        SegmentProfile::Flat32.into(),
+                        &crate::profile::entry_assumptions(SegmentProfile::Flat32.into()),
+                    );
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
                     let base = state.segments().base(&mut body, &index)?;
@@ -178,7 +183,11 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
-        let mut state = State::new(&cpu).with_profile(ExecutionProfile::Real16);
+        let mut state = State::for_entry(
+            &cpu,
+            ExecutionProfile::Real16,
+            &crate::profile::entry_assumptions(ExecutionProfile::Real16),
+        );
         let first = state.segments().base(&mut body, &Segment::Ds.into())?;
         let condition = body.parameter::<I32>(0)?.eq(0);
         body.if_(condition, |mut arm| {

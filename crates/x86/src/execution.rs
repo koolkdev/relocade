@@ -71,9 +71,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
         let target = module.target;
-        let state = State::new(&module.cpu)
-            .with_instruction_budgets(target.instruction_budgets)
-            .with_profile(target.profile);
+        let state = module.state();
         Ok(Self {
             body,
             state,

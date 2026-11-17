@@ -9,8 +9,12 @@ use relocade_compiler::{Program, Signature, Type};
 
 fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let mut program = Program::new();
-    let execution =
-        ExecutionModule::declare(&mut program, Compiler::new(SegmentProfile::Flat32).target());
+    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let execution = ExecutionModule::declare(
+        &mut program,
+        target,
+        crate::profile::entry_assumptions(target.profile),
+    );
     let function = program.raw_function(
         Signature {
             parameters: vec![Type::I32],

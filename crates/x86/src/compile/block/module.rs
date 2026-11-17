@@ -28,7 +28,11 @@ impl<'a> BlockModule<'a> {
 
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
         let mut program = Program::new();
-        let execution = ExecutionModule::declare(&mut program, compiler.target);
+        let execution = ExecutionModule::declare(
+            &mut program,
+            compiler.target,
+            crate::profile::entry_assumptions(compiler.target.profile),
+        );
         Self {
             compiler,
             program,
