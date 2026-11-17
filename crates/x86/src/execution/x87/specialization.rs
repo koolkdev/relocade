@@ -15,7 +15,7 @@ impl ExecutionBuilder<'_, '_> {
         specialization: X87Specialization,
     ) -> Result<(), BuildError> {
         if let Some(observed) = self.observed_cpu {
-            self.specialize_state(&specialization.patterns(&observed.x87))?;
+            self.guard_specialization(&specialization.patterns(&observed.x87))?;
         }
         Ok(())
     }

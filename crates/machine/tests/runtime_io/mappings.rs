@@ -40,10 +40,12 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
     memory.view().write(0x100, code).unwrap();
     let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
     if compiled {
+        let code_default_size = cpu.cpu_state().code_default_size();
         let snapshots: Vec<_> = entries
             .iter()
             .map(|&offset| BlockSnapshot {
                 start_eip: 0x100 + offset as u32,
+                code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 16,
             })

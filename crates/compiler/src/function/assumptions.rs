@@ -5,6 +5,8 @@ impl BlockBuilder<'_> {
     /// Returns the same runtime value with known logical bits in this scope.
     /// The caller must establish `value & mask == expected & mask` through entry
     /// admission or a preceding guard. This emits no check or bit manipulation.
+    /// To specialize on an observed value, first emit a guard that exits on a
+    /// mismatch, then refine the value on the continuing path.
     /// Bits outside the logical width are ignored; other bits remain unchanged.
     ///
     /// Use the returned value to benefit from the assumption. Existing handles

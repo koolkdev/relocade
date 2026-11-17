@@ -18,7 +18,7 @@ impl ExecutionBuilder<'_, '_> {
     /// guard establishes them. Architectural state reads remain unguarded.
     pub(crate) fn simd_controls(&mut self) -> Result<Mxcsr, BuildError> {
         if let Some(observed) = self.observed_cpu {
-            self.specialize_state(&[Mxcsr::control_pattern(observed.simd.mxcsr)])?;
+            self.guard_specialization(&[Mxcsr::control_pattern(observed.simd.mxcsr)])?;
         }
         self.read_mxcsr()
     }
@@ -27,7 +27,7 @@ impl ExecutionBuilder<'_, '_> {
     /// the precision flag is already set and masked. Guard before reading operands.
     pub(crate) fn simd_precision_controls(&mut self) -> Result<Mxcsr, BuildError> {
         if let Some(observed) = self.observed_cpu {
-            self.specialize_state(&Mxcsr::precision_patterns(observed.simd.mxcsr))?;
+            self.guard_specialization(&Mxcsr::precision_patterns(observed.simd.mxcsr))?;
         }
         self.read_mxcsr()
     }
@@ -38,7 +38,7 @@ impl ExecutionBuilder<'_, '_> {
         if self.observed_cpu.is_some() {
             return self.simd_precision_controls();
         }
-        self.specialize_state(&[Mxcsr::nearest_rounding_pattern()])?;
+        self.guard_specialization(&[Mxcsr::nearest_rounding_pattern()])?;
         self.read_mxcsr()
     }
 

@@ -30,7 +30,8 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    /// Selects execution assumptions with the default virtual processor model.
+    /// Selects the profile guarantees shared by every entry and the default processor model.
+    /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         Self {
             target: ExecutionTarget {

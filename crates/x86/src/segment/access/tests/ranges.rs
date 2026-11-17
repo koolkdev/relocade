@@ -9,8 +9,11 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let cpu = Cpu::declare(&mut program);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
-            let mut state =
-                State::for_entry(&cpu, profile, &crate::profile::entry_assumptions(profile));
+            let mut state = State::for_entry(
+                &cpu,
+                profile,
+                &crate::profile::EntryGuarantees::for_profile(profile),
+            );
             let check = state.segments().check(
                 &mut body,
                 &segment.into(),
@@ -166,7 +169,7 @@ fn constant_empty_span_is_denied_without_faulting() {
         let mut state = State::for_entry(
             &cpu,
             ExecutionProfile::Real16,
-            &crate::profile::entry_assumptions(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
         );
         let check =
             state

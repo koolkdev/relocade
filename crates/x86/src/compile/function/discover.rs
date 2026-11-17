@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub(super) fn blocks(
     start_eip: u32,
+    code_default_size: SegmentDefaultSize,
     target: ExecutionTarget,
     mut limits: FunctionLimits,
     mut read: impl FnMut(u32, &mut [u8]) -> usize,
@@ -44,17 +45,16 @@ pub(super) fn blocks(
             if limits.instructions == 0 || limits.bytes == 0 {
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
-            let (instruction, _) =
-                match snapshot(bytes, eip, SegmentDefaultSize::for_profile(target.profile)) {
-                    Ok(decoded) => decoded,
-                    Err(error) if instructions.is_empty() => return Err(error),
-                    Err(
-                        BlockError::TruncatedInstruction { .. }
-                        | BlockError::InstructionTooLong { .. }
-                        | BlockError::UnsupportedInstruction { .. },
-                    ) => break,
-                    Err(error) => return Err(error),
-                };
+            let (instruction, _) = match snapshot(bytes, eip, code_default_size) {
+                Ok(decoded) => decoded,
+                Err(error) if instructions.is_empty() => return Err(error),
+                Err(
+                    BlockError::TruncatedInstruction { .. }
+                    | BlockError::InstructionTooLong { .. }
+                    | BlockError::UnsupportedInstruction { .. },
+                ) => break,
+                Err(error) => return Err(error),
+            };
             let len = instruction.fallthrough_eip.wrapping_sub(eip);
             if instructions
                 .range(eip..)
@@ -89,7 +89,7 @@ pub(super) fn blocks(
     // into their final blocks also splits backward targets without decoding again.
     let mut blocks = Vec::new();
     for &entry in &entries {
-        let mut block = DecodedBlock::new(entry);
+        let mut block = DecodedBlock::new(entry, code_default_size);
         let mut eip = entry;
         while let Some(instruction) = instructions.remove(&eip) {
             eip = instruction.fallthrough_eip;
@@ -100,7 +100,7 @@ pub(super) fn blocks(
             }
             if block.instructions.len() == limits.block_instructions as usize {
                 blocks.push(block);
-                block = DecodedBlock::new(eip);
+                block = DecodedBlock::new(eip, code_default_size);
             }
         }
         if !block.instructions.is_empty() {

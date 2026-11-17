@@ -6,15 +6,26 @@ pub(crate) use far::CodeTarget;
 
 use relocade_compiler::{AtLeast, BuildError, Val, I1, I32};
 
-use crate::{exception::Exception, memory::Intent, register::RegisterType, segment::Segment};
+use crate::{
+    exception::Exception,
+    memory::Intent,
+    register::RegisterType,
+    segment::{Segment, SegmentDefaultSize},
+};
 
 use super::{transfer::Transfer, ExecutionBuilder};
 
 impl ExecutionBuilder<'_, '_> {
-    /// Checks a snapshot block's complete encoding before any guest effects.
+    /// Checks the loaded CS.D used for decoding and the complete fetch span before guest effects.
     /// The interpreter handles a denied span to preserve prefix execution and
     /// fault order, including faults earlier than the first invalid CS offset.
-    pub(crate) fn guard_fetch_span(&mut self, bytes: usize) -> Result<(), BuildError> {
+    pub(crate) fn guard_snapshot(
+        &mut self,
+        code_default_size: SegmentDefaultSize,
+        bytes: usize,
+    ) -> Result<(), BuildError> {
+        let is_32_bit = self.state.code_default_is_32_bit(&mut self.body)?;
+        self.guard(is_32_bit.eq(code_default_size == SegmentDefaultSize::Bits32))?;
         let Ok(bytes) = u32::try_from(bytes) else {
             return self.guard(false);
         };

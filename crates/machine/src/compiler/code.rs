@@ -168,6 +168,7 @@ mod tests {
         let blocks: Vec<_> = [4, 3, 2, 4]
             .into_iter()
             .map(|byte_len| BlockEntry {
+                code_default_size: relocade_x86::SegmentDefaultSize::Bits16,
                 start_eip: 0,
                 byte_len,
                 export: String::new(),

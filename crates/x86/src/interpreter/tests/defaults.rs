@@ -12,14 +12,9 @@ use std::sync::LazyLock;
 fn interpreter() -> &'static TestModule {
     static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
         let profile = SegmentProfile::Segmented32.into();
-        let mut assumptions = crate::profile::entry_assumptions(profile);
-        assumptions.retain(|pattern| {
-            !pattern.within_record(
-                std::mem::offset_of!(crate::ExecutionContext, cpu.segments.cs.big),
-                std::mem::size_of::<u8>(),
-            )
-        });
-        let bytes = super::super::build(profile, assumptions)
+        let guarantees =
+            crate::profile::EntryGuarantees::for_profile(profile).without_code_default();
+        let bytes = super::super::build(profile, guarantees)
             .unwrap()
             .compile()
             .unwrap();

@@ -55,8 +55,10 @@ async fn guest_status_routing() {
         if compiled {
             // I/O ends a compiled block. Install each instruction so execution
             // after an OUT continues through compiled port reads as well.
+            let code_default_size = cpu.cpu_state().code_default_size();
             let snapshots = instructions.map(|offset| BlockSnapshot {
                 start_eip: 0x100 + offset as u32,
+                code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 1,
             });

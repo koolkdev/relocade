@@ -1,12 +1,13 @@
-//! Preferred CPU state is guarded before it becomes an assumption.
+//! Guard a specialization before refining values on the continuing path.
 
 use super::ExecutionBuilder;
 use crate::state::StatePattern;
 use relocade_compiler::BuildError;
 
 impl ExecutionBuilder<'_, '_> {
+    /// Check the preferred bits at their consumer before using them as known bits.
     /// Paths without interpreter fallback keep their live state.
-    pub(crate) fn specialize_state(
+    pub(crate) fn guard_specialization(
         &mut self,
         preferred: &[StatePattern],
     ) -> Result<(), BuildError> {

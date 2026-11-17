@@ -1,14 +1,70 @@
 //! Real Wasm-to-Wasm handoffs use the interpreter's own stopping boundaries.
 
 use crate::support::{
-    machine::{expected, Exit, Step},
+    machine::{expected, Exit, Image, Step},
     step::{Event, TestModule},
     x87::{complete_x87, stack_image, write_register_bits},
 };
-use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
+use relocade_x86::{
+    compile_block_from_bytes, BlockSnapshot, Compiler, CpuState, ExecutionExit, SegmentDefaultSize,
+    SegmentProfile,
+};
 
 pub(super) fn interpreter_run() -> &'static TestModule {
     TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)
+}
+
+#[test]
+fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
+    let call = [0xe8, 0x0b, 0, 0, 0]; // CALL 1010, pushing 1005
+    let mov = [0xb8, 0x34, 0x12, 0x78, 0x56];
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let blocks = compiler
+        .compile_blocks(&[
+            BlockSnapshot {
+                start_eip: 0x1000,
+                code_default_size: SegmentDefaultSize::Bits32,
+                bytes: &call,
+                instruction_limit: 1,
+            },
+            BlockSnapshot {
+                start_eip: 0x1010,
+                code_default_size: SegmentDefaultSize::Bits16,
+                bytes: &mov,
+                instruction_limit: 1,
+            },
+        ])
+        .unwrap();
+    let module = TestModule::from_bytes(
+        &blocks.bytes,
+        &blocks.entries[0].export,
+        Some(blocks.execution_target),
+    )
+    .with_interpreter(TestModule::interpreter());
+    let mut image = Image::new(&call);
+    image.data(0x3010, &mov);
+    image.map(9, 0x8000, true);
+    image.cpu.registers.esp = 0x9004;
+    image.cpu.instruction_count = 0;
+    let mut input = image.input();
+    input.call_target = Some((0x1010, blocks.entries[1].export.clone()));
+
+    let mut after = image.cpu;
+    after.registers.esp = 0x9000;
+    after.registers.eax = 0x5678_1234;
+    after.eip = 0x1015;
+    after.instruction_count = 2;
+    assert_eq!(
+        module.observe(&input, 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: after,
+                ram: &[(0x8000, &0x1005_u32.to_le_bytes())],
+                exit: Exit::Other(ExecutionExit::StepComplete),
+            }]
+        )
+    );
 }
 
 fn subnormal_loaded(cpu: CpuState) -> CpuState {

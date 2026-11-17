@@ -49,8 +49,10 @@ async fn guest_port_io() {
         .unwrap();
         let mut cpu = Cpu::new(memory, config, io).await.unwrap();
         if compiled {
+            let code_default_size = cpu.cpu_state().code_default_size();
             let snapshots = [0, 4, 8, 12, 16, 18, 22, 24].map(|offset| BlockSnapshot {
                 start_eip: 0x100 + offset as u32,
+                code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 2,
             });

@@ -1,6 +1,7 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
 pub use relocade_x86_profile::ExecutionProfile;
+use std::sync::Arc;
 
 use crate::{
     state::{access::cpu_location, cr0, cr4, StatePattern},
@@ -39,13 +40,34 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
     requirements
 }
 
-/// Field facts guaranteed by admission to this execution profile.
-pub(crate) fn entry_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {
-    let mut assumptions = control_assumptions(profile);
-    for segment in crate::Segment::ALL {
-        assumptions.extend(crate::segment::profile::assumptions(profile, segment));
+/// CPU field values the execution owner establishes on every entry to this profile.
+/// Builders may fold reads from these facts before emitting any guard.
+#[derive(Clone)]
+pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
+
+impl EntryGuarantees {
+    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
+        let mut fields = control_assumptions(profile);
+        for segment in crate::Segment::ALL {
+            fields.extend(crate::segment::profile::assumptions(profile, segment));
+        }
+        Self(fields.into())
     }
-    assumptions
+
+    pub(crate) fn patterns(&self) -> &[StatePattern] {
+        &self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn without_code_default(&self) -> Self {
+        let fields = self.0.iter().copied().filter(|pattern| {
+            !pattern.within_record(
+                std::mem::offset_of!(crate::ExecutionContext, cpu.segments.cs.big),
+                size_of::<u8>(),
+            )
+        });
+        Self(fields.collect())
+    }
 }
 
 /// The processor model and execution assumptions required by a compiled entry.

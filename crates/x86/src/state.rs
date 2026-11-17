@@ -35,6 +35,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 use crate::{
     exception::ExceptionValues,
     flags::{Condition, Flag, FlagChange},
+    profile::EntryGuarantees,
     register::{Register, RegisterType},
     segment::{SegmentAccess, SegmentSelection, SegmentValues},
     ssa::StateFields,
@@ -81,11 +82,13 @@ impl<'cpu> State<'cpu> {
     pub(crate) fn for_entry(
         cpu: &'cpu Cpu,
         profile: crate::ExecutionProfile,
-        assumptions: &[StatePattern],
+        guarantees: &EntryGuarantees,
     ) -> Self {
         let mut state = Self::new(cpu);
         state.profile = Some(profile);
-        state.fields = state.fields.with_entry_assumptions(assumptions.to_vec());
+        state.fields = state
+            .fields
+            .with_entry_guarantees(guarantees.patterns().to_vec());
         state
     }
 
