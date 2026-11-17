@@ -11,7 +11,7 @@ use super::selector_cases::{check_one, code_defaults, code_descriptor as descrip
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
-    step::{Event, SegmentResolution, TestModule},
+    step::{SegmentResolution, TestModule},
 };
 use crate::{
     CpuState, DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,

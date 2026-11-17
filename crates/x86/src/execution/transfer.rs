@@ -14,9 +14,18 @@ pub(super) enum Transfer {
         fallthrough: Val<I32>,
     },
     Call(Option<CallLink>),
-    FarCall(Option<CallLink>),
+    ReloadCs {
+        snapshot_default_changed: Option<Val<I1>>,
+        continuation: CsContinuation,
+    },
     Return,
     Dispatch,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CsContinuation {
+    Dispatch,
+    RealModeCall(Option<CallLink>),
 }
 
 impl ExecutionBuilder<'_, '_> {
@@ -41,26 +50,44 @@ impl ExecutionBuilder<'_, '_> {
                     .if_(condition, |body| enter(body, taken, self.runtime))?;
                 enter(self.body, fallthrough, self.runtime)
             }
-            Transfer::Call(link) | Transfer::FarCall(link) => {
-                if matches!(self.transfer, Transfer::Call(_)) {
-                    if let Some(function) = local_entry(&self.body, &self.eip, self.entries)? {
-                        return self.body.tail_call(function, &[]);
-                    }
+            Transfer::Call(link) => {
+                if let Some(function) = local_entry(&self.body, &self.eip, self.entries)? {
+                    return self.body.tail_call(function, &[]);
                 }
-                if let Some(link) = link {
-                    return link.enter(self.body);
+                enter_call(self.body, link, self.runtime)
+            }
+            Transfer::ReloadCs {
+                snapshot_default_changed,
+                continuation,
+            } => {
+                if let Some(changed) = snapshot_default_changed {
+                    self.body
+                        .if_(changed, |body| self.runtime.interpret(body))?;
                 }
-                // Checkpoint exits skip the resolver, so profiling here can miss
-                // a completed call. Hotness counts are intentionally approximate.
-                let (slot, can_continue) = self.runtime.resolve_call(&mut self.body)?;
-                self.body.if_(can_continue.eq(false), |body| {
-                    body.return_(crate::ExecutionExitValues::call_profile_full())
-                })?;
-                self.runtime.enter(self.body, slot)
+                match continuation {
+                    CsContinuation::Dispatch => self.runtime.dispatch(self.body),
+                    CsContinuation::RealModeCall(link) => enter_call(self.body, link, self.runtime),
+                }
             }
             Transfer::Return | Transfer::Dispatch => self.runtime.dispatch(self.body),
         }
     }
+}
+
+fn enter_call(
+    mut body: BlockBuilder<'_>,
+    link: Option<CallLink>,
+    runtime: Runtime,
+) -> Result<(), BuildError> {
+    if let Some(link) = link {
+        return link.enter(body);
+    }
+    // A checkpoint can exit before a completed call reaches the profiler.
+    let (slot, can_continue) = runtime.resolve_call(&mut body)?;
+    body.if_(can_continue.eq(false), |body| {
+        body.return_(crate::ExecutionExitValues::call_profile_full())
+    })?;
+    runtime.enter(body, slot)
 }
 
 fn local_entry(

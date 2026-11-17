@@ -953,8 +953,13 @@ CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
 but cannot be installed or restored for execution. Other control-state behavior
 and safe mode transitions require further runtime support.
 
-Use the complete target in cache and direct-link keys, and require the same target
-for interpreter fallback. A model with additional enabled capabilities is not an
+Include the captured code segment and EIP in cache and direct-link keys alongside
+the execution target. The real-mode machine keys dispatch by the original CS:IP,
+so it can publish results while the CPU is running in a different segment.
+A compiled far transfer that changes CS.D publishes the destination CS and EIP,
+then enters `relocade.interpret`. An embedding that admits multiple code defaults
+supplies an interpreter for the destination state and selects compatible entries
+when execution resumes after a checkpoint. A model with additional enabled capabilities is not an
 interchangeable target: instruction availability is part of the guest contract.
 Changing the target requires rebuilding or selecting matching entries and links.
 
@@ -992,10 +997,10 @@ snapshot and returns a `ConfigurationError` without writing if it is incompatibl
 Live mode, privilege and width queries read the CPU backing fields.
 `CpuStateAccess::set_eflags` rejects VM before writing; host edits cannot enable
 unsupported virtual-8086 execution through a flags update.
-Descriptor callbacks must likewise enforce the profile before returning a cache
-for a guest segment load. The dispatcher and interpreter gateway rely on this
-invariant and do not recheck it on entry. Any future profile transition, including
-replacing compiled entries and links, belongs to the runtime.
+Descriptor callbacks must enforce the destination profile when returning a cache
+for a guest segment load. The machine's dispatcher and bundled interpreter admit
+canonical Real16 state. A protected-mode runtime must maintain entry and direct-link
+validity when reloading a selector whose cached descriptor has changed.
 
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final

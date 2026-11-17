@@ -70,10 +70,6 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     image.data(0x8000, &frame(false, 0x200, 0x27, 0x4000));
     let mut tables = tables(0xffff);
     tables.insert(0x27, descriptor(0xc000, 0xffff, SegmentDefaultSize::Bits16));
-    let mut input = image.input();
-    input
-        .segment_resolutions
-        .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
     let mut cpu = cleared_flags(image.cpu, false);
     cpu.flags.bytes.nt = 1;
     cpu.segments.cs = loaded(
@@ -88,28 +84,18 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     cpu.eip = 0x200;
     cpu.registers.esp = 0x900c;
     cpu.instruction_count = 0;
-    let mut wanted = expected(
+    super::super::selector_cases::check_transfer(
+        profile,
+        &code,
+        2,
         &image,
-        &[Step {
+        &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
+        Step {
             cpu,
             ram: &[],
             exit: Exit::Dispatch(cpu.eip),
-        }],
-    );
-    wanted.events.insert(
-        0,
-        Event::ResolveSegment {
-            segment: 1,
-            selector: 0x27,
         },
     );
-    let mut blocks = BlockModules::default();
-    for module in [
-        blocks.get(&image.cpu, &code, 2, profile),
-        TestModule::interpreter_with_profile(profile),
-    ] {
-        assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
-    }
     image.cpu = cpu;
     let step = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
         SegmentProfile::Segmented16,

@@ -4,7 +4,11 @@ use relocade_compiler::{AtLeast, BuildError, Val, I16, I32};
 
 use crate::{
     exception::Exception,
-    execution::{segments::ResolvedSegment, transfer::Transfer, ExecutionBuilder},
+    execution::{
+        segments::ResolvedSegment,
+        transfer::{CsContinuation, Transfer},
+        ExecutionBuilder,
+    },
     register::RegisterType,
     ExecutionProfile, Segment,
 };
@@ -47,10 +51,27 @@ impl CodeTarget {
         self,
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<Val<I32>, BuildError> {
+        self.commit_with(execution, CsContinuation::Dispatch)
+    }
+
+    fn commit_with(
+        self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+        continuation: CsContinuation,
+    ) -> Result<Val<I32>, BuildError> {
+        let snapshot_default_changed = execution.if_can_fallback(|execution| {
+            let old_default = execution
+                .state
+                .code_default_is_32_bit(&mut execution.body)?;
+            Ok(old_default.ne(self.segment.default_is_32_bit()))
+        })?;
         self.segment.commit(execution)?;
-        // A constant offset under the new CS is not an entry in the caller's
-        // local block namespace, even when its numeric EIP matches.
-        execution.transfer = Transfer::Dispatch;
+        // Publish the destination before dispatch. An entry at the same numeric
+        // EIP in the caller's CS is a different instruction stream.
+        execution.transfer = Transfer::ReloadCs {
+            snapshot_default_changed,
+            continuation,
+        };
         Ok(self.offset)
     }
 }
@@ -86,12 +107,10 @@ impl ExecutionBuilder<'_, '_> {
         selector.write(self, &old_cs)?;
         offset.write(self, &return_ip.truncate::<T>())?;
         frame.commit(self, 0)?;
-        let offset = target.commit(self)?;
-        // Real16 keeps the same execution profile after loading CS. Protected
-        // CS transitions retain ordinary dispatch across the context change.
-        if self.profile() == ExecutionProfile::Real16 {
-            self.transfer = Transfer::FarCall(self.call_link()?);
-        }
-        Ok(offset)
+        let continuation = match self.profile() {
+            ExecutionProfile::Real16 => CsContinuation::RealModeCall(self.call_link()?),
+            ExecutionProfile::Protected(_) => CsContinuation::Dispatch,
+        };
+        target.commit_with(self, continuation)
     }
 }
