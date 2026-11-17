@@ -2,7 +2,9 @@
 //!
 //! Poll [`FileService::run`] alongside the application's main-thread lifecycle.
 //! File selection runs there too. [`File`] is `Clone + Send + Sync` and uses Rust
-//! channels. It contains no browser object or platform path.
+//! channels. [`Directory`] provides the same worker access for directory browsing.
+//! Neither handle contains a browser object or platform path. Browser directory
+//! selection requires HTTPS (or localhost) and user activation when first polled.
 //!
 //! Native disk operations use a blocking I/O pool. Browser promises stay on the
 //! service's thread. The caller owns application scheduling and DOS/VFS mounting.
@@ -30,9 +32,13 @@
 //! ```
 #![forbid(unsafe_code)]
 
+mod directory;
 mod file;
+mod metadata;
 mod service;
-pub use file::{File, FileMetadata};
+pub use directory::{DirEntry, Directory};
+pub use file::File;
+pub use metadata::{EntryKind, Metadata};
 pub use service::FileService;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,4 +54,17 @@ mod platform;
 pub enum Access {
     ReadOnly,
     ReadWrite,
+}
+
+impl Access {
+    pub(crate) fn require(self, requested: Self) -> std::io::Result<()> {
+        if self == Self::ReadOnly && requested == Self::ReadWrite {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "read-only access",
+            ))
+        } else {
+            Ok(())
+        }
+    }
 }

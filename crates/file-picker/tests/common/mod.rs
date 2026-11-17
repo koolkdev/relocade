@@ -1,14 +1,12 @@
-use super::{Access, File};
+use super::{Access, File, Metadata};
 use futures_lite::future::zip;
-use std::{io, time::SystemTime};
+use std::io;
 
-pub async fn read_contract(file: File, modified: Option<SystemTime>) -> io::Result<()> {
+pub async fn read_contract(file: File, metadata: Metadata) -> io::Result<()> {
     fn rust_handle<T: Clone + Send + Sync>() {}
     rust_handle::<File>();
     assert_eq!(file.access(), Access::ReadOnly);
-    let metadata = file.metadata().await?;
-    assert_eq!(metadata.len, 6);
-    assert_eq!(metadata.modified, modified);
+    assert_eq!(file.metadata().await?, metadata);
     assert_eq!(file.read().await?, b"abcdef");
     let clone = file.clone();
     let mut beginning = [0; 2];

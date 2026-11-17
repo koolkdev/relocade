@@ -1,4 +1,4 @@
-use crate::{platform, Access, File};
+use crate::{platform, Access, Directory, File};
 use futures_channel::mpsc;
 use futures_util::{
     future::{AbortHandle, AbortRegistration, Abortable, LocalBoxFuture},
@@ -51,6 +51,20 @@ impl FileService {
             Some((name, file)) => self
                 .resources
                 .register_file(name, Access::ReadOnly, file)
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Selects a directory without loading its contents or reducing requested
+    /// access. Unsupported browsers return `Unsupported`. Browser `AbortError`
+    /// covers both cancellation and some access refusals; both mean no selection.
+    pub async fn pick_directory(&self, access: Access) -> io::Result<Option<Directory>> {
+        self.ensure_open()?;
+        match platform::pick_directory(access).await? {
+            Some((name, directory)) => self
+                .resources
+                .register_directory(name, access, directory)
                 .map(Some),
             None => Ok(None),
         }
