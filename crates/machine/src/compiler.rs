@@ -72,7 +72,7 @@ async fn compile(
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
-    let (blocks, addresses) = match request {
+    let blocks = match request {
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
                 .iter()
@@ -91,52 +91,43 @@ async fn compile(
                     instruction_limit: block.instruction_limit,
                 })
                 .collect();
-            let blocks = x86.compile_blocks_with(&snapshots, jobs).await?;
-            let addresses = requests.iter().map(|block| block.entry.address()).collect();
-            (blocks, addresses)
+            x86.compile_blocks_with(&snapshots, jobs).await?
         }
         connection::Compilation::Functions(requests) => {
             let mut module = x86.function_module();
-            let mut addresses = Vec::new();
+            let mut has_blocks = false;
             let mut first_error = None;
             for request in requests {
                 let base = request.entry.segment_base();
-                match module.add_function(
-                    CodeAddress::from(request.entry),
-                    request.limits,
-                    |eip, buffer| {
-                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
-                        if len == 0 {
-                            return 0;
-                        }
-                        reader.read_prefix(base + eip, &mut buffer[..len])
-                    },
-                ) {
-                    Ok(entries) => {
-                        addresses.extend(entries.iter().map(|block| base + block.address.eip()));
+                match module.add_function(request.entry.into(), request.limits, |eip, buffer| {
+                    let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
+                    if len == 0 {
+                        return 0;
                     }
+                    reader.read_prefix(base + eip, &mut buffer[..len])
+                }) {
+                    Ok(entries) => has_blocks |= !entries.is_empty(),
                     Err(error) => {
                         first_error.get_or_insert(error);
                     }
                 }
             }
-            if addresses.is_empty() {
+            if !has_blocks {
                 if let Some(error) = first_error {
                     return Err(error.into());
                 }
             }
-            (module.compile_with(jobs).await?, addresses)
+            module.compile_with(jobs).await?
         }
     };
-    let source = reader.finish(
-        addresses
-            .iter()
-            .zip(&blocks.entries)
-            .map(|(&address, block)| (address, block.byte_len)),
-    );
+    let source = reader.finish(blocks.entries.iter().map(|block| {
+        let CodeAddress::InSegment { cs, eip } = block.address else {
+            unreachable!("the machine supplies a real-mode CS for every entry")
+        };
+        (cs.base.wrapping_add(eip), block.byte_len)
+    }));
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
-        addresses,
         blocks,
         source,
     ))
