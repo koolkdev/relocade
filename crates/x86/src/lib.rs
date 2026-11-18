@@ -68,7 +68,9 @@ pub use compile::{
     BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, EntryTable, FunctionLimits,
     FunctionModule,
 };
+pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
+pub use instruction::{CallTarget, InstructionFlow, MAX_INSTRUCTION_BYTES};
 pub use interpreter::build_interpreter;
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};

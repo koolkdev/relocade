@@ -15,7 +15,16 @@ impl CodeAddress {
         }
     }
 
-    pub(super) fn with_eip(self, eip: u32) -> Self {
+    /// The real-mode CS selector, when this address names a segment explicitly.
+    pub fn segment(self) -> Option<u16> {
+        match self {
+            Self::CsRelative(_) => None,
+            Self::RealMode { segment, .. } => Some(segment),
+        }
+    }
+
+    /// An offset in the same code segment as this address.
+    pub fn with_eip(self, eip: u32) -> Self {
         match self {
             Self::CsRelative(_) => Self::CsRelative(eip),
             Self::RealMode { segment, .. } => Self::RealMode { segment, eip },

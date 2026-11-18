@@ -1,4 +1,6 @@
 mod address;
+#[cfg(test)]
+mod tests;
 
 use super::DecodeState;
 
@@ -10,32 +12,51 @@ use crate::{
     },
     register::{RegisterCode, RegisterSelector},
     segment::{Segment, SegmentDefaultSize},
-    BlockError, ExecutionTarget,
+    BlockError, CallTarget, ExecutionTarget, InstructionFlow,
 };
 
-/// Decoded encoding inputs can move between threads before binding creates IR values.
-pub(crate) struct SnapshotInstruction {
+/// One instruction decoded from captured bytes using the supplied CS default size.
+/// It owns the decoded operands and can move between threads.
+pub struct SnapshotInstruction {
     form: ResolvedForm,
     address_size: AddressSize,
     fields: DecodedFields<u32, RegisterCode, SnapshotRm>,
     segment_override: Option<Segment>,
-    pub(crate) eip: u32,
-    pub(crate) fallthrough_eip: u32,
+    eip: u32,
+    next_eip: u32,
+    code_default_size: SegmentDefaultSize,
 }
 
 impl SnapshotInstruction {
-    pub(crate) fn call_target(&self) -> Option<crate::instruction::CallTarget> {
-        self.form
-            .call_target(self.fields.immediates, self.fallthrough_eip)
+    /// Decodes the first instruction in `bytes`, beginning at the given CS-relative EIP.
+    pub fn decode(bytes: &[u8], eip: u32, size: SegmentDefaultSize) -> Result<Self, BlockError> {
+        snapshot(bytes, eip, size).map(|(instruction, _)| instruction)
     }
 
-    pub(crate) fn successors(&self, target: ExecutionTarget) -> [Option<u32>; 2] {
-        self.form
-            .successors(self.fields.immediates, self.fallthrough_eip, target)
+    /// CS-relative offset of the first encoding byte.
+    pub fn eip(&self) -> u32 {
+        self.eip
     }
 
-    pub(crate) fn ends_block(&self, target: ExecutionTarget) -> bool {
-        self.form.ends_block(target)
+    /// Offset immediately after the encoding, with 32-bit wrapping.
+    pub fn next_eip(&self) -> u32 {
+        self.next_eip
+    }
+
+    /// The captured CS default size before applying instruction prefixes.
+    pub fn code_default_size(&self) -> SegmentDefaultSize {
+        self.code_default_size
+    }
+
+    /// Classifies transfers and block boundaries, including faults known from the target.
+    pub fn flow(&self, target: ExecutionTarget) -> InstructionFlow {
+        self.form
+            .flow(self.fields.immediates, self.next_eip, target)
+    }
+
+    /// Encoded destination for a direct CALL. Indirect calls and other instructions return `None`.
+    pub fn call_target(&self) -> Option<CallTarget> {
+        self.form.call_target(self.fields.immediates, self.next_eip)
     }
 
     pub(crate) fn bind(self) -> DecodedInstruction<u32, u32> {
@@ -43,7 +64,7 @@ impl SnapshotInstruction {
             self.fields
                 .map_locations(RegisterSelector::Fixed, SnapshotRm::bind),
             self.eip,
-            self.fallthrough_eip,
+            self.next_eip,
             &self
                 .segment_override
                 .map_or(SegmentOverride::None, SegmentOverride::Fixed),
@@ -154,7 +175,8 @@ pub(crate) fn snapshot(
             fields,
             segment_override,
             eip: instruction_eip,
-            fallthrough_eip: next_eip,
+            next_eip,
+            code_default_size: default_size,
         },
         &bytes[cursor.offset..],
     ))

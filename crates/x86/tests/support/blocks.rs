@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget};
+use relocade_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget, InstructionFlow};
 use std::collections::HashMap;
 use wasmparser::Validator;
 
@@ -76,16 +76,16 @@ impl BlockKey {
                 crate::SegmentDefaultSize::for_profile(self.target.profile),
             )
             .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
-            let last = decoded.fallthrough_eip.wrapping_sub(1);
+            let last = decoded.next_eip().wrapping_sub(1);
             assert!(
                 cs.limit == u32::MAX || (last >= eip && last <= cs.limit),
                 "snapshot instruction {eip:#x}..={last:#x} exceeds CS limit {:#x}",
                 cs.limit
             );
-            if decoded.ends_block(self.target) {
+            if decoded.flow(self.target) != InstructionFlow::Continue {
                 break;
             }
-            eip = decoded.fallthrough_eip;
+            eip = decoded.next_eip();
             remaining = rest;
         }
     }
@@ -99,11 +99,11 @@ pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionPro
         let (decoded, rest) =
             crate::decode::snapshot(bytes, eip, crate::SegmentDefaultSize::for_profile(profile))
                 .expect("fixture instructions decode");
-        if decoded.ends_block(Compiler::new(profile).target()) {
+        if decoded.flow(Compiler::new(profile).target()) != InstructionFlow::Continue {
             return index + 1;
         }
         bytes = rest;
-        eip = decoded.fallthrough_eip;
+        eip = decoded.next_eip();
     }
     limit
 }

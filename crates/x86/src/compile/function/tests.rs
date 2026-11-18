@@ -2,9 +2,7 @@ mod boundaries;
 mod linking;
 
 use super::*;
-use crate::{
-    decode::snapshot, BlockSnapshot, ExecutionProfile, SegmentDefaultSize, SegmentProfile,
-};
+use crate::{BlockSnapshot, ExecutionProfile, SegmentDefaultSize, SegmentProfile};
 
 fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
     move |eip, output| {
@@ -95,41 +93,6 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(actual.entries, expected.entries);
-}
-
-#[test]
-fn successor_metadata_obeys_operand_width_and_all_near_branch_forms() {
-    let target = Compiler::new(SegmentProfile::Flat32).target();
-    for code in [
-        &[0x75, 0xfe][..],
-        &[0xe3, 0xfe],
-        &[0xe2, 0xfe],
-        &[0xe1, 0xfe],
-        &[0xe0, 0xfe],
-        &[0x0f, 0x85, 0xfa, 0xff, 0xff, 0xff],
-    ] {
-        let (instruction, _) = snapshot(code, 0x1000, SegmentDefaultSize::Bits32).unwrap();
-        assert_eq!(
-            instruction.successors(target),
-            [Some(0x1000), Some(0x1000 + code.len() as u32)]
-        );
-    }
-    for (code, expected) in [
-        (&[0x66, 0xeb, 0xff][..], [Some(1), None]),
-        (&[0x66, 0xe9, 0xfe, 0xff][..], [Some(1), None]),
-        (&[0x66, 0xe8, 0x10, 0][..], [Some(3), None]),
-        (&[0x66, 0xff, 0xd0][..], [Some(2), None]),
-        (&[0xff, 0xe0][..], [None, None]),
-        (&[0xc3][..], [None, None]),
-    ] {
-        let (instruction, _) = snapshot(code, 0xffff, SegmentDefaultSize::Bits32).unwrap();
-        assert_eq!(instruction.successors(target), expected, "{code:02x?}");
-    }
-    let (instruction, _) = snapshot(&[0x66, 0xeb, 0], 0xffff, SegmentDefaultSize::Bits16).unwrap();
-    assert_eq!(
-        instruction.successors(Compiler::new(ExecutionProfile::Real16).target()),
-        [Some(0x10002), None]
-    );
 }
 
 #[test]

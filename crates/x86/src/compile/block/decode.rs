@@ -1,7 +1,9 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
 use super::{BlockEntry, BlockSnapshot, CodeAddress};
-use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget, SegmentDefaultSize};
+use crate::{
+    decode::SnapshotInstruction, BlockError, ExecutionTarget, InstructionFlow, SegmentDefaultSize,
+};
 use std::collections::HashSet;
 
 pub(in crate::compile) struct DecodedBlock {
@@ -44,7 +46,7 @@ impl DecodedBlock {
     }
 
     pub(in crate::compile) fn push(&mut self, instruction: SnapshotInstruction) {
-        self.entry.byte_len += instruction.fallthrough_eip.wrapping_sub(instruction.eip) as usize;
+        self.entry.byte_len += instruction.next_eip().wrapping_sub(instruction.eip()) as usize;
         self.instructions.push(instruction);
     }
 
@@ -62,9 +64,9 @@ impl DecodedBlock {
         for _ in 0..snapshot.instruction_limit {
             let (decoded, rest) =
                 crate::decode::snapshot(remaining, eip, snapshot.code_default_size)?;
-            eip = decoded.fallthrough_eip;
+            eip = decoded.next_eip();
             remaining = rest;
-            let ends_block = decoded.ends_block(target);
+            let ends_block = decoded.flow(target) != InstructionFlow::Continue;
             block.push(decoded);
             if ends_block || boundaries.contains(&snapshot.address.with_eip(eip)) {
                 break;
