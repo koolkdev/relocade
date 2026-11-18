@@ -50,10 +50,10 @@ fn restore(
     // Reserved MXCSR bits fault before any restored state is installed. The
     // saved MXCSR_MASK is informational and cannot relax this validation.
     execution.load_mxcsr(mxcsr)?;
-    let pointer_size = crate::SegmentDefaultSize::for_profile(execution.profile());
+    let offset_mask = execution.code_offset_mask()?;
     execution
         .x87()
-        .restore_fx(pointer_size, &environment, &registers)?;
+        .restore_fx(&offset_mask, &environment, &registers)?;
     for (index, value) in xmm.into_iter().enumerate() {
         execution.write_xmm(RegisterCode::from_bits(index as u8).into(), value)?;
     }
@@ -71,8 +71,8 @@ fn save(
         &[],
     )?;
     let registers = execution.x87().stack_bits()?;
-    let pointer_size = crate::SegmentDefaultSize::for_profile(execution.profile());
-    let environment = execution.x87().fx_environment(pointer_size)?;
+    let offset_mask = execution.code_offset_mask()?;
+    let environment = execution.x87().fx_environment(&offset_mask)?;
     for (index, word) in environment.iter().enumerate() {
         operand.write(execution, index as u32 * 4, word)?;
     }

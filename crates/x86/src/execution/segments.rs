@@ -41,6 +41,11 @@ impl ResolvedSegment {
 }
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn code_offset_mask(&mut self) -> Result<Val<I32>, BuildError> {
+        let code_default_is_32_bit = self.state.code_default_is_32_bit(&mut self.body)?;
+        Ok(code_default_is_32_bit.select(u32::MAX, u32::from(u16::MAX)))
+    }
+
     pub(crate) fn query_segment_descriptor(
         &mut self,
         selector: &Val<I16>,

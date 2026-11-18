@@ -351,6 +351,7 @@ pub(crate) struct State {
     pub(crate) memory: Memory,
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Execution {
     pub(crate) state: State,
     pub(crate) exit: Exit,
