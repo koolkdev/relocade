@@ -1,3 +1,6 @@
+#[path = "guest_time/halt_input.rs"]
+mod halt_input;
+
 use relocade_machine::{DispatchEntry, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};

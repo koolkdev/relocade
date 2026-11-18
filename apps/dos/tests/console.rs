@@ -2,7 +2,7 @@
 
 use futures_lite::future::or;
 use relocade_dos::Dos;
-use std::{io::Read, num::NonZeroU64, time::Duration};
+use std::{io::Read, time::Duration};
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
@@ -114,7 +114,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
         );
     };
     let console = prepared.run_until_with_guest_time(
-        NonZeroU64::new(1_000_000).unwrap(),
+        relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND,
         futures_timer::Delay::new(Duration::from_secs(30)),
         session,
     );
