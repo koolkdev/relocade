@@ -1,11 +1,14 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
-use super::{BlockEntry, BlockSnapshot, CodeAddress};
+use super::{BlockSnapshot, CodeAddress};
 use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget, SegmentDefaultSize};
 use std::collections::HashSet;
 
 pub(in crate::compile) struct DecodedBlock {
-    pub(in crate::compile) entry: BlockEntry,
+    pub(in crate::compile) address: CodeAddress,
+    pub(in crate::compile) code_default_size: SegmentDefaultSize,
+    pub(in crate::compile) byte_len: usize,
+    pub(in crate::compile) exported: bool,
     pub(in crate::compile) instructions: Vec<SnapshotInstruction>,
 }
 
@@ -31,20 +34,19 @@ impl DecodedBlock {
     pub(in crate::compile) fn new(
         address: CodeAddress,
         code_default_size: SegmentDefaultSize,
+        exported: bool,
     ) -> Self {
         Self {
-            entry: BlockEntry {
-                address,
-                code_default_size,
-                byte_len: 0,
-                export: format!("block_{address}"),
-            },
+            address,
+            code_default_size,
+            byte_len: 0,
+            exported,
             instructions: Vec::new(),
         }
     }
 
     pub(in crate::compile) fn push(&mut self, instruction: SnapshotInstruction) {
-        self.entry.byte_len += instruction.fallthrough_eip.wrapping_sub(instruction.eip) as usize;
+        self.byte_len += instruction.fallthrough_eip.wrapping_sub(instruction.eip) as usize;
         self.instructions.push(instruction);
     }
 
@@ -56,7 +58,7 @@ impl DecodedBlock {
         if snapshot.instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
-        let mut block = Self::new(snapshot.address, snapshot.code_default_size);
+        let mut block = Self::new(snapshot.address, snapshot.code_default_size, true);
         let mut remaining = snapshot.bytes;
         let mut eip = snapshot.address.eip();
         for _ in 0..snapshot.instruction_limit {

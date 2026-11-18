@@ -1,7 +1,7 @@
 use crate::real_mode::FarPointer;
 
 /// Guest address of a compiled entry. The offset can advance past FFFF during
-/// real-mode function discovery; the destination's fetch check handles it.
+/// real-mode block discovery; the destination's fetch check handles it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodeAddress {
     CsRelative(u32),
@@ -12,6 +12,13 @@ impl CodeAddress {
     pub fn eip(self) -> u32 {
         match self {
             Self::CsRelative(eip) | Self::RealMode { eip, .. } => eip,
+        }
+    }
+
+    pub(super) fn segment(self) -> Option<u16> {
+        match self {
+            Self::CsRelative(_) => None,
+            Self::RealMode { segment, .. } => Some(segment),
         }
     }
 

@@ -26,11 +26,10 @@ pub struct BlockRequest {
     pub instruction_limit: u32,
 }
 
-/// One clean real-mode function candidate. Its blocks are discovered by x86 on
-/// the compiler service, without reading code on the submitting CPU.
-/// Interior host hooks and mutable code require separate admission/invalidation.
+/// A real-mode entry from which the service discovers reachable blocks.
+/// The limits bound the additional instructions and bytes discovered from this root.
 #[derive(Clone, Copy, Debug)]
-pub struct FunctionRequest {
+pub struct DiscoveryRequest {
     pub entry: FarPointer,
     pub limits: DiscoveryLimits,
 }
@@ -93,47 +92,47 @@ async fn compile(
                 .collect();
             x86.compile_blocks_with(&snapshots, jobs).await?
         }
-        connection::Compilation::Functions(requests) => {
-            let mut module = x86.function_module();
-            let mut has_blocks = false;
+        connection::Compilation::Discover(requests) => {
+            let mut discovery = x86.discover_blocks(|address, bytes| {
+                let len = bytes
+                    .len()
+                    .min(0x10000_u32.saturating_sub(address.eip()) as usize);
+                reader.read_prefix(fetch_address(address), &mut bytes[..len])
+            });
             let mut first_error = None;
             for request in requests {
-                let base = request.entry.segment_base();
-                match module.add_function(
+                if let Err(error) = discovery.add_root(
                     request.entry.into(),
                     SegmentDefaultSize::Bits16,
                     request.limits,
-                    |eip, buffer| {
-                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
-                        if len == 0 {
-                            return 0;
-                        }
-                        reader.read_prefix(base + eip, &mut buffer[..len])
-                    },
                 ) {
-                    Ok(entries) => has_blocks |= !entries.is_empty(),
-                    Err(error) => {
-                        first_error.get_or_insert(error);
-                    }
+                    first_error.get_or_insert(error);
                 }
             }
-            if !has_blocks {
+            if discovery.is_empty() {
                 if let Some(error) = first_error {
                     return Err(error.into());
                 }
             }
-            module.compile_with(jobs).await?
+            discovery.compile_with(jobs).await?
         }
     };
-    let source = reader.finish(blocks.entries.iter().map(|block| {
-        let CodeAddress::RealMode { segment, eip } = block.address else {
-            unreachable!("the machine supplies a real-mode CS for every entry")
-        };
-        ((u32::from(segment) << 4).wrapping_add(eip), block.byte_len)
-    }));
+    let source = reader.finish(
+        blocks
+            .spans
+            .iter()
+            .map(|&(address, len)| (fetch_address(address), len)),
+    );
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
         blocks,
         source,
     ))
+}
+
+fn fetch_address(address: CodeAddress) -> u32 {
+    let CodeAddress::RealMode { segment, eip } = address else {
+        unreachable!("the machine supplies a real-mode CS for every entry")
+    };
+    (u32::from(segment) << 4).wrapping_add(eip)
 }

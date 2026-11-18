@@ -19,8 +19,24 @@ fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
     }
 }
 
-fn entries(code: &[u8], limits: DiscoveryLimits) -> Vec<(u32, usize)> {
-    discover::blocks(
+fn mapped_code<'a, const N: usize>(
+    ranges: [(CodeAddress, &'a [u8]); N],
+) -> impl FnMut(CodeAddress, &mut [u8]) -> usize + 'a {
+    move |address, output| {
+        for (start, bytes) in &ranges {
+            if start.segment() == address.segment() {
+                let len = reader(start.eip(), bytes)(address.eip(), output);
+                if len != 0 {
+                    return len;
+                }
+            }
+        }
+        0
+    }
+}
+
+fn discovered_spans(code: &[u8], limits: DiscoveryLimits) -> Vec<(u32, usize)> {
+    walk::blocks(
         CodeAddress::CsRelative(0x1000),
         SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
@@ -29,8 +45,16 @@ fn entries(code: &[u8], limits: DiscoveryLimits) -> Vec<(u32, usize)> {
     )
     .unwrap()
     .into_iter()
-    .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+    .map(|block| (block.address.eip(), block.byte_len))
     .collect()
+}
+
+fn exported_eips(blocks: &crate::CompiledBlocks) -> Vec<u32> {
+    blocks
+        .entries
+        .iter()
+        .map(|entry| entry.address.eip())
+        .collect()
 }
 
 #[test]
@@ -45,18 +69,19 @@ fn snapshots_and_discovered_blocks_record_their_decode_width() {
         bytes: &code,
         instruction_limit: 1,
     });
-    let mut functions = compiler.function_module();
+    let mut discovery = compiler.discover_blocks(mapped_code(
+        starts.map(|(eip, _)| (CodeAddress::CsRelative(eip), code.as_slice())),
+    ));
     for (eip, size) in starts {
-        functions
-            .add_function(
+        discovery
+            .add_root(
                 CodeAddress::CsRelative(eip),
                 size,
                 DiscoveryLimits::default(),
-                reader(eip, &code),
             )
             .unwrap();
     }
-    let entries = |blocks: crate::CompiledBlocks| {
+    let exported_entries = |blocks: crate::CompiledBlocks| {
         blocks
             .entries
             .into_iter()
@@ -64,11 +89,11 @@ fn snapshots_and_discovered_blocks_record_their_decode_width() {
             .collect::<Vec<_>>()
     };
     assert_eq!(
-        entries(compiler.compile_blocks(&snapshots).unwrap()),
+        exported_entries(compiler.compile_blocks(&snapshots).unwrap()),
         [(0x1000, Bits16, 3), (0x2000, Bits32, 5)]
     );
     assert_eq!(
-        entries(functions.compile().unwrap()),
+        exported_entries(discovery.compile().unwrap()),
         [(0x1000, Bits16, 4), (0x2000, Bits32, 6)]
     );
 }
@@ -83,19 +108,20 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
     ];
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let actual = compiler
-        .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
+        .compile_blocks_from_root(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
         .unwrap();
-    let snapshots: Vec<_> = [(0, 1), (1, 3), (4, 5), (9, 2), (11, 1)]
-        .into_iter()
-        .map(|(offset, len)| BlockSnapshot {
-            address: CodeAddress::CsRelative(0x1000 + offset as u32),
-            code_default_size: SegmentDefaultSize::Bits32,
-            bytes: &code[offset..offset + len],
-            instruction_limit: 10,
-        })
-        .collect();
-    let expected = compiler.compile_blocks(&snapshots).unwrap();
-    assert_eq!(actual.entries, expected.entries);
+    assert_eq!(
+        actual.spans,
+        [
+            (0x1000, 1),
+            (0x1001, 3),
+            (0x1004, 5),
+            (0x1009, 2),
+            (0x100b, 1)
+        ]
+        .map(|(eip, len)| (CodeAddress::CsRelative(eip), len)),
+    );
+    assert_eq!(exported_eips(&actual), [0x1000, 0x1009, 0x100b]);
 }
 
 #[test]
@@ -167,13 +193,13 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
     ] {
         assert_eq!(
             compiler
-                .compile_function(0x1000, limits, reader(0x1000, code))
+                .compile_blocks_from_root(0x1000, limits, reader(0x1000, code))
                 .err(),
             Some(BlockError::DiscoveryTooLarge { address: 0x1000 }),
         );
     }
     assert_eq!(
-        entries(
+        discovered_spans(
             &[0x90, 0x90, 0xc3],
             DiscoveryLimits {
                 instructions: 3,
@@ -185,7 +211,7 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
     );
     // Reaching an already decoded loop entry does not consume more exploration budget.
     assert_eq!(
-        entries(
+        discovered_spans(
             &[0x75, 0xfe, 0xc3],
             DiscoveryLimits {
                 instructions: 2,
@@ -206,7 +232,7 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
             ..limits
         },
     ] {
-        let result = discover::blocks(
+        let result = walk::blocks(
             CodeAddress::CsRelative(0),
             SegmentDefaultSize::Bits32,
             compiler.target(),
@@ -218,11 +244,11 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
 }
 
 #[test]
-fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries() {
+fn straight_line_splits_keep_all_source_spans_and_only_export_the_root() {
     let code = [0xb8, 1, 0, 0, 0, 0x90, 0x90, 0x90, 0xc3];
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let actual = compiler
-        .compile_function(
+        .compile_blocks_from_root(
             0x1000,
             DiscoveryLimits {
                 block_instructions: 2,
@@ -231,24 +257,19 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
             reader(0x1000, &code),
         )
         .unwrap();
-    let snapshots: Vec<_> = [(0, 6), (6, 2), (8, 1)]
-        .into_iter()
-        .map(|(offset, len)| BlockSnapshot {
-            address: CodeAddress::CsRelative(0x1000 + offset as u32),
-            code_default_size: SegmentDefaultSize::Bits32,
-            bytes: &code[offset..offset + len],
-            instruction_limit: 2,
-        })
-        .collect();
-    let expected = compiler.compile_blocks(&snapshots).unwrap();
-    assert_eq!(actual.entries, expected.entries);
+    assert_eq!(
+        actual.spans,
+        [(0x1000, 6), (0x1006, 2), (0x1008, 1)]
+            .map(|(eip, len)| (CodeAddress::CsRelative(eip), len)),
+    );
+    assert_eq!(exported_eips(&actual), [0x1000]);
 }
 
 #[test]
-fn defaults_discover_large_branched_functions_in_full() {
+fn default_limits_discover_all_blocks_in_a_large_branch_chain() {
     let mut code: Vec<_> = std::iter::repeat_n([0x75, 0], 8192).flatten().collect();
     code.push(0xc3);
-    let blocks = entries(&code, DiscoveryLimits::default());
+    let blocks = discovered_spans(&code, DiscoveryLimits::default());
     assert_eq!(blocks.len(), 8193);
     assert_eq!(blocks.iter().map(|(_, len)| len).sum::<usize>(), code.len());
     assert_eq!(blocks.last(), Some(&(0x5000, 1)));
@@ -258,17 +279,17 @@ fn defaults_discover_large_branched_functions_in_full() {
 fn unknown_targets_and_overlapping_encodings_end_only_the_affected_path() {
     let limits = DiscoveryLimits::default();
     assert_eq!(
-        entries(&[0x75, 0x7f, 0xc3], limits),
+        discovered_spans(&[0x75, 0x7f, 0xc3], limits),
         [(0x1000, 2), (0x1002, 1)]
     );
     // The backward target is inside MOV's immediate.
     assert_eq!(
-        entries(&[0xb8, 0x90, 0x90, 0x90, 0x90, 0xeb, 0xfb], limits),
+        discovered_spans(&[0xb8, 0x90, 0x90, 0x90, 0x90, 0xeb, 0xfb], limits),
         [(0x1000, 7)]
     );
     // The taken path is decoded first; the fallthrough MOV would overlap it.
     assert_eq!(
-        entries(&[0x75, 1, 0xb8, 0x90, 0x90, 0x90, 0xc3], limits),
+        discovered_spans(&[0x75, 1, 0xb8, 0x90, 0x90, 0x90, 0xc3], limits),
         [(0x1000, 2), (0x1003, 4)]
     );
 }
@@ -279,7 +300,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     code.push(0xc3);
     let mut copied = 0;
     let mut source = reader(u32::MAX - 10, &code);
-    let blocks = discover::blocks(
+    let blocks = walk::blocks(
         CodeAddress::CsRelative(u32::MAX - 10),
         SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
@@ -295,7 +316,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     assert_eq!(
         blocks
             .iter()
-            .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+            .map(|block| (block.address.eip(), block.byte_len))
             .collect::<Vec<_>>(),
         [(245, 5), (u32::MAX - 10, 256)],
     );

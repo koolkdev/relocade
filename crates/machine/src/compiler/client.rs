@@ -1,6 +1,6 @@
 use super::{
     connection::{Compilation, Request},
-    BlockRequest, CompiledCode, FunctionRequest, Reply,
+    BlockRequest, CompiledCode, DiscoveryRequest, Reply,
 };
 use crate::{
     worker::{ChannelError, Executor, ReceiverEndpoint, Sender, Transfer, WakePeer},
@@ -59,19 +59,20 @@ impl CompilerClient {
         self.submit(target, Compilation::Blocks(blocks))
     }
 
-    /// Queues clean real-mode function candidates for one shared module. Callees
-    /// are not followed. Keep code, mappings and each entry's CS addressing stable;
-    /// candidates must have no interior host hooks or registered execution boundaries.
-    /// Discovery failures omit individual functions. If none produce blocks, the
-    /// first discovery error is returned, or an empty module for unreadable entries.
-    /// Errors building the shared module fail the request.
-    /// Results use the same ordered stream and explicit installation as block requests.
-    pub fn request_functions(
+    /// Discovers blocks from real-mode roots and compiles them into one module.
+    /// Discovery follows branches and call continuations. Supply a callee's entry
+    /// as another root to discover its blocks. Overlapping roots share blocks.
+    /// Keep code, mappings and CS addressing stable. Discovered blocks must have
+    /// no interior host hooks or other registered execution boundaries.
+    /// Rejected roots leave earlier discoveries intact. If no root yields blocks,
+    /// the result reports the first discovery error, or is empty for unreadable roots.
+    /// Receive and install the result in the same way as an explicit block request.
+    pub fn request_discovery(
         &self,
         target: ExecutionTarget,
-        functions: Vec<FunctionRequest>,
+        roots: Vec<DiscoveryRequest>,
     ) -> Result<()> {
-        self.submit(target, Compilation::Functions(functions))
+        self.submit(target, Compilation::Discover(roots))
     }
 
     fn submit(&self, target: ExecutionTarget, compilation: Compilation) -> Result<()> {

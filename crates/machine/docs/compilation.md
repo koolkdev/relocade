@@ -61,6 +61,13 @@ that connection's request order, including compilation errors.
 Dropping a receive wait preserves the next result.
 The runtime can queue several requests and receive their results as it runs.
 
+`CompilerClient::request_discovery` accepts real-mode roots and exploration
+limits. The compiler follows reachable branches and the instruction after a
+call. A call destination can be submitted as another root. Roots and compiled
+post-call continuations are published to CPU dispatch, so a guest RET can find
+its continuation. Other blocks stay inside the module. Its source registration
+covers the bytes of every compiled block, including internal branch targets.
+
 The worker uses `Memory::read_code` to copy mapped RAM/ROM directly from shared
 backing, including A20 aliases. It shares address resolution with ordinary memory
 views and requires no CPU or device bus. MMIO, holes and overflowing ranges are

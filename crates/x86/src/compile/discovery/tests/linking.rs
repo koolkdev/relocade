@@ -29,7 +29,7 @@ fn image(start: u32, code: &[u8]) -> Image {
 
 fn compile(start: u32, code: &[u8]) -> TestModule {
     let blocks = Compiler::new(ExecutionProfile::Real16)
-        .compile_function(start, limits(), reader(start, code))
+        .compile_blocks_from_root(start, limits(), reader(start, code))
         .unwrap();
     TestModule::from_bytes(
         &blocks.bytes,
@@ -82,7 +82,7 @@ fn local_branches_and_linear_splits_retain_every_checkpoint() {
         0xbb, 42, 0, // MOV BX,42
         0xe2, 0xfb, // LOOP 1003
         0xb8, 7, 0, // MOV AX,7
-        0xeb, 0x73, // JMP 1080, outside the discovered function
+        0xeb, 0x73, // JMP 1080, outside the discovered region
     ];
     let module = compile(0x1000, &code);
     let image = image(0x1000, &code);
@@ -156,31 +156,30 @@ fn a_linked_successor_keeps_its_fetch_guard() {
 }
 
 #[test]
-fn function_namespaces_do_not_alias_equal_offsets() {
+fn equal_offsets_in_different_segments_link_to_their_own_code() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
-    let mut module = compiler.function_module();
     let codes = [
         [0xb8, 1, 0, 0xbb, 2, 0, 0xeb, 0],
         [0xb8, 3, 0, 0xbb, 4, 0, 0xeb, 0],
     ];
-    let mut roots = Vec::new();
-    for code in &codes {
-        roots.push(
-            module
-                .add_function(
-                    CodeAddress::CsRelative(0x1000),
-                    crate::SegmentDefaultSize::Bits16,
-                    limits(),
-                    reader(0x1000, code),
-                )
-                .unwrap()[0]
-                .export
-                .clone(),
-        );
+    let roots = [0, 0x10].map(|segment| CodeAddress::RealMode {
+        segment,
+        eip: 0x1000,
+    });
+    let mut module =
+        compiler.discover_blocks(mapped_code([(roots[0], &codes[0]), (roots[1], &codes[1])]));
+    for root in roots {
+        module
+            .add_root(root, SegmentDefaultSize::Bits16, limits())
+            .unwrap();
     }
     let blocks = module.compile().unwrap();
     for (index, (root, code)) in roots.iter().zip(&codes).enumerate() {
-        let module = TestModule::from_bytes(&blocks.bytes, root, Some(blocks.execution_target));
+        let module = TestModule::from_bytes(
+            &blocks.bytes,
+            &format!("block_{root}"),
+            Some(blocks.execution_target),
+        );
         let mut image = image(0x1000, code);
         image.cpu.segments[Segment::Cs] =
             SegmentRegister::real_mode(Segment::Cs, index as u16 * 0x10);
@@ -242,22 +241,36 @@ fn a_far_jump_cannot_use_the_callers_local_offset() {
 }
 
 #[test]
-fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
+fn a_near_call_uses_the_resolved_entry_and_ret_dispatches_its_saved_ip() {
     let code = [
         0xe8, 5, 0, // CALL 1008
-        0xeb, 3, // JMP 1008 discovers the callee as a local block too
-        0x90, 0x90, 0x90, 0xb8, 42, 0, 0xc3, // MOV AX,42; RET
+        0x74, 7, // JZ 100C discovers the replacement
+        0xeb, 1, // JMP 1008 discovers the original callee
+        0x90, 0xb8, 42, 0, 0xc3, // 1008: MOV AX,42; RET
+        0xb8, 73, 0, 0xc3, // 100C: MOV AX,73; RET
     ];
-    let module = compile(0x1000, &code);
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let start = CodeAddress::CsRelative(0x1000);
+    let mut discovery = compiler.discover_blocks(mapped_code([(start, code.as_slice())]));
+    for root in [start, CodeAddress::CsRelative(0x100c)] {
+        discovery
+            .add_root(root, SegmentDefaultSize::Bits16, limits())
+            .unwrap();
+    }
+    let blocks = discovery.compile().unwrap();
+    assert_eq!(exported_eips(&blocks), [0x1000, 0x1003, 0x100c]);
+    let module = TestModule::from_bytes(&blocks.bytes, "block_1000", Some(blocks.execution_target));
     let mut image = image(0x1000, &code);
     image.cpu.registers.esp = 0x800;
     image.map(0, 0, true);
+    let mut input = image.input();
+    input.call_target = Some((0x1008, "block_100c".into()));
     let mut after = image.cpu;
-    after.registers.eax = 42;
+    after.registers.eax = 73;
     after.eip = 0x1003;
     after.instruction_count = 3;
     assert_eq!(
-        module.observe(&image.input(), 1),
+        module.observe(&input, 1),
         expected(
             &image,
             &[Step {
@@ -270,9 +283,8 @@ fn a_near_call_to_a_local_entry_keeps_the_guest_return_frame() {
 }
 
 #[test]
-fn call_table_slots_are_shared_by_exact_targets_across_functions() {
+fn call_table_slots_are_shared_by_exact_targets_across_roots() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
-    let mut module = compiler.function_module();
     let code = [
         0xe8, 0xfd, 0, // CALL 0200
         0xe8, 0xfa, 0, // CALL 0200 again
@@ -280,20 +292,19 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
         0xff, 0xd0, // CALL AX has no constant destination
         0xc3,
     ];
-    for (cs, start, bytes) in [
+    let ranges = [
         (0x10, 0x100, code.as_slice()),
         (0x10, 0x180, &[0xe8, 0x7d, 0, 0xc3][..]), // CALL 0200; RET
         (0x20, 0x100, code.as_slice()),
-    ] {
+    ]
+    .map(|(segment, offset, bytes)| (CodeAddress::from(FarPointer { segment, offset }), bytes));
+    let mut module = compiler.discover_blocks(mapped_code(ranges));
+    for (entry, _) in ranges {
         module
-            .add_function(
-                CodeAddress::from(FarPointer {
-                    segment: cs,
-                    offset: start,
-                }),
-                crate::SegmentDefaultSize::Bits16,
+            .add_root(
+                entry,
+                SegmentDefaultSize::Bits16,
                 DiscoveryLimits::default(),
-                reader(u32::from(start), bytes),
             )
             .unwrap();
     }
@@ -302,24 +313,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
 
     // Without a known CS, only the explicit far target has a table entry.
     let unknown_cs = compiler
-        .compile_function(0x100, DiscoveryLimits::default(), reader(0x100, &code))
+        .compile_blocks_from_root(0x100, DiscoveryLimits::default(), reader(0x100, &code))
         .unwrap();
     assert_eq!(unknown_cs.call_targets, [0x0010_0200]);
-
-    let mut local = compiler.function_module();
-    local
-        .add_function(
-            CodeAddress::from(FarPointer {
-                segment: 0x10,
-                offset: 0x100,
-            }),
-            crate::SegmentDefaultSize::Bits16,
-            DiscoveryLimits::default(),
-            reader(0x100, &[0xe8, 0, 0, 0xc3]),
-        )
-        .unwrap();
-    assert!(
-        local.compile().unwrap().call_targets.is_empty(),
-        "a local call uses its direct entry"
-    );
 }

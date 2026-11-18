@@ -45,8 +45,8 @@ async fn slice(runner: &mut Runner) {
 async fn automatic() {
     let compiler = CompilerService::start_with_workers(NonZeroUsize::new(1).unwrap()).unwrap();
     full_collection(&compiler).await;
-    // The second case batches a partially discovered function with another callee.
-    // Its untaken unsupported branch must not prevent compiling the valid paths.
+    // One root in the second batch branches to an unsupported instruction.
+    // Its valid fallthrough still runs in the compiled module.
     for partial in [false, true] {
         let (mut machine, config) = setup();
         machine
@@ -97,6 +97,11 @@ async fn automatic() {
                                     .count(),
                                 1,
                             );
+                        }
+                        if partial {
+                            // The RET after JNZ is an internal fallthrough.
+                            assert!(!runner.cpu().has_entry(0x205));
+                            assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
                         }
                         assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
                         // Wait for installation before inspecting counts, so this test
@@ -189,12 +194,12 @@ async fn full_collection(compiler: &CompilerService) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn collection_submits_hot_batches_and_installs_partial_functions() {
+fn collection_compiles_hot_roots_with_partially_discovered_branches() {
     pollster::block_on(automatic());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn collection_submits_hot_batches_and_installs_partial_functions() {
+async fn collection_compiles_hot_roots_with_partially_discovered_branches() {
     automatic().await;
 }

@@ -53,7 +53,7 @@ impl Segment {
 /// The D/B attribute, independent of a segment's base and effective limit.
 /// It selects CS instruction defaults, SS stack-pointer width, or the upper
 /// bound of an expand-down data segment. It does not size an ordinary data segment.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SegmentDefaultSize {
     Bits16,
     Bits32,

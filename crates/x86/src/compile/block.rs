@@ -40,11 +40,14 @@ pub struct BlockEntry {
     pub export: String,
 }
 
-/// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
-/// Entry metadata follows the supplied snapshot order.
+/// Compiled guest blocks sharing one Wasm module, its imports and generated helpers.
 pub struct CompiledBlocks {
     pub bytes: Vec<u8>,
+    /// Entries available to CPU dispatch. Explicit snapshots retain their request order.
     pub entries: Vec<BlockEntry>,
+    /// Guest address and byte length of every emitted block, including private jump targets.
+    /// Keep these bytes and their instruction-fetch mappings valid while the module can run.
+    pub spans: Vec<(CodeAddress, usize)>,
     /// Unique packed Real16 CS:IP targets, in call-table slot order.
     /// Calls from every function in this module share slots for equal targets.
     /// Unresolved slots initially call `relocade.resolveAndJump`.

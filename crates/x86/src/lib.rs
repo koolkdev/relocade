@@ -64,9 +64,9 @@ mod instruction_tests;
 use std::fmt;
 
 pub use compile::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DiscoveryLimits, EntryTable,
-    FunctionModule,
+    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError,
+    BlockDiscovery, BlockEntry, BlockSnapshot, CodeAddress, CompiledBlocks, Compiler,
+    DiscoveryLimits, EntryTable,
 };
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use interpreter::build_interpreter;

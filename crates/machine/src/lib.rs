@@ -58,7 +58,7 @@ pub use clock::{
     timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Schedule, Sleep,
     TickRate, TimerHandle, Timestamp,
 };
-pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService, FunctionRequest};
+pub use compiler::{BlockRequest, CompiledCode, CompilerClient, CompilerService, DiscoveryRequest};
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};
 pub use io::{

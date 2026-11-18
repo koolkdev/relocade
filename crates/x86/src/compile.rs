@@ -2,16 +2,16 @@
 
 mod address;
 mod block;
+mod discovery;
 mod dispatch;
-mod function;
 
 pub use address::CodeAddress;
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
     BlockSnapshot, CompiledBlocks,
 };
+pub use discovery::{BlockDiscovery, DiscoveryLimits};
 pub use dispatch::EntryTable;
-pub use function::{DiscoveryLimits, FunctionModule};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 

@@ -14,7 +14,6 @@ pub(super) enum Transfer {
         fallthrough: Val<I32>,
     },
     Call(Option<CallLink>),
-    FarCall(Option<CallLink>),
     Return,
     Dispatch,
 }
@@ -41,12 +40,7 @@ impl ExecutionBuilder<'_, '_> {
                     .if_(condition, |body| enter(body, taken, self.runtime))?;
                 enter(self.body, fallthrough, self.runtime)
             }
-            Transfer::Call(link) | Transfer::FarCall(link) => {
-                if matches!(self.transfer, Transfer::Call(_)) {
-                    if let Some(function) = local_entry(&self.body, &self.eip, self.entries)? {
-                        return self.body.tail_call(function, &[]);
-                    }
-                }
+            Transfer::Call(link) => {
                 if let Some(link) = link {
                     return link.enter(self.body);
                 }

@@ -1,7 +1,8 @@
-//! Shared Wasm declarations and function emission for one snapshot batch.
+//! Wasm declarations, links and exports for one batch of guest blocks.
 
-use super::{decode::DecodedBlock, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::compile::CodeAddress;
+use super::{
+    decode::DecodedBlock, BlockCompileError, BlockEntry, CodeAddress, CompiledBlocks, Compiler,
+};
 use crate::{
     execution::ExecutionModule, instruction::CallTarget, profile::EntryGuarantees, BlockError,
     ExecutionProfile,
@@ -10,10 +11,11 @@ use relocade_compiler::{CompileExecutor, Func, Program};
 use std::collections::BTreeMap;
 
 pub(in crate::compile) struct BlockModule<'a> {
-    pub(in crate::compile) compiler: &'a Compiler,
-    pub(in crate::compile) program: Program,
-    pub(in crate::compile) entries: Vec<BlockEntry>,
-    pub(in crate::compile) call_targets: Vec<u32>,
+    compiler: &'a Compiler,
+    program: Program,
+    entries: Vec<BlockEntry>,
+    spans: Vec<(CodeAddress, usize)>,
+    call_targets: Vec<u32>,
     call_slots: BTreeMap<u32, u32>,
     execution: ExecutionModule,
 }
@@ -46,6 +48,7 @@ impl<'a> BlockModule<'a> {
             compiler,
             program,
             entries: Vec::new(),
+            spans: Vec::new(),
             call_targets: Vec::new(),
             call_slots: BTreeMap::new(),
             execution,
@@ -55,40 +58,39 @@ impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn append(
         &mut self,
         blocks: Vec<DecodedBlock>,
-        entry: CodeAddress,
     ) -> Result<(), BlockError> {
         let blocks = self.declare_blocks(blocks);
-        // Each discovered function has its own CS-relative namespace. Separate
-        // functions in this module may use the same EIP under different segments.
         let entries: BTreeMap<_, _> = blocks
             .iter()
-            .map(|(block, function)| (block.entry.address.eip(), *function))
+            .map(|(block, function)| (block.address.eip(), *function))
             .collect();
         let mut call_sites = BTreeMap::new();
         if self.compiler.target.profile == ExecutionProfile::Real16 {
-            for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
-                let target = match instruction.call_target() {
-                    Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
-                        let CodeAddress::RealMode { segment, .. } = entry else {
-                            continue;
-                        };
-                        (u32::from(segment) << 16) | eip
-                    }
-                    Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
-                        (u32::from(selector) << 16) | offset
-                    }
-                    _ => continue,
-                };
-                let index = *self.call_slots.entry(target).or_insert_with(|| {
-                    let index =
-                        u32::try_from(self.call_targets.len()).expect("call table fits u32");
-                    self.call_targets.push(target);
-                    index
-                });
-                call_sites.insert(instruction.eip, index);
+            for (block, _) in &blocks {
+                for instruction in &block.instructions {
+                    let target = match instruction.call_target() {
+                        Some(CallTarget::Near(eip)) if eip <= 0xffff => {
+                            let Some(segment) = block.address.segment() else {
+                                continue;
+                            };
+                            (u32::from(segment) << 16) | eip
+                        }
+                        Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
+                            (u32::from(selector) << 16) | offset
+                        }
+                        _ => continue,
+                    };
+                    let index = *self.call_slots.entry(target).or_insert_with(|| {
+                        let index =
+                            u32::try_from(self.call_targets.len()).expect("call table fits u32");
+                        self.call_targets.push(target);
+                        index
+                    });
+                    call_sites.insert(instruction.eip, index);
+                }
             }
         }
-        let module = self.execution.with_function(entries, call_sites);
+        let module = self.execution.with_blocks(entries, call_sites);
         self.define_blocks(blocks, module)
     }
 
@@ -96,6 +98,7 @@ impl<'a> BlockModule<'a> {
         Ok(CompiledBlocks {
             bytes: self.program.compile()?,
             entries: self.entries,
+            spans: self.spans,
             call_targets: self.call_targets,
             execution_target: self.compiler.target,
         })
@@ -108,6 +111,7 @@ impl<'a> BlockModule<'a> {
         Ok(CompiledBlocks {
             bytes: self.program.compile_with(executor).await?,
             entries: self.entries,
+            spans: self.spans,
             call_targets: self.call_targets,
             execution_target: self.compiler.target,
         })
@@ -128,10 +132,9 @@ impl<'a> BlockModule<'a> {
         blocks: Vec<(DecodedBlock, Func)>,
         module: ExecutionModule,
     ) -> Result<(), BlockError> {
-        self.entries.reserve(blocks.len());
+        self.spans.reserve(blocks.len());
         for (block, function) in blocks {
-            let entry = self.define_block(block, function, module.clone())?;
-            self.entries.push(entry);
+            self.define_block(block, function, module.clone())?;
         }
         Ok(())
     }
@@ -141,20 +144,37 @@ impl<'a> BlockModule<'a> {
         block: DecodedBlock,
         function: Func,
         module: ExecutionModule,
-    ) -> Result<BlockEntry, BlockError> {
+    ) -> Result<(), BlockError> {
         let observed_cpu = self.compiler.observed_cpu;
         self.program.define(function, move |body| {
             let mut execution = module
-                .builder(body, block.entry.address.eip())?
+                .builder(body, block.address.eip())?
                 .with_interpreter_fallback()
                 .with_observed_cpu(observed_cpu.as_ref());
-            execution.guard_snapshot(block.entry.code_default_size, block.entry.byte_len)?;
+            execution.guard_snapshot(block.code_default_size, block.byte_len)?;
             for instruction in block.instructions {
                 execution.execute(instruction.bind())?;
             }
             execution.dispatch()
         })?;
-        self.program.export(&block.entry.export, function)?;
-        Ok(block.entry)
+        self.spans.push((block.address, block.byte_len));
+        if block.exported {
+            let export = format!("block_{}", block.address);
+            self.program
+                .export(&export, function)
+                .map_err(|error| match error {
+                    relocade_compiler::BuildError::DuplicateExport => BlockError::DuplicateBlock {
+                        address: block.address,
+                    },
+                    error => error.into(),
+                })?;
+            self.entries.push(BlockEntry {
+                address: block.address,
+                code_default_size: block.code_default_size,
+                byte_len: block.byte_len,
+                export,
+            });
+        }
+        Ok(())
     }
 }

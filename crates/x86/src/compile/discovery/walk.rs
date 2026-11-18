@@ -9,6 +9,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[cfg(test)]
 pub(super) fn blocks(
     entry: CodeAddress,
     size: SegmentDefaultSize,
@@ -27,6 +28,7 @@ pub(super) struct Discovery {
     target: ExecutionTarget,
     instructions: BTreeMap<u32, SnapshotInstruction>,
     boundaries: BTreeSet<u32>,
+    exports: BTreeSet<u32>,
 }
 
 impl Discovery {
@@ -41,7 +43,12 @@ impl Discovery {
             target,
             instructions: BTreeMap::new(),
             boundaries: BTreeSet::new(),
+            exports: BTreeSet::new(),
         }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
     }
 
     /// Limits apply to instructions added by this root. A join exposes the accepted
@@ -57,6 +64,7 @@ impl Discovery {
         }
         let mut pending = VecDeque::from([start]);
         let mut entries = BTreeSet::from([start]);
+        let mut exports = vec![start];
         // Stage this root so an over-budget path cannot split an accepted block.
         let mut decoded = BTreeMap::<u32, SnapshotInstruction>::new();
         let mut window = Window::default();
@@ -113,6 +121,9 @@ impl Discovery {
                 let ends_block = instruction.ends_block(self.target);
                 if ends_block {
                     for successor in instruction.successors(self.target).into_iter().flatten() {
+                        if instruction.is_call() {
+                            exports.push(successor);
+                        }
                         enqueue(successor, &mut entries, &mut pending);
                     }
                 }
@@ -131,6 +142,7 @@ impl Discovery {
             }
         }
         if !decoded.is_empty() || self.instructions.contains_key(&start) {
+            self.exports.extend(exports);
             self.boundaries.extend(entries);
             self.instructions.extend(decoded);
         }
@@ -140,7 +152,11 @@ impl Discovery {
     pub(super) fn finish(mut self) -> Vec<DecodedBlock> {
         let mut blocks = Vec::new();
         for &start in &self.boundaries {
-            let mut block = DecodedBlock::new(self.origin.with_eip(start), self.size);
+            let mut block = DecodedBlock::new(
+                self.origin.with_eip(start),
+                self.size,
+                self.exports.contains(&start),
+            );
             let mut eip = start;
             while let Some(instruction) = self.instructions.remove(&eip) {
                 eip = instruction.fallthrough_eip;

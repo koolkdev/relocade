@@ -24,6 +24,10 @@ pub(crate) struct SnapshotInstruction {
 }
 
 impl SnapshotInstruction {
+    pub(crate) fn is_call(&self) -> bool {
+        self.form.is_call()
+    }
+
     pub(crate) fn call_target(&self) -> Option<crate::instruction::CallTarget> {
         self.form
             .call_target(self.fields.immediates, self.fallthrough_eip)

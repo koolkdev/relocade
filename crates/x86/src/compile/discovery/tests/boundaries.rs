@@ -10,7 +10,7 @@ fn decode_failures_preserve_valid_prefixes_and_other_branches() {
     ] {
         let mut prefix = vec![0x90];
         prefix.extend(suffix);
-        assert_eq!(entries(&prefix, limits), [(0x1000, 1)]);
+        assert_eq!(discovered_spans(&prefix, limits), [(0x1000, 1)]);
 
         let mut branch = vec![
             0x75, 3,    // JNZ 1005, explored before the fallthrough
@@ -18,7 +18,10 @@ fn decode_failures_preserve_valid_prefixes_and_other_branches() {
             0xff, 0xe0, // JMP EAX
         ];
         branch.extend(suffix);
-        assert_eq!(entries(&branch, limits), [(0x1000, 2), (0x1002, 3)]);
+        assert_eq!(
+            discovered_spans(&branch, limits),
+            [(0x1000, 2), (0x1002, 3)]
+        );
     }
 }
 
@@ -47,7 +50,7 @@ fn undecodable_entries_still_report_the_decode_error() {
     ] {
         assert_eq!(
             compiler
-                .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, code))
+                .compile_blocks_from_root(0x1000, DiscoveryLimits::default(), reader(0x1000, code))
                 .err(),
             Some(expected),
         );
@@ -77,7 +80,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
     ] {
         let mut bytes = code.to_vec();
         bytes.extend([0x90, 0xc3]); // NOP; RET after the execution boundary
-        let blocks = discover::blocks(
+        let blocks = walk::blocks(
             CodeAddress::CsRelative(0x1000),
             SegmentDefaultSize::for_profile(target.profile),
             target,
@@ -88,7 +91,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
         assert_eq!(
             blocks
                 .iter()
-                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+                .map(|block| (block.address.eip(), block.byte_len))
                 .collect::<Vec<_>>(),
             [(0x1000, code.len()), (0x1000 + code.len() as u32, 2)],
             "{code:02x?}",
@@ -97,8 +100,8 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
 }
 
 #[test]
-fn real_mode_far_calls_discover_only_the_return_continuation() {
-    let target = Compiler::new(ExecutionProfile::Real16).target();
+fn real_mode_far_calls_export_the_decoded_return_continuation() {
+    let compiler = Compiler::new(ExecutionProfile::Real16);
     for call in [
         &[0x9a, 0, 0x20, 0, 0x30][..],         // CALL FAR 3000:2000
         &[0xff, 0x1e, 0, 0x20],                // CALL FAR [2000]
@@ -108,25 +111,32 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         let mut bytes = call.to_vec();
         bytes.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
         let mut read = reader(0x1000, &bytes);
-        let blocks = discover::blocks(
-            CodeAddress::CsRelative(0x1000),
-            SegmentDefaultSize::for_profile(target.profile),
-            target,
-            DiscoveryLimits::default(),
-            |eip, output| {
+        let blocks = compiler
+            .compile_blocks_from_root(0x1000, DiscoveryLimits::default(), |eip, output| {
                 assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
                 read(eip, output)
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(
-            blocks
-                .iter()
-                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
-                .collect::<Vec<_>>(),
-            [(0x1000, call.len()), (0x1000 + call.len() as u32, 2)],
+            exported_eips(&blocks),
+            [0x1000, 0x1000 + call.len() as u32],
             "{call:02x?}",
         );
+        assert_eq!(blocks.entries[1].byte_len, 2);
+    }
+}
+
+#[test]
+fn unreadable_and_unsupported_call_continuations_have_no_export() {
+    let compiler = Compiler::new(SegmentProfile::Flat32);
+    for suffix in [&[][..], &[0xf1]] {
+        let mut code = vec![0xff, 0xd0]; // CALL EAX
+        code.extend_from_slice(suffix);
+        let blocks = compiler
+            .compile_blocks_from_root(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
+            .unwrap();
+        assert_eq!(exported_eips(&blocks), [0x1000]);
+        assert_eq!(blocks.spans, [(CodeAddress::CsRelative(0x1000), 2)]);
     }
 }
 
@@ -162,7 +172,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
     ] {
         let mut bytes = code.to_vec();
         bytes.extend([0x90, 0xc3]); // A valid suffix exposes accidental exploration.
-        let blocks = discover::blocks(
+        let blocks = walk::blocks(
             CodeAddress::CsRelative(0x1000),
             SegmentDefaultSize::for_profile(profile),
             Compiler::new(profile).target(),
@@ -171,17 +181,17 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
         )
         .unwrap();
         assert_eq!(blocks.len(), 1, "{profile:?}, {code:02x?}");
-        assert_eq!(blocks[0].entry.byte_len, code.len());
+        assert_eq!(blocks[0].byte_len, code.len());
     }
 }
 
 #[test]
-fn discovered_continuations_preserve_snapshot_entry_spans() {
+fn ordinary_fallthroughs_stay_private_and_explicit_snapshots_export_each_entry() {
     let code = [0xec, 0x8e, 0xd8, 0x8e, 0xd0, 0x0f, 0xa2, 0xc3];
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let code_default_size = SegmentDefaultSize::Bits16;
     let actual = compiler
-        .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
+        .compile_blocks_from_root(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
         .unwrap();
     let snapshots: Vec<_> = [(0, 1), (1, 2), (3, 2), (5, 2), (7, 1)]
         .into_iter()
@@ -193,5 +203,10 @@ fn discovered_continuations_preserve_snapshot_entry_spans() {
         })
         .collect();
     let expected = compiler.compile_blocks(&snapshots).unwrap();
-    assert_eq!(actual.entries, expected.entries);
+    assert_eq!(actual.spans, expected.spans);
+    assert_eq!(exported_eips(&actual), [0x1000]);
+    assert_eq!(
+        exported_eips(&expected),
+        [0x1000, 0x1001, 0x1003, 0x1005, 0x1007]
+    );
 }

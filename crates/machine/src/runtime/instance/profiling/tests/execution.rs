@@ -163,25 +163,25 @@ async fn far_calls() {
         .unwrap();
         if compiled_caller {
             let mut reader = memory.code_reader();
-            let mut functions = compiler.function_module();
-            functions
-                .add_function(
+            let mut discovery = compiler
+                .discover_blocks(|address, output| reader.read_prefix(address.eip(), output));
+            discovery
+                .add_root(
                     target(0x100).into(),
                     SegmentDefaultSize::Bits16,
                     DiscoveryLimits::default(),
-                    |eip, output| reader.read_prefix(eip, output),
                 )
                 .unwrap();
-            let function = functions.compile().unwrap();
+            let blocks = discovery.compile().unwrap();
             let source = reader.finish(
-                function
-                    .entries
+                blocks
+                    .spans
                     .iter()
-                    .map(|block| (block.address.eip(), block.byte_len)),
+                    .map(|&(address, len)| (address.eip(), len)),
             );
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
-            let module = wasm.compile(&function.bytes).await.unwrap();
-            crate::CompiledCode::new(module, function, source)
+            let module = wasm.compile(&blocks.bytes).await.unwrap();
+            crate::CompiledCode::new(module, blocks, source)
                 .install(&mut cpu)
                 .unwrap();
         }

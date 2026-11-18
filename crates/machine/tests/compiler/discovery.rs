@@ -1,8 +1,8 @@
 use super::*;
-use relocade_machine::{FarPointer, FunctionRequest};
+use relocade_machine::{DiscoveryRequest, FarPointer};
 use relocade_x86::{DiscoveryLimits, Segment, SegmentRegister};
 
-async fn execute_function(compiler: &relocade_machine::CompilerService) {
+async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
     let mut state = *config.cpu();
     state.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x10);
@@ -31,15 +31,17 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
             let target = runner.cpu().cpu_state().execution_target();
             let mut compiler = runner.take_compiler().unwrap();
             compiler
-                .request_functions(
+                .request_discovery(
                     target,
-                    vec![FunctionRequest {
-                        entry: FarPointer {
-                            segment: 0x10,
-                            offset: 0,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    }],
+                    [0, 3]
+                        .map(|offset| DiscoveryRequest {
+                            entry: FarPointer {
+                                segment: 0x10,
+                                offset,
+                            },
+                            limits: DiscoveryLimits::default(),
+                        })
+                        .into(),
                 )
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
@@ -48,7 +50,7 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
                     .iter()
                     .map(|b| (b.address.eip(), b.byte_len))
                     .collect::<Vec<_>>(),
-                [(0, 3), (3, 3), (6, 3), (9, 5)]
+                [(0, 3), (3, 3), (9, 5)]
             );
             let exit = runner.cpu().exit_handle();
             runner
@@ -94,19 +96,19 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
         )
         .unwrap();
     machine.memory().view().write(0x200, &[0x42, 0xcb]).unwrap(); // INC DX; RETF
-    machine.memory().view().write(0x300, &[0xf1]).unwrap(); // Unsupported candidate
+    machine.memory().view().write(0x300, &[0xf1]).unwrap(); // Unsupported root
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = cpu
         .run_until(pending::<()>(), async move |mut runner| {
             let target = runner.cpu().cpu_state().execution_target();
             let mut compiler = runner.take_compiler().unwrap();
-            let request = |segment| FunctionRequest {
+            let request = |segment| DiscoveryRequest {
                 entry: FarPointer { segment, offset: 0 },
                 limits: DiscoveryLimits::default(),
             };
-            // The failed candidate between the valid functions must not discard either.
+            // Both valid roots survive a rejected root between them.
             compiler
-                .request_functions(target, vec![request(0x10), request(0x30), request(0x20)])
+                .request_discovery(target, vec![request(0x10), request(0x30), request(0x20)])
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
             assert_eq!(
@@ -118,7 +120,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             );
             assert_eq!(code.ranges(), &[0x100..0x10a, 0x200..0x202]);
             compiler
-                .request_functions(target, vec![request(0x30)])
+                .request_discovery(target, vec![request(0x30)])
                 .unwrap();
             assert!(matches!(
                 compiler.recv().await.unwrap(),
@@ -167,7 +169,9 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         .write(
             0x100,
             &[
-                0xe8, 0xfd, 0, // CALL the external callee at linear address 0200
+                0x83, 0xfc, 1, // CMP SP,1 clears ZF with the fixture's stack
+                0x0f, 0x84, 0xf9, 0, // JZ 0200 makes the callee reachable from this root
+                0xe8, 0xf6, 0, // CALL 0200 must still honor callee replacement
                 0xff, 0xe3, // JMP BX to the CS:IP exit hook
             ],
         )
@@ -188,38 +192,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
-            .request_functions(
+            .request_discovery(
                 target,
-                vec![
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 0,
-                            offset: 0x100,
-                        },
+                [(0, 0x100), (1, 0xf0), (0, 0x200), (1, 0x1f0)]
+                    .map(|(segment, offset)| DiscoveryRequest {
+                        entry: FarPointer { segment, offset },
                         limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 1,
-                            offset: 0xf0,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 0,
-                            offset: 0x200,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 1,
-                            offset: 0x1f0,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                ],
+                    })
+                    .into(),
             )
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
@@ -228,6 +208,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         runner
             .cpu()
             .install([
+                // Neither return address was a requested root. Installing the
+                // discovered continuations must replace these dispatch entries.
+                Hook::host(0x10a, async || {
+                    panic!("RET missed the compiled continuation")
+                }),
+                Hook::host(0x0001_00fa, async || {
+                    panic!("RET missed the alias continuation")
+                }),
                 Hook::host(0x120, async move || exit.request()),
                 Hook::host(0x0001_0110, async move || alias_exit.request()),
             ])
@@ -253,6 +241,7 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                     SegmentRegister::real_mode(Segment::Cs, segment),
                 );
                 state.set_eip(offset);
+                let initial_count = state.instruction_count();
                 state.set_sp(0x800);
                 state.set_ax(0);
                 state.set_bx(0x120 - (segment << 4));
@@ -261,22 +250,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                     ExecutionExit::Host(HostExit::Return)
                 );
                 let state = runner.cpu().cpu_state();
-                assert_eq!(
-                    state.ax(),
-                    if phase == 1 && segment == 0 {
-                        0
-                    } else {
-                        return_ip
-                    }
-                );
-                assert_eq!(
-                    state.sp(),
-                    if phase == 1 && segment == 0 {
-                        0x7fe
-                    } else {
-                        0x800
-                    }
-                );
+                let pushed_ip = runner.cpu().memory().view().read_u16(0x7fe).unwrap();
+                assert_eq!(u32::from(pushed_ip), offset + 10);
+                let retired = state.instruction_count() - initial_count;
+                if phase == 1 && segment == 0 {
+                    assert_eq!((state.ax(), state.sp(), retired), (0, 0x7fe, 3));
+                } else {
+                    assert_eq!((state.ax(), state.sp(), retired), (return_ip, 0x800, 7));
+                }
             }
         }
     })
@@ -300,24 +281,24 @@ async fn real_mode_aliases_keep_separate_entries_and_hooks() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn discovered_function_runs_branches_and_an_interpreted_callee() {
-    pollster::block_on(compilation::run(execute_function));
+fn discovered_blocks_run_branches_and_an_interpreted_callee() {
+    pollster::block_on(compilation::run(execute_branches));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn discovered_function_runs_branches_and_an_interpreted_callee() {
-    compilation::run(execute_function).await;
+async fn discovered_blocks_run_branches_and_an_interpreted_callee() {
+    compilation::run(execute_branches).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
+fn discovery_shares_a_module_across_segments_and_skips_rejected_roots() {
     pollster::block_on(compilation::run(execute_batch));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn function_batch_shares_a_module_across_segments_and_discovery_failures() {
+async fn discovery_shares_a_module_across_segments_and_skips_rejected_roots() {
     compilation::run(execute_batch).await;
 }

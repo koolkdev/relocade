@@ -210,6 +210,13 @@ pub(crate) enum CallTarget {
 }
 
 impl ResolvedForm {
+    pub(crate) fn is_call(&self) -> bool {
+        matches!(
+            self.form.control_flow,
+            Some(ControlFlow::Call | ControlFlow::FarCall)
+        )
+    }
+
     pub(crate) fn call_target(
         &self,
         immediates: [Option<u32>; 2],

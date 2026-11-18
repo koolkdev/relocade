@@ -22,7 +22,7 @@ impl CallLinks {
         }
     }
 
-    pub(super) fn for_function(&self, sites: BTreeMap<u32, u32>) -> Self {
+    pub(super) fn with_sites(&self, sites: BTreeMap<u32, u32>) -> Self {
         Self {
             table: self.table,
             sites,
