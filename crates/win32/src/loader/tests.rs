@@ -55,12 +55,9 @@ fn one_loaded_module_resolves_imports_and_exports_used_only_dynamically() {
             .unwrap();
 
         let module = loader.module("MATH.DLL").unwrap();
-        let mut slots = [0; 8];
-        for (slot, import) in slots.chunks_exact_mut(4).zip([Name("Scale"), Ordinal(400)]) {
-            let address = module.resolve(import).unwrap();
-            slot.copy_from_slice(&address.to_le_bytes());
-        }
-        page.write(BASE, &slots).unwrap();
+        let imports = [Name("Scale"), Ordinal(400)];
+        let slots = imports.map(|symbol| module.resolve(symbol).unwrap().to_le_bytes());
+        page.write(BASE, slots.as_flattened()).unwrap();
         let mut first_slot = [0; 4];
         page.read(BASE, &mut first_slot).unwrap();
         let scale_address = u32::from_le_bytes(first_slot);
