@@ -1,62 +1,80 @@
 name: Tests
+
 on: workflow_dispatch
+
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep line-number backtraces while reducing test artifacts and linker work.
+  CARGO_PROFILE_TEST_DEBUG: 1
+
 jobs:
   native:
-    name: Diagnose native GPU tests on Ubuntu 26.04
+    name: ${{ matrix.name }} tests
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: Native integration
+            name: DOS and application
+            # New workspace members join this suite until assigned to Core.
+            packages: >-
+              --workspace --exclude relocade-derive --exclude relocade-compiler
+              --exclude relocade-x86 --exclude relocade-interpreter
+              --exclude relocade-test-support --exclude relocade-wasm-bindings
+              --exclude relocade-wasm-runtime --exclude relocade-workers
+            system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
     env:
-      CARGO_PROFILE_TEST_DEBUG: 1
+      # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
+      # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
       GALLIUM_OVERRIDE_CPU_CAPS: avx
+      VK_LOADER_DRIVERS_SELECT: 'lvp_icd*'
+      ALSA_CONFIG_PATH: ${{ github.workspace }}/crates/app/tests/alsa-null.conf
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out repository
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install diagnostics and identify graphics libraries
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure native test environment
+        run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Install native test dependencies
+        if: matrix.system-packages != ''
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0
-          dpkg-query -W 'mesa-vulkan-drivers' 'libllvm*' 'libvulkan1'
-          lscpu | grep -E 'Model name|CPU\(s\)|Vendor ID'
-          ls -l /usr/share/vulkan/icd.d/ /opt/google/chrome/*icd*.json || true
-          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.system-packages }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          key: Native integration
+          key: ${{ matrix.suite }}
           save-if: 'false'
-      - name: Build the three existing GPU integration suites
-        run: |
-          cargo test -p relocade-vga -p relocade-dos --all-features --locked --no-run --test gpu --test et4000 --test video_gpu --message-format=json > "$RUNNER_TEMP/gpu-bins.jsonl"
-          jq -r 'select(.reason=="compiler-artifact" and .executable!=null and ((.target.src_path|endswith("/crates/vga/tests/gpu.rs")) or (.target.src_path|endswith("/crates/vga/tests/et4000.rs")) or (.target.src_path|endswith("/crates/dos/tests/video_gpu.rs")))) | "\(.target.name)=\(.executable)"' "$RUNNER_TEMP/gpu-bins.jsonl" >> "$GITHUB_ENV"
-      - name: Compare the stock loader with single-driver and layer settings
-        run: |
-          shopt -s nullglob
-          lvp=(/usr/share/vulkan/icd.d/lvp_icd*.json)
-          test ${#lvp[@]} -eq 1
-          for suite in gpu et4000 video_gpu; do
-            echo "TARGET $suite ${!suite} $("${!suite}" --list | tail -1)"
-          done
-          probe() {
-            local variant=$1 repetitions=$2
-            shift 2
-            local passed=0 failed=0
-            for ((i=1;i<=repetitions;i++)); do
-              for suite in gpu et4000 video_gpu; do
-                log="$RUNNER_TEMP/result-$variant-$suite.log"
-                rc=0
-                env "$@" MESA_SHADER_CACHE_DIR="$RUNNER_TEMP/mesa-$variant-$suite" "${!suite}" > "$log" 2>&1 || rc=$?
-                if [[ $rc == 0 ]]; then passed=$((passed+1)); else failed=$((failed+1)); fi
-                echo "RESULT $variant $i $suite exit=$rc $(grep -m1 'test result:' "$log" || true)"
-              done
-            done
-            echo "TOTAL $variant passed=$passed failed=$failed"
-          }
-          probe stock 4
-          probe select-lvp 12 'VK_LOADER_DRIVERS_SELECT=lvp_icd*'
-          probe lvp-file 6 VK_DRIVER_FILES="${lvp[0]}"
-          probe no-device-layer 3 NODEVICE_SELECT=1
-          probe keep-loaded 3 VK_LOADER_DISABLE_DYNAMIC_LIBRARY_UNLOADING=1
-          probe serial 4 RUST_TEST_THREADS=1
+
+      - name: Cache compiled Wasm test modules
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/wasmtime
+          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Run tests
+        # Keep package selection and features identical when running ignored tests,
+        # so Cargo can reuse this build instead of resolving another feature graph.
+        run: cargo test ${{ matrix.packages }} --all-features --locked
+
+      - name: Run display and audio integration tests
+        if: matrix.suite == 'Native integration'
+        run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
