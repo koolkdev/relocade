@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BlockBuilder, BuildError};
 
-use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingMode};
+use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, QuotientMethod, RoundingMode};
 
 use super::{
     result::RoundedValue,
@@ -48,7 +48,7 @@ impl BinaryOperands {
                         exponent: 0.into(),
                         negative: false.into(),
                     },
-                    false,
+                    QuotientMethod::Full,
                 )
                 .with_negative_tail(&true.into());
                 let offset = swap.or(x.bits.negative());

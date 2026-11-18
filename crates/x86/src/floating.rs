@@ -11,6 +11,7 @@ mod sqrt;
 
 pub(crate) use classification::BinaryClassification;
 pub(crate) use finite::{FiniteInput, FiniteMagnitude, MagnitudeShape};
+pub(crate) use quotient::QuotientMethod;
 use relocade_compiler::{Val, VectorLane, F64, I32, I64};
 pub(crate) use rounding::{RoundingInput, RoundingMode};
 
