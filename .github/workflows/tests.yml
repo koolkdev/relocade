@@ -18,7 +18,7 @@ jobs:
       - name: Install diagnostics and identify graphics libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gdb libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0
+          sudo apt-get install -y -qq libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0
           dpkg-query -W 'mesa-vulkan-drivers' 'libllvm*' 'libvulkan1'
           lscpu | grep -E 'Model name|CPU\(s\)|Vendor ID'
           ls -l /usr/share/vulkan/icd.d/ /opt/google/chrome/*icd*.json || true
@@ -30,33 +30,33 @@ jobs:
       - name: Build the three existing GPU integration suites
         run: |
           cargo test -p relocade-vga -p relocade-dos --all-features --locked --no-run --test gpu --test et4000 --test video_gpu --message-format=json > "$RUNNER_TEMP/gpu-bins.jsonl"
-          jq -r 'select(.reason=="compiler-artifact" and .executable!=null) | "\(.target.name)=\(.executable)"' "$RUNNER_TEMP/gpu-bins.jsonl" >> "$GITHUB_ENV"
-      - name: Capture the failing thread in the stock graphics test
-        run: |
-          export DEBUGINFOD_URLS=
-          gdb -batch -q -ex 'set debuginfod enabled off' -ex 'set print thread-events off' -ex run -ex 'bt 24' -ex 'info symbol $pc' -ex 'info sharedlibrary' --args "$gpu" > "$RUNNER_TEMP/gpu-backtrace" 2>&1 || true
-          grep -E -A28 'received signal|Program terminated|test result:|panicked at' "$RUNNER_TEMP/gpu-backtrace" | head -100 || true
-          grep -E 'libvulkan|libLLVM|swrast|dri\.so|libgallium|libEGL' "$RUNNER_TEMP/gpu-backtrace" | tail -30 || true
-      - name: Compare driver and CPU capability settings with the same binaries
+          jq -r 'select(.reason=="compiler-artifact" and .executable!=null and ((.target.src_path|endswith("/crates/vga/tests/gpu.rs")) or (.target.src_path|endswith("/crates/vga/tests/et4000.rs")) or (.target.src_path|endswith("/crates/dos/tests/video_gpu.rs")))) | "\(.target.name)=\(.executable)"' "$RUNNER_TEMP/gpu-bins.jsonl" >> "$GITHUB_ENV"
+      - name: Compare the stock loader with single-driver and layer settings
         run: |
           shopt -s nullglob
           lvp=(/usr/share/vulkan/icd.d/lvp_icd*.json)
-          swift=(/opt/google/chrome/vk_swiftshader_icd.json)
+          test ${#lvp[@]} -eq 1
+          for suite in gpu et4000 video_gpu; do
+            echo "TARGET $suite ${!suite} $("${!suite}" --list | tail -1)"
+          done
           probe() {
-            local variant=$1
-            shift
-            for suite in gpu et4000 video_gpu; do
-              log="$RUNNER_TEMP/$variant-$suite.log"
-              rc=0
-              env "$@" MESA_SHADER_CACHE_DIR="$RUNNER_TEMP/mesa-$variant-$suite" "${!suite}" > "$log" 2>&1 || rc=$?
-              echo "RESULT $variant $suite exit=$rc"
-              grep -E 'test result:|FAILED|panicked at|LLVM ERROR|failed to' "$log" | tail -5 || true
+            local variant=$1 repetitions=$2
+            shift 2
+            local passed=0 failed=0
+            for ((i=1;i<=repetitions;i++)); do
+              for suite in gpu et4000 video_gpu; do
+                log="$RUNNER_TEMP/result-$variant-$suite.log"
+                rc=0
+                env "$@" MESA_SHADER_CACHE_DIR="$RUNNER_TEMP/mesa-$variant-$suite" "${!suite}" > "$log" 2>&1 || rc=$?
+                if [[ $rc == 0 ]]; then passed=$((passed+1)); else failed=$((failed+1)); fi
+                echo "RESULT $variant $i $suite exit=$rc $(grep -m1 'test result:' "$log" || true)"
+              done
             done
+            echo "TOTAL $variant passed=$passed failed=$failed"
           }
-          probe stock
-          probe avx2 GALLIUM_OVERRIDE_CPU_CAPS=avx2
-          probe native -u GALLIUM_OVERRIDE_CPU_CAPS
-          if ((${#lvp[@]})); then probe lavapipe VK_DRIVER_FILES="${lvp[0]}"; fi
-          probe serial RUST_TEST_THREADS=1
-          probe one-llvmpipe-worker LP_NUM_THREADS=1
-          if [[ -f ${swift[0]} ]]; then probe swiftshader VK_DRIVER_FILES="${swift[0]}"; fi
+          probe stock 4
+          probe select-lvp 12 'VK_LOADER_DRIVERS_SELECT=lvp_icd*'
+          probe lvp-file 6 VK_DRIVER_FILES="${lvp[0]}"
+          probe no-device-layer 3 NODEVICE_SELECT=1
+          probe keep-loaded 3 VK_LOADER_DISABLE_DYNAMIC_LIBRARY_UNLOADING=1
+          probe serial 4 RUST_TEST_THREADS=1
