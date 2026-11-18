@@ -1,5 +1,8 @@
 //! Exact alignment and cancellation precede the shared precision/range rounding.
 
+mod full_precision;
+pub(super) use full_precision::full_precision_candidate;
+
 use crate::floating::{FiniteInput, RoundingMode};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 

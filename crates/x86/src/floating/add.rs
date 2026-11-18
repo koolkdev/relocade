@@ -1,7 +1,7 @@
 //! Exact alignment and cancellation shared by binary32, binary64 and extended arithmetic.
 
 use super::{FiniteInput, FiniteMagnitude, RoundingInput, RoundingMode};
-use relocade_compiler::{BlockBuilder, BuildError, Results, Val, I1, I32, I64};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64};
 
 const LEADING: u64 = 1 << 63;
 
@@ -14,9 +14,28 @@ impl FiniteInput {
         rounding: &RoundingMode,
     ) -> Result<FiniteMagnitude, BuildError> {
         let subtract = self.negative.xor(&right.negative);
-        let aligned = AlignedMagnitudes::new(body, self, right)?;
-        let negative = aligned.left_larger.select(&self.negative, &right.negative);
-        let mut magnitude = aligned.calculate(body, &subtract, negative)?;
+        let (left_significand, left_exponent) = (&self.significand, &self.exponent);
+        let (right_significand, right_exponent) = (&right.significand, &right.exponent);
+        // Zero sorts below every nonzero finite magnitude, including the smallest
+        // subnormal. Its encoded exponent alone would not establish that order.
+        let left_exponent = left_significand.eq(0_u64).select(-16446, left_exponent);
+        let right_exponent = right_significand.eq(0_u64).select(-16446, right_exponent);
+        let left_larger = right_exponent.signed().lt(&left_exponent).or(left_exponent
+            .eq(&right_exponent)
+            .and(left_significand.unsigned().ge(right_significand)));
+        let larger = left_larger.select(left_significand, right_significand);
+        let smaller = left_larger.select(right_significand, left_significand);
+        let exponent = left_larger.select(&left_exponent, &right_exponent);
+        let distance = exponent.sub(left_larger.select(right_exponent, left_exponent));
+        let (integer, fraction) = align(body, &smaller, &distance)?;
+        let aligned = AlignedMagnitudes {
+            larger,
+            exponent,
+            integer,
+            fraction,
+        };
+        let negative = left_larger.select(&self.negative, &right.negative);
+        let mut magnitude = aligned.combine(body, &subtract, negative)?;
         let zero_negative = subtract.select(rounding.cancellation_negative(), &self.negative);
         magnitude.negative = magnitude
             .significand
@@ -25,157 +44,97 @@ impl FiniteInput {
             .select(zero_negative, magnitude.negative);
         Ok(magnitude)
     }
+
+    /// Adds or subtracts a smaller significand whose exponent is 1..=65 below
+    /// this operand's. Only gap 65 shifts a bit below the fractional word.
+    pub(crate) fn add_smaller(
+        self,
+        body: &mut BlockBuilder<'_>,
+        smaller: &Val<I64>,
+        distance: &Val<I32>,
+        subtract: &Val<I1>,
+    ) -> Result<FiniteMagnitude, BuildError> {
+        let integer = distance
+            .unsigned()
+            .lt(64)
+            .select(smaller.unsigned().shr(distance), 0_u64);
+        let fraction = distance.eq(65).select(
+            smaller.unsigned().shr(1).or(smaller.and(1_u64)),
+            smaller.shl(Val::<I32>::from(0).sub(distance)),
+        );
+        AlignedMagnitudes {
+            larger: self.significand,
+            exponent: self.exponent,
+            integer,
+            fraction,
+        }
+        .combine(body, subtract, self.negative)
+    }
 }
 
-/// Sorting bounds cancellation and lets both operations share one alignment.
+/// The smaller operand has been aligned into an integer and a fractional word.
 struct AlignedMagnitudes {
     larger: Val<I64>,
-    smaller: Val<I64>,
     exponent: Val<I32>,
-    distance: Val<I32>,
     integer: Val<I64>,
     fraction: Val<I64>,
-    left_larger: Val<I1>,
 }
 
 impl AlignedMagnitudes {
-    fn new(
-        body: &mut BlockBuilder<'_>,
-        left: &FiniteInput,
-        right: &FiniteInput,
-    ) -> Result<Self, BuildError> {
-        let (left_significand, left_exponent) = (left.significand.clone(), left.exponent.clone());
-        let (right_significand, right_exponent) =
-            (right.significand.clone(), right.exponent.clone());
-        // Zero sorts below every nonzero finite magnitude, including the smallest
-        // subnormal. Its encoded exponent alone would not establish that order.
-        let left_exponent = left.significand.eq(0_u64).select(-16446, left_exponent);
-        let right_exponent = right.significand.eq(0_u64).select(-16446, right_exponent);
-        let left_larger = right_exponent.signed().lt(&left_exponent).or(left_exponent
-            .eq(&right_exponent)
-            .and(left_significand.unsigned().ge(&right_significand)));
-        let larger = left_larger.select(&left_significand, &right_significand);
-        let smaller = left_larger.select(right_significand, left_significand);
-        let exponent = left_larger.select(&left_exponent, &right_exponent);
-        let distance = exponent.sub(left_larger.select(right_exponent, left_exponent));
-        let (integer, fraction) = align(body, &smaller, &distance)?;
-        Ok(Self {
-            larger,
-            smaller,
-            exponent,
-            distance,
-            integer,
-            fraction,
-            left_larger,
-        })
-    }
-
-    fn calculate(
+    fn combine(
         &self,
         body: &mut BlockBuilder<'_>,
         subtract: &Val<I1>,
         negative: Val<I1>,
     ) -> Result<FiniteMagnitude, BuildError> {
-        let magnitude = UnsignedMagnitude::from_components(body.if_value::<MagnitudeShape>(
+        let (integer, fraction, exponent) = body.if_value::<(I64, I64, I32)>(
             subtract,
-            |mut body| {
-                let difference = self.difference(&mut body)?;
-                body.yield_(difference.components())
-            },
-            |body| body.yield_(self.sum().components()),
-        )?);
+            |body| body.yield_(self.difference()),
+            |body| body.yield_(self.sum()),
+        )?;
         Ok(FiniteMagnitude {
-            significand: magnitude.significand,
-            exponent: magnitude.exponent,
+            significand: RoundingInput {
+                integer,
+                guard: fraction.signed().lt(0),
+                sticky: fraction.and(LEADING - 1).ne(0_u64),
+            },
+            exponent,
             negative,
         })
     }
 
-    fn sum(&self) -> UnsignedMagnitude {
+    fn sum(&self) -> (Val<I64>, Val<I64>, Val<I32>) {
         let sum = self.larger.add(&self.integer);
         let carry = sum.unsigned().lt(&self.larger);
-        UnsignedMagnitude {
-            significand: RoundingInput {
-                integer: carry.select(sum.unsigned().shr(1).or(LEADING), &sum),
-                guard: carry.select(
-                    sum.and(1_u64).ne(0_u64),
-                    self.fraction.and(LEADING).ne(0_u64),
-                ),
-                sticky: carry.select(
-                    self.fraction.ne(0_u64),
-                    self.fraction.and(LEADING - 1).ne(0_u64),
-                ),
-            },
-            exponent: self.exponent.add(carry.unsigned().extend::<I32>()),
-        }
+        let integer = carry.select(sum.unsigned().shr(1).or(LEADING), &sum);
+        let fraction = carry.select(
+            sum.shl(63)
+                .or(self.fraction.ne(0_u64).unsigned().extend::<I64>()),
+            &self.fraction,
+        );
+        (
+            integer,
+            fraction,
+            self.exponent.add(carry.unsigned().extend::<I32>()),
+        )
     }
 
-    fn difference(&self, body: &mut BlockBuilder<'_>) -> Result<UnsignedMagnitude, BuildError> {
+    fn difference(&self) -> (Val<I64>, Val<I64>, Val<I32>) {
         let integer = self
             .larger
             .sub(&self.integer)
             .sub(self.fraction.ne(0_u64).unsigned().extend::<I64>());
-        let remainder = Val::<I64>::from(0_u64).sub(&self.fraction);
-        let renormalize = integer.unsigned().lt(LEADING);
-        // Deep cancellation occurs only for gaps zero and one, where the exact
-        // difference is an integer at the smaller operand's exponent.
-        let close = self.distance.unsigned().lt(2).and(&renormalize);
-        let exact = self.larger.shl(&self.distance).sub(&self.smaller);
-        let shift = exact.clz().truncate::<I32>();
-        let far_integer =
-            renormalize.select(integer.shl(1).or(remainder.unsigned().shr(63)), integer);
-        let far_fraction = renormalize.select(remainder.shl(1), remainder);
-        Ok(UnsignedMagnitude::from_components(
-            body.if_value::<MagnitudeShape>(
-                close,
-                |body| {
-                    body.yield_((
-                        exact.shl(&shift),
-                        false,
-                        false,
-                        self.exponent.sub(self.distance.add(shift)),
-                    ))
-                },
-                |body| {
-                    body.yield_((
-                        far_integer,
-                        far_fraction.and(LEADING).ne(0_u64),
-                        far_fraction.and(LEADING - 1).ne(0_u64),
-                        self.exponent.sub(renormalize.unsigned().extend::<I32>()),
-                    ))
-                },
-            )?,
-        ))
-    }
-}
-
-struct UnsignedMagnitude {
-    significand: RoundingInput,
-    exponent: Val<I32>,
-}
-
-type MagnitudeShape = (I64, I1, I1, I32);
-
-impl UnsignedMagnitude {
-    fn from_components(components: <MagnitudeShape as Results>::Values) -> Self {
-        let (integer, guard, sticky, exponent) = components;
-        Self {
-            significand: RoundingInput {
-                integer,
-                guard,
-                sticky,
-            },
-            exponent,
-        }
-    }
-
-    fn components(self) -> <MagnitudeShape as Results>::Values {
-        (
-            self.significand.integer,
-            self.significand.guard,
-            self.significand.sticky,
-            self.exponent,
-        )
+        let fraction = Val::<I64>::from(0).sub(&self.fraction);
+        let shift = integer.clz().truncate::<I32>();
+        // When the integer vanishes, the difference is either zero or exactly
+        // half a unit at gap one. A 64-bit shift then moves the entire fraction
+        // into the significand. At wider gaps cancellation shifts at most once.
+        let significand = integer.shl(&shift).or(shift.eq(0).select(
+            0_u64,
+            fraction.unsigned().shr(Val::<I32>::from(0).sub(&shift)),
+        ));
+        let remainder = shift.eq(64).select(0_u64, fraction.shl(&shift));
+        (significand, remainder, self.exponent.sub(shift))
     }
 }
 

@@ -215,8 +215,16 @@ impl BinaryOperands {
         precision: Val<I8>,
         rounding: &RoundingMode,
     ) -> Result<ArithmeticCandidate, BuildError> {
-        if matches!(operation, BinaryOperation::Multiply)
-            && matches!(body.constant_bits(precision.and(3))?, Some(2 | 3))
+        let known_precision = body.constant_bits(precision.and(3))?;
+        if known_precision == Some(3)
+            && matches!(
+                operation,
+                BinaryOperation::Add | BinaryOperation::Subtract | BinaryOperation::ReverseSubtract
+            )
+        {
+            return super::add::full_precision_candidate(body, self, operation, rounding);
+        }
+        if matches!(operation, BinaryOperation::Multiply) && matches!(known_precision, Some(2 | 3))
         {
             if let Some(product) = super::multiply::exact_binary32_product(self) {
                 return Ok(product);
