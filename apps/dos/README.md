@@ -19,8 +19,9 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
-The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
-select the installed cards before startup:
+The default app includes DISPI video, AdLib, the built-in speaker and a printer
+on the first parallel port (378h, IRQ5). Rust callers select the hardware before
+startup:
 
 ```rust,ignore
 use relocade_dos::{Configuration, SoundCard, VideoCard};
@@ -28,7 +29,7 @@ use relocade_dos::{Configuration, SoundCard, VideoCard};
 relocade_dos_app::run_with_configuration(Configuration {
     sound_card: SoundCard::SoundBlaster2,
     video_card: VideoCard::Dispi,
-    ..Default::default()
+    ..relocade_dos_app::default_configuration()
 })?;
 ```
 
@@ -37,6 +38,10 @@ relocade_dos_app::run_with_configuration(Configuration {
 export. Embeddings that construct DOS directly use
 `Dos::with_configuration(runner, configuration).await`; `Dos::new` keeps the
 default. This selects emulated hardware independently of host output.
+
+The printer captures up to 64 KiB of raw guest output through parallel port I/O,
+BIOS INT 17h or the DOS device `LPT1`. It signals BUSY when full. Setting
+`parallel_port: None` leaves it disconnected.
 
 Select `VideoCard::Et4000Ax` for the 1-MiB ET4000AX board. It starts in 80×25 text
 and supports banked indexed VBE modes 101h (640×480), 103h (800×600), and 105h

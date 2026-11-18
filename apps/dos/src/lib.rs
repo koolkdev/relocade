@@ -5,13 +5,25 @@ use futures_channel::oneshot;
 use futures_lite::future::or;
 
 mod console;
+mod session;
 pub use console::run_console;
+
+/// The console app's default PC, with its printer on the first parallel port.
+pub fn default_configuration() -> relocade_dos::Configuration {
+    relocade_dos::Configuration {
+        parallel_port: Some(relocade_dos::ParallelPort {
+            base: 0x378,
+            irq: 5,
+        }),
+        ..Default::default()
+    }
+}
 
 /// Opens the Rust DOS console using the shared application host.
 /// Native execution returns after cleanup; browser startup returns immediately.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn run() -> Result<(), String> {
-    run_with_configuration(relocade_dos::Configuration::default())
+    run_with_configuration(default_configuration())
 }
 
 /// Opens the console with the selected PC hardware.
@@ -67,23 +79,23 @@ async fn run_machine(
         },
         async move |runner| {
             let startup = async {
-                let mut dos = relocade_dos::Dos::with_configuration(runner, configuration)
+                let (mut dos, printer) = session::start(runner, configuration)
                     .await
                     .map_err(|error| error.to_string())?;
                 if let Some((config, samples)) = output {
                     dos.attach_audio(config, samples).await?;
                 }
-                Ok::<_, String>(dos)
+                Ok::<_, String>((dos, printer))
             }
             .await;
             let (keyboard, events) = relocade_frontend::keyboard::channel();
             let _ = endpoints.send(
                 startup
                     .as_ref()
-                    .map(|dos| (keyboard, dos.mouse_input(), dos.frames()))
+                    .map(|(dos, _)| (keyboard, dos.mouse_input(), dos.frames()))
                     .map_err(Clone::clone),
             );
-            let mut dos = startup?;
+            let (mut dos, _printer) = startup?;
             run_console(dos.native_console(events)).await;
             Ok(())
         },

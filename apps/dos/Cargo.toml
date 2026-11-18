@@ -17,6 +17,9 @@ relocade-app = { path = "../../crates/app", features = ["graphics", "audio"] }
 relocade-frontend = { path = "../../crates/frontend", features = ["keyboard"] }
 relocade-dos = { path = "../../crates/dos", features = ["audio"] }
 relocade-machine = { path = "../../crates/machine" }
+relocade-parallel = { path = "../../crates/parallel" }
+relocade-pc = { path = "../../crates/pc" }
+relocade-printer = { path = "../../crates/printer" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 futures-lite = "=2.6.1"
 futures-channel = "=0.3.34"
