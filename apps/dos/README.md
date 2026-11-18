@@ -141,8 +141,8 @@ run_console(dos.native_console(events)).await;
 keyboard layout, independent of the host language. It reuses DOS's line editor
 for Enter, Backspace and control characters. `write(bytes)` is synchronous: it
 uses cooked tab stops and the shared BIOS/VGA text, cursor and scrolling code.
-The prompt implements `echo`, with case-insensitive matching, and reports unknown
-commands. It creates no DOS process and writes no duplicate stdout capture.
+The prompt implements `ECHO`, `PRINTOUT SAVE`, `PRINTOUT CLEAR` and `HELP` with
+case-insensitive matching. It creates no DOS process and writes no duplicate stdout capture.
 
 Native input belongs to the prompt. It does not enter the controller or the BIOS
 keyboard buffer; native output bypasses DOS handles, redirection and installed
@@ -155,6 +155,18 @@ and use the AT controller → PIC IRQ1 → guest INT 09h → BIOS buffer path.
 `launch_com` and `launch_mz` accept supplied images; program lookup and input handoff during launch are future application policy.
 There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
 launching or resuming a guest.
+
+## Saving printer output
+
+After a DOS program writes to the printer, `PRINTOUT SAVE` saves the captured output as
+a PDF. The browser downloads `relocade-printout.pdf`. Linux, Windows and macOS
+open Save As with that filename suggested. Saving, cancelling or retrying keeps
+the bytes available. `PRINTOUT CLEAR` discards the current job.
+
+The renderer supports CP437 text, CR/LF, tabs, backspace and form feed, with
+80 columns and 60 lines per page. Unsupported printer commands report an error
+and leave the job available. See the [printer profile](../../crates/printer/README.md)
+for the page layout.
 
 ## Audio validation
 
