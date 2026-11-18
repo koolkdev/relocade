@@ -1,6 +1,6 @@
 use super::{
     connection::{Compilation, Request},
-    BlockRequest, CompiledCode, DiscoveryRequest, Reply,
+    BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
     worker::{ChannelError, Executor, ReceiverEndpoint, Sender, Transfer, WakePeer},
@@ -59,20 +59,21 @@ impl CompilerClient {
         self.submit(target, Compilation::Blocks(blocks))
     }
 
-    /// Discovers blocks from real-mode roots and compiles them into one module.
-    /// Discovery follows branches and call continuations. Supply a callee's entry
-    /// as another root to discover its blocks. Overlapping roots share blocks.
+    /// Queues guest functions for compilation into one module. Each requested
+    /// entry is a root for block discovery. Discovery follows branches and call
+    /// continuations, and shares blocks across roots. Request a callee by its
+    /// entry to include it in the batch.
     /// Keep code, mappings and CS addressing stable. Discovered blocks must have
     /// no interior host hooks or other registered execution boundaries.
     /// Rejected roots leave earlier discoveries intact. If no root yields blocks,
     /// the result reports the first discovery error, or is empty for unreadable roots.
     /// Receive and install the result in the same way as an explicit block request.
-    pub fn request_discovery(
+    pub fn request_functions(
         &self,
         target: ExecutionTarget,
-        roots: Vec<DiscoveryRequest>,
+        functions: Vec<FunctionRequest>,
     ) -> Result<()> {
-        self.submit(target, Compilation::Discover(roots))
+        self.submit(target, Compilation::Functions(functions))
     }
 
     fn submit(&self, target: ExecutionTarget, compilation: Compilation) -> Result<()> {

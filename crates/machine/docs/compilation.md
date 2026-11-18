@@ -29,14 +29,15 @@ rounded down, with at least one pool worker. Native builds use the OS parallelis
 hint; browsers use `navigator.hardwareConcurrency`. If unavailable, the default
 is one. `start_with_workers(NonZeroUsize)` supplies an explicit pool size.
 
-Each CPU connection transfers a handle to its Machine's shared guest memory once;
-requests carry addresses and bounds rather than memory bytes. The service
-captures requested blocks and calls x86's
-`Compiler::compile_blocks_with` with the internal pool. x86 owns decoding, program
-construction and the returned bytes, entry metadata and execution target. IR
-construction, placement and Wasm emission use pool jobs. The service compiles the
-emitted Wasm with its backend compiler and returns the module. The pool limits
-concurrent Rust jobs; backend engine parallelism remains separate.
+Each CPU connection transfers a handle to its Machine's shared guest memory once.
+Requests carry guest addresses and compilation bounds. For explicit block requests,
+the service captures the bytes and calls `Compiler::compile_blocks_with`. For
+function requests, it passes the requested entries to x86 block discovery and
+compiles the resulting blocks together. x86 owns decoding, program construction,
+and the returned bytes, entry metadata and execution target. IR construction,
+placement and Wasm emission use pool jobs. The service compiles the emitted Wasm
+with its backend compiler and returns the module. The pool limits concurrent
+Rust jobs. The backend engine controls its own parallelism.
 
 The compiler's optional `workers` feature adapts the generic `JobExecutor` to
 `CompileExecutor`. Machine compilation and interpreter asset generation enable
@@ -61,19 +62,21 @@ that connection's request order, including compilation errors.
 Dropping a receive wait preserves the next result.
 The runtime can queue several requests and receive their results as it runs.
 
-`CompilerClient::request_discovery` accepts real-mode roots and exploration
-limits. The compiler follows reachable branches and the instruction after a
-call. A call destination can be submitted as another root. Roots and compiled
-post-call continuations are published to CPU dispatch, so a guest RET can find
-its continuation. Other blocks stay inside the module. Its source registration
-covers the bytes of every compiled block, including internal branch targets.
+`CompilerClient::request_functions` queues guest functions for compilation. Each
+`FunctionRequest` supplies an entry CS:IP and its discovery limits. The x86
+compiler uses the entries as roots, follows branches and call continuations,
+and shares blocks reached from multiple entries. A caller can request a callee
+by including its entry. Installing the result publishes the compiled function
+entries and post-call continuations to CPU dispatch. Other blocks stay inside
+the module. Its source registration covers the bytes of every compiled block.
 
-The worker uses `Memory::read_code` to copy mapped RAM/ROM directly from shared
-backing, including A20 aliases. It shares address resolution with ordinary memory
-views and requires no CPU or device bus. MMIO, holes and overflowing ranges are
-rejected before capture allocation. `CompiledCode::install` checks the full
-execution target and uses the existing CPU imports, dispatch and hook replacement
-rules. Each CPU gets its own instance. Pending or parked host services must finish
+The worker's code reader copies mapped RAM/ROM directly from shared backing,
+including A20 aliases. It shares address resolution with ordinary memory views
+and requires no CPU or device bus. An explicit capture rejects holes, MMIO and
+overflowing ranges before allocating its buffer. Discovery reads the available
+prefix up to those boundaries or the code segment limit. `CompiledCode::install`
+checks the full execution target and uses the existing CPU imports, dispatch
+and hook replacement rules. Each CPU gets its own instance. Pending or parked host services must finish
 before installation. Code discovery, hotness and invalidation remain separate;
 callers keep code and mappings stable through compilation and installed use.
 

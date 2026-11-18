@@ -1,4 +1,4 @@
-use super::{compile, BlockRequest, CompilerService, DiscoveryRequest, Endpoint, Reply};
+use super::{compile, BlockRequest, CompilerService, Endpoint, FunctionRequest, Reply};
 use crate::{
     worker::{self, ChannelError, JobExecutor, ReceiverEndpoint, Sender, Transfer, WakePeer},
     ExecutionInterrupt, Memory, Result,
@@ -20,7 +20,7 @@ pub struct Request {
 
 pub(super) enum Compilation {
     Blocks(Vec<BlockRequest>),
-    Discover(Vec<DiscoveryRequest>),
+    Functions(Vec<FunctionRequest>),
 }
 
 #[derive(Transfer)]

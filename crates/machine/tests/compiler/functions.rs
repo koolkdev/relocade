@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{DiscoveryRequest, FarPointer};
+use relocade_machine::{FarPointer, FunctionRequest};
 use relocade_x86::{DiscoveryLimits, Segment, SegmentRegister};
 
 async fn execute_branches(compiler: &relocade_machine::CompilerService) {
@@ -31,10 +31,10 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
             let target = runner.cpu().cpu_state().execution_target();
             let mut compiler = runner.take_compiler().unwrap();
             compiler
-                .request_discovery(
+                .request_functions(
                     target,
                     [0, 3]
-                        .map(|offset| DiscoveryRequest {
+                        .map(|offset| FunctionRequest {
                             entry: FarPointer {
                                 segment: 0x10,
                                 offset,
@@ -102,13 +102,13 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
         .run_until(pending::<()>(), async move |mut runner| {
             let target = runner.cpu().cpu_state().execution_target();
             let mut compiler = runner.take_compiler().unwrap();
-            let request = |segment| DiscoveryRequest {
+            let request = |segment| FunctionRequest {
                 entry: FarPointer { segment, offset: 0 },
                 limits: DiscoveryLimits::default(),
             };
             // Both valid roots survive a rejected root between them.
             compiler
-                .request_discovery(target, vec![request(0x10), request(0x30), request(0x20)])
+                .request_functions(target, vec![request(0x10), request(0x30), request(0x20)])
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
             assert_eq!(
@@ -120,7 +120,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             );
             assert_eq!(code.ranges(), &[0x100..0x10a, 0x200..0x202]);
             compiler
-                .request_discovery(target, vec![request(0x30)])
+                .request_functions(target, vec![request(0x30)])
                 .unwrap();
             assert!(matches!(
                 compiler.recv().await.unwrap(),
@@ -192,10 +192,10 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
-            .request_discovery(
+            .request_functions(
                 target,
                 [(0, 0x100), (1, 0xf0), (0, 0x200), (1, 0x1f0)]
-                    .map(|(segment, offset)| DiscoveryRequest {
+                    .map(|(segment, offset)| FunctionRequest {
                         entry: FarPointer { segment, offset },
                         limits: DiscoveryLimits::default(),
                     })
@@ -293,12 +293,12 @@ async fn discovered_blocks_run_branches_and_an_interpreted_callee() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn discovery_shares_a_module_across_segments_and_skips_rejected_roots() {
+fn function_batch_shares_a_module_across_segments_and_skips_rejected_entries() {
     pollster::block_on(compilation::run(execute_batch));
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn discovery_shares_a_module_across_segments_and_skips_rejected_roots() {
+async fn function_batch_shares_a_module_across_segments_and_skips_rejected_entries() {
     compilation::run(execute_batch).await;
 }

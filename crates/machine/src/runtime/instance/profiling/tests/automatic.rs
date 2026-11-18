@@ -194,12 +194,12 @@ async fn full_collection(compiler: &CompilerService) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn collection_compiles_hot_roots_with_partially_discovered_branches() {
+fn collection_compiles_hot_functions_with_partially_discovered_branches() {
     pollster::block_on(automatic());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn collection_compiles_hot_roots_with_partially_discovered_branches() {
+async fn collection_compiles_hot_functions_with_partially_discovered_branches() {
     automatic().await;
 }

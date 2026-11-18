@@ -16,8 +16,8 @@ mod blocks;
 #[path = "compiler/delivery.rs"]
 mod delivery;
 
-#[path = "compiler/discovery.rs"]
-mod discovery;
+#[path = "compiler/functions.rs"]
+mod functions;
 
 #[path = "compiler/linking.rs"]
 mod linking;

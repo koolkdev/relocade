@@ -1,5 +1,5 @@
 use super::*;
-use relocade_machine::{DiscoveryRequest, FarPointer, Runner};
+use relocade_machine::{FarPointer, FunctionRequest, Runner};
 use relocade_x86::DiscoveryLimits;
 
 async fn run_caller(runner: &mut Runner, expected: u16) {
@@ -31,7 +31,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
     cpu.run_until(pending::<()>(), async move |mut runner| {
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
-        let request = |offset| DiscoveryRequest {
+        let request = |offset| FunctionRequest {
             entry: FarPointer { segment: 0, offset },
             limits: DiscoveryLimits::default(),
         };
@@ -44,7 +44,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         // Separate modules exercise the caller's table and the callee's direct jump.
         for entry in [0x100, 0x200] {
             compiler
-                .request_discovery(target, vec![request(entry)])
+                .request_functions(target, vec![request(entry)])
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
             assert!(!code.source().has_recorded_writes());
@@ -78,7 +78,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
 
         // Incoming calls must also reconnect when a replacement arrives.
         compiler
-            .request_discovery(target, vec![request(0x200)])
+            .request_functions(target, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()
@@ -119,7 +119,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         run_caller(&mut runner, 10).await;
 
         compiler
-            .request_discovery(target, vec![request(0x200)])
+            .request_functions(target, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()
@@ -150,7 +150,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         // Retired callers must leave no reverse links to missing module instances.
         runner.cpu().invalidate_code(0x100..0x106).unwrap();
         compiler
-            .request_discovery(target, vec![request(0x200)])
+            .request_functions(target, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()

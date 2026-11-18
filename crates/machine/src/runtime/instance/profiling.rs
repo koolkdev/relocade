@@ -2,7 +2,7 @@
 //! Keys are packed 16:16 CS:IP values. Protected-mode dispatch does not record.
 
 use super::{modules::Modules, WasmRuntime};
-use crate::{CompilerClient, Cpu, DiscoveryRequest, FarPointer, Instant, Result};
+use crate::{CompilerClient, Cpu, FarPointer, FunctionRequest, Instant, Result};
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, CallProfile, DiscoveryLimits, ExecutionProfile, ExecutionTarget};
 use std::{
@@ -87,12 +87,12 @@ impl Profiling {
         }
         let requests = entries
             .iter()
-            .map(|&entry| DiscoveryRequest {
+            .map(|&entry| FunctionRequest {
                 entry,
                 limits: DiscoveryLimits::default(),
             })
             .collect();
-        if compiler.request_discovery(self.target, requests).is_err() {
+        if compiler.request_functions(self.target, requests).is_err() {
             self.disable();
         } else {
             self.pending = entries;

@@ -26,10 +26,10 @@ pub struct BlockRequest {
     pub instruction_limit: u32,
 }
 
-/// A real-mode entry from which the service discovers reachable blocks.
-/// The limits bound the additional instructions and bytes discovered from this root.
+/// A real-mode guest function entry to compile.
+/// The limits bound the new instructions and bytes discovered from this entry.
 #[derive(Clone, Copy, Debug)]
-pub struct DiscoveryRequest {
+pub struct FunctionRequest {
     pub entry: FarPointer,
     pub limits: DiscoveryLimits,
 }
@@ -92,7 +92,7 @@ async fn compile(
                 .collect();
             x86.compile_blocks_with(&snapshots, jobs).await?
         }
-        connection::Compilation::Discover(requests) => {
+        connection::Compilation::Functions(requests) => {
             let mut discovery = x86.discover_blocks(|address, bytes| {
                 reader.read_segment_prefix(&code_segment(address), address.eip(), bytes)
             });
