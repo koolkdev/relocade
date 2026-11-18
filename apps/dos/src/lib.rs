@@ -50,7 +50,8 @@ async fn run_machine(
             return Err(error.to_string());
         }
     };
-    let execution = cpu.run_until(
+    let execution = cpu.run_until_with_guest_time(
+        relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND,
         async {
             app_result = or(closing, async {
                 let (keyboard, mouse, frames) = ready

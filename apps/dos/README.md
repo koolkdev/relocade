@@ -19,6 +19,11 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
+Native and browser DOS use the same guest clock for PC hardware. The default is
+1,000,000 retired instructions per guest second. The host timer paces execution
+in 4 ms slices. A halted CPU or an idle command prompt lets guest time advance
+to device deadlines, including PIT interrupts and VGA retrace.
+
 The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
 select the installed cards before startup:
 
