@@ -21,6 +21,18 @@ impl CharacterDriver for Log {
 
 async fn device_redirection() {
     with_dos(default_configuration(), async |mut dos, capture| {
+        dos.mount_file(
+            r"C:\DOCS\REPORT.TXT",
+            b"old".to_vec(),
+            relocade_dos::FileAccess::ReadWrite,
+        )
+        .unwrap();
+        dos.mount_file(
+            r"C:\FIXED.TXT",
+            b"fixed".to_vec(),
+            relocade_dos::FileAccess::ReadOnly,
+        )
+        .unwrap();
         let log = Rc::new(RefCell::new(Vec::new()));
         dos.install_driver(Log(log.clone()));
         let (_input, events) = relocade_frontend::keyboard::channel();
@@ -44,7 +56,10 @@ async fn device_redirection() {
         prompt.command(b"echo \"A > B\" >PrN:").await.unwrap();
         prompt.command(b">\"lPt1\" ECHO C").await.unwrap();
         assert!(prompt.command(b"printout clear >NUL >LPT1").await.is_err());
-        assert!(prompt.command(b"printout clear >missing").await.is_err());
+        assert!(prompt
+            .command(b"printout clear >missing\\out.txt")
+            .await
+            .is_err());
         let job = prompt.printer.as_ref().unwrap();
         assert_eq!(job.capture.snapshot().await.unwrap(), b"\"A > B\"\r\nC\r\n");
 
@@ -57,6 +72,23 @@ async fn device_redirection() {
             .await
             .unwrap()
             .starts_with(b"ECHO text"));
+        prompt
+            .command(br"echo one >c:\docs\report.txt")
+            .await
+            .unwrap();
+        prompt
+            .command(br"echo two >>DOCS\REPORT.TXT")
+            .await
+            .unwrap();
+        prompt.command(b"echo first >>NEW.TXT").await.unwrap();
+        assert!(prompt.command(b"echo overwrite >fixed.txt").await.is_err());
+        drop(prompt);
+        assert_eq!(
+            dos.read_file(r"DOCS\REPORT.TXT").unwrap(),
+            b"one\r\ntwo\r\n"
+        );
+        assert_eq!(dos.read_file("NEW.TXT").unwrap(), b"first\r\n");
+        assert_eq!(dos.read_file("FIXED.TXT").unwrap(), b"fixed");
     })
     .await;
 }

@@ -206,7 +206,7 @@ mod services;
 mod state;
 mod stdio;
 
-pub use console::NativeConsole;
+pub use console::{ConsoleFile, NativeConsole, OutputMode};
 pub use error::{DosError, LaunchError, LoadError, MountError, ServiceError};
 pub use execution::RunError;
 pub use files::FileAccess;
