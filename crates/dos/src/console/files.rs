@@ -36,6 +36,19 @@ impl PromptFiles {
         })
     }
 
+    pub(super) fn open_input_file(self: &Rc<Self>, path: &[u8]) -> Result<ConsoleFile, DosError> {
+        let open = {
+            let mut table = self.table.borrow_mut();
+            // Read-only, deny writes while this queued input is open.
+            let slot = table.open(&self.state.filesystem(), path, 0x20)?;
+            self.retain(&table, slot)
+        };
+        if open.device().is_some() {
+            return Err(DosError::AccessDenied);
+        }
+        Ok(open)
+    }
+
     pub(super) fn open_output(
         self: &Rc<Self>,
         path: &[u8],
@@ -82,20 +95,28 @@ impl ConsoleFile {
         }
     }
 
+    /// Reads from the current DOS cursor.
+    pub async fn read(&self, bytes: &mut [u8]) -> Result<usize, DosError> {
+        self.handle.check_read_access()?;
+        self.handle.read(bytes).await
+    }
+
     /// Writes the entire buffer, including when a driver accepts a short write.
     /// Explicit prompt writes to CON go directly to the driver.
-    pub async fn write_all(&self, mut bytes: &[u8]) -> Result<(), DosError> {
-        while !bytes.is_empty() {
-            let count = match &self.handle {
-                Handle::Device(handle) => handle.device.write(bytes).await?,
-                Handle::File(file) => file.write(bytes)?,
-            };
-            if count == 0 {
-                return Err(DosError::WriteFault);
-            }
-            bytes = &bytes[count..];
+    pub async fn write_all(&self, bytes: &[u8]) -> Result<(), DosError> {
+        if bytes.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        match &self.handle {
+            Handle::Device(handle) => handle.device.write_all(bytes).await,
+            Handle::File(file) => {
+                if file.write(bytes)? == bytes.len() {
+                    Ok(())
+                } else {
+                    Err(DosError::WriteFault)
+                }
+            }
+        }
     }
 }
 

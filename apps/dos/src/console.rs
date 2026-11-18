@@ -1,4 +1,5 @@
 mod command_line;
+mod print;
 
 use crate::printing::Printout;
 use command_line::CommandLine;
@@ -20,11 +21,16 @@ pub async fn run_console(console: NativeConsole<'_>) {
 pub(crate) struct Console<'a> {
     console: NativeConsole<'a>,
     printer: Option<Printout>,
+    queue: print::PrintQueue,
 }
 
 impl<'a> Console<'a> {
     pub fn new(console: NativeConsole<'a>, printer: Option<Printout>) -> Self {
-        Self { console, printer }
+        Self {
+            console,
+            printer,
+            queue: Default::default(),
+        }
     }
 
     pub async fn run(mut self) {
@@ -34,7 +40,7 @@ impl<'a> Console<'a> {
         }
         loop {
             self.console.write(b"> ");
-            let Some(line) = self.console.read_line().await else {
+            let Some(line) = self.read_line().await else {
                 return;
             };
             if let Err(error) = self.command(&line).await {
@@ -44,7 +50,26 @@ impl<'a> Console<'a> {
         }
     }
 
-    async fn command(&self, bytes: &[u8]) -> Result<(), String> {
+    async fn read_line(&mut self) -> Option<Vec<u8>> {
+        // Drive queued transfers while the editor waits for keyboard events.
+        // Command execution can then inspect or cancel a paused job.
+        let mut failures = Vec::new();
+        let line = futures_lite::future::or(
+            async {
+                self.queue.drain(&mut failures).await;
+                std::future::pending().await
+            },
+            self.console.read_line(),
+        )
+        .await;
+        for error in failures {
+            self.console.write(error.as_bytes());
+            self.console.write(b"\r\n");
+        }
+        line
+    }
+
+    async fn command(&mut self, bytes: &[u8]) -> Result<(), String> {
         let Some(line) = CommandLine::parse(bytes)? else {
             return Ok(());
         };
@@ -69,11 +94,13 @@ impl<'a> Console<'a> {
         Ok(())
     }
 
-    async fn execute(&self, line: &CommandLine<'_>) -> Result<Vec<u8>, String> {
+    async fn execute(&mut self, line: &CommandLine<'_>) -> Result<Vec<u8>, String> {
         if line.name.eq_ignore_ascii_case(b"echo") {
             let mut text = line.argument_text();
             text.extend_from_slice(b"\r\n");
             Ok(text)
+        } else if line.name.eq_ignore_ascii_case(b"print") {
+            self.queue.command(&self.console, &line.arguments)
         } else if line.name.eq_ignore_ascii_case(b"printout") {
             let printout = self.printer.as_ref().ok_or("No printer is attached")?;
             match line.arguments.as_slice() {
@@ -92,15 +119,24 @@ impl<'a> Console<'a> {
                 _ => Err("Usage: PRINTOUT SAVE or PRINTOUT CLEAR".into()),
             }
         } else if line.name.eq_ignore_ascii_case(b"help") {
-            Ok(b"ECHO text      Display text\r\nPRINTOUT SAVE  Save captured output as a PDF\r\nPRINTOUT CLEAR  Discard captured output\r\n> or >> path    Write or append to a DOS file or device\r\n".to_vec())
+            Ok(concat!(
+                "ECHO text         Display text\r\n",
+                "PRINT [file ...]  Queue text files or show the print queue\r\n",
+                "PRINT /T          Cancel queued printing\r\n",
+                "PRINTOUT SAVE     Save captured output as a PDF\r\n",
+                "PRINTOUT CLEAR    Discard captured output\r\n",
+                "> or >> path      Write or append to a DOS file or device\r\n",
+            )
+            .as_bytes()
+            .to_vec())
         } else {
             Err("Unknown command".into())
         }
     }
 
     async fn write_output(&self, destination: &ConsoleFile, output: &[u8]) -> Result<(), String> {
-        // The app wires both names to this capture. The exclusive prompt borrow
-        // prevents a guest write between the capacity check and the line write.
+        // Guest execution and the spooler yield to prompt commands, so neither
+        // can consume capacity between this check and the write.
         if let Some(job) = self.printer.as_ref().filter(|_| {
             destination
                 .device()
