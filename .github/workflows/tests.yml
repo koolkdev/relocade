@@ -4,83 +4,26 @@ permissions:
   contents: read
 jobs:
   native:
-    name: Diagnose native GPU tests on Ubuntu 26.04
+    name: Install Ubuntu's fixed Vulkan loader on 26.04
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    env:
-      CARGO_PROFILE_TEST_DEBUG: 1
-      GALLIUM_OVERRIDE_CPU_CAPS: avx
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Ubuntu debug and build dependencies
+      - name: Install the native job's dependencies
         run: |
-          sudo apt-get -qq update
-          sudo apt-get install -y -qq gdb libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0 libx11-dev libxcb1-dev libxrandr-dev libwayland-dev
-          dpkg-query -W libvulkan1 mesa-vulkan-drivers
-          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: Native integration
-          save-if: 'false'
-      - name: Build the existing VGA integration tests
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev vulkan-tools
+          dpkg-query -W libvulkan1 libc6 mesa-vulkan-drivers
+          dpkg-query -W -f='\${binary:Package} \${db:Status-Status}\n' 'libvulkan*' || true
+      - name: Upgrade the loader from the Ubuntu snapshot
         run: |
-          cargo test -p relocade-vga --all-features --locked --no-run --test gpu --message-format=json > "$RUNNER_TEMP/vga.jsonl"
-          gpu=$(jq -r 'select(.reason=="compiler-artifact" and .target.name=="gpu" and .executable!=null) | .executable' "$RUNNER_TEMP/vga.jsonl")
-          test -x "$gpu"
-          echo "gpu=$gpu" >> "$GITHUB_ENV"
-      - name: Capture the Ubuntu loader's backtrace with matching debug symbols
+          deb="$RUNNER_TEMP/libvulkan1.deb"
+          /usr/lib/apt/apt-helper download-file \
+            https://snapshot.ubuntu.com/ubuntu/20261101T000000Z/pool/main/v/vulkan-loader/libvulkan1_1.4.357.0-1_amd64.deb \
+            "$deb" SHA256:3c17e31048e961d9801744f83eacca3c1f60af67666e6ff24bd919bd761cd8ec
+          sudo apt-get install -y --no-remove "$deb"
+          dpkg-query -W libvulkan1 libc6 mesa-vulkan-drivers
+          test "$(dpkg-query -W -f='${Version}' libvulkan1)" = 1.4.357.0-1
+      - name: Enumerate Vulkan drivers
         run: |
-          lib=$(ldconfig -p | awk '$1 == "libvulkan.so.1" && /x86-64/ && !found++ {print $NF}')
-          build_id=$(readelf -n "$lib" | awk '/Build ID:/ {print $3; exit}')
-          symbols="$RUNNER_TEMP/symbols/.build-id/${build_id:0:2}"
-          mkdir -p "$symbols"
-          curl -fsSL --retry 3 "https://debuginfod.ubuntu.com/buildid/$build_id/debuginfo" -o "$symbols/${build_id:2}.debug"
-          echo "Ubuntu Vulkan loader Build ID $build_id"
-          for round in 1 2 3; do
-            log="$RUNNER_TEMP/normal-vga-$round.log"
-            gdb -batch -q -ex "set debug-file-directory $RUNNER_TEMP/symbols:/usr/lib/debug" -ex 'set debuginfod enabled off' -ex 'set print thread-events off' -ex run -ex 'bt 12' -ex 'thread apply all bt 16' --args "$gpu" > "$log" 2>&1 || true
-            if grep -q 'received signal' "$log"; then
-              sed -n '/received signal/,+17p' "$log"
-              awk '/^Thread / {thread=$0; printed=0} /^#[0-9]+ / && /(unload_drivers_without_physical_devices|loader_icd_destroy|loader_get_icd_and_device|vkEnumeratePhysicalDevices|vkDestroyDevice|vkDestroyInstance|terminator_SetDebugUtilsObjectNameEXT)/ {if (!printed++) print thread; print $0}' "$log" | head -80 || true
-              break
-            fi
-            grep 'test result:' "$log"
-          done
-      - name: Build Vulkan-Loader v1.4.341 with and without the upstream locking fix
-        run: |
-          cd "$RUNNER_TEMP"
-          mkdir vk-headers loader-stock
-          curl -fsSL --retry 3 https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.4.341 | tar xz -C vk-headers --strip-components=1
-          curl -fsSL --retry 3 https://codeload.github.com/KhronosGroup/Vulkan-Loader/tar.gz/refs/tags/v1.4.341 | tar xz -C loader-stock --strip-components=1
-          cmake -S vk-headers -B headers-build -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/headers" -DVULKAN_HEADERS_ENABLE_TESTS=OFF -DVULKAN_HEADERS_ENABLE_MODULE=OFF
-          cmake --install headers-build > headers-install.log
-          cp -a loader-stock loader-fixed
-          curl -fsSL --retry 3 https://github.com/KhronosGroup/Vulkan-Loader/commit/5ee27b30c08505b868cb17a0683291d3a1d4543d.diff -o upstream.diff
-          (cd loader-fixed && git apply --include='loader/*' ../upstream.diff)
-          diff -q loader-stock/loader/loader.c loader-fixed/loader/loader.c && exit 1
-          for build in stock fixed; do
-            cmake -S "loader-$build" -B "$build" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/headers" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTS=OFF
-            cmake --build "$build" --target vulkan -j4
-            test -f "$build/loader/libvulkan.so.1"
-          done
-      - name: Compare the same VGA suite with all drivers and both loader builds
-        run: |
-          ulimit -c 0
-          for round in {1..10}; do
-            for build in stock fixed; do
-              log="$RUNNER_TEMP/$build-$round.log"
-              status=0
-              LD_LIBRARY_PATH="$RUNNER_TEMP/$build/loader" "$gpu" > "$log" 2>&1 || status=$?
-              echo "$build run $round status $status"
-              echo "$status" >> "$RUNNER_TEMP/$build-results"
-              if [ "$status" -eq 0 ]; then grep 'test result:' "$log"; fi
-            done
-          done
-          for build in stock fixed; do
-            echo "$build status totals"
-            sort "$RUNNER_TEMP/$build-results" | uniq -c
-          done
-          test "$(grep -cx 0 "$RUNNER_TEMP/fixed-results" || true)" = 10
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP"
+          vulkaninfo --summary
