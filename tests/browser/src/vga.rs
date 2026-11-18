@@ -38,7 +38,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let cpu_task = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
-            runner.clock().clone(),
+            runner.use_guest_time(relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND),
         )));
         assert!(source.send(vga.borrow().frames()).is_ok());
 
@@ -111,7 +111,7 @@ pub async fn vga_workers() -> Result<(), String> {
             runner.run_cpu().await,
             ExecutionExit::Host(HostExit::Return)
         );
-        presented.await.unwrap();
+        runner.idle_until(presented).await.unwrap();
         drop(runner);
         drop(vga);
     });

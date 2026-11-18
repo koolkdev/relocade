@@ -36,7 +36,7 @@ fn render_elapsed(
 
 fn melody(rate: u32, poll_between_writes: bool) -> Vec<f32> {
     let clock = ManualClock::new();
-    let (io, adlib) = common::hardware(clock.clock());
+    let (io, adlib) = common::hardware(clock.guest_clock());
     let (mut recorder, mut source) = adlib
         .borrow_mut()
         .audio_source(
@@ -101,7 +101,7 @@ fn short_notes_survive_delayed_mixer_polls_at_both_rates() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn rhythm_register_keys_the_bass_drum_without_a_melodic_key_on() {
     let clock = ManualClock::new();
-    let (io, adlib) = common::hardware(clock.clock());
+    let (io, adlib) = common::hardware(clock.guest_clock());
     let (mut recorder, mut source) = adlib
         .borrow_mut()
         .audio_source(

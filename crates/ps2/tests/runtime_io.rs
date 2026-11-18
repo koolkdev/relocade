@@ -29,7 +29,7 @@ async fn guest_port_io() {
         let result = runner
             .run(pending::<()>(), async |mut runner| {
                 let pic = Pic::initialize(&runner).await;
-                let (_inputs, controller) = connect(&runner, &pic).await;
+                let (_inputs, controller) = connect(&runner, clock.guest_clock(), &pic).await;
                 let io = runner.io();
                 let code = [
                     0xe5, 0x60, // IN AX,60: wide reads must not consume output.

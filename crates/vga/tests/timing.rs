@@ -292,7 +292,7 @@ fn deadlines_follow_the_device_origin_and_do_not_accumulate_rounding() {
     let clock = ManualClock::default();
     let origin = Duration::from_secs(12);
     clock.advance_to(clock.at(origin));
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.guest_clock())));
     let mut video = pin!(DispiAdapter::run(vga.clone()));
     let mut cx = Context::from_waker(Waker::noop());
     poll_video(video.as_mut(), &mut cx);
@@ -365,7 +365,7 @@ fn native_guest_deadlines_reach_status_edges_through_the_connected_bus() {
     use relocade_machine::{GuestTimeDriver, IoBus, Timestamp};
     use std::{future::Future, num::NonZeroU64};
     let driver = GuestTimeDriver::new(NonZeroU64::new(25_175_000).unwrap());
-    let clock = driver.clock();
+    let clock = driver.guest_clock();
     let start = clock.now();
     let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
     let bus = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));

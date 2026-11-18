@@ -102,7 +102,7 @@ async fn guest_writes_replace_status_handlers_before_the_next_port_read() {
 
 async fn guest_status_deadlines() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(1_000_000).unwrap());
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(driver.clock())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(driver.guest_clock())));
     let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     let mut cpu = create_cpu(io.clone(), &[0x90; 40], u64::MAX - 16).await;
     let _binding = driver.bind(&cpu, Waker::noop());

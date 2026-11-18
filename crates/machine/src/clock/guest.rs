@@ -9,7 +9,7 @@ use host::HostTime;
 mod wait;
 use wait::{Source, Wait};
 
-use super::{Clock, TickRate, Timestamp};
+use super::{Clock, GuestClock, GuestClockSource, TickRate, Timestamp};
 use crate::{Cpu, CpuStateAccess, InstructionTarget};
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
@@ -17,7 +17,7 @@ use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 /// Published retirement advances time at the configured instruction rate. The
 /// embedding owns CPU execution and calls [`Self::synchronize`] at stopped
 /// boundaries. It also decides when idle time may advance to the next deadline.
-/// Devices use the common [`Clock`] returned by [`Self::clock`].
+/// Timed devices use the [`GuestClock`] returned by [`Self::guest_clock`].
 ///
 /// Callback observations can lag unpublished retirement; instruction targets
 /// remain soft checkpoint limits. Runner chooses pacing boundaries; the driver
@@ -60,7 +60,12 @@ impl GuestTimeDriver {
     }
 
     pub fn clock(&self) -> Clock {
-        Clock::new(Source(self.0.clone()))
+        self.guest_clock().into()
+    }
+
+    /// The device clock driven by this CPU's retired instructions and idle deadlines.
+    pub fn guest_clock(&self) -> GuestClock {
+        GuestClock::new(Source(self.0.clone()))
     }
 
     /// Observes CPU retirement and controls its target until the returned guard
@@ -155,6 +160,8 @@ impl GuestTimeDriver {
         self.notify_due();
     }
 }
+
+impl GuestClockSource for Source {}
 
 struct BindingGuard<'a>(&'a GuestTimeDriver);
 

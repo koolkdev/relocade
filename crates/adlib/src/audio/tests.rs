@@ -11,7 +11,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn dropping_output_releases_recording_but_not_timer_status() {
     let clock = ManualClock::new();
-    let adlib = Rc::new(RefCell::new(Adlib::new(clock.clock())));
+    let adlib = Rc::new(RefCell::new(Adlib::new(clock.guest_clock())));
     let io = IoBus::default();
     io.connect(adlib.clone(), |io| {
         Adlib::configure_io(io, &adlib, ADDRESS_STATUS_PORT)

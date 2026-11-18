@@ -22,6 +22,11 @@ clock.sync_to_host(now).await;
 rate or source identity. Compare readings only within the same clock and its
 clones, at most `i64::MAX` ticks apart, and use that clock for arithmetic and waits.
 Host and guest timelines are independent.
+`GuestClock` identifies a clock whose progress the emulator controls. PC hardware
+constructors require this handle. `Runner::use_guest_time(rate)` returns the
+existing guest clock or uses the runner's host timer to pace a new one. A bare
+runner can continue using its independently supplied clock.
+
 The clock owns its fixed scale; the host timer source owns its host origin.
 `Instant`, re-exported from `web_time`, is used only for external host events.
 
@@ -181,9 +186,9 @@ let worker = cpu.spawn_with_guest_time(
     move || GuestTimeConfig::new(instructions_per_second)
         .with_slice_duration(Duration::from_millis(4))
         .with_host_clock(host_timers.clock()),
-    async |runner| {
-        // Devices receive runner.clock(); the host timer service runs alongside
-        // this worker and binds its wake peer.
+    async |mut runner| {
+        let hardware_clock = runner.use_guest_time(instructions_per_second);
+        // Pass hardware_clock to timed devices on this worker.
     },
 );
 ```

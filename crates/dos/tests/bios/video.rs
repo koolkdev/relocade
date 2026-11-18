@@ -8,14 +8,13 @@ mod output;
 #[path = "video/services.rs"]
 mod services;
 
-use crate::common::{self, VideoInspection};
+use crate::common::{self, DosFixture, VideoInspection};
 use crate::common::inspection::Cell;
-use relocade_dos::Dos;
 use relocade_x86::{CpuState, ExecutionExit};
 
 pub(super) const PROGRAM: &[u8] = &[0xcd, 0x10, 0xeb, 0xfe];
 
-pub(super) fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
+pub(super) fn video(dos: &mut DosFixture, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let mut machine = dos.cpu().context();
         let cpu = &mut machine.cpu;
@@ -27,7 +26,7 @@ pub(super) fn video(dos: &mut Dos, ax: u16, bx: u16, cx: u16, dx: u16) -> CpuSta
         cpu.set_eflags(0x643);
     }
     assert_eq!(
-        pollster::block_on(crate::common::run_until(dos.cpu(), 0x102)),
+        pollster::block_on(dos.run_until(0x102)),
         ExecutionExit::Interrupted
     );
     let cpu = dos.cpu().context().cpu.snapshot();

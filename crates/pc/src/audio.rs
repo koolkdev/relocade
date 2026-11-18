@@ -26,7 +26,7 @@ impl Pc {
         if self.audio_attached {
             return Err("PC audio output is already attached".into());
         }
-        let mut audio = Audio::new(self.clock().clone(), config, samples)?;
+        let mut audio = Audio::new(self.clock().clone().into(), config, samples)?;
         if let Some(card) = &self.sound_card {
             card.add_audio_sources(&mut audio.sources)?;
         }

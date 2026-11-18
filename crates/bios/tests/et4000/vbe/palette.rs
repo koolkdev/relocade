@@ -65,7 +65,7 @@ async fn palette_blocks() {
 
 async fn retrace_update() {
     let clock = ManualClock::default();
-    let machine = Firmware::with_clock(clock.clock());
+    let machine = Firmware::with_clock(clock.guest_clock());
     let mut cpu = machine.cpu().await;
     assert_eq!(call(&mut cpu, 0x4f02, 0x101, 0, 0).await, 0x4f);
     let state = cpu.cpu_state();

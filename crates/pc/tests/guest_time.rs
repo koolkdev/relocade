@@ -12,10 +12,11 @@ async fn pit_interrupts() {
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_guest_time(
-        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(2_000_000).unwrap()),
         async |runner| {
             let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
+            assert_eq!(pc.clock().tick_rate().ticks_per_second().get(), 2_000_000);
             let cpu = pc.cpu();
             let memory = cpu.memory();
             // Program Bumpy's mode-3 divisor 0951h, unmask IRQ0, then perform
@@ -183,4 +184,51 @@ fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
     keyboard_at_guest_receipt_time().await;
+}
+
+async fn stopped_pc_clock() {
+    use relocade_clock_test_support::ManualClock;
+    use relocade_machine::{worker::wake_connection, Clock, Runner};
+
+    let host = ManualClock::new();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let cpu = machine
+        .create_cpu(relocade_pc::configuration::cpu(), None)
+        .unwrap();
+    let (_wake, endpoint) = wake_connection(cpu.interrupt_handle());
+    let runner = Runner::new(Clock::new(host.clone()), cpu, endpoint)
+        .await
+        .unwrap();
+    runner
+        .run(std::future::pending::<()>(), async |runner| {
+            let pc = Pc::new(runner).await.unwrap();
+            let io = pc.runner().io();
+            let pit_count = || {
+                io.write_port(0x43, 1, 0); // Latch channel 0, then read its low and high bytes.
+                io.read_port(0x40, 1) | (io.read_port(0x40, 1) << 8)
+            };
+            let start = pc.clock().now();
+            let count = pit_count();
+            host.advance_by(Duration::from_millis(250));
+            assert_eq!(pc.clock().now(), start);
+            assert_eq!(pit_count(), count);
+            assert_eq!(
+                pc.clock().tick_rate().ticks_per_second(),
+                relocade_pc::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND
+            );
+        })
+        .await
+        .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn host_time_cannot_advance_a_stopped_pcs_pit() {
+    pollster::block_on(stopped_pc_clock());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn host_time_cannot_advance_a_stopped_pcs_pit() {
+    stopped_pc_clock().await;
 }

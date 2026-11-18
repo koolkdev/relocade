@@ -1,6 +1,5 @@
 use super::super::video::{video, PROGRAM};
-use crate::common::{self, VideoInspection};
-use relocade_dos::Dos;
+use crate::common::{self, DosFixture, VideoInspection};
 use relocade_machine::FarPointer;
 use relocade_x86::{CpuState, Segment, SegmentRegister};
 
@@ -9,7 +8,7 @@ const BUFFER: FarPointer = FarPointer {
     offset: 0xfffc,
 };
 
-fn state(dos: &mut Dos, operation: u8, components: u16, pointer: FarPointer) -> CpuState {
+fn state(dos: &mut DosFixture, operation: u8, components: u16, pointer: FarPointer) -> CpuState {
     {
         let context = dos.cpu().context();
         context.cpu.set_segment(
@@ -39,7 +38,7 @@ fn state(dos: &mut Dos, operation: u8, components: u16, pointer: FarPointer) -> 
     result
 }
 
-fn read<const N: usize>(dos: &mut Dos, pointer: FarPointer) -> [u8; N] {
+fn read<const N: usize>(dos: &mut DosFixture, pointer: FarPointer) -> [u8; N] {
     let mut bytes = [0; N];
     dos.cpu()
         .context()

@@ -26,10 +26,10 @@ struct Firmware {
 
 impl Firmware {
     fn new() -> Self {
-        Self::with_clock(ManualClock::default().clock())
+        Self::with_clock(ManualClock::default().guest_clock())
     }
 
-    fn with_clock(clock: Clock) -> Self {
+    fn with_clock(clock: relocade_machine::GuestClock) -> Self {
         let map = PhysicalMemoryMap::new([
             (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
             (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
@@ -57,7 +57,7 @@ impl Firmware {
             &firmware,
         );
         Self {
-            clock,
+            clock: clock.into(),
             memory,
             io,
             card,

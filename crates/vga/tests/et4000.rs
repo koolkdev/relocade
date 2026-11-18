@@ -45,7 +45,7 @@ struct ConnectedEt4000 {
 
 impl ConnectedEt4000 {
     fn new(clock: &ManualClock) -> Self {
-        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.clock())));
+        let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.guest_clock())));
         let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
         Self { card, io }
     }

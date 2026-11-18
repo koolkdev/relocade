@@ -8,12 +8,11 @@ mod palette;
 mod state;
 
 use super::video::{video, PROGRAM};
-use crate::common::{self, VideoInspection};
-use relocade_dos::Dos;
+use crate::common::{self, DosFixture, VideoInspection};
 use relocade_machine::FarPointer;
 use relocade_x86::{Segment, SegmentRegister};
 
-fn information(dos: &mut Dos, function: u8, mode: u16, offset: u16) -> (u16, [u8; 256]) {
+fn information(dos: &mut DosFixture, function: u8, mode: u16, offset: u16) -> (u16, [u8; 256]) {
     let pointer = FarPointer {
         segment: 0x5000,
         offset,

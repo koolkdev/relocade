@@ -2,7 +2,7 @@ use super::{common, pixel, read_pixels, set_cell};
 use futures_util::FutureExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_frontend::display::DisplayRenderer;
-use relocade_machine::{Clock, ClockSource, Sleep, Timestamp};
+use relocade_machine::{ClockSource, GuestClock, GuestClockSource, Sleep, Timestamp};
 use relocade_vga::{registers::crtc, VgaDisplay};
 use std::{cell::Cell, rc::Rc, time::Duration};
 
@@ -11,6 +11,8 @@ struct MappedClock {
     host: ManualClock,
     offset: Rc<Cell<Duration>>,
 }
+
+impl GuestClockSource for MappedClock {}
 
 impl ClockSource for MappedClock {
     fn now(&self) -> Timestamp {
@@ -43,11 +45,14 @@ async fn timed_updates() {
     let guest = ManualClock::new();
     let host = ManualClock::new();
     let offset = Rc::new(Cell::new(Duration::ZERO));
-    let (vga, mut video) = common::start_video(common::text_vga(Clock::new(MappedClock {
-        device: guest.clone(),
-        host: host.clone(),
-        offset: offset.clone(),
-    })));
+    let (vga, mut video) = common::start_video(common::text_vga(
+        GuestClock::new(MappedClock {
+            device: guest.clone(),
+            host: host.clone(),
+            offset: offset.clone(),
+        })
+        .into(),
+    ));
     common::crtc(&vga.io, crtc::CURSOR_START, 0x20);
     set_cell(&vga.io, 0, 0xdb, 4);
     let source = vga.device.borrow().frames();

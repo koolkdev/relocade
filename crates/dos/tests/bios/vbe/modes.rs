@@ -1,9 +1,8 @@
 use super::super::video::{video, PROGRAM};
-use crate::common::{self, VideoInspection};
-use relocade_dos::Dos;
+use crate::common::{self, DosFixture, VideoInspection};
 use relocade_x86::{CpuState, ExecutionExit};
 
-fn request(dos: &mut Dos, function: u8, bx: u16, dx: u16, status: u16) -> CpuState {
+fn request(dos: &mut DosFixture, function: u8, bx: u16, dx: u16, status: u16) -> CpuState {
     {
         let context = dos.cpu().context();
         context.cpu.set_si(0x1234);
