@@ -9,7 +9,7 @@ mod tests;
 
 use relocade_compiler::{IntType, Val, F64, I1, I16, I32, I64};
 
-use crate::floating::BinaryFormat;
+use crate::floating::{widen_binary32, BinaryFormat};
 
 use super::ConversionResult;
 pub(crate) use classification::Classification;
@@ -298,8 +298,8 @@ impl ExtendedValue {
         value
     }
 
-    /// Matching representations survive selection. Mixed representations remain
-    /// exact through their extended bits.
+    /// Matching representations survive selection. Two binary encodings can
+    /// also share the wider format, including either NaN payload.
     pub(crate) fn select(&self, condition: &Val<I1>, otherwise: &Self) -> Self {
         let representation = match (&self.representation, &otherwise.representation) {
             (Representation::Precision53(value), Representation::Precision53(other)) => {
@@ -316,14 +316,30 @@ impl ExtendedValue {
                     bits: other_bits,
                     native_class: other_class,
                 },
-            ) if format == other_format => Representation::Binary {
-                format: *format,
-                bits: condition.select(bits, other_bits),
-                native_class: native_class
-                    .as_ref()
-                    .zip(other_class.as_ref())
-                    .map(|(left, right)| left.select(condition, right)),
-            },
+            ) => {
+                let widen = |bits: &Val<I64>| {
+                    widen_binary32(bits, BinaryFormat::Binary32.classification(bits).nan())
+                };
+                let (format, bits) = match (*format, *other_format) {
+                    (BinaryFormat::Binary32, BinaryFormat::Binary64) => (
+                        BinaryFormat::Binary64,
+                        condition.select(widen(bits), other_bits),
+                    ),
+                    (BinaryFormat::Binary64, BinaryFormat::Binary32) => (
+                        BinaryFormat::Binary64,
+                        condition.select(bits, widen(other_bits)),
+                    ),
+                    _ => (*format, condition.select(bits, other_bits)),
+                };
+                Representation::Binary {
+                    format,
+                    bits,
+                    native_class: native_class
+                        .as_ref()
+                        .zip(other_class.as_ref())
+                        .map(|(left, right)| left.select(condition, right)),
+                }
+            }
             _ => {
                 let true_bits = self.bits();
                 let false_bits = otherwise.bits();

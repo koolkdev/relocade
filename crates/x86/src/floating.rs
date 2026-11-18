@@ -12,13 +12,27 @@ mod sqrt;
 pub(crate) use classification::BinaryClassification;
 pub(crate) use finite::{FiniteInput, FiniteMagnitude, MagnitudeShape};
 pub(crate) use quotient::QuotientMethod;
-use relocade_compiler::{Val, VectorLane, F64, I32, I64};
+use relocade_compiler::{Val, VectorLane, F64, I1, I32, I64};
 pub(crate) use rounding::{RoundingInput, RoundingMode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum BinaryFormat {
     Binary32,
     Binary64,
+}
+
+/// Promotes a binary32 encoding and quiets NaNs while preserving their sign
+/// and payload. Wasm's native promotion may canonicalize a NaN.
+pub(crate) fn widen_binary32(bits: &Val<I64>, nan: Val<I1>) -> Val<I64> {
+    let payload = bits
+        .and(0x8000_0000_u64)
+        .shl(32)
+        .or(bits.and(0x007f_ffff_u64).shl(29))
+        .or(0x7ff8_0000_0000_0000_u64);
+    nan.select(
+        payload,
+        BinaryFormat::Binary32.binary64_value(bits).to_bits(),
+    )
 }
 
 impl BinaryFormat {
