@@ -39,7 +39,7 @@ async fn device_redirection() {
         let (saves, _requests) = async_channel::bounded(1);
         let capture = capture.unwrap();
         let oversized = vec![b'X'; capture.remaining_capacity().await.unwrap()];
-        let prompt = Console::new(
+        let mut prompt = Console::new(
             dos.native_console(events),
             Some(Printout { capture, saves }),
         );
@@ -60,13 +60,33 @@ async fn device_redirection() {
             .command(b"printout clear >missing\\out.txt")
             .await
             .is_err());
-        let job = prompt.printer.as_ref().unwrap();
-        assert_eq!(job.capture.snapshot().await.unwrap(), b"\"A > B\"\r\nC\r\n");
+        assert_eq!(
+            prompt
+                .printer
+                .as_ref()
+                .unwrap()
+                .capture
+                .snapshot()
+                .await
+                .unwrap(),
+            b"\"A > B\"\r\nC\r\n"
+        );
 
         prompt.command(b"printout \"clear\" >nul").await.unwrap();
-        assert!(job.capture.snapshot().await.unwrap().is_empty());
+        assert!(prompt
+            .printer
+            .as_ref()
+            .unwrap()
+            .capture
+            .snapshot()
+            .await
+            .unwrap()
+            .is_empty());
         prompt.command(b"help>LPT1").await.unwrap();
-        assert!(job
+        assert!(prompt
+            .printer
+            .as_ref()
+            .unwrap()
             .capture
             .snapshot()
             .await

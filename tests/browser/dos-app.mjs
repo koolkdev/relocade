@@ -84,7 +84,7 @@ export async function testApplication(config) {
         await displayedGlyph(session, 0, promptRow + 3, xGlyph);
         await displayedGlyph(session, 0, promptRow + 4, prompt);
         assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
-        await redirectToPrinter(page, "x", "prn");
+        await redirectEcho(page, "x", "prn");
         await displayedGlyph(session, 0, promptRow + 5, prompt);
         const first = await downloadPrintout(page);
         await displayedGlyph(session, 0, promptRow + 6, prompt);
@@ -93,10 +93,16 @@ export async function testApplication(config) {
         await page.keyboard.type("printout clear");
         await page.keyboard.press("Enter");
         await displayedGlyph(session, 0, promptRow + 9, prompt);
-        await redirectToPrinter(page, "y", "lpt1");
+        await redirectEcho(page, "x", "report.txt");
         await displayedGlyph(session, 0, promptRow + 10, prompt);
-        const fresh = await downloadPrintout(page);
-        assert.notDeepEqual(fresh, first, "a new LPT1 job produces a different PDF");
+        await page.keyboard.type("print report.txt");
+        await page.keyboard.press("Enter");
+        await displayedGlyph(session, 0, promptRow + 11, prompt);
+        assert.deepEqual(await downloadPrintout(page), first, "printing the guest file reproduces its page");
+        await displayedGlyph(session, 0, promptRow + 12, prompt);
+        await redirectEcho(page, "y", "lpt1");
+        await displayedGlyph(session, 0, promptRow + 13, prompt);
+        assert.notDeepEqual(await downloadPrintout(page), first, "later LPT1 output reaches the same capture");
         // Keyboard activation also works when the user never clicks the canvas.
         await page.reload();
         await displayedGlyph(session, 0, promptRow, prompt);
@@ -116,11 +122,11 @@ export async function testApplication(config) {
 
 if (import.meta.main) await testApplication(await build("relocade-dos-app"));
 
-async function redirectToPrinter(page, text, device) {
+async function redirectEcho(page, text, destination) {
     await page.keyboard.type(`echo ${text} `);
     // The guest US layout reads physical keys, including Shift for the '>' key.
     await page.keyboard.press("Shift+Period");
-    await page.keyboard.type(` ${device}`);
+    await page.keyboard.type(` ${destination}`);
     await page.keyboard.press("Enter");
 }
 

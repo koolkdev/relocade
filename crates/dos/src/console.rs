@@ -52,6 +52,12 @@ impl<'a> NativeConsole<'a> {
         self.dos.device(name)
     }
 
+    /// Opens a regular guest file relative to DOS's current drive and directory.
+    /// The handle retains its own cursor and denies writes from other prompt handles until it is dropped.
+    pub fn open_input_file(&self, path: &[u8]) -> Result<ConsoleFile, crate::DosError> {
+        self.files.open_input_file(path)
+    }
+
     /// Opens a guest path for standard-output redirection, using DOS's current
     /// drive, directory, character devices and file creation rules.
     pub fn open_output(

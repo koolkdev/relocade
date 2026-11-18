@@ -106,6 +106,18 @@ impl CharacterDevice {
         self.driver.write(bytes)
     }
 
+    /// Writes the complete buffer, advancing over short driver writes.
+    pub async fn write_all(&self, mut bytes: &[u8]) -> Result<(), DosError> {
+        while !bytes.is_empty() {
+            let written = self.write(bytes).await?;
+            if written == 0 {
+                return Err(DosError::WriteFault);
+            }
+            bytes = &bytes[written..];
+        }
+        Ok(())
+    }
+
     pub(crate) fn is_console(&self) -> bool {
         self.attributes & 3 == 3
     }
