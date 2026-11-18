@@ -62,3 +62,54 @@ fn configured_lpt1_captures_bios_and_dos_output() {
 async fn configured_lpt1_captures_bios_and_dos_output() {
     lpt1_printer().await;
 }
+
+async fn save_captured_output() {
+    use crate::printing::Printout;
+    use futures_lite::future::zip;
+    use std::io;
+
+    with_dos(crate::default_configuration(), async |dos, capture| {
+        let (saves, requests) = async_channel::bounded(1);
+        let printout = Printout {
+            capture: capture.unwrap(),
+            saves,
+        };
+        let lpt = dos.device(b"LPT1").unwrap();
+        lpt.write(b"\xdb").await.unwrap();
+        let expected = relocade_printer::text::render_pdf(b"\xdb").unwrap();
+        for outcome in [Err(io::Error::other("Disk full")), Ok(None), Ok(Some(()))] {
+            let failed = outcome.is_err();
+            let (result, pdf) = zip(printout.save_pdf(), async {
+                let request = requests.recv().await.unwrap();
+                request.complete.send(outcome).unwrap();
+                request.pdf
+            })
+            .await;
+            if failed {
+                assert_eq!(result.unwrap_err(), "Disk full");
+            } else {
+                result.unwrap();
+            }
+            assert_eq!(pdf, expected, "each save receives the entire job");
+        }
+        printout.capture.clear().await.unwrap();
+        assert!(printout
+            .save_pdf()
+            .await
+            .unwrap_err()
+            .contains("no printer output"));
+    })
+    .await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn saving_retains_the_job_until_clear() {
+    pollster::block_on(save_captured_output());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn saving_retains_the_job_until_clear() {
+    save_captured_output().await;
+}

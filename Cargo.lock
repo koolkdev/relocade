@@ -2574,6 +2574,7 @@ dependencies = [
  "relocade-clock-test-support",
  "relocade-dma",
  "relocade-dos",
+ "relocade-file-picker",
  "relocade-frontend",
  "relocade-machine",
  "relocade-parallel",

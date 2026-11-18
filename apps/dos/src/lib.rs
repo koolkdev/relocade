@@ -5,6 +5,7 @@ use futures_channel::oneshot;
 use futures_lite::future::or;
 
 mod console;
+mod printing;
 mod session;
 pub use console::run_console;
 
@@ -48,6 +49,7 @@ async fn run_machine(
 ) -> Result<(), String> {
     let output = app.open_audio().ok();
     let (endpoints, ready) = oneshot::channel();
+    let (saves, printouts) = async_channel::bounded::<printing::SavePrintout>(1);
     let closing = app.closing();
     let mut app_result = Ok(());
     let mut machine = relocade_machine::Machine::new(relocade_dos::configuration::memory())
@@ -73,6 +75,9 @@ async fn run_machine(
                 app.attach_display(move |device, _| {
                     relocade_vga::VgaDisplay::new(device, frames).map_err(|error| error.to_string())
                 })?;
+                while let Ok(printout) = printouts.recv().await {
+                    printout.save().await;
+                }
                 app.closing().await
             })
             .await;
@@ -95,8 +100,11 @@ async fn run_machine(
                     .map(|(dos, _)| (keyboard, dos.mouse_input(), dos.frames()))
                     .map_err(Clone::clone),
             );
-            let (mut dos, _printer) = startup?;
-            run_console(dos.native_console(events)).await;
+            let (mut dos, printer) = startup?;
+            let printout = printer.map(|capture| printing::Printout { capture, saves });
+            console::Console::new(dos.native_console(events), printout)
+                .run()
+                .await;
             Ok(())
         },
     );
