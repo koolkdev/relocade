@@ -3,13 +3,14 @@
 mod full_precision;
 pub(super) use full_precision::full_precision_candidate;
 
-use crate::floating::{FiniteInput, RoundingMode};
+use crate::floating::{BinaryFormat, FiniteInput, RoundingMode};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 
 use super::{
-    operand::{AddendSigns, BinaryOperands},
-    result::{BinaryArithmetic, RoundedValue},
-    BinaryOperation,
+    operand::{AddendSigns, BinaryOperands, Operand},
+    result::{ArithmeticCandidate, BinaryArithmetic, RoundedShape, RoundedValue},
+    value::KnownClass,
+    BinaryOperation, ExtendedValue,
 };
 
 pub(super) fn add(
@@ -56,4 +57,56 @@ pub(super) fn add(
         round_magnitude: exact_zero.eq(false),
         zero,
     })
+}
+
+/// Two 48-bit terms leave room for exponent alignment and a carry in binary64.
+/// Wider terms use the general sum directly.
+fn at_most_48_bits(body: &BlockBuilder<'_>, operand: &Operand) -> Result<bool, BuildError> {
+    Ok(operand.binary32_value().is_some()
+        || body.constant_bits(operand.bits.significand.and(0xffff_u64))? == Some(0))
+}
+
+/// Requires PC64/nearest and finite operands. Both branches execute in the JIT.
+pub(super) fn short_sum_candidate(
+    body: &mut BlockBuilder<'_>,
+    operands: &BinaryOperands,
+    rounding: &RoundingMode,
+) -> Result<Option<ArithmeticCandidate>, BuildError> {
+    let (Some(left), Some(right)) = (
+        operands.left.binary64_value(),
+        operands.right.binary64_value(),
+    ) else {
+        return Ok(None);
+    };
+    if !at_most_48_bits(body, &operands.left)? || !at_most_48_bits(body, &operands.right)? {
+        return Ok(None);
+    }
+    let sum = left.add(right);
+    // Subtracting the larger-magnitude operand recovers the smaller exactly
+    // only when their native sum is exact (FastTwoSum). Check both orders.
+    let exact = sum.sub(left).eq(right).and(sum.sub(right).eq(left));
+    let zero = sum.eq(0.0);
+    let bits = sum.to_bits();
+    let exponent = BinaryFormat::Binary64.exponent_field(&bits);
+    let ordinary = zero.or(exponent.sub(1).unsigned().lt(2046));
+    let components = body.if_value::<RoundedShape>(
+        exact.and(ordinary),
+        |body| {
+            let class = KnownClass::zero().select(&zero, &KnownClass::normal());
+            let value = ExtendedValue::from_classified_binary(BinaryFormat::Binary64, bits, class);
+            body.yield_(RoundedValue::exact(value).components())
+        },
+        |mut body| {
+            // A nonzero sum of two finite binary64 values is always in the
+            // extended normal range. Exact cancellations took the first arm.
+            let wide =
+                full_precision_candidate(&mut body, operands, BinaryOperation::Add, rounding)?;
+            body.yield_(wide.rounded.components())
+        },
+    )?;
+    let class = KnownClass::zero().select(&components.0.eq(0_u64), &KnownClass::normal());
+    Ok(Some(ArithmeticCandidate {
+        valid: operands.normal_or_zero(),
+        rounded: RoundedValue::from_components(components, class),
+    }))
 }

@@ -1,7 +1,7 @@
 //! Exact significand multiplication and x87 operand-class responses.
 
 use crate::floating::{BinaryFormat, FiniteInput, RoundingMode};
-use relocade_compiler::{Val, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 
 use super::{
     operand::BinaryOperands,
@@ -13,21 +13,29 @@ use super::{
 /// Two finite binary32 operands need at most 48 significand bits and their
 /// product fits the normal binary64 exponent range unless it is zero. At PC53
 /// or PC64 the multiply is therefore exact under every rounding control.
-pub(super) fn exact_binary32_product(operands: &BinaryOperands) -> Option<ArithmeticCandidate> {
-    let product = operands
-        .left
-        .binary32_value()?
-        .mul(operands.right.binary32_value()?);
+pub(super) fn exact_binary32_product(
+    body: &BlockBuilder<'_>,
+    operands: &BinaryOperands,
+) -> Result<Option<ArithmeticCandidate>, BuildError> {
+    let (Some(left), Some(right)) = (
+        operands.left.binary32_value(),
+        operands.right.binary32_value(),
+    ) else {
+        return Ok(None);
+    };
+    // A product with at most 48 significant bits leaves the last five binary64
+    // fraction bits clear, including for either signed zero.
+    let bits = body.assume_bits(left.mul(right).to_bits(), 0x1f, 0)?;
     let zero = operands.left.zero.or(&operands.right.zero);
     let class = KnownClass::zero().select(&zero, &KnownClass::normal());
-    Some(ArithmeticCandidate {
+    Ok(Some(ArithmeticCandidate {
         valid: operands.normal_or_zero(),
         rounded: RoundedValue::exact(ExtendedValue::from_classified_binary(
             BinaryFormat::Binary64,
-            product.to_bits(),
+            bits,
             class,
         )),
-    })
+    }))
 }
 
 pub(super) fn multiply(
