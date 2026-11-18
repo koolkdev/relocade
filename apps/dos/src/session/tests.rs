@@ -4,7 +4,7 @@ use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-async fn with_dos(
+pub(crate) async fn with_dos(
     configuration: Configuration,
     check: impl AsyncFnOnce(Dos, Option<Capture>) + Send + 'static,
 ) {

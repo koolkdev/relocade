@@ -145,8 +145,12 @@ The prompt implements `ECHO`, `PRINTOUT SAVE`, `PRINTOUT CLEAR` and `HELP` with
 case-insensitive matching. It creates no DOS process and writes no duplicate stdout capture.
 
 Native input belongs to the prompt. It does not enter the controller or the BIOS
-keyboard buffer; native output bypasses DOS handles, redirection and installed
-CON drivers. No guest code, IRQ handlers or resident utilities execute at the
+keyboard buffer. Normal prompt output goes straight to the screen. For explicit
+redirection, put `> device` before or after a command or between arguments. The
+prompt resolves that name in DOS's installed character devices. For example,
+`HELP > LPT1` sends the help text to the printer. `>>` has the same effect on a
+character device. Double quotes group words and protect literal operators.
+`ECHO "A > B"` displays the quotes and the greater-than sign. No guest code, IRQ handlers or resident utilities execute at the
 prompt. The runner continues its device activities, including display/audio;
 BIOS ticks advance only when guest execution services timer interrupts.
 
@@ -158,8 +162,9 @@ launching or resuming a guest.
 
 ## Saving printer output
 
-After a DOS program writes to the printer, `PRINTOUT SAVE` saves the captured output as
-a PDF. The browser downloads `relocade-printout.pdf`. Linux, Windows and macOS
+Type `ECHO Hello > PRN` or `ECHO Hello > LPT1` to send a line from the prompt.
+A line exceeding the remaining printer capacity fails before any bytes are sent.
+`PRINTOUT SAVE` saves the captured output from the prompt and guest programs as a PDF. The browser downloads `relocade-printout.pdf`. Linux, Windows and macOS
 open Save As with that filename suggested. Saving, cancelling or retrying keeps
 the bytes available. `PRINTOUT CLEAR` discards the current job.
 

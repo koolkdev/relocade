@@ -6,6 +6,7 @@ use std::{io, num::NonZeroUsize};
 
 enum Request {
     Snapshot(oneshot::Sender<Vec<u8>>),
+    RemainingCapacity(oneshot::Sender<usize>),
     Clear(oneshot::Sender<()>),
 }
 
@@ -48,20 +49,27 @@ impl Capture {
     /// Copies the raw job at the time execution handles this request.
     /// Cancelling this operation cannot consume or discard the job.
     pub async fn snapshot(&self) -> io::Result<Vec<u8>> {
-        let (reply, received) = oneshot::channel();
-        self.requests
-            .send(Request::Snapshot(reply))
-            .await
-            .map_err(|_| disconnected())?;
-        received.await.map_err(|_| disconnected())
+        self.request(Request::Snapshot).await
+    }
+
+    /// Returns the number of free bytes after accounting for accepted input.
+    pub async fn remaining_capacity(&self) -> io::Result<usize> {
+        self.request(Request::RemainingCapacity).await
     }
 
     /// Discards the current job, including the connection's pending byte.
     /// Once submitted, a clear still takes effect if this future is cancelled.
     pub async fn clear(&self) -> io::Result<()> {
+        self.request(Request::Clear).await
+    }
+
+    async fn request<T>(
+        &self,
+        request: impl FnOnce(oneshot::Sender<T>) -> Request,
+    ) -> io::Result<T> {
         let (reply, received) = oneshot::channel();
         self.requests
-            .send(Request::Clear(reply))
+            .send(request(reply))
             .await
             .map_err(|_| disconnected())?;
         received.await.map_err(|_| disconnected())
@@ -105,6 +113,9 @@ impl Buffer {
                     if !reply.is_canceled() {
                         let _ = reply.send(self.bytes.clone());
                     }
+                }
+                Request::RemainingCapacity(reply) => {
+                    let _ = reply.send(self.capacity - self.bytes.len());
                 }
                 Request::Clear(reply) => {
                     self.bytes.clear();
