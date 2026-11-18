@@ -2587,7 +2587,6 @@ dependencies = [
  "relocade-renderer",
  "relocade-time",
  "wasm-bindgen-test",
- "web-time",
  "wgpu",
  "winit",
 ]

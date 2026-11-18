@@ -2,15 +2,14 @@
 //! Key identity and modifiers use winit's types; each adapter chooses guest text
 //! encoding, scan codes or messages. Delivery uses an ordinary Rust channel.
 
-use crate::input::InputEvent;
 use futures_channel::mpsc;
 pub use winit::{
     event::ElementState,
     keyboard::{Key, KeyCode, KeyLocation, ModifiersState, NativeKey, PhysicalKey},
 };
 
-pub type KeyboardInput = mpsc::UnboundedSender<InputEvent<KeyboardEvent>>;
-pub type KeyboardEvents = mpsc::UnboundedReceiver<InputEvent<KeyboardEvent>>;
+pub type KeyboardInput = mpsc::UnboundedSender<KeyboardEvent>;
+pub type KeyboardEvents = mpsc::UnboundedReceiver<KeyboardEvent>;
 
 pub fn channel() -> (KeyboardInput, KeyboardEvents) {
     mpsc::unbounded()

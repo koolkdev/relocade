@@ -263,36 +263,9 @@ Conversions between host and guest timelines round deadlines toward the future,
 so a fractional native offset cannot cause an early wake. This rounding stays
 inside the correspondence; elapsed-duration measurements still round down.
 
-For input timestamped at enqueue time, use `clock.sync_to(host_time).await`.
-The input is an external host `Instant`; the configured host source translates it
-with `host_timestamp` before mapping it to guest time. Both forms capture
-the current mapping when the wait is constructed, register on first poll and
-cancel on drop. A retained wait keeps its guest deadline across cancelled CPU
-runs and ordinary pauses. When excessive lag is discarded, these mapped deadlines
-shorten by the discarded duration, including waits that have not been polled yet.
-Older input becomes ready without changing its stream order. Ordinary
-`sleep_until` device deadlines remain fixed. Host clocks, unpaced guest clocks and
-calls outside an active CPU run complete immediately. The current run's
-correspondence maps timestamps; this
-API does not reconstruct historical mappings across paused sessions.
-
-Consumers that race input against device commands or timers must retain the
-receive-and-sync operation across cancelled waiters. A persistent async stream
-can own it using the standard `StreamExt::then` combinator:
-
-```rust,ignore
-let events = source.then(move |input| {
-    let sync = clock.sync_to(input.host_time);
-    async move {
-        sync.await;
-        input.event
-    }
-});
-```
-
-A later event remains queued while the current event synchronizes. It cannot
-postpone the current deadline. Equal-time events follow the execution owner's
-existing activity polling order.
+Live keyboard and mouse events arrive at the execution owner without timestamps.
+Each device processes its events in order. Keyboard repeat and mouse sampling
+use the device clock.
 
 Output goes in the opposite direction. In the device's async task, await the
 ordinary local `Sleep` returned by `clock.sync_to_host(time)` before publishing

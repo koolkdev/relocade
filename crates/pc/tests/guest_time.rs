@@ -90,15 +90,13 @@ async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
     pit_interrupts().await;
 }
 
-async fn keyboard_after_overdue_pit() {
+async fn keyboard_at_guest_receipt_time() {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
     use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
     use std::{
-        cell::RefCell,
         future::{poll_fn, Future},
         pin::pin,
-        rc::Rc,
         task::Poll,
     };
 
@@ -115,16 +113,14 @@ async fn keyboard_after_overdue_pit() {
     )
     .await
     .unwrap();
-    let input = Rc::new(RefCell::new(None));
-    let session_input = input.clone();
+    let clock = runner.clock().clone();
+    let (ready, input) = async_channel::bounded(1);
     let mut session = pin!(
         runner.run(std::future::pending::<()>(), async move |runner| {
-            let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
-            *session_input.borrow_mut() = Some(pc.keyboard_input());
+            ready.try_send(pc.keyboard_input()).unwrap();
             let cpu = pc.cpu();
             let memory = cpu.memory();
-            let ticks = memory.view().read_u32(0x46c).unwrap();
             // Bumpy's PIT divisor, IRQ0/IRQ1 enabled, then a blocking BIOS key read.
             let program = [
                 0xb0, 0x36, 0xe6, 0x43, 0xb0, 0x51, 0xe6, 0x40, 0xb0, 0x09, 0xe6, 0x40, 0xb0, 0xfc,
@@ -139,12 +135,7 @@ async fn keyboard_after_overdue_pit() {
                 .await
                 .unwrap();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
-            let elapsed_ticks = memory.view().read_u32(0x46c).unwrap().wrapping_sub(ticks);
-            (
-                state.ax(),
-                elapsed_ticks,
-                pc.clock().duration_between(start, pc.clock().now()),
-            )
+            (state.ax(), pc.clock().now())
         })
     );
     // Poll the real session until its first idle host wait is registered.
@@ -158,43 +149,38 @@ async fn keyboard_after_overdue_pit() {
     })
     .await;
     host.advance_by(Duration::from_millis(7));
-    input
-        .borrow()
-        .as_ref()
-        .unwrap()
-        .unbounded_send(relocade_frontend::input::InputEvent {
-            host_time: host.host_now(),
-            event: KeyboardEvent::Key {
-                physical_key: KeyCode::KeyA.into(),
-                logical_key: Key::Character("a".into()),
-                location: KeyLocation::Standard,
-                text: Some("a".into()),
-                state: ElementState::Pressed,
-                repeat: false,
-            },
+    let keyboard = input.try_recv().unwrap();
+    let boundary = clock.now();
+    keyboard
+        .unbounded_send(KeyboardEvent::Key {
+            physical_key: KeyCode::KeyA.into(),
+            logical_key: Key::Character("a".into()),
+            location: KeyLocation::Standard,
+            text: Some("a".into()),
+            state: ElementState::Pressed,
+            repeat: false,
         })
         .unwrap();
-    // Queueing delay must not replace the producer's 7 ms timestamp with 9 ms.
+    // Input applies at the stopped guest boundary even when host time is ahead.
     host.advance_by(Duration::from_millis(2));
-    let (key, ticks, elapsed) = session.await.unwrap();
+    assert_eq!(clock.now(), boundary);
+    let (key, completed) = session.await.unwrap();
     assert_eq!(key, 0x1e61);
-    assert_eq!(
-        ticks, 3,
-        "the overdue PIT edges must have separate guest IRQ opportunities"
+    assert!(
+        completed >= boundary
+            && completed < clock.deadline_after(boundary, Duration::from_millis(1))
     );
-    assert!(elapsed >= Duration::from_millis(7));
-    assert!(elapsed < Duration::from_millis(8));
     assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn overdue_pit_interrupts_run_before_later_physical_keyboard_input() {
-    pollster::block_on(keyboard_after_overdue_pit());
+fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+    pollster::block_on(keyboard_at_guest_receipt_time());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn overdue_pit_interrupts_run_before_later_physical_keyboard_input() {
-    keyboard_after_overdue_pit().await;
+async fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+    keyboard_at_guest_receipt_time().await;
 }

@@ -1,6 +1,5 @@
 use super::{wake::EventWake, Event, Phase};
 use crate::graphics::{Graphics, SurfaceSetup};
-use relocade_frontend::input::InputEvent;
 use relocade_frontend::{
     display::DisplayRenderer,
     keyboard::{KeyboardEvent, KeyboardInput, ModifiersState},
@@ -32,7 +31,7 @@ impl HostState {
 
     pub(super) fn send_mouse(&mut self, event: MouseEvent) {
         if let Some(input) = &self.mouse {
-            if input.unbounded_send(InputEvent::new(event)).is_err() {
+            if input.unbounded_send(event).is_err() {
                 self.mouse = None;
             }
         }
@@ -45,7 +44,7 @@ impl HostState {
             KeyboardEvent::Key { .. } => {}
         }
         if let Some(input) = &self.keyboard {
-            let _ = input.unbounded_send(InputEvent::new(event));
+            let _ = input.unbounded_send(event);
         }
     }
 }
@@ -114,7 +113,7 @@ impl AppHost {
         if state.keyboard.is_some() {
             return Err("A keyboard is already attached".into());
         }
-        let _ = input.unbounded_send(InputEvent::new(KeyboardEvent::Modifiers(state.modifiers)));
+        let _ = input.unbounded_send(KeyboardEvent::Modifiers(state.modifiers));
         state.keyboard = Some(input);
         Ok(())
     }
