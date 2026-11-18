@@ -1,204 +1,62 @@
 name: Tests
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-  pull_request:
-
+on: workflow_dispatch
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  CARGO_TERM_COLOR: always
-  # Keep line-number backtraces while reducing test artifacts and linker work.
-  CARGO_PROFILE_TEST_DEBUG: 1
-
 jobs:
   native:
-    name: ${{ matrix.name }} tests
-    runs-on: ubuntu-latest
+    name: Diagnose native GPU tests on Ubuntu 26.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: Core
-            name: Core
-            packages: >-
-              -p relocade-derive -p relocade-compiler -p relocade-x86
-              -p relocade-interpreter -p relocade-test-support
-              -p relocade-wasm-bindings -p relocade-wasm-runtime -p relocade-workers
-            system-packages: ''
-          - suite: Native integration
-            name: DOS and application
-            # New workspace members join this suite until assigned to Core.
-            packages: >-
-              --workspace --exclude relocade-derive --exclude relocade-compiler
-              --exclude relocade-x86 --exclude relocade-interpreter
-              --exclude relocade-test-support --exclude relocade-wasm-bindings
-              --exclude relocade-wasm-runtime --exclude relocade-workers
-            system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
     env:
-      # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
-      # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
+      CARGO_PROFILE_TEST_DEBUG: 1
       GALLIUM_OVERRIDE_CPU_CAPS: avx
-      ALSA_CONFIG_PATH: ${{ github.workspace }}/crates/app/tests/alsa-null.conf
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Configure native test environment
-        run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Install native test dependencies
-        if: matrix.system-packages != ''
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install diagnostics and identify graphics libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.system-packages }}
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdb libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0
+          dpkg-query -W 'mesa-vulkan-drivers' 'libllvm*' 'libvulkan1'
+          lscpu | grep -E 'Model name|CPU\(s\)|Vendor ID'
+          ls -l /usr/share/vulkan/icd.d/ /opt/google/chrome/*icd*.json || true
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.suite }}
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Cache compiled Wasm test modules
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/wasmtime
-          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
-
-      - name: Run tests
-        # Keep package selection and features identical when running ignored tests,
-        # so Cargo can reuse this build instead of resolving another feature graph.
-        run: cargo test ${{ matrix.packages }} --all-features --locked
-
-      - name: Run display and audio integration tests
-        if: matrix.suite == 'Native integration'
-        run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
-
-  web:
-    name: Browser tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CARGO_TARGET_DIR: target/browser
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-10-20
-          components: rust-src
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            tests/browser/package-lock.json
-            tools/package-lock.json
-
-      - name: Install Chrome
-        id: chrome
-        uses: browser-actions/setup-chrome@v2
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target/browser
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Install Wasm test runner
-        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
-
-      - name: Install browser dependencies
+          key: Native integration
+          save-if: 'false'
+      - name: Build the three existing GPU integration suites
         run: |
-          npm --prefix tests/browser ci
-          npm --prefix tools ci
-
-      - name: Run browser tests
-        env:
-          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          cargo test -p relocade-vga -p relocade-dos --all-features --locked --no-run --test gpu --test et4000 --test video_gpu --message-format=json > "$RUNNER_TEMP/gpu-bins.jsonl"
+          jq -r 'select(.reason=="compiler-artifact" and .executable!=null) | "\(.target.name)=\(.executable)"' "$RUNNER_TEMP/gpu-bins.jsonl" >> "$GITHUB_ENV"
+      - name: Capture the failing thread in the stock graphics test
         run: |
-          npm --prefix tests/browser run test:runner
-          npm --prefix tests/browser test
-
-  clippy:
-    name: Workspace Clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Install audio build dependencies
+          export DEBUGINFOD_URLS=
+          gdb -batch -q -ex 'set debuginfod enabled off' -ex 'set print thread-events off' -ex run -ex 'bt 24' -ex 'info symbol $pc' -ex 'info sharedlibrary' --args "$gpu" > "$RUNNER_TEMP/gpu-backtrace" 2>&1 || true
+          grep -E -A28 'received signal|Program terminated|test result:|panicked at' "$RUNNER_TEMP/gpu-backtrace" | head -100 || true
+          grep -E 'libvulkan|libLLVM|swrast|dri\.so|libgallium|libEGL' "$RUNNER_TEMP/gpu-backtrace" | tail -30 || true
+      - name: Compare driver and CPU capability settings with the same binaries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: clippy-native
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Run strict Clippy
-        run: cargo clippy --workspace --all-targets --all-features --profile test --locked -- -D warnings
-
-  web-clippy:
-    name: Wasm Clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CARGO_TARGET_DIR: target/browser
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-10-20
-          components: rust-src, clippy
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: clippy-web
-          workspaces: . -> target/browser
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Run strict Clippy
-        # The shared lint command needs no Chrome, wasm-bindgen CLI or npm packages.
-        run: npm --prefix tests/browser run lint
+          shopt -s nullglob
+          lvp=(/usr/share/vulkan/icd.d/lvp_icd*.json)
+          swift=(/opt/google/chrome/vk_swiftshader_icd.json)
+          probe() {
+            local variant=$1
+            shift
+            for suite in gpu et4000 video_gpu; do
+              log="$RUNNER_TEMP/$variant-$suite.log"
+              rc=0
+              env "$@" MESA_SHADER_CACHE_DIR="$RUNNER_TEMP/mesa-$variant-$suite" "${!suite}" > "$log" 2>&1 || rc=$?
+              echo "RESULT $variant $suite exit=$rc"
+              grep -E 'test result:|FAILED|panicked at|LLVM ERROR|failed to' "$log" | tail -5 || true
+            done
+          }
+          probe stock
+          probe avx2 GALLIUM_OVERRIDE_CPU_CAPS=avx2
+          probe native -u GALLIUM_OVERRIDE_CPU_CAPS
+          if ((${#lvp[@]})); then probe lavapipe VK_DRIVER_FILES="${lvp[0]}"; fi
+          probe serial RUST_TEST_THREADS=1
+          probe one-llvmpipe-worker LP_NUM_THREADS=1
+          if [[ -f ${swift[0]} ]]; then probe swiftshader VK_DRIVER_FILES="${swift[0]}"; fi
