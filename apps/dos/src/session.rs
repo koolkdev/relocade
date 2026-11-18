@@ -1,4 +1,4 @@
-use relocade_dos::Dos;
+use relocade_dos::{devices::Printer, Dos};
 use relocade_machine::Runner;
 use relocade_parallel::Centronics;
 use relocade_pc::{Configuration, Pc};
@@ -21,7 +21,8 @@ pub(super) async fn start(
     let (input, output) = Centronics::connect(pc.runner(), &port).await;
     let capture = Capture::attach(pc.runner(), input, CAPACITY).await;
     let dos = Dos::from_pc(pc).await?;
-    dos.bind_lpt(1, output)?;
+    dos.bind_lpt(1, output.clone())?;
+    dos.install_driver(Printer::new(output));
     Ok((dos, Some(capture)))
 }
 
