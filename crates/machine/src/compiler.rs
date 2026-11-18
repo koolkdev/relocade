@@ -67,16 +67,15 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
-    let mut reader = memory.code_reader();
+    let reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
     let (blocks, addresses) = match request {
         connection::Compilation::Blocks(requests) => {
-            let captured: Vec<_> = requests
-                .iter()
-                .map(|block| reader.read(block.address, block.byte_len))
-                .collect::<std::result::Result<_, _>>()?;
+            let captured = reader
+                .read(requests.iter().map(|block| (block.address, block.byte_len)))
+                .await?;
             let snapshots: Vec<_> = requests
                 .iter()
                 .zip(&captured)
@@ -99,17 +98,20 @@ async fn compile(
             let mut first_error = None;
             for request in requests {
                 let base = request.entry.segment_base();
-                match module.add_function(
-                    CodeAddress::RealMode(request.entry),
-                    request.limits,
-                    |eip, buffer| {
-                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
-                        if len == 0 {
-                            return 0;
-                        }
-                        reader.read_prefix(base + eip, &mut buffer[..len])
-                    },
-                ) {
+                let discovered = x86
+                    .discover_function(
+                        CodeAddress::RealMode(request.entry),
+                        request.limits,
+                        async |eip, buffer: &mut [u8]| {
+                            let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
+                            if len == 0 {
+                                return 0;
+                            }
+                            reader.read_prefix(base + eip, &mut buffer[..len]).await
+                        },
+                    )
+                    .await;
+                match discovered.and_then(|function| module.add_discovered_function(function)) {
                     Ok(entries) => {
                         addresses.extend(entries.iter().map(|block| base + block.start_eip));
                     }

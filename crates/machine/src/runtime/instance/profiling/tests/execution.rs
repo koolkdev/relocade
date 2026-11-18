@@ -3,6 +3,7 @@ use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use super::{collected_count, merged_count};
 use crate::{Cpu, CpuConfig, DispatchEntry, FarPointer, Hook, MachineConfig, Memory};
 use futures_lite::future::poll_once;
+use futures_util::FutureExt;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, FunctionLimits, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segment,
@@ -162,10 +163,17 @@ async fn far_calls() {
         .await
         .unwrap();
         if compiled_caller {
-            let mut reader = memory.code_reader();
+            let reader = memory.code_reader();
+            reader.read([(0x100, caller.len())]).await.unwrap();
             let function = compiler
                 .compile_function(0x100, FunctionLimits::default(), |eip, output| {
-                    reader.read_prefix(eip, output)
+                    let len = output
+                        .len()
+                        .min((0x100 + caller.len()).saturating_sub(eip as usize));
+                    reader
+                        .read_prefix(eip, &mut output[..len])
+                        .now_or_never()
+                        .expect("caller bytes were captured")
                 })
                 .unwrap();
             let source = reader.finish(
