@@ -1,6 +1,6 @@
 use super::MemoryError;
 use crate::{IoBus, MachineConfig, Memory};
-use futures_util::FutureExt;
+use futures_lite::future::block_on;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 
 fn allocate(map: PhysicalMemoryMap) -> Memory {
@@ -8,11 +8,7 @@ fn allocate(map: PhysicalMemoryMap) -> Memory {
 }
 
 fn code_prefix(memory: &Memory, address: u32, output: &mut [u8]) -> usize {
-    memory
-        .code_reader()
-        .read_prefix(address, output)
-        .now_or_never()
-        .unwrap()
+    block_on(memory.code_reader().read_prefix(address, output))
 }
 
 #[test]
@@ -37,12 +33,7 @@ fn transfers_cross_pages_with_their_guest_access_policy() {
     memory.read(0xffe, &mut bytes).unwrap();
     assert_eq!(bytes, [1, 2, 0xaa, 0xbb]);
     assert_eq!(
-        backing
-            .code_reader()
-            .read([(0xffe, 4)])
-            .now_or_never()
-            .unwrap()
-            .unwrap(),
+        block_on(backing.code_reader().read([(0xffe, 4)])).unwrap(),
         [[1, 2, 0xaa, 0xbb]]
     );
     assert_eq!(code_prefix(&backing, 0xffe, &mut bytes), 4);
@@ -170,12 +161,7 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
         memory.write_u32(0x100000, 0x1234_565a).unwrap();
         assert_eq!(memory.read_u32(0x100000).unwrap(), 0x1234_565a);
         assert_eq!(
-            backing
-                .code_reader()
-                .read([(0x100000, 4)])
-                .now_or_never()
-                .unwrap()
-                .unwrap(),
+            block_on(backing.code_reader().read([(0x100000, 4)])).unwrap(),
             [[0x5a, 0x56, 0x34, 0x12]]
         );
         let mut byte = [0];

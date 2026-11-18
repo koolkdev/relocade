@@ -11,6 +11,7 @@ pub(crate) use connection::Connection;
 pub use service::CompilerService;
 
 use crate::{worker::Transfer, FarPointer, Memory, Result};
+use futures_util::future::join_all;
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits};
 
@@ -93,27 +94,34 @@ async fn compile(
             if target.profile != ExecutionProfile::Real16 {
                 return Err(crate::ConfigurationError::UnsupportedMode.into());
             }
+            let discoveries = requests.iter().map(async |request| {
+                x86.discover_function(
+                    CodeAddress::RealMode(request.entry),
+                    request.limits,
+                    async |eip, buffer: &mut [u8]| {
+                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
+                        if len == 0 {
+                            return 0;
+                        }
+                        reader
+                            .read_prefix(request.entry.segment_base() + eip, &mut buffer[..len])
+                            .await
+                    },
+                )
+                .await
+            });
+            let discovered = join_all(discoveries).await;
             let mut module = x86.function_module();
             let mut addresses = Vec::new();
             let mut first_error = None;
-            for request in requests {
-                let base = request.entry.segment_base();
-                let discovered = x86
-                    .discover_function(
-                        CodeAddress::RealMode(request.entry),
-                        request.limits,
-                        async |eip, buffer: &mut [u8]| {
-                            let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
-                            if len == 0 {
-                                return 0;
-                            }
-                            reader.read_prefix(base + eip, &mut buffer[..len]).await
-                        },
-                    )
-                    .await;
-                match discovered.and_then(|function| module.add_discovered_function(function)) {
+            for (request, result) in requests.iter().zip(discovered) {
+                match result.and_then(|function| module.add_discovered_function(function)) {
                     Ok(entries) => {
-                        addresses.extend(entries.iter().map(|block| base + block.start_eip));
+                        addresses.extend(
+                            entries
+                                .iter()
+                                .map(|block| request.entry.segment_base() + block.start_eip),
+                        );
                     }
                     Err(error) => {
                         first_error.get_or_insert(error);

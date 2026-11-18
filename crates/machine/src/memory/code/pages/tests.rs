@@ -1,5 +1,6 @@
 use super::*;
 use crate::{MachineConfig, Memory};
+use futures_lite::future::block_on;
 use futures_util::FutureExt;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{
@@ -25,11 +26,12 @@ fn captured_pages_remain_readable_while_another_page_waits_for_cpus() {
     let memory = setup();
     memory.view().write(0x100, &[42]).unwrap();
     let pages = Pages::new(&memory);
-    let page = pages.get(0x100).now_or_never().unwrap();
+    let page = block_on(pages.get(0x100));
     let member = memory.execution.member();
     let active = member.try_enter().unwrap();
     let mut pending = pin!(pages.get(0x1000));
     let mut cx = Context::from_waker(Waker::noop());
+    assert!(pending.as_mut().poll(&mut cx).is_pending());
     assert!(pending.as_mut().poll(&mut cx).is_pending());
     assert!(member.try_enter().is_none());
 
@@ -43,4 +45,34 @@ fn captured_pages_remain_readable_while_another_page_waits_for_cpus() {
     drop(active);
     assert!(pending.poll(&mut cx).is_ready());
     assert!(member.try_enter().is_some());
+}
+
+#[test]
+fn concurrent_page_requests_share_one_pause_and_one_copy_per_page() {
+    let memory = setup();
+    let pages = Pages::new(&memory);
+    let member = memory.execution.member();
+    let active = member.try_enter().unwrap();
+    let mut first = pin!(pages.get(0));
+    let mut second = pin!(pages.get(0x1000));
+    let mut duplicate = pin!(pages.get(0x100));
+    let mut cx = Context::from_waker(Waker::noop());
+
+    assert!(first.as_mut().poll(&mut cx).is_pending());
+    assert!(second.as_mut().poll(&mut cx).is_pending());
+    assert!(duplicate.as_mut().poll(&mut cx).is_pending());
+    assert!(first.as_mut().poll(&mut cx).is_pending());
+    assert!(member.try_enter().is_none());
+    memory.view().write(0, &[1]).unwrap();
+    memory.view().write(0x1000, &[2]).unwrap();
+    drop(active);
+
+    let first = block_on(first);
+    let _resumed = member.try_enter().expect("the batch released its pause");
+    let second = second
+        .now_or_never()
+        .expect("both pages were captured together");
+    let duplicate = duplicate.now_or_never().expect("the shared page is ready");
+    assert!(Rc::ptr_eq(&first, &duplicate));
+    assert_eq!((first.bytes[0], second.bytes[0]), (1, 2));
 }
