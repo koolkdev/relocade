@@ -2,7 +2,7 @@
 
 use futures_lite::future::or;
 use relocade_dos::Dos;
-use std::{io::Read, time::Duration};
+use std::{io::Read, num::NonZeroU64, time::Duration};
 
 #[test]
 fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
@@ -12,8 +12,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let console = prepared.run_until(std::future::pending::<()>(), async move |runner| {
-        let clock = runner.clock().clone();
+    let session = async move |runner: relocade_machine::Runner| {
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
@@ -66,27 +65,19 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
                 .unwrap();
         }
         let video = dos.video_card().framebuffer_access();
+        let frames = dos.frames();
+        let before = dos.cpu().cpu_state().instruction_count();
         let inspect = async {
-            for _ in 0..1000 {
-                if video
-                    .borrow_mut()
-                    .framebuffer()
-                    .text_cell(prompt_row + 5, 0)
-                    .unwrap()
-                    .value() as u8
-                    == b'>'
-                {
-                    return;
-                }
-                clock.sleep(Duration::from_millis(1)).await;
-            }
-            panic!("console did not return to its prompt");
+            // Mode 3 uses word addressing across four VGA planes.
+            let last_prompt = u32::from(prompt_row + 5) * 80 * 2 * 4;
+            while frames.recv().await.unwrap().vram_byte(last_prompt) != Some(b'>') {}
         };
         or(
             relocade_dos_app::run_console(dos.native_console(events)),
             inspect,
         )
         .await;
+        assert_eq!(dos.cpu().cpu_state().instruction_count(), before);
         let mut video = video.borrow_mut();
         let screen = video.framebuffer();
         for (row, text) in [
@@ -121,7 +112,12 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
             dos.process().is_none(),
             "echo executes in Rust without launching guest code"
         );
-    });
+    };
+    let console = prepared.run_until_with_guest_time(
+        NonZeroU64::new(1_000_000).unwrap(),
+        futures_timer::Delay::new(Duration::from_secs(30)),
+        session,
+    );
     assert_eq!(pollster::block_on(console).unwrap(), Some(()));
     pollster::block_on(machine.shutdown()).unwrap();
 }

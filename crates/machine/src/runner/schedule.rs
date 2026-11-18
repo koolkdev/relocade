@@ -63,21 +63,11 @@ impl ExecutionSchedule {
         let result = if let Some(exit) = cpu.poll_host_work(cx) {
             Poll::Ready(exit)
         } else {
-            if let Some(guest) = &self.guest {
-                if let Some(slice) = &guest.slice {
-                    ready!(slice.poll(&self.clock, self.clock.now(), cx));
-                }
-                guest
-                    .driver
-                    .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
-            }
+            ready!(self.poll_slice(cx));
+            self.synchronize();
             cpu.poll_execution(cx)
         };
-        if let Some(guest) = &self.guest {
-            guest
-                .driver
-                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
-        }
+        self.synchronize();
         match result {
             Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
             Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
@@ -90,19 +80,46 @@ impl ExecutionSchedule {
                 if cpu.interrupt_handle().is_requested() {
                     return Poll::Ready(None);
                 }
-                let Some(guest) = &self.guest else {
-                    return Poll::Pending;
-                };
-                let Some(mut deadline) = guest.driver.next_deadline() else {
-                    return Poll::Pending;
-                };
-                if let Some(slice) = &guest.slice {
-                    deadline = slice.idle_deadline(deadline);
-                }
-                guest.driver.advance_to(deadline);
-                Poll::Ready(None)
+                self.advance_idle().map(|()| None)
             }
         }
+    }
+
+    /// A native activity owns the CPU. Its devices can reach their next deadline
+    /// under the same machine pause and slice limits as a halted guest.
+    pub(super) fn poll_idle(&self, cpu: &Cpu, cx: &mut Context<'_>) -> Poll<()> {
+        let _execution = ready!(cpu.poll_enter_execution(cx));
+        ready!(self.poll_slice(cx));
+        self.advance_idle()
+    }
+
+    fn poll_slice(&self, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(slice) = self.guest.as_ref().and_then(|guest| guest.slice.as_ref()) {
+            return slice.poll(&self.clock, self.clock.now(), cx);
+        }
+        Poll::Ready(())
+    }
+
+    fn synchronize(&self) {
+        if let Some(guest) = &self.guest {
+            guest
+                .driver
+                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
+        }
+    }
+
+    fn advance_idle(&self) -> Poll<()> {
+        let Some(guest) = &self.guest else {
+            return Poll::Pending;
+        };
+        let Some(mut deadline) = guest.driver.next_deadline() else {
+            return Poll::Pending;
+        };
+        if let Some(slice) = &guest.slice {
+            deadline = slice.idle_deadline(deadline);
+        }
+        guest.driver.advance_to(deadline);
+        Poll::Ready(())
     }
 }
 

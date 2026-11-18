@@ -15,6 +15,7 @@ use relocade_machine::MemoryBus;
 /// and redirected handles do not participate; guest keyboard RAM is untouched.
 /// The exclusive DOS borrow keeps guest execution separate from this prompt.
 pub struct NativeConsole<'a> {
+    pc: &'a mut relocade_pc::Pc,
     memory: MemoryBus,
     stdio: &'a Stdio,
     events: KeyboardEvents,
@@ -22,8 +23,15 @@ pub struct NativeConsole<'a> {
 }
 
 impl<'a> NativeConsole<'a> {
-    pub(crate) fn new(memory: MemoryBus, stdio: &'a Stdio, events: KeyboardEvents) -> Self {
+    pub(crate) fn new(
+        pc: &'a mut relocade_pc::Pc,
+        stdio: &'a Stdio,
+        events: KeyboardEvents,
+    ) -> Self {
+        let cpu = pc.cpu();
+        let memory = cpu.memory().with_io(cpu.io());
         Self {
+            pc,
             memory,
             stdio,
             events,
@@ -42,7 +50,7 @@ impl<'a> NativeConsole<'a> {
     /// Cancelling drops the partial line, retaining the translator's held keys.
     pub async fn read_line(&mut self) -> Option<Vec<u8>> {
         let mut pending = None;
-        let mut line = edit_line::<()>(
+        let line = edit_line::<()>(
             async || {
                 if let Some(byte) = pending.take() {
                     return Ok(byte);
@@ -62,9 +70,8 @@ impl<'a> NativeConsole<'a> {
                 write(self.stdio, &self.memory, &[byte]);
                 Ok(())
             },
-        )
-        .await
-        .ok()?;
+        );
+        let mut line = self.pc.idle_until(line).await.ok()?;
         line.pop(); // The shared DOS editor includes its final CR.
         self.write(b"\n");
         Some(line)
