@@ -9,8 +9,11 @@ publish.workspace = true
 async-channel = { version = "=2.5.0", default-features = false }
 futures-channel = "=0.3.34"
 futures-lite = "=2.6.1"
+miniz_oxide = "=0.9.1"
+pdf-writer = "=0.15.0"
 relocade-machine = { path = "../machine" }
 relocade-parallel = { path = "../parallel" }
+relocade-vga = { path = "../vga" }
 
 [dev-dependencies]
 relocade-clock-test-support = { path = "../../tests/clock-support" }

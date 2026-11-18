@@ -3,3 +3,5 @@
 
 mod capture;
 pub use capture::Capture;
+
+pub mod text;
