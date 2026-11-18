@@ -45,6 +45,9 @@ jobs:
               --exclude relocade-wasm-runtime --exclude relocade-workers
             system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
     env:
+      # Use Lavapipe on headless runners. With other drivers enabled, Ubuntu
+      # 26.04's Vulkan loader can crash when tests create devices in parallel.
+      VK_LOADER_DRIVERS_SELECT: 'lvp_icd*'
       # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
       # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
       GALLIUM_OVERRIDE_CPU_CAPS: avx
