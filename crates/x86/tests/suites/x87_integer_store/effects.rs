@@ -192,3 +192,64 @@ fn load_then_integer_store(frontend: Frontend) {
 test_frontends!(access, operand_guards);
 test_frontends!(retained_state, source_and_sticky_status);
 test_frontends!(loaded, load_then_integer_store);
+
+#[test]
+fn binary64_to_integer_checks_range_after_rounding() {
+    use crate::support::{machine::expected, step::TestModule};
+    use relocade_x86::Compiler;
+    use wasmparser::{Operator, Parser, Payload};
+
+    let form = FORMS[2];
+    let code = [
+        [0xdd, 0x05, 0, 0x40, 0, 0].as_slice(),
+        &form.instruction(0x4020),
+    ]
+    .concat();
+    for (input, extended, rc, output, flags) in [
+        (32767.5_f64, (0xffff_0000_0000_0000, 0x400d), 0, i16::MIN, 1),
+        (32767.5, (0xffff_0000_0000_0000, 0x400d), 3, i16::MAX, PE),
+        (
+            -32767.75,
+            (0xffff_8000_0000_0000, 0xc00d),
+            0,
+            i16::MIN,
+            PE | C1,
+        ),
+        (-32768.5, (0x8000_8000_0000_0000, 0xc00e), 1, i16::MIN, 1),
+        (-32768.5, (0x8000_8000_0000_0000, 0xc00e), 2, i16::MIN, PE),
+        (
+            f64::from_bits(0x7ff8_0000_0000_0000),
+            (0xc000_0000_0000_0000, 0x7fff),
+            0,
+            i16::MIN,
+            1,
+        ),
+    ] {
+        let mut image = stack_image(&code, 0, 0xffff);
+        image.cpu.x87.status.precision = 0;
+        image.cpu.x87.control.rounding_control = rc;
+        image.map(4, 0x8000, true);
+        image.data(0x8000, &input.to_le_bytes());
+        let block = Compiler::new(SegmentProfile::Flat32)
+            .specialize_on_cpu(&image.cpu)
+            .compile_block(0x1000, &code, 2)
+            .unwrap();
+        assert!(Parser::new(0).parse_all(&block.bytes).any(|payload| {
+            matches!(payload.unwrap(), Payload::CodeSectionEntry(body)
+                if body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
+        }), "the tracked binary64 input should reach the biased integer conversion");
+
+        let mut cpu = form.completed(complete_x87(image.cpu, 6, 0x0505), 0x4020, 6);
+        write_register_bits(&mut cpu, 7, extended);
+        cpu.x87.status = status(0x4500 | flags);
+        let stored = Step {
+            cpu,
+            ram: &[(0x8020, &output.to_le_bytes())],
+            exit: Exit::Dispatch(cpu.eip),
+        };
+        assert_eq!(
+            TestModule::new(&block).observe(&image.input(), 1),
+            expected(&image, &[stored])
+        );
+    }
+}
