@@ -66,8 +66,9 @@ The runtime can queue several requests and receive their results as it runs.
 `FunctionRequest` supplies an entry CS:IP and its discovery limits. The machine
 uses the entries as roots and follows branches and call continuations. Entries
 in the same code segment and decode width can share blocks. Request a callee
-by including its entry. Installing the result publishes the compiled blocks
-to CPU dispatch. Their instruction bytes are registered for invalidation.
+by including its entry. Installing the result publishes the compiled function
+entries and post-call continuations to CPU dispatch. Other blocks stay inside
+the module. Its source registration covers the bytes of every compiled block.
 
 The worker's code reader copies mapped RAM/ROM directly from shared backing,
 including A20 aliases. It shares address resolution with ordinary memory views

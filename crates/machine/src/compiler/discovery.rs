@@ -1,4 +1,4 @@
-//! Discovers reachable blocks for a batch of guest function requests.
+//! Chooses blocks and CPU entry points for a batch of guest function requests.
 
 mod walk;
 

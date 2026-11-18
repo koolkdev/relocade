@@ -50,7 +50,7 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
                     .iter()
                     .map(|b| (b.address.eip(), b.byte_len))
                     .collect::<Vec<_>>(),
-                [(0, 3), (3, 3), (6, 3), (9, 5)]
+                [(0, 3), (3, 3), (9, 5)]
             );
             let exit = runner.cpu().exit_handle();
             runner
@@ -169,7 +169,9 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         .write(
             0x100,
             &[
-                0xe8, 0xfd, 0, // CALL the external callee at linear address 0200
+                0x83, 0xfc, 1, // CMP SP,1 clears ZF with the fixture's stack
+                0x0f, 0x84, 0xf9, 0, // JZ 0200 makes the callee reachable from this root
+                0xe8, 0xf6, 0, // CALL 0200 must still honor callee replacement
                 0xff, 0xe3, // JMP BX to the CS:IP exit hook
             ],
         )
@@ -192,36 +194,12 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         compiler
             .request_functions(
                 target,
-                vec![
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 0,
-                            offset: 0x100,
-                        },
+                [(0, 0x100), (1, 0xf0), (0, 0x200), (1, 0x1f0)]
+                    .map(|(segment, offset)| FunctionRequest {
+                        entry: FarPointer { segment, offset },
                         limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 1,
-                            offset: 0xf0,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 0,
-                            offset: 0x200,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                    FunctionRequest {
-                        entry: FarPointer {
-                            segment: 1,
-                            offset: 0x1f0,
-                        },
-                        limits: DiscoveryLimits::default(),
-                    },
-                ],
+                    })
+                    .into(),
             )
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
@@ -230,6 +208,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         runner
             .cpu()
             .install([
+                // Neither return address was a requested root. Installing the
+                // discovered continuations must replace these dispatch entries.
+                Hook::host(0x10a, async || {
+                    panic!("RET missed the compiled continuation")
+                }),
+                Hook::host(0x0001_00fa, async || {
+                    panic!("RET missed the alias continuation")
+                }),
                 Hook::host(0x120, async move || exit.request()),
                 Hook::host(0x0001_0110, async move || alias_exit.request()),
             ])
@@ -255,6 +241,7 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                     SegmentRegister::real_mode(Segment::Cs, segment),
                 );
                 state.set_eip(offset);
+                let initial_count = state.instruction_count();
                 state.set_sp(0x800);
                 state.set_ax(0);
                 state.set_bx(0x120 - (segment << 4));
@@ -263,22 +250,14 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                     ExecutionExit::Host(HostExit::Return)
                 );
                 let state = runner.cpu().cpu_state();
-                assert_eq!(
-                    state.ax(),
-                    if phase == 1 && segment == 0 {
-                        0
-                    } else {
-                        return_ip
-                    }
-                );
-                assert_eq!(
-                    state.sp(),
-                    if phase == 1 && segment == 0 {
-                        0x7fe
-                    } else {
-                        0x800
-                    }
-                );
+                let pushed_ip = runner.cpu().memory().view().read_u16(0x7fe).unwrap();
+                assert_eq!(u32::from(pushed_ip), offset + 10);
+                let retired = state.instruction_count() - initial_count;
+                if phase == 1 && segment == 0 {
+                    assert_eq!((state.ax(), state.sp(), retired), (0, 0x7fe, 3));
+                } else {
+                    assert_eq!((state.ax(), state.sp(), retired), (return_ip, 0x800, 7));
+                }
             }
         }
     })

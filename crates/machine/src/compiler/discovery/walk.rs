@@ -1,4 +1,4 @@
-//! Reachable instructions and block boundaries within one decode view.
+//! Reachable instructions, block boundaries and public entries within one decode view.
 
 use super::{DiscoveryError, DiscoveryLimits};
 use crate::Result;
@@ -14,6 +14,7 @@ pub(super) struct CodeView {
     target: ExecutionTarget,
     instructions: BTreeMap<u32, SnapshotInstruction>,
     boundaries: BTreeSet<u32>,
+    exports: BTreeSet<u32>,
 }
 
 impl CodeView {
@@ -28,6 +29,7 @@ impl CodeView {
             target,
             instructions: BTreeMap::new(),
             boundaries: BTreeSet::new(),
+            exports: BTreeSet::new(),
         }
     }
 
@@ -44,6 +46,7 @@ impl CodeView {
         }
         let mut pending = VecDeque::from([start]);
         let mut entries = BTreeSet::from([start]);
+        let mut exports = vec![start];
         // Stage this root so an over-budget path cannot split an accepted block.
         let mut decoded = BTreeMap::<u32, SnapshotInstruction>::new();
         let mut window = Window::default();
@@ -111,6 +114,8 @@ impl CodeView {
                         if self.target.profile != ExecutionProfile::Real16 => {}
                     InstructionFlow::NearCall { return_eip }
                     | InstructionFlow::FarCall { return_eip } => {
+                        // RET dispatches using the offset actually popped from the guest stack.
+                        exports.push(return_eip);
                         enqueue(return_eip, &mut entries, &mut pending);
                     }
                 }
@@ -129,6 +134,7 @@ impl CodeView {
             }
         }
         if !decoded.is_empty() || self.instructions.contains_key(&start) {
+            self.exports.extend(exports);
             self.boundaries.extend(entries);
             self.instructions.extend(decoded);
         }
@@ -147,7 +153,11 @@ impl CodeView {
                 continue;
             };
             let mut next = next_in_block(&first);
-            let mut block = DecodedBlock::new(self.origin.with_eip(start), first, true)?;
+            let mut block = DecodedBlock::new(
+                self.origin.with_eip(start),
+                first,
+                self.exports.contains(&start),
+            )?;
             while let Some(instruction) = next.and_then(|eip| self.instructions.remove(&eip)) {
                 next = next_in_block(&instruction);
                 block.push(instruction)?;
