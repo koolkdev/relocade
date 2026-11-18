@@ -12,9 +12,7 @@ pub enum DllSymbol<'a> {
 /// A definition can be shared by processes that load it at different addresses.
 ///
 /// ```
-/// use relocade_machine::Cpu;
-/// use relocade_win32::{win32_export, BuiltinDll, DllExport, DllLoader, DllSymbol};
-/// use std::rc::Rc;
+/// use relocade_win32::{win32_export, BuiltinDll, DllExport, DllSymbol};
 ///
 /// struct Process { id: u32 }
 ///
@@ -26,13 +24,13 @@ pub enum DllSymbol<'a> {
 ///     &[DllExport::function::<process_id>()],
 /// );
 ///
-/// async fn bind_process_id(loader: &mut DllLoader, cpu: &mut Cpu, process: Rc<Process>,
-///                          import_slot: u32) -> Result<(), Box<dyn std::error::Error>> {
-///     loader.load(cpu, &KERNEL32, process).await?;
-///     loader.bind_import("KERNEL32.DLL", DllSymbol::Name("GetCurrentProcessId"), import_slot)?
-///         .ok_or("missing GetCurrentProcessId")?;
-///     Ok(())
-/// }
+/// # async fn example(loader: &mut relocade_win32::DllLoader, cpu: &mut relocade_machine::Cpu,
+/// #                  process: std::rc::Rc<Process>) -> Result<(), relocade_win32::DllLoadError> {
+/// let kernel32 = loader.load(cpu, &KERNEL32, process).await?;
+/// let address = kernel32.resolve(DllSymbol::Name("GetCurrentProcessId"));
+/// # assert!(address.is_some());
+/// # Ok(())
+/// # }
 /// ```
 pub struct BuiltinDll<C: ?Sized + 'static> {
     pub(crate) name: &'static str,

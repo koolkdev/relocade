@@ -32,9 +32,11 @@
 //! `#[varargs] tail: VaList` and read promoted arguments through guest memory.
 //! The guest's import slot and dynamically obtained function pointer can both
 //! point to the same guest address once [`Exports::install`] publishes the hooks.
-//! Group typed functions in a [`BuiltinDll`] and load it with a process's
-//! [`DllLoader`]. Its import binding and [`LoadedDll::resolve`] share the same
-//! published addresses.
+//! [`DllLoader::load`] installs all functions declared by a [`BuiltinDll`].
+//! A PE image loader gets the module once per import descriptor, resolves
+//! each symbol with [`LoadedDll::resolve`], and writes the importing image's
+//! address table. Dynamic lookups use the same guest addresses. Guest code
+//! that walks the PE headers also needs a mapped export directory.
 //!
 //! ```compile_fail
 //! use relocade_win32::{win32_export, VaList};

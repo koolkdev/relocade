@@ -14,6 +14,11 @@ fn scale(#[context] factor: &u32, value: u32) -> u32 {
 #[win32_export(name = "Private")]
 fn private() {}
 
+#[win32_export(name = "Version")]
+fn version() -> u32 {
+    1
+}
+
 const MATH: BuiltinDll<u32> = BuiltinDll::new(
     "Math.dll",
     &[
@@ -21,14 +26,15 @@ const MATH: BuiltinDll<u32> = BuiltinDll::new(
             .aliases(&["ScaleAlias"])
             .ordinal(17),
         DllExport::stateless::<private>().ordinal_only(400),
+        DllExport::stateless::<version>(),
     ],
 );
 
 #[test]
-fn named_import_and_dynamic_ordinal_share_the_installed_entry() {
+fn one_loaded_module_resolves_imports_and_exports_used_only_dynamically() {
     pollster::block_on(async {
         let page = Rc::new(Page([0xa5; 64].into()));
-        let mut loader = DllLoader::new(page.clone(), BASE + 8..=BASE + 15, |_| {});
+        let mut loader = DllLoader::new(page.clone(), BASE + 8..=BASE + 18, |_| {});
         loader
             .load_with(&MATH, async |functions| {
                 let entries: Vec<_> = functions
@@ -39,7 +45,8 @@ fn named_import_and_dynamic_ordinal_share_the_installed_entry() {
                     entries,
                     [
                         (BASE + 8, Some(Name("Scale"))),
-                        (BASE + 13, Some(Ordinal(400)))
+                        (BASE + 13, Some(Ordinal(400))),
+                        (BASE + 16, Some(Name("Version"))),
                     ]
                 );
                 Ok(())
@@ -48,38 +55,30 @@ fn named_import_and_dynamic_ordinal_share_the_installed_entry() {
             .unwrap();
 
         let module = loader.module("MATH.DLL").unwrap();
-        let ordinal = module.resolve(Ordinal(17)).unwrap();
-        assert_eq!(module.resolve(Name("ScaleAlias")), Some(ordinal));
-        assert_eq!(module.resolve(Ordinal(400)), Some(BASE + 13));
+        let mut slots = [0; 8];
+        for (slot, import) in slots.chunks_exact_mut(4).zip([Name("Scale"), Ordinal(400)]) {
+            let address = module.resolve(import).unwrap();
+            slot.copy_from_slice(&address.to_le_bytes());
+        }
+        page.write(BASE, &slots).unwrap();
+        let mut first_slot = [0; 4];
+        page.read(BASE, &mut first_slot).unwrap();
+        let scale_address = u32::from_le_bytes(first_slot);
+        assert_eq!(module.resolve(Ordinal(17)), Some(scale_address));
+        assert_eq!(module.resolve(Name("ScaleAlias")), Some(scale_address));
+        assert_eq!(module.resolve(Name("Version")), Some(BASE + 16));
+        assert_eq!(module.resolve(Name("scale")), None);
         assert_eq!(module.resolve(Name("Private")), None);
         assert_eq!(module.resolve(Ordinal(1)), None);
-
+        assert!(loader.module("Other.dll").is_none());
         assert_eq!(
-            loader.bind_import("mAtH.dLl", Name("Scale"), BASE),
-            Ok(Some(ordinal))
-        );
-        let mut slot = [0; 4];
-        page.read(BASE, &mut slot).unwrap();
-        assert_eq!(u32::from_le_bytes(slot), ordinal);
-        assert_eq!(slot, [8, 0x10, 0, 0x70]);
-        assert_eq!(
-            &page.0.borrow()[8..16],
-            &[0x90, 0x90, 0xc2, 4, 0, 0x90, 0x90, 0xc3]
-        );
-
-        assert_eq!(
-            loader.bind_import("Math.dll", Name("scale"), BASE + 4),
-            Ok(None)
+            &page.0.borrow()[..8],
+            &[8, 0x10, 0, 0x70, 13, 0x10, 0, 0x70]
         );
         assert_eq!(
-            loader.bind_import("Other.dll", Ordinal(17), BASE + 4),
-            Ok(None)
+            &page.0.borrow()[8..19],
+            &[0x90, 0x90, 0xc2, 4, 0, 0x90, 0x90, 0xc3, 0x90, 0x90, 0xc3]
         );
-        assert_eq!(&page.0.borrow()[4..8], &[0xa5; 4]);
-        assert!(loader
-            .bind_import("Math.dll", Ordinal(17), BASE + 62)
-            .is_err());
-        assert_eq!(&page.0.borrow()[62..], &[0xa5; 2]);
     });
 }
 
@@ -138,7 +137,7 @@ fn failed_installation_preserves_published_modules_and_reuses_private_space() {
     const FIRST: BuiltinDll<()> = BuiltinDll::new("first.dll", &[DllExport::function::<private>()]);
     pollster::block_on(async {
         let page = Rc::new(Page([0; 64].into()));
-        let mut loader = DllLoader::new(page, BASE..=BASE + 10, |_| {});
+        let mut loader = DllLoader::new(page, BASE..=BASE + 13, |_| {});
         loader.load_with(&FIRST, async |_| Ok(())).await.unwrap();
         let result = loader
             .load_with(&MATH, async |_| {

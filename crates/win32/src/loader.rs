@@ -8,14 +8,15 @@ use std::rc::Rc;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
 
-/// Callable guest addresses in one loaded module.
+/// Callable guest addresses for all functions a loaded DLL exports.
 #[derive(Debug)]
 pub struct LoadedDll {
     symbols: BTreeMap<DllSymbol<'static>, u32>,
 }
 
 impl LoadedDll {
-    /// Looks up an exact export name or a public ordinal, as for `GetProcAddress`.
+    /// Looks up an exact export name or a public ordinal. An image loader can
+    /// reuse this module for every symbol in one PE import descriptor.
     pub fn resolve(&self, symbol: DllSymbol<'_>) -> Option<u32> {
         self.symbols.get(&symbol).copied()
     }
@@ -47,27 +48,33 @@ impl DllLoader {
     }
 
     /// Finds a loaded DLL by its ASCII case-insensitive file name.
+    ///
+    /// A PE image loader fills the import address table for one descriptor at a time.
+    ///
+    /// ```
+    /// use relocade_win32::{DllLoader, DllSymbol, GuestMemory};
+    ///
+    /// fn bind_descriptor(
+    ///     modules: &DllLoader, memory: &dyn GuestMemory,
+    ///     dll_name: &str, imports: &[DllSymbol<'_>], iat: u32,
+    /// ) -> Result<(), Box<dyn std::error::Error>> {
+    ///     let dll = modules.module(dll_name).ok_or("DLL is not loaded")?;
+    ///     let mut slots = Vec::with_capacity(imports.len() * 4);
+    ///     for &symbol in imports {
+    ///         let address = dll.resolve(symbol).ok_or("missing export")?;
+    ///         slots.extend_from_slice(&address.to_le_bytes());
+    ///     }
+    ///     memory.write(iat, &slots)?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn module(&self, name: &str) -> Option<&LoadedDll> {
         self.modules.get(&name.to_ascii_lowercase())
     }
 
-    /// Writes the resolved PE32 address to an import address table slot. A
-    /// missing DLL or export returns `Ok(None)` and preserves the slot.
-    pub fn bind_import(
-        &self,
-        module: &str,
-        symbol: DllSymbol<'_>,
-        slot: u32,
-    ) -> Result<Option<u32>, Exception> {
-        let Some(address) = self.module(module).and_then(|dll| dll.resolve(symbol)) else {
-            return Ok(None);
-        };
-        self.memory.write(slot, &address.to_le_bytes())?;
-        Ok(Some(address))
-    }
-
-    /// Loads a definition on the process's stopped Flat32 CPU, installing its
-    /// typed functions as one batch. A repeated load returns the original module.
+    /// Installs every declared export on the process's stopped Flat32 CPU in
+    /// one batch and returns the module for lookup. A repeated load returns
+    /// the original module.
     pub async fn load<C: ?Sized + 'static>(
         &mut self,
         cpu: &mut Cpu,
