@@ -21,6 +21,7 @@ fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
 fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     discover::blocks(
         0x1000,
+        SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
         limits,
         reader(0x1000, code),
@@ -29,6 +30,46 @@ fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     .into_iter()
     .map(|block| (block.entry.start_eip, block.entry.byte_len))
     .collect()
+}
+
+#[test]
+fn snapshots_and_discovered_blocks_record_their_decode_width() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    let compiler = Compiler::new(SegmentProfile::Segmented32);
+    let code = [0xb8, 0x34, 0x12, 0xc3, 0x90, 0xc3];
+    let starts = [(0x1000, Bits16), (0x2000, Bits32)];
+    let snapshots = starts.map(|(eip, code_default_size)| BlockSnapshot {
+        start_eip: eip,
+        code_default_size,
+        bytes: &code,
+        instruction_limit: 1,
+    });
+    let mut functions = compiler.function_module();
+    for (eip, size) in starts {
+        functions
+            .add_function(
+                CodeAddress::CsRelative(eip),
+                size,
+                FunctionLimits::default(),
+                reader(eip, &code),
+            )
+            .unwrap();
+    }
+    let entries = |blocks: crate::CompiledBlocks| {
+        blocks
+            .entries
+            .into_iter()
+            .map(|block| (block.start_eip, block.code_default_size, block.byte_len))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        entries(compiler.compile_blocks(&snapshots).unwrap()),
+        [(0x1000, Bits16, 3), (0x2000, Bits32, 5)]
+    );
+    assert_eq!(
+        entries(functions.compile().unwrap()),
+        [(0x1000, Bits16, 4), (0x2000, Bits32, 6)]
+    );
 }
 
 #[test]
@@ -47,6 +88,7 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
             start_eip: 0x1000 + offset as u32,
+            code_default_size: SegmentDefaultSize::Bits32,
             bytes: &code[offset..offset + len],
             instruction_limit: 10,
         })
@@ -163,9 +205,13 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
             ..limits
         },
     ] {
-        let result = discover::blocks(0, compiler.target(), limits, |_, _| {
-            panic!("zero bounds must not read")
-        });
+        let result = discover::blocks(
+            0,
+            SegmentDefaultSize::Bits32,
+            compiler.target(),
+            limits,
+            |_, _| panic!("zero bounds must not read"),
+        );
         assert!(matches!(result, Err(BlockError::ZeroFunctionLimit)));
     }
 }
@@ -188,6 +234,7 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
             start_eip: 0x1000 + offset as u32,
+            code_default_size: SegmentDefaultSize::Bits32,
             bytes: &code[offset..offset + len],
             instruction_limit: 2,
         })
@@ -233,6 +280,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     let mut source = reader(u32::MAX - 10, &code);
     let blocks = discover::blocks(
         u32::MAX - 10,
+        SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
         FunctionLimits::default(),
         |eip, output| {

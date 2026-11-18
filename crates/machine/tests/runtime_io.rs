@@ -190,8 +190,10 @@ async fn check_device_access() {
             view.write(0x100, &code).unwrap();
             if compiled {
                 // OUT and IN each end a block; install all three captured entries.
+                let code_default_size = cpu.cpu_state().code_default_size();
                 let snapshots = [0, 19, 21].map(|offset| BlockSnapshot {
                     start_eip: 0x100 + offset as u32,
+                    code_default_size,
                     bytes: &code[offset..],
                     instruction_limit: 7,
                 });

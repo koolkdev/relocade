@@ -1,7 +1,7 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
 use super::{BlockEntry, BlockSnapshot};
-use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget};
+use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget, SegmentDefaultSize};
 use std::collections::BTreeSet;
 
 pub(in crate::compile) struct DecodedBlock {
@@ -28,10 +28,11 @@ pub(super) fn blocks(
 }
 
 impl DecodedBlock {
-    pub(in crate::compile) fn new(start_eip: u32) -> Self {
+    pub(in crate::compile) fn new(start_eip: u32, code_default_size: SegmentDefaultSize) -> Self {
         Self {
             entry: BlockEntry {
                 start_eip,
+                code_default_size,
                 byte_len: 0,
                 export: format!("block_{start_eip:x}"),
             },
@@ -52,15 +53,12 @@ impl DecodedBlock {
         if snapshot.instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
-        let mut block = Self::new(snapshot.start_eip);
+        let mut block = Self::new(snapshot.start_eip, snapshot.code_default_size);
         let mut remaining = snapshot.bytes;
         let mut eip = snapshot.start_eip;
         for _ in 0..snapshot.instruction_limit {
-            let (decoded, rest) = crate::decode::snapshot(
-                remaining,
-                eip,
-                crate::SegmentDefaultSize::for_profile(target.profile),
-            )?;
+            let (decoded, rest) =
+                crate::decode::snapshot(remaining, eip, snapshot.code_default_size)?;
             eip = decoded.fallthrough_eip;
             remaining = rest;
             let ends_block = decoded.ends_block(target);

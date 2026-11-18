@@ -30,13 +30,27 @@ compiler decides which imports and helpers to retain from the generated bodies.
 Implicit accesses such as stack operations use the same owner as explicit memory
 operands. Instruction declarations do not predict memory usage.
 
-`compile_blocks(&[BlockSnapshot { start_eip, bytes, instruction_limit }, ...])`
-compiles several independently callable entries in one module. `CompiledBlocks`
-reports each entry's starting EIP, export name and exact consumed byte length in
-input order. Starting EIPs are CS-relative and advance with 32-bit wrapping.
-Repeated starts are rejected; an empty batch produces a module without exports.
-Supplied starts end other blocks only when reached between instructions. The caller
-must limit snapshots at registered execution boundaries absent from the batch.
+`compile_blocks` takes each snapshot's starting EIP, code default (CS.D), bytes
+and instruction limit. Entries in the result retain the EIP, decode width,
+consumed byte length and Wasm export name in request order. Repeated starting
+EIPs in a batch are rejected.
+The fixed-profile helpers for raw bytes use their profile's decode width.
+
+Capture the loaded CS.D with the address when observing a destination, after any
+CS reload that led there. At a stopped machine boundary,
+`cpu.cpu_state().code_default_size()` reads that width from the loaded CS cache.
+An asynchronous compiler uses the width from the observation. The canonical Real16
+worker can supply `Bits16` for every request because its execution target fixes CS.D.
+
+Every compiled destination checks its captured width before checking the fetch
+span or executing a guest instruction, including when reached by a linked call.
+The check reads the same CS.D as the interpreter. The target's entry assumptions
+fold it to a constant wherever they establish CS.D. A mismatch hands the
+destination EIP to the interpreter so it can decode the bytes at the live width.
+The host supplies a fallback compatible with the live state and keeps each entry's
+code bytes, fetch permissions and mappings valid. An empty batch produces no exports.
+Offsets advance with 32-bit wrapping. A supplied entry ends another block only
+when reached between instructions. The caller must limit snapshots at registered execution boundaries absent from the batch.
 Every entry still publishes state and dispatches at its boundary, even when the
 successor is another entry in the same module.
 
@@ -267,6 +281,23 @@ constrained by the abandoned snapshot's instruction limit. The host chooses this
 policy and admits interpreter entries
 against their execution target. Interpreter execution uses the shared instruction
 semantics without speculative guards and does not import `interpret` itself.
+
+## Entry guarantees and guarded specialization
+
+The x86 builder takes `EntryGuarantees` from the execution profile. The runtime
+establishes these facts for every way into the module, including direct links.
+The compiler can use them from the first instruction.
+
+| Input | Where it applies | What the JIT emits |
+| --- | --- | --- |
+| Profile guarantees canonical Real16, including CS.D=0 | Every entry | A 16-bit capture needs no CS.D load or width branch. A 32-bit capture hands off unconditionally. |
+| Captured CS.D when the profile leaves width open | The block decoded at that width | Check the executing CPU's CS.D before the fetch-span check and hand off on mismatch. |
+| Observed x87 rounding mode | An instruction that consumes rounding mode | Check the required control bits before the instruction uses them. A successful check lets later consumers reuse the fact until those bits change. |
+
+Operand- and address-size prefixes still override the default during decoding.
+The generic compiler's `BlockBuilder::assume_bits` records a fact already proved
+on the current path. The x86 builder supplies that proof through an entry
+guarantee or a successful guard.
 
 ## Observed CPU state
 

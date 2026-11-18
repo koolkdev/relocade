@@ -1,33 +1,41 @@
 use crate::{
+    compile::block::module::BlockModule,
+    profile::EntryGuarantees,
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
-    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, Compiler, CpuFeature, CpuModel,
-    CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentProfile,
+    BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CompiledBlocks, Compiler, CpuFeature,
+    CpuModel, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, SegmentDefaultSize,
+    SegmentProfile,
 };
 use wasmparser::{Parser, Payload, Validator};
 
 #[test]
 fn entries_report_consumed_spans_in_input_order() {
+    let code_default_size = SegmentDefaultSize::Bits32;
     let snapshots = [
         BlockSnapshot {
             start_eip: u32::MAX,
+            code_default_size,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
             start_eip: 0x1000,
+            code_default_size,
             bytes: &[0x90, 0x90, 0x0f],
             instruction_limit: 3,
         },
         BlockSnapshot {
             start_eip: 0x1001,
+            code_default_size,
             bytes: &[0x90, 0xeb, 0xfd, 0x0f],
             instruction_limit: 10,
         },
         BlockSnapshot {
             start_eip: 1,
+            code_default_size,
             bytes: &[0x0f, 0x0b, 0x0f],
             instruction_limit: 10,
         },
@@ -39,21 +47,25 @@ fn entries_report_consumed_spans_in_input_order() {
         [
             BlockEntry {
                 start_eip: u32::MAX,
+                code_default_size,
                 byte_len: 2,
                 export: "block_ffffffff".into()
             },
             BlockEntry {
                 start_eip: 0x1000,
+                code_default_size,
                 byte_len: 1,
                 export: "block_1000".into()
             },
             BlockEntry {
                 start_eip: 0x1001,
+                code_default_size,
                 byte_len: 3,
                 export: "block_1001".into()
             },
             BlockEntry {
                 start_eip: 1,
+                code_default_size,
                 byte_len: 2,
                 export: "block_1".into()
             },
@@ -76,17 +88,128 @@ fn entries_report_consumed_spans_in_input_order() {
     assert_eq!(parallel.execution_target, blocks.execution_target);
 }
 
+fn compile_without_code_default(
+    compiler: &Compiler,
+    snapshot: BlockSnapshot<'_>,
+) -> CompiledBlocks {
+    let guarantees = EntryGuarantees::for_profile(compiler.target().profile).without_code_default();
+    BlockModule::with_entry_guarantees(compiler, guarantees)
+        .build(&[snapshot])
+        .unwrap()
+        .compile()
+        .unwrap()
+}
+
+fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
+    // This register-only MOV accesses just the CPU state memory.
+    assert_eq!(
+        super::memory::imports(&blocks.bytes),
+        [("relocade", "executionContext")]
+    );
+    let cs_big = std::mem::offset_of!(ExecutionContext, cpu.segments.cs.big) as u64;
+    let mut loads_width = false;
+    let mut imports_interpreter = false;
+    for payload in Parser::new(0).parse_all(&blocks.bytes) {
+        match payload.unwrap() {
+            Payload::ImportSection(imports) => {
+                imports_interpreter = imports.into_iter().any(|import| {
+                    let import = import.unwrap();
+                    (import.module, import.name) == ("relocade", crate::abi::INTERPRET.name)
+                });
+            }
+            Payload::CodeSectionEntry(body) => {
+                loads_width |= body.get_operators_reader().unwrap().into_iter().any(|op| {
+                    matches!(op.unwrap(), wasmparser::Operator::I32Load8U { memarg } if memarg.offset == cs_big)
+                });
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(loads_width, needs_guard, "CS.D load");
+    assert_eq!(imports_interpreter, needs_guard, "interpreter fallback");
+}
+
+#[test]
+fn the_target_code_width_folds_the_destination_guard() {
+    let size = SegmentDefaultSize::Bits16;
+    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let bytes = [0xb8, 0x34, 0x12];
+    let snapshot = BlockSnapshot {
+        start_eip: 0x1000,
+        code_default_size: size,
+        bytes: &bytes,
+        instruction_limit: 1,
+    };
+    let batch = compiler.compile_blocks(&[snapshot]).unwrap();
+    let fixed = compiler.compile_block(0x1000, &bytes, 1).unwrap();
+    assert_eq!(batch.bytes, fixed.bytes);
+    check_width_guard(&batch, false);
+    check_width_guard(&compile_without_code_default(&compiler, snapshot), true);
+}
+
+#[test]
+fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    let code = [0xb8, 0x34, 0x12, 0x78, 0x56]; // MOV AX/EAX, immediate
+    let compiler = Compiler::new(SegmentProfile::Segmented32);
+    for (required, result, next_eip) in
+        [(Bits16, 0xaaaa_1234, 0x1003), (Bits32, 0x5678_1234, 0x1005)]
+    {
+        let blocks = compile_without_code_default(
+            &compiler,
+            BlockSnapshot {
+                start_eip: 0x1000,
+                code_default_size: required,
+                bytes: &code,
+                instruction_limit: 1,
+            },
+        );
+        // The same destination must work for either live default.
+        let module = TestModule::from_bytes(&blocks.bytes, &blocks.entries[0].export, None);
+        for big in [0, 1, 0x80] {
+            let mut image = Image::new(&code);
+            image.cpu = CpuState::protected_mode(Bits32, Bits32);
+            image.cpu.segments.cs.big = big;
+            image.cpu.eip = 0x1000;
+            image.cpu.registers.eax = 0xaaaa_aaaa;
+            let mut after = image.cpu;
+            let exit = if image.cpu.code_default_size() == required {
+                after.eip = next_eip;
+                after.registers.eax = result;
+                after.instruction_count += 1;
+                Exit::Dispatch(next_eip)
+            } else {
+                Exit::Interpret
+            };
+            assert_eq!(
+                module.observe(&image.input(), 1),
+                expected(
+                    &image,
+                    &[Step {
+                        cpu: after,
+                        ram: &[],
+                        exit
+                    }]
+                )
+            );
+        }
+    }
+}
+
 #[test]
 fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
+    let code_default_size = SegmentDefaultSize::Bits32;
     let blocks = Compiler::new(SegmentProfile::Flat32)
         .compile_blocks(&[
             BlockSnapshot {
                 start_eip: 0x1000,
+                code_default_size,
                 bytes: &[0xb8, 0x90, 0x90, 0x90, 0x90],
                 instruction_limit: 1,
             },
             BlockSnapshot {
                 start_eip: 0x1002,
+                code_default_size,
                 bytes: &[0x90],
                 instruction_limit: 1,
             },
@@ -98,6 +221,7 @@ fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
 
 #[test]
 fn empty_input_is_valid_and_compilation_errors_are_reported() {
+    let code_default_size = SegmentDefaultSize::Bits32;
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
@@ -107,6 +231,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
 
     let first = BlockSnapshot {
         start_eip: 0x1000,
+        code_default_size,
         bytes: &[0x90],
         instruction_limit: 1,
     };
@@ -120,6 +245,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
                 first,
                 BlockSnapshot {
                     start_eip: 0x2000,
+                    code_default_size,
                     bytes: &[0xb8],
                     instruction_limit: 1,
                 }
@@ -161,24 +287,29 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
 fn entry_boundaries() {
     let compiler = Compiler::new(ExecutionProfile::Real16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
+    let code_default_size = SegmentDefaultSize::Bits16;
     let snapshots = [
         BlockSnapshot {
             start_eip: 0x1000,
+            code_default_size,
             bytes: &[0xb8, 0x34, 0x12, 0xbb, 0x78, 0x56], // MOV AX,1234; MOV BX,5678
             instruction_limit: 2,
         },
         BlockSnapshot {
             start_eip: 0x1003,
+            code_default_size,
             bytes: &[0xbb, 0x78, 0x56],
             instruction_limit: 1,
         },
         BlockSnapshot {
             start_eip: 0x2000,
+            code_default_size,
             bytes: &[0x0f, 0x44, 0xc0],
             instruction_limit: 1,
         },
         BlockSnapshot {
             start_eip: 0xffff,
+            code_default_size,
             bytes: &[0x89, 0xc0],
             instruction_limit: 1,
         },
@@ -279,6 +410,7 @@ fn function_count(bytes: &[u8]) -> u32 {
 
 fn shared_memory_helpers() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+        let code_default_size = SegmentDefaultSize::for_profile(profile);
         let compiler = Compiler::new(profile);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
         let code: &[u8] = if profile == ExecutionProfile::Real16 {
@@ -290,11 +422,13 @@ fn shared_memory_helpers() {
             .compile_blocks(&[
                 BlockSnapshot {
                     start_eip: 0x1000,
+                    code_default_size,
                     bytes: code,
                     instruction_limit: 2,
                 },
                 BlockSnapshot {
                     start_eip: 0x1100,
+                    code_default_size,
                     bytes: code,
                     instruction_limit: 2,
                 },

@@ -79,6 +79,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
         bytes.extend([0x90, 0xc3]); // NOP; RET after the execution boundary
         let blocks = discover::blocks(
             0x1000,
+            SegmentDefaultSize::for_profile(target.profile),
             target,
             FunctionLimits::default(),
             reader(0x1000, &bytes),
@@ -107,10 +108,16 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         let mut bytes = call.to_vec();
         bytes.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
         let mut read = reader(0x1000, &bytes);
-        let blocks = discover::blocks(0x1000, target, FunctionLimits::default(), |eip, output| {
-            assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
-            read(eip, output)
-        })
+        let blocks = discover::blocks(
+            0x1000,
+            SegmentDefaultSize::for_profile(target.profile),
+            target,
+            FunctionLimits::default(),
+            |eip, output| {
+                assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
+                read(eip, output)
+            },
+        )
         .unwrap();
         assert_eq!(
             blocks
@@ -157,6 +164,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
         bytes.extend([0x90, 0xc3]); // A valid suffix exposes accidental exploration.
         let blocks = discover::blocks(
             0x1000,
+            SegmentDefaultSize::for_profile(profile),
             Compiler::new(profile).target(),
             FunctionLimits::default(),
             reader(0x1000, &bytes),
@@ -178,6 +186,7 @@ fn discovered_continuations_preserve_snapshot_entry_spans() {
         .into_iter()
         .map(|(offset, len)| BlockSnapshot {
             start_eip: 0x1000 + offset as u32,
+            code_default_size: SegmentDefaultSize::Bits16,
             bytes: &code[offset..offset + len],
             instruction_limit: 1,
         })

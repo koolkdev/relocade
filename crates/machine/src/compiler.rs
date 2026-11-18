@@ -12,7 +12,10 @@ pub use service::CompilerService;
 
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
-use relocade_x86::{BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits};
+use relocade_x86::{
+    BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits,
+    SegmentDefaultSize,
+};
 
 /// An instruction range at the dispatch linear address `CS.base + start_eip`.
 /// On the supported Real16 target this is also the physical address before A20.
@@ -67,6 +70,9 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
+    if target.profile != ExecutionProfile::Real16 {
+        return Err(crate::ConfigurationError::UnsupportedMode.into());
+    }
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
@@ -82,6 +88,7 @@ async fn compile(
                 .zip(&captured)
                 .map(|(block, bytes)| BlockSnapshot {
                     start_eip: block.start_eip,
+                    code_default_size: SegmentDefaultSize::Bits16,
                     bytes,
                     instruction_limit: block.instruction_limit,
                 })
@@ -91,9 +98,6 @@ async fn compile(
             (blocks, addresses)
         }
         connection::Compilation::Functions(requests) => {
-            if target.profile != ExecutionProfile::Real16 {
-                return Err(crate::ConfigurationError::UnsupportedMode.into());
-            }
             let mut module = x86.function_module();
             let mut addresses = Vec::new();
             let mut first_error = None;
@@ -101,6 +105,7 @@ async fn compile(
                 let base = request.entry.segment_base();
                 match module.add_function(
                     CodeAddress::RealMode(request.entry),
+                    SegmentDefaultSize::Bits16,
                     request.limits,
                     |eip, buffer| {
                         let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);

@@ -6,7 +6,7 @@ mod discover;
 mod tests;
 
 use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
-use crate::{real_mode::FarPointer, BlockError};
+use crate::{real_mode::FarPointer, BlockError, SegmentDefaultSize};
 use relocade_compiler::CompileExecutor;
 
 /// The identity of a guest function entry during compilation.
@@ -102,8 +102,9 @@ impl Compiler {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<CompiledBlocks, BlockError> {
+        let size = SegmentDefaultSize::for_profile(self.target.profile);
         let mut module = self.function_module();
-        module.add_function(CodeAddress::CsRelative(start_eip), limits, read)?;
+        module.add_function(CodeAddress::CsRelative(start_eip), size, limits, read)?;
         module.compile()
     }
 
@@ -116,8 +117,9 @@ impl Compiler {
         read: impl FnMut(u32, &mut [u8]) -> usize,
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        let size = SegmentDefaultSize::for_profile(self.target.profile);
         let mut module = self.function_module();
-        module.add_function(CodeAddress::CsRelative(start_eip), limits, read)?;
+        module.add_function(CodeAddress::CsRelative(start_eip), size, limits, read)?;
         module.compile_with(executor).await
     }
 }
@@ -136,16 +138,24 @@ impl FunctionModule<'_> {
     /// Exports are unique even when functions use the same EIP in different code
     /// segments. Code validity follows [`Compiler::compile_function`].
     ///
-    /// [`CodeAddress::RealMode`] lets external near calls share table slots with
+    /// The supplied CS.D applies to every block discovered through this reader.
+    /// A captured real-mode CS lets external near calls share table slots with
     /// other calls to the same CS:IP. The embedding must enter these blocks with
     /// that CS. [`CodeAddress::CsRelative`] keeps external near calls resolved at runtime.
     pub fn add_function(
         &mut self,
         entry: CodeAddress,
+        code_default_size: SegmentDefaultSize,
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(entry.eip(), self.module.compiler.target, limits, read)?;
+        let mut decoded = discover::blocks(
+            entry.eip(),
+            code_default_size,
+            self.module.compiler.target,
+            limits,
+            read,
+        )?;
         if self.functions != 0 {
             for block in &mut decoded {
                 block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);
@@ -159,12 +169,7 @@ impl FunctionModule<'_> {
 
     /// Compiles the accepted functions into one module.
     pub fn compile(self) -> Result<CompiledBlocks, BlockError> {
-        Ok(CompiledBlocks {
-            bytes: self.module.program.compile()?,
-            entries: self.module.entries,
-            call_targets: self.module.call_targets,
-            execution_target: self.module.compiler.target,
-        })
+        self.module.compile()
     }
 
     /// Compiles the accepted functions through the supplied job executor.
@@ -172,11 +177,6 @@ impl FunctionModule<'_> {
         self,
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
-        Ok(CompiledBlocks {
-            bytes: self.module.program.compile_with(executor).await?,
-            entries: self.module.entries,
-            call_targets: self.module.call_targets,
-            execution_target: self.module.compiler.target,
-        })
+        self.module.compile_with(executor).await
     }
 }

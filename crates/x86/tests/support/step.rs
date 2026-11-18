@@ -33,6 +33,8 @@ pub(crate) struct Input {
     pub(crate) segment_resolutions: Vec<SegmentResolution>,
     pub(crate) segment_queries: Vec<SegmentQuery>,
     pub(crate) patches_before_calls: Vec<CallPatches>,
+    /// A guest call destination bound to an export of the module under test.
+    pub(crate) call_target: Option<(u32, String)>,
     pub(crate) dispatch_return: crate::ExecutionExit,
 }
 
@@ -56,6 +58,7 @@ impl Input {
             segment_resolutions: Vec::new(),
             segment_queries: Vec::new(),
             patches_before_calls: Vec::new(),
+            call_target: None,
             dispatch_return: crate::ExecutionExit::Host(relocade_x86::HostExit::Return),
         }
     }

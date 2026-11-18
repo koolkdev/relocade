@@ -1,9 +1,12 @@
 //! Shared Wasm declarations and function emission for one snapshot batch.
 
-use super::{decode::DecodedBlock, BlockEntry, Compiler};
+use super::{decode::DecodedBlock, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
 use crate::compile::CodeAddress;
-use crate::{execution::ExecutionModule, instruction::CallTarget, BlockError, ExecutionProfile};
-use relocade_compiler::{Func, Program};
+use crate::{
+    execution::ExecutionModule, instruction::CallTarget, profile::EntryGuarantees, BlockError,
+    ExecutionProfile,
+};
+use relocade_compiler::{CompileExecutor, Func, Program};
 use std::collections::BTreeMap;
 
 pub(in crate::compile) struct BlockModule<'a> {
@@ -17,22 +20,28 @@ pub(in crate::compile) struct BlockModule<'a> {
 
 impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn build(
-        compiler: &'a Compiler,
-        blocks: Vec<DecodedBlock>,
+        mut self,
+        snapshots: &[super::BlockSnapshot<'_>],
     ) -> Result<Self, BlockError> {
-        let mut module = Self::new(compiler);
-        let blocks = module.declare_blocks(blocks);
-        module.define_blocks(blocks, module.execution.clone())?;
-        Ok(module)
+        let blocks = super::decode::blocks(snapshots, self.compiler.target)?;
+        let blocks = self.declare_blocks(blocks);
+        self.define_blocks(blocks, self.execution.clone())?;
+        Ok(self)
     }
 
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
+        Self::with_entry_guarantees(
+            compiler,
+            EntryGuarantees::for_profile(compiler.target.profile),
+        )
+    }
+
+    pub(in crate::compile) fn with_entry_guarantees(
+        compiler: &'a Compiler,
+        guarantees: EntryGuarantees,
+    ) -> Self {
         let mut program = Program::new();
-        let execution = ExecutionModule::declare(
-            &mut program,
-            compiler.target,
-            crate::profile::entry_assumptions(compiler.target.profile),
-        );
+        let execution = ExecutionModule::declare(&mut program, compiler.target, guarantees);
         Self {
             compiler,
             program,
@@ -83,6 +92,27 @@ impl<'a> BlockModule<'a> {
         self.define_blocks(blocks, module)
     }
 
+    pub(in crate::compile) fn compile(self) -> Result<CompiledBlocks, BlockError> {
+        Ok(CompiledBlocks {
+            bytes: self.program.compile()?,
+            entries: self.entries,
+            call_targets: self.call_targets,
+            execution_target: self.compiler.target,
+        })
+    }
+
+    pub(in crate::compile) async fn compile_with<E: CompileExecutor>(
+        self,
+        executor: &E,
+    ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        Ok(CompiledBlocks {
+            bytes: self.program.compile_with(executor).await?,
+            entries: self.entries,
+            call_targets: self.call_targets,
+            execution_target: self.compiler.target,
+        })
+    }
+
     fn declare_blocks(&mut self, blocks: Vec<DecodedBlock>) -> Vec<(DecodedBlock, Func)> {
         blocks
             .into_iter()
@@ -118,7 +148,7 @@ impl<'a> BlockModule<'a> {
                 .builder(body, block.entry.start_eip)?
                 .with_interpreter_fallback()
                 .with_observed_cpu(observed_cpu.as_ref());
-            execution.guard_fetch_span(block.entry.byte_len)?;
+            execution.guard_snapshot(block.entry.code_default_size, block.entry.byte_len)?;
             for instruction in block.instructions {
                 execution.execute(instruction.bind())?;
             }

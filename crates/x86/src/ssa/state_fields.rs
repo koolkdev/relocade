@@ -183,7 +183,7 @@ pub(crate) struct StateFields {
     // Live fixed definitions never overlap; an exact replacement needs no flush.
     definitions: Vec<Definition>,
     writes: usize,
-    entry_assumptions: Vec<StatePattern>,
+    entry_guarantees: Vec<StatePattern>,
 }
 
 impl StateFields {
@@ -199,15 +199,15 @@ impl StateFields {
             base,
             definitions: Vec::new(),
             writes: 0,
-            entry_assumptions: Vec::new(),
+            entry_guarantees: Vec::new(),
         }
     }
 
     /// Admission guarantees these facts at entry. Reads consume only the matching
     /// field's assumptions; writes discard assumptions for overlapping fields.
-    pub(crate) fn with_entry_assumptions(mut self, assumptions: Vec<StatePattern>) -> Self {
+    pub(crate) fn with_entry_guarantees(mut self, guarantees: Vec<StatePattern>) -> Self {
         assert!(self.definitions.is_empty());
-        self.entry_assumptions = assumptions;
+        self.entry_guarantees = guarantees;
         self
     }
 
@@ -229,11 +229,11 @@ impl StateFields {
             bytes: T::BYTES,
         };
         while let Some(index) = self
-            .entry_assumptions
+            .entry_guarantees
             .iter()
             .position(|pattern| pattern.location == location)
         {
-            let pattern = self.entry_assumptions.remove(index);
+            let pattern = self.entry_guarantees.remove(index);
             pattern.apply(body, self)?;
         }
         if let Some(entry) = self
@@ -311,7 +311,7 @@ impl StateFields {
             Address::Fixed(offset) => Span::new(*offset, T::BYTES),
             Address::Indexed { span, .. } => *span,
         };
-        self.entry_assumptions
+        self.entry_guarantees
             .retain(|pattern| !span.overlaps(pattern.location.span()));
         let offset = match location.address {
             Address::Fixed(offset) => offset,

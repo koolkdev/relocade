@@ -123,8 +123,17 @@ impl TestModule {
                 },
             )
             .unwrap();
+        let callee_eip = input.call_target.as_ref().map(|(eip, _)| *eip);
+        let call_cpu = cpu.clone();
         linker
-            .func_wrap("relocade", "resolveCall", || (1u32, 1u32))
+            .func_wrap("relocade", "resolveCall", move || {
+                let Some(eip) = callee_eip else {
+                    return (1u32, 1u32);
+                };
+                let offset = std::mem::offset_of!(crate::ExecutionContext, cpu.eip) as u32;
+                assert_eq!(call_cpu.read(offset, 4), eip.to_le_bytes());
+                (2u32, 1u32)
+            })
             .unwrap();
         let dispatch = linker
             .get(&mut store, "relocade", "dispatch")
@@ -248,6 +257,12 @@ impl TestModule {
         let instance = linker
             .instantiate(&mut store, module)
             .expect("instantiate the test module");
+        if let Some((_, export)) = &input.call_target {
+            let callee = instance.get_func(&mut store, export).unwrap();
+            functions
+                .grow(&mut store, 1, ::wasmtime::Ref::Func(Some(callee)))
+                .unwrap();
+        }
         let entry = instance
             .get_func(&mut store, &self.entry)
             .expect("the test entry is exported");

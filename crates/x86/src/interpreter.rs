@@ -3,9 +3,7 @@
 use relocade_compiler::{BuildError, Program};
 
 use crate::{
-    decode::RuntimeDecoder,
-    execution::ExecutionModule,
-    state::{State, StatePattern},
+    decode::RuntimeDecoder, execution::ExecutionModule, profile::EntryGuarantees, state::State,
     CpuModel, ExecutionProfile, ExecutionTarget,
 };
 
@@ -64,12 +62,12 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
-    build(profile, crate::profile::entry_assumptions(profile))
+    build(profile, EntryGuarantees::for_profile(profile))
 }
 
 fn build(
     profile: ExecutionProfile,
-    entry_assumptions: Vec<StatePattern>,
+    entry_guarantees: EntryGuarantees,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
@@ -81,7 +79,7 @@ fn build(
             cpu_model: CpuModel::default(),
             instruction_budgets: true,
         },
-        entry_assumptions,
+        entry_guarantees,
     );
     execution.export_entries(&mut program)?;
     let before_cpu = execution.cpu.clone();

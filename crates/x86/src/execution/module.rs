@@ -4,8 +4,9 @@ use super::{calls::CallLinks, ExecutionBuilder};
 use crate::{
     abi,
     memory::Memory,
+    profile::EntryGuarantees,
     runtime::Runtime,
-    state::{Cpu, State, StatePattern},
+    state::{Cpu, State},
     ExecutionProfile, ExecutionTarget,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
@@ -19,7 +20,7 @@ pub(crate) struct ExecutionModule {
     pub(super) call_links: Arc<CallLinks>,
     pub(super) runtime: Runtime,
     pub(super) target: ExecutionTarget,
-    entry_assumptions: Arc<[StatePattern]>,
+    entry_guarantees: EntryGuarantees,
     pub(super) interrupt: Option<TypedFunc<abi::InterruptSignature>>,
 }
 
@@ -27,7 +28,7 @@ impl ExecutionModule {
     pub(crate) fn declare(
         program: &mut Program,
         target: ExecutionTarget,
-        entry_assumptions: Vec<StatePattern>,
+        entry_guarantees: EntryGuarantees,
     ) -> Self {
         let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
@@ -36,7 +37,7 @@ impl ExecutionModule {
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
             target,
-            entry_assumptions: entry_assumptions.into(),
+            entry_guarantees,
             interrupt: None,
         };
         if target.profile == ExecutionProfile::Real16 {
@@ -54,7 +55,7 @@ impl ExecutionModule {
     }
 
     pub(crate) fn state(&self) -> State<'_> {
-        State::for_entry(&self.cpu, self.target.profile, &self.entry_assumptions)
+        State::for_entry(&self.cpu, self.target.profile, &self.entry_guarantees)
             .with_instruction_budgets(self.target.instruction_budgets)
     }
 

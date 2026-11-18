@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    real_mode::FarPointer,
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
@@ -168,6 +169,7 @@ fn function_namespaces_do_not_alias_equal_offsets() {
             module
                 .add_function(
                     CodeAddress::CsRelative(0x1000),
+                    crate::SegmentDefaultSize::Bits16,
                     limits(),
                     reader(0x1000, code),
                 )
@@ -289,6 +291,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
                     segment: cs,
                     offset: start,
                 }),
+                crate::SegmentDefaultSize::Bits16,
                 FunctionLimits::default(),
                 reader(u32::from(start), bytes),
             )
@@ -310,6 +313,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
                 segment: 0x10,
                 offset: 0x100,
             }),
+            crate::SegmentDefaultSize::Bits16,
             FunctionLimits::default(),
             reader(0x100, &[0xe8, 0, 0, 0xc3]),
         )

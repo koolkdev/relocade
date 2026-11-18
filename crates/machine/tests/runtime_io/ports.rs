@@ -75,8 +75,10 @@ async fn guest_carriers() {
         let mut cpu = Cpu::new(memory, config.cpu, io.clone()).await.unwrap();
         cpu.cpu_state().set_dx(0xffff);
         if compiled {
+            let code_default_size = cpu.cpu_state().code_default_size();
             let snapshots = [0, 1].map(|offset| BlockSnapshot {
                 start_eip: 0x100 + offset as u32,
+                code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 1,
             });
