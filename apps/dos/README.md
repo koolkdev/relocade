@@ -142,17 +142,17 @@ uses cooked tab stops and the shared BIOS/VGA text, cursor and scrolling code.
 The prompt implements `echo`, with case-insensitive matching, and reports unknown
 commands. It creates no DOS process and writes no duplicate stdout capture.
 
-Native input belongs to the prompt. It does not enter the controller or the BIOS
-keyboard buffer; native output bypasses DOS handles, redirection and installed
-CON drivers. No guest code, IRQ handlers or resident utilities execute at the
-prompt. The runner continues its device activities, including display/audio;
-BIOS ticks advance only when guest execution services timer interrupts.
+The prompt reads its own input channel and writes directly to BIOS video. The
+execution worker keeps the PIT, VGA and other timed devices running on guest
+time across all shell waits. With no foreground program the CPU stays parked
+and retires zero instructions. The BIOS tick count advances when a running
+guest services a timer interrupt.
 
-Guest programs instead receive physical events through `dos.keyboard_input()`
-and use the AT controller → PIC IRQ1 → guest INT 09h → BIOS buffer path.
-`launch_com` and `launch_mz` accept supplied images; program lookup and input handoff during launch are future application policy.
-There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
-launching or resuming a guest.
+An embedding can keep the console handle, launch a supplied image with
+`dos.launch_com` or `dos.launch_mz`, await `dos.run()`, and resume the same
+prompt on exit. To send physical events to the foreground guest, use
+`dos.keyboard_input()`. Those events go through the AT controller, IRQ1 and
+the guest INT 09h handler.
 
 ## Audio validation
 

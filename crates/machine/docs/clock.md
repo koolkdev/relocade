@@ -141,7 +141,8 @@ drop(binding);
 `bind` retains CPU progress and target handles without borrowing the CPU. The
 returned guard scopes target ownership and wait-change notifications. Dropping
 it records final retirement, clears the target and releases the execution waker.
-The clock pauses between bindings, and pending device waits remain registered.
+Pending device waits remain registered between bindings. The clock pauses there
+unless the session also drives devices between CPU runs.
 Each binding starts from the CPU's current count without charging earlier work.
 
 `synchronize(yield_deadline)` observes retirement, completes due sleeps and arms
@@ -223,10 +224,13 @@ it skips slice boundaries. Paced idle advancement stops at the earlier of that
 deadline and the current slice boundary. A slice alone never causes idle time
 to advance when there are no registered sleeps.
 
-A native activity that owns a stopped CPU can await `runner.idle_until(ready)`.
-This services device deadlines under the same pacing and machine pause rules while
-leaving guest instructions and pending IRQs for the next CPU run. Guest time
-pauses when neither a CPU run nor an idle wait is active.
+`runner.keep_devices_running()` enables a session activity that advances to
+device deadlines between CPU runs. It uses the same slice boundaries, host
+pacing and machine pause gate as `run_cpu()`. Starting a CPU run transfers
+clock advancement to that run. Returning from it or dropping its future wakes
+the device activity. A native task can await keyboard input, frame delivery or
+the next program launch anywhere in the session. Guest instructions and IRQ
+handlers execute during CPU runs.
 
 ### Slices paced by a host clock
 
@@ -258,8 +262,9 @@ credit. Replacing a device timer does not replace the pacing wait or grant time.
 
 Completing or cancelling `run_cpu` cancels its host wait. The next run retains
 the same slice boundary and the existing lead or lag, subject to the lag limit.
-Time spent between runs is excluded by shifting the host correspondence by the
-exact native pause duration; repeated cancellation cannot grant another slice.
+When devices keep running between CPU runs, the same host correspondence
+continues through the handoff. When the clock pauses, its host correspondence
+shifts forward by the exact native pause duration on resumption.
 The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 

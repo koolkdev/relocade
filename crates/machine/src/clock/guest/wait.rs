@@ -34,7 +34,7 @@ impl Drop for Registration {
             };
             let removed = state.waits.swap_remove(index);
             state.refresh_target();
-            (removed, state.cpu.as_ref().map(|cpu| cpu.changed.clone()))
+            (removed, state.driver_waker())
         };
         drop(removed);
         if let Some(changed) = changed {
@@ -82,7 +82,7 @@ impl ClockSource for Source {
                     complete,
                 });
                 state.refresh_target();
-                state.cpu.as_ref().map(|cpu| cpu.changed.clone())
+                state.driver_waker()
             };
             if let Some(changed) = changed {
                 changed.wake();

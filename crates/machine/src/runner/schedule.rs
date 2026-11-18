@@ -4,9 +4,15 @@ mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver};
+use crate::{
+    machine::execution::Member, worker::Executor, Clock, Cpu, ExecutionInterrupt, GuestTimeDriver,
+};
 use relocade_x86::ExecutionExit;
-use std::task::{ready, Context, Poll, Waker};
+use std::{
+    future::poll_fn,
+    rc::Rc,
+    task::{ready, Context, Poll, Waker},
+};
 
 pub(super) struct ExecutionSchedule {
     clock: Clock,
@@ -41,11 +47,43 @@ impl ExecutionSchedule {
         &self.clock
     }
 
+    pub(super) async fn run_devices(
+        self: Rc<Self>,
+        executor: Rc<Executor<ExecutionInterrupt>>,
+        execution: Option<Member>,
+    ) {
+        let Some(guest) = &self.guest else { return };
+        let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+        let Some(parked) = guest.driver.drive_while_parked(changed) else {
+            return;
+        };
+        let _binding = Binding {
+            _clock: parked,
+            slice: guest.slice.as_ref(),
+        };
+        loop {
+            executor.yield_now().await;
+            poll_fn(|cx| {
+                // A CPU run owns deadlines and the pause gate until its binding drops.
+                if guest.driver.cpu_is_bound() {
+                    return Poll::Pending;
+                }
+                let _active = match &execution {
+                    Some(member) => Some(ready!(member.poll_enter(cx))),
+                    None => None,
+                };
+                ready!(self.poll_slice(cx));
+                self.advance_idle()
+            })
+            .await;
+        }
+    }
+
     /// Retains the slice boundary across runs while cancelling each run's host wait.
     #[must_use]
     pub(super) fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> Option<impl Drop + use<'a>> {
         self.guest.as_ref().map(|guest| Binding {
-            _cpu: guest.driver.bind(cpu, changed),
+            _clock: guest.driver.bind(cpu, changed),
             slice: guest.slice.as_ref(),
         })
     }
@@ -85,14 +123,6 @@ impl ExecutionSchedule {
         }
     }
 
-    /// A native activity owns the CPU. Its devices can reach their next deadline
-    /// under the same machine pause and slice limits as a halted guest.
-    pub(super) fn poll_idle(&self, cpu: &Cpu, cx: &mut Context<'_>) -> Poll<()> {
-        let _execution = ready!(cpu.poll_enter_execution(cx));
-        ready!(self.poll_slice(cx));
-        self.advance_idle()
-    }
-
     fn poll_slice(&self, cx: &mut Context<'_>) -> Poll<()> {
         if let Some(slice) = self.guest.as_ref().and_then(|guest| guest.slice.as_ref()) {
             return slice.poll(&self.clock, self.clock.now(), cx);
@@ -124,7 +154,7 @@ impl ExecutionSchedule {
 }
 
 struct Binding<'a, T> {
-    _cpu: T,
+    _clock: T,
     slice: Option<&'a ExecutionSlice>,
 }
 

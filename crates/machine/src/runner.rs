@@ -38,7 +38,7 @@ use std::{
 /// An optional compiler connection automatically compiles hot Real16 functions.
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
-    schedule: ExecutionSchedule,
+    schedule: Rc<ExecutionSchedule>,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
@@ -85,7 +85,7 @@ impl Runner {
             .transpose()?;
         let cpu = cpu.with_compiler(compiler);
         Ok(Self {
-            schedule,
+            schedule: Rc::new(schedule),
             activities,
             pending: Some(pending),
             executor,
@@ -131,7 +131,7 @@ impl Runner {
             return clock;
         }
         let config = GuestTimeConfig::new(default_rate).with_host_clock(self.clock().clone());
-        self.schedule = ExecutionSchedule::with_guest_time(config);
+        self.schedule = Rc::new(ExecutionSchedule::with_guest_time(config));
         self.clock()
             .as_guest()
             .expect("guest schedule owns a guest clock")
@@ -248,28 +248,23 @@ impl Runner {
         }
     }
 
-    /// Keeps device time running while native code waits with guest dispatch stopped.
-    /// Ready activities run between deadlines. Dropping the wait pauses guest time
-    /// with the same slice credit as leaving [`Self::run_cpu`].
-    pub async fn idle_until<F: Future>(&mut self, ready: F) -> F::Output {
-        let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-        let Some(_binding) = self.schedule.bind(&self.cpu, &changed) else {
-            return ready.await;
-        };
-        futures_lite::future::or(ready, async {
-            loop {
-                self.executor.yield_now().await;
-                poll_fn(|cx| self.schedule.poll_idle(&self.cpu, cx)).await;
-            }
-        })
-        .await
+    /// Keeps devices on guest time between CPU runs for the lifetime of this
+    /// session. Device deadlines use the same pacing and machine pause gate
+    /// as [`Self::run_cpu`]. Pending IRQs wait for guest execution to resume.
+    pub fn keep_devices_running(&self) {
+        let activity = self
+            .schedule
+            .clone()
+            .run_devices(self.executor.clone(), self.cpu.execution.clone());
+        // A runner retained after its session ends has no live devices to drive.
+        let _ = self.activities.unbounded_send(Box::pin(activity));
     }
 
     /// Runs on emulated guest time with optional host pacing for active and idle
     /// execution. Device deadlines subdivide each execution slice. Instruction targets
     /// remain soft checkpoint limits, so a slice can overshoot.
-    /// Time pauses outside [`Self::run_cpu`] and [`Self::idle_until`]; existing pacing credit and
-    /// the host/guest offset survive those pauses.
+    /// Time pauses between CPU runs unless [`Self::keep_devices_running`] is enabled.
+    /// Existing pacing credit and the host/guest offset survive those pauses.
     pub async fn with_guest_time(
         config: GuestTimeConfig,
         cpu: CpuHandle,

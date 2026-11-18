@@ -14,8 +14,9 @@ drives timer interrupts and the speaker. The PIT, VGA raster, PS/2 typematic and
 mouse sampling, sound cards and BIOS timeout services share one guest clock.
 A PC created on a host-timed runner starts a paced guest clock at 1,000,000
 retired instructions per guest second. A runner with an existing guest clock
-keeps its configured rate and pacing. While the CPU is halted, or while the
-embedding awaits `pc.idle_until(ready)`, device deadlines advance guest time.
+keeps its configured rate and pacing. A halted guest advances to device deadlines.
+Embeddings that keep the PC running between programs call
+`pc.runner().keep_devices_running()` once during setup. DOS enables this at startup.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer

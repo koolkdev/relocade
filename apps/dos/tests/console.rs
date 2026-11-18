@@ -13,6 +13,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let session = async move |runner: relocade_machine::Runner| {
+        let clock = runner.clock().clone();
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
@@ -66,18 +67,22 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
         }
         let video = dos.video_card().framebuffer_access();
         let frames = dos.frames();
-        let before = dos.cpu().cpu_state().instruction_count();
+        let cpu = dos.cpu().cpu_state();
+        let memory = dos.cpu().memory();
+        let before = cpu.instruction_count();
+        let bios_ticks = memory.view().read_u32(0x46c).unwrap();
+        let console = dos.native_console(events);
+        // Wait past one PIT period before the line editor gets its first poll.
+        clock.sleep(Duration::from_millis(60)).await;
+        assert_eq!(memory.view().read_u32(0x46c).unwrap(), bios_ticks);
+        assert_eq!(cpu.instruction_count(), before);
         let inspect = async {
             // Mode 3 uses word addressing across four VGA planes.
             let last_prompt = u32::from(prompt_row + 5) * 80 * 2 * 4;
             while frames.recv().await.unwrap().vram_byte(last_prompt) != Some(b'>') {}
         };
-        or(
-            relocade_dos_app::run_console(dos.native_console(events)),
-            inspect,
-        )
-        .await;
-        assert_eq!(dos.cpu().cpu_state().instruction_count(), before);
+        or(relocade_dos_app::run_console(console), inspect).await;
+        assert_eq!(cpu.instruction_count(), before);
         let mut video = video.borrow_mut();
         let screen = video.framebuffer();
         for (row, text) in [
