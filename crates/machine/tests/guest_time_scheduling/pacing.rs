@@ -15,6 +15,78 @@ async fn blocked_cpu(runner: &mut Runner) {
     .unwrap();
 }
 
+async fn parked_clock_across_cpu_run() {
+    use futures_lite::future::poll_once;
+    use relocade_machine::worker::wake_connection;
+
+    let (host, _armed, source) = host();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let mut runner = Runner::with_guest_time(config(source), prepared, endpoint)
+        .await
+        .unwrap();
+    prepare_cpu(&mut runner, &[0xea, 0x00, 0x02, 0, 0]).await; // JMP 0000:0200.
+    let cpu = runner.cpu();
+    let state = cpu.cpu_state();
+    let exit = cpu.exit_handle();
+    cpu.install([Hook::host(0x200, async move || exit.request())])
+        .await
+        .unwrap();
+
+    let (launch, launched) = oneshot::channel();
+    let (finish, finished) = oneshot::channel();
+    let mut session = pin!(
+        runner.run(std::future::pending::<()>(), async move |mut runner| {
+            runner.keep_devices_running();
+            runner
+                .spawn_activity(runner.clock().sleep(Duration::from_millis(20)))
+                .await;
+            launched.await.unwrap();
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            finished.await.unwrap();
+            runner
+        })
+    );
+
+    assert!(poll_once(session.as_mut()).await.is_none());
+    assert_eq!(
+        host.next_deadline(),
+        Some(host.at(Duration::from_millis(4)))
+    );
+    launch.send(()).unwrap();
+    assert!(poll_once(session.as_mut()).await.is_none());
+    assert_eq!(state.instruction_count(), 0);
+
+    host.advance_by(Duration::from_millis(4));
+    assert!(poll_once(session.as_mut()).await.is_none());
+    assert_eq!(state.instruction_count(), 1);
+    assert_eq!(
+        host.next_deadline(),
+        Some(host.at(Duration::from_millis(8)))
+    );
+    finish.send(()).unwrap();
+    let stopped = session.await.unwrap();
+    assert_eq!(stopped.clock().now().ticks(), 8);
+    assert_eq!(host.next_deadline(), None);
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn parked_devices_share_cpu_pacing_and_release_the_timer_on_shutdown() {
+    pollster::block_on(parked_clock_across_cpu_run());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn parked_devices_share_cpu_pacing_and_release_the_timer_on_shutdown() {
+    parked_clock_across_cpu_run().await;
+}
+
 async fn late_host_wake() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();

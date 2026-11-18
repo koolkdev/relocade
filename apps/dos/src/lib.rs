@@ -84,7 +84,7 @@ async fn run_machine(
                     .map(|dos| (keyboard, dos.mouse_input(), dos.frames()))
                     .map_err(Clone::clone),
             );
-            let mut dos = startup?;
+            let dos = startup?;
             run_console(dos.native_console(events)).await;
             Ok(())
         },

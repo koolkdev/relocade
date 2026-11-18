@@ -27,9 +27,11 @@ pub struct GuestTimeDriver(Rc<RefCell<State>>);
 struct State {
     tick_rate: TickRate,
     // While bound, guest ticks are the published instruction count plus this
-    // offset. While paused, the offset holds the frozen reading.
+    // offset. Between runs, the offset holds the current device time.
     offset: u64,
     cpu: Option<Binding>,
+    // A live PC session can drive device deadlines while no CPU run owns them.
+    parked: Option<Waker>,
     waits: Vec<Wait>,
     host: Option<HostTime>,
 }
@@ -47,6 +49,7 @@ impl GuestTimeDriver {
             tick_rate: TickRate::new(instructions_per_second),
             offset: 0,
             cpu: None,
+            parked: None,
             waits: Vec::new(),
             host: None,
         })))
@@ -71,7 +74,8 @@ impl GuestTimeDriver {
     /// Observes CPU retirement and controls its target until the returned guard
     /// is dropped. Preexisting retirement is not charged to the clock. Dropping
     /// the guard records final progress, clears the target and releases the waker.
-    /// The clock pauses between bindings; pending device waits remain registered.
+    /// Pending device waits stay registered. A session driving devices between
+    /// bindings can advance to their deadlines without retiring instructions.
     ///
     /// `changed` wakes the embedding when waits change, including while a CPU
     /// service is pending. The embedding must be this CPU's only target writer.
@@ -81,8 +85,8 @@ impl GuestTimeDriver {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
         let now = state.now();
-        if let Some(host) = &mut state.host {
-            host.resume(now);
+        if state.parked.is_none() {
+            state.resume_host(now);
         }
         let cpu_state = cpu.cpu_state();
         state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
@@ -93,7 +97,26 @@ impl GuestTimeDriver {
             changed: changed.clone(),
         });
         state.refresh_target();
-        BindingGuard(self)
+        BindingGuard(&self.0)
+    }
+
+    /// Keeps the host correspondence alive while the session can alternate
+    /// between device deadlines and CPU execution.
+    pub(crate) fn drive_while_parked(&self, changed: Waker) -> Option<impl Drop + '_> {
+        let mut state = self.0.borrow_mut();
+        if state.parked.is_some() {
+            return None;
+        }
+        if state.cpu.is_none() {
+            let now = state.now();
+            state.resume_host(now);
+        }
+        state.parked = Some(changed);
+        Some(ParkedGuard(&self.0))
+    }
+
+    pub(crate) fn cpu_is_bound(&self) -> bool {
+        self.0.borrow().cpu.is_some()
     }
 
     /// Reads guest time, completes due sleeps and arms the CPU
@@ -163,21 +186,58 @@ impl GuestTimeDriver {
 
 impl GuestClockSource for Source {}
 
-struct BindingGuard<'a>(&'a GuestTimeDriver);
+struct BindingGuard<'a>(&'a RefCell<State>);
 
 impl Drop for BindingGuard<'_> {
     fn drop(&mut self) {
-        let mut state = self.0 .0.borrow_mut();
+        let mut state = self.0.borrow_mut();
         let now = state.now();
-        if let Some(host) = &mut state.host {
-            host.pause();
-        }
         state.cpu.take().unwrap().target.set(None);
         state.offset = now.ticks();
+        let parked = state.parked.clone();
+        if parked.is_none() {
+            state.pause_host();
+        }
+        drop(state);
+        if let Some(parked) = parked {
+            parked.wake();
+        }
+    }
+}
+
+struct ParkedGuard<'a>(&'a RefCell<State>);
+
+impl Drop for ParkedGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.0.borrow_mut();
+        state.parked.take();
+        if state.cpu.is_none() {
+            state.pause_host();
+        }
     }
 }
 
 impl State {
+    fn driver_waker(&self) -> Option<Waker> {
+        self.cpu
+            .as_ref()
+            .map(|cpu| &cpu.changed)
+            .or(self.parked.as_ref())
+            .cloned()
+    }
+
+    fn resume_host(&mut self, now: Timestamp) {
+        if let Some(host) = &mut self.host {
+            host.resume(now);
+        }
+    }
+
+    fn pause_host(&mut self) {
+        if let Some(host) = &mut self.host {
+            host.pause();
+        }
+    }
+
     fn now(&self) -> Timestamp {
         let count = self
             .cpu

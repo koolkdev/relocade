@@ -31,18 +31,13 @@ impl std::error::Error for RunError {
 }
 
 impl Dos {
-    /// Keeps PC devices running while the embedding waits between guest programs.
-    pub async fn idle_until<F: std::future::Future>(&mut self, ready: F) -> F::Output {
-        self.pc.idle_until(ready).await
-    }
-
     /// Runs the current program and interprets its DOS termination status.
     /// A completed process is not executed again; another launch reuses the same
     /// environment and video output. Unexpected CPU exits leave the process active
     /// for inspection.
     ///
-    /// Process completion leaves the environment alive. Use [`Self::idle_until`]
-    /// between launches so VGA retrace can capture the program's final writes.
+    /// Devices keep running after process completion. VGA retrace can capture
+    /// the program's final writes while the session waits for its next launch.
     /// Session shutdown uses the execution worker's separate `stop().await`.
     /// Await inside the execution session that created this DOS environment;
     /// that session drives device activities and cancellation.

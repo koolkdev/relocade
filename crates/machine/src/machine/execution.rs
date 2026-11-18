@@ -58,7 +58,7 @@ impl Execution {
 }
 
 /// Travels with the CPU's execution capability, independently of engine resources.
-#[derive(crate::worker::Transfer)]
+#[derive(Clone, crate::worker::Transfer)]
 pub struct Member {
     execution: Arc<Execution>,
     resumed: Arc<AtomicWaker>,

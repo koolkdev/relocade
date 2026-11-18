@@ -40,6 +40,7 @@ pub async fn vga_workers() -> Result<(), String> {
         let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
             runner.use_guest_time(relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND),
         )));
+        runner.keep_devices_running();
         assert!(source.send(vga.borrow().frames()).is_ok());
 
         runner
@@ -111,7 +112,7 @@ pub async fn vga_workers() -> Result<(), String> {
             runner.run_cpu().await,
             ExecutionExit::Host(HostExit::Return)
         );
-        runner.idle_until(presented).await.unwrap();
+        presented.await.unwrap();
         drop(runner);
         drop(vga);
     });
