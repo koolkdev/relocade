@@ -99,7 +99,7 @@ impl<'a> CodeReader<'a> {
             .map(|(_, page)| page.version.clone())
             .collect();
         let source = Arc::new(Source { blocks, pages });
-        self.memory.code.lock().unwrap().register(&source);
+        self.memory.code.register(&source);
         CodeSource {
             registry: self.memory.code.clone(),
             source,
