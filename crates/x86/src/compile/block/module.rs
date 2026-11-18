@@ -1,4 +1,4 @@
-//! Shared Wasm declarations and function emission for one snapshot batch.
+//! Wasm declarations, links and exports for a batch of guest blocks.
 
 use super::{decode::DecodedBlock, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
 use crate::compile::CodeAddress;
@@ -10,9 +10,9 @@ use relocade_compiler::{CompileExecutor, Func, Program};
 use std::collections::BTreeMap;
 
 pub(in crate::compile) struct BlockModule<'a> {
-    pub(in crate::compile) compiler: &'a Compiler,
+    compiler: &'a Compiler,
     program: Program,
-    pub(in crate::compile) entries: Vec<BlockEntry>,
+    entries: Vec<BlockEntry>,
     spans: Vec<(CodeAddress, usize)>,
     call_targets: Vec<u32>,
     call_slots: BTreeMap<u32, u32>,
@@ -26,7 +26,7 @@ impl<'a> BlockModule<'a> {
     ) -> Result<Self, BlockError> {
         let blocks = super::decode::blocks(snapshots, self.compiler.target)?;
         let blocks = self.declare_blocks(blocks);
-        self.define_blocks(blocks, self.execution.clone(), None)?;
+        self.define_blocks(blocks, self.execution.clone())?;
         Ok(self)
     }
 
@@ -52,8 +52,8 @@ impl<'a> BlockModule<'a> {
                 .or_default()
                 .push(block);
         }
-        for blocks in views.into_values() {
-            self.append(blocks, None)?;
+        for ((segment, _), blocks) in views {
+            self.define_view(segment, blocks)?;
         }
         Ok(self)
     }
@@ -82,10 +82,10 @@ impl<'a> BlockModule<'a> {
         }
     }
 
-    pub(in crate::compile) fn append(
+    fn define_view(
         &mut self,
+        segment: Option<u16>,
         blocks: Vec<DecodedBlock>,
-        function_index: Option<usize>,
     ) -> Result<(), BlockError> {
         let blocks = self.declare_blocks(blocks);
         let mut entries = BTreeMap::new();
@@ -95,19 +95,11 @@ impl<'a> BlockModule<'a> {
                 return Err(BlockError::DuplicateBlock { address });
             }
         }
-        // The function API promises direct near calls inside its own namespace.
-        // Caller-supplied blocks use the currently installed callee binding.
-        let local_calls = function_index.is_some();
         let mut call_sites = BTreeMap::new();
         if self.compiler.target.profile == ExecutionProfile::Real16 {
-            let segment = blocks
-                .first()
-                .and_then(|(block, _)| block.address().segment());
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
-                    Some(CallTarget::Near(eip))
-                        if eip <= 0xffff && !(local_calls && entries.contains_key(&eip)) =>
-                    {
+                    Some(CallTarget::Near(eip)) if eip <= 0xffff => {
                         let Some(segment) = segment else {
                             continue;
                         };
@@ -127,8 +119,8 @@ impl<'a> BlockModule<'a> {
                 call_sites.insert(instruction.eip(), index);
             }
         }
-        let module = self.execution.with_blocks(entries, call_sites, local_calls);
-        self.define_blocks(blocks, module, function_index)
+        let module = self.execution.with_blocks(entries, call_sites);
+        self.define_blocks(blocks, module)
     }
 
     pub(in crate::compile) fn compile(self) -> Result<CompiledBlocks, BlockError> {
@@ -168,11 +160,10 @@ impl<'a> BlockModule<'a> {
         &mut self,
         blocks: Vec<(DecodedBlock, Func)>,
         module: ExecutionModule,
-        function_index: Option<usize>,
     ) -> Result<(), BlockError> {
         self.spans.reserve(blocks.len());
         for (block, function) in blocks {
-            self.define_block(block, function, module.clone(), function_index)?;
+            self.define_block(block, function, module.clone())?;
         }
         Ok(())
     }
@@ -182,7 +173,6 @@ impl<'a> BlockModule<'a> {
         block: DecodedBlock,
         function: Func,
         module: ExecutionModule,
-        function_index: Option<usize>,
     ) -> Result<(), BlockError> {
         let address = block.address();
         let byte_len = block.byte_len();
@@ -202,10 +192,7 @@ impl<'a> BlockModule<'a> {
         })?;
         self.spans.push((address, byte_len));
         if exported {
-            let export = match function_index {
-                Some(index) if index > 0 => format!("function_{index}_block_{address}"),
-                _ => format!("block_{address}"),
-            };
+            let export = format!("block_{address}");
             self.program
                 .export(&export, function)
                 .map_err(|error| match error {

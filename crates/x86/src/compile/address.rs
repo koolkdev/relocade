@@ -1,7 +1,7 @@
 use crate::real_mode::FarPointer;
 
-/// Guest address of a compiled entry. The offset can advance past FFFF during
-/// real-mode function discovery; the destination's fetch check handles it.
+/// Guest address of a compiled entry. A real-mode EIP can advance beyond FFFF.
+/// The destination checks whether its complete fetch span fits CS.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodeAddress {
     CsRelative(u32),

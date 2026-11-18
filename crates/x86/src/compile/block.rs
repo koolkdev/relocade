@@ -1,6 +1,6 @@
 //! Public snapshot compilation inputs, outputs and entry points.
 
-pub(super) mod decode;
+mod decode;
 mod error;
 pub(super) mod module;
 
@@ -50,7 +50,7 @@ pub struct CompiledBlocks {
     /// Their bytes and instruction-fetch mappings must remain valid while the module can run.
     pub spans: Vec<(CodeAddress, usize)>,
     /// Unique packed Real16 CS:IP targets, in call-table slot order.
-    /// Calls from every function in this module share slots for equal targets.
+    /// Calls to the same target share a slot throughout the module.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
     /// Shared execution policy. Each entry records its own decode width.

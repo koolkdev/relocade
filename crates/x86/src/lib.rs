@@ -65,8 +65,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DecodedBlock, EntryTable, FunctionLimits,
-    FunctionModule,
+    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DecodedBlock, EntryTable,
 };
 pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
@@ -106,12 +105,6 @@ pub struct CompiledModule {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
-    /// Function compilation needs nonzero exploration caps and a nonzero block size.
-    ZeroFunctionLimit,
-    /// The function exceeds its exploration caps; no partial module is compiled.
-    FunctionTooLarge {
-        address: u32,
-    },
     /// A decoded instruction does not start at the next offset in its block.
     NoncontiguousInstruction {
         expected: u32,
@@ -156,15 +149,6 @@ impl fmt::Display for BlockError {
         match self {
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
-            }
-            Self::ZeroFunctionLimit => {
-                formatter.write_str("function compilation limits must be nonzero")
-            }
-            Self::FunctionTooLarge { address } => {
-                write!(
-                    formatter,
-                    "function at {address:#x} exceeds its exploration limits"
-                )
             }
             Self::NoncontiguousInstruction { expected, actual } => {
                 write!(

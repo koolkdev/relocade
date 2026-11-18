@@ -12,7 +12,7 @@ pub struct DecodedBlock {
     code_default_size: SegmentDefaultSize,
     byte_len: usize,
     exported: bool,
-    pub(in crate::compile) instructions: Vec<SnapshotInstruction>,
+    pub(super) instructions: Vec<SnapshotInstruction>,
 }
 
 pub(super) fn blocks(
@@ -62,11 +62,7 @@ impl DecodedBlock {
         self.exported
     }
 
-    pub(in crate::compile) fn empty(
-        address: CodeAddress,
-        code_default_size: SegmentDefaultSize,
-        exported: bool,
-    ) -> Self {
+    fn empty(address: CodeAddress, code_default_size: SegmentDefaultSize, exported: bool) -> Self {
         Self {
             address,
             code_default_size,
