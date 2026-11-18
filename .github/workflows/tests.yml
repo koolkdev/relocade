@@ -1,80 +1,86 @@
 name: Tests
-
 on: workflow_dispatch
-
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  CARGO_TERM_COLOR: always
-  # Keep line-number backtraces while reducing test artifacts and linker work.
-  CARGO_PROFILE_TEST_DEBUG: 1
-
 jobs:
   native:
-    name: ${{ matrix.name }} tests
+    name: Diagnose native GPU tests on Ubuntu 26.04
     runs-on: ubuntu-26.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: Native integration
-            name: DOS and application
-            # New workspace members join this suite until assigned to Core.
-            packages: >-
-              --workspace --exclude relocade-derive --exclude relocade-compiler
-              --exclude relocade-x86 --exclude relocade-interpreter
-              --exclude relocade-test-support --exclude relocade-wasm-bindings
-              --exclude relocade-wasm-runtime --exclude relocade-workers
-            system-packages: libvulkan1 mesa-vulkan-drivers xvfb libxkbcommon-x11-0 libasound2-dev
     env:
-      # Avoid LLVM's AVX-512 VPTERNLOG miscompile in llvmpipe.
-      # Remove when CI's Mesa uses fixed LLVM: https://github.com/koolkdev/relocade/issues/638
+      CARGO_PROFILE_TEST_DEBUG: 1
       GALLIUM_OVERRIDE_CPU_CAPS: avx
-      VK_LOADER_DRIVERS_SELECT: 'lvp_icd*'
-      ALSA_CONFIG_PATH: ${{ github.workspace }}/crates/app/tests/alsa-null.conf
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Configure native test environment
-        run: echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Install native test dependencies
-        if: matrix.system-packages != ''
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Ubuntu debug and build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.system-packages }}
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+          sudo apt-get -qq update
+          sudo apt-get install -y -qq gdb libvulkan1 mesa-vulkan-drivers libasound2-dev libxkbcommon-x11-0 libx11-dev libxcb1-dev libxrandr-dev libwayland-dev
+          dpkg-query -W libvulkan1 mesa-vulkan-drivers
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.suite }}
+          key: Native integration
           save-if: 'false'
-
-      - name: Cache compiled Wasm test modules
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.cache/wasmtime
-          key: wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            wasmtime-${{ runner.os }}-${{ runner.arch }}-${{ matrix.suite }}-${{ hashFiles('Cargo.lock') }}-
-
-      - name: Run tests
-        # Keep package selection and features identical when running ignored tests,
-        # so Cargo can reuse this build instead of resolving another feature graph.
-        run: cargo test ${{ matrix.packages }} --all-features --locked
-
-      - name: Run display and audio integration tests
-        if: matrix.suite == 'Native integration'
-        run: xvfb-run -a cargo test ${{ matrix.packages }} --all-features --locked -- --ignored
+      - name: Build the existing VGA integration tests
+        run: |
+          cargo test -p relocade-vga --all-features --locked --no-run --test gpu --message-format=json > "$RUNNER_TEMP/vga.jsonl"
+          gpu=$(jq -r 'select(.reason=="compiler-artifact" and .target.name=="gpu" and .executable!=null) | .executable' "$RUNNER_TEMP/vga.jsonl")
+          test -x "$gpu"
+          echo "gpu=$gpu" >> "$GITHUB_ENV"
+      - name: Capture the Ubuntu loader's backtrace with matching debug symbols
+        run: |
+          lib=$(ldconfig -p | awk '$1 == "libvulkan.so.1" && /x86-64/ && !found++ {print $NF}')
+          build_id=$(readelf -n "$lib" | awk '/Build ID:/ {print $3; exit}')
+          symbols="$RUNNER_TEMP/symbols/.build-id/${build_id:0:2}"
+          mkdir -p "$symbols"
+          curl -fsSL --retry 3 "https://debuginfod.ubuntu.com/buildid/$build_id/debuginfo" -o "$symbols/${build_id:2}.debug"
+          echo "Ubuntu Vulkan loader Build ID $build_id"
+          for round in 1 2 3; do
+            log="$RUNNER_TEMP/normal-vga-$round.log"
+            gdb -batch -q -ex "set debug-file-directory $RUNNER_TEMP/symbols:/usr/lib/debug" -ex 'set debuginfod enabled off' -ex 'set print thread-events off' -ex run -ex 'bt 12' -ex 'thread apply all bt 16' --args "$gpu" > "$log" 2>&1 || true
+            if grep -q 'received signal' "$log"; then
+              sed -n '/received signal/,+17p' "$log"
+              awk '/^Thread / {thread=$0; printed=0} /^#[0-9]+ / && /(unload_drivers_without_physical_devices|loader_icd_destroy|loader_get_icd_and_device|vkEnumeratePhysicalDevices|vkDestroyDevice|vkDestroyInstance|terminator_SetDebugUtilsObjectNameEXT)/ {if (!printed++) print thread; print $0}' "$log" | head -80 || true
+              break
+            fi
+            grep 'test result:' "$log"
+          done
+      - name: Build Vulkan-Loader v1.4.341 with and without the upstream locking fix
+        run: |
+          cd "$RUNNER_TEMP"
+          mkdir vk-headers loader-stock
+          curl -fsSL --retry 3 https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.4.341 | tar xz -C vk-headers --strip-components=1
+          curl -fsSL --retry 3 https://codeload.github.com/KhronosGroup/Vulkan-Loader/tar.gz/refs/tags/v1.4.341 | tar xz -C loader-stock --strip-components=1
+          cmake -S vk-headers -B headers-build -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/headers" -DVULKAN_HEADERS_ENABLE_TESTS=OFF -DVULKAN_HEADERS_ENABLE_MODULE=OFF
+          cmake --install headers-build > headers-install.log
+          cp -a loader-stock loader-fixed
+          curl -fsSL --retry 3 https://github.com/KhronosGroup/Vulkan-Loader/commit/5ee27b30c08505b868cb17a0683291d3a1d4543d.diff -o upstream.diff
+          (cd loader-fixed && git apply --include='loader/*' ../upstream.diff)
+          diff -q loader-stock/loader/loader.c loader-fixed/loader/loader.c && exit 1
+          for build in stock fixed; do
+            cmake -S "loader-$build" -B "$build" -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/headers" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTS=OFF
+            cmake --build "$build" --target vulkan -j4
+            test -f "$build/loader/libvulkan.so.1"
+          done
+      - name: Compare the same VGA suite with all drivers and both loader builds
+        run: |
+          ulimit -c 0
+          for round in {1..10}; do
+            for build in stock fixed; do
+              log="$RUNNER_TEMP/$build-$round.log"
+              status=0
+              LD_LIBRARY_PATH="$RUNNER_TEMP/$build/loader" "$gpu" > "$log" 2>&1 || status=$?
+              echo "$build run $round status $status"
+              echo "$status" >> "$RUNNER_TEMP/$build-results"
+              if [ "$status" -eq 0 ]; then grep 'test result:' "$log"; fi
+            done
+          done
+          for build in stock fixed; do
+            echo "$build status totals"
+            sort "$RUNNER_TEMP/$build-results" | uniq -c
+          done
+          test "$(grep -cx 0 "$RUNNER_TEMP/fixed-results" || true)" = 10
