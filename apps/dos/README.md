@@ -40,8 +40,10 @@ export. Embeddings that construct DOS directly use
 default. This selects emulated hardware independently of host output.
 
 The printer captures up to 64 KiB of raw guest output through parallel port I/O,
-BIOS INT 17h or the DOS device `LPT1`. It signals BUSY when full. Setting
-`parallel_port: None` leaves it disconnected.
+BIOS INT 17h or the DOS device `LPT1`. At startup the app also installs DOS's
+`PRN` driver on that connection, so new processes can use their standard printer
+handle (4), including INT 21h/AH=05h. The printer signals BUSY when full.
+Setting `parallel_port: None` leaves it disconnected.
 
 Select `VideoCard::Et4000Ax` for the 1-MiB ET4000AX board. It starts in 80×25 text
 and supports banked indexed VBE modes 101h (640×480), 103h (800×600), and 105h

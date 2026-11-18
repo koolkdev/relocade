@@ -28,23 +28,25 @@ async fn with_dos(
 
 async fn lpt1_printer() {
     with_dos(crate::default_configuration(), async |mut dos, printer| {
-        // The BIOS and the named DOS device must write to the same peripheral.
+        // BIOS adapter 0, LPT1 and the process standard printer must reach one peripheral.
         let program = [
             0xeb, 6, b'L', b'P', b'T', b'1', 0, 0xdb, // Filename at 102h, data at 107h.
             0x31, 0xd2, 0xb8, b'B', 0, 0xcd, 0x17, // INT 17h, print B on adapter 0.
             0xba, 2, 1, 0xb8, 1, 0x3d, 0xcd, 0x21, // Open LPT1 for writing.
             0x89, 0xc3, 0xba, 7, 1, 0xb9, 1, 0, 0xb4, 0x40, 0xcd, 0x21, // Write one byte.
+            0xb4, 5, 0xb2, b'P', 0xcd, 0x21, // INT 21h/AH=05h, print P through handle 4.
             0xb8, 0, 0x4c, 0xcd, 0x21, // Exit.
         ];
         dos.launch_com(&program, Default::default()).unwrap();
         assert_eq!(dos.run().await.unwrap(), 0);
-        assert_eq!(printer.unwrap().snapshot().await.unwrap(), b"B\xdb");
+        assert_eq!(printer.unwrap().snapshot().await.unwrap(), b"B\xdbP");
     })
     .await;
 
     with_dos(Configuration::default(), async |dos, printer| {
         assert!(printer.is_none());
         assert!(!dos.device(b"LPT1").unwrap().output_ready().await.unwrap());
+        assert!(!dos.device(b"PRN").unwrap().output_ready().await.unwrap());
     })
     .await;
 }
