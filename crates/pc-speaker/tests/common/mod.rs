@@ -1,10 +1,10 @@
 use super::Speaker;
-use relocade_machine::{Clock, IoBus};
+use relocade_machine::{GuestClock, IoBus};
 use relocade_pit::Pit;
 use std::{cell::RefCell, rc::Rc};
 
 /// Connect the real PIT and speaker through their separate port ranges.
-pub fn hardware(clock: Clock) -> (IoBus, Rc<RefCell<Speaker>>) {
+pub fn hardware(clock: GuestClock) -> (IoBus, Rc<RefCell<Speaker>>) {
     let pit = Rc::new(RefCell::new(Pit::with_clock(
         clock,
         &relocade_pic::Pic::new(0x08, 0x70),

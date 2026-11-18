@@ -10,7 +10,8 @@ pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
 use crate::{
-    Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
+    Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, GuestClock, IoBus, Memory,
+    Result,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_lite::future::poll_once;
@@ -120,6 +121,20 @@ impl Runner {
 
     pub fn clock(&self) -> &Clock {
         self.schedule.clock()
+    }
+
+    /// Selects the shared hardware timeline before timed devices are connected.
+    /// An existing emulated clock keeps its rate and pacing policy. On a host
+    /// runner, the platform clock paces an instruction clock at the supplied rate.
+    pub fn use_guest_time(&mut self, default_rate: std::num::NonZeroU64) -> GuestClock {
+        if let Some(clock) = self.clock().as_guest() {
+            return clock;
+        }
+        let config = GuestTimeConfig::new(default_rate).with_host_clock(self.clock().clone());
+        self.schedule = ExecutionSchedule::with_guest_time(config);
+        self.clock()
+            .as_guest()
+            .expect("guest schedule owns a guest clock")
     }
 
     /// Post this resource to another worker and retain its `bind()` guard there

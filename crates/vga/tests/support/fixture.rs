@@ -11,7 +11,9 @@ pub struct ConnectedVga {
 
 impl ConnectedVga {
     pub fn new(clock: Clock) -> Self {
-        let device = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
+        let device = Rc::new(RefCell::new(DispiAdapter::with_clock(
+            clock.as_guest().unwrap(),
+        )));
         let io = IoBus::new(device.clone(), |io| DispiAdapter::configure_io(io, &device));
         Self { device, io }
     }

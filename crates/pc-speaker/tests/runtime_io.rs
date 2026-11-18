@@ -17,7 +17,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 async fn guest_port_io() {
     for compiled in [false, true] {
         let clock = ManualClock::default();
-        let (io, _speaker) = common::hardware(clock.clock());
+        let (io, _speaker) = common::hardware(clock.guest_clock());
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let memory = Memory::new(
             MachineConfig::new(

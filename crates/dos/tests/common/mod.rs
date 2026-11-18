@@ -10,23 +10,9 @@ mod execution;
 #[allow(unused_imports)]
 pub use execution::{checkpoint, run_until, steps};
 
-// Service tests step the CPU directly; worker tests drive registered devices.
-pub async fn dos() -> Dos {
-    let (clock, timers) = relocade_machine::timer_service();
-    let (runner, _host, machine) = runner(clock.into()).await;
-    let mut dos = runner
-        .run(std::future::pending::<()>(), async |runner| {
-            Dos::new(runner).await.unwrap()
-        })
-        .await
-        .unwrap();
-    machine.shutdown().await.unwrap();
-    // CPU-only fixtures must not accumulate timer IRQs during compilation/setup.
-    // Start the clock driver after the session has dropped its device activities.
-    std::thread::spawn(|| pollster::block_on(timers.run()));
-    dos.cpu().interrupt_handle().take();
-    dos
-}
+mod fixture;
+#[allow(unused_imports)]
+pub use fixture::{dos, next_capture, DosFixture};
 
 /// Poll once and release the waiter while the CPU retains the pending service.
 pub fn assert_pending(future: impl std::future::Future) {
@@ -155,39 +141,4 @@ impl VideoInspection for Dos {
 
 pub fn screen(dos: &relocade_dos::Dos) -> inspection::Inspection {
     inspection::inspect(&dos.vga().borrow().snapshot())
-}
-
-/// Service VGA until a retrace samples the guest's latest display programming.
-/// These fixtures step the CPU directly, so they also own polling its devices.
-pub async fn next_capture(dos: &Dos) -> relocade_vga::DisplaySnapshot {
-    use relocade_machine::Device;
-    use relocade_vga::RetraceEvent;
-    use std::{future::Future, task::Poll, time::Duration};
-
-    let source = dos.frames();
-    let vga = dos.vga();
-    loop {
-        let mut retrace = std::pin::pin!(vga.borrow_mut().wait_for_retrace().unwrap());
-        let first = std::future::poll_fn(|cx| Poll::Ready(retrace.as_mut().poll(cx))).await;
-        if first.is_pending() {
-            if retrace.await == RetraceEvent::Started {
-                break;
-            }
-        } else {
-            // An existing pulse may have sampled before the guest's final writes.
-            // Leave that pulse before waiting for a future retrace in these host-clock fixtures.
-            futures_timer::Delay::new(Duration::from_millis(1)).await;
-        }
-    }
-
-    // Guest writes may have staged an older capture without publishing it. Only
-    // service output after a fresh retrace can sample the final programming.
-    let mut capture = std::pin::pin!(source.recv());
-    let mut video = std::pin::pin!(relocade_vga::DispiAdapter::run(vga));
-    std::future::poll_fn(|cx| {
-        assert!(video.as_mut().poll(cx).is_pending());
-        capture.as_mut().poll(cx)
-    })
-    .await
-    .unwrap()
 }

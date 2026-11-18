@@ -1,10 +1,10 @@
+use crate::common::DosFixture;
 use crate::common::VideoInspection;
 use super::{PROGRAM, video};
 use crate::common::vga_support::planes::SnapshotPlanes;
 use crate::{common, information::information};
-use relocade_dos::Dos;
 
-fn assert_shape(dos: &mut Dos, requested: u16, hardware: u16) {
+fn assert_shape(dos: &mut DosFixture, requested: u16, hardware: u16) {
     video(dos, 0x0100, 0, requested, 0);
     assert_eq!(
         dos.cpu().context().memory.read_u16(0x460).unwrap(),

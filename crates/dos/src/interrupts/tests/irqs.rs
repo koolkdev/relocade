@@ -40,9 +40,9 @@ impl Device for Irq {
 
 /// Use the production loader, DOS services and BIOS resources with a controlled IRQ source.
 async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
-    let (clock, _timers) = timer_service();
-    let clock: relocade_machine::Clock = clock.into();
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
+    let guest = relocade_clock_test_support::ManualClock::default().guest_clock();
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(guest.clone())));
+    let clock: relocade_machine::Clock = guest.into();
     let io = IoBus::default();
     io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(irq.clone(), |_| {});

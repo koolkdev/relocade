@@ -1,5 +1,5 @@
 use futures_channel::oneshot;
-use relocade_machine::{Clock, ClockSource, Sleep, Timestamp};
+use relocade_machine::{Clock, ClockSource, GuestClock, GuestClockSource, Sleep, Timestamp};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -27,7 +27,11 @@ impl ManualClock {
     }
 
     pub fn clock(&self) -> Clock {
-        Clock::new(self.clone())
+        self.guest_clock().into()
+    }
+
+    pub fn guest_clock(&self) -> GuestClock {
+        GuestClock::new(self.clone())
     }
 
     /// Position a fixed duration after this controlled clock's start.
@@ -68,6 +72,8 @@ impl ManualClock {
         }
     }
 }
+
+impl GuestClockSource for ManualClock {}
 
 impl ClockSource for ManualClock {
     fn now(&self) -> Timestamp {

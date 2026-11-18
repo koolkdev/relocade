@@ -22,7 +22,7 @@ pub use error::InitializationError;
 use relocade_bios::Keyboard;
 use relocade_dma::Dma;
 use relocade_frontend::{keyboard::KeyboardInput, mouse::MouseInput};
-use relocade_machine::{real_mode_interrupt::Interrupts, Clock, Cpu, Runner};
+use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, GuestClock, Runner};
 use relocade_parallel::Port;
 use relocade_pc_speaker::Speaker;
 use relocade_pic::{Pic, KEYBOARD_IRQ, TIMER_IRQ};
@@ -37,6 +37,7 @@ pub const CONVENTIONAL_MEMORY_SIZE: u32 = 640 * 1024;
 /// One execution-owned PC with persistent CPU, memory, hardware and BIOS state.
 pub struct Pc {
     runner: Runner,
+    clock: GuestClock,
     dma: Rc<RefCell<Dma>>,
     video_card: video_card::VideoCard,
     speaker: Rc<RefCell<Speaker>>,
@@ -68,24 +69,24 @@ impl Pc {
         configuration
             .validate()
             .map_err(InitializationError::Validation)?;
+        let clock = runner.use_guest_time(configuration::DEFAULT_INSTRUCTIONS_PER_SECOND);
         let dma = Dma::initialize(&runner).await;
-        let video_card = configuration.video_card.initialize(&runner).await;
+        let video_card = configuration.video_card.initialize(&runner, &clock).await;
         let video_firmware = video_card.firmware();
         let pic = Pic::initialize(&runner).await;
-        let pit = Pit::initialize(&runner, &pic).await;
+        let pit = Pit::initialize(&runner, clock.clone(), &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
         let sound_card = configuration
             .sound_card
-            .initialize(&runner, &dma, &pic)
+            .initialize(&runner, &clock, &dma, &pic)
             .await;
         let parallel_port = match configuration.parallel_port {
             Some(port) => Some(Port::initialize(&runner, port.base, pic.irq(port.irq, false)).await),
             None => None,
         };
-        let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
+        let (inputs, controller) = relocade_ps2::connect(&runner, clock.clone(), &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());
-        let clock = runner.clock().clone();
         let cpu = runner.cpu();
         {
             let mut context = cpu.context();
@@ -105,16 +106,17 @@ impl Pc {
         let mut interrupts = Interrupts::new(cpu);
         relocade_bios::register_interrupts(
             &mut interrupts,
-            relocade_bios::Parallel::new(clock.clone(), parallel_port.iter().cloned()),
+            relocade_bios::Parallel::new(clock.clone().into(), parallel_port.iter().cloned()),
             keyboard.clone(),
             video_firmware,
-            Some(relocade_bios::Mouse::new(clock, controller)),
+            Some(relocade_bios::Mouse::new(clock.clone().into(), controller)),
         );
         interrupts.install().await?;
         pic.unmask_irq(TIMER_IRQ);
         pic.unmask_irq(KEYBOARD_IRQ);
         Ok(Self {
             runner,
+            clock,
             dma,
             video_card,
             speaker,
@@ -128,8 +130,8 @@ impl Pc {
     }
 
     /// The emulation clock shared by the PC's devices and firmware consumers.
-    pub fn clock(&self) -> &Clock {
-        self.runner.clock()
+    pub fn clock(&self) -> &GuestClock {
+        &self.clock
     }
 
     /// The execution session for connecting additional device activities.

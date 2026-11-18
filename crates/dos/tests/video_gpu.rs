@@ -33,11 +33,11 @@ mod unchained256;
 #[path = "video_gpu/vbe.rs"]
 mod vbe;
 
-use relocade_dos::Dos;
+use common::DosFixture;
 use relocade_vga::{DisplaySnapshot, VgaRenderer};
 use relocade_x86::{ExecutionExit, HostExit};
 
-async fn run(dos: &mut Dos, program: &[u8]) -> DisplaySnapshot {
+async fn run(dos: &mut DosFixture, program: &[u8]) -> DisplaySnapshot {
     dos.launch_com(program, Default::default()).unwrap();
     assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
     common::next_capture(dos).await

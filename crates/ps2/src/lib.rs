@@ -13,7 +13,7 @@ use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
 };
-use relocade_machine::{Clock, Device, IoBus, Runner};
+use relocade_machine::{Clock, Device, GuestClock, IoBus, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -54,13 +54,13 @@ pub struct Inputs {
 /// Connects the controller's register operations and starts keyboard and mouse firmware.
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
 /// IRQ1/IRQ12 start low; the auxiliary interface and mouse reporting start disabled.
-pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>) {
+pub async fn connect(runner: &Runner, clock: GuestClock, pic: &Pic) -> (Inputs, Rc<Controller>) {
     let (keyboard, events) = frontend::channel();
     let (mouse, mouse_events) = relocade_frontend::mouse::channel();
     let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
     let device = Rc::new(RefCell::new(Ps2Controller {
         controller: controller.clone(),
-        startup: Some((runner.clock().clone(), events, mouse_events)),
+        startup: Some((clock.into(), events, mouse_events)),
     }));
     runner
         .connect(device, |io| ports::configure(io, &controller))

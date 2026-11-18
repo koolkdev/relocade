@@ -69,9 +69,9 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
     .unwrap();
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let keyboard = Keyboard::new(memory.clone());
-    let (clock, _timers) = relocade_machine::timer_service();
-    let clock: Clock = clock.into();
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clone())));
+    let guest = relocade_clock_test_support::ManualClock::default().guest_clock();
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(guest.clone())));
+    let clock: relocade_machine::Clock = guest.into();
     let io = IoBus::default();
     io.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     io.connect(timer.clone(), |_| {});

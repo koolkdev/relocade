@@ -1,7 +1,7 @@
 use super::*;
 use crate::video::write_indexed;
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{Clock, Device};
+use relocade_machine::{Device, GuestClock};
 use relocade_vga::{DispiAdapter, Et4000Ax, Scanout};
 use std::{
     cell::RefCell,
@@ -25,7 +25,7 @@ impl Wake for Wakes {
     }
 }
 
-fn device(clock: Clock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
+fn device(clock: GuestClock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
     let card = Rc::new(RefCell::new(DispiAdapter::with_clock(clock)));
     let io = IoBus::new(card.clone(), |io| DispiAdapter::configure_io(io, &card));
     for (register, value) in [(1, 640), (2, 480), (3, 8), (4, 1), (6, 1024)] {
@@ -54,7 +54,7 @@ fn boundary(frame: u64) -> Duration {
 #[test]
 fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
     let clock = ManualClock::default();
-    let (card, io) = device(clock.clock());
+    let (card, io) = device(clock.guest_clock());
     io.write_port(0x3c2, 1, 2); // Monochrome status port; keep CPU memory enabled.
     io.write_mmio(0xa0000, 1, 1);
     write_register(&io, 5, 7);
@@ -96,7 +96,7 @@ fn retrace_wait_preserves_completed_capture_with_monochrome_status_routing() {
 #[test]
 fn requests_already_in_retrace_finish_without_yielding() {
     let clock = ManualClock::default();
-    let (card, io) = device(clock.clock());
+    let (card, io) = device(clock.guest_clock());
     clock.advance_to(clock.at(boundary(1)));
     assert_eq!(
         pin!(display_start(&io, card.as_ref(), 0x80, 384, 3616))
@@ -109,7 +109,7 @@ fn requests_already_in_retrace_finish_without_yielding() {
 #[test]
 fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
     for (register, value) in [(4, 0), (6, 1280), (8, 1)] {
-        let (card, io) = device(ManualClock::new().clock());
+        let (card, io) = device(ManualClock::new().guest_clock());
         let wakes = Arc::new(Wakes::default());
         let waker = Waker::from(wakes.clone());
         let mut cx = Context::from_waker(&waker);
@@ -124,7 +124,7 @@ fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
         assert_eq!(request.as_mut().poll(&mut cx), Poll::Ready(None));
         assert_eq!(card.borrow().viewport(), changed);
     }
-    let (card, io) = device(ManualClock::new().clock());
+    let (card, io) = device(ManualClock::new().guest_clock());
     io.write_port(0x46e8, 1, 0); // Disabled address decoding also blocks direct firmware access.
     assert_eq!(
         pin!(display_start(&io, card.as_ref(), 0x80, 0, 0))
@@ -136,7 +136,7 @@ fn retrace_wait_wakes_to_revalidate_mode_and_layout() {
 #[test]
 fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
     let clock = ManualClock::default();
-    let (card, io) = device(clock.clock());
+    let (card, io) = device(clock.guest_clock());
     let wakes = Arc::new(Wakes::default());
     let waker = Waker::from(wakes.clone());
     let mut cx = Context::from_waker(&waker);
@@ -156,7 +156,7 @@ fn routing_changes_rearm_the_wait_and_late_timers_still_complete_it() {
 #[test]
 fn legacy_retrace_wait_preserves_the_completed_frame_and_defers_the_start_latch() {
     let clock = ManualClock::default();
-    let (card, io) = device(clock.clock());
+    let (card, io) = device(clock.guest_clock());
     write_register(&io, 4, 0); // Default eight-dot, eight-row text with doubled scanlines.
     assert!(scanline(&io, card.as_ref(), 2, 200).is_ok());
     let frames = card.borrow().frames();
@@ -187,7 +187,7 @@ fn legacy_retrace_wait_preserves_the_completed_frame_and_defers_the_start_latch(
 #[test]
 fn legacy_retrace_wait_revalidates_register_changes_even_without_sync() {
     for (register, value) in [(0x13, 51), (0x0d, 1), (0x08, 1)] {
-        let (card, io) = device(ManualClock::default().clock());
+        let (card, io) = device(ManualClock::default().guest_clock());
         write_register(&io, 4, 0);
         assert!(scanline(&io, card.as_ref(), 2, 200).is_ok());
         io.write_port(0x3c4, 2, 0x0100); // No retrace deadline while reset is active.
@@ -208,7 +208,7 @@ fn legacy_retrace_wait_revalidates_register_changes_even_without_sync() {
 fn et4000_retrace_wait_ignores_cursor_changes_but_revalidates_extended_display_state() {
     for (register, value) in [(0x33, 5), (0x35, 4), (0x36, 0x50)] {
         let card = Rc::new(RefCell::new(Et4000Ax::with_clock(
-            ManualClock::default().clock(),
+            ManualClock::default().guest_clock(),
         )));
         let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
         io.write_port(0x3bf, 1, 3);
@@ -241,7 +241,7 @@ fn et4000_retrace_wait_ignores_cursor_changes_but_revalidates_extended_display_s
 #[test]
 fn et4000_firmware_start_clears_high_bits_at_the_next_capture() {
     let clock = ManualClock::default();
-    let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.clock())));
+    let card = Rc::new(RefCell::new(Et4000Ax::with_clock(clock.guest_clock())));
     let io = IoBus::new(card.clone(), |io| Et4000Ax::configure_io(io, &card));
     io.write_port(0x3d4, 2, 0x0133);
     let retrace = |frame: u64| {

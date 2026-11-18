@@ -47,7 +47,7 @@ impl Hardware {
         let interrupts = Rc::new(RefCell::new(pic.clone()));
         io.connect(interrupts.clone(), |io| Pic::configure_io(io, &interrupts));
         let card = Rc::new(RefCell::new(SoundBlaster::new(
-            clock.clock(),
+            clock.guest_clock(),
             memory.clone(),
             &io,
             dma,

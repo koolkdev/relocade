@@ -81,9 +81,11 @@ async fn timer_interrupts() -> Result<(), String> {
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let pic = Pic::initialize(&runner).await;
-        let _pit = Pit::initialize(&runner, &pic).await;
+        let host_clock = runner.clock().clone();
+        let guest_clock = runner.use_guest_time(std::num::NonZeroU64::new(1_000_000).unwrap());
+        let _pit = Pit::initialize(&runner, guest_clock, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
-            clock: runner.clock().clone(),
+            clock: host_clock,
             ready: Some(ready),
             host_busy: worker_host_busy,
             count: worker_count,

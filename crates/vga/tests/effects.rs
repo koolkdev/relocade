@@ -2,7 +2,7 @@ mod common;
 
 use common::{fixture::ConnectedVga, support::svga};
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{Clock, ClockSource, Sleep, Timestamp};
+use relocade_machine::{ClockSource, GuestClock, GuestClockSource, Sleep, Timestamp};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -15,6 +15,8 @@ struct ObservedClock {
     clock: ManualClock,
     reads: Arc<AtomicUsize>,
 }
+
+impl GuestClockSource for ObservedClock {}
 
 impl ClockSource for ObservedClock {
     fn now(&self) -> Timestamp {
@@ -31,10 +33,13 @@ impl ClockSource for ObservedClock {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn access_and_decode_controls_do_no_clock_work() {
     let reads = Arc::new(AtomicUsize::new(0));
-    let vga = ConnectedVga::new(Clock::new(ObservedClock {
-        clock: ManualClock::new(),
-        reads: reads.clone(),
-    }));
+    let vga = ConnectedVga::new(
+        GuestClock::new(ObservedClock {
+            clock: ManualClock::new(),
+            reads: reads.clone(),
+        })
+        .into(),
+    );
     reads.store(0, Ordering::Relaxed);
     for (port, bytes, value) in [
         (0x3c4, 1, 2),

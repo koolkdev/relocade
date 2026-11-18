@@ -46,7 +46,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let execution = prepared.spawn(clock, async move |mut runner| {
         let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
-            runner.clock().clone(),
+            runner.use_guest_time(relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND),
         )));
         send_source.send(vga.borrow().frames()).ok().unwrap();
 

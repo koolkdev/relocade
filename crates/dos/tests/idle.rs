@@ -11,7 +11,7 @@ const CALLBACK: FarPointer = FarPointer {
     offset: 0x180,
 };
 
-async fn session() -> (Dos, FarPointer) {
+async fn session() -> (common::DosFixture, FarPointer) {
     let mut dos = common::dos().await;
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     let state = service(&mut dos, 0x3400, 0, 0, 0);

@@ -69,7 +69,8 @@ async fn connected_mouse_and_keyboard() {
             for irq in [KEYBOARD_IRQ, CASCADE_IRQ, MOUSE_IRQ] {
                 pic.unmask_irq(irq);
             }
-            let (input, _controller) = relocade_ps2::connect(&runner, &pic).await;
+            let (input, _controller) =
+                relocade_ps2::connect(&runner, clock.guest_clock(), &pic).await;
             let io = runner.io();
             write(&io, STATUS_COMMAND_PORT, 0x60).await;
             write(&io, DATA_PORT, 0x47).await;
@@ -160,7 +161,8 @@ async fn queued_mouse_input() {
                 for irq in [CASCADE_IRQ, MOUSE_IRQ] {
                     pic.unmask_irq(irq);
                 }
-                let (input, _controller) = relocade_ps2::connect(&runner, &pic).await;
+                let (input, _controller) =
+                    relocade_ps2::connect(&runner, clock.guest_clock(), &pic).await;
                 let io = runner.io();
                 write(&io, STATUS_COMMAND_PORT, 0x60).await;
                 write(&io, DATA_PORT, 0x47).await;

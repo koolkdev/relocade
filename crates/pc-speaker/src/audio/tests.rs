@@ -30,7 +30,7 @@ fn program(io: &IoBus) {
 impl Playback {
     fn new(rate: u64) -> Self {
         let clock = ManualClock::new();
-        let (io, speaker) = common::hardware(clock.clock());
+        let (io, speaker) = common::hardware(clock.guest_clock());
         let timing =
             AudioTiming::new(clock.clock().now(), clock.clock().tick_rate(), rate as u32).unwrap();
         let (recorder, source) = speaker.borrow().audio_source(timing);
@@ -155,7 +155,7 @@ fn fractional_pit_initialization_and_controls_share_the_audio_phase() {
     };
 
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
-    let clock = driver.clock();
+    let clock = driver.guest_clock();
     let mut cx = Context::from_waker(Waker::noop());
     let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
     assert!(initial.as_mut().poll(&mut cx).is_pending());

@@ -8,7 +8,7 @@ use dsp::Dsp;
 use relocade_adlib::Adlib;
 use relocade_dma::Dma;
 use relocade_frontend::audio::AudioTiming;
-use relocade_machine::{Clock, Device, DeviceConnection, IoBus, Memory, Runner};
+use relocade_machine::{Device, DeviceConnection, GuestClock, IoBus, Memory, Runner};
 use relocade_pic::Pic;
 use std::{cell::RefCell, rc::Rc};
 
@@ -45,20 +45,27 @@ pub struct SoundBlaster {
 }
 
 impl SoundBlaster {
-    pub fn new(clock: Clock, memory: Memory, io: &IoBus, dma: Rc<RefCell<Dma>>, pic: &Pic) -> Self {
+    pub fn new(
+        clock: GuestClock,
+        memory: Memory,
+        io: &IoBus,
+        dma: Rc<RefCell<Dma>>,
+        pic: &Pic,
+    ) -> Self {
         Self {
             adlib: Rc::new(RefCell::new(Adlib::new(clock.clone()))),
-            dsp: Rc::new(RefCell::new(Dsp::new(clock, memory, io, dma, pic))),
+            dsp: Rc::new(RefCell::new(Dsp::new(clock.into(), memory, io, dma, pic))),
         }
     }
 
     pub async fn initialize(
         runner: &Runner,
+        clock: GuestClock,
         dma: Rc<RefCell<Dma>>,
         pic: &Pic,
     ) -> Rc<RefCell<Self>> {
         let card = Rc::new(RefCell::new(Self::new(
-            runner.clock().clone(),
+            clock,
             runner.memory(),
             &runner.io(),
             dma,
