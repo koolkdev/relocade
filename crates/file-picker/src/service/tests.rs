@@ -80,12 +80,21 @@ fn closing_before_run_rejects_queued_requests_and_surviving_handles() {
 }
 
 #[cfg(unix)]
+fn make_fifo(path: &std::path::Path) {
+    assert!(std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[cfg(unix)]
 #[test]
 fn file_selection_rejects_fifos_without_waiting_for_a_writer() {
     block_on(async {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("PIPE");
-        rustix::fs::mkfifoat(rustix::fs::CWD, &path, rustix::fs::Mode::RUSR).unwrap();
+        make_fifo(&path);
         assert_eq!(
             platform::selected_file(path).await.err().unwrap().kind(),
             ErrorKind::InvalidInput
@@ -153,12 +162,7 @@ fn rooted_directory_rejects_escape_links_and_special_files() {
         std::fs::create_dir(temporary.path().join("root")).unwrap();
         std::fs::write(temporary.path().join("outside"), b"private").unwrap();
         std::os::unix::fs::symlink("../outside", temporary.path().join("root/link")).unwrap();
-        rustix::fs::mkfifoat(
-            rustix::fs::CWD,
-            temporary.path().join("root/PIPE"),
-            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
-        )
-        .unwrap();
+        make_fifo(&temporary.path().join("root/PIPE"));
         let files = FileService::new();
         let (name, backend) = platform::selected_directory(temporary.path().join("root"))
             .await

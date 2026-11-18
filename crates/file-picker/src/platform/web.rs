@@ -8,6 +8,10 @@ use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{DomException, FileSystemFileHandle, FileSystemHandle, FileSystemHandleKind};
 
+#[path = "web/save.rs"]
+mod save;
+pub(crate) use save::save_file;
+
 pub(crate) type Directory = web_sys::FileSystemDirectoryHandle;
 pub(crate) enum File {
     Selected(web_sys::File),

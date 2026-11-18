@@ -1,7 +1,7 @@
 use crate::{
     platform,
     service::{Resource, Resources},
-    Access, File, Metadata,
+    validate_name, Access, File, Metadata,
 };
 use std::io;
 
@@ -121,14 +121,4 @@ impl Resources {
             })?,
         })
     }
-}
-
-fn validate_name(name: &str) -> io::Result<()> {
-    if matches!(name, "" | "." | "..") || name.contains(['/', '\\', '\0', ':']) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "expected one child name",
-        ));
-    }
-    Ok(())
 }
