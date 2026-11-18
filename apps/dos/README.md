@@ -146,10 +146,10 @@ case-insensitive matching. It creates no DOS process and writes no duplicate std
 
 Native input belongs to the prompt. It does not enter the controller or the BIOS
 keyboard buffer. Normal prompt output goes straight to the screen. For explicit
-redirection, put `> device` before or after a command or between arguments. The
-prompt resolves that name in DOS's installed character devices. For example,
-`HELP > LPT1` sends the help text to the printer. `>>` has the same effect on a
-character device. Double quotes group words and protect literal operators.
+redirection, put `> path` before or after a command or between arguments.
+`ECHO Hello > REPORT.TXT` creates or replaces a guest file, and `>>` appends.
+DOS resolves files in the current drive and directory and recognizes installed
+character devices. For example, `HELP > LPT1` sends help to the printer. Double quotes group words and protect literal operators.
 `ECHO "A > B"` displays the quotes and the greater-than sign. No guest code, IRQ handlers or resident utilities execute at the
 prompt. The runner continues its device activities, including display/audio;
 BIOS ticks advance only when guest execution services timer interrupts.

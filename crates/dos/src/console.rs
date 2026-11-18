@@ -1,7 +1,10 @@
 //! Native prompt I/O and the line editing shared with guest DOS services.
 
+mod files;
 mod line;
 mod output;
+use files::PromptFiles;
+pub use files::{ConsoleFile, OutputMode};
 pub(crate) use line::{edit_line, LineEditor};
 pub(crate) use output::CharacterOutput;
 
@@ -22,6 +25,7 @@ use std::rc::Rc;
 pub struct NativeConsole<'a> {
     memory: MemoryBus,
     dos: &'a Dos,
+    files: Rc<PromptFiles>,
     events: KeyboardEvents,
     keyboard: PhysicalKeyboard,
 }
@@ -30,6 +34,7 @@ impl<'a> NativeConsole<'a> {
     pub(crate) fn new(memory: MemoryBus, dos: &'a Dos, events: KeyboardEvents) -> Self {
         Self {
             memory,
+            files: PromptFiles::new(dos.state.clone()),
             dos,
             events,
             keyboard: PhysicalKeyboard::default(),
@@ -45,6 +50,16 @@ impl<'a> NativeConsole<'a> {
     /// Resolves an explicitly named character device for prompt redirection.
     pub fn device(&self, name: &[u8]) -> Option<Rc<CharacterDevice>> {
         self.dos.device(name)
+    }
+
+    /// Opens a guest path for standard-output redirection, using DOS's current
+    /// drive, directory, character devices and file creation rules.
+    pub fn open_output(
+        &self,
+        path: &[u8],
+        mode: OutputMode,
+    ) -> Result<ConsoleFile, crate::DosError> {
+        self.files.open_output(path, mode)
     }
 
     /// Reads and echoes an edited line of at most 254 bytes, excluding its final

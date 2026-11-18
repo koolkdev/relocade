@@ -1,10 +1,18 @@
 //! The Rust prompt consumes DOS-encoded bytes. Double quotes group a word and
 //! protect operators; ECHO also needs the original spelling and whitespace.
 
+use relocade_dos::OutputMode;
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) struct Redirection {
+    pub path: Vec<u8>,
+    pub mode: OutputMode,
+}
+
 pub(super) struct CommandLine<'a> {
     pub name: Vec<u8>,
     pub arguments: Vec<Word<'a>>,
-    pub stdout: Option<Vec<u8>>,
+    pub stdout: Option<Redirection>,
     trailing_space: &'a [u8],
 }
 
@@ -16,7 +24,7 @@ pub(super) struct Word<'a> {
 
 enum Token<'a> {
     Word(Word<'a>),
-    RedirectOutput,
+    RedirectOutput(OutputMode),
 }
 
 struct Lexer<'a> {
@@ -29,10 +37,13 @@ impl<'a> Lexer<'a> {
         let preceding_space = &self.rest[..self.rest.len() - input.len()];
         match input {
             [] => Ok(None),
-            [b'>', b'>', rest @ ..] | [b'>', rest @ ..] => {
-                // Both > and >> open the same stream for character devices.
+            [b'>', b'>', rest @ ..] => {
                 self.rest = rest;
-                Ok(Some(Token::RedirectOutput))
+                Ok(Some(Token::RedirectOutput(OutputMode::Append)))
+            }
+            [b'>', rest @ ..] => {
+                self.rest = rest;
+                Ok(Some(Token::RedirectOutput(OutputMode::Truncate)))
             }
             [b'<', ..] => Err("Input redirection is unsupported"),
             [b'|', ..] => Err("Pipes are unsupported"),
@@ -79,17 +90,20 @@ impl<'a> CommandLine<'a> {
                     words.push(word);
                     ends_in_redirect = false;
                 }
-                Token::RedirectOutput => {
+                Token::RedirectOutput(mode) => {
                     if stdout.is_some() {
                         return Err("Output redirected more than once");
                     }
                     let Some(Token::Word(target)) = lexer.next()? else {
-                        return Err("Expected a device name after redirection");
+                        return Err("Expected an output path after redirection");
                     };
                     if target.value.is_empty() {
-                        return Err("Expected a device name after redirection");
+                        return Err("Expected an output path after redirection");
                     }
-                    stdout = Some(target.value);
+                    stdout = Some(Redirection {
+                        path: target.value,
+                        mode,
+                    });
                     ends_in_redirect = true;
                 }
             }
@@ -145,15 +159,17 @@ mod tests {
 
     #[test]
     fn output_redirection_can_appear_before_between_or_after_words() {
-        for bytes in [
-            b">\"LPT1\" echo one two".as_slice(),
-            b"echo one >>LPT1 two",
-            b"echo one two>LPT1",
+        for (bytes, mode) in [
+            (b">\"LPT1\" echo one two".as_slice(), OutputMode::Truncate),
+            (b"echo one >>LPT1 two", OutputMode::Append),
+            (b"echo one two>LPT1", OutputMode::Truncate),
         ] {
             let line = CommandLine::parse(bytes).unwrap().unwrap();
             assert_eq!(line.name, b"echo");
             assert_eq!(line.argument_text(), b"one two");
-            assert_eq!(line.stdout.as_deref(), Some(b"LPT1".as_slice()));
+            let output = line.stdout.unwrap();
+            assert_eq!(output.path, b"LPT1");
+            assert_eq!(output.mode, mode);
         }
     }
 

@@ -2,7 +2,7 @@ mod command_line;
 
 use crate::printing::Printout;
 use command_line::CommandLine;
-use relocade_dos::{devices::CharacterDevice, NativeConsole};
+use relocade_dos::{ConsoleFile, DosError, NativeConsole};
 
 const BANNER: &str = r"  ____       _                     _
  |  _ \ ___ | | ___   ___ __ _  __| | ___
@@ -50,17 +50,18 @@ impl<'a> Console<'a> {
         };
         let destination = line
             .stdout
-            .as_deref()
-            .map(|name| {
-                let name = name.strip_suffix(b":").unwrap_or(name);
-                self.console.device(name).ok_or("Unknown DOS device")
+            .as_ref()
+            .map(|redirect| {
+                self.console
+                    .open_output(&redirect.path, redirect.mode)
+                    .map_err(|error| file_error(&redirect.path, error))
             })
             .transpose()?;
 
         let output = self.execute(&line).await?;
-        if let Some(device) = destination {
+        if let Some(destination) = destination {
             if !output.is_empty() {
-                self.write_device(&device, &output).await?;
+                self.write_output(&destination, &output).await?;
             }
         } else {
             self.console.write(&output);
@@ -91,42 +92,46 @@ impl<'a> Console<'a> {
                 _ => Err("Usage: PRINTOUT SAVE or PRINTOUT CLEAR".into()),
             }
         } else if line.name.eq_ignore_ascii_case(b"help") {
-            Ok(b"ECHO text      Display text\r\nPRINTOUT SAVE  Save captured output as a PDF\r\nPRINTOUT CLEAR  Discard captured output\r\n> device       Redirect command output to a DOS character device\r\n".to_vec())
+            Ok(b"ECHO text      Display text\r\nPRINTOUT SAVE  Save captured output as a PDF\r\nPRINTOUT CLEAR  Discard captured output\r\n> or >> path    Write or append to a DOS file or device\r\n".to_vec())
         } else {
             Err("Unknown command".into())
         }
     }
 
-    async fn write_device(&self, device: &CharacterDevice, output: &[u8]) -> Result<(), String> {
+    async fn write_output(&self, destination: &ConsoleFile, output: &[u8]) -> Result<(), String> {
         // The app wires both names to this capture. The exclusive prompt borrow
         // prevents a guest write between the capacity check and the line write.
-        if let Some(job) = self
-            .printer
-            .as_ref()
-            .filter(|_| matches!(&device.name(), b"PRN     " | b"LPT1    "))
-        {
+        if let Some(job) = self.printer.as_ref().filter(|_| {
+            destination
+                .device()
+                .is_some_and(|device| matches!(&device.name(), b"PRN     " | b"LPT1    "))
+        }) {
             let available = job
                 .capture
                 .remaining_capacity()
                 .await
                 .map_err(|error| error.to_string())?;
             if output.len() > available {
-                return Err("Printer capture is full. Use PRINTOUT CLEAR to start a new job".into());
+                return Err(
+                    "Printer capture is full. Use PRINTOUT CLEAR to start a new job".into(),
+                );
             }
         }
-        let mut remaining = output;
-        while !remaining.is_empty() {
-            let written = device
-                .write(remaining)
-                .await
-                .map_err(|error| error.to_string())?;
-            if written == 0 {
-                return Err("Device stopped accepting output".into());
-            }
-            remaining = &remaining[written..];
-        }
-        Ok(())
+        destination
+            .write_all(output)
+            .await
+            .map_err(|error| error.to_string())
     }
+}
+
+fn file_error(path: &[u8], error: DosError) -> String {
+    let reason = match error {
+        DosError::PathNotFound => "Path not found",
+        DosError::FileNotFound => "File not found",
+        DosError::AccessDenied => "Access denied",
+        _ => return format!("{} ({error})", String::from_utf8_lossy(path)),
+    };
+    format!("{reason} ({})", String::from_utf8_lossy(path))
 }
 
 #[cfg(test)]
