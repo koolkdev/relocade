@@ -1,6 +1,6 @@
 use super::*;
 use relocade_machine::{FarPointer, FunctionRequest, Runner};
-use relocade_x86::FunctionLimits;
+use relocade_x86::DiscoveryLimits;
 
 async fn run_caller(runner: &mut Runner, expected: u16) {
     let state = runner.cpu().cpu_state();
@@ -33,7 +33,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         let mut compiler = runner.take_compiler().unwrap();
         let request = |offset| FunctionRequest {
             entry: FarPointer { segment: 0, offset },
-            limits: FunctionLimits::default(),
+            limits: DiscoveryLimits::default(),
         };
         let exit = runner.cpu().exit_handle();
         runner

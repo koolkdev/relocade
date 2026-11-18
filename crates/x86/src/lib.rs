@@ -65,7 +65,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, EntryTable, FunctionLimits,
+    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DiscoveryLimits, EntryTable,
     FunctionModule,
 };
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
@@ -104,10 +104,10 @@ pub struct CompiledModule {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
-    /// Function compilation needs nonzero exploration caps and a nonzero block size.
-    ZeroFunctionLimit,
-    /// The function exceeds its exploration caps; no partial module is compiled.
-    FunctionTooLarge {
+    /// The discovery budgets and maximum instructions per block must all be nonzero.
+    ZeroDiscoveryLimit,
+    /// New work from this root exceeds its instruction or byte budget.
+    DiscoveryTooLarge {
         address: u32,
     },
     /// Two snapshots would export the same CS-relative entry.
@@ -142,13 +142,12 @@ impl fmt::Display for BlockError {
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
             }
-            Self::ZeroFunctionLimit => {
-                formatter.write_str("function compilation limits must be nonzero")
-            }
-            Self::FunctionTooLarge { address } => {
+            Self::ZeroDiscoveryLimit => formatter
+                .write_str("discovery budgets and maximum instructions per block must be nonzero"),
+            Self::DiscoveryTooLarge { address } => {
                 write!(
                     formatter,
-                    "function at {address:#x} exceeds its exploration limits"
+                    "new instructions from {address:#x} exceed the discovery instruction or byte budget"
                 )
             }
             Self::DuplicateBlock { address } => {

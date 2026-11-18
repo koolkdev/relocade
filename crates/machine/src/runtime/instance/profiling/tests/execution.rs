@@ -4,8 +4,8 @@ use super::{collected_count, merged_count};
 use crate::{Cpu, CpuConfig, DispatchEntry, FarPointer, Hook, MachineConfig, Memory};
 use futures_lite::future::poll_once;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, FunctionLimits, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentDefaultSize,
+    Compiler, CpuState, DiscoveryLimits, ExecutionExit, ExecutionProfile, HostExit,
+    PhysicalMapping, PhysicalMemoryMap, Segment, SegmentDefaultSize,
 };
 
 async fn cpu() -> Cpu {
@@ -168,7 +168,7 @@ async fn far_calls() {
                 .add_function(
                     target(0x100).into(),
                     SegmentDefaultSize::Bits16,
-                    FunctionLimits::default(),
+                    DiscoveryLimits::default(),
                     |eip, output| reader.read_prefix(eip, output),
                 )
                 .unwrap();

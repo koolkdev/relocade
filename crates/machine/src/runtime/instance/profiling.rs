@@ -4,7 +4,7 @@
 use super::{modules::Modules, WasmRuntime};
 use crate::{CompilerClient, Cpu, FarPointer, FunctionRequest, Instant, Result};
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
-use relocade_x86::{abi, CallProfile, ExecutionProfile, ExecutionTarget, FunctionLimits};
+use relocade_x86::{abi, CallProfile, DiscoveryLimits, ExecutionProfile, ExecutionTarget};
 use std::{
     future::Future,
     pin::pin,
@@ -89,7 +89,7 @@ impl Profiling {
             .iter()
             .map(|&entry| FunctionRequest {
                 entry,
-                limits: FunctionLimits::default(),
+                limits: DiscoveryLimits::default(),
             })
             .collect();
         if compiler.request_functions(self.target, requests).is_err() {

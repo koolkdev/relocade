@@ -11,7 +11,7 @@ pub use block::{
     BlockSnapshot, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
-pub use function::{FunctionLimits, FunctionModule};
+pub use function::{DiscoveryLimits, FunctionModule};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 

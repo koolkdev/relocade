@@ -1,4 +1,6 @@
-use super::{CodeAddress, FunctionLimits};
+//! Discover new instructions until an accepted instruction start is reached.
+
+use super::{CodeAddress, DiscoveryLimits};
 use crate::{
     compile::block::decode::DecodedBlock,
     decode::{snapshot, SnapshotInstruction},
@@ -8,108 +10,153 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub(super) fn blocks(
-    origin: CodeAddress,
-    code_default_size: SegmentDefaultSize,
+    entry: CodeAddress,
+    size: SegmentDefaultSize,
     target: ExecutionTarget,
-    mut limits: FunctionLimits,
-    mut read: impl FnMut(u32, &mut [u8]) -> usize,
+    limits: DiscoveryLimits,
+    read: impl FnMut(u32, &mut [u8]) -> usize,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
-    if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
-        return Err(BlockError::ZeroFunctionLimit);
-    }
-    let start_eip = origin.eip();
-    let mut pending = VecDeque::from([start_eip]);
-    let mut entries = BTreeSet::from([start_eip]);
-    let mut instructions = BTreeMap::<u32, SnapshotInstruction>::new();
-    let mut window = Window::default();
-    while let Some(mut eip) = pending.pop_front() {
-        loop {
-            if instructions.contains_key(&eip) {
-                enqueue(eip, &mut entries, &mut pending);
-                break;
-            }
-            // The predecessor may cross the 32-bit address wrap.
-            if instructions
-                .range(..=eip)
-                .next_back()
-                .or_else(|| instructions.last_key_value())
-                .is_some_and(|(&start, instruction)| {
-                    eip.wrapping_sub(start) < instruction.fallthrough_eip.wrapping_sub(start)
-                })
-            {
-                break;
-            }
-            let bytes = window.at(eip, &mut read);
-            if bytes.is_empty() {
-                break;
-            }
-            if limits.instructions == 0 || limits.bytes == 0 {
-                return Err(BlockError::FunctionTooLarge { address: start_eip });
-            }
-            let (instruction, _) = match snapshot(bytes, eip, code_default_size) {
-                Ok(decoded) => decoded,
-                Err(error) if instructions.is_empty() => return Err(error),
-                Err(
-                    BlockError::TruncatedInstruction { .. }
-                    | BlockError::InstructionTooLong { .. }
-                    | BlockError::UnsupportedInstruction { .. },
-                ) => break,
-                Err(error) => return Err(error),
-            };
-            let len = instruction.fallthrough_eip.wrapping_sub(eip);
-            if instructions
-                .range(eip..)
-                .next()
-                .or_else(|| instructions.first_key_value())
-                .is_some_and(|(&next, _)| next.wrapping_sub(eip) < len)
-            {
-                // This path would overlap an encoding already retained by another path.
-                break;
-            }
-            if len as usize > limits.bytes {
-                return Err(BlockError::FunctionTooLarge { address: start_eip });
-            }
-            let next = instruction.fallthrough_eip;
-            let ends_block = instruction.ends_block(target);
-            if ends_block {
-                for successor in instruction.successors(target).into_iter().flatten() {
-                    enqueue(successor, &mut entries, &mut pending);
-                }
-            }
-            instructions.insert(eip, instruction);
-            limits.instructions -= 1;
-            limits.bytes -= len as usize;
-            if ends_block {
-                break;
-            }
-            eip = next;
+    let mut code = Discovery::new(entry, size, target);
+    code.add_root(entry.eip(), limits, read)?;
+    Ok(code.finish())
+}
+
+pub(super) struct Discovery {
+    origin: CodeAddress,
+    size: SegmentDefaultSize,
+    target: ExecutionTarget,
+    instructions: BTreeMap<u32, SnapshotInstruction>,
+    boundaries: BTreeSet<u32>,
+}
+
+impl Discovery {
+    pub(super) fn new(
+        origin: CodeAddress,
+        size: SegmentDefaultSize,
+        target: ExecutionTarget,
+    ) -> Self {
+        Self {
+            origin,
+            size,
+            target,
+            instructions: BTreeMap::new(),
+            boundaries: BTreeSet::new(),
         }
     }
 
-    // Only now are all admitted branch targets known. Moving the instructions
-    // into their final blocks also splits backward targets without decoding again.
-    let mut blocks = Vec::new();
-    for &entry in &entries {
-        let mut block = DecodedBlock::new(origin.with_eip(entry), code_default_size);
-        let mut eip = entry;
-        while let Some(instruction) = instructions.remove(&eip) {
-            eip = instruction.fallthrough_eip;
-            let ends_block = instruction.ends_block(target);
-            block.push(instruction);
-            if ends_block || entries.contains(&eip) {
-                break;
-            }
-            if block.instructions.len() == limits.block_instructions as usize {
-                blocks.push(block);
-                block = DecodedBlock::new(origin.with_eip(eip), code_default_size);
+    /// Limits apply to instructions added by this root. A join exposes the accepted
+    /// instruction as a block entry, even when it was inside a straight-line block.
+    pub(super) fn add_root(
+        &mut self,
+        start: u32,
+        mut limits: DiscoveryLimits,
+        mut read: impl FnMut(u32, &mut [u8]) -> usize,
+    ) -> Result<(), BlockError> {
+        if limits.instructions == 0 || limits.bytes == 0 || limits.block_instructions == 0 {
+            return Err(BlockError::ZeroDiscoveryLimit);
+        }
+        let mut pending = VecDeque::from([start]);
+        let mut entries = BTreeSet::from([start]);
+        // Stage this root so an over-budget path cannot split an accepted block.
+        let mut decoded = BTreeMap::<u32, SnapshotInstruction>::new();
+        let mut window = Window::default();
+        while let Some(mut eip) = pending.pop_front() {
+            let mut block_len = 0;
+            loop {
+                if self.instructions.contains_key(&eip) || decoded.contains_key(&eip) {
+                    entries.insert(eip);
+                    break;
+                }
+                // Only encodings on this root's paths preclude an overlapping decode.
+                if decoded
+                    .range(..=eip)
+                    .next_back()
+                    .or_else(|| decoded.last_key_value())
+                    .is_some_and(|(&at, instruction)| {
+                        eip.wrapping_sub(at) < instruction.fallthrough_eip.wrapping_sub(at)
+                    })
+                {
+                    entries.insert(eip);
+                    break;
+                }
+                let bytes = window.at(eip, &mut read);
+                if bytes.is_empty() {
+                    break;
+                }
+                if limits.instructions == 0 || limits.bytes == 0 {
+                    return Err(BlockError::DiscoveryTooLarge { address: start });
+                }
+                let (instruction, _) = match snapshot(bytes, eip, self.size) {
+                    Ok(result) => result,
+                    Err(error) if decoded.is_empty() => return Err(error),
+                    Err(
+                        BlockError::TruncatedInstruction { .. }
+                        | BlockError::InstructionTooLong { .. }
+                        | BlockError::UnsupportedInstruction { .. },
+                    ) => break,
+                    Err(error) => return Err(error),
+                };
+                let next = instruction.fallthrough_eip;
+                let len = next.wrapping_sub(eip) as usize;
+                if decoded
+                    .range(eip..)
+                    .next()
+                    .or_else(|| decoded.first_key_value())
+                    .is_some_and(|(&at, _)| (at.wrapping_sub(eip) as usize) < len)
+                {
+                    entries.insert(eip);
+                    break;
+                }
+                if len > limits.bytes {
+                    return Err(BlockError::DiscoveryTooLarge { address: start });
+                }
+                let ends_block = instruction.ends_block(self.target);
+                if ends_block {
+                    for successor in instruction.successors(self.target).into_iter().flatten() {
+                        enqueue(successor, &mut entries, &mut pending);
+                    }
+                }
+                decoded.insert(eip, instruction);
+                limits.instructions -= 1;
+                limits.bytes -= len;
+                if ends_block {
+                    break;
+                }
+                eip = next;
+                block_len += 1;
+                if block_len == limits.block_instructions {
+                    entries.insert(eip);
+                    block_len = 0;
+                }
             }
         }
-        if !block.instructions.is_empty() {
-            blocks.push(block);
+        if !decoded.is_empty() || self.instructions.contains_key(&start) {
+            self.boundaries.extend(entries);
+            self.instructions.extend(decoded);
         }
+        Ok(())
     }
-    blocks.sort_unstable_by_key(|block| block.entry.address.eip());
-    Ok(blocks)
+
+    pub(super) fn finish(mut self) -> Vec<DecodedBlock> {
+        let mut blocks = Vec::new();
+        for &start in &self.boundaries {
+            let mut block = DecodedBlock::new(self.origin.with_eip(start), self.size);
+            let mut eip = start;
+            while let Some(instruction) = self.instructions.remove(&eip) {
+                eip = instruction.fallthrough_eip;
+                let ends_block = instruction.ends_block(self.target);
+                block.push(instruction);
+                if ends_block || self.boundaries.contains(&eip) {
+                    break;
+                }
+            }
+            if !block.instructions.is_empty() {
+                blocks.push(block);
+            }
+        }
+        debug_assert!(self.instructions.is_empty());
+        blocks
+    }
 }
 
 fn enqueue(eip: u32, entries: &mut BTreeSet<u32>, pending: &mut VecDeque<u32>) {

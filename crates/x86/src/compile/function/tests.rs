@@ -1,5 +1,6 @@
 mod boundaries;
 mod linking;
+mod shared;
 
 use super::*;
 use crate::{
@@ -18,7 +19,7 @@ fn reader(start: u32, code: &[u8]) -> impl FnMut(u32, &mut [u8]) -> usize + '_ {
     }
 }
 
-fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
+fn entries(code: &[u8], limits: DiscoveryLimits) -> Vec<(u32, usize)> {
     discover::blocks(
         CodeAddress::CsRelative(0x1000),
         SegmentDefaultSize::Bits32,
@@ -50,7 +51,7 @@ fn snapshots_and_discovered_blocks_record_their_decode_width() {
             .add_function(
                 CodeAddress::CsRelative(eip),
                 size,
-                FunctionLimits::default(),
+                DiscoveryLimits::default(),
                 reader(eip, &code),
             )
             .unwrap();
@@ -82,7 +83,7 @@ fn branches_split_prior_instructions_and_calls_follow_only_continuations() {
     ];
     let compiler = Compiler::new(SegmentProfile::Flat32);
     let actual = compiler
-        .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, &code))
+        .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
         .unwrap();
     let snapshots: Vec<_> = [(0, 1), (1, 3), (4, 5), (9, 2), (11, 1)]
         .into_iter()
@@ -134,47 +135,47 @@ fn successor_metadata_obeys_operand_width_and_all_near_branch_forms() {
 
 #[test]
 fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
-    let limits = FunctionLimits::default();
+    let limits = DiscoveryLimits::default();
     let compiler = Compiler::new(SegmentProfile::Flat32);
     for (code, limits) in [
         (
             &[0x90, 0x90, 0xc3][..],
-            FunctionLimits {
+            DiscoveryLimits {
                 instructions: 2,
                 ..limits
             },
         ),
         (
             &[0xb8, 1, 0, 0, 0, 0xc3][..],
-            FunctionLimits { bytes: 4, ..limits },
+            DiscoveryLimits { bytes: 4, ..limits },
         ),
         (
             &[0xb8, 1, 0, 0, 0, 0xc3][..],
-            FunctionLimits { bytes: 5, ..limits },
+            DiscoveryLimits { bytes: 5, ..limits },
         ),
         (
             &[0x75, 1, 0xc3, 0xc3][..],
-            FunctionLimits {
+            DiscoveryLimits {
                 instructions: 2,
                 ..limits
             },
         ),
         (
             &[0x75, 1, 0xc3, 0xc3][..],
-            FunctionLimits { bytes: 3, ..limits },
+            DiscoveryLimits { bytes: 3, ..limits },
         ),
     ] {
         assert_eq!(
             compiler
                 .compile_function(0x1000, limits, reader(0x1000, code))
                 .err(),
-            Some(BlockError::FunctionTooLarge { address: 0x1000 }),
+            Some(BlockError::DiscoveryTooLarge { address: 0x1000 }),
         );
     }
     assert_eq!(
         entries(
             &[0x90, 0x90, 0xc3],
-            FunctionLimits {
+            DiscoveryLimits {
                 instructions: 3,
                 bytes: 3,
                 ..limits
@@ -186,7 +187,7 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
     assert_eq!(
         entries(
             &[0x75, 0xfe, 0xc3],
-            FunctionLimits {
+            DiscoveryLimits {
                 instructions: 2,
                 bytes: 3,
                 ..limits
@@ -195,12 +196,12 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
         [(0x1000, 2), (0x1002, 1)]
     );
     for limits in [
-        FunctionLimits {
+        DiscoveryLimits {
             instructions: 0,
             ..limits
         },
-        FunctionLimits { bytes: 0, ..limits },
-        FunctionLimits {
+        DiscoveryLimits { bytes: 0, ..limits },
+        DiscoveryLimits {
             block_instructions: 0,
             ..limits
         },
@@ -212,7 +213,7 @@ fn exploration_caps_reject_the_candidate_and_accept_exact_fits() {
             limits,
             |_, _| panic!("zero bounds must not read"),
         );
-        assert!(matches!(result, Err(BlockError::ZeroFunctionLimit)));
+        assert!(matches!(result, Err(BlockError::ZeroDiscoveryLimit)));
     }
 }
 
@@ -223,9 +224,9 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
     let actual = compiler
         .compile_function(
             0x1000,
-            FunctionLimits {
+            DiscoveryLimits {
                 block_instructions: 2,
-                ..FunctionLimits::default()
+                ..DiscoveryLimits::default()
             },
             reader(0x1000, &code),
         )
@@ -247,7 +248,7 @@ fn straight_line_splits_preserve_the_whole_function_and_instruction_boundaries()
 fn defaults_discover_large_branched_functions_in_full() {
     let mut code: Vec<_> = std::iter::repeat_n([0x75, 0], 8192).flatten().collect();
     code.push(0xc3);
-    let blocks = entries(&code, FunctionLimits::default());
+    let blocks = entries(&code, DiscoveryLimits::default());
     assert_eq!(blocks.len(), 8193);
     assert_eq!(blocks.iter().map(|(_, len)| len).sum::<usize>(), code.len());
     assert_eq!(blocks.last(), Some(&(0x5000, 1)));
@@ -255,7 +256,7 @@ fn defaults_discover_large_branched_functions_in_full() {
 
 #[test]
 fn unknown_targets_and_overlapping_encodings_end_only_the_affected_path() {
-    let limits = FunctionLimits::default();
+    let limits = DiscoveryLimits::default();
     assert_eq!(
         entries(&[0x75, 0x7f, 0xc3], limits),
         [(0x1000, 2), (0x1002, 1)]
@@ -282,7 +283,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
         CodeAddress::CsRelative(u32::MAX - 10),
         SegmentDefaultSize::Bits32,
         Compiler::new(SegmentProfile::Flat32).target(),
-        FunctionLimits::default(),
+        DiscoveryLimits::default(),
         |eip, output| {
             let len = output.len().min(7);
             let count = source(eip, &mut output[..len]);

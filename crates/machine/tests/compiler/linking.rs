@@ -1,6 +1,6 @@
 use super::*;
 use relocade_machine::{FarPointer, FunctionRequest};
-use relocade_x86::FunctionLimits;
+use relocade_x86::DiscoveryLimits;
 
 async fn late_callee(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
@@ -43,7 +43,7 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
             let mut compiler = runner.take_compiler().unwrap();
             let request = |offset| FunctionRequest {
                 entry: FarPointer { segment: 0, offset },
-                limits: FunctionLimits::default(),
+                limits: DiscoveryLimits::default(),
             };
             compiler
                 .request_functions(target, vec![request(0x100), request(0x180)])

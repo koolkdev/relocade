@@ -9,20 +9,22 @@ use super::{block::module::BlockModule, BlockCompileError, BlockEntry, CompiledB
 use crate::{BlockError, CodeAddress, SegmentDefaultSize};
 use relocade_compiler::CompileExecutor;
 
-/// Whole-function exploration caps and the size of each emitted block.
-/// Exceeding an exploration cap rejects the candidate before IR construction;
-/// reaching the block size continues compilation in another block.
+/// Nonzero limits for discovery from one root. Its instruction and byte budgets
+/// count only newly accepted instructions. Reaching a known instruction ends that
+/// path and exposes the instruction as a block entry. Exceeding either budget
+/// rejects the root and preserves previously accepted blocks.
 #[derive(Clone, Copy, Debug)]
-pub struct FunctionLimits {
-    /// Maximum number of retained decoded instructions.
+pub struct DiscoveryLimits {
+    /// Maximum number of new instructions this root can add.
     pub instructions: u32,
-    /// Maximum total encoding bytes, excluding unused read-ahead bytes.
+    /// Maximum total encoding bytes of those instructions, excluding read-ahead.
     pub bytes: usize,
-    /// Maximum instructions per emitted block, including straight-line code.
+    /// Maximum instructions per emitted block. At this limit discovery
+    /// continues the straight-line path in a new block.
     pub block_instructions: u32,
 }
 
-impl Default for FunctionLimits {
+impl Default for DiscoveryLimits {
     fn default() -> Self {
         Self {
             instructions: 64 * 1024,
@@ -63,8 +65,8 @@ impl Compiler {
     /// An incomplete, overlong or unsupported instruction ends only its path;
     /// valid prefixes and other discovered branches remain compiled. Transfers
     /// into omitted code use runtime dispatch. An undecodable entry still returns
-    /// its decoding error. Exceeding a whole-function instruction or byte cap
-    /// returns [`BlockError::FunctionTooLarge`] before building any IR.
+    /// its decoding error. Exceeding the root's instruction or byte budget
+    /// returns [`BlockError::DiscoveryTooLarge`] before building any IR.
     /// An unreadable successor ends its path; an unreadable entry produces no blocks.
     ///
     /// Known jumps, fallthroughs and near calls to entries in this function use
@@ -81,7 +83,7 @@ impl Compiler {
     pub fn compile_function(
         &self,
         start_eip: u32,
-        limits: FunctionLimits,
+        limits: DiscoveryLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<CompiledBlocks, BlockError> {
         let size = SegmentDefaultSize::for_profile(self.target.profile);
@@ -95,7 +97,7 @@ impl Compiler {
     pub async fn compile_function_with<E: CompileExecutor>(
         &self,
         start_eip: u32,
-        limits: FunctionLimits,
+        limits: DiscoveryLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
         executor: &E,
     ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
@@ -128,7 +130,7 @@ impl FunctionModule<'_> {
         &mut self,
         entry: CodeAddress,
         code_default_size: SegmentDefaultSize,
-        limits: FunctionLimits,
+        limits: DiscoveryLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
         let mut decoded = discover::blocks(

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn decode_failures_preserve_valid_prefixes_and_other_branches() {
-    let limits = FunctionLimits::default();
+    let limits = DiscoveryLimits::default();
     for suffix in [
         &[0xb8][..],         // Incomplete MOV EAX,imm32
         &[0xf1, 0x90, 0xc3], // Unsupported opcode followed by valid instructions
@@ -14,7 +14,7 @@ fn decode_failures_preserve_valid_prefixes_and_other_branches() {
 
         let mut branch = vec![
             0x75, 3,    // JNZ 1005, explored before the fallthrough
-            0x40,       // INC EAX
+            0x40, // INC EAX
             0xff, 0xe0, // JMP EAX
         ];
         branch.extend(suffix);
@@ -47,7 +47,7 @@ fn undecodable_entries_still_report_the_decode_error() {
     ] {
         assert_eq!(
             compiler
-                .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, code))
+                .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, code))
                 .err(),
             Some(expected),
         );
@@ -81,7 +81,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
             CodeAddress::CsRelative(0x1000),
             SegmentDefaultSize::for_profile(target.profile),
             target,
-            FunctionLimits::default(),
+            DiscoveryLimits::default(),
             reader(0x1000, &bytes),
         )
         .unwrap();
@@ -112,7 +112,7 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
             CodeAddress::CsRelative(0x1000),
             SegmentDefaultSize::for_profile(target.profile),
             target,
-            FunctionLimits::default(),
+            DiscoveryLimits::default(),
             |eip, output| {
                 assert!((0x1000..=0x1000 + bytes.len() as u32).contains(&eip));
                 read(eip, output)
@@ -166,7 +166,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
             CodeAddress::CsRelative(0x1000),
             SegmentDefaultSize::for_profile(profile),
             Compiler::new(profile).target(),
-            FunctionLimits::default(),
+            DiscoveryLimits::default(),
             reader(0x1000, &bytes),
         )
         .unwrap();
@@ -181,7 +181,7 @@ fn discovered_continuations_preserve_snapshot_entry_spans() {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let code_default_size = SegmentDefaultSize::Bits16;
     let actual = compiler
-        .compile_function(0x1000, FunctionLimits::default(), reader(0x1000, &code))
+        .compile_function(0x1000, DiscoveryLimits::default(), reader(0x1000, &code))
         .unwrap();
     let snapshots: Vec<_> = [(0, 1), (1, 2), (3, 2), (5, 2), (7, 1)]
         .into_iter()

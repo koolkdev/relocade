@@ -1,6 +1,6 @@
 use super::*;
 use relocade_machine::{FarPointer, FunctionRequest};
-use relocade_x86::{FunctionLimits, Segment, SegmentRegister};
+use relocade_x86::{DiscoveryLimits, Segment, SegmentRegister};
 
 async fn execute_function(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
@@ -38,7 +38,7 @@ async fn execute_function(compiler: &relocade_machine::CompilerService) {
                             segment: 0x10,
                             offset: 0,
                         },
-                        limits: FunctionLimits::default(),
+                        limits: DiscoveryLimits::default(),
                     }],
                 )
                 .unwrap();
@@ -102,7 +102,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
             let mut compiler = runner.take_compiler().unwrap();
             let request = |segment| FunctionRequest {
                 entry: FarPointer { segment, offset: 0 },
-                limits: FunctionLimits::default(),
+                limits: DiscoveryLimits::default(),
             };
             // The failed candidate between the valid functions must not discard either.
             compiler
@@ -196,28 +196,28 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
                             segment: 0,
                             offset: 0x100,
                         },
-                        limits: FunctionLimits::default(),
+                        limits: DiscoveryLimits::default(),
                     },
                     FunctionRequest {
                         entry: FarPointer {
                             segment: 1,
                             offset: 0xf0,
                         },
-                        limits: FunctionLimits::default(),
+                        limits: DiscoveryLimits::default(),
                     },
                     FunctionRequest {
                         entry: FarPointer {
                             segment: 0,
                             offset: 0x200,
                         },
-                        limits: FunctionLimits::default(),
+                        limits: DiscoveryLimits::default(),
                     },
                     FunctionRequest {
                         entry: FarPointer {
                             segment: 1,
                             offset: 0x1f0,
                         },
-                        limits: FunctionLimits::default(),
+                        limits: DiscoveryLimits::default(),
                     },
                 ],
             )

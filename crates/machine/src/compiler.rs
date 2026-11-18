@@ -13,7 +13,7 @@ pub use service::CompilerService;
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
-    BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits,
+    BlockSnapshot, CodeAddress, DiscoveryLimits, ExecutionProfile, ExecutionTarget,
     SegmentDefaultSize,
 };
 
@@ -32,7 +32,7 @@ pub struct BlockRequest {
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionRequest {
     pub entry: FarPointer,
-    pub limits: FunctionLimits,
+    pub limits: DiscoveryLimits,
 }
 
 /// Successes and errors occupy the same ordered channel message.

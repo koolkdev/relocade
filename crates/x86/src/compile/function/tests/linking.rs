@@ -8,10 +8,10 @@ use crate::{
     CpuState, ExecutionContext, ExecutionExit, Segment, SegmentRegister,
 };
 
-fn limits() -> FunctionLimits {
-    FunctionLimits {
+fn limits() -> DiscoveryLimits {
+    DiscoveryLimits {
         block_instructions: 1,
-        ..FunctionLimits::default()
+        ..DiscoveryLimits::default()
     }
 }
 
@@ -42,10 +42,10 @@ fn compile(start: u32, code: &[u8]) -> TestModule {
 fn links_keep_valid_paths_and_dispatch_undecodable_destinations() {
     let code = [
         0xb8, 1, 0, // MOV AX,1
-        0xe3, 5,    // JCXZ 100A
+        0xe3, 5, // JCXZ 100A
         0xbb, 42, 0, // MOV BX,42
         0xeb, 0x76, // JMP 1080
-        0xf1,       // Unsupported destination
+        0xf1, // Unsupported destination
     ];
     let module = compile(0x1000, &code);
     for count in [0, 1] {
@@ -292,7 +292,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
                     offset: start,
                 }),
                 crate::SegmentDefaultSize::Bits16,
-                FunctionLimits::default(),
+                DiscoveryLimits::default(),
                 reader(u32::from(start), bytes),
             )
             .unwrap();
@@ -302,7 +302,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
 
     // Without a known CS, only the explicit far target has a table entry.
     let unknown_cs = compiler
-        .compile_function(0x100, FunctionLimits::default(), reader(0x100, &code))
+        .compile_function(0x100, DiscoveryLimits::default(), reader(0x100, &code))
         .unwrap();
     assert_eq!(unknown_cs.call_targets, [0x0010_0200]);
 
@@ -314,7 +314,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
                 offset: 0x100,
             }),
             crate::SegmentDefaultSize::Bits16,
-            FunctionLimits::default(),
+            DiscoveryLimits::default(),
             reader(0x100, &[0xe8, 0, 0, 0xc3]),
         )
         .unwrap();
