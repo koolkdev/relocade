@@ -1,5 +1,8 @@
+mod command_line;
+
 use crate::printing::Printout;
-use relocade_dos::NativeConsole;
+use command_line::CommandLine;
+use relocade_dos::{devices::CharacterDevice, NativeConsole};
 
 const BANNER: &str = r"  ____       _                     _
  |  _ \ ___ | | ___   ___ __ _  __| | ___
@@ -41,36 +44,90 @@ impl<'a> Console<'a> {
         }
     }
 
-    async fn command(&self, line: &[u8]) -> Result<(), String> {
-        let line = line.trim_ascii_start();
-        let end = line
-            .iter()
-            .position(u8::is_ascii_whitespace)
-            .unwrap_or(line.len());
-        let (command, arguments) = line.split_at(end);
-        let arguments = arguments.trim_ascii_start();
-        if command.eq_ignore_ascii_case(b"echo") {
-            self.console.write(arguments);
-            self.console.write(b"\r\n");
-        } else if command.eq_ignore_ascii_case(b"printout") {
-            let printout = self.printer.as_ref().ok_or("No printer is attached")?;
-            if arguments.trim_ascii_end().eq_ignore_ascii_case(b"save") {
-                printout.save_pdf().await?;
-            } else if arguments.trim_ascii_end().eq_ignore_ascii_case(b"clear") {
-                printout
-                    .capture
-                    .clear()
-                    .await
-                    .map_err(|error| error.to_string())?;
-                self.console.write(b"Printer output cleared\r\n");
-            } else {
-                return Err("Usage: PRINTOUT SAVE or PRINTOUT CLEAR".into());
+    async fn command(&self, bytes: &[u8]) -> Result<(), String> {
+        let Some(line) = CommandLine::parse(bytes)? else {
+            return Ok(());
+        };
+        let destination = line
+            .stdout
+            .as_deref()
+            .map(|name| {
+                let name = name.strip_suffix(b":").unwrap_or(name);
+                self.console.device(name).ok_or("Unknown DOS device")
+            })
+            .transpose()?;
+
+        let output = self.execute(&line).await?;
+        if let Some(device) = destination {
+            if !output.is_empty() {
+                self.write_device(&device, &output).await?;
             }
-        } else if command.eq_ignore_ascii_case(b"help") {
-            self.console.write(b"ECHO text             Display text\r\nPRINTOUT SAVE         Save captured output as a PDF\r\nPRINTOUT CLEAR        Discard captured output\r\n");
-        } else if !command.is_empty() {
-            self.console.write(b"Unknown command\r\n");
+        } else {
+            self.console.write(&output);
+        }
+        Ok(())
+    }
+
+    async fn execute(&self, line: &CommandLine<'_>) -> Result<Vec<u8>, String> {
+        if line.name.eq_ignore_ascii_case(b"echo") {
+            let mut text = line.argument_text();
+            text.extend_from_slice(b"\r\n");
+            Ok(text)
+        } else if line.name.eq_ignore_ascii_case(b"printout") {
+            let printout = self.printer.as_ref().ok_or("No printer is attached")?;
+            match line.arguments.as_slice() {
+                [argument] if argument.value.eq_ignore_ascii_case(b"save") => {
+                    printout.save_pdf().await?;
+                    Ok(Vec::new())
+                }
+                [argument] if argument.value.eq_ignore_ascii_case(b"clear") => {
+                    printout
+                        .capture
+                        .clear()
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    Ok(b"Printer output cleared\r\n".to_vec())
+                }
+                _ => Err("Usage: PRINTOUT SAVE or PRINTOUT CLEAR".into()),
+            }
+        } else if line.name.eq_ignore_ascii_case(b"help") {
+            Ok(b"ECHO text      Display text\r\nPRINTOUT SAVE  Save captured output as a PDF\r\nPRINTOUT CLEAR  Discard captured output\r\n> device       Redirect command output to a DOS character device\r\n".to_vec())
+        } else {
+            Err("Unknown command".into())
+        }
+    }
+
+    async fn write_device(&self, device: &CharacterDevice, output: &[u8]) -> Result<(), String> {
+        // The app wires both names to this capture. The exclusive prompt borrow
+        // prevents a guest write between the capacity check and the line write.
+        if let Some(job) = self
+            .printer
+            .as_ref()
+            .filter(|_| matches!(&device.name(), b"PRN     " | b"LPT1    "))
+        {
+            let available = job
+                .capture
+                .remaining_capacity()
+                .await
+                .map_err(|error| error.to_string())?;
+            if output.len() > available {
+                return Err("Printer capture is full. Use PRINTOUT CLEAR to start a new job".into());
+            }
+        }
+        let mut remaining = output;
+        while !remaining.is_empty() {
+            let written = device
+                .write(remaining)
+                .await
+                .map_err(|error| error.to_string())?;
+            if written == 0 {
+                return Err("Device stopped accepting output".into());
+            }
+            remaining = &remaining[written..];
         }
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -5,10 +5,15 @@ mod output;
 pub(crate) use line::{edit_line, LineEditor};
 pub(crate) use output::CharacterOutput;
 
-use crate::{devices::dos_bytes, stdio::Stdio};
+use crate::{
+    devices::{dos_bytes, CharacterDevice},
+    stdio::Stdio,
+    Dos,
+};
 use relocade_bios::PhysicalKeyboard;
 use relocade_frontend::keyboard::KeyboardEvents;
 use relocade_machine::MemoryBus;
+use std::rc::Rc;
 
 /// A native prompt with its own physical input and the PC's BIOS video state.
 /// Reads consume application events directly. Guest IRQ handlers, DOS drivers
@@ -16,16 +21,16 @@ use relocade_machine::MemoryBus;
 /// The exclusive DOS borrow keeps guest execution separate from this prompt.
 pub struct NativeConsole<'a> {
     memory: MemoryBus,
-    stdio: &'a Stdio,
+    dos: &'a Dos,
     events: KeyboardEvents,
     keyboard: PhysicalKeyboard,
 }
 
 impl<'a> NativeConsole<'a> {
-    pub(crate) fn new(memory: MemoryBus, stdio: &'a Stdio, events: KeyboardEvents) -> Self {
+    pub(crate) fn new(memory: MemoryBus, dos: &'a Dos, events: KeyboardEvents) -> Self {
         Self {
             memory,
-            stdio,
+            dos,
             events,
             keyboard: PhysicalKeyboard::default(),
         }
@@ -34,7 +39,12 @@ impl<'a> NativeConsole<'a> {
     /// Writes guest-encoded text using cooked tab stops and BIOS cursor/scrolling
     /// behavior. Use CRLF for a new line. Output is synchronous and screen-only.
     pub fn write(&self, bytes: &[u8]) {
-        write(self.stdio, &self.memory, bytes);
+        write(self.dos.state.stdio(), &self.memory, bytes);
+    }
+
+    /// Resolves an explicitly named character device for prompt redirection.
+    pub fn device(&self, name: &[u8]) -> Option<Rc<CharacterDevice>> {
+        self.dos.device(name)
     }
 
     /// Reads and echoes an edited line of at most 254 bytes, excluding its final
@@ -59,7 +69,7 @@ impl<'a> NativeConsole<'a> {
             },
             255,
             async |byte| {
-                write(self.stdio, &self.memory, &[byte]);
+                write(self.dos.state.stdio(), &self.memory, &[byte]);
                 Ok(())
             },
         )

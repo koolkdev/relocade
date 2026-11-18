@@ -27,4 +27,4 @@ pub(super) async fn start(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

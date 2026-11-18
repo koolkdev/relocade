@@ -84,6 +84,19 @@ export async function testApplication(config) {
         await displayedGlyph(session, 0, promptRow + 3, xGlyph);
         await displayedGlyph(session, 0, promptRow + 4, prompt);
         assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
+        await redirectToPrinter(page, "x", "prn");
+        await displayedGlyph(session, 0, promptRow + 5, prompt);
+        const first = await downloadPrintout(page);
+        await displayedGlyph(session, 0, promptRow + 6, prompt);
+        assert.deepEqual(await downloadPrintout(page), first, "saving retains the job");
+        await displayedGlyph(session, 0, promptRow + 7, prompt);
+        await page.keyboard.type("printout clear");
+        await page.keyboard.press("Enter");
+        await displayedGlyph(session, 0, promptRow + 9, prompt);
+        await redirectToPrinter(page, "y", "lpt1");
+        await displayedGlyph(session, 0, promptRow + 10, prompt);
+        const fresh = await downloadPrintout(page);
+        assert.notDeepEqual(fresh, first, "a new LPT1 job produces a different PDF");
         // Keyboard activation also works when the user never clicks the canvas.
         await page.reload();
         await displayedGlyph(session, 0, promptRow, prompt);
@@ -94,7 +107,7 @@ export async function testApplication(config) {
         await page.keyboard.press("y");
         assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
         assert.deepEqual(errors, []);
-        console.log("DOS console: mouse capture/release, audio activation, keyboard editing, displayed echo and resize passed");
+        console.log("DOS console: mouse capture/release, audio activation, keyboard editing, displayed echo, resize and PDF download passed");
     } finally {
         await browser?.close();
         await server.close();
@@ -102,6 +115,27 @@ export async function testApplication(config) {
 }
 
 if (import.meta.main) await testApplication(await build("relocade-dos-app"));
+
+async function redirectToPrinter(page, text, device) {
+    await page.keyboard.type(`echo ${text} `);
+    // The guest US layout reads physical keys, including Shift for the '>' key.
+    await page.keyboard.press("Shift+Period");
+    await page.keyboard.type(` ${device}`);
+    await page.keyboard.press("Enter");
+}
+
+async function downloadPrintout(page) {
+    await page.keyboard.type("printout save");
+    const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.keyboard.press("Enter"),
+    ]);
+    assert.equal(download.suggestedFilename(), "relocade-printout.pdf");
+    const pdf = await readFile(await download.path());
+    assert.equal(pdf.subarray(0, 8).toString(), "%PDF-1.7");
+    assert.match(pdf.toString("latin1"), /%%EOF\s*$/);
+    return pdf;
+}
 
 // Playwright evaluation and locator screenshots grant activation. Use CDP for
 // observations so only the fixture's real input enables browser audio.
