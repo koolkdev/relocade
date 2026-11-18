@@ -11,6 +11,33 @@ impl Wake for Wakes {
 }
 
 #[test]
+fn pause_wakes_active_execution_and_releases_its_waker_at_the_boundary() {
+    let execution = Arc::new(Execution::default());
+    let member = execution.member();
+    let wakes = Arc::new(Wakes::default());
+    let waker = wakes.clone().into();
+    let cx = &mut Context::from_waker(&waker);
+    let Poll::Ready(active) = member.poll_enter(cx) else {
+        panic!("execution is open");
+    };
+    let mut pause = pin!(execution.pause(|| {}));
+    assert!(pause.as_mut().poll(cx).is_pending());
+    assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
+    drop(active);
+    let Poll::Ready(paused) = pause.as_mut().poll(cx) else {
+        panic!("active turn has ended");
+    };
+    let before_resume = wakes.0.load(Ordering::SeqCst);
+    drop(paused);
+    assert_eq!(wakes.0.load(Ordering::SeqCst), before_resume);
+    assert_eq!(
+        Arc::strong_count(&wakes),
+        2,
+        "completed turns release their wakers"
+    );
+}
+
+#[test]
 fn pause_drains_active_operations_and_blocks_entry_until_release() {
     let execution = Arc::new(Execution::default());
     let first = execution.member();
