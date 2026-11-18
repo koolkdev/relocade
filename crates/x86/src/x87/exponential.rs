@@ -1,6 +1,6 @@
 //! F2XM1 factors out x so tiny operands retain their extended exponent.
 
-use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I32};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 
 use crate::floating::RoundingMode;
 
@@ -85,22 +85,20 @@ fn exponential_ratio(
     body: &mut BlockBuilder<'_>,
     argument: &DoubleDouble,
 ) -> Result<DoubleDouble, BuildError> {
-    let parts = body.loop_::<(I32, F64, F64, F64, F64), DoubleShape>(
-        (2, 1.0, 0.0, 1.0, 0.0),
-        |mut iteration, labels, (index, term_high, term_low, sum_high, sum_low)| {
-            iteration.if_(index.eq(33), |done| {
-                done.branch(&labels.exit, (&sum_high, &sum_low))
-            })?;
-            let term = DoubleDouble::from_parts((term_high, term_low))
+    let parts = body.loop_::<(I32, DoubleShape, DoubleShape), DoubleShape>(
+        (2, (1.0, 0.0), (1.0, 0.0)),
+        |mut iteration, labels, (index, term, sum)| {
+            let term = DoubleDouble::from_parts(term);
+            let sum = DoubleDouble::from_parts(sum);
+            iteration.if_(
+                index.eq(33).or(sum.absorbs_series_tail(&term, argument)),
+                |done| done.branch(&labels.exit, sum.parts()),
+            )?;
+            let term = term
                 .mul(argument)
                 .divide(&DoubleDouble::from_f64(index.unsigned().to_f64()));
-            let sum = DoubleDouble::from_parts((sum_high, sum_low)).add(&term);
-            let (term_high, term_low) = term.parts();
-            let (sum_high, sum_low) = sum.parts();
-            iteration.branch(
-                &labels.again,
-                (index.add(1), term_high, term_low, sum_high, sum_low),
-            )
+            let sum = sum.add(&term);
+            iteration.branch(&labels.again, (index.add(1), term.parts(), sum.parts()))
         },
     )?;
     Ok(DoubleDouble::from_parts(parts))
