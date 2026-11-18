@@ -1,7 +1,10 @@
 use super::{CodeSource, Memory, PageVersion, Source, Span, PAGE_BYTES};
-use crate::memory::{resolve::Spans, MemoryError};
+use crate::memory::{
+    resolve::{linear_address, segment_remaining, Spans},
+    MemoryError,
+};
 use relocade_wasm_runtime::WasmSharedMemory;
-use relocade_x86::PhysicalMapping;
+use relocade_x86::{PhysicalMapping, SegmentRegister};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{atomic::Ordering, Arc},
@@ -39,6 +42,23 @@ impl<'a> CodeReader<'a> {
         let mut bytes = vec![0; len];
         self.read_prefix(address, &mut bytes);
         Ok(bytes)
+    }
+
+    /// Captures the readable RAM/ROM prefix within a code segment, without offset wrap.
+    pub(crate) fn read_segment_prefix(
+        &mut self,
+        segment: &SegmentRegister,
+        offset: u32,
+        output: &mut [u8],
+    ) -> usize {
+        let Ok(remaining) = segment_remaining(segment, offset) else {
+            return 0;
+        };
+        let Ok(address) = linear_address(segment, offset) else {
+            return 0;
+        };
+        let len = remaining.min(output.len() as u64) as usize;
+        self.read_prefix(address, &mut output[..len])
     }
 
     pub(crate) fn read_prefix(&mut self, address: u32, output: &mut [u8]) -> usize {

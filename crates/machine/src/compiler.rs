@@ -13,8 +13,8 @@ pub use service::CompilerService;
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
-    BlockSnapshot, CodeAddress, DiscoveryLimits, ExecutionProfile, ExecutionTarget,
-    SegmentDefaultSize,
+    BlockSnapshot, CodeAddress, DiscoveryLimits, ExecutionProfile, ExecutionTarget, Segment,
+    SegmentDefaultSize, SegmentRegister,
 };
 
 /// One real-mode CS:IP and the bounds of the bytes to capture at that address.
@@ -94,10 +94,7 @@ async fn compile(
         }
         connection::Compilation::Discover(requests) => {
             let mut discovery = x86.discover_blocks(|address, bytes| {
-                let len = bytes
-                    .len()
-                    .min(0x10000_u32.saturating_sub(address.eip()) as usize);
-                reader.read_prefix(fetch_address(address), &mut bytes[..len])
+                reader.read_segment_prefix(&code_segment(address), address.eip(), bytes)
             });
             let mut first_error = None;
             for request in requests {
@@ -121,7 +118,7 @@ async fn compile(
         blocks
             .spans
             .iter()
-            .map(|&(address, len)| (fetch_address(address), len)),
+            .map(|&(address, len)| (code_segment(address).base + address.eip(), len)),
     );
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
@@ -130,9 +127,9 @@ async fn compile(
     ))
 }
 
-fn fetch_address(address: CodeAddress) -> u32 {
-    let CodeAddress::RealMode { segment, eip } = address else {
+fn code_segment(address: CodeAddress) -> SegmentRegister {
+    let CodeAddress::RealMode { segment, .. } = address else {
         unreachable!("the machine supplies a real-mode CS for every entry")
     };
-    (u32::from(segment) << 4).wrapping_add(eip)
+    SegmentRegister::real_mode(Segment::Cs, segment)
 }
