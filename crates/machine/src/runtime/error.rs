@@ -14,6 +14,7 @@ pub enum Error {
     Pool(crate::worker::PoolError),
     CompilationTarget,
     CompilationMemory,
+    StaleCompilation,
 }
 
 impl fmt::Display for Error {
@@ -26,6 +27,7 @@ impl fmt::Display for Error {
             Self::Wasm(error) => error.fmt(f),
             Self::Worker(error) => error.fmt(f),
             Self::Pool(error) => error.fmt(f),
+            Self::StaleCompilation => f.write_str("compiled instruction bytes have changed"),
             Self::CompilationMemory => {
                 f.write_str("compiled code belongs to different guest memory")
             }
@@ -46,7 +48,7 @@ impl std::error::Error for Error {
             Self::Wasm(error) => Some(error),
             Self::Worker(error) => Some(error),
             Self::Pool(error) => Some(error),
-            Self::CompilationTarget | Self::CompilationMemory => None,
+            Self::CompilationTarget | Self::CompilationMemory | Self::StaleCompilation => None,
         }
     }
 }

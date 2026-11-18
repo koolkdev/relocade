@@ -126,16 +126,13 @@ async fn compile(
             (module.compile_with(jobs).await?, addresses)
         }
     };
-    let source = reader.finish(
+    let instructions = reader.finish(
         addresses
             .iter()
             .zip(&blocks.entries)
             .map(|(&address, block)| (address, block.byte_len)),
     );
-    Ok(CompiledCode::new(
-        compiler.compile(&blocks.bytes).await?,
-        addresses,
-        blocks,
-        source,
-    ))
+    let module = compiler.compile(&blocks.bytes).await?;
+    let source = memory.register_code(instructions)?;
+    Ok(CompiledCode::new(module, addresses, blocks, source))
 }

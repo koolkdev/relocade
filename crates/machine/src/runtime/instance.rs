@@ -212,7 +212,13 @@ impl CpuInstance {
             }
             let instance = wasm.instantiate(module, &imports)?;
             let module = InstalledModule::new(instance, entries, code.cloned(), calls);
-            self.modules.install(wasm, module)
+            let publish = || self.modules.install(wasm, module);
+            match code {
+                Some(code) => code
+                    .source()
+                    .publish_if_current(&self.bindings.guest, publish),
+                None => publish(),
+            }
         })?;
         self.hooks.remove(entries.iter().map(|entry| entry.key));
         Ok(())

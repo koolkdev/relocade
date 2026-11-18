@@ -168,7 +168,7 @@ async fn far_calls() {
                     reader.read_prefix(eip, output)
                 })
                 .unwrap();
-            let source = reader.finish(
+            let instructions = reader.finish(
                 function
                     .entries
                     .iter()
@@ -181,6 +181,7 @@ async fn far_calls() {
                 .collect();
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&function.bytes).await.unwrap();
+            let source = memory.register_code(instructions).unwrap();
             crate::CompiledCode::new(module, addresses, function, source)
                 .install(&mut cpu)
                 .unwrap();
