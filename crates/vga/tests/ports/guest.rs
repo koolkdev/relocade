@@ -57,7 +57,7 @@ async fn guest_status_routing() {
             // after an OUT continues through compiled port reads as well.
             let code_default_size = cpu.cpu_state().code_default_size();
             let snapshots = instructions.map(|offset| BlockSnapshot {
-                start_eip: 0x100 + offset as u32,
+                address: relocade_x86::CodeAddress::CsRelative(0x100 + offset as u32),
                 code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 1,
@@ -67,7 +67,7 @@ async fn guest_status_routing() {
                 .entries
                 .iter()
                 .map(|entry| DispatchEntry {
-                    key: entry.start_eip,
+                    key: entry.address.eip(),
                     export: &entry.export,
                 })
                 .collect();

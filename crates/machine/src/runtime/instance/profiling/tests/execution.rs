@@ -172,12 +172,12 @@ async fn far_calls() {
                 function
                     .entries
                     .iter()
-                    .map(|block| (block.start_eip, block.byte_len)),
+                    .map(|block| (block.address.eip(), block.byte_len)),
             );
             let addresses = function
                 .entries
                 .iter()
-                .map(|block| block.start_eip)
+                .map(|block| block.address.eip())
                 .collect();
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&function.bytes).await.unwrap();

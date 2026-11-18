@@ -6,8 +6,8 @@ use crate::support::{
     x87::{complete_x87, stack_image, write_register_bits},
 };
 use relocade_x86::{
-    compile_block_from_bytes, BlockSnapshot, Compiler, CpuState, ExecutionExit, SegmentDefaultSize,
-    SegmentProfile,
+    compile_block_from_bytes, BlockSnapshot, CodeAddress, Compiler, CpuState, ExecutionExit,
+    SegmentDefaultSize, SegmentProfile,
 };
 
 pub(super) fn interpreter_run() -> &'static TestModule {
@@ -22,13 +22,13 @@ fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
     let blocks = compiler
         .compile_blocks(&[
             BlockSnapshot {
-                start_eip: 0x1000,
+                address: CodeAddress::CsRelative(0x1000),
                 code_default_size: SegmentDefaultSize::Bits32,
                 bytes: &call,
                 instruction_limit: 1,
             },
             BlockSnapshot {
-                start_eip: 0x1010,
+                address: CodeAddress::CsRelative(0x1010),
                 code_default_size: SegmentDefaultSize::Bits16,
                 bytes: &mov,
                 instruction_limit: 1,

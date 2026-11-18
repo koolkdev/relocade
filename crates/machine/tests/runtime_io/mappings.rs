@@ -44,7 +44,7 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
         let snapshots: Vec<_> = entries
             .iter()
             .map(|&offset| BlockSnapshot {
-                start_eip: 0x100 + offset as u32,
+                address: relocade_x86::CodeAddress::CsRelative(0x100 + offset as u32),
                 code_default_size,
                 bytes: &code[offset..],
                 instruction_limit: 16,
@@ -55,7 +55,7 @@ async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu
             .entries
             .iter()
             .map(|entry| DispatchEntry {
-                key: entry.start_eip,
+                key: entry.address.eip(),
                 export: &entry.export,
             })
             .collect();

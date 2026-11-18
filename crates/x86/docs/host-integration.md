@@ -30,10 +30,11 @@ compiler decides which imports and helpers to retain from the generated bodies.
 Implicit accesses such as stack operations use the same owner as explicit memory
 operands. Instruction declarations do not predict memory usage.
 
-`compile_blocks` takes each snapshot's starting EIP, code default (CS.D), bytes
-and instruction limit. Entries in the result retain the EIP, decode width,
-consumed byte length and Wasm export name in request order. Repeated starting
-EIPs in a batch are rejected.
+`compile_blocks` takes each snapshot's guest address, code default (CS.D), bytes
+and instruction limit. Entries in the result retain the address, decode width,
+consumed byte length and Wasm export name in request order. A real-mode address
+uses its segment and offset, so `0010:0000` and `0020:0000` have distinct exports
+whether compiled separately or together. Repeated addresses in a batch are rejected.
 The fixed-profile helpers for raw bytes use their profile's decode width.
 
 Capture the loaded CS.D with the address when observing a destination, after any

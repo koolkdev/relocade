@@ -87,7 +87,7 @@ async fn compile(
                 .iter()
                 .zip(&captured)
                 .map(|(block, bytes)| BlockSnapshot {
-                    start_eip: block.start_eip,
+                    address: CodeAddress::CsRelative(block.start_eip),
                     code_default_size: SegmentDefaultSize::Bits16,
                     bytes,
                     instruction_limit: block.instruction_limit,
@@ -104,7 +104,7 @@ async fn compile(
             for request in requests {
                 let base = request.entry.segment_base();
                 match module.add_function(
-                    CodeAddress::RealMode(request.entry),
+                    request.entry.into(),
                     SegmentDefaultSize::Bits16,
                     request.limits,
                     |eip, buffer| {
@@ -116,7 +116,7 @@ async fn compile(
                     },
                 ) {
                     Ok(entries) => {
-                        addresses.extend(entries.iter().map(|block| base + block.start_eip));
+                        addresses.extend(entries.iter().map(|block| base + block.address.eip()));
                     }
                     Err(error) => {
                         first_error.get_or_insert(error);

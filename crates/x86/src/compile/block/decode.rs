@@ -1,8 +1,8 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
-use super::{BlockEntry, BlockSnapshot};
+use super::{BlockEntry, BlockSnapshot, CodeAddress};
 use crate::{decode::SnapshotInstruction, BlockError, ExecutionTarget, SegmentDefaultSize};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 pub(in crate::compile) struct DecodedBlock {
     pub(in crate::compile) entry: BlockEntry,
@@ -13,11 +13,11 @@ pub(super) fn blocks(
     snapshots: &[BlockSnapshot<'_>],
     target: ExecutionTarget,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
-    let mut boundaries = BTreeSet::new();
+    let mut boundaries = HashSet::new();
     for snapshot in snapshots {
-        if !boundaries.insert(snapshot.start_eip) {
+        if !boundaries.insert(snapshot.address) {
             return Err(BlockError::DuplicateBlock {
-                address: snapshot.start_eip,
+                address: snapshot.address,
             });
         }
     }
@@ -28,13 +28,16 @@ pub(super) fn blocks(
 }
 
 impl DecodedBlock {
-    pub(in crate::compile) fn new(start_eip: u32, code_default_size: SegmentDefaultSize) -> Self {
+    pub(in crate::compile) fn new(
+        address: CodeAddress,
+        code_default_size: SegmentDefaultSize,
+    ) -> Self {
         Self {
             entry: BlockEntry {
-                start_eip,
+                address,
                 code_default_size,
                 byte_len: 0,
-                export: format!("block_{start_eip:x}"),
+                export: format!("block_{address}"),
             },
             instructions: Vec::new(),
         }
@@ -48,14 +51,14 @@ impl DecodedBlock {
     fn decode(
         snapshot: &BlockSnapshot<'_>,
         target: ExecutionTarget,
-        boundaries: &BTreeSet<u32>,
+        boundaries: &HashSet<CodeAddress>,
     ) -> Result<Self, BlockError> {
         if snapshot.instruction_limit == 0 {
             return Err(BlockError::ZeroInstructionLimit);
         }
-        let mut block = Self::new(snapshot.start_eip, snapshot.code_default_size);
+        let mut block = Self::new(snapshot.address, snapshot.code_default_size);
         let mut remaining = snapshot.bytes;
-        let mut eip = snapshot.start_eip;
+        let mut eip = snapshot.address.eip();
         for _ in 0..snapshot.instruction_limit {
             let (decoded, rest) =
                 crate::decode::snapshot(remaining, eip, snapshot.code_default_size)?;
@@ -63,7 +66,7 @@ impl DecodedBlock {
             remaining = rest;
             let ends_block = decoded.ends_block(target);
             block.push(decoded);
-            if ends_block || boundaries.contains(&eip) {
+            if ends_block || boundaries.contains(&snapshot.address.with_eip(eip)) {
                 break;
             }
         }

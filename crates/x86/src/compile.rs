@@ -1,15 +1,17 @@
 //! Configuration and compilation of snapshot blocks and dispatch.
 
+mod address;
 mod block;
 mod dispatch;
 mod function;
 
+pub use address::CodeAddress;
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
     BlockSnapshot, CompiledBlocks,
 };
 pub use dispatch::EntryTable;
-pub use function::{CodeAddress, FunctionLimits, FunctionModule};
+pub use function::{FunctionLimits, FunctionModule};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 
@@ -70,7 +72,7 @@ impl Compiler {
         self
     }
 
-    /// The complete contract shared by every entry compiled by this owner.
+    /// The execution target shared by every entry. Snapshots also retain their code addresses.
     pub fn target(&self) -> ExecutionTarget {
         self.target
     }

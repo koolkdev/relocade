@@ -287,7 +287,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     ] {
         module
             .add_function(
-                CodeAddress::RealMode(FarPointer {
+                CodeAddress::from(FarPointer {
                     segment: cs,
                     offset: start,
                 }),
@@ -309,7 +309,7 @@ fn call_table_slots_are_shared_by_exact_targets_across_functions() {
     let mut local = compiler.function_module();
     local
         .add_function(
-            CodeAddress::RealMode(FarPointer {
+            CodeAddress::from(FarPointer {
                 segment: 0x10,
                 offset: 0x100,
             }),

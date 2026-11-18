@@ -62,17 +62,17 @@ impl<'a> BlockModule<'a> {
         // functions in this module may use the same EIP under different segments.
         let entries: BTreeMap<_, _> = blocks
             .iter()
-            .map(|(block, function)| (block.entry.start_eip, *function))
+            .map(|(block, function)| (block.entry.address.eip(), *function))
             .collect();
         let mut call_sites = BTreeMap::new();
         if self.compiler.target.profile == ExecutionProfile::Real16 {
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff && !entries.contains_key(&eip) => {
-                        let CodeAddress::RealMode(address) = entry else {
+                        let CodeAddress::RealMode { segment, .. } = entry else {
                             continue;
                         };
-                        (u32::from(address.segment) << 16) | eip
+                        (u32::from(segment) << 16) | eip
                     }
                     Some(CallTarget::Far { selector, offset }) if offset <= 0xffff => {
                         (u32::from(selector) << 16) | offset
@@ -145,7 +145,7 @@ impl<'a> BlockModule<'a> {
         let observed_cpu = self.compiler.observed_cpu;
         self.program.define(function, move |body| {
             let mut execution = module
-                .builder(body, block.entry.start_eip)?
+                .builder(body, block.entry.address.eip())?
                 .with_interpreter_fallback()
                 .with_observed_cpu(observed_cpu.as_ref());
             execution.guard_snapshot(block.entry.code_default_size, block.entry.byte_len)?;
