@@ -38,13 +38,11 @@ impl From<TimerHandle> for Clock {
 
 impl ClockSource for TimerHandle {
     fn now(&self) -> Timestamp {
-        self.host_timestamp(Instant::now()).unwrap()
-    }
-
-    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
-        Some(Timestamp::from_ticks(
-            time.saturating_duration_since(self.origin).as_nanos() as u64,
-        ))
+        Timestamp::from_ticks(
+            Instant::now()
+                .saturating_duration_since(self.origin)
+                .as_nanos() as u64,
+        )
     }
 
     fn sync_to_host(&self, time: Timestamp) -> Sleep {

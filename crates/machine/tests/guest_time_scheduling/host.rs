@@ -14,10 +14,6 @@ impl ClockSource for ObservedHost {
         self.time.clock().now()
     }
 
-    fn host_timestamp(&self, time: Instant) -> Option<Timestamp> {
-        self.time.host_timestamp(time)
-    }
-
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
         let time = self.time.clock();
         let mut armed = Some(self.armed.clone());

@@ -3,9 +3,6 @@
 #[cfg(test)]
 mod tests;
 
-mod deadline;
-use deadline::MappedDeadline;
-
 mod host;
 use host::HostTime;
 
@@ -98,8 +95,8 @@ impl GuestTimeDriver {
     /// target. `yield_deadline` is an optional absolute guest time at which the
     /// embedding wants execution to yield. Wait changes preserve it until the next
     /// synchronization. With host pacing, lag over 20 ms resets the correspondence
-    /// and shortens pending external sync waits without moving guest time. Call
-    /// after execution stops and after ready activities have had a turn.
+    /// without moving guest time or device deadlines. Call after execution stops
+    /// and after ready activities have had a turn.
     pub fn synchronize(&self, yield_deadline: Option<Timestamp>) {
         if let Some(cpu) = &mut self.0.borrow_mut().cpu {
             cpu.yield_deadline = yield_deadline;
@@ -122,31 +119,19 @@ impl GuestTimeDriver {
     /// Earliest registered sleep in guest time. Query at a stopped boundary
     /// after ready activities have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Timestamp> {
-        self.0
-            .borrow()
-            .waits
-            .iter()
-            .map(|wait| wait.deadline.deadline())
-            .min()
+        self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
     }
 
     fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.now();
-            let lag = state.host.as_mut().and_then(|host| host.discard_lag(now));
-            let tick_rate = state.tick_rate;
+            if let Some(host) = &mut state.host {
+                host.discard_lag(now);
+            }
             let due = state
                 .waits
-                .extract_if(.., |wait| {
-                    if let Some(lag) = lag.filter(|_| wait.host_sync) {
-                        wait.deadline = wait
-                            .deadline
-                            .subtract(tick_rate, lag)
-                            .unwrap_or_else(|| now.into());
-                    }
-                    wait.deadline.deadline() <= now
-                })
+                .extract_if(.., |wait| wait.deadline <= now)
                 .collect::<Vec<_>>();
             state.refresh_target();
             due
@@ -200,7 +185,7 @@ impl State {
         let deadline = self
             .waits
             .iter()
-            .map(|wait| wait.deadline.deadline())
+            .map(|wait| wait.deadline)
             .chain(cpu.yield_deadline)
             .min();
         let target = deadline.map(|deadline| deadline.max(now).ticks().wrapping_sub(self.offset));

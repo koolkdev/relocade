@@ -1,7 +1,6 @@
 //! Host/guest correspondence, excluding pauses and excessive execution lag.
 
-use super::MappedDeadline;
-use crate::{Clock, Instant, Sleep, TickRate, Timestamp};
+use crate::{Clock, Sleep, TickRate, Timestamp};
 use std::time::Duration;
 
 const MAX_LAG: Duration = Duration::from_millis(20);
@@ -11,7 +10,6 @@ pub(super) struct HostTime {
     guest_rate: TickRate,
     mapping: Option<Mapping>,
     paused_at: Option<Timestamp>,
-    pub(super) discarded_lag: Duration,
 }
 
 struct Mapping {
@@ -26,7 +24,6 @@ impl HostTime {
             guest_rate,
             mapping: None,
             paused_at: None,
-            discarded_lag: Duration::ZERO,
         }
     }
 
@@ -55,34 +52,16 @@ impl HostTime {
     /// Called only at stopped execution boundaries. Once lag exceeds the tolerance,
     /// discard its whole nanoseconds; retain any fraction in the correspondence.
     /// Guest time and device timers do not advance.
-    pub(super) fn discard_lag(&mut self, guest: Timestamp) -> Option<Duration> {
-        let mapped = self.host_time(guest)?;
+    pub(super) fn discard_lag(&mut self, guest: Timestamp) {
+        let Some(mapped) = self.host_time(guest) else {
+            return;
+        };
         let lag = self.clock.duration_between(mapped, self.clock.now());
         if lag <= MAX_LAG {
-            return None;
+            return;
         }
         let mapping = self.mapping.as_mut().unwrap();
         mapping.host = self.clock.deadline_after(mapping.host, lag);
-        self.discarded_lag += lag;
-        Some(lag)
-    }
-
-    pub(super) fn sync_deadline(&self, host_time: Option<Instant>) -> Option<MappedDeadline> {
-        if self.paused_at.is_some() {
-            return None;
-        }
-        let mapping = self.mapping.as_ref()?;
-        let host_time = match host_time {
-            Some(time) => self.clock.source.host_timestamp(time)?,
-            None => self.clock.now(),
-        };
-        MappedDeadline::after(
-            mapping.guest,
-            self.guest_rate,
-            self.clock
-                .tick_rate()
-                .duration_between_ceil(mapping.host, host_time),
-        )
     }
 
     fn host_time(&self, guest: Timestamp) -> Option<Timestamp> {
