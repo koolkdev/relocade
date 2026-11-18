@@ -1,12 +1,17 @@
 #[path = "support/compilation.rs"]
 mod compilation;
 
-use relocade_machine::{BlockRequest, CpuConfig, Hook, Machine, MachineConfig, MemoryError};
+use relocade_machine::{
+    BlockRequest, CpuConfig, FarPointer, Hook, Machine, MachineConfig, MemoryError,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
 };
 use std::{future::pending, pin::pin};
+
+#[path = "compiler/blocks.rs"]
+mod blocks;
 
 #[path = "compiler/delivery.rs"]
 mod delivery;
@@ -48,8 +53,10 @@ fn setup() -> (Machine, CpuConfig) {
 
 fn request() -> BlockRequest {
     BlockRequest {
-        address: 0x100,
-        start_eip: 0x100,
+        entry: FarPointer {
+            segment: 0,
+            offset: 0x100,
+        },
         byte_len: 5,
         instruction_limit: 2,
     }
@@ -79,12 +86,12 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 let target = runner.cpu().cpu_state().execution_target();
                 let mut compiler = runner.take_compiler().unwrap();
                 assert!(runner.take_compiler().is_none());
-                for address in [0x1000, 0x2000] {
+                for offset in [0x1000, 0x2000] {
                     compiler
                         .request(
                             target,
                             vec![BlockRequest {
-                                address,
+                                entry: FarPointer { segment: 0, offset },
                                 ..request()
                             }],
                         )
@@ -99,7 +106,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                     .request(
                         target,
                         vec![BlockRequest {
-                            address: u32::MAX,
+                            byte_len: u32::MAX as usize,
                             ..request()
                         }],
                     )

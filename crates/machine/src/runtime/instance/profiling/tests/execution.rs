@@ -5,7 +5,7 @@ use crate::{Cpu, CpuConfig, DispatchEntry, FarPointer, Hook, MachineConfig, Memo
 use futures_lite::future::poll_once;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, FunctionLimits, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment,
+    PhysicalMemoryMap, Segment, SegmentDefaultSize,
 };
 
 async fn cpu() -> Cpu {
@@ -163,25 +163,25 @@ async fn far_calls() {
         .unwrap();
         if compiled_caller {
             let mut reader = memory.code_reader();
-            let function = compiler
-                .compile_function(0x100, FunctionLimits::default(), |eip, output| {
-                    reader.read_prefix(eip, output)
-                })
+            let mut functions = compiler.function_module();
+            functions
+                .add_function(
+                    target(0x100).into(),
+                    SegmentDefaultSize::Bits16,
+                    FunctionLimits::default(),
+                    |eip, output| reader.read_prefix(eip, output),
+                )
                 .unwrap();
+            let function = functions.compile().unwrap();
             let source = reader.finish(
                 function
                     .entries
                     .iter()
                     .map(|block| (block.address.eip(), block.byte_len)),
             );
-            let addresses = function
-                .entries
-                .iter()
-                .map(|block| block.address.eip())
-                .collect();
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&function.bytes).await.unwrap();
-            crate::CompiledCode::new(module, addresses, function, source)
+            crate::CompiledCode::new(module, function, source)
                 .install(&mut cpu)
                 .unwrap();
         }

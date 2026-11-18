@@ -17,13 +17,11 @@ use relocade_x86::{
     SegmentDefaultSize,
 };
 
-/// An instruction range at the dispatch linear address `CS.base + start_eip`.
-/// On the supported Real16 target this is also the physical address before A20.
+/// One real-mode CS:IP and the bounds of the bytes to capture at that address.
 /// Keep bytes and mappings stable until its result arrives or the machine shuts down.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockRequest {
-    pub address: u32,
-    pub start_eip: u32,
+    pub entry: FarPointer,
     pub byte_len: usize,
     pub instruction_limit: u32,
 }
@@ -77,29 +75,27 @@ async fn compile(
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)
         .with_instruction_budgets(target.instruction_budgets);
-    let (blocks, addresses) = match request {
+    let blocks = match request {
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests
                 .iter()
-                .map(|block| reader.read(block.address, block.byte_len))
+                .map(|block| reader.read(block.entry.address(), block.byte_len))
                 .collect::<std::result::Result<_, _>>()?;
             let snapshots: Vec<_> = requests
                 .iter()
                 .zip(&captured)
                 .map(|(block, bytes)| BlockSnapshot {
-                    address: CodeAddress::CsRelative(block.start_eip),
+                    address: block.entry.into(),
                     code_default_size: SegmentDefaultSize::Bits16,
                     bytes,
                     instruction_limit: block.instruction_limit,
                 })
                 .collect();
-            let blocks = x86.compile_blocks_with(&snapshots, jobs).await?;
-            let addresses = requests.iter().map(|block| block.address).collect();
-            (blocks, addresses)
+            x86.compile_blocks_with(&snapshots, jobs).await?
         }
         connection::Compilation::Functions(requests) => {
             let mut module = x86.function_module();
-            let mut addresses = Vec::new();
+            let mut has_blocks = false;
             let mut first_error = None;
             for request in requests {
                 let base = request.entry.segment_base();
@@ -115,31 +111,28 @@ async fn compile(
                         reader.read_prefix(base + eip, &mut buffer[..len])
                     },
                 ) {
-                    Ok(entries) => {
-                        addresses.extend(entries.iter().map(|block| base + block.address.eip()));
-                    }
+                    Ok(entries) => has_blocks |= !entries.is_empty(),
                     Err(error) => {
                         first_error.get_or_insert(error);
                     }
                 }
             }
-            if addresses.is_empty() {
+            if !has_blocks {
                 if let Some(error) = first_error {
                     return Err(error.into());
                 }
             }
-            (module.compile_with(jobs).await?, addresses)
+            module.compile_with(jobs).await?
         }
     };
-    let source = reader.finish(
-        addresses
-            .iter()
-            .zip(&blocks.entries)
-            .map(|(&address, block)| (address, block.byte_len)),
-    );
+    let source = reader.finish(blocks.entries.iter().map(|block| {
+        let CodeAddress::RealMode { segment, eip } = block.address else {
+            unreachable!("the machine supplies a real-mode CS for every entry")
+        };
+        ((u32::from(segment) << 4).wrapping_add(eip), block.byte_len)
+    }));
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
-        addresses,
         blocks,
         source,
     ))
