@@ -42,31 +42,46 @@ fn step(image: &Image) -> CpuState {
 
 #[test]
 fn fxsave_and_fxrstor_use_the_live_code_pointer_width() {
+    use crate::support::guest::{Exit, Machine, Permissions::ReadWrite};
     use SegmentDefaultSize::{Bits16, Bits32};
+
     for (size, profile) in [
         (Bits16, SegmentProfile::Segmented16),
         (Bits32, SegmentProfile::Segmented32),
     ] {
-        for modrm in [0x00, 0x08] {
-            // FXSAVE and FXRSTOR
-            let mut image = Image::new(&[0x0f, 0xae, modrm]);
-            image.cpu = CpuState::protected_mode(size, Bits32);
-            image.cpu.eip = 0x1000;
+        let fixed = TestModule::interpreter_with_profile(profile);
+        let run = |modrm| {
+            let mut guest = Machine::new(&[0x0f, 0xae, modrm]);
+            guest.cpu = CpuState::protected_mode(size, Bits32);
+            guest.cpu.eip = 0x1000;
             // Both [BX+SI] and [EAX] address the same FX image.
-            image.cpu.registers.ebx = 0x4000;
-            image.cpu.registers.eax = 0x4000;
-            image.cpu.x87.instruction_offset = 0x1234_5678;
-            image.cpu.x87.data_offset = 0x89ab_cdef;
-            image.map(4, 0x8000, true);
-            image.data(0x8008, &0xfedc_ba98u32.to_le_bytes());
-            image.data(0x8010, &0x7654_3210u32.to_le_bytes());
-            let input = image.input();
-            let fixed = TestModule::interpreter_with_profile(profile).observe(&input, 1);
-            assert!(
-                matches!(fixed.events.as_slice(), [Event::Return { outcome, .. }] if *outcome == returned(ExecutionExit::StepComplete))
-            );
-            assert_eq!(interpreter().observe(&input, 1), fixed);
-        }
+            guest.cpu.registers.ebx = 0x4000;
+            guest.cpu.registers.eax = 0x4000;
+            guest.cpu.x87.instruction_offset = 0x1234_5678;
+            guest.cpu.x87.data_offset = 0x89ab_cdef;
+            guest.memory(0x4008, &0xfedc_ba98u32.to_le_bytes(), ReadWrite);
+            guest.memory(0x4010, &0x7654_3210u32.to_le_bytes(), ReadWrite);
+
+            let mixed = guest.run(interpreter());
+            assert_eq!(mixed.exit, Exit::Other(ExecutionExit::StepComplete));
+            assert_eq!(mixed, guest.run(fixed));
+            mixed.state
+        };
+
+        let saved = run(0x00).memory; // FXSAVE
+        let (ip_bytes, dp_bytes) = match size {
+            Bits16 => ([0x78, 0x56, 0, 0], [0xef, 0xcd, 0, 0]),
+            Bits32 => ([0x78, 0x56, 0x34, 0x12], [0xef, 0xcd, 0xab, 0x89]),
+        };
+        assert_eq!(saved.read(0x4008, 4), ip_bytes);
+        assert_eq!(saved.read(0x4010, 4), dp_bytes);
+
+        let restored = run(0x08).cpu.x87; // FXRSTOR
+        let offsets = match size {
+            Bits16 => (0xba98, 0x3210),
+            Bits32 => (0xfedc_ba98, 0x7654_3210),
+        };
+        assert_eq!((restored.instruction_offset, restored.data_offset), offsets);
     }
 }
 
