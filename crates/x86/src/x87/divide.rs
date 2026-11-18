@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
 
-use crate::floating::{FiniteInput, QuotientMethod, RoundingMode};
+use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, QuotientMethod, RoundingMode};
 
 use super::{
     operand::BinaryOperands,
@@ -35,19 +35,17 @@ pub(super) fn divide(
     } else {
         QuotientMethod::Full
     };
-    let magnitude = FiniteInput {
+    let numerator = FiniteInput {
         significand: numerator,
         exponent: numerator_exponent,
         negative: dividend.bits.negative(),
-    }
-    .divide(
-        &FiniteInput {
-            significand: denominator,
-            exponent: denominator_exponent,
-            negative: divisor.bits.negative(),
-        },
-        method,
-    );
+    };
+    let denominator = FiniteInput {
+        significand: denominator,
+        exponent: denominator_exponent,
+        negative: divisor.bits.negative(),
+    };
+    let magnitude = finite_quotient(body, &numerator, &denominator, method)?;
     let mut result = magnitude.round(precision, rounding);
     result.replace_when(&dividend.zero.or(&divisor.infinity), &zero);
     result.replace_when(
@@ -67,4 +65,36 @@ pub(super) fn divide(
         round_magnitude: dividend.zero.eq(false),
         zero,
     })
+}
+
+fn finite_quotient(
+    body: &mut BlockBuilder<'_>,
+    numerator: &FiniteInput,
+    denominator: &FiniteInput,
+    method: QuotientMethod,
+) -> Result<FiniteMagnitude, BuildError> {
+    let power_of_two = denominator.significand.eq(1_u64 << 63);
+    let scaled = || {
+        FiniteInput {
+            significand: numerator.significand.clone(),
+            exponent: numerator.exponent.sub(&denominator.exponent),
+            negative: numerator.negative.xor(&denominator.negative),
+        }
+        .magnitude()
+    };
+    let divide = || numerator.divide(denominator, method);
+    match body.constant_bits(&power_of_two)? {
+        Some(1) => Ok(scaled()),
+        // Only the full-width method needs both radix-32 quotient digits.
+        // Its runtime shortcut also keeps a zero numerator out of the divider.
+        None if matches!(method, QuotientMethod::Full) => {
+            let components = body.if_value::<MagnitudeShape>(
+                power_of_two.or(numerator.significand.eq(0_u64)),
+                |body| body.yield_(scaled().components()),
+                |body| body.yield_(divide().components()),
+            )?;
+            Ok(FiniteMagnitude::from_components(components))
+        }
+        _ => Ok(divide()),
+    }
 }

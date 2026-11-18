@@ -4,6 +4,7 @@ use super::*;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{compile_block_from_bytes, Compiler, CpuState};
+use wasmparser::{Operator, Parser, Payload};
 
 #[test]
 fn admitted_quotients_use_dynamic_and_observed_modes() {
@@ -125,8 +126,6 @@ fn zeros_and_rejected_divisors_preserve_restart_state() {
 
 #[test]
 fn single_precision_division_keeps_the_tail_below_a_halfway_quotient() {
-    use wasmparser::{Operator, Parser, Payload};
-
     let code = [0xd8, 0xf1]; // FDIV ST(0), ST(1)
     let mut image = stack_image(&code, 0, 0xfff0);
     set_control(&mut image.cpu.x87.control, 0x007f);
@@ -167,6 +166,64 @@ fn single_precision_division_keeps_the_tail_below_a_halfway_quotient() {
             block.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)]),
             "numerator {numerator:x}"
+        );
+    }
+}
+
+#[test]
+fn known_power_of_two_rounds_the_numerator_without_dividing() {
+    let code = [0xd9, 0xe8, 0xde, 0xf9]; // FLD1, FDIVP ST1, ST0
+    let mut image = stack_image(&code, 0, 0xfffc);
+    set_control(&mut image.cpu.x87.control, 0x027f);
+    image.cpu.x87.status.precision = 0;
+    write_value(&mut image.cpu, 0, (LEADING + (3 << 10), 0xc004));
+    let compiled = Compiler::new(SegmentProfile::Flat32)
+        .specialize_on_cpu(&image.cpu)
+        .compile_block(0x1000, &code, 2)
+        .unwrap();
+    let module = TestModule::new(&compiled);
+    for payload in Parser::new(0).parse_all(module.bytes()) {
+        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+            assert!(
+                body.get_operators_reader()
+                    .unwrap()
+                    .into_iter()
+                    .all(|op| { !matches!(op.unwrap(), Operator::I64DivU | Operator::F64Div) }),
+                "a known power-of-two divisor needs only exponent scaling"
+            );
+        }
+    }
+    let result = complete_x87(image.cpu, 2, 0x01e8);
+    let mut result = complete_x87(result, 2, 0x06f9);
+    write_register_bits(&mut result, 7, (LEADING, 0x3fff));
+    write_value(&mut result, 0, (LEADING + (1 << 12), 0xc004));
+    result.x87.status.precision = 1;
+    result.x87.status.c1 = 1;
+    assert_eq!(
+        module.observe(&image.input(), 1),
+        expected(&image, &[dispatch(result)])
+    );
+
+    // The constant is available to FDIVP only after FLD1's push guard.
+    let linked = module.clone().with_interpreter(TestModule::interpreter());
+    image.cpu.x87.tag_word = 0;
+    for mask in [0, 1] {
+        image.cpu.x87.control.invalid_mask = mask;
+        image.check_unchanged_exit(&module, "occupied constant push slot", Exit::Interpret);
+        let mut overflow = complete_x87(image.cpu, 2, 0x01e8);
+        overflow.x87.status.invalid = 1;
+        overflow.x87.status.stack_fault = 1;
+        overflow.x87.status.c1 = 1;
+        if mask == 1 {
+            overflow.x87.status.top = 7;
+            write_value(&mut overflow, 7, INDEFINITE);
+        } else {
+            overflow.x87.status.error_summary = 1;
+            overflow.x87.status.busy = 1;
+        }
+        assert_eq!(
+            linked.observe(&image.input(), 1),
+            step_returns(expected(&image, &[dispatch(overflow)]))
         );
     }
 }

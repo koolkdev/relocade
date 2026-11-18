@@ -9,7 +9,7 @@ use crate::{
     state::x87::{ConditionCode, Exception, StackValue},
     x87::{BinaryOperand, Constant, ExtendedBits, ExtendedValue, PackedBcd},
 };
-use relocade_compiler::{MemoryInt, I64};
+use relocade_compiler::{MemoryInt, I1, I64};
 
 instruction_families! {
     FLD1 {
@@ -88,11 +88,11 @@ fn load_constant(
     constant: Constant,
 ) -> Result<(), BuildError> {
     execution.check_x87_exception()?;
-    execution.guard_x87_push(true)?;
+    let full = execution.guard_x87_push(true)?;
     let rounding = execution.x87().rounding()?;
     let value = constant.value(&rounding);
     execution.record_x87_instruction()?;
-    push(execution, LoadSource::Value(value))
+    push(execution, LoadSource::Value(value), full)
 }
 
 fn load_binary(
@@ -103,14 +103,14 @@ fn load_binary(
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, format.bytes(), Intent::Read, &[])?;
     let source = operand.read_x87_binary(execution, format)?;
-    execution.guard_x87_push(
+    let full = execution.guard_x87_push(
         source
             .signaling_nan
             .eq(false)
             .and(source.denormal.eq(false)),
     )?;
     execution.record_x87_memory(&operand)?;
-    push(execution, LoadSource::Binary(source))
+    push(execution, LoadSource::Binary(source), full)
 }
 
 fn load_extended(
@@ -124,7 +124,8 @@ fn load_extended(
         sign_exponent: operand.read::<I16>(execution, 8)?,
     });
     execution.record_x87_memory(&operand)?;
-    push(execution, LoadSource::Value(value))
+    let full = execution.x87().push_full()?;
+    push(execution, LoadSource::Value(value), full)
 }
 
 fn load_integer<T: MemoryInt + crate::memory::TransferType>(
@@ -137,10 +138,10 @@ where
     execution.check_x87_exception()?;
     let operand = execution.memory_operand(address, T::BYTES, Intent::Read, &[])?;
     let integer = operand.read::<T>(execution, 0)?;
-    execution.guard_x87_push(true)?;
+    let full = execution.guard_x87_push(true)?;
     let value = ExtendedValue::from_signed_integer(&integer);
     execution.record_x87_memory(&operand)?;
-    push(execution, LoadSource::Value(value))
+    push(execution, LoadSource::Value(value), full)
 }
 
 fn load_bcd(
@@ -153,9 +154,9 @@ fn load_bcd(
         low: operand.read::<I64>(execution, 0)?,
         high: operand.read::<I16>(execution, 8)?,
     };
-    execution.guard_x87_push(true)?;
+    let full = execution.guard_x87_push(true)?;
     execution.record_x87_memory(&operand)?;
-    push(execution, LoadSource::Value(bcd.decode()))
+    push(execution, LoadSource::Value(bcd.decode()), full)
 }
 
 fn load_register(
@@ -166,7 +167,8 @@ fn load_register(
     execution.record_x87_instruction()?;
     // The source uses the old TOP, including when the push destination aliases it.
     let source = execution.x87().read_stack(source.offset())?;
-    push(execution, LoadSource::Register(source))
+    let full = execution.x87().push_full()?;
+    push(execution, LoadSource::Register(source), full)
 }
 
 /// Load provenance determines operand exceptions independently of stack faults.
@@ -178,7 +180,11 @@ enum LoadSource {
     Binary(BinaryOperand),
 }
 
-fn push(execution: &mut ExecutionBuilder<'_, '_>, source: LoadSource) -> Result<(), BuildError> {
+fn push(
+    execution: &mut ExecutionBuilder<'_, '_>,
+    source: LoadSource,
+    full: Val<I1>,
+) -> Result<(), BuildError> {
     let mut x87 = execution.x87();
     let (value, source_empty, signaling_nan, denormal) = match source {
         LoadSource::Value(value) => (value, false.into(), false.into(), false.into()),
@@ -193,7 +199,6 @@ fn push(execution: &mut ExecutionBuilder<'_, '_>, source: LoadSource) -> Result<
             source.denormal,
         ),
     };
-    let full = x87.push_full()?;
     let fault = source_empty.or(&full);
     // A missing source takes priority over an occupied push destination.
     let overflow = source_empty.eq(false).and(full);
