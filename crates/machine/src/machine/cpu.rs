@@ -27,13 +27,14 @@ impl CpuHandle {
         let storage = CpuStorage::new()?;
         let backing = storage.initialize(&config);
         let state = CpuStateAccess::new(&config, backing);
+        let execution = memory.execution.member();
         Ok((
             Self {
                 storage,
                 memory,
                 config,
                 compiler,
-                execution: machine.execution.member(),
+                execution,
             },
             state,
         ))

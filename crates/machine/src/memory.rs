@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// Owned guest memory and its address policy, independent of CPU execution.
+/// Shared guest memory, its address policy and coordination of machine CPUs.
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
 /// an atomic snapshot of a range.
 /// Devices belong to the execution worker and are not retained by this handle.
@@ -21,6 +21,7 @@ pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
     code: Arc<Mutex<code::CodeRegistry>>,
+    pub(crate) execution: Arc<crate::machine::execution::Execution>,
 }
 
 impl Memory {
@@ -35,6 +36,7 @@ impl Memory {
             config: Arc::new(config),
             backing,
             code: Arc::default(),
+            execution: Arc::default(),
         })
     }
 
