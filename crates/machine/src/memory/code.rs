@@ -1,11 +1,14 @@
 //! Shared instruction sources and the backing pages retained by their snapshots.
 
 mod reader;
+mod registration;
 pub(crate) use reader::CodeReader;
 
 use super::Memory;
 use crate::{Error, Result};
+use futures_util::lock::Mutex as AsyncMutex;
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
+use relocade_x86::PhysicalMemoryMap;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
@@ -21,7 +24,7 @@ const PAGE_BYTES: u32 = relocade_x86::PhysicalMemoryMap::PAGE_BYTES;
 /// source registration, including while results are pending or installed on CPUs.
 #[derive(Clone)]
 pub struct CodeSource {
-    registry: Arc<Mutex<CodeRegistry>>,
+    registry: Arc<CodeRegistry>,
     source: Arc<Source>,
 }
 
@@ -62,8 +65,8 @@ struct Span {
 
 struct PageVersion {
     backing: u32,
-    captured: u64,
-    current: Arc<AtomicU64>,
+    registered: u64,
+    current: Arc<TrackedPage>,
 }
 
 impl CodeSource {
@@ -86,13 +89,12 @@ impl CodeSource {
     }
 
     /// Reports writes recorded since registration, including data elsewhere on a page.
-    /// This is not an admission check: generated stores and raw backing writes
-    /// still require the existing code-stability contract until interception is enabled.
+    /// Direct writes through `Memory::backing` bypass recording.
     pub fn has_recorded_writes(&self) -> bool {
         self.source
             .pages
             .iter()
-            .any(|page| page.current.load(Ordering::Acquire) != page.captured)
+            .any(|page| page.current.writes.load(Ordering::Acquire) != page.registered)
     }
 
     /// Validate and publish under the same lock as memory-view writes.
@@ -101,8 +103,8 @@ impl CodeSource {
         memory: &Memory,
         publish: impl FnOnce() -> Result<()>,
     ) -> Result<()> {
-        let _registry = self.registry.lock().unwrap();
-        if !self.source.bytes.matches(&memory.backing) {
+        let _registry = self.registry.pages.lock().unwrap();
+        if self.has_recorded_writes() && !self.source.bytes.matches(&memory.backing) {
             return Err(Error::StaleCompilation);
         }
         publish()
@@ -116,52 +118,46 @@ impl CodeSource {
 /// Rust-only metadata shared by every handle to one guest memory.
 #[derive(Default)]
 pub struct CodeRegistry {
-    pages: BTreeMap<u32, Page>,
+    pages: Mutex<RegisteredPages>,
+    registering: AsyncMutex<()>,
+    revision: AtomicU64,
+}
+
+#[derive(Default)]
+struct RegisteredPages {
+    by_backing: BTreeMap<u32, Page>,
 }
 
 struct Page {
-    generation: Weak<AtomicU64>,
+    generation: Weak<TrackedPage>,
     sources: Vec<Weak<Source>>,
 }
 
-impl CodeRegistry {
-    fn retain_page(&mut self, backing: u32) -> Arc<AtomicU64> {
-        let page = self.pages.entry(backing).or_insert_with(|| Page {
-            generation: Weak::new(),
-            sources: Vec::new(),
-        });
-        if let Some(generation) = page.generation.upgrade() {
-            return generation;
-        }
-        let generation = Arc::new(AtomicU64::new(0));
-        page.generation = Arc::downgrade(&generation);
-        page.sources.clear();
-        generation
-    }
+struct TrackedPage {
+    writes: AtomicU64,
+    registry: Weak<CodeRegistry>,
+}
 
-    fn register(&mut self, source: &Arc<Source>) {
-        for page in &source.pages {
-            let sources = &mut self
-                .pages
-                .get_mut(&page.backing)
-                .expect("captured page")
-                .sources;
-            sources.retain(|source| source.strong_count() != 0);
-            sources.push(Arc::downgrade(source));
+impl Drop for TrackedPage {
+    fn drop(&mut self) {
+        if let Some(registry) = self.registry.upgrade() {
+            registry.revision.fetch_add(1, Ordering::Release);
         }
     }
+}
 
+impl RegisteredPages {
     fn wrote(&mut self, backing: u32, len: usize) {
         if len == 0 {
             return;
         }
         let last = (u64::from(backing) + len as u64 - 1) as u32;
         for (_, page) in self
-            .pages
+            .by_backing
             .range((backing / PAGE_BYTES * PAGE_BYTES)..=(last / PAGE_BYTES * PAGE_BYTES))
         {
             if let Some(generation) = page.generation.upgrade() {
-                generation.fetch_add(1, Ordering::Release);
+                generation.writes.fetch_add(1, Ordering::Release);
             }
         }
     }
@@ -172,37 +168,34 @@ impl Memory {
         CodeReader::new(self)
     }
 
-    /// Register only the bytes used by emitted instructions. Discovery reads are speculative.
-    pub(crate) fn register_code(&self, bytes: InstructionBytes) -> Result<CodeSource> {
-        let mut registry = self.code.lock().unwrap();
-        if !bytes.matches(&self.backing) {
-            return Err(Error::StaleCompilation);
-        }
-        let pages = bytes
-            .pages()
-            .into_iter()
-            .map(|backing| {
-                let current = registry.retain_page(backing);
-                PageVersion {
-                    backing,
-                    captured: current.load(Ordering::Acquire),
-                    current,
-                }
-            })
-            .collect();
-        let source = Arc::new(Source { bytes, pages });
-        registry.register(&source);
-        Ok(CodeSource {
-            registry: self.code.clone(),
-            source,
-        })
+    pub(crate) fn code_revision(&self) -> u64 {
+        self.code.revision.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn code_memory_map(&self) -> (u64, PhysicalMemoryMap) {
+        let mut registry = self.code.pages.lock().unwrap();
+        // A last owner can release a marker during this scan. Read the revision
+        // first so that release still causes a later refresh.
+        let revision = self.code_revision();
+        let mut map = self.config.memory_map().clone();
+        registry.by_backing.retain(|&backing, page| {
+            let retained = page.generation.strong_count() != 0;
+            if retained {
+                map.set_code_page(backing, true);
+            }
+            retained
+        });
+        (revision, map)
     }
 
     /// Registered sources covering one backing byte, across pending results and
     /// CPU installations. Unused read-ahead and gaps between blocks are excluded.
     pub fn code_sources_at(&self, backing: u32) -> Vec<CodeSource> {
-        let mut registry = self.code.lock().unwrap();
-        let Some(page) = registry.pages.get_mut(&(backing / PAGE_BYTES * PAGE_BYTES)) else {
+        let mut registry = self.code.pages.lock().unwrap();
+        let Some(page) = registry
+            .by_backing
+            .get_mut(&(backing / PAGE_BYTES * PAGE_BYTES))
+        else {
             return Vec::new();
         };
         page.sources.retain(|source| source.strong_count() != 0);
@@ -225,7 +218,7 @@ impl Memory {
     pub(super) fn write_storage(&self, backing: u32, bytes: &[u8]) {
         // Registration and host writes serialize through the same owner. The version
         // changes before releasing the lock, after all bytes have been written.
-        let mut registry = self.code.lock().unwrap();
+        let mut registry = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
         registry.wrote(backing, bytes.len());
     }

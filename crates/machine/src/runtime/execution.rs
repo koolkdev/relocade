@@ -102,13 +102,15 @@ impl Cpu {
     /// While paused, registers a wakeup for resumption and returns Pending.
     /// Runners retain the returned guard through both poll operations.
     pub(crate) fn poll_enter_execution(
-        &self,
+        &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<crate::machine::execution::Active>> {
-        match &self.execution {
-            Some(execution) => execution.poll_enter(cx).map(Some),
-            None => Poll::Ready(None),
-        }
+        let active = match &self.execution {
+            Some(execution) => Some(ready!(execution.poll_enter(cx))),
+            None => None,
+        };
+        self.instance.refresh_code_pages();
+        Poll::Ready(active)
     }
 
     /// Polls the active host service once and observes exit requests without

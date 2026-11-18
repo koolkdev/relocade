@@ -20,6 +20,7 @@ pub(super) struct RuntimeMemory {
     pub(crate) guest: GuestMemory,
     guest_import: Memory,
     pub(crate) mapping: Memory,
+    pub(crate) code_revision: u64,
     code_write: FunctionRef<super::WasmRuntime, abi::CodeWriteSignature>,
 }
 
@@ -35,7 +36,8 @@ impl RuntimeMemory {
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage.clone());
         let guest_import = wasm.import_shared_memory(guest.backing());
-        let mapping_bytes = guest.configuration().memory_map().to_bytes();
+        let (code_revision, map) = guest.code_memory_map();
+        let mapping_bytes = map.to_bytes();
         let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = wasm.create_memory(MemoryDeclaration {
             minimum: mapping_pages,
@@ -62,12 +64,28 @@ impl RuntimeMemory {
             guest,
             guest_import,
             mapping,
+            code_revision,
             code_write,
         })
     }
 
     pub fn configuration(&self) -> &CpuConfig {
         &self.config
+    }
+
+    pub(super) fn refresh_code_pages(&mut self, wasm: &mut super::WasmRuntime) {
+        let (revision, map) = self.guest.code_memory_map();
+        let bytes = map.to_bytes();
+        let mut mapping = wasm.memory(&self.mapping);
+        // Keep CPU-local MMIO indices and the A20 mask. Transfer the table
+        // in bulk rather than crossing the Wasm boundary for each flag word.
+        let mut entries = [0; relocade_x86::PhysicalMemoryMap::A20_MASK_OFFSET];
+        mapping.read(0, &mut entries);
+        for (entry, updated) in entries.chunks_exact_mut(8).zip(bytes.chunks_exact(8)) {
+            entry[..4].copy_from_slice(&updated[..4]);
+        }
+        mapping.write(0, &entries);
+        self.code_revision = revision;
     }
     /// Binds CPU storage, guest memory, physical routing and tracked writes.
     pub fn imports<'a>(&'a self, wasm: &super::WasmRuntime) -> [Import<'a, super::WasmRuntime>; 4] {

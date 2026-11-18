@@ -67,7 +67,7 @@ rejected before capture allocation. `CompiledCode::install` checks the full
 execution target and uses the existing CPU imports, dispatch and hook replacement
 rules. Each CPU gets its own instance. Pending or parked host services must finish
 before installation. Code discovery, hotness and invalidation remain separate;
-callers keep code and mappings stable through compilation and installed use.
+callers must still retire installed code before changing its instructions or mappings.
 
 Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles

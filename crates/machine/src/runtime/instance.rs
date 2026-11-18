@@ -122,6 +122,13 @@ impl CpuInstance {
         }
     }
 
+    pub(super) fn refresh_code_pages(&mut self) {
+        if self.bindings.code_revision != self.bindings.guest.code_revision() {
+            self.runtime
+                .with_runtime(|wasm| self.bindings.refresh_code_pages(wasm));
+        }
+    }
+
     pub(super) fn run(&mut self) -> ExecutionExit {
         self.runtime.with_runtime(|wasm| loop {
             let exit = self.dispatch.call(wasm, ());

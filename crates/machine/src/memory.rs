@@ -7,10 +7,7 @@ pub use view::MemoryView;
 
 use crate::{IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::SharedMemory;
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{fmt, sync::Arc};
 
 /// Shared guest memory, its address policy and coordination of machine CPUs.
 /// Clones share backing bytes. Reads can overlap guest writes and do not provide
@@ -20,7 +17,7 @@ use std::{
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
-    code: Arc<Mutex<code::CodeRegistry>>,
+    code: Arc<code::CodeRegistry>,
     pub(crate) execution: Arc<crate::machine::execution::Execution>,
 }
 

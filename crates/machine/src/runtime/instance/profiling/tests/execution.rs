@@ -181,7 +181,7 @@ async fn far_calls() {
                 .collect();
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&function.bytes).await.unwrap();
-            let source = memory.register_code(instructions).unwrap();
+            let source = memory.register_code(instructions).await.unwrap();
             crate::CompiledCode::new(module, addresses, function, source)
                 .install(&mut cpu)
                 .unwrap();
