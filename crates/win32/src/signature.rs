@@ -15,6 +15,11 @@ pub struct Signature<A, R> {
 }
 
 impl<A: Arguments, R: ReturnValue> Signature<A, R> {
+    const STDCALL_STUB: [u8; 5] = {
+        let [low, high] = (A::STACK_BYTES as u16).to_le_bytes();
+        [0x90, 0x90, 0xc2, low, high]
+    };
+
     pub const fn new(convention: CallingConvention) -> Self {
         if let CallingConvention::Stdcall = convention {
             assert!(
@@ -35,12 +40,13 @@ impl<A: Arguments, R: ReturnValue> Signature<A, R> {
     /// Guest bytes for a direct host entry, a suspended-call resume position
     /// and the near return executed by the guest after normal completion.
     pub fn stub(&self) -> Vec<u8> {
+        self.stub_bytes().to_vec()
+    }
+
+    pub(crate) const fn stub_bytes(&self) -> &'static [u8] {
         match self.convention {
-            CallingConvention::Stdcall if A::STACK_BYTES != 0 => {
-                let [low, high] = (A::STACK_BYTES as u16).to_le_bytes();
-                vec![0x90, 0x90, 0xc2, low, high]
-            }
-            _ => vec![0x90, 0x90, 0xc3],
+            CallingConvention::Stdcall if A::STACK_BYTES != 0 => &Self::STDCALL_STUB,
+            _ => &[0x90, 0x90, 0xc3],
         }
     }
 
