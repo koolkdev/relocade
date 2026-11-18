@@ -102,25 +102,25 @@ pub(super) fn blocks(
     // into their final blocks also splits backward targets without decoding again.
     let mut blocks = Vec::new();
     for &entry in &entries {
-        let mut block = DecodedBlock::new(origin.with_eip(entry), code_default_size);
+        let mut block = DecodedBlock::empty(origin.with_eip(entry), code_default_size, true);
         let mut eip = entry;
         while let Some(instruction) = instructions.remove(&eip) {
             eip = instruction.next_eip();
             let ends_block = instruction.flow(target) != InstructionFlow::Continue;
-            block.push(instruction);
+            block.push(instruction)?;
             if ends_block || entries.contains(&eip) {
                 break;
             }
             if block.instructions.len() == limits.block_instructions as usize {
                 blocks.push(block);
-                block = DecodedBlock::new(origin.with_eip(eip), code_default_size);
+                block = DecodedBlock::empty(origin.with_eip(eip), code_default_size, true);
             }
         }
         if !block.instructions.is_empty() {
             blocks.push(block);
         }
     }
-    blocks.sort_unstable_by_key(|block| block.entry.address.eip());
+    blocks.sort_unstable_by_key(|block| block.address().eip());
     Ok(blocks)
 }
 

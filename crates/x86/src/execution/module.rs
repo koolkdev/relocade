@@ -59,14 +59,15 @@ impl ExecutionModule {
             .with_instruction_budgets(self.target.instruction_budgets)
     }
 
-    pub(crate) fn with_function(
+    pub(crate) fn with_blocks(
         &self,
         entries: BTreeMap<u32, Func>,
         call_sites: BTreeMap<u32, u32>,
+        local_calls: bool,
     ) -> Self {
         Self {
             entries: Arc::new(entries),
-            call_links: Arc::new(self.call_links.for_function(call_sites)),
+            call_links: Arc::new(self.call_links.with_sites(call_sites, local_calls)),
             ..self.clone()
         }
     }

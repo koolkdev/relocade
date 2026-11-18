@@ -8,7 +8,7 @@ mod function;
 pub use address::CodeAddress;
 pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CompiledBlocks,
+    BlockSnapshot, CompiledBlocks, DecodedBlock,
 };
 pub use dispatch::EntryTable;
 pub use function::{FunctionLimits, FunctionModule};

@@ -3,6 +3,7 @@ mod budget_shape;
 mod checkpoints;
 mod dispatch;
 mod fetch;
+mod linked_blocks;
 mod memory;
 
 use super::*;

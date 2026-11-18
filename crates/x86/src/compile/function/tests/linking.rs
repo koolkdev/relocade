@@ -3,9 +3,9 @@ use crate::{
     real_mode::FarPointer,
     support::{
         machine::{expected, Exit, Image, Step},
-        step::{CallPatches, TestModule},
+        step::TestModule,
     },
-    CpuState, ExecutionContext, ExecutionExit, Segment, SegmentRegister,
+    CpuState, ExecutionProfile, Segment, SegmentRegister,
 };
 
 fn limits() -> FunctionLimits {
@@ -36,123 +36,6 @@ fn compile(start: u32, code: &[u8]) -> TestModule {
         &blocks.entries[0].export,
         Some(blocks.execution_target),
     )
-}
-
-#[test]
-fn links_keep_valid_paths_and_dispatch_undecodable_destinations() {
-    let code = [
-        0xb8, 1, 0, // MOV AX,1
-        0xe3, 5,    // JCXZ 100A
-        0xbb, 42, 0, // MOV BX,42
-        0xeb, 0x76, // JMP 1080
-        0xf1,       // Unsupported destination
-    ];
-    let module = compile(0x1000, &code);
-    for count in [0, 1] {
-        let mut image = image(0x1000, &code);
-        image.cpu.registers.ecx = count;
-        let mut after = image.cpu;
-        after.registers.eax = 1;
-        if count == 0 {
-            after.eip = 0x100a;
-            after.instruction_count = 2;
-        } else {
-            after.registers.ebx = 42;
-            after.eip = 0x1080;
-            after.instruction_count = 4;
-        }
-        assert_eq!(
-            module.observe(&image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: after,
-                    ram: &[],
-                    exit: Exit::Dispatch(after.eip),
-                }],
-            ),
-        );
-    }
-}
-
-#[test]
-fn local_branches_and_linear_splits_retain_every_checkpoint() {
-    let code = [
-        0xb9, 3, 0, // MOV CX,3
-        0xbb, 42, 0, // MOV BX,42
-        0xe2, 0xfb, // LOOP 1003
-        0xb8, 7, 0, // MOV AX,7
-        0xeb, 0x73, // JMP 1080, outside the discovered function
-    ];
-    let module = compile(0x1000, &code);
-    let image = image(0x1000, &code);
-    for (interrupt, budget) in [(false, 0u64), (true, 0), (false, 4)] {
-        let mut input = image.input();
-        input.patches_before_calls.push(CallPatches::cpu(vec![
-            (
-                std::mem::offset_of!(ExecutionContext, interrupt_requested) as u32,
-                vec![u8::from(interrupt)],
-            ),
-            (
-                std::mem::offset_of!(ExecutionContext, instruction_target) as u32,
-                budget.to_le_bytes().to_vec(),
-            ),
-        ]));
-        let mut after = image.cpu;
-        let exit = if interrupt {
-            after.registers.ecx = 3;
-            after.eip = 0x1003;
-            after.instruction_count = 1;
-            Exit::Other(ExecutionExit::Interrupted)
-        } else if budget != 0 {
-            after.registers.ecx = 2;
-            after.registers.ebx = 42;
-            after.eip = 0x1006;
-            after.instruction_count = 4;
-            Exit::Other(ExecutionExit::BudgetExhausted)
-        } else {
-            after.registers.ecx = 0;
-            after.registers.ebx = 42;
-            after.registers.eax = 7;
-            after.eip = 0x1080;
-            after.instruction_count = 9;
-            Exit::Dispatch(0x1080)
-        };
-        assert_eq!(
-            module.observe(&input, 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: after,
-                    ram: &[],
-                    exit
-                }]
-            ),
-        );
-    }
-}
-
-#[test]
-fn a_linked_successor_keeps_its_fetch_guard() {
-    let code = [0xb8, 1, 0, 0xbb, 2, 0, 0xba, 3, 0, 0xeb, 0];
-    let module = compile(0xfffa, &code);
-    let image = image(0xfffa, &code);
-    let mut after = image.cpu;
-    after.registers.eax = 1;
-    after.registers.ebx = 2;
-    after.eip = 0x10000;
-    after.instruction_count = 2;
-    assert_eq!(
-        module.observe(&image.input(), 1),
-        expected(
-            &image,
-            &[Step {
-                cpu: after,
-                ram: &[],
-                exit: Exit::Interpret
-            }]
-        ),
-    );
 }
 
 #[test]
@@ -198,43 +81,6 @@ fn function_namespaces_do_not_alias_equal_offsets() {
                     cpu: after,
                     ram: &[],
                     exit: Exit::Dispatch(0x1008)
-                }]
-            ),
-        );
-    }
-}
-
-#[test]
-fn a_far_jump_cannot_use_the_callers_local_offset() {
-    let code = [
-        0xe3, 7, // JCXZ 1009
-        0xea, 9, 0x10, 0x20, 0, // JMP FAR 0020:1009
-        0x90, 0x90, 0xbb, 42, 0, // MOV BX,42
-        0xeb, 0,
-    ];
-    let module = compile(0x1000, &code);
-    for count in [0, 1] {
-        let mut image = image(0x1000, &code);
-        image.cpu.registers.ecx = count;
-        let mut after = image.cpu;
-        let destination = if count == 0 {
-            after.registers.ebx = 42;
-            after.instruction_count = 3;
-            0x100e
-        } else {
-            after.segments[Segment::Cs] = SegmentRegister::real_mode(Segment::Cs, 0x20);
-            after.instruction_count = 2;
-            0x1009
-        };
-        after.eip = destination;
-        assert_eq!(
-            module.observe(&image.input(), 1),
-            expected(
-                &image,
-                &[Step {
-                    cpu: after,
-                    ram: &[],
-                    exit: Exit::Dispatch(destination)
                 }]
             ),
         );

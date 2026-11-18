@@ -4,6 +4,7 @@ pub(super) mod decode;
 mod error;
 pub(super) mod module;
 
+pub use decode::DecodedBlock;
 pub use error::BlockCompileError;
 
 use super::{CodeAddress, Compiler};
@@ -40,11 +41,14 @@ pub struct BlockEntry {
     pub export: String,
 }
 
-/// Snapshot blocks sharing one Wasm module, its imports and generated helpers.
-/// Entry metadata follows the supplied snapshot order.
+/// Guest blocks sharing one Wasm module, its imports and generated helpers.
 pub struct CompiledBlocks {
     pub bytes: Vec<u8>,
+    /// CPU-callable exports. Explicit snapshots preserve the supplied order.
     pub entries: Vec<BlockEntry>,
+    /// Guest address and byte length of every block, including private jump targets.
+    /// Their bytes and instruction-fetch mappings must remain valid while the module can run.
+    pub spans: Vec<(CodeAddress, usize)>,
     /// Unique packed Real16 CS:IP targets, in call-table slot order.
     /// Calls from every function in this module share slots for equal targets.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
@@ -123,6 +127,37 @@ pub fn compile_block_from_bytes_with_profile(
 }
 
 impl Compiler {
+    /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
+    ///
+    /// Known jumps and fallthroughs link to supplied blocks in the same code segment
+    /// and decode width, including private blocks. Calls use replaceable Real16 slots
+    /// or the runtime resolver. Returns dispatch to the live guest destination.
+    /// Every edge retains its execution checkpoint and destination entry guards.
+    ///
+    /// Each block must end at or before the first execution boundary for this target.
+    /// A code segment and decode width may contain only one block per start address.
+    /// Exports require unique guest addresses across all widths. The caller chooses
+    /// the public entries and maintains code and mapping validity for all source spans
+    /// as described in the [host integration contract](crate#entry-validity).
+    pub fn compile_decoded_blocks(
+        &self,
+        blocks: Vec<DecodedBlock>,
+    ) -> Result<CompiledBlocks, BlockError> {
+        BlockModule::new(self).build_decoded(blocks)?.compile()
+    }
+
+    /// Lowers the same blocks as [`Self::compile_decoded_blocks`] on the supplied executor.
+    pub async fn compile_decoded_blocks_with<E: CompileExecutor>(
+        &self,
+        blocks: Vec<DecodedBlock>,
+        executor: &E,
+    ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        BlockModule::new(self)
+            .build_decoded(blocks)?
+            .compile_with(executor)
+            .await
+    }
+
     /// Compiles a snapshot through the boundary described by
     /// [`compile_block_from_bytes`], with this compiler's execution target and
     /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
