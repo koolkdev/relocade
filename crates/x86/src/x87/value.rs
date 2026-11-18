@@ -71,6 +71,21 @@ enum Representation {
     },
 }
 
+/// A whole numerical value whose exponent and precision fit the source format.
+pub(super) struct BinaryValue {
+    pub(super) format: BinaryFormat,
+    pub(super) value: Val<F64>,
+}
+
+impl BinaryValue {
+    pub(super) fn from_bits(format: BinaryFormat, bits: &Val<I64>) -> Self {
+        Self {
+            format,
+            value: format.binary64_value(bits),
+        }
+    }
+}
+
 impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
         Self {
@@ -146,10 +161,15 @@ impl ExtendedValue {
     /// An exact native value when construction proves its range and precision.
     /// Precision53 alone does not bound the extended exponent. NaN payloads
     /// remain in the encoded view rather than this numerical comparison view.
-    pub(super) fn binary64_value(&self) -> Option<Val<F64>> {
+    pub(super) fn binary_value(&self) -> Option<BinaryValue> {
         match &self.representation {
-            Representation::Binary { format, bits, .. } => Some(format.binary64_value(bits)),
-            Representation::Precision53(value) => value.binary64_value().cloned(),
+            Representation::Binary { format, bits, .. } => {
+                Some(BinaryValue::from_bits(*format, bits))
+            }
+            Representation::Precision53(value) => value.binary64_value().map(|value| BinaryValue {
+                format: BinaryFormat::Binary64,
+                value: value.clone(),
+            }),
             Representation::Extended(_) => None,
         }
     }

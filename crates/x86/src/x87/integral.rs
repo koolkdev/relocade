@@ -10,7 +10,7 @@ use super::{
 
 impl Operand {
     pub(crate) fn round_integral(&self, rounding: &RoundingMode) -> ArithmeticResult {
-        let rounded = if let Some(native) = &self.binary64_value {
+        let rounded = if let Some(native) = self.binary64_value() {
             let integral = rounding.integral(native);
             RoundedValue {
                 value: ExtendedValue::from_classified_binary(

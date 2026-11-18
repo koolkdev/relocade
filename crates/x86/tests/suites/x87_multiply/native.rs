@@ -1,5 +1,7 @@
-//! PC53/nearest products retain x87 rounding evidence and restart boundaries.
+//! Native multiplication retains x87 rounding evidence and restart boundaries.
 
+#[path = "native/binary32.rs"]
+mod binary32;
 #[path = "native/boundaries.rs"]
 mod boundaries;
 #[path = "native/range.rs"]
@@ -10,11 +12,21 @@ use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
 
+fn operators(module: &TestModule) -> impl Iterator<Item = Operator<'_>> {
+    Parser::new(0)
+        .parse_all(module.bytes())
+        .filter_map(|payload| match payload.unwrap() {
+            Payload::CodeSectionEntry(body) => Some(body.get_operators_reader().unwrap()),
+            _ => None,
+        })
+        .flat_map(|reader| reader.into_iter().map(Result::unwrap))
+}
+
 fn assert_native_multiply(module: &TestModule) {
-    assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
-        matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if
-            body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F64Mul)))
-    }), "the fixture must reach native multiplication");
+    assert!(
+        operators(module).any(|op| matches!(op, Operator::F64Mul)),
+        "the fixture must reach native multiplication"
+    );
 }
 
 fn compiler() -> Compiler {

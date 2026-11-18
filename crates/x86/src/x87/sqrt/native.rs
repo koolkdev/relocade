@@ -20,7 +20,7 @@ pub(super) fn calculate(operand: &Operand) -> Option<RoundedValue> {
     let exponent = operand.bits.exponent_field().sub(16383);
     let odd = exponent.and(1).ne(0);
     let class = KnownClass::zero().select(&operand.zero, &KnownClass::normal());
-    let (root, value) = match &operand.binary64_value {
+    let (root, value) = match operand.binary64_value() {
         Some(native) => {
             // A binary64 operand's root fits its range. Retain the whole
             // result so a following exact store does not re-encode it.

@@ -104,24 +104,26 @@ fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
                 1.0.into(),
                 0x7ffe.into(),
             ));
-            assert!(wide.binary64_value().is_none());
+            assert!(wide.binary_value().is_none());
             assert!(value
                 .select(&body.parameter::<I1>(1)?, &wide)
-                .binary64_value()
+                .binary_value()
                 .is_none());
             body.return_((
                 bits.significand,
                 bits.sign_exponent,
-                value.binary64_value().unwrap().to_bits(),
+                value.binary_value().unwrap().value.to_bits(),
                 value
                     .change_sign(SignOperation::Negate)
-                    .binary64_value()
+                    .binary_value()
                     .unwrap()
+                    .value
                     .to_bits(),
                 value
                     .change_sign(SignOperation::Absolute)
-                    .binary64_value()
+                    .binary_value()
                     .unwrap()
+                    .value
                     .to_bits(),
             ))
         });

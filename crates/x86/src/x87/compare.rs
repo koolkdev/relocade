@@ -46,7 +46,7 @@ impl BinaryOperands {
 
     fn ordering(&self) -> (Val<I1>, Val<I1>) {
         let Self { left, right, .. } = self;
-        if let (Some(left), Some(right)) = (&left.binary64_value, &right.binary64_value) {
+        if let (Some(left), Some(right)) = (left.binary64_value(), right.binary64_value()) {
             return (left.lt(right), left.eq(right));
         }
         let left_exponent = left.bits.exponent_field();
