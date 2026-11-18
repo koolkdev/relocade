@@ -5,13 +5,14 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
     result::RoundedValue,
-    value::{BinaryValue, ConditionalBinary64, Precision53},
+    value::{BinaryValue, ConditionalBinary64, IntegerOrigin, Precision53},
     ArithmeticCandidate, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
     ExtendedBits, ExtendedValue,
 };
 
 pub(crate) struct Operand {
     pub(super) bits: ExtendedBits,
+    pub(super) integer_origin: Option<IntegerOrigin>,
     // A native significand retains x87's separate exponent. A whole binary64
     // value requires its own range and precision proof. Neither changes evidence.
     pub(super) precision53_significand: Option<Val<F64>>,
@@ -31,6 +32,7 @@ impl Operand {
         let class = value.classification();
         Self {
             bits: value.bits(),
+            integer_origin: value.integer_origin.clone(),
             precision53_significand: value.precision53_significand(),
             binary_value: value.binary_value(),
             conditional_binary64: value.conditional_binary64.clone(),
@@ -88,6 +90,7 @@ impl Operand {
         let class = source.classification();
         Self {
             bits: source.expanded_bits(),
+            integer_origin: None,
             binary_value: Some(source.binary_value()),
             conditional_binary64: None,
             precision53_significand: Some(
@@ -219,6 +222,9 @@ impl BinaryOperands {
         rounding: &RoundingMode,
     ) -> Result<ArithmeticCandidate, BuildError> {
         let known_precision = body.constant_bits(precision.and(3))?;
+        if let Some(result) = self.exact_integer_candidate(operation, rounding, known_precision) {
+            return Ok(result);
+        }
         if known_precision == Some(3)
             && matches!(
                 operation,
