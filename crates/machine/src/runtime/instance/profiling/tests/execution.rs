@@ -1,11 +1,14 @@
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 
 use super::{collected_count, merged_count};
-use crate::{Cpu, CpuConfig, DispatchEntry, FarPointer, Hook, MachineConfig, Memory};
+use crate::{
+    Cpu, CpuConfig, DiscoveryLimits, DispatchEntry, FarPointer, FunctionRequest, Hook,
+    MachineConfig, Memory,
+};
 use futures_lite::future::poll_once;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, FunctionLimits, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentDefaultSize,
+    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
+    PhysicalMemoryMap, Segment,
 };
 
 async fn cpu() -> Cpu {
@@ -163,25 +166,25 @@ async fn far_calls() {
         .unwrap();
         if compiled_caller {
             let mut reader = memory.code_reader();
-            let mut functions = compiler.function_module();
-            functions
-                .add_function(
-                    target(0x100).into(),
-                    SegmentDefaultSize::Bits16,
-                    FunctionLimits::default(),
-                    |eip, output| reader.read_prefix(eip, output),
-                )
-                .unwrap();
-            let function = functions.compile().unwrap();
+            let decoded = crate::compiler::discover_functions(
+                compiler.target(),
+                [FunctionRequest {
+                    entry: target(0x100),
+                    limits: DiscoveryLimits::default(),
+                }],
+                &mut reader,
+            )
+            .unwrap();
+            let blocks = compiler.compile_decoded_blocks(decoded).unwrap();
             let source = reader.finish(
-                function
-                    .entries
+                blocks
+                    .spans
                     .iter()
-                    .map(|block| (block.address.eip(), block.byte_len)),
+                    .map(|&(address, len)| (address.eip(), len)),
             );
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
-            let module = wasm.compile(&function.bytes).await.unwrap();
-            crate::CompiledCode::new(module, function, source)
+            let module = wasm.compile(&blocks.bytes).await.unwrap();
+            crate::CompiledCode::new(module, blocks, source)
                 .install(&mut cpu)
                 .unwrap();
         }
