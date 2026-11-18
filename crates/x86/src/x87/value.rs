@@ -54,6 +54,9 @@ pub(crate) struct ExtendedValue {
     // An exact class established by construction or a successful guard.
     // Unknown encodings retain their bits rather than acquiring a guessed class.
     class: Option<KnownClass>,
+    // A joined binary80 value can still carry the native value from one arm.
+    // Its encoded representation remains authoritative on both paths.
+    pub(super) conditional_binary64: Option<ConditionalBinary64>,
 }
 
 #[derive(Clone)]
@@ -69,6 +72,13 @@ enum Representation {
         // subnormal is normal binary80, so the outer class cannot replace it.
         native_class: Option<KnownClass>,
     },
+}
+
+/// A numerical binary64 view usable only when the associated predicate holds.
+#[derive(Clone)]
+pub(super) struct ConditionalBinary64 {
+    pub(super) valid: Val<I1>,
+    pub(super) value: Val<F64>,
 }
 
 /// A whole numerical value whose exponent and precision fit the source format.
@@ -90,6 +100,7 @@ impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
         Self {
             representation: Representation::Extended(bits),
+            conditional_binary64: None,
             class: None,
         }
     }
@@ -101,6 +112,7 @@ impl ExtendedValue {
                 bits,
                 native_class: None,
             },
+            conditional_binary64: None,
             class: None,
         }
     }
@@ -118,6 +130,7 @@ impl ExtendedValue {
                 bits,
                 native_class: Some(class.clone()),
             },
+            conditional_binary64: None,
             class: Some(class),
         }
     }
@@ -125,6 +138,7 @@ impl ExtendedValue {
     pub(super) fn from_precision53(value: Precision53) -> Self {
         Self {
             representation: Representation::Precision53(value),
+            conditional_binary64: None,
             class: None,
         }
     }
@@ -218,6 +232,15 @@ impl ExtendedValue {
         };
         Self {
             representation,
+            conditional_binary64: self.conditional_binary64.as_ref().map(|native| {
+                ConditionalBinary64 {
+                    valid: native.valid.clone(),
+                    value: match operation {
+                        SignOperation::Negate => native.value.neg(),
+                        SignOperation::Absolute => native.value.abs(),
+                    },
+                }
+            }),
             class: self.class.clone(),
         }
     }
@@ -239,6 +262,7 @@ impl ExtendedValue {
                         .as_ref()
                         .map(|class| KnownClass::quiet_nan().select(invalid, class)),
                 },
+                conditional_binary64: None,
                 class: None,
             },
             Representation::Extended(bits) => Self::from_bits(ExtendedBits {
@@ -246,6 +270,13 @@ impl ExtendedValue {
                 sign_exponent: invalid.select(0xffff_u32, &bits.sign_exponent),
             }),
         };
+        value.conditional_binary64 =
+            self.conditional_binary64
+                .as_ref()
+                .map(|native| ConditionalBinary64 {
+                    valid: native.valid.and(invalid.eq(false)),
+                    value: native.value.clone(),
+                });
         value.class = self
             .class
             .as_ref()
@@ -291,6 +322,14 @@ impl ExtendedValue {
         };
         Self {
             representation,
+            conditional_binary64: self
+                .conditional_binary64
+                .as_ref()
+                .zip(otherwise.conditional_binary64.as_ref())
+                .map(|(left, right)| ConditionalBinary64 {
+                    valid: condition.select(&left.valid, &right.valid),
+                    value: condition.select(&left.value, &right.value),
+                }),
             class: self
                 .class
                 .as_ref()

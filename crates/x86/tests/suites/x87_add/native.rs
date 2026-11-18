@@ -312,3 +312,82 @@ fn short_pc64_operands_use_native_and_wide_sums_in_one_block() {
         );
     }
 }
+
+#[test]
+fn chained_pc64_sums_keep_native_and_wide_partials() {
+    let code = [
+        0xd9, 0x05, 0, 0x40, 0, 0, // FLD m32
+        0xd8, 0x05, 4, 0x40, 0, 0, // FADD m32
+        0xd8, 0x05, 8, 0x40, 0, 0, // FADD m32
+    ];
+    let mut image = stack_image(&code, 0, 0xffff);
+    set_control(&mut image.cpu.x87.control, 0x037f);
+    image.cpu.x87.status.precision = 0;
+    image.map(4, 0x8000, false);
+    let compiled = Compiler::new(SegmentProfile::Flat32)
+        .specialize_on_cpu(&image.cpu)
+        .compile_block(0x1000, &code, 3)
+        .unwrap();
+    let mut adds = 0;
+    for payload in Parser::new(0).parse_all(&compiled.bytes) {
+        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+            adds += body
+                .get_operators_reader()
+                .unwrap()
+                .into_iter()
+                .filter(|op| matches!(op.as_ref().unwrap(), Operator::F64Add))
+                .count();
+        }
+    }
+    assert_eq!(adds, 2, "both additions can consume a native value");
+    let module = TestModule::new(&compiled);
+    let tiny = 3.0 * 2.0_f32.powi(-65);
+    for masked in [false, true] {
+        image.cpu.x87.control.precision_mask = u8::from(masked);
+        for (inputs, sum, first_inexact, last_inexact) in [
+            ([1.0_f32, 1.0, -1.0], (LEADING, 0x3fff), false, false),
+            ([-0.0, -0.0, -0.0], (0, 0x8000), false, false),
+            ([1.0, -1.0, -0.0], (0, 0), false, false),
+            // The native first sum loses this addend; PC64 retains it exactly.
+            (
+                [1.0, 2.0_f32.powi(-54), -1.0],
+                (LEADING, 0x3fc9),
+                false,
+                false,
+            ),
+            // Rounding up in either addition can set sticky PE and C1.
+            ([1.0, 0.0, tiny], (LEADING + 1, 0x3fff), false, true),
+            ([1.0, tiny, -1.0], (LEADING, 0x3fc0), true, false),
+        ] {
+            for (index, input) in inputs.into_iter().enumerate() {
+                image.data(0x8000 + index as u32 * 4, &input.to_le_bytes());
+            }
+            let mut cpu = complete_x87(image.cpu, 6, 0x0105);
+            cpu = complete_x87(cpu, 6, 0x0005);
+            cpu.x87.data_selector = 0x23;
+            cpu.x87.status.top = 7;
+            cpu.x87.status.precision = u8::from(first_inexact || last_inexact);
+            let pending = !masked && cpu.x87.status.precision != 0;
+            cpu.x87.status.error_summary = u8::from(pending);
+            cpu.x87.status.busy = u8::from(pending);
+            let step = if !masked && first_inexact {
+                // The second FADD sees the pending precision exception.
+                cpu.x87.data_offset = 0x4004;
+                cpu.x87.status.c1 = 1;
+                write_value(&mut cpu, 7, (LEADING + 1, 0x3fff));
+                Step {
+                    cpu,
+                    ram: &[],
+                    exit: Exit::FloatingPoint,
+                }
+            } else {
+                cpu = complete_x87(cpu, 6, 0x0005);
+                cpu.x87.data_offset = 0x4008;
+                cpu.x87.status.c1 = u8::from(last_inexact);
+                write_value(&mut cpu, 7, sum);
+                dispatch(cpu)
+            };
+            assert_eq!(module.observe(&image.input(), 1), expected(&image, &[step]));
+        }
+    }
+}
