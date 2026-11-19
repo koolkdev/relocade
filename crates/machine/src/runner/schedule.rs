@@ -80,8 +80,7 @@ impl ExecutionSchedule {
                 .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
         }
         match result {
-            Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
-            Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
+            Poll::Ready(ExecutionExit::Interrupted | ExecutionExit::BudgetExhausted) => {
                 Poll::Ready(None)
             }
             Poll::Ready(exit) => Poll::Ready(Some(exit)),

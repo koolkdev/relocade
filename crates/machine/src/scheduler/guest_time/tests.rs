@@ -52,13 +52,17 @@ fn deadlines_follow_registration_cancellation_and_idle_time() {
     assert!(same.as_mut().poll(&mut cx).is_pending());
     driver.advance_to(clock.deadline_after(start, Duration::from_millis(9)));
     assert_eq!(notifications.0.load(Ordering::Relaxed), 0);
-    assert!(first.as_mut().poll(&mut cx).is_pending());
+    let replacement = Arc::new(Notifications::default());
+    let replacement_waker = Waker::from(replacement.clone());
+    let mut replacement_cx = Context::from_waker(&replacement_waker);
+    assert!(first.as_mut().poll(&mut replacement_cx).is_pending());
     assert_eq!(
         driver.next_deadline(),
         Some(clock.deadline_after(start, Duration::from_millis(10)))
     );
     driver.advance_to(clock.deadline_after(start, Duration::from_millis(10)));
-    assert!(notifications.0.load(Ordering::Relaxed) > 0);
+    assert_eq!(notifications.0.load(Ordering::Relaxed), 1);
+    assert_eq!(replacement.0.load(Ordering::Relaxed), 1);
     assert!(first.as_mut().poll(&mut cx).is_ready());
     assert!(same.as_mut().poll(&mut cx).is_ready());
     assert!(later.as_mut().poll(&mut cx).is_pending());

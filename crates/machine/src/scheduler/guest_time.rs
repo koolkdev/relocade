@@ -9,8 +9,8 @@ use host::HostTime;
 mod wait;
 use wait::{Source, Wait};
 
-use super::{Clock, TickRate, Timestamp};
-use crate::{Cpu, CpuStateAccess, InstructionTarget};
+use crate::{Clock, ConfigurationError, Cpu, CpuStateAccess, TickRate, Timestamp};
+use relocade_x86::ExecutionTarget;
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
 /// Owns emulated guest time, pending sleeps and the CPU instruction target.
@@ -30,13 +30,12 @@ struct State {
     // offset. While paused, the offset holds the frozen reading.
     offset: u64,
     cpu: Option<Binding>,
-    waits: Vec<Wait>,
+    waits: Vec<Rc<Wait>>,
     host: Option<HostTime>,
 }
 
 struct Binding {
     state: CpuStateAccess,
-    target: InstructionTarget,
     yield_deadline: Option<Timestamp>,
     changed: Waker,
 }
@@ -59,31 +58,39 @@ impl GuestTimeDriver {
         self
     }
 
+    pub(crate) fn validate_target(target: ExecutionTarget) -> Result<(), ConfigurationError> {
+        if target.instruction_budgets {
+            Ok(())
+        } else {
+            Err(ConfigurationError::GuestTimeRequiresInstructionBudgets)
+        }
+    }
+
     pub fn clock(&self) -> Clock {
         Clock::new(Source(self.0.clone()))
     }
 
     /// Observes CPU retirement and controls its target until the returned guard
     /// is dropped. Preexisting retirement is not charged to the clock. Dropping
-    /// the guard records final progress, clears the target and releases the waker.
+    /// the guard records final progress, clears the clock's deadline and releases the waker.
     /// The clock pauses between bindings; pending device waits remain registered.
     ///
     /// `changed` wakes the embedding when waits change, including while a CPU
-    /// service is pending. The embedding must be this CPU's only target writer.
-    /// Panics if the driver already has a live binding.
+    /// service is pending.
+    /// Panics if the driver is already bound or the CPU disables instruction budgets.
     #[must_use = "retain the binding while driving this CPU"]
     pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
+        let cpu_state = cpu.cpu_state();
+        Self::validate_target(cpu_state.execution_target()).unwrap();
         let now = state.now();
         if let Some(host) = &mut state.host {
             host.resume(now);
         }
-        let cpu_state = cpu.cpu_state();
         state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {
             state: cpu_state,
-            target: cpu.instruction_target(),
             yield_deadline: None,
             changed: changed.clone(),
         });
@@ -132,12 +139,13 @@ impl GuestTimeDriver {
             let due = state
                 .waits
                 .extract_if(.., |wait| wait.deadline <= now)
+                .map(|wait| wait.waker.take().expect("registered guest sleep"))
                 .collect::<Vec<_>>();
             state.refresh_target();
             due
         };
-        for wait in due {
-            let _ = wait.complete.send(());
+        for waker in due {
+            waker.wake();
         }
     }
 
@@ -165,7 +173,7 @@ impl Drop for BindingGuard<'_> {
         if let Some(host) = &mut state.host {
             host.pause();
         }
-        state.cpu.take().unwrap().target.set(None);
+        state.cpu.take().unwrap().state.set_instruction_target(None);
         state.offset = now.ticks();
     }
 }
@@ -188,7 +196,7 @@ impl State {
             .map(|wait| wait.deadline)
             .chain(cpu.yield_deadline)
             .min();
-        let target = deadline.map(|deadline| deadline.max(now).ticks().wrapping_sub(self.offset));
-        cpu.target.set(target);
+        let target = deadline.map(|at| at.max(now).ticks().wrapping_sub(self.offset));
+        cpu.state.set_instruction_target(target);
     }
 }

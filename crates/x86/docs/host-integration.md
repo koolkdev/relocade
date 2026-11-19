@@ -202,20 +202,15 @@ checkpoints to straight-line execution and does not split REP operations. REP st
 retires once after all elements complete. The snapshot compiler's instruction limit
 continues to bound compilation only.
 
-In `relocade-machine`, `cpu.instruction_target()` retains an execution-local
-controller. `set(Some(absolute_count))` arms the target and `set(None)` clears it.
-Updates apply independently of a `cpu.run()` waiter's lifetime, including while
-its host service is pending or an IO/MMIO callback is executing. Dropping the
-waiter preserves active and suspended services and leaves target ownership with
-the controller. `GuestTimeDriver` manages that lifetime for guest-time
-scheduling through a scoped binding. Releasing the binding clears the target;
-the execution owner retains it across CPU polls.
+The guest scheduler in `relocade-machine` programs the instruction target.
+Device waits armed during synchronous I/O callbacks can bring the next
+checkpoint forward.
 
 Completed work is available through `cpu.cpu_state().instruction_count()` using
 wrapping subtraction. `CpuStateAccess::restore` preserves this cumulative count;
 initial counts are configured when creating a CPU. Callback observations can lag
 unpublished retirement.
-Arming a target rejects execution profiles with budget support disabled. Shared
+Guest-time startup requires a target compiled with instruction budgets enabled. Shared
 interpreter modules keep dynamic checks for either target policy; disabled
 profiles require their live target to remain zero.
 

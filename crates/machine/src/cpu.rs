@@ -42,6 +42,14 @@ impl CpuStateAccess {
         crate::ExecutionInterrupt::new(self.storage.clone())
     }
 
+    /// Arms the next scheduler checkpoint. The execution ABI reserves zero for no target.
+    pub(crate) fn set_instruction_target(&self, count: Option<u64>) {
+        self.storage.store(
+            offset_of!(ExecutionContext, instruction_target) as u32,
+            count.map_or(0, |count| count.max(1)),
+        );
+    }
+
     /// Compatibility requirements of the installed generated code. Architectural
     /// mode and widths are read from live state through the queries below.
     pub fn execution_target(&self) -> ExecutionTarget {

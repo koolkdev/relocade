@@ -25,11 +25,11 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
             .unwrap();
     }
     // MOV [0321], AL with DS=FFFF writes the last entry's immediate through A20.
-    // The backward jump gives the runner a budget checkpoint after the store.
+    // Jump to the stop hook after the store.
     machine
         .memory()
         .view()
-        .write(0x400, &[0xa2, 0x21, 0x03, 0xeb, 0xfe])
+        .write(0x400, &[0xa2, 0x21, 0x03, 0xeb, 0x00])
         .unwrap();
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
     cpu.run_until(pending::<()>(), async move |mut runner| {
@@ -63,11 +63,16 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         state.set_eip(0);
         state.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0xffff));
         state.set_al(99);
+        let stop = runner.cpu().exit_handle();
         runner
             .cpu()
-            .instruction_target()
-            .set(Some(state.instruction_count() + 2));
-        assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
+            .install([Hook::host(0x0040_0005, async move || stop.request())])
+            .await
+            .unwrap();
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
         let memory = runner.cpu().memory();
         assert_eq!(memory.view().read_u8(0x311).unwrap(), 99);
         assert!(matches!(
@@ -77,12 +82,17 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         assert!(memory.installed_code_at(0x1311).is_empty());
         assert_eq!(runner.cpu().compiled_modules_at(first.address()).count(), 0);
         memory.view().write_u8(0x311, 73).unwrap();
+        let exit = runner.cpu().exit_handle();
         runner
             .cpu()
-            .install(entries.map(|entry| {
-                Hook::host(entry.packed(), async || {
-                    panic!("the compiled block must replace this CS:IP hook")
-                })
+            .install(entries.into_iter().flat_map(|entry| {
+                let exit = exit.clone();
+                [
+                    Hook::host(entry.packed(), async || {
+                        panic!("the compiled block must replace this CS:IP hook")
+                    }),
+                    Hook::host(entry.wrapping_add(3).packed(), async move || exit.request()),
+                ]
             }))
             .await
             .unwrap();
@@ -95,11 +105,10 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
             );
             state.set_eip(u32::from(entry.offset));
             state.set_ax(0);
-            runner
-                .cpu()
-                .instruction_target()
-                .set(Some(state.instruction_count() + 1));
-            assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
             assert_eq!(state.ax(), expected);
         }
     })

@@ -247,6 +247,7 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
+        crate::GuestTimeDriver::validate_target(cpu.configuration().execution_target())?;
         Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
     }
 }

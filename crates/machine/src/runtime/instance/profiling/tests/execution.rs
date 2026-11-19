@@ -84,11 +84,11 @@ async fn calls() {
             .unwrap();
         }
         // The first call completes, but its budget stop skips profiling.
-        cpu.instruction_target().set(Some(2));
+        cpu.cpu_state().set_instruction_target(Some(2));
         assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
         assert_eq!(cpu.cpu_state().eip(), 0x200);
         assert_eq!(collected_count(&mut cpu, target(0x200)), 0);
-        cpu.instruction_target().set(None);
+        cpu.cpu_state().set_instruction_target(None);
         assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
         // Ordinary execution returns leave small batches buffered.
         assert_eq!(
@@ -189,13 +189,13 @@ async fn far_calls() {
                 .unwrap();
         }
         // A stopped call publishes the new CS:IP without recording its target.
-        cpu.instruction_target().set(Some(1));
+        cpu.cpu_state().set_instruction_target(Some(1));
         assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
         assert_eq!(cpu.cpu_state().segment(Segment::Cs).selector, first.segment);
         assert_eq!(cpu.cpu_state().eip(), u32::from(first.offset));
         assert_eq!(cpu.cpu_state().sp(), 0x7fc);
         assert_eq!(collected_count(&mut cpu, first), 0);
-        cpu.instruction_target().set(None);
+        cpu.cpu_state().set_instruction_target(None);
         assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
         assert_eq!(collected_count(&mut cpu, first), 1);
         assert_eq!(collected_count(&mut cpu, target(first.offset)), 0);

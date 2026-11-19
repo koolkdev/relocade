@@ -34,6 +34,40 @@ fn configuration() -> support::Configuration {
     .unwrap()
 }
 
+async fn reject_guest_time_without_budgets() {
+    let rate = NonZeroU64::new(1000).unwrap();
+    let setup = configuration();
+    let target = Compiler::new(ExecutionProfile::Real16)
+        .with_instruction_budgets(false)
+        .target();
+    let config = relocade_machine::CpuConfig::new(target, *setup.cpu.cpu()).unwrap();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let cpu = machine.create_cpu(config, None).unwrap();
+    let worker = cpu.spawn_with_guest_time(
+        move || relocade_machine::GuestTimeConfig::new(rate),
+        async |_| {},
+    );
+    assert!(matches!(
+        worker.join().await,
+        Err(relocade_machine::Error::Configuration(
+            relocade_machine::ConfigurationError::GuestTimeRequiresInstructionBudgets
+        ))
+    ));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn guest_time_requires_instruction_budgets_at_startup() {
+    pollster::block_on(reject_guest_time_without_budgets());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn guest_time_requires_instruction_budgets_at_startup() {
+    reject_guest_time_without_budgets().await;
+}
+
 async fn prepare_cpu(runner: &mut Runner, code: &[u8]) {
     let memory = runner.memory();
     memory.view().write(0x100, code).unwrap();

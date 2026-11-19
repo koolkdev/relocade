@@ -15,8 +15,6 @@ use std::sync::Arc;
 pub(super) struct RuntimeMemory {
     config: Arc<CpuConfig>,
     pub(crate) context: Memory,
-    /// Retained backing for execution controls whose cleanup outlives a Wasm call.
-    pub(crate) context_backing: SharedMemory,
     pub(crate) cpu: CpuStateAccess,
     pub(crate) interrupt: ExecutionInterrupt,
     pub(crate) guest: GuestMemory,
@@ -36,7 +34,7 @@ impl RuntimeMemory {
         } = binding;
         let context = wasm.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());
-        let cpu = CpuStateAccess::new(&config, storage.clone());
+        let cpu = CpuStateAccess::new(&config, storage);
         let guest_import = wasm.import_shared_memory(guest.backing());
         let mapping = wasm.create_memory(MemoryDeclaration {
             maximum: Some(abi::PHYSICAL_MAP.minimum),
@@ -47,7 +45,6 @@ impl RuntimeMemory {
         Ok(Self {
             config,
             context,
-            context_backing: storage,
             cpu,
             interrupt,
             guest,
