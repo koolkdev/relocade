@@ -1,15 +1,16 @@
 //! Device deadlines, idle time and the optional CPU throughput limit.
 
-mod slice;
-use slice::{CpuLimit, ExecutionSlice};
+mod cpu_limit;
+use cpu_limit::CpuLimit;
 
 use super::{GuestTimeConfig, GuestTimeDriver};
-use crate::{Clock, Cpu, Sleep, Timestamp};
+use crate::{Clock, Cpu, Schedule, Sleep, Timestamp};
 use std::{
     future::Future,
     pin::Pin,
     rc::Rc,
     task::{ready, Context, Poll, Waker},
+    time::Duration,
 };
 
 pub(crate) struct Timing {
@@ -150,5 +151,32 @@ impl Timing {
         }
         guest.driver.advance_to(deadline);
         true
+    }
+}
+
+/// Periodic guest-time checkpoints while the CPU is running.
+struct ExecutionSlice {
+    duration: Duration,
+    end: Schedule,
+}
+
+impl ExecutionSlice {
+    fn new(clock: &Clock, duration: Duration) -> Self {
+        let mut end = clock.schedule(clock.now());
+        end.advance(duration);
+        Self { duration, end }
+    }
+
+    fn next(&mut self, now: Timestamp) -> Timestamp {
+        if now >= self.end.deadline() {
+            let elapsed = self.end.elapsed_until(now).as_nanos();
+            let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
+            self.end.advance(Duration::new(
+                (whole / 1_000_000_000) as u64,
+                (whole % 1_000_000_000) as u32,
+            ));
+            self.end.advance(self.duration);
+        }
+        self.end.deadline()
     }
 }

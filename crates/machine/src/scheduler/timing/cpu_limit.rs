@@ -1,6 +1,6 @@
-//! Cooperative guest checkpoints and an optional host-time CPU limit.
+//! Limits retired instructions per host second.
 
-use crate::{Clock, Schedule, Sleep, TickRate, Timestamp};
+use crate::{Clock, Sleep, TickRate, Timestamp};
 use std::{
     future::Future,
     num::NonZeroU64,
@@ -8,32 +8,6 @@ use std::{
     task::{ready, Context, Poll},
     time::Duration,
 };
-
-pub(super) struct ExecutionSlice {
-    duration: Duration,
-    end: Schedule,
-}
-
-impl ExecutionSlice {
-    pub(super) fn new(clock: &Clock, duration: Duration) -> Self {
-        let mut end = clock.schedule(clock.now());
-        end.advance(duration);
-        Self { duration, end }
-    }
-
-    pub(super) fn next(&mut self, now: Timestamp) -> Timestamp {
-        if now >= self.end.deadline() {
-            let elapsed = self.end.elapsed_until(now).as_nanos();
-            let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
-            self.end.advance(Duration::new(
-                (whole / 1_000_000_000) as u64,
-                (whole % 1_000_000_000) as u32,
-            ));
-            self.end.advance(self.duration);
-        }
-        self.end.deadline()
-    }
-}
 
 pub(super) struct CpuLimit {
     rate: TickRate,

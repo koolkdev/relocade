@@ -132,9 +132,10 @@ DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
 For a guest-timed session tied to a host lifetime,
-`cpu.run_until_with_guest_time(make_time, stop, session)` consumes the CPU
-handle and runs the host timer service for the session. The factory receives
-the host clock on the execution worker. It returns the session result on completion, or `None` after the stop
+`cpu.run_until_with_guest_time(configure_guest_time, stop, session)` consumes the CPU
+handle and runs the host timer service for the session. The worker calls
+`configure_guest_time(host_clock)` once at startup to build its `GuestTimeConfig`.
+The run returns the session result on completion, or `None` after the stop
 signal and worker cleanup. The stop signal's value is ignored. Await the whole
 operation; dropping it early is not orderly shutdown. The timer service ends with
 the session. Use `spawn` with an externally driven clock when clock handles must
@@ -190,8 +191,8 @@ been abandoned. Retained `cpu.cpu_state()`, memory and input/output handles rema
 usable. Dropping the CPU releases active and parked calls innermost first, then
 the backend; independently retained resources can outlive it.
 
-The DOS launcher passes `relocade_pc::configuration::guest_time` its host clock
-and optional MIPS limit. Inside the session, `Dos::new(runner).await` connects
+The DOS launcher passes `relocade_pc::configuration::guest_time` its host clock.
+Inside the session, `Dos::new(runner).await` connects
 the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current

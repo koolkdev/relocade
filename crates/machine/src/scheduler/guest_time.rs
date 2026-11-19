@@ -87,7 +87,7 @@ impl GuestTimeDriver {
     /// Reads guest time, completes due sleeps and arms the CPU
     /// target. `yield_deadline` is an optional absolute guest time at which the
     /// embedding wants execution to yield. Wait changes preserve it until the next
-    /// synchronization. Call after execution stops and ready activities have had a turn.
+    /// synchronization. Call after execution stops and ready tasks have had a turn.
     pub fn synchronize(&self, yield_deadline: Option<Timestamp>) {
         if let Some(cpu) = &mut self.0.borrow_mut().cpu {
             cpu.yield_deadline = yield_deadline;
@@ -110,7 +110,7 @@ impl GuestTimeDriver {
     }
 
     /// Advances guest time to the earliest registered sleep and completes due sleeps.
-    /// Returns false when no sleep exists. Call only after ready activities have
+    /// Returns false when no sleep exists. Call only after ready tasks have
     /// been polled and execution is still idle. The yield deadline does not cause
     /// this operation to advance time.
     pub fn advance_to_next_deadline(&self) -> bool {
@@ -122,7 +122,7 @@ impl GuestTimeDriver {
     }
 
     /// Earliest registered sleep in guest time. Query at a stopped boundary
-    /// after ready activities have had an opportunity to replace their waits.
+    /// after ready tasks have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Timestamp> {
         self.0.borrow().next_device_deadline()
     }
@@ -144,7 +144,7 @@ impl GuestTimeDriver {
         }
     }
 
-    /// Advance only after execution and ready activities have become idle.
+    /// Advance only after execution and ready tasks have become idle.
     pub(crate) fn advance_to(&self, deadline: Timestamp) {
         {
             let mut state = self.0.borrow_mut();

@@ -189,18 +189,22 @@ let result = cpu.run_until_with_guest_time(
 ).await?;
 ```
 
-The host-timed entry point owns the timer service for the session.
-`cpu.spawn_with_guest_time(make_time, session)` accepts a guest configuration
-factory when the embedding owns that service. `Runner::with_guest_time` accepts
+`run_until_with_guest_time` owns the host timer service and calls
+`configure_guest_time(host_clock)` once on the execution worker.
+When the embedding owns its timers, it can use
+`cpu.spawn_with_guest_time(configure_guest_time, session)` and construct
+its configuration on that worker. `Runner::with_guest_time` accepts
 the configuration directly. `with_host_clock(host_clock)` supplies a host clock
 for idle device deadlines and output presentation without setting a CPU limit.
 
 `run_cpu().await` makes the CPU runnable and waits for its exit. The scheduler
-arms guest execution for the earliest registered device deadline. An optional
-`with_slice_duration(duration)` adds periodic checkpoints measured in guest time.
-A positive duration sets the interval. Instruction blocks can overshoot a
-checkpoint. Both the interpreter and compiled code publish retirement when
-execution returns to Rust. A device sleep registers its own task's waker.
+sets a CPU checkpoint at the earliest of the next device wake, the optional
+guest slice boundary and the end of the current CPU allowance. Device sleeps register a
+task to wake. A slice returns control to the scheduler while instructions are
+running. Only device sleeps determine where idle guest time advances.
+`with_slice_duration(duration)` sets a positive slice interval in guest time.
+Instruction blocks can overshoot a checkpoint. Both the interpreter and
+compiled code publish retirement when execution returns to Rust.
 [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
 ### CPU limits and idle device deadlines

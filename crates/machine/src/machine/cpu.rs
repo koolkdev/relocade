@@ -79,12 +79,14 @@ impl CpuHandle {
     /// The clock and guest-time configuration are constructed on the execution owner.
     pub async fn run_until_with_guest_time<T: Send + 'static>(
         self,
-        make_time: impl FnOnce(Clock) -> GuestTimeConfig + Send + 'static,
+        configure_guest_time: impl FnOnce(Clock) -> GuestTimeConfig + Send + 'static,
         stop: impl Future,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Result<Option<T>> {
         run_with_timers(
-            |handle| self.spawn_with_guest_time(move || make_time(handle.into()), session),
+            |handle| {
+                self.spawn_with_guest_time(move || configure_guest_time(handle.into()), session)
+            },
             stop,
         )
         .await
@@ -116,12 +118,14 @@ impl CpuHandle {
     /// Transfers this CPU to a worker using guest time and optional host pacing.
     pub fn spawn_with_guest_time<T: Send + 'static>(
         self,
-        make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
+        configure_guest_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> ExecutionWorker<T> {
         ExecutionWorker::spawn(
             self,
-            async move |cpu, endpoint| Runner::with_guest_time(make_time(), cpu, endpoint).await,
+            async move |cpu, endpoint| {
+                Runner::with_guest_time(configure_guest_time(), cpu, endpoint).await
+            },
             session,
         )
     }
