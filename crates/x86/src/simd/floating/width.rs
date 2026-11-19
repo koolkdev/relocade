@@ -1,22 +1,17 @@
 //! Width conversions preserve NaN payloads and distinguish precision from range.
 
 use super::{FloatOperand, FloatResult, SimdExceptions};
-use crate::{floating::BinaryFormat, state::Mxcsr};
+use crate::{
+    floating::{widen_binary32, BinaryFormat},
+    state::Mxcsr,
+};
 use relocade_compiler::{I32, I64};
 
 impl FloatOperand<I32> {
     pub(crate) fn widen(&self) -> FloatResult<I64> {
         let bits = self.bits.unsigned().extend::<I64>();
-        let nan = bits
-            .and(0x8000_0000_u64)
-            .shl(32)
-            .or(bits.and(0x007f_ffff_u64).shl(29))
-            .or(0x7ff8_0000_0000_0000_u64);
         FloatResult {
-            value: self
-                .classification()
-                .nan()
-                .select(nan, self.value().to_bits()),
+            value: widen_binary32(&bits, self.classification().nan()),
             exceptions: SimdExceptions {
                 invalid: self.classification().signaling_nan(),
                 denormal: self.denormal.clone(),
