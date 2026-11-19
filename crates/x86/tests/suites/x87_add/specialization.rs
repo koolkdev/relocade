@@ -142,3 +142,73 @@ fn admitted_sums_keep_controls_dynamic() {
         }
     }
 }
+
+#[test]
+fn full_precision_sums_at_exponent_gap_boundaries() {
+    use relocade_x86::Compiler;
+
+    let one = (LEADING, 0x3fff);
+    let previous = (u64::MAX, 0x3ffe);
+    let cases = [
+        // Equal-exponent addition always carries. The one discarded bit
+        // rounds to an even significand in either direction.
+        (
+            0xc1,
+            0,
+            one,
+            (LEADING + 1, 0x3fff),
+            Some(((LEADING, 0x4000), PE)),
+        ),
+        (
+            0xc1,
+            0,
+            (LEADING + 1, 0x3fff),
+            (LEADING + 2, 0x3fff),
+            Some(((LEADING + 2, 0x4000), PE | C1)),
+        ),
+        (0xe9, 1, one, one, Some(((0, 0x8000), 0))),
+        // With a gap of one, cancellation can move the whole fractional
+        // word into the significand: 1 minus its immediate predecessor.
+        (0xe1, 0, one, previous, Some(((LEADING, 0x3fbf), 0))),
+        // At gap 65 the smaller operand can reach the midpoint below one.
+        // At gap 66 even the largest significand falls short.
+        (0xe1, 0, one, (LEADING, 0x3fff - 65), Some((one, PE | C1))),
+        (0xe1, 0, one, (u64::MAX, 0x3fff - 65), Some((previous, PE))),
+        (0xe1, 0, one, (u64::MAX, 0x3fff - 66), Some((one, PE | C1))),
+        (0xe9, 1, (u64::MAX, 0x3fff - 66), one, Some((previous, PE))),
+        // A directed increment can overflow. Exact cancellation can produce
+        // a subnormal even though both operands are normal.
+        (0xc1, 2, (u64::MAX, 0x7ffe), one, None),
+        (0xe1, 0, (LEADING + 1, 1), (LEADING, 1), None),
+    ];
+    for (opcode, rc, left, right, expected_sum) in cases {
+        let code = [0xd8, opcode];
+        let mut image = stack_image(&code, 0, 0xfff0);
+        image.cpu.x87.control.rounding_control = rc;
+        image.cpu.x87.status.precision = 0;
+        write_value(&mut image.cpu, 0, left);
+        write_value(&mut image.cpu, 1, right);
+        let compiled = Compiler::new(SegmentProfile::Flat32)
+            .specialize_on_cpu(&image.cpu)
+            .compile_block(0x1000, &code, 1)
+            .unwrap();
+        let module = TestModule::new(&compiled);
+        match expected_sum {
+            Some((value, flags)) => {
+                let mut cpu = complete_x87(image.cpu, 2, u16::from(opcode));
+                cpu.x87.status.precision = u8::from(flags & PE != 0);
+                cpu.x87.status.c1 = u8::from(flags & C1 != 0);
+                write_value(&mut cpu, 0, value);
+                assert_eq!(
+                    module.observe(&image.input(), 1),
+                    expected(&image, &[dispatch(cpu)])
+                );
+            }
+            None => image.check_unchanged_exit(
+                &module,
+                "full-precision sum outside normal range",
+                Exit::Interpret,
+            ),
+        }
+    }
+}
