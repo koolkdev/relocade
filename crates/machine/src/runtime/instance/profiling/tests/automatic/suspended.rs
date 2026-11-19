@@ -84,7 +84,7 @@ async fn deferred_installation() {
                 });
                 instance.profiling.submit(&instance.modules);
                 delivered.next().await.unwrap();
-                cpu.service_compiler();
+                cpu.install_ready_compilation();
                 assert!(!cpu.has_entry(0x500));
                 release.send(()).unwrap();
                 // Inspect the first stopped boundary after the outer service

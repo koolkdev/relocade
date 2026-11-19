@@ -111,7 +111,7 @@ impl Cpu {
         profiling.compiler.take()
     }
 
-    pub(in crate::runtime) fn service_compiler(&mut self) {
+    pub(in crate::runtime) fn collect_call_profile_if_due(&mut self) {
         let instance = &mut self.instance;
         if instance.profiling.compiler.is_none()
             || instance.profiling.target.profile != ExecutionProfile::Real16
@@ -123,6 +123,10 @@ impl Cpu {
                 .profiling
                 .collect_if_due(wasm, &instance.modules, Instant::now());
         });
+    }
+
+    pub(in crate::runtime) fn install_ready_compilation(&mut self) {
+        let instance = &mut self.instance;
         // Active or parked services may still retain dispatch entries. Leave
         // the completed reply in the client until those entries are released.
         if instance.profiling.pending.is_empty()

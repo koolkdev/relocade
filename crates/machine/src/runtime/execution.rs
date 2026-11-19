@@ -129,9 +129,9 @@ impl Cpu {
         .await
     }
 
-    /// Polls the active host service once and observes exit requests without
-    /// entering guest code. Pending and parked calls remain owned by the CPU.
-    /// `None` means no exit; it does not imply that guest execution is runnable.
+    /// Polls the active host service once and observes any requested exit.
+    /// At this boundary the CPU can sample the call profile and install a ready
+    /// compilation if the last host service has released its dispatch entries.
     pub(crate) fn poll_host_work(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
         if !self.exit.is_requested() {
             if let Some(call) = self.pending.take() {
@@ -141,7 +141,8 @@ impl Cpu {
         if let Some(exit) = self.exit.result() {
             return Some(self.finish_exit(exit));
         }
-        self.service_compiler();
+        self.collect_call_profile_if_due();
+        self.install_ready_compilation();
         None
     }
 
@@ -171,7 +172,7 @@ impl Cpu {
     }
 
     /// A host boundary has published the guest state. The worker can service
-    /// newly woken activities there, including on the way into HLT.
+    /// newly woken tasks there, including on the way into HLT.
     fn dispatch(
         &mut self,
         cx: &mut Context<'_>,
@@ -194,10 +195,15 @@ impl Cpu {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
                     self.pending = Call::start(self.instance.handler(service_id), cx);
                 }
-                ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
-                    Ok(call) => self.pending = call,
-                    Err(exit) => break exit,
-                },
+                ExecutionExit::Host(HostExit::Resume) => {
+                    let Some(call) = self.take_suspended_call() else {
+                        break exit;
+                    };
+                    self.pending = Some(call);
+                    if let Some(exit) = self.poll_host_work(cx) {
+                        return Some(exit);
+                    }
+                }
                 ExecutionExit::StepComplete
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered

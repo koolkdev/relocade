@@ -3,7 +3,7 @@ use super::{
     BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
-    worker::{ChannelError, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
+    worker::{ChannelError, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
@@ -31,33 +31,36 @@ impl Endpoint {
         worker: &WorkerWake<ExecutionInterrupt>,
     ) -> Result<(CompilerClient, LocalBoxFuture<'static, ()>)> {
         self.peer.send(worker.peer())?;
-        let mut posted = self.results.bind().with_worker(worker);
+        let posted = self.results.bind().with_worker(worker);
         // A single sender owns one slot in a zero-capacity futures channel.
-        let (mut ready, results) = mpsc::channel(0);
-        let receive = async move {
-            // Finish transport on its own task even if the foreground stops
-            // while a JS object is in flight. Waiting for client capacity
-            // requests no host turns.
-            while poll_fn(|cx| ready.poll_ready(cx)).await.is_ok() {
-                let Some(reply) = posted.recv().await else {
-                    break;
-                };
-                let result = match reply {
-                    Ok(Reply(result)) => result,
-                    Err(error) => Err(error.into()),
-                };
-                if ready.try_send(result).is_err() {
-                    break;
-                }
-            }
-        };
+        let (ready, results) = mpsc::channel(0);
         Ok((
             CompilerClient {
                 requests: self.requests,
                 results,
             },
-            Box::pin(receive),
+            Box::pin(forward_replies(posted, ready)),
         ))
+    }
+}
+
+// The session owns transport so cancelling a CPU run cannot strand a posted module.
+async fn forward_replies(
+    mut posted: Receiver<Reply>,
+    mut ready: mpsc::Sender<Result<CompiledCode>>,
+) {
+    // Wait for local capacity before requesting a browser turn for the next reply.
+    while poll_fn(|cx| ready.poll_ready(cx)).await.is_ok() {
+        let Some(reply) = posted.recv().await else {
+            break;
+        };
+        let result = match reply {
+            Ok(Reply(result)) => result,
+            Err(error) => Err(error.into()),
+        };
+        if ready.try_send(result).is_err() {
+            break;
+        }
     }
 }
 

@@ -117,10 +117,12 @@ block can overshoot it. Pending callbacks share this interval. After a browser
 turn, the worker resumes runnable work and retries if necessary. Completing
 or cancelling the last operation ends the retries.
 
-For automatic Real16 compilation, the CPU uses the reply at a stopped boundary
-when no active or suspended Rust service retains dispatch entries. The reply
-stays in the client slot until that boundary. The CPU installs
-compiled code for missing entries and provides interpreter fallbacks for
+For automatic Real16 compilation, the CPU checks for a delivered reply after
+polling its active host service. A parked BIOS call can retain dispatch entries
+while its interrupt handler runs. The reply stays in the client slot until
+the last such call returns and releases those entries. The resumed call goes
+through the same CPU check before guest execution continues.
+The CPU installs compiled code for missing entries and provides interpreter fallbacks for
 remaining roots. An application that takes ownership through
 `Runner::take_compiler` can instead await `CompilerClient::recv` as a session
 task, stop its CPU run at an allowed boundary, and install the returned code
