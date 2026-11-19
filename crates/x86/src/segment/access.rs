@@ -70,11 +70,14 @@ impl SegmentAccess<'_> {
         let base = self.base(body, segment)?;
         let denied = match self.profile {
             ExecutionProfile::Real16 => {
-                // Canonical real-mode limits apply without protected-mode type permissions.
-                bytes
+                // Real mode uses the loaded limit without protected-mode type permissions.
+                let limit = self.limit(body, segment)?;
+                // Fixed limits and sizes fold to one offset comparison.
+                let tail_bytes = bytes.sub(1);
+                limit
                     .unsigned()
-                    .ge(0x10001u32)
-                    .or(offset.unsigned().ge(Val::<I32>::from(0x10001).sub(&bytes)))
+                    .lt(&tail_bytes)
+                    .or(limit.sub(tail_bytes).unsigned().lt(offset))
             }
             ExecutionProfile::Protected(_) => {
                 self.access_denied(body, segment, offset, &bytes, intent)?

@@ -9,12 +9,8 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     let cpu = Cpu::declare(&mut program);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
-            let mut state = State::for_entry(
-                &cpu,
-                profile,
-                &crate::profile::EntryGuarantees::for_profile(profile),
-            );
-            let check = state.segments().check(
+            let mut fields = crate::ssa::StateFields::new(cpu.memory());
+            let check = crate::segment::SegmentAccess::new(&mut fields, profile).check(
                 &mut body,
                 &segment.into(),
                 &offset,
@@ -30,7 +26,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
     TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
-        execution_target: Some(crate::Compiler::new(profile).target()),
+        execution_target: None,
     })
 }
 
@@ -118,24 +114,31 @@ fn runtime_segment_spans_check_limits_and_wrap() {
 }
 
 #[test]
-fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
+fn real_mode_spans_use_the_loaded_limit_and_allow_cs_writes() {
     let module = probe(crate::ExecutionProfile::Real16, Segment::Cs);
     let mut cpu = CpuState::real_mode();
     cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
-    let cpu = cpu.to_bytes().to_vec();
-    for (offset, bytes, denied) in [
-        (0u32, 0u32, true),
-        (0u32, 0x10000u32, false),
-        (1, 0x10000, true),
-        (0, 0x10001, true),
-        (0xfffc, 4, false),
-        (0xfffc, 5, true),
-        (0xffff, 1, false),
-        (0x10000, 1, true),
-        (0, u32::MAX, true),
-        (1, u32::MAX, true),
-        (u32::MAX, 2, true),
+    for (limit, offset, bytes, denied) in [
+        (0xffff, 0u32, 0u32, true),
+        (0xffff, 0, 0x10000, false),
+        (0xffff, 1, 0x10000, true),
+        (0xffff, 0, 0x10001, true),
+        (0xffff, 0xfffc, 4, false),
+        (0xffff, 0xfffc, 5, true),
+        (0xffff, 0xffff, 1, false),
+        (0xffff, 0x10000, 1, true),
+        (0xffff, 0, u32::MAX, true),
+        (0xffff, 1, u32::MAX, true),
+        (0xffff, u32::MAX, 2, true),
+        (0x23, 0x20, 4, false),
+        (0x23, 0x20, 5, true),
+        (0x1ffff, 0x10000, 0x10000, false),
+        (0x1ffff, 0x10001, 0x10000, true),
+        (u32::MAX, u32::MAX, 1, false),
+        (u32::MAX, u32::MAX, 2, true),
     ] {
+        cpu.segments.cs.limit = limit;
+        let cpu = cpu.to_bytes().to_vec();
         let input = Input {
             arguments: vec![Argument::I32(offset as i32), Argument::I32(bytes as i32)],
             ..Input::new(&cpu)
@@ -156,7 +159,7 @@ fn real_mode_runtime_spans_keep_the_64k_limit_and_allow_cs_writes() {
                 guest_unchanged: true,
                 machine_unchanged: true,
             },
-            "offset {offset:x}, bytes {bytes}"
+            "limit {limit:x}, offset {offset:x}, bytes {bytes}"
         );
     }
 }
