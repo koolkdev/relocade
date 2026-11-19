@@ -4,6 +4,7 @@ mod calls;
 pub(super) use calls::Calls;
 mod table;
 
+use super::hooks::Hooks;
 use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
@@ -16,18 +17,17 @@ use table::DispatchTable;
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ModuleId(usize);
 
-pub(super) struct InstalledModule<B: ExportFunction<abi::ExecutionSignature>> {
+pub(super) struct ModuleInstance<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
-    entries: BTreeMap<u32, String>,
+    entry_keys: Vec<u32>,
     code: Option<CompiledCode>,
     calls: Option<Calls<B>>,
     pages: BTreeSet<u32>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
+impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
     pub(super) fn new(
         instance: B::Instance,
-        entries: &[DispatchEntry<'_>],
         code: Option<CompiledCode>,
         calls: Option<Calls<B>>,
     ) -> Self {
@@ -39,10 +39,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
             .collect();
         Self {
             instance,
-            entries: entries
-                .iter()
-                .map(|entry| (entry.key, entry.export.to_owned()))
-                .collect(),
+            entry_keys: Vec::new(),
             code,
             calls,
             pages,
@@ -52,22 +49,14 @@ impl<B: ExportFunction<abi::ExecutionSignature>> InstalledModule<B> {
     pub(super) fn code(&self) -> Option<&CompiledCode> {
         self.code.as_ref()
     }
-
-    fn publish(&self, backend: &mut B, table: &mut DispatchTable<B>, id: ModuleId) -> Result<()> {
-        let entries: Vec<_> = self
-            .entries
-            .iter()
-            .map(|(&key, export)| DispatchEntry { key, export })
-            .collect();
-        table.install(backend, id, &self.instance, &entries)
-    }
 }
 
 pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
     table: DispatchTable<B>,
-    modules: BTreeMap<ModuleId, InstalledModule<B>>,
+    modules: BTreeMap<ModuleId, ModuleInstance<B>>,
     next_module_id: usize,
     pages: BTreeMap<u32, BTreeSet<ModuleId>>,
+    pub(super) hooks: Hooks,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
@@ -77,6 +66,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             modules: BTreeMap::new(),
             next_module_id: 0,
             pages: BTreeMap::new(),
+            hooks: Hooks::default(),
         })
     }
 
@@ -107,20 +97,27 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         self.table.install_interpreter_fallback(backend, entry)
     }
 
-    pub(super) fn install(&mut self, backend: &mut B, module: InstalledModule<B>) -> Result<()> {
+    pub(super) fn register_exports(
+        &mut self,
+        backend: &mut B,
+        mut module: ModuleInstance<B>,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<()> {
         let id = ModuleId(self.next_module_id);
-        module.publish(backend, &mut self.table, id)?;
+        module.entry_keys = self
+            .table
+            .register_exports(backend, id, &module.instance, entries)?;
         if let Some(calls) = &module.calls {
             self.table.register_calls(backend, id, calls)?;
         }
         for &page in &module.pages {
             self.pages.entry(page).or_default().insert(id);
         }
-        self.modules.insert(id, module);
         self.next_module_id = self
             .next_module_id
             .checked_add(1)
             .expect("module identity fits usize");
+        self.modules.insert(id, module);
         Ok(())
     }
 
@@ -154,9 +151,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 self.table.unregister_calls(*id, calls);
             }
         }
-        let exports = retired_modules
-            .iter()
-            .flat_map(|&id| self.modules[&id].entries.keys().map(move |&key| (id, key)));
+        let exports = retired_modules.iter().flat_map(|&id| {
+            self.modules[&id]
+                .entry_keys
+                .iter()
+                .map(move |&key| (id, key))
+        });
         let keys = self.table.remove(backend, exports)?;
         for id in retired_modules {
             let module = self.modules.remove(&id).expect("installed module");
@@ -171,7 +171,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         Ok(keys)
     }
 
-    pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &InstalledModule<B>> {
+    pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &ModuleInstance<B>> {
         self.pages
             .get(&(address >> 12))
             .into_iter()

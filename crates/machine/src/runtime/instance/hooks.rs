@@ -25,13 +25,17 @@ pub(super) struct HookModule {
     handlers: Vec<PreparedHandler>,
 }
 
-struct PreparedHandler {
+pub(super) struct PreparedHandler {
     key: u32,
     id: u32,
     handler: Rc<dyn Handler>,
 }
 
 impl HookModule {
+    pub(super) fn take_handlers(&mut self) -> Vec<PreparedHandler> {
+        std::mem::take(&mut self.handlers)
+    }
+
     pub(super) fn entries(&self) -> Vec<DispatchEntry<'_>> {
         self.exports
             .iter()
@@ -87,23 +91,23 @@ impl Hooks {
         })
     }
 
-    /// Installs prepared handlers after their Wasm entries are installed.
-    pub(super) fn install(&mut self, module: HookModule) {
-        for PreparedHandler { key, id, handler } in module.handlers {
+    /// Replace the callbacks for the published entries, retaining their service IDs.
+    pub(super) fn replace_bindings(
+        &mut self,
+        entries: &[DispatchEntry<'_>],
+        handlers: Vec<PreparedHandler>,
+    ) {
+        for entry in entries {
+            if let Some(&id) = self.ids.get(&entry.key) {
+                self.handlers[id as usize] = None;
+            }
+        }
+        for PreparedHandler { key, id, handler } in handlers {
             self.ids.insert(key, id);
             if self.handlers.len() <= id as usize {
                 self.handlers.resize_with(id as usize + 1, || None);
             }
             self.handlers[id as usize] = Some(handler);
-        }
-    }
-
-    /// Releases overwritten captures, retaining their IDs for reinstallation.
-    pub(super) fn remove(&mut self, entries: &[DispatchEntry<'_>]) {
-        for entry in entries {
-            if let Some(&id) = self.ids.get(&entry.key) {
-                self.handlers[id as usize] = None;
-            }
         }
     }
 }

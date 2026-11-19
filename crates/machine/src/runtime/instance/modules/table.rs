@@ -153,24 +153,29 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         Ok(())
     }
 
-    pub(super) fn install(
+    pub(super) fn register_exports(
         &mut self,
         backend: &mut B,
         module: ModuleId,
         instance: &B::Instance,
-        exports: &[DispatchEntry<'_>],
-    ) -> Result<()> {
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<Vec<u32>> {
+        // Only the last export at each key needs to exist in the Wasm instance.
+        let mut exports = BTreeMap::new();
+        for entry in entries {
+            exports.insert(entry.key, entry.export);
+        }
         let mut updates = BTreeMap::new();
         let mut next_slot = self.next_slot;
         let mut free_slots = self.free_slots.clone();
-        for entry in exports {
+        for (&key, &export) in &exports {
             let function = backend.function(
                 instance,
-                Function::<abi::ExecutionSignature>::new("", entry.export),
+                Function::<abi::ExecutionSignature>::new("", export),
             )?;
             let slot = self
                 .entries
-                .get(&entry.key)
+                .get(&key)
                 .and_then(|entry| entry.target.slot())
                 .filter(|&slot| slot >= EntryTable::FIRST_DYNAMIC_SLOT)
                 .or_else(|| free_slots.pop())
@@ -182,7 +187,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                     slot
                 });
             updates.insert(
-                entry.key,
+                key,
                 Target::Export {
                     module,
                     slot,
@@ -192,7 +197,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         }
         self.publish(backend, updates)?;
         self.free_slots = free_slots;
-        Ok(())
+        Ok(exports.into_keys().collect())
     }
 
     /// Only withdraw exports still owned by the retiring installation.
