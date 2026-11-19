@@ -145,43 +145,18 @@ impl Cpu {
         if let Some(exit) = self.exit.result() {
             return Some(self.finish_exit(exit));
         }
-        self.poll_compilation(cx);
+        self.service_compiler();
         None
-    }
-
-    /// A completed guest block is one unit of work when another task is
-    /// already waiting. All compiled profiles include the interrupt checkpoint,
-    /// including those compiled without instruction-budget checks.
-    pub(crate) fn poll_scheduled_execution(
-        &mut self,
-        cx: &mut Context<'_>,
-        contended: bool,
-    ) -> Poll<ExecutionExit> {
-        if contended {
-            self.instance.bindings.interrupt.request();
-        }
-        let result = self.poll_execution(cx, true);
-        // Generated checkpoints check the interrupt before the retirement target.
-        // An internal fairness request must preserve a caller's own budget exit.
-        if contended
-            && result == Poll::Ready(ExecutionExit::Interrupted)
-            && self
-                .instruction_target
-                .reached(self.instance.bindings.cpu.instruction_count())
-        {
-            Poll::Ready(ExecutionExit::BudgetExhausted)
-        } else {
-            result
-        }
     }
 
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
     /// exit or pending service stops execution. New and resumed host calls are
     /// polled at their entries; existing host work is polled by `poll_host_work`.
-    fn poll_execution(
+    /// In a session, return at host boundaries when an activity requests a turn.
+    pub(crate) fn poll_execution(
         &mut self,
         cx: &mut Context<'_>,
-        interrupt_between_entries: bool,
+        in_session: bool,
     ) -> Poll<ExecutionExit> {
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
@@ -207,19 +182,26 @@ impl Cpu {
                 ExecutionExit::StepComplete
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered
-                | ExecutionExit::FarCallEntered => {}
-                ExecutionExit::Halted => continue,
+                | ExecutionExit::FarCallEntered
+                | ExecutionExit::Halted => {}
                 exit => break exit,
             }
-            // An I/O instruction or Rust hook can wake a sibling and return
-            // here without going through a generated block-end checkpoint.
-            if interrupt_between_entries
-                && !self.exit.is_requested()
-                && self.instance.bindings.interrupt.is_requested()
-            {
-                break ExecutionExit::Interrupted;
+            // Device I/O or a Rust hook can wake a sibling before guest code
+            // reaches a block-end checkpoint, including on the way into HLT.
+            if in_session && self.instance.bindings.interrupt.is_requested() {
+                break self.exit.result().unwrap_or(ExecutionExit::Interrupted);
             }
         };
+        // A session consumes its scheduling interrupts internally. If both
+        // checkpoints fired, deliver the caller's instruction target.
+        if in_session
+            && exit == ExecutionExit::Interrupted
+            && self
+                .instruction_target
+                .reached(self.instance.bindings.cpu.instruction_count())
+        {
+            return Poll::Ready(ExecutionExit::BudgetExhausted);
+        }
         Poll::Ready(self.finish_exit(exit))
     }
 

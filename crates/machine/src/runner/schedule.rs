@@ -11,11 +11,6 @@ use std::{
     task::{ready, Context, Poll, Waker},
 };
 
-pub(super) enum Turn {
-    Continue,
-    Exit(ExecutionExit),
-}
-
 pub(super) struct ExecutionSchedule {
     clock: Clock,
     guest: Option<GuestSchedule>,
@@ -24,7 +19,12 @@ pub(super) struct ExecutionSchedule {
 struct GuestSchedule {
     driver: GuestTimeDriver,
     slice: Option<ExecutionSlice>,
-    deferred_idle: Option<Timestamp>,
+}
+
+pub(super) enum MachineTurn<'a> {
+    Checkpoint,
+    Exit(ExecutionExit),
+    IdleUntil(&'a GuestTimeDriver, Timestamp),
 }
 
 impl ExecutionSchedule {
@@ -42,11 +42,7 @@ impl ExecutionSchedule {
         }
         Self {
             clock: driver.clock(),
-            guest: Some(GuestSchedule {
-                driver,
-                slice,
-                deferred_idle: None,
-            }),
+            guest: Some(GuestSchedule { driver, slice }),
         }
     }
 
@@ -67,20 +63,19 @@ impl ExecutionSchedule {
         (cpu.exit_handle().bind(changed), deadlines)
     }
 
-    /// Polls host work before pacing guest entry, then publishes progress and
-    /// chooses whether to yield, wait or return. Pending pacing waits do not
-    /// advance idle time. A terminal exit includes CPU cleanup.
+    /// Runs to a CPU checkpoint or exit. A blocked CPU offers its next deadline
+    /// to the runner, which knows whether another Rust activity is ready.
     pub(super) fn poll_turn(
         &mut self,
         mut cpu: Option<&mut Cpu>,
         execution: Option<&Member>,
-        has_ready: impl Fn() -> bool,
         cx: &mut Context<'_>,
-    ) -> Poll<Turn> {
+    ) -> Poll<MachineTurn<'_>> {
         let _execution = match execution {
             Some(execution) => Some(ready!(execution.poll_enter(cx))),
             None => None,
         };
+        // A host service can complete even while guest entry is paced.
         let result = if let Some(exit) = cpu.as_mut().and_then(|cpu| cpu.poll_host_work(cx)) {
             Poll::Ready(exit)
         } else {
@@ -92,49 +87,33 @@ impl ExecutionSchedule {
                     .driver
                     .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
             }
-            cpu.map_or(Poll::Pending, |cpu| {
-                cpu.poll_scheduled_execution(cx, has_ready())
-            })
+            cpu.map_or(Poll::Pending, |cpu| cpu.poll_execution(cx, true))
         };
-        if let Some(guest) = &self.guest {
-            guest
-                .driver
-                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
-        }
-        match result {
-            Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(Turn::Continue),
-            Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
-                Poll::Ready(Turn::Continue)
-            }
-            Poll::Ready(exit) => Poll::Ready(Turn::Exit(exit)),
+        let exit = match result {
+            Poll::Ready(exit) => exit,
             Poll::Pending => {
-                let Some(guest) = &mut self.guest else {
+                let Some(guest) = &self.guest else {
                     return Poll::Pending;
                 };
                 let Some(deadline) = guest.driver.next_deadline() else {
-                    guest.deferred_idle = None;
                     return Poll::Pending;
                 };
-                // Tasks already enqueued can cancel or replace the earliest wait.
-                // One FIFO round is sufficient even when an activity wakes itself.
-                if has_ready() && guest.deferred_idle != Some(deadline) {
-                    guest.deferred_idle = Some(deadline);
-                    return Poll::Ready(Turn::Continue);
-                }
-                guest.deferred_idle = None;
                 let deadline = match &guest.slice {
                     Some(slice) if slice.paced => deadline.min(slice.deadline()),
                     _ => deadline,
                 };
-                guest.driver.advance_to(deadline);
-                // Expiration wakes the owning task. The machine itself needs
-                // another idle turn only if there is still a deadline to drive.
-                if guest.driver.next_deadline().is_some() {
-                    Poll::Ready(Turn::Continue)
-                } else {
-                    Poll::Pending
-                }
+                return Poll::Ready(MachineTurn::IdleUntil(&guest.driver, deadline));
             }
+        };
+        if let Some(guest) = &self.guest {
+            guest.driver.notify_due();
+        }
+        match exit {
+            ExecutionExit::Interrupted => Poll::Ready(MachineTurn::Checkpoint),
+            ExecutionExit::BudgetExhausted if self.guest.is_some() => {
+                Poll::Ready(MachineTurn::Checkpoint)
+            }
+            exit => Poll::Ready(MachineTurn::Exit(exit)),
         }
     }
 }

@@ -1,7 +1,7 @@
 # Worker execution
 
-Each execution worker owns one CPU session. `Runner::run` schedules the
-application, device activities and machine on one ready queue.
+Each execution worker owns one CPU session. `Runner::run` drives the
+application, device activities and machine together.
 `runner.run_cpu().await` submits a request to run the CPU and waits for its exit.
 Devices remain active while the application waits for input or another program.
 
@@ -202,36 +202,33 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-The application, each registered activity, and the machine have their own waker.
-Waking an idle task puts it at the tail of the worker's FIFO ready queue.
-Repeated wakes coalesce into one turn. If the active task wakes during its
-poll, the worker appends it when the poll returns, behind any other tasks that
-woke during that turn.
-A continuously ready activity must return from its poll to let the worker
-dispatch others. The stop signal is checked between turns.
-
-The scheduler executes guest instructions while a CPU run request is pending.
-On its turn the machine polls pending Rust services and compiler work, checks any
-pacing wait, and enters guest code. If another task is ready, guest execution
-returns to the queue at its next completed checkpoint. A wake during guest
-execution requests a checkpoint independently of guest IF. A long block
-or `REP` can delay the return to Rust. The CPU retains pending and suspended
-calls, arbitrates IRQs and observes guest exits.
+The worker executor runs one session future and checks cancellation before
+each poll. The session polls ready device and compiler-receipt futures first,
+then the application. If the application is still waiting, the machine gets
+one turn. A wake during guest execution requests a return to Rust at a
+completed checkpoint, independently of guest IF. A long block or `REP` can
+delay that return.
 [Execution checkpoints](../../x86/docs/host-integration.md#execution-interrupts)
 
-After a guest-time checkpoint the machine publishes retirement and wakes due
-sleepers. The machine can also advance to a registered device deadline while
-the guest is halted or the application is waiting between programs. A PIT
-deadline can wake its activity, which raises IRQ0 on the PIC. An eligible IRQ
-then makes a halted CPU runnable. The scheduler can deliver the timer wake
-while the guest has interrupts masked. [Guest clock and pacing](clock.md#execution-with-guest-time)
+With a pending CPU run request, the machine polls retained Rust services,
+installs available compiler replies when safe, checks pacing and executes
+guest code. After a guest-time checkpoint it publishes retirement and wakes
+due sleepers. When guest execution is blocked or between programs, the clock
+advances to the next device deadline only after Rust work stops requesting polls.
+A device woken by a host service can cancel its timer at the current guest time.
+Once the worker is quiet, a PIT deadline can raise IRQ0 and resume a halted CPU
+with interrupts enabled. An activity that continually wakes itself keeps an idle
+guest clock stationary.
+[Guest clock and pacing](clock.md#execution-with-guest-time)
 
-The execution worker can process successive ready tasks entirely inside Wasm.
-It parks when the queue is empty. An operation that needs its JavaScript event
+The execution worker can process successive turns entirely inside Wasm.
+It parks when all work is waiting. An operation that needs its JavaScript event
 loop registers that demand, for example while compiling a local Wasm module or
 receiving a posted module. A session activity can wrap its own browser promise
-future in `runner.host_turns().wait(future).await`. Only outstanding demand arms
-the shared host timer.
+future in `runner.host_turns().wait(future).await`. If Rust work stays runnable
+while a callback is pending, the worker checks elapsed host time between turns
+and yields to the browser after 1 ms. Guest instructions return at completed
+checkpoints during that interval.
 [Compiler reply delivery](compilation.md#compiler-replies)
 
 `ExecutionWorker` creates a wake connection before spawning and binds it to

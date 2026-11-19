@@ -1,16 +1,15 @@
-//! One dispatch loop for runnable work, cancellation and host delivery.
+//! Polling and parking for a worker's root future.
 
 mod host;
 pub use host::HostTurns;
-mod queue;
-mod root;
 
 use super::{WakeConnection, WakePeer, WakeTarget};
-use futures_util::task::AtomicWaker;
+use async_channel::{Receiver, Sender};
+use futures_timer::Delay;
+use futures_util::future::{select, Either};
 use host::HostSchedule;
-use queue::ReadyQueue;
 use std::{
-    cell::RefCell,
+    cell::Cell,
     future::{poll_fn, Future},
     pin::pin,
     sync::{
@@ -21,13 +20,13 @@ use std::{
     time::Duration,
 };
 
-/// Drives a worker's ready queue and interrupts synchronous execution on a wake.
-/// Tasks and their futures stay on their owner. Their wakers can cross threads.
-/// Run one session at a time on an executor.
+/// Owns polling, cancellation and parking for a worker's root future.
+/// Application and device futures are composed into one root future. Runnable
+/// work is repolled here. Idle waits and requested host turns use the caller's executor.
 pub struct Executor<R: WakeTarget> {
     connection: WakeConnection<R>,
-    wake: Arc<WorkerWake>,
-    tasks: RefCell<ReadyQueue>,
+    wake: Arc<ExecutorWake>,
+    runnable: Receiver<()>,
     pub(crate) host: HostSchedule,
 }
 
@@ -38,16 +37,17 @@ impl<R: WakeTarget> Executor<R> {
     }
 
     pub fn new(connection: WakeConnection<R>) -> Self {
-        let wake = Arc::new(WorkerWake {
+        let (notify, runnable) = async_channel::bounded(1);
+        let wake = Arc::new(ExecutorWake {
             interrupt: connection.waker().clone(),
-            parked: AtomicWaker::new(),
+            notify,
             notified: AtomicBool::new(false),
         });
-        let host = HostSchedule::new(Waker::from(wake.clone()));
+        let host = HostSchedule::new(connection.waker().clone());
         Self {
             connection,
             wake,
-            tasks: RefCell::default(),
+            runnable,
             host,
         }
     }
@@ -65,130 +65,125 @@ impl<R: WakeTarget> Executor<R> {
         self
     }
 
-    /// Declares pending host operations on this worker, including posted objects
-    /// and promises. Keep the handle with the operation that needs host delivery.
+    /// Measures the host grace interval at execution checkpoints. While a host
+    /// dependency is pending the executor requests a checkpoint on each turn.
+    /// Synchronous work must observe the bound interrupt and return to Rust.
+    pub fn with_cooperative_host_grace(mut self, interval: Duration) -> Self {
+        self.host.cooperative_grace(interval);
+        self
+    }
+
+    /// Registers work whose completion needs this worker's host event loop.
     pub fn host_turns(&self) -> HostTurns {
         self.host.pending.clone()
     }
 
-    /// Creates a waker for one task in the current session. Wake it for its
-    /// first poll. Use one waker per ID and clone it for additional waiters.
-    pub fn task(&self, id: usize) -> Waker {
-        self.tasks.borrow().task(id, self.wake.clone())
-    }
-
-    /// Whether a turn is waiting, including a re-poll requested by the active
-    /// task. New wakes still request a synchronous execution checkpoint.
-    pub fn has_ready(&self) -> bool {
-        self.tasks.borrow().has_ready()
-    }
-
-    /// Polls one ready task per turn until a task completes the session or
-    /// `stop` resolves. A pending task needs a wake to run again. Waking a
-    /// task during its poll places it at the tail when the poll returns.
-    /// Completion and cancellation discard queued work and retire these wakers.
-    pub async fn drive<T>(
-        &self,
-        stop: impl Future,
-        mut poll: impl FnMut(usize, &mut Context<'_>) -> Poll<T>,
-    ) -> Option<T> {
-        let _session = queue::Session(&self.tasks);
-        self.dispatch(
-            stop,
-            || self.has_ready(),
-            || {
-                let task = self.tasks.borrow_mut().begin_turn();
-                let Some((id, waker)) = task else {
-                    return Poll::Pending;
-                };
-                let result = poll(id, &mut Context::from_waker(&waker));
-                self.tasks.borrow_mut().end_turn();
-                if self.has_ready() {
-                    self.wake.notified.store(true, Ordering::SeqCst);
-                }
-                result
-            },
-        )
-        .await
-    }
-
-    async fn dispatch<T>(
-        &self,
-        stop: impl Future,
-        runnable: impl Fn() -> bool,
-        mut poll: impl FnMut() -> Poll<T>,
-    ) -> Option<T> {
+    /// Runs the worker's root future until it completes or stop resolves.
+    /// Stop is polled first, registering its waker before application code can
+    /// enter synchronous guest execution. Cancellation returns None and drops
+    /// the root future on its owner. Run one root at a time with this executor.
+    pub async fn run_until<S: Future, F: Future>(&self, stop: S, future: F) -> Option<F::Output> {
         let mut stop = pin!(stop);
+        let mut future = pin!(future);
         let waker = Waker::from(self.wake.clone());
-        let mut host = self.host.run();
+        let mut grace = None;
         loop {
             self.wake.notified.store(false, Ordering::SeqCst);
-            // Acknowledge at the stopped boundary *before* checking stop, host
-            // demand or queued work. Wakes after that check can break this turn.
-            self.connection.acknowledge();
-            let mut cx = Context::from_waker(&waker);
-            if stop.as_mut().poll(&mut cx).is_ready() {
+            let mut context = Context::from_waker(&waker);
+            if stop.as_mut().poll(&mut context).is_ready() {
                 return None;
             }
-            if runnable() && host.poll_ready(&mut cx).is_ready() {
-                if let Poll::Ready(result) = poll() {
-                    return Some(result);
-                }
-            }
+            let result = future.as_mut().poll(&mut context);
+            // A newly woken sibling may already have been polled. Preserve its
+            // checkpoint through the next root poll, even across acknowledgement.
+            self.connection.acknowledge();
             if self.wake.notified.load(Ordering::SeqCst) {
-                continue;
+                self.wake.interrupt.wake_by_ref();
             }
-            if !runnable() {
-                // Parking already gives JS a turn. Keep the operation's
-                // registration, and arm grace again when Rust work resumes.
-                host.idle();
+            if let Poll::Ready(value) = result {
+                return Some(value);
             }
-            let _registration = ParkRegistration(&self.wake.parked);
-            poll_fn(|cx| {
-                self.wake.parked.register(cx.waker());
-                if self.wake.notified.load(Ordering::SeqCst) {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
+            if self.runnable.try_recv().is_err() {
+                // Parking itself lets the browser deliver pending callbacks.
+                grace = None;
+                self.runnable
+                    .recv()
+                    .await
+                    .expect("executor owns its wake sender");
+            }
+            if self.host.turn_due(&mut grace, &mut context) {
+                if let Either::Left(_) = select(stop.as_mut(), Delay::new(Duration::ZERO)).await {
+                    return None;
                 }
-            })
-            .await;
+                // The browser may still owe a callback. Arm its next interval
+                // before synchronous execution resumes. Stop is checked above.
+                if self.host.turn_due(&mut grace, &mut context) {
+                    self.wake.interrupt.wake_by_ref();
+                }
+            }
         }
+    }
+
+    /// Whether work has already requested another root poll.
+    pub fn has_pending_poll(&self) -> bool {
+        !self.runnable.is_empty()
+    }
+
+    /// Requests another poll of the root without interrupting the current turn.
+    pub fn request_poll(&self) {
+        let _ = self.wake.notify.try_send(());
+    }
+
+    /// Yields busy execution without requesting another interrupt. The current
+    /// task's waker still runs, including any enclosing combinator's bookkeeping.
+    pub async fn yield_now(&self) {
+        let mut yielded = false;
+        poll_fn(|cx| {
+            if std::mem::replace(&mut yielded, true) {
+                Poll::Ready(())
+            } else {
+                // Suppress only the first root notification from this child wake.
+                // Any additional notification remains an interrupt request.
+                let _scope = YieldScope(YIELDING.replace(Arc::as_ptr(&self.wake)));
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
-struct WorkerWake {
+thread_local! {
+    static YIELDING: Cell<*const ExecutorWake> = const { Cell::new(std::ptr::null()) };
+}
+
+struct YieldScope(*const ExecutorWake);
+impl Drop for YieldScope {
+    fn drop(&mut self) {
+        YIELDING.set(self.0);
+    }
+}
+
+struct ExecutorWake {
     interrupt: Waker,
-    parked: AtomicWaker,
+    notify: Sender<()>,
+    // Interrupting wakes during a root poll must survive its acknowledgement.
     notified: AtomicBool,
 }
 
-impl WorkerWake {
-    fn schedule(&self) {
-        self.notified.store(true, Ordering::SeqCst);
-        self.parked.wake();
-    }
-}
-
-impl Wake for WorkerWake {
+impl Wake for ExecutorWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.interrupt.wake_by_ref();
-        self.schedule();
+        if YIELDING.get() == Arc::as_ptr(self) {
+            YIELDING.set(std::ptr::null());
+        } else {
+            self.notified.store(true, Ordering::SeqCst);
+            self.interrupt.wake_by_ref();
+        }
+        // One retained notification covers all wakes before the next poll.
+        let _ = self.notify.try_send(());
     }
 }
-
-struct ParkRegistration<'a>(&'a AtomicWaker);
-impl Drop for ParkRegistration<'_> {
-    fn drop(&mut self) {
-        // Release the outer task on resumption or cancellation, including when
-        // an executor waker escapes and outlives this run.
-        self.0.take();
-    }
-}
-
-#[cfg(test)]
-mod tests;

@@ -124,7 +124,7 @@ impl GuestTimeDriver {
         self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
     }
 
-    fn notify_due(&self) {
+    pub(crate) fn notify_due(&self) {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.now();

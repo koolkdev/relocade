@@ -107,23 +107,19 @@ In the browser, the Rust notification can arrive before the receiving worker's
 The receiver polls for the payload immediately. A pending poll registers demand
 for a browser turn. The execution worker also registers demand while local
 WebAssembly compilation is pending, for example when installing BIOS hooks
-after the PIT and VGA have started. These operations share the same host timer.
-An empty reply channel or a background compilation still on the compiler worker
-creates no demand.
+after the PIT and VGA have started.
 
-When demand starts, runnable tasks get 1 ms on an independent host clock.
-If demand remains at expiry, the execution worker gives its browser event loop
-a turn, then resumes runnable work. This repeats while a callback is pending.
-An idle worker can park immediately. Completion or cancellation of the last
-registered operation disarms the timer. `CpuHandle::spawn` and `run_until`
-reuse their host timer worker for these deadlines. All other browser sessions,
-including paced guest sessions and sessions with a custom device clock, start
-a separate host timer worker before dispatch. This lets delivery proceed even
-when the device or pacing clock is stopped. The worker sleeps until a deadline
-is requested.
+If the worker is idle, it returns to the browser immediately. While Rust work
+is runnable and a callback is pending, that work gets 1 ms of elapsed host
+time before the worker yields to the browser. The CPU returns at completed
+checkpoints so the worker can check the deadline between turns. A long guest
+block can overshoot it. Pending callbacks share this interval. After a browser
+turn, the worker resumes runnable work and retries if necessary. Completing
+or cancelling the last operation ends the retries.
 
 For automatic Real16 compilation, the CPU uses the reply at a stopped boundary
-when no active or suspended Rust service retains dispatch entries. It installs
+when no active or suspended Rust service retains dispatch entries. The reply
+stays in the client slot until that boundary. The CPU installs
 compiled code for missing entries and provides interpreter fallbacks for
 remaining roots. An application that takes ownership through
 `Runner::take_compiler` can instead await `CompilerClient::recv` as a session

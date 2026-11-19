@@ -5,7 +5,7 @@ use futures_util::{
     FutureExt,
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     future::{pending, poll_fn},
     pin::pin,
     rc::Rc,
@@ -40,65 +40,53 @@ async fn receipt_policy() {
     let mut second = second.with_executor(&executor);
     let (cancel_first, first_cancelled) = oneshot::channel();
     let (cancel_second, second_cancelled) = oneshot::channel();
-    let (finish, finished) = oneshot::channel();
-    let mut run = Box::pin(executor.run_until(pending::<()>(), async {
-        join(
-            async {
-                assert!(matches!(
-                    select(Box::pin(first.recv()), first_cancelled).await,
-                    Either::Right(_)
-                ));
-            },
-            async {
-                assert!(matches!(
-                    select(Box::pin(second.recv()), second_cancelled).await,
-                    Either::Right(_)
-                ));
-            },
-        )
-        .await;
-        finished.await.unwrap();
-    }));
-    assert!(run.as_mut().now_or_never().is_none());
-    assert!(
-        timers.borrow().is_empty(),
-        "empty channels request no timer"
+    let receivers = join(
+        async {
+            assert!(matches!(
+                select(Box::pin(first.recv()), first_cancelled).await,
+                Either::Right(_)
+            ));
+        },
+        async {
+            assert!(matches!(
+                select(Box::pin(second.recv()), second_cancelled).await,
+                Either::Right(_)
+            ));
+        },
     );
-    // Model two posted objects whose Rust state precedes the host callbacks.
-    first_sender.states.unbounded_send(42).unwrap();
-    second_sender.states.unbounded_send(73).unwrap();
-    assert!(run.as_mut().now_or_never().is_none());
+    let busy = async {
+        assert!(
+            timers.borrow().is_empty(),
+            "empty channels request no timer"
+        );
+        // Model two posted objects whose Rust state precedes the host callbacks.
+        first_sender.states.unbounded_send(42).unwrap();
+        second_sender.states.unbounded_send(73).unwrap();
+        executor.yield_now().await;
+        executor.yield_now().await;
+        assert_eq!(timers.borrow().len(), 1, "receivers share one interval");
+        timers.borrow_mut().pop().unwrap().send(()).unwrap();
+        executor.yield_now().await;
+        // The payloads still haven't arrived after the host turn.
+        assert_eq!(timers.borrow().len(), 1);
+        cancel_first.send(()).unwrap();
+        executor.yield_now().await;
+        assert!(
+            !timers.borrow()[0].is_canceled(),
+            "cancelling one receiver preserves the other's interval"
+        );
+        cancel_second.send(()).unwrap();
+        executor.yield_now().await;
+        executor.yield_now().await;
+        assert!(timers.borrow_mut().pop().unwrap().is_canceled());
+        assert!(!executor.host.pending.has_pending());
+    };
     assert_eq!(
-        timers.borrow().len(),
-        1,
-        "receivers share one grace interval"
+        executor
+            .run_until(pending::<()>(), join(receivers, busy))
+            .await,
+        Some((((), ()), ()))
     );
-    timers.borrow_mut().pop().unwrap().send(()).unwrap();
-    // Delivery remains late after a real host turn; start another shared interval.
-    poll_fn(|cx| {
-        assert!(run.as_mut().poll(cx).is_pending());
-        if timers.borrow().is_empty() {
-            Poll::Pending
-        } else {
-            Poll::Ready(())
-        }
-    })
-    .await;
-    assert_eq!(timers.borrow().len(), 1);
-
-    cancel_first.send(()).unwrap();
-    assert!(run.as_mut().now_or_never().is_none());
-    assert_eq!(timers.borrow().len(), 1);
-    assert!(
-        !timers.borrow()[0].is_canceled(),
-        "cancelling one receiver preserves the other's interval"
-    );
-    cancel_second.send(()).unwrap();
-    assert!(run.as_mut().now_or_never().is_none());
-    assert!(timers.borrow_mut().pop().unwrap().is_canceled());
-    assert!(!executor.host.pending.has_pending());
-    finish.send(()).unwrap();
-    assert_eq!(run.await, Some(()));
 
     first.deliveries = None;
     second.deliveries = None;
@@ -131,7 +119,16 @@ async fn interrupt_later_sibling() {
         let mut receiver = receiver.with_executor(&executor);
         sender.states.unbounded_send(73).unwrap();
         let mut polls = 0;
+        let stop_waker = RefCell::new(None);
+        let stop = poll_fn(|cx| {
+            stop_waker.replace(Some(cx.waker().clone()));
+            Poll::<()>::Pending
+        });
         let guest = poll_fn(|cx| {
+            assert!(
+                stop_waker.borrow().as_ref().unwrap().will_wake(cx.waker()),
+                "stop must interrupt synchronous work after a host turn"
+            );
             assert!(
                 signal.0.load(Ordering::SeqCst),
                 "pending delivery must interrupt later synchronous work"
@@ -145,7 +142,7 @@ async fn interrupt_later_sibling() {
             Poll::<()>::Pending
         });
         let value = executor
-            .run_until(pending::<()>(), async {
+            .run_until(stop, async {
                 match select(pin!(receiver.recv()), pin!(guest)).await {
                     Either::Left((received, _)) => received.unwrap().unwrap(),
                     Either::Right(_) => unreachable!(),
@@ -165,7 +162,11 @@ async fn stop_during_host_turn() {
     let mut receiver = receiver.with_executor(&executor);
     sender.states.unbounded_send(42).unwrap();
     let (stop, stopped) = oneshot::channel();
-    let mut run = Box::pin(executor.run_until(stopped, receiver.recv()));
+    let busy = poll_fn(|_| {
+        executor.request_poll();
+        Poll::<()>::Pending
+    });
+    let mut run = Box::pin(executor.run_until(stopped, join(receiver.recv(), busy)));
     assert!(run.as_mut().now_or_never().is_none());
     stop.send(()).unwrap();
     assert!(
@@ -206,4 +207,25 @@ fn a_host_turn_request_interrupts_a_later_synchronous_sibling() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_host_turn_request_interrupts_a_later_synchronous_sibling() {
     interrupt_later_sibling().await;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn an_idle_host_dependency_parks_until_delivery() {
+    let signal = Signal(Arc::default());
+    let (_host, endpoint) = crate::wake_connection(signal.clone());
+    let armed = Rc::new(Cell::new(false));
+    let timer = armed.clone();
+    let executor =
+        Executor::new(endpoint.bind(signal)).with_host_timer(Duration::from_millis(1), move |_| {
+            timer.set(true);
+            pending()
+        });
+    let (complete, operation) = oneshot::channel::<()>();
+    let demand = executor.host_turns();
+    let mut run = pin!(executor.run_until(pending::<()>(), demand.wait(operation)));
+    assert!(run.as_mut().now_or_never().is_none());
+    assert!(!armed.get(), "parking needs no host retry timer");
+    complete.send(()).unwrap();
+    assert_eq!(run.as_mut().now_or_never(), Some(Some(Ok(()))));
 }

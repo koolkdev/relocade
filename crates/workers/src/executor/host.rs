@@ -1,29 +1,34 @@
 //! Shared host-delivery timing for one executor.
 
-use futures_timer::Delay;
 use futures_util::future::LocalBoxFuture;
 use std::{
     cell::Cell,
     future::{poll_fn, Future},
-    pin::{pin, Pin},
+    pin::pin,
     rc::Rc,
-    task::{ready, Context, Poll, Waker},
+    task::{Context, Waker},
     time::Duration,
 };
+use web_time::Instant;
 
 pub(crate) struct HostSchedule {
     pub(crate) pending: HostTurns,
-    timer: Option<Box<dyn Fn() -> LocalBoxFuture<'static, ()>>>,
+    start_grace: Option<Box<dyn Fn() -> Grace>>,
+}
+
+pub(super) enum Grace {
+    Timer(LocalBoxFuture<'static, ()>),
+    Elapsed { start: Instant, interval: Duration },
 }
 
 impl HostSchedule {
-    pub(super) fn new(wake: Waker) -> Self {
+    pub(super) fn new(interrupt: Waker) -> Self {
         Self {
             pending: HostTurns(Rc::new(Pending {
                 count: Cell::new(0),
-                wake,
+                interrupt,
             })),
-            timer: None,
+            start_grace: None,
         }
     }
 
@@ -32,79 +37,42 @@ impl HostSchedule {
         interval: Duration,
         timer: impl Fn(Duration) -> F + 'static,
     ) {
-        self.timer = Some(Box::new(move || Box::pin(timer(interval))));
+        self.start_grace = Some(Box::new(move || Grace::Timer(Box::pin(timer(interval)))));
     }
 
-    /// Keep the active timer local to the run so stopping drops it immediately.
-    pub(super) fn run(&self) -> HostRun<'_> {
-        HostRun {
-            schedule: self,
-            timer: None,
-            turn: None,
-        }
-    }
-}
-
-pub(super) struct HostRun<'a> {
-    schedule: &'a HostSchedule,
-    timer: Option<LocalBoxFuture<'static, ()>>,
-    turn: Option<Delay>,
-}
-
-impl HostRun<'_> {
-    pub(super) fn idle(&mut self) {
-        self.timer = None;
-        self.turn = None;
+    pub(super) fn cooperative_grace(&mut self, interval: Duration) {
+        self.start_grace = Some(Box::new(move || Grace::Elapsed {
+            start: Instant::now(),
+            interval,
+        }));
     }
 
-    /// Application work stays runnable during the grace interval and waits only
-    /// for the host yield. Stop and parking remain with the executor.
-    pub(super) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        if !self.schedule.pending.has_pending() {
-            self.idle();
-            return Poll::Ready(());
+    /// While work can run, give a pending delivery one shared grace interval.
+    pub(super) fn turn_due(&self, grace: &mut Option<Grace>, cx: &mut Context<'_>) -> bool {
+        if !self.pending.has_pending() {
+            *grace = None;
+            return false;
         }
-
-        if let Some(turn) = &mut self.turn {
-            ready!(Pin::new(turn).poll(cx));
-            self.turn = None;
-            // Arm the next interval before synchronous work resumes. Without
-            // a grace interval, let work run once and request its next checkpoint.
-            if self.interval_elapsed(cx) {
-                self.turn = Some(Delay::new(Duration::ZERO));
-                cx.waker().wake_by_ref();
-            }
-            return Poll::Ready(());
-        }
-
-        if !self.interval_elapsed(cx) {
-            return Poll::Ready(());
-        }
-        self.turn = Some(Delay::new(Duration::ZERO));
-        // Poll the new wait through the executor's ordinary readiness loop.
-        cx.waker().wake_by_ref();
-        Poll::Pending
-    }
-
-    fn interval_elapsed(&mut self, cx: &mut Context<'_>) -> bool {
-        let elapsed = match &self.schedule.timer {
-            Some(timer) => self
-                .timer
-                .get_or_insert_with(timer)
-                .as_mut()
-                .poll(cx)
-                .is_ready(),
-            None => true,
+        let Some(start_grace) = &self.start_grace else {
+            return true;
         };
-        if elapsed {
-            self.timer = None;
+        let due = match grace.get_or_insert_with(start_grace) {
+            Grace::Timer(timer) => timer.as_mut().poll(cx).is_ready(),
+            Grace::Elapsed { start, interval } => {
+                // Sample the clock again after the next busy CPU checkpoint.
+                self.pending.0.interrupt.wake_by_ref();
+                start.elapsed() >= *interval
+            }
+        };
+        if due {
+            *grace = None;
         }
-        elapsed
+        due
     }
 }
 
 /// Registers work whose completion requires an event-loop turn on this worker.
-/// Clones use the executor's shared grace timer while any such wait is pending.
+/// Clones share one grace interval while any such wait is pending.
 #[derive(Clone)]
 pub struct HostTurns(Rc<Pending>);
 
@@ -122,7 +90,7 @@ impl HostTurns {
                 pending.count.set(count + 1);
                 registration = Some(Registration(pending));
                 if count == 0 {
-                    pending.wake.wake_by_ref();
+                    pending.interrupt.wake_by_ref();
                 }
             }
             result
@@ -137,17 +105,13 @@ impl HostTurns {
 
 struct Pending {
     count: Cell<usize>,
-    wake: Waker,
+    interrupt: Waker,
 }
 
 struct Registration<'a>(&'a Pending);
 
 impl Drop for Registration<'_> {
     fn drop(&mut self) {
-        let remaining = self.0.count.get() - 1;
-        self.0.count.set(remaining);
-        if remaining == 0 {
-            self.0.wake.wake_by_ref();
-        }
+        self.0.count.set(self.0.count.get() - 1);
     }
 }

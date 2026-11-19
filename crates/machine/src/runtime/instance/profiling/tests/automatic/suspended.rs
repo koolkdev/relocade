@@ -10,6 +10,7 @@ use futures_util::{
 use relocade_x86::CallCount;
 use std::{
     cell::Cell,
+    future::Future,
     pin::pin,
     sync::Arc,
     task::{Context, Wake, Waker},
@@ -74,12 +75,8 @@ async fn deferred_installation() {
                 let (signal, mut delivered) = mpsc::unbounded();
                 let ready = Waker::from(Arc::new(ReplyReady(signal)));
                 let instance = &mut cpu.instance;
-                assert!(instance
-                    .profiling
-                    .compiler
-                    .as_mut()
-                    .unwrap()
-                    .poll_recv(&mut Context::from_waker(&ready))
+                assert!(pin!(instance.profiling.compiler.as_mut().unwrap().recv())
+                    .poll(&mut Context::from_waker(&ready))
                     .is_pending());
                 instance.profiling.hotness.record(CallCount {
                     target: 0x500,
@@ -87,8 +84,7 @@ async fn deferred_installation() {
                 });
                 instance.profiling.submit(&instance.modules);
                 delivered.next().await.unwrap();
-                cpu.poll_compilation(&mut Context::from_waker(&ready));
-                assert!(cpu.instance.profiling.received.is_some());
+                cpu.service_compiler();
                 assert!(!cpu.has_entry(0x500));
                 release.send(()).unwrap();
                 // Inspect the first stopped boundary after the outer service

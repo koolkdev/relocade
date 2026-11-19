@@ -2,16 +2,11 @@
 //! Keys are packed 16:16 CS:IP values. Protected-mode dispatch does not record.
 
 use super::{modules::Modules, WasmRuntime};
-use crate::{
-    CompiledCode, CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant,
-    Result,
-};
+use crate::{CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant, Result};
+use futures_channel::mpsc::TryRecvError;
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, CallProfile, ExecutionProfile, ExecutionTarget};
-use std::{
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::time::Duration;
 mod hotness;
 use hotness::Hotness;
 
@@ -24,8 +19,6 @@ pub(in crate::runtime) struct Profiling {
     target: ExecutionTarget,
     compiler: Option<CompilerClient>,
     pending: Vec<FarPointer>,
-    /// A completed batch whose installation is waiting for a guest service to return.
-    received: Option<Result<CompiledCode>>,
 }
 
 impl Profiling {
@@ -37,7 +30,6 @@ impl Profiling {
             target,
             compiler: None,
             pending: Vec::new(),
-            received: None,
         })
     }
 
@@ -119,7 +111,7 @@ impl Cpu {
         profiling.compiler.take()
     }
 
-    pub(in crate::runtime) fn poll_compilation(&mut self, cx: &mut Context<'_>) {
+    pub(in crate::runtime) fn service_compiler(&mut self) {
         let instance = &mut self.instance;
         if instance.profiling.compiler.is_none()
             || instance.profiling.target.profile != ExecutionProfile::Real16
@@ -131,51 +123,37 @@ impl Cpu {
                 .profiling
                 .collect_if_due(wasm, &instance.modules, Instant::now());
         });
-        loop {
-            let profiling = &mut self.instance.profiling;
-            let Some(compiler) = &mut profiling.compiler else {
-                return;
-            };
-            if profiling.received.is_none() {
-                // Full-buffer collection can submit inside guest execution.
-                // Register the machine waker even when no batch is pending yet.
-                match compiler.poll_recv(cx) {
-                    Poll::Pending => return,
-                    Poll::Ready(Some(reply)) => profiling.received = Some(reply),
-                    Poll::Ready(None) => {
-                        profiling.disable();
-                        return;
-                    }
-                }
-            }
-            // Service futures can retain dispatch entries. The worker receives
-            // the module now and installs it once the last such borrow ends.
-            if self.pending.is_some() || !self.suspended.is_empty() {
-                return;
-            }
-            let reply = profiling.received.take().expect("received compiler result");
-            if let Ok(code) = reply {
+        // Active or parked services may still retain dispatch entries. Leave
+        // the completed reply in the client until those entries are released.
+        if instance.profiling.pending.is_empty()
+            || self.pending.is_some()
+            || !self.suspended.is_empty()
+        {
+            return;
+        }
+        let Some(compiler) = &mut instance.profiling.compiler else {
+            return;
+        };
+        match compiler.try_recv() {
+            Ok(Ok(code)) => {
                 // Missing roots fall back below if module installation fails.
                 let _ = code.install_missing(self);
             }
-            for entry in std::mem::take(&mut self.instance.profiling.pending) {
-                if self.instance.install_interpreter_fallback(entry).is_err() {
-                    self.instance.profiling.disable();
-                    return;
-                }
+            Ok(Err(_)) => {}
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Closed) => {
+                instance.profiling.disable();
+                return;
             }
-            // Observations may have accumulated while the previous batch ran.
-            let instance = &mut self.instance;
-            instance.profiling.submit(&instance.modules);
         }
-    }
-
-    pub(in crate::runtime) fn resume_compilation(&mut self, cx: &mut Context<'_>) {
-        // Returning from nested guest code can go straight back into a busy
-        // guest. The completed receive has already consumed its only wake.
-        if self.instance.profiling.received.is_some() && self.suspended.is_empty() {
-            self.poll_compilation(cx);
+        for entry in std::mem::take(&mut self.instance.profiling.pending) {
+            if self.instance.install_interpreter_fallback(entry).is_err() {
+                self.instance.profiling.disable();
+                return;
+            }
         }
+        let instance = &mut self.instance;
+        instance.profiling.submit(&instance.modules);
     }
 }
 

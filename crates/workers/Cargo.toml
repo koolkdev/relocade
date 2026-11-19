@@ -7,10 +7,12 @@ publish.workspace = true
 
 [dependencies]
 relocade-derive = { path = "../derive" }
+async-channel = { version = "=2.5.0", default-features = false }
 futures-channel = "=0.3.34"
 futures-timer = { version = "=3.0.4", features = ["wasm-bindgen"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 web-thread = { package = "web-thread-select", version = "=0.2.0", features = ["web"] }
+web-time = "=1.1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "=0.4.79"

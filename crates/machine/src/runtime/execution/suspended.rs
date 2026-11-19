@@ -25,7 +25,7 @@ impl Cpu {
         }
         let pending = call.call.poll(cx);
         if pending.is_none() {
-            self.resume_compilation(cx);
+            self.service_compiler();
         }
         Ok(pending)
     }

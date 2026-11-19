@@ -2823,6 +2823,7 @@ dependencies = [
 name = "relocade-workers"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
  "futures-channel",
  "futures-timer",
  "futures-util",
@@ -2834,6 +2835,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-thread-select",
+ "web-time",
 ]
 
 [[package]]

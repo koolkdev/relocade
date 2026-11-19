@@ -503,9 +503,9 @@ mod halt;
 mod host;
 #[path = "guest_time_scheduling/lag.rs"]
 mod lag;
+#[path = "guest_time_scheduling/ordering.rs"]
+mod ordering;
 #[path = "guest_time_scheduling/output.rs"]
 mod output;
 #[path = "guest_time_scheduling/pacing.rs"]
 mod pacing;
-#[path = "guest_time_scheduling/queue.rs"]
-mod queue;
