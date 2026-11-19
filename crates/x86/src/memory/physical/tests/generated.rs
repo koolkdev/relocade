@@ -75,8 +75,6 @@ fn one_slow_reader_serves_all_widths_and_callers_without_a_writer() {
 
 #[test]
 fn physical_fields_reuse_the_span_lookup() {
-    use wasmparser::{ExternalKind, Operator, TypeRef};
-
     let mut program = Program::new();
     let memory = Memory::Physical(PhysicalMemory::declare(&mut program));
     let function = program.function::<fn(u32) -> u64>(move |mut body, (address,)| {
@@ -92,12 +90,33 @@ fn physical_fields_reuse_the_span_lookup() {
         )
     });
     program.export("read", function).unwrap();
-    let bytes = program.compile().unwrap();
+    // One A20-mask, kind and payload lookup serves both fields.
+    assert_eq!(physical_map_loads(&program.compile().unwrap(), "read"), 3);
+}
+
+#[test]
+fn compiled_memory_operands_load_one_physical_page_record() {
+    let compiler = crate::Compiler::new(crate::ExecutionProfile::Real16);
+    for code in [
+        &[0x8b, 0x07][..],   // MOV AX,[BX]
+        &[0x67, 0x89, 0x00], // MOV [EAX],AX
+    ] {
+        let module = compiler.compile_block(0x100, code, 1).unwrap();
+        assert_eq!(
+            physical_map_loads(&module.bytes, &module.entry),
+            3,
+            "one A20 mask, kind and payload for {code:02x?}"
+        );
+    }
+}
+
+fn physical_map_loads(bytes: &[u8], entry_name: &str) -> usize {
+    use wasmparser::{ExternalKind, Operator, TypeRef};
+
     let mut memories = Vec::new();
     let mut function_index = 0;
     let mut entry = None;
-    let mut map_loads = 0;
-    for payload in Parser::new(0).parse_all(&bytes) {
+    for payload in Parser::new(0).parse_all(bytes) {
         match payload.unwrap() {
             Payload::ImportSection(imports) => {
                 for import in imports {
@@ -112,26 +131,27 @@ fn physical_fields_reuse_the_span_lookup() {
             Payload::ExportSection(exports) => {
                 for export in exports {
                     let export = export.unwrap();
-                    if export.name == "read" && export.kind == ExternalKind::Func {
+                    if export.name == entry_name && export.kind == ExternalKind::Func {
                         entry = Some(export.index);
                     }
                 }
             }
             Payload::CodeSectionEntry(body) => {
                 if Some(function_index) == entry {
-                    for operator in body.get_operators_reader().unwrap() {
-                        if let Operator::I32Load { memarg } = operator.unwrap() {
-                            if memories[memarg.memory as usize] == "physicalMap" {
-                                map_loads += 1;
-                            }
-                        }
-                    }
+                    return body
+                        .get_operators_reader()
+                        .unwrap()
+                        .into_iter()
+                        .map(Result::unwrap)
+                        .filter(|op| {
+                            matches!(op, Operator::I32Load { memarg } if memories[memarg.memory as usize] == "physicalMap")
+                        })
+                        .count();
                 }
                 function_index += 1;
             }
             _ => {}
         }
     }
-    // One A20-mask, kind and backing lookup serves both fields, even without a JIT guard.
-    assert_eq!(map_loads, 3);
+    panic!("missing exported function {entry_name}");
 }

@@ -39,11 +39,11 @@ fn code_pages_mark_all_backing_aliases_without_changing_routing() {
     .unwrap();
     let original = map.to_bytes();
     map.set_code_page(0x4123, true);
-    let mut expected = original;
+    let mut expected = original.clone();
     for (page, kind) in [(0, 5u32), (1, 6), (0x100, 5)] {
         expected[page * 8..page * 8 + 4].copy_from_slice(&kind.to_le_bytes());
     }
-    assert_eq!(map.to_bytes(), expected);
+    assert_eq!(map.as_bytes(), expected);
     assert_eq!(
         map.get(0x100123),
         Ram {
@@ -58,7 +58,7 @@ fn code_pages_mark_all_backing_aliases_without_changing_routing() {
     );
     assert!(map.fits_backing(0x6000));
     map.set_code_page(0x4fff, false);
-    assert_eq!(map.to_bytes(), original);
+    assert_eq!(map.as_bytes(), original);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn mmio_handler_indices_use_the_existing_payload_word() {
     let map = PhysicalMemoryMap::new([
         (0x1000..=0x1fff, PhysicalMapping::MMIO),
         (0x2000..=0x3fff, mapping),
-        (0x100000..=0x100fff, PhysicalMapping::MMIO),
+        (0xffff_f000..=u32::MAX, PhysicalMapping::MMIO),
     ])
     .unwrap();
     assert_eq!(map.get(0x2123), mapping);
@@ -77,9 +77,14 @@ fn mmio_handler_indices_use_the_existing_payload_word() {
     assert!(map.fits_backing(0));
     assert_eq!(
         map.mmio_handler_offsets().collect::<Vec<_>>(),
-        [(0x1000, 12), (0x2000, 20), (0x3000, 28), (0x100000, 2052)]
+        [
+            (0x1000, 12),
+            (0x2000, 20),
+            (0x3000, 28),
+            (0xffff_f000, 0x7f_fffc)
+        ]
     );
-    let bytes = map.to_bytes();
+    let bytes = map.as_bytes();
     assert_eq!(&bytes[8..16], &[3, 0, 0, 0, 0, 0, 0, 0]);
     assert_eq!(&bytes[16..24], &[3, 0, 0, 0, 7, 0, 0, 0]);
     assert_eq!(&bytes[24..32], &[3, 0, 0, 0, 7, 0, 0, 0]);
@@ -91,9 +96,14 @@ fn empty_regions_produce_a_complete_unmapped_table() {
     for address in [0, 0xa0000, 0x10ffef, 0x110000, u32::MAX] {
         assert_eq!(map.get(address), Unmapped);
     }
-    let bytes = map.to_bytes();
-    assert!(bytes[..2176].iter().all(|&byte| byte == 0));
-    assert_eq!(&bytes[2176..], &[0xff, 0xff, 0xef, 0xff]);
+    let bytes = map.as_bytes();
+    assert!(bytes[..PhysicalMemoryMap::A20_MASK_OFFSET]
+        .iter()
+        .all(|&byte| byte == 0));
+    assert_eq!(
+        &bytes[PhysicalMemoryMap::A20_MASK_OFFSET..],
+        &[0xff, 0xff, 0xef, 0xff]
+    );
 }
 
 #[test]
@@ -230,13 +240,6 @@ fn constructor_rejects_invalid_regions() {
         (1..=0x1fff, Unmapped, PhysicalMapError::UnalignedRange),
         (0..=0x1ffe, Unmapped, PhysicalMapError::UnalignedRange),
         (
-            0x110000..=0x110fff,
-            PhysicalMapping::MMIO,
-            PhysicalMapError::RangeOutOfBounds,
-        ),
-        (0..=0x110fff, Unmapped, PhysicalMapError::RangeOutOfBounds),
-        (0..=u32::MAX, Unmapped, PhysicalMapError::RangeOutOfBounds),
-        (
             0..=0xfff,
             Ram { backing_offset: 1 },
             PhysicalMapError::UnalignedBacking,
@@ -291,6 +294,26 @@ fn last_real_mode_page_can_use_the_last_32_bit_backing_page() {
 }
 
 #[test]
+fn full_u32_ram_range_accepts_the_last_backing_byte() {
+    let mut map = PhysicalMemoryMap::new([(0..=u32::MAX, Ram { backing_offset: 0 })]).unwrap();
+    assert_eq!(
+        map.get(u32::MAX),
+        Ram {
+            backing_offset: 0xffef_ffff
+        }
+    );
+    map.set_a20_enabled(true);
+    assert_eq!(
+        map.get(u32::MAX),
+        Ram {
+            backing_offset: u32::MAX
+        }
+    );
+    assert!(!map.fits_backing(u64::from(u32::MAX)));
+    assert!(map.fits_backing(1u64 << 32));
+}
+
+#[test]
 fn serialization_has_fixed_little_endian_entries_without_a_header() {
     let map = PhysicalMemoryMap::new([
         (0..=0xfff, PhysicalMapping::MMIO),
@@ -307,22 +330,28 @@ fn serialization_has_fixed_little_endian_entries_without_a_header() {
             },
         ),
         (
-            0x10f000..=0x10ffff,
+            0xffff_f000..=u32::MAX,
             Ram {
                 backing_offset: 0xffff_f000,
             },
         ),
     ])
     .unwrap();
-    let bytes = map.to_bytes();
-    assert_eq!(bytes.len(), 2180);
+    let bytes = map.as_bytes();
+    assert_eq!(bytes.len(), 0x80_0004);
     assert_eq!(
         &bytes[..24],
         &[3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0x50, 0x34, 0x12, 2, 0, 0, 0, 0, 0x90, 0, 0,]
     );
-    assert!(bytes[24..2168].iter().all(|&byte| byte == 0));
-    assert_eq!(&bytes[2168..2176], &[1, 0, 0, 0, 0, 0xf0, 0xff, 0xff]);
-    assert_eq!(&bytes[2176..], &[0xff, 0xff, 0xef, 0xff]);
+    assert!(bytes[24..0x7f_fff8].iter().all(|&byte| byte == 0));
+    assert_eq!(
+        &bytes[0x7f_fff8..0x80_0000],
+        &[1, 0, 0, 0, 0, 0xf0, 0xff, 0xff]
+    );
+    assert_eq!(
+        &bytes[PhysicalMemoryMap::A20_MASK_OFFSET..],
+        &[0xff, 0xff, 0xef, 0xff]
+    );
 }
 
 #[test]
@@ -356,7 +385,10 @@ fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
     );
     assert_eq!(map.get(u32::MAX), Unmapped);
     let disabled = map.to_bytes();
-    assert_eq!(&disabled[2176..], &[0xff, 0xff, 0xef, 0xff]);
+    assert_eq!(
+        &disabled[PhysicalMemoryMap::A20_MASK_OFFSET..],
+        &[0xff, 0xff, 0xef, 0xff]
+    );
     map.set_a20_enabled(true);
     assert_eq!(
         map.get(0x100123),
@@ -364,8 +396,14 @@ fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
             backing_offset: 0x5123
         }
     );
-    assert_eq!(&map.to_bytes()[..2176], &disabled[..2176]);
-    assert_eq!(&map.to_bytes()[2176..], &[0xff; 4]);
+    assert_eq!(
+        &map.as_bytes()[..PhysicalMemoryMap::A20_MASK_OFFSET],
+        &disabled[..PhysicalMemoryMap::A20_MASK_OFFSET]
+    );
+    assert_eq!(
+        &map.as_bytes()[PhysicalMemoryMap::A20_MASK_OFFSET..],
+        &[0xff; 4]
+    );
     map.set_a20_enabled(false);
-    assert_eq!(map.to_bytes(), disabled);
+    assert_eq!(map.as_bytes(), disabled);
 }

@@ -37,7 +37,7 @@ impl PhysicalTable {
         }
     }
 
-    /// Callers have checked the complete segment span before physical lookup.
+    /// Apply A20 before indexing the physical page directly.
     pub(super) fn lookup(
         self,
         body: &mut BlockBuilder<'_>,
@@ -107,12 +107,13 @@ impl PhysicalTable {
                     entry.kind.eq(MMIO),
                     |mut mmio| {
                         let next = self.lookup(&mut mmio, &next_address)?;
-                        // Even two MMIO pages split when A20 wraps their bus addresses.
+                        // One callback must cover consecutive bus addresses, including at A20 and 4 GiB.
                         mmio.yield_(
                             next.kind
                                 .eq(MMIO)
                                 .and(next.payload.eq(&entry.payload))
                                 .and(next.address.eq(&next_address))
+                                .and(address.unsigned().lt(&next_address))
                                 .select(remaining, &in_page),
                         )
                     },

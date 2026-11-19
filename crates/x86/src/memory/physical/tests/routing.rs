@@ -367,22 +367,71 @@ fn remapping() {
     assert_eq!(observed.events.len(), 2);
 }
 
-fn last_real_mode_page() {
+#[test]
+fn a20_selects_ram_or_rom_at_the_top_of_the_bus() {
     let mut input = input();
-    input.physical_pages = vec![(0x10f, 0x3000, true)];
-    input.guest = vec![(0x3fe8, vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11])];
-    input.arguments = vec![Argument::I32(0x10ffe8)];
-    assert_eq!(value(&transfer(&input, "read64")), 0x1122_3344_5566_7788);
-    input.mmio_pages = vec![(0x10f, 0x3000)];
-    let observed = transfer(&input, "read64");
-    assert_eq!(value(&observed), 0x1122_3344_5566_7788);
-    assert_eq!(observed.events.len(), 2);
+    // FFFF_F000 aliases FFEF_F000 when address bit 20 is clear.
+    input.physical_pages = vec![(0xfffff, 0x3000, false), (0xffeff, 0x5000, true)];
+    input.guest.push((0x3000, vec![0xaa]));
+    for (enabled, expected) in [(true, 0xaa), (false, 0x77)] {
+        input.a20_enabled = enabled;
+        input.arguments = vec![Argument::I32(0xffff_f000u32 as i32)];
+        let read = transfer(&input, "read8");
+        assert_eq!(value(&read), expected);
+        assert_eq!(read.events.len(), 1);
+        input.arguments.push(Argument::I32(0x42));
+        let write = transfer(&input, "write8");
+        let [Event::Return { snapshot, .. }] = &write.events[..] else {
+            panic!("backing writes return without a callback")
+        };
+        assert_eq!(
+            snapshot.guest.as_deref(),
+            Some(if enabled { &[][..] } else { &[(0x5000, 0x42)] })
+        );
+    }
+}
+
+#[test]
+fn transfers_wrap_to_page_zero_without_wrapping_a_device_callback() {
+    let mut input = input();
+    input.physical_pages = vec![(0xfffff, 0x3000, true), (0, 0x5000, true)];
+    input.arguments = vec![Argument::I32(-1)];
+    let ram = transfer(&input, "read32");
+    assert_eq!(value(&ram), 0x5566_7788);
+    assert_eq!(ram.events.len(), 1);
+
+    // Both pages use the same MMIO handler.
+    input.mmio_pages = vec![(0xfffff, 0x3000), (0, 0x5000)];
+    let read = transfer(&input, "read32");
+    assert_eq!(value(&read), 0x5566_7788);
     assert_eq!(
-        observed.events[0],
-        Event::MmioRead {
-            address: 0x10ffe8,
-            bytes: 8
-        }
+        &read.events[..read.events.len() - 1],
+        [
+            Event::MmioRead {
+                address: u32::MAX,
+                bytes: 1
+            },
+            Event::MmioRead {
+                address: 0,
+                bytes: 3
+            },
+        ]
+    );
+    input.arguments.push(Argument::I32(0x4433_2211));
+    let write = transfer(&input, "write32");
+    assert_eq!(value(&write), 7);
+    assert_eq!(
+        &write.events[..write.events.len() - 1],
+        [
+            Event::MmioWrite {
+                address: u32::MAX,
+                value: vec![0x11]
+            },
+            Event::MmioWrite {
+                address: 0,
+                value: vec![0x22, 0x33, 0x44]
+            },
+        ]
     );
 }
 
@@ -447,7 +496,7 @@ fn a20() {
             input.mmio_pages = vec![(0xff, 0x3000)];
             input.mmio_updates = vec![MmioUpdate {
                 map: vec![(
-                    2176,
+                    crate::PhysicalMemoryMap::A20_MASK_OFFSET as u32,
                     if enabled {
                         vec![0xff, 0xff, 0xef, 0xff]
                     } else {
@@ -479,7 +528,6 @@ fn routing_preserves_mmio_portions_and_live_mappings() {
     mixed();
     backing_and_holes();
     remapping();
-    last_real_mode_page();
     a20();
 }
 #[test]
