@@ -123,7 +123,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
         );
     };
     let execution = prepared.run_until_with_guest_time(
-        |host| relocade_dos::configuration::guest_time(host, None),
+        relocade_dos::configuration::guest_time,
         std::future::pending::<()>(),
         console,
     );

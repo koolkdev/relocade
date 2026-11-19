@@ -20,10 +20,7 @@ headers. Use a host that honors `_headers`, or configure those headers explicitl
 The shared host owns the canvas.
 
 The PC advances one guest microsecond per retired instruction. PIT, video and
-PS/2 use this clock. The CPU runs uncapped by default. Pass `--mips 5` to the
-native binary or open the browser app with `?mips=5` to limit the CPU to five
-million retired instructions per host second. Both accept a positive whole
-number. Changing the limit keeps the same device timing per guest instruction.
+PS/2 use this clock. CPU execution runs uncapped by default.
 
 The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
 select the installed cards before startup:

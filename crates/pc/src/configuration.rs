@@ -146,9 +146,10 @@ pub fn cpu() -> CpuConfig {
 /// The PC advances by one guest microsecond per retired instruction. The host
 /// clock drives idle time and presentation. A MIPS limit caps active retirement
 /// per host second independently of the device clock rate.
-pub fn guest_time(host: Clock, max_mips: Option<NonZeroU32>) -> GuestTimeConfig {
+pub fn guest_time(host: Clock) -> GuestTimeConfig {
+    const MAX_MIPS: Option<NonZeroU32> = None;
     let time = GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap());
-    match max_mips {
+    match MAX_MIPS {
         Some(mips) => {
             let per_second = NonZeroU64::new(u64::from(mips.get()) * 1_000_000).unwrap();
             time.with_cpu_limit(per_second, host)

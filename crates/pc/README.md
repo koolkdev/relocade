@@ -11,11 +11,10 @@ The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
 identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboard
 and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. To launch the PC, use
-`cpu.run_until_with_guest_time(|host| configuration::guest_time(host, None), stop, session)`.
+`cpu.run_until_with_guest_time(configuration::guest_time, stop, session)`.
 The PC's clock advances one microsecond per retired instruction. PIT, VGA, PS/2
 and firmware use this guest time. The host clock supplies elapsed time for idle
-devices and presentation. Pass a positive whole MIPS limit as the second
-argument to `configuration::guest_time` to cap active CPU throughput.
+devices and presentation. Active CPU execution is uncapped by default.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer

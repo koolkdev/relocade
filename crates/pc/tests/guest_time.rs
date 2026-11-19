@@ -12,7 +12,7 @@ async fn pit_interrupts() {
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let execution = prepared.run_until_with_guest_time(
-        |host| relocade_pc::configuration::guest_time(host, None),
+        relocade_pc::configuration::guest_time,
         std::future::pending::<()>(),
         async |runner| {
             let mut pc = Pc::new(runner).await.unwrap();
@@ -116,7 +116,7 @@ async fn keyboard_at_guest_receipt_time() {
         .unwrap();
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
-        relocade_pc::configuration::guest_time(host.clock(), None),
+        relocade_pc::configuration::guest_time(host.clock()),
         prepared,
         endpoint,
     )
