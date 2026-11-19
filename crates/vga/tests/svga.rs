@@ -10,6 +10,8 @@ mod dac;
 mod frames;
 #[path = "svga/layout.rs"]
 mod layout;
+#[path = "svga/linear.rs"]
+mod linear;
 
 use common::support::svga::{enable, get, set};
 
@@ -64,7 +66,7 @@ fn mode_enable_requires_supported_geometry_and_preserves_active_programming() {
     assert_eq!(get(&vga.io, 4), 0);
     set(&vga.io, 3, 8);
     vga.io.write_mmio(0xb8000, 2, 0x0741);
-    for flags in [0x41, 0xc1, 0x80, 0x04] {
+    for flags in [0x05, 0x85, 0x80, 0x40] {
         set(&vga.io, 4, flags);
         assert_eq!(get(&vga.io, 4), 0);
         assert_eq!(vga.io.read_mmio(0xb8000, 2), 0x0741);

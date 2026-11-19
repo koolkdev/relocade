@@ -8,9 +8,13 @@ Individual crates implement BIOS services and DMA, PIC, PIT, PS/2 keyboard/mouse
 VGA, speaker and AdLib behavior.
 
 The PC supplies 640 KiB of conventional RAM and identity-backed ROM at F0000–FFFFF.
-The selected video card maps its memory windows when it connects.
-Initialization installs BIOS video, keyboard
-and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
+The selected video card maps its memory windows when it connects. In packed
+modes, DISPI exposes its 4 MiB of VRAM as a linear framebuffer at
+E0000000–E03FFFFF. ET4000 leaves that range free. The BIOS advertises banked
+VBE modes.
+
+Initialization installs BIOS video, keyboard and clock services and enables
+IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. Devices run on the supplied runner and
 share its clock.
 

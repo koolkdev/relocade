@@ -68,7 +68,7 @@ fn dac_precision_changes_share_ports_and_preserve_layout_memory_and_access_phase
     assert_eq!(get(&vga.io, 4), 1);
     assert_eq!(vga.io.read_port(0x3c9, 1), 32);
     let state = vga.device.borrow().dac_state();
-    set(&vga.io, 4, 0x61); // Unsupported LFB flag rejects the whole write.
+    set(&vga.io, 4, 0x25); // A reserved flag rejects the whole write.
     assert_eq!(vga.device.borrow().dac_state(), state);
     set(&vga.io, 4, 0x20); // DAC precision also applies in legacy VGA mode.
     assert!(vga.device.borrow().packed_layout().is_none());

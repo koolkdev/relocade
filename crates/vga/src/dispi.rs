@@ -1,10 +1,12 @@
 //! The complete DISPI adapter: shared VGA core, one VRAM, and one raster/output lifetime.
 //!
-//! Its banked ID3 subset exposes three resolutions in indexed eight-bit,
+//! Its ID3 subset exposes three resolutions in indexed eight-bit,
 //! RGB555, RGB565, BGR888 and BGRX8888 formats, with no-clear entry, capability
 //! queries and switchable six/eight-bit DAC precision. Word transfers
 //! at 01CE/01CF follow the [Bochs VBE Display API](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
-//! Linear access and flags beyond this ID3 subset are unsupported.
+//! Packed modes expose a 64-KiB banked window at A0000h and the full 4 MiB
+//! of VRAM as a linear framebuffer at E0000000h. Both are accessible regardless
+//! of the LFB flag. Returning to legacy VGA mode disables the linear framebuffer.
 //! Invalid requests leave the accepted configuration unchanged.
 mod configuration;
 mod device;
@@ -27,7 +29,8 @@ pub use modes::{DispiMode, DispiResolution};
 use registers::Dispi;
 pub use registers::{
     BANK, BANK_BYTES, BANK_RANGE, BANK_START, BITS_PER_PIXEL, DATA_PORT, DISABLED, EIGHT_BIT_DAC,
-    ENABLE, ENABLED, GET_CAPABILITIES, ID, INDEX_PORT, INTERFACE_ID, NO_CLEAR_MEMORY, PORT_RANGE,
+    ENABLE, ENABLED, GET_CAPABILITIES, ID, INDEX_PORT, INTERFACE_ID, LFB_ENABLED,
+    LINEAR_FRAMEBUFFER_RANGE, LINEAR_FRAMEBUFFER_START, NO_CLEAR_MEMORY, PORT_RANGE,
     VIDEO_MEMORY_BYTES, VIRTUAL_HEIGHT, VIRTUAL_WIDTH, X_OFFSET, X_RESOLUTION, Y_OFFSET,
     Y_RESOLUTION,
 };
