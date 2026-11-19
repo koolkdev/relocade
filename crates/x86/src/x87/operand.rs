@@ -198,7 +198,7 @@ impl BinaryOperands {
         match operation {
             BinaryOperation::Multiply => Ok(super::multiply::multiply(self, precision, rounding)),
             BinaryOperation::Divide | BinaryOperation::ReverseDivide => {
-                Ok(super::divide::divide(self, operation, precision, rounding))
+                super::divide::divide(body, self, operation, precision, rounding)
             }
             BinaryOperation::Add | BinaryOperation::Subtract | BinaryOperation::ReverseSubtract => {
                 super::add::add(body, self, operation, precision, rounding)

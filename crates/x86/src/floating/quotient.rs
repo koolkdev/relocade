@@ -1,4 +1,4 @@
-//! Normalized quotient algorithms preserve an exact floor and remainder.
+//! Normalized division produces a full quotient or a 32-bit round-to-odd result.
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
@@ -10,6 +10,15 @@ mod tests;
 const LEADING: u64 = 1 << 63;
 const RADIX: u64 = 1 << 32;
 
+/// Both full-width methods preserve the exact floor and its fractional evidence.
+/// `RoundToOdd32` preserves the guard and sticky bits for rounding to at most 30 bits.
+#[derive(Clone, Copy)]
+pub(crate) enum QuotientMethod {
+    Full,
+    DivisorPrecision53,
+    RoundToOdd32,
+}
+
 pub(super) struct Quotient {
     pub(super) significand: RoundingInput,
     pub(super) below_one: Val<I1>,
@@ -17,20 +26,35 @@ pub(super) struct Quotient {
 
 /// Finite nonzero operands have normalized significands. Other classes retain
 /// a safe unused calculation until the caller replaces their numerical result.
-/// `divisor_precision53` proves the normalized denominator's low eleven bits clear.
+/// `DivisorPrecision53` requires the normalized denominator's low eleven bits clear.
 pub(super) fn calculate(
     numerator: &Val<I64>,
     denominator: Val<I64>,
-    divisor_precision53: bool,
+    method: QuotientMethod,
 ) -> Quotient {
     // Class responses replace non-numerical results. A harmless normalized
     // divisor keeps their unused calculation free of Wasm traps.
     let denominator = denominator.or(LEADING);
     let below_one = numerator.unsigned().lt(&denominator);
-    let significand = if divisor_precision53 {
-        narrow(numerator, &denominator, &below_one)
-    } else {
-        Divisor::new(denominator).quotient(numerator, &below_one)
+    let significand = match method {
+        QuotientMethod::DivisorPrecision53 => narrow(numerator, &denominator, &below_one),
+        QuotientMethod::Full | QuotientMethod::RoundToOdd32 => {
+            let divisor = Divisor::new(denominator);
+            let upper = divisor.upper_quotient_digit(numerator, &below_one);
+            if matches!(method, QuotientMethod::RoundToOdd32) {
+                // The remaining dividend digit is zero. Any nonzero remainder
+                // therefore means the exact quotient has a tail below this digit.
+                let jam = upper.remainder.ne(0_u64).unsigned().extend::<I64>();
+                RoundingInput::exact(upper.quotient.or(jam).shl(32))
+            } else {
+                let lower = divisor.digit(upper.remainder, 0_u64.into());
+                rounding_input(
+                    upper.quotient.shl(32).or(lower.quotient),
+                    lower.remainder,
+                    &divisor.significand,
+                )
+            }
+        }
     };
     Quotient {
         significand,
@@ -196,17 +220,11 @@ impl Divisor {
         }
     }
 
-    fn quotient(&self, numerator: &Val<I64>, below_one: &Val<I1>) -> RoundingInput {
+    fn upper_quotient_digit(&self, numerator: &Val<I64>, below_one: &Val<I1>) -> IntegerDivision {
         // N = numerator << (63 + below_one). Split N into its high word and
         // two radix digits. The high word is strictly less than the divisor.
         let high = below_one.select(numerator, numerator.unsigned().shr(1));
         let low = below_one.select(0_u64, numerator.and(1_u64).shl(31));
-        let upper = self.digit(high, low);
-        let lower = self.digit(upper.remainder, 0_u64.into());
-        rounding_input(
-            upper.quotient.shl(32).or(lower.quotient),
-            lower.remainder,
-            &self.significand,
-        )
+        self.digit(high, low)
     }
 }

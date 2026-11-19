@@ -122,3 +122,51 @@ fn zeros_and_rejected_divisors_preserve_restart_state() {
         );
     }
 }
+
+#[test]
+fn single_precision_division_keeps_the_tail_below_a_halfway_quotient() {
+    use wasmparser::{Operator, Parser, Payload};
+
+    let code = [0xd8, 0xf1]; // FDIV ST(0), ST(1)
+    let mut image = stack_image(&code, 0, 0xfff0);
+    set_control(&mut image.cpu.x87.control, 0x007f);
+    image.cpu.x87.status.precision = 0;
+    write_value(&mut image.cpu, 1, (LEADING, 0x3fff));
+    let compiled = Compiler::new(SegmentProfile::Flat32)
+        .specialize_on_cpu(&image.cpu)
+        .compile_block(0x1000, &code, 1)
+        .unwrap();
+    let mut divisions = 0;
+    for payload in Parser::new(0).parse_all(&compiled.bytes) {
+        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+            divisions += body
+                .get_operators_reader()
+                .unwrap()
+                .into_iter()
+                .filter(|op| matches!(op.as_ref().unwrap(), Operator::I64DivU))
+                .count();
+        }
+    }
+    assert_eq!(divisions, 1, "PC24 needs only the first radix digit");
+    let block = TestModule::new(&compiled);
+    let unit = 1 << 40;
+    let midpoint = LEADING + unit / 2;
+    for (numerator, quotient, increment) in [
+        (LEADING, LEADING, false),
+        (midpoint - 1, LEADING, false),
+        (midpoint, LEADING, false),
+        (midpoint + 1, LEADING + unit, true),
+        (midpoint + unit, LEADING + 2 * unit, true),
+    ] {
+        write_value(&mut image.cpu, 0, (numerator, 0x3fff));
+        let mut result = complete_x87(image.cpu, 2, 0x00f1);
+        write_value(&mut result, 0, (quotient, 0x3fff));
+        result.x87.status.precision = u8::from(numerator != LEADING);
+        result.x87.status.c1 = u8::from(increment);
+        assert_eq!(
+            block.observe(&image.input(), 1),
+            expected(&image, &[dispatch(result)]),
+            "numerator {numerator:x}"
+        );
+    }
+}
