@@ -1,6 +1,6 @@
 mod support;
 
-use futures_util::future::join;
+use futures_util::future::Either;
 use relocade_machine::{
     timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Runner, Timestamp,
 };
@@ -40,7 +40,7 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8]) {
 }
 
 async fn unpaced_deadline_overshoot() {
-    for (rate, slice, elapsed, instruction_budgets, expected) in [
+    for (rate, period, elapsed, instruction_budgets, expected) in [
         (
             3,
             Duration::from_secs(1),
@@ -63,10 +63,7 @@ async fn unpaced_deadline_overshoot() {
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
         let prepared = machine.create_cpu(config, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
-            move || {
-                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
-                    .with_slice_duration(slice)
-            },
+            move || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap()),
             async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
@@ -84,20 +81,19 @@ async fn unpaced_deadline_overshoot() {
                 .await
                 .unwrap();
                 let state = cpu.cpu_state();
-                let stop = cpu.exit_handle();
                 let observe = async {
                     let mut samples = Vec::new();
                     for edge in 1..=3 {
                         clock
-                            .sleep_until(clock.deadline_after(start, slice * edge))
+                            .sleep_until(clock.deadline_after(start, period * edge))
                             .await;
                         samples.push(state.instruction_count());
                     }
-                    stop.request();
                     samples
                 };
-                let (samples, exit) = join(observe, runner.run_cpu()).await;
-                assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
+                let Either::Right(samples) = runner.run_cpu_until(observe).await else {
+                    panic!("busy CPU exited before all three device deadlines");
+                };
                 // Two-instruction blocks cross odd deadlines by one instruction.
                 // Without budget checks the same distant deadline must survive
                 // repeated block-end interrupt acknowledgements.
@@ -155,10 +151,7 @@ async fn deadlines_and_final_exit() {
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
-            || {
-                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                    .with_slice_duration(Duration::from_millis(10))
-            },
+            || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
             async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
@@ -228,10 +221,7 @@ async fn retained_service() {
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(10))
-        },
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -285,10 +275,7 @@ async fn unpaced_idle_service() {
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = prepared.spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(1))
-        },
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
         async |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -311,8 +298,6 @@ async fn unpaced_idle_service() {
                     sleep.as_mut().poll(cx)
                 })
                 .await;
-                // A pending service resumes at its guest deadline without
-                // artificial idle-time steps at the intervening slice boundaries.
                 assert_eq!(observed, [start, deadline]);
                 #[cfg(target_arch = "wasm32")]
                 assert!(
@@ -336,76 +321,71 @@ async fn unpaced_idle_service() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn unpaced_idle_time_skips_slice_boundaries() {
+fn unpaced_idle_time_advances_directly_to_a_waiting_service() {
     pollster::block_on(unpaced_idle_service());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn unpaced_idle_time_skips_slice_boundaries() {
+async fn unpaced_idle_time_advances_directly_to_a_waiting_service() {
     unpaced_idle_service().await;
 }
 
-async fn parked_session() {
+async fn prompt_between_cpu_runs() {
     use futures_channel::oneshot;
-    use futures_lite::future::poll_once;
-    use futures_util::future::{select, Either};
-    use relocade_machine::{worker::wake_connection, GuestTimeConfig};
 
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
-    let runner = Runner::with_guest_time(
-        GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
-        prepared,
-        endpoint,
-    )
-    .await
-    .unwrap();
-    runner.memory().view().write(0x100, &[0xf4]).unwrap(); // HLT.
-    let (ready, running) = oneshot::channel();
-    let mut session = Box::pin(runner.run(
-        std::future::pending::<()>(),
-        async move |mut runner| {
+    let worker = prepared.spawn_with_guest_time(
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
+        async |mut runner| {
             let clock = runner.clock().clone();
-            let deadline = clock.deadline_after(clock.now(), Duration::from_millis(7));
-            clock.sleep_until(deadline).await;
-            assert_eq!(clock.now(), deadline);
-            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
-            assert_eq!(runner.cpu().cpu_state().eip(), 0x100);
-            assert!(ready.send(runner).is_ok());
-            std::future::pending::<()>().await;
+            let state = runner.cpu().cpu_state();
+            let exit = runner.cpu().exit_handle();
+            prepare_cpu(&mut runner, &[0x40, 0xeb, 0]).await; // INC AX; JMP 0103.
+            runner
+                .cpu()
+                .install([Hook::host(0x103, async move || exit.request())])
+                .await
+                .unwrap();
+            for count in [0, 2] {
+                let deadline = clock.deadline_after(clock.now(), Duration::from_millis(7));
+                let (send, prompt) = oneshot::channel();
+                runner
+                    .start_task({
+                        let clock = clock.clone();
+                        async move {
+                            clock.sleep_until(deadline).await;
+                            send.send(clock.now()).unwrap();
+                        }
+                    })
+                    .await;
+                assert_eq!(runner.wait_for(prompt).await.unwrap(), deadline);
+                assert_eq!(state.instruction_count(), count);
+                state.set_eip(0x100);
+                assert_eq!(
+                    runner.run_cpu().await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+            }
+            assert_eq!(state.instruction_count(), 4);
+            assert_eq!(state.ax(), 2);
         },
-    ));
-
-    let mut runner = match select(running, session.as_mut()).await {
-        Either::Left((Ok(runner), _)) => runner,
-        _ => panic!("the session must survive its first guest deadline"),
-    };
-    {
-        let mut foreground = pin!(runner.run_cpu());
-        assert!(poll_once(foreground.as_mut()).await.is_none());
-        assert!(poll_once(session.as_mut()).await.is_none());
-        drop(session);
-        assert_eq!(
-            poll_once(foreground).await,
-            Some(ExecutionExit::Interrupted)
-        );
-    }
-    assert_eq!(runner.cpu().cpu_state().instruction_count(), 1);
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
-    pollster::block_on(parked_session());
+fn the_prompt_receives_device_wakes_before_and_between_cpu_runs() {
+    pollster::block_on(prompt_between_cpu_runs());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
-    parked_session().await;
+async fn the_prompt_receives_device_wakes_before_and_between_cpu_runs() {
+    prompt_between_cpu_runs().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -421,12 +401,12 @@ async fn unpaced_deadlines_preserve_their_grid_across_checkpoint_overshoot() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
+fn device_deadlines_wake_during_execution_and_on_final_exit() {
     pollster::block_on(deadlines_and_final_exit());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn device_deadlines_precede_slice_boundaries_and_flush_on_final_exit() {
+async fn device_deadlines_wake_during_execution_and_on_final_exit() {
     deadlines_and_final_exit().await;
 }
 

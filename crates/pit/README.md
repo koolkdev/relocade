@@ -42,14 +42,13 @@ configuration; pending divisor loads follow the same mode-specific rules as chan
 
 Channel-0 port writes advance the counter to the current clock reading before
 changing its configuration. The PIT task waits for the next output transition
-or a programming change. On guest time, the task updates the PIC and arms the
-next edge in the same poll. With an independently advancing clock, an edge can
-already be due on the first poll. The task then updates IRQ0 and yields. If a
-late wake spans multiple periods, the PIC retains one pending rising edge.
-Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
-because an obsolete wait completed. BIOS keeps its handler, tick data, midnight
-rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing the
-timer frequency also changes BIOS time unless guest software compensates.
+or a programming change. Reprogramming cancels the previous wait. After either
+wake, the task updates the PIC and arms the next transition in the same poll.
+The PC's guest clock advances between task polls. With a custom clock,
+successive transition waits must eventually suspend so other work can run. If
+a late wake spans multiple periods, the PIC retains one pending rising edge. The BIOS handler counts delivered IRQ0 interrupts for
+its tick data, midnight rollover and INT 1Ah service. Changing the timer
+frequency changes BIOS time unless guest software compensates.
 
 The speaker retains the same PIT through `Speaker::initialize(runner, pit)` and owns
 port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2.

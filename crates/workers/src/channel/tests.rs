@@ -90,3 +90,34 @@ fn only_delivery_requests_a_new_poll_for_an_idle_host_dependency() {
     );
     assert!(!host.has_pending());
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_continuously_runnable_worker_can_receive_a_posted_payload() {
+    use std::{future::poll_fn, task::Poll, time::Duration};
+    use web_time::Instant;
+
+    let signal = Signal::default();
+    let (_host, endpoint) = crate::wake_connection(signal.clone());
+    let worker = WorkerWake::new(endpoint.bind(signal));
+    let (mut sender, receiver) = channel::<u32>().unwrap();
+    let mut receiver = receiver.with_worker(&worker);
+    sender.send(42).unwrap();
+    let mut receipt = pin!(receiver.recv());
+    let started = Instant::now();
+    let value = worker
+        .drive(poll_fn(|cx| {
+            if let Poll::Ready(reply) = receipt.as_mut().poll(cx) {
+                return Poll::Ready(reply.unwrap().unwrap());
+            }
+            // Keep the root runnable. Only a host turn can finish posted-object delivery.
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "browser delivery starved"
+            );
+            worker.repoll(cx);
+            Poll::Pending
+        }))
+        .await;
+    assert_eq!(value, 42);
+}

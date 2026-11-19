@@ -13,80 +13,70 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
     let console = async move |runner: relocade_machine::Runner| {
-        let clock = runner.clock().clone();
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
         };
         let (input, events) = keyboard::channel();
-        for (index, code) in [
-            KeyCode::KeyE,
-            KeyCode::KeyC,
-            KeyCode::KeyH,
-            KeyCode::KeyO,
-            KeyCode::Space,
-            KeyCode::KeyH,
-            KeyCode::KeyE,
-            KeyCode::KeyL,
-            KeyCode::KeyL,
-            KeyCode::KeyX,
-            KeyCode::Backspace,
-            KeyCode::KeyO,
-            KeyCode::Enter,
-            KeyCode::KeyU,
-            KeyCode::KeyN,
-            KeyCode::KeyK,
-            KeyCode::KeyN,
-            KeyCode::KeyO,
-            KeyCode::KeyW,
-            KeyCode::KeyN,
-            KeyCode::Enter,
-            KeyCode::Enter,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let modifiers = if matches!(index, 1 | 3) {
-                ModifiersState::SHIFT
-            } else {
-                ModifiersState::empty()
-            };
-            input
-                .unbounded_send(KeyboardEvent::Modifiers(modifiers))
-                .unwrap();
-            input
-                .unbounded_send(KeyboardEvent::Key {
-                    physical_key: code.into(),
-                    logical_key: Key::Unidentified(NativeKey::Unidentified),
-                    location: KeyLocation::Standard,
-                    text: Some("ש".into()),
-                    state: ElementState::Pressed,
-                    repeat: false,
-                })
-                .unwrap();
-        }
+        let frames = dos.frames();
         let video = dos.video_card().framebuffer_access();
+        let cpu = dos.cpu().cpu_state();
+        let before = cpu.instruction_count();
         let inspect = async {
-            for _ in 0..1000 {
-                if video
-                    .borrow_mut()
-                    .framebuffer()
-                    .text_cell(prompt_row + 5, 0)
-                    .unwrap()
-                    .value() as u8
-                    == b'>'
-                {
-                    return;
-                }
-                clock.sleep(Duration::from_millis(1)).await;
+            // Mode 3 stores a character every two addresses across four planes.
+            let cell = |row: u16| u32::from(row) * 80 * 2 * 4;
+            while frames.recv().await.unwrap().vram_byte(cell(prompt_row)) != Some(b'>') {}
+            assert_eq!(cpu.instruction_count(), before);
+            for (index, code) in [
+                KeyCode::KeyE,
+                KeyCode::KeyC,
+                KeyCode::KeyH,
+                KeyCode::KeyO,
+                KeyCode::Space,
+                KeyCode::KeyH,
+                KeyCode::KeyE,
+                KeyCode::KeyL,
+                KeyCode::KeyL,
+                KeyCode::KeyX,
+                KeyCode::Backspace,
+                KeyCode::KeyO,
+                KeyCode::Enter,
+                KeyCode::KeyU,
+                KeyCode::KeyN,
+                KeyCode::KeyK,
+                KeyCode::KeyN,
+                KeyCode::KeyO,
+                KeyCode::KeyW,
+                KeyCode::KeyN,
+                KeyCode::Enter,
+                KeyCode::Enter,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let modifiers = if matches!(index, 1 | 3) {
+                    ModifiersState::SHIFT
+                } else {
+                    ModifiersState::empty()
+                };
+                input
+                    .unbounded_send(KeyboardEvent::Modifiers(modifiers))
+                    .unwrap();
+                input
+                    .unbounded_send(KeyboardEvent::Key {
+                        physical_key: code.into(),
+                        logical_key: Key::Unidentified(NativeKey::Unidentified),
+                        location: KeyLocation::Standard,
+                        text: Some("ש".into()),
+                        state: ElementState::Pressed,
+                        repeat: false,
+                    })
+                    .unwrap();
             }
-            panic!("console did not return to its prompt");
+            while frames.recv().await.unwrap().vram_byte(cell(prompt_row + 5)) != Some(b'>') {}
+            assert_eq!(cpu.instruction_count(), before);
         };
-        or(
-            relocade_dos_app::run_console(dos.native_console(events)),
-            inspect,
-        )
-        .await;
+        or(relocade_dos_app::run_console(&mut dos, events), inspect).await;
         let mut video = video.borrow_mut();
         let screen = video.framebuffer();
         for (row, text) in [
@@ -124,7 +114,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
     };
     let execution = prepared.run_until_with_guest_time(
         relocade_dos::configuration::guest_time,
-        std::future::pending::<()>(),
+        futures_timer::Delay::new(Duration::from_secs(30)),
         console,
     );
     assert_eq!(pollster::block_on(execution).unwrap(), Some(()));

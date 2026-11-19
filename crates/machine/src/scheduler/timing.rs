@@ -4,13 +4,11 @@ mod cpu_limit;
 use cpu_limit::CpuLimit;
 
 use super::{GuestTimeConfig, GuestTimeDriver};
-use crate::{Clock, Cpu, Schedule, Sleep, Timestamp};
+use crate::{Clock, Cpu, Sleep, Timestamp};
 use std::{
     future::Future,
     pin::Pin,
-    rc::Rc,
     task::{ready, Context, Poll, Waker},
-    time::Duration,
 };
 
 pub(crate) struct Timing {
@@ -20,7 +18,6 @@ pub(crate) struct Timing {
 
 struct GuestSchedule {
     driver: GuestTimeDriver,
-    slice: Option<ExecutionSlice>,
     host: Option<Clock>,
     limit: Option<CpuLimit>,
     idle: Option<IdleWait>,
@@ -45,14 +42,10 @@ impl Timing {
             driver = driver.with_host_clock(host.clone());
         }
         let clock = driver.clock();
-        let slice = config
-            .slice_duration
-            .map(|duration| ExecutionSlice::new(&clock, duration));
         Self {
             clock,
             guest: Some(GuestSchedule {
                 driver,
-                slice,
                 host: config.host_clock,
                 limit: config.cpu_limit.map(CpuLimit::new),
                 idle: None,
@@ -64,40 +57,36 @@ impl Timing {
         &self.clock
     }
 
-    #[must_use = "retain the exit and deadline wake bindings for the session"]
-    pub(super) fn bind(
-        &self,
-        cpu: &Cpu,
-        changed: &Waker,
-    ) -> (Rc<Waker>, Option<impl Drop + use<>>) {
-        let deadlines = self
-            .guest
+    /// Keep the guest clock attached across CPU runs and idle foreground work.
+    pub(crate) fn bind(&self, cpu: &Cpu, changed: &Waker) -> Option<impl Drop + use<>> {
+        self.guest
             .as_ref()
-            .map(|guest| guest.driver.bind(cpu, changed));
-        (cpu.exit_handle().bind(changed), deadlines)
+            .map(|guest| guest.driver.bind(cpu, changed))
     }
 
     /// A CPU limit applies only to instructions that actually retired. An idle
     /// jump changes guest time without consuming any of the remaining burst.
     pub(super) fn poll_pacing(&mut self, cpu: &Cpu, cx: &mut Context<'_>) -> Poll<()> {
-        if let Some(guest) = &mut self.guest {
-            let now = self.clock.now();
-            let mut target = guest.slice.as_mut().map(|slice| slice.next(now));
-            if let Some(limit) = &mut guest.limit {
-                let remaining = ready!(limit.poll(
-                    guest.host.as_ref().unwrap(),
-                    cpu.cpu_state().instruction_count(),
-                    cx
-                ));
-                let end = Timestamp::from_ticks(now.ticks().wrapping_add(remaining));
-                target = Some(target.map_or(end, |slice| slice.min(end)));
-            }
-            guest.driver.set_yield_deadline(target);
-        }
+        let Some(guest) = &mut self.guest else {
+            return Poll::Ready(());
+        };
+        let target = if let Some(limit) = &mut guest.limit {
+            let remaining = ready!(limit.poll(
+                guest.host.as_ref().unwrap(),
+                cpu.cpu_state().instruction_count(),
+                cx
+            ));
+            Some(Timestamp::from_ticks(
+                self.clock.now().ticks().wrapping_add(remaining),
+            ))
+        } else {
+            None
+        };
+        guest.driver.set_yield_deadline(target);
         Poll::Ready(())
     }
 
-    pub(super) fn notify_due(&mut self) {
+    pub(super) fn notify_due(&mut self) -> bool {
         if let Some(guest) = &mut self.guest {
             if guest
                 .idle
@@ -106,8 +95,9 @@ impl Timing {
             {
                 guest.idle = None;
             }
-            guest.driver.notify_due();
+            return guest.driver.notify_due();
         }
+        false
     }
 
     /// Wait for the next device when attached to a live host. A deterministic
@@ -116,7 +106,7 @@ impl Timing {
         let Some(guest) = &mut self.guest else {
             return false;
         };
-        let Some(deadline) = guest.driver.next_deadline() else {
+        let Some(deadline) = guest.driver.idle_deadline(cx.waker()) else {
             guest.idle = None;
             return false;
         };
@@ -151,32 +141,5 @@ impl Timing {
         }
         guest.driver.advance_to(deadline);
         true
-    }
-}
-
-/// Periodic guest-time checkpoints while the CPU is running.
-struct ExecutionSlice {
-    duration: Duration,
-    end: Schedule,
-}
-
-impl ExecutionSlice {
-    fn new(clock: &Clock, duration: Duration) -> Self {
-        let mut end = clock.schedule(clock.now());
-        end.advance(duration);
-        Self { duration, end }
-    }
-
-    fn next(&mut self, now: Timestamp) -> Timestamp {
-        if now >= self.end.deadline() {
-            let elapsed = self.end.elapsed_until(now).as_nanos();
-            let whole = elapsed / self.duration.as_nanos() * self.duration.as_nanos();
-            self.end.advance(Duration::new(
-                (whole / 1_000_000_000) as u64,
-                (whole % 1_000_000_000) as u32,
-            ));
-            self.end.advance(self.duration);
-        }
-        self.end.deadline()
     }
 }

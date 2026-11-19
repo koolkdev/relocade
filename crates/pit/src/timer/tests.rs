@@ -196,57 +196,36 @@ fn native_observations_keep_counter_phase_and_deadlines_on_the_same_grid() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn overdue_edges_raise_irq0_and_return_control_to_the_worker() {
-    use relocade_machine::{ClockSource, Sleep};
-    use std::{cell::Cell, num::NonZeroU64};
+fn reprogramming_a_fast_counter_on_a_coarse_guest_clock_coalesces_edges() {
+    use relocade_machine::GuestTimeDriver;
+    use std::num::NonZeroU64;
 
-    #[derive(Clone, Default)]
-    struct LateClock(Rc<Cell<u64>>);
-
-    impl ClockSource for LateClock {
-        fn now(&self) -> Timestamp {
-            Timestamp::from_ticks(self.0.get())
-        }
-
-        fn ticks_per_second(&self) -> NonZeroU64 {
-            NonZeroU64::new(INPUT_HZ).unwrap()
-        }
-
-        fn sleep_until(&self, deadline: Timestamp) -> Sleep {
-            let now = self.0.clone();
-            Sleep::new(async move {
-                // Bound the sequence so a task that never yields still returns.
-                if now.get() >= 32 {
-                    std::future::pending::<()>().await;
-                }
-                now.set(deadline.ticks() + 2);
-            })
-        }
-    }
-
-    let source = LateClock::default();
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1_000).unwrap());
     let pic = Pic::new(8, 0x70);
     pic.unmask_irq(TIMER_IRQ);
     let pic_device = Rc::new(RefCell::new(pic.clone()));
-    let io = relocade_machine::IoBus::new(pic_device, |_| {});
-    let pit = Rc::new(RefCell::new(Pit::with_clock(
-        Clock::new(source.clone()),
-        &pic,
-    )));
+    let io =
+        relocade_machine::IoBus::new(pic_device.clone(), |io| Pic::configure_io(io, &pic_device));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(driver.clock(), &pic)));
     io.connect(pit.clone(), |io| Pit::configure_io(io, &pit));
-    program(&io, 0x36, 2);
-    let mut cx = Context::from_waker(Waker::noop());
-    assert!(io.poll_interrupt(&mut cx).is_pending());
-
-    let task_wakes = Arc::new(WakeCount::default());
-    let waker = Waker::from(task_wakes.clone());
     let mut task = pin!(Pit::run(pit));
-    assert!(task
-        .as_mut()
-        .poll(&mut Context::from_waker(&waker))
-        .is_pending());
-    // Load on tick 1, fall on tick 2 and latch the rising edge at tick 3.
-    assert_eq!(source.now(), Timestamp::from_ticks(3));
+    let wakes = Arc::new(WakeCount::default());
+    let waker = Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(28)));
+
+    program(&io, 0x36, 2);
+    assert!(wakes.0.load(Ordering::Relaxed) > 0);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(1)));
+    assert!(io.poll_interrupt(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+
+    // A guest millisecond spans hundreds of periods at divisor 2.
     assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
-    assert!(task_wakes.0.load(Ordering::Relaxed) > 0);
+    relocade_pic::end_of_interrupt(&io, TIMER_IRQ);
+    assert!(io.poll_interrupt(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(2)));
 }

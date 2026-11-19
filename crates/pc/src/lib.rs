@@ -149,11 +149,14 @@ impl Pc {
         self.runner.cpu()
     }
 
-    /// Executes this PC's CPU with its scheduling and device activities.
-    /// Await inside the execution session that supplied the runner; its outer
-    /// [`Runner::run`] drives device activities and cancellation.
+    /// Executes guest code alongside hardware until the CPU exits.
     pub async fn run(&mut self) -> relocade_x86::ExecutionExit {
         self.runner.run_cpu().await
+    }
+
+    /// Keeps the hardware running with the CPU parked until the future completes.
+    pub async fn wait_for<F: std::future::Future>(&mut self, future: F) -> F::Output {
+        self.runner.wait_for(future).await
     }
 
     /// The BIOS keyboard shared with INT 16h and console services.

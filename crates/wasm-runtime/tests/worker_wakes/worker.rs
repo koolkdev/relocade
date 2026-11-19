@@ -13,16 +13,6 @@ use std::{
     task::{Context, Poll, Wake},
 };
 
-async fn drive<F: Future>(worker: &WorkerWake<Signal>, future: F) -> F::Output {
-    let mut future = pin!(future);
-    loop {
-        if let Poll::Ready(result) = worker.poll(|cx| future.as_mut().poll(cx)) {
-            return result;
-        }
-        worker.wait().await;
-    }
-}
-
 #[derive(Default)]
 struct CountWakes(AtomicUsize);
 impl Wake for CountWakes {
@@ -71,7 +61,7 @@ async fn busy_session() {
                     // Register the ordinary input receiver before entering busy work.
                     join(input, busy).await.0.unwrap()
                 };
-                match drive(&worker, select(cancelled, pin!(session))).await {
+                match worker.drive(select(cancelled, pin!(session))).await {
                     Either::Left(_) => None,
                     Either::Right((value, _)) => Some(value),
                 }
@@ -126,9 +116,21 @@ async fn composition() {
                 assert_eq!(tasks.poll_next_unpin(cx), Poll::Ready(Some(Ok(42))));
             });
             assert_eq!(signal.memory.atomic_load::<u8>(0), 0);
-            worker.request_poll();
+            worker.poll(|cx| worker.repoll(cx));
             assert_eq!(signal.memory.atomic_load::<u8>(0), 0);
             worker.wait().await;
+
+            let mut first_poll = true;
+            let mut nested = FuturesUnordered::new();
+            nested.push(poll_fn(|cx| {
+                if std::mem::take(&mut first_poll) {
+                    worker.repoll(cx);
+                    Poll::Pending
+                } else {
+                    Poll::Ready(42)
+                }
+            }));
+            assert_eq!(worker.drive(nested.next()).await, Some(42));
         })
         .unwrap();
     incoming.send(signal).unwrap();
@@ -175,7 +177,7 @@ async fn reentrant_input() {
             let mut context = Context::from_waker(&waker);
             // The parked worker publishes another input synchronously while
             // the first wake is still unwinding through the worker waker.
-            let mut session = pin!(drive(&worker, join(triggered, receive)));
+            let mut session = pin!(worker.drive(join(triggered, receive)));
             assert!(session.as_mut().poll(&mut context).is_pending());
             trigger.send(()).unwrap();
             assert_eq!(
@@ -233,7 +235,7 @@ async fn parking_lifetime() {
                     })
                     .await
                 };
-                let mut session = Box::pin(drive(&worker, root));
+                let mut session = Box::pin(worker.drive(root));
                 let first = Arc::new(CountWakes::default());
                 let first_weak = Arc::downgrade(&first);
                 let first_waker = Waker::from(first.clone());
@@ -306,7 +308,7 @@ async fn idle_session() {
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
             let worker = WorkerWake::new(endpoint.bind(signal));
-            let mut session = pin!(drive(&worker, input));
+            let mut session = pin!(worker.drive(input));
             assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
                 .await
                 .is_pending());

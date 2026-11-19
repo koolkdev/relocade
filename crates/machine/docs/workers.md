@@ -171,10 +171,11 @@ returns a host guard plus Send endpoint metadata. Capture the endpoint alongside
 an already posted resource, then call `endpoint.bind(local_target)` on execution.
 Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
-`CpuHandle` startup does this automatically with its prepared CPU; callers attach
-local devices through `runner.cpu().io().connect` or `Dos::new`. `WakeConnection` retains the
-binding. The machine polls with `worker::WorkerWake` and waits on it when idle.
-A task wake both interrupts guest execution and queues the next poll.
+`CpuHandle` startup binds the prepared CPU automatically. Callers attach local
+devices through `runner.connect(...).await` or construct the PC with `Dos::new`.
+`WakeConnection` retains the binding. `WorkerWake::drive` polls the session
+future and parks when it has no runnable work. A task wake interrupts guest
+execution at its next checkpoint and queues another poll.
 
 ## Browser build and lifetime
 

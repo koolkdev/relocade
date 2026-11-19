@@ -94,10 +94,10 @@ early can terminate browser workers before Rust destructors run.
 
 ## Compiler replies
 
-A session task receives posted compiler replies. It can receive a module
-while the CPU is stopped or a manual reader is between calls. A local queue
-holds one reply for the client. Once that slot is full, the task waits for
-the client to consume it before receiving the next module.
+A session task forwards posted compiler replies into a single local slot.
+Transport can finish while the CPU is stopped or the application drops a
+manual receive future. Once the slot is full, the task waits for the client
+to consume it before receiving the next module.
 
 Sending a reply posts the module first and then publishes its Rust state, which
 wakes the task. On a busy CPU this wake also requests a checkpoint in interpreted or compiled code.
@@ -109,13 +109,10 @@ for a browser turn. The execution worker also registers demand while local
 WebAssembly compilation is pending, for example when installing BIOS hooks
 after the PIT and VGA have started.
 
-If the worker is idle, it returns to the browser immediately. While Rust work
-is runnable and a callback is pending, the machine scheduler gives that work
-1 ms of elapsed host time before yielding to the browser. The CPU returns at completed
-checkpoints so the worker can check the deadline between turns. A long guest
-block can overshoot it. Pending callbacks share this interval. After a browser
-turn, the worker resumes runnable work and retries if necessary. Completing
-or cancelling the last operation ends the retries.
+A parked worker can receive browser callbacks immediately. On a busy worker,
+`WorkerWake` gives runnable Rust work a 1 ms host-time grace period before
+yielding to the browser. Completing or cancelling the last operation ends
+these browser turns. [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
 For automatic Real16 compilation, the CPU checks for a delivered reply after
 polling its active host service. A parked BIOS call can retain dispatch entries
@@ -123,7 +120,23 @@ while its interrupt handler runs. The reply stays in the client slot until
 the last such call returns and releases those entries. The resumed call goes
 through the same CPU check before guest execution continues.
 The CPU installs compiled code for missing entries and provides interpreter fallbacks for
-remaining roots. An application that takes ownership through
-`Runner::take_compiler` can instead await `CompilerClient::recv` as a session
-task, stop its CPU run at an allowed boundary, and install the returned code
-explicitly. Dropping that receive wait preserves the result for another wait.
+remaining roots.
+
+An application can take the client during setup and wait for a reply while
+the guest runs. If the reply arrives first, the CPU borrow ends and the
+application can install it once all active and parked host calls have finished.
+If the guest exits first, the client keeps the reply for the next receive.
+
+This example runs a guest loop that makes no host calls.
+
+```rust,ignore
+use futures_util::future::Either;
+
+let mut client = runner.take_compiler().expect("configured compiler");
+client.request(target, blocks)?;
+match runner.run_cpu_until(client.recv()).await {
+    Either::Right(Some(result)) => result?.install(runner.cpu())?,
+    Either::Right(None) => handle_compiler_shutdown(),
+    Either::Left(exit) => handle_guest_exit(exit),
+}
+```

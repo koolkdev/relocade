@@ -197,14 +197,12 @@ its configuration on that worker. `Runner::with_guest_time` accepts
 the configuration directly. `with_host_clock(host_clock)` supplies a host clock
 for idle device deadlines and output presentation without setting a CPU limit.
 
-`run_cpu().await` makes the CPU runnable and waits for its exit. The scheduler
-sets a CPU checkpoint at the earliest of the next device wake, the optional
-guest slice boundary and the end of the current CPU allowance. Device sleeps register a
-task to wake. A slice returns control to the scheduler while instructions are
-running. Only device sleeps determine where idle guest time advances.
-`with_slice_duration(duration)` sets a positive slice interval in guest time.
-Instruction blocks can overshoot a checkpoint. Both the interpreter and
-compiled code publish retirement when execution returns to Rust.
+While `runner.run_cpu().await` executes guest code, the earliest device deadline
+and the optional CPU allowance determine the next scheduled checkpoint. A Rust
+wake can also interrupt running code. Uncapped execution with no device sleeps
+has no periodic guest-time checkpoint. Instruction blocks can overshoot a
+checkpoint. Both the interpreter and compiled code publish retirement when
+execution returns to Rust.
 [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
 ### CPU limits and idle device deadlines
@@ -212,13 +210,14 @@ compiled code publish retirement when execution returns to Rust.
 The CPU limit accounts for retired instructions. It lets guest execution proceed
 in short bursts and waits for the corresponding absolute host time before
 allowing more instructions. Rust services, device tasks and cancellation can run
-while CPU entry is waiting. Sending a new CPU request leaves the current
-retirement allowance in effect.
+while CPU entry is waiting. The limit belongs to the session, so stopping and
+resuming a CPU run preserves the remaining allowance.
 
-When the CPU is halted, waiting for a Rust service, or between programs, the
-scheduler lets ready Rust work run before advancing to the next device
-deadline. A deterministic session can advance guest time directly to that
-deadline. A session with a host clock waits for the remaining duration at the
+When guest execution halts or blocks on a Rust service, ready tasks run before
+guest time advances to the earliest device deadline. The application can use
+`runner.wait_for(work).await` to drive the same deadlines between programs.
+The CPU stays stopped for the duration of that wait. A deterministic session
+can advance directly to the deadline. A session with a host clock waits for the remaining duration at the
 device clock's nominal rate. If Rust work becomes ready, the scheduler can
 reconsider the deadline. A late host wake advances guest time to the device
 deadline that woke it. The next idle interval starts at the current host time.

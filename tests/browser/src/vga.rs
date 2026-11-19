@@ -111,7 +111,7 @@ pub async fn vga_workers() -> Result<(), String> {
             runner.run_cpu().await,
             ExecutionExit::Host(HostExit::Return)
         );
-        presented.await.unwrap();
+        runner.wait_for(presented).await.unwrap();
         drop(runner);
         drop(vga);
     });

@@ -1,5 +1,7 @@
 use super::*;
-use futures_util::future::{select, Either};
+#[cfg(target_arch = "wasm32")]
+use futures_util::future::select;
+use futures_util::future::Either;
 use relocade_machine::Device;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -44,32 +46,27 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
                 runner.connect(busy.clone(), |_| {}).await;
 
                 let state = runner.cpu().cpu_state();
-                let code = {
-                    let receive = pin!(async {
-                        while state.instruction_count() == 0 {
-                            relocade_machine::yield_now().await;
-                        }
-                        compiler
-                            .request(
-                                target,
-                                vec![BlockRequest {
-                                    entry: FarPointer {
-                                        segment: 0,
-                                        offset: 0x200,
-                                    },
-                                    ..request()
-                                }],
-                            )
-                            .unwrap();
-                        compiler.recv().await.expect("compiler running")
-                    });
-                    let running = pin!(runner.run_cpu());
-                    match select(receive, running).await {
-                        Either::Left((code, _)) => code.unwrap(),
-                        Either::Right((exit, _)) => {
-                            panic!("guest loop exited before receipt: {exit:?}")
-                        }
+                let receive = async {
+                    while state.instruction_count() == 0 {
+                        relocade_machine::yield_now().await;
                     }
+                    compiler
+                        .request(
+                            target,
+                            vec![BlockRequest {
+                                entry: FarPointer {
+                                    segment: 0,
+                                    offset: 0x200,
+                                },
+                                ..request()
+                            }],
+                        )
+                        .unwrap();
+                    compiler.recv().await.expect("compiler running")
+                };
+                let code = match runner.run_cpu_until(receive).await {
+                    Either::Right(code) => code.unwrap(),
+                    Either::Left(exit) => panic!("guest loop exited before receipt: {exit:?}"),
                 };
                 assert!(
                     runner.cpu().cpu_state().instruction_count() > 0,

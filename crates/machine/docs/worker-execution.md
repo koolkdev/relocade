@@ -1,11 +1,10 @@
 # Worker execution
 
-Each execution worker owns one CPU session. Its scheduler drives the
-application, session tasks and CPU. A session task is a Rust future polled on
-the execution worker, such as the PIT timer loop or the compiler reply receiver. The DOS console
-can wait for input between programs while devices continue running on guest time.
-`runner.run_cpu().await` asks the scheduler to execute guest instructions
-and returns when the foreground run exits.
+The application receives a `Runner` that owns the session’s CPU. It borrows that
+CPU with `runner.run_cpu().await` to execute a program. Between programs it can
+await `runner.wait_for(input)` to keep guest device time advancing while the CPU
+is stopped. The PIT and the compiler reply receiver are ordinary Rust tasks
+retained by the session and polled on the same worker.
 
 The PC runtime passes a guest clock to its devices. To configure an execution
 worker directly, set the guest clock rate with `GuestTimeConfig`. An optional
@@ -24,7 +23,7 @@ let execution = cpu.spawn_with_guest_time(
             io.bind(ports, &read, &write);
         }).await;
         runner.run_cpu().await;
-        wait_for_next_program().await;
+        runner.wait_for(wait_for_next_program()).await;
         Ok::<(), Error>(())
     },
 );
@@ -74,11 +73,16 @@ handles and already installed modules immediately observe the new mappings. `run
 executes the runner's existing CPU. Construction, connection and launch do not
 execute guest instructions.
 
-The callback receives its `Runner` by value. PC/DOS retain it across programs;
-`runner.cpu()` lends the stopped backend for setup. The outer session keeps
-driving device tasks until the callback completes, even if it releases its
-runner earlier. BIOS/DOS services capture their own
-application resources and execute on the same worker. The CPU selects the native
+PC and DOS keep the same runner across programs. `runner.cpu()` lends the
+stopped CPU for setup. Await CPU runs and idle waits inside the session callback so
+the same worker drives their device tasks and wakeups. Dropping a `runner.run_cpu()` future releases its borrow
+immediately. A subsequent run resumes the CPU with any active or parked BIOS
+calls intact. To run until another future completes, use
+`runner.run_cpu_until(work).await`. It returns `Either::Left(exit)` on CPU exit
+or `Either::Right(value)` on completion of the supplied work.
+
+BIOS and DOS services capture their own application resources and execute on
+the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. They capture a `CpuStateAccess` handle,
 memory, I/O and application resources when registered, and receive no temporary
@@ -153,8 +157,7 @@ waits for that completion before releasing the thread.
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
-The CPU owns its machine directly throughout execution. Reaching a host service
-constructs and polls its pinned future. A pending call retains the future and its
+When the CPU reaches a host service, it constructs and polls its pinned future. A pending call retains the future and its
 registered handler owner; a ready call finishes in the same poll. The driver
 resumes guest dispatch or returns the requested exit after completion.
 
@@ -178,9 +181,9 @@ Stopping a worker drops the CPU and its calls through the existing cancellation 
 HLT with IF clear waits indefinitely unless the embedding ends execution;
 NMI, reset and debug wake events are not modeled yet.
 
-An idle DOS environment does not execute HLT: it has no active CPU run. Device
-tasks can queue IRQs, but guest delivery starts only when execution is
-explicitly driven. Register edits and `CpuState` snapshot restoration do not
+At the DOS prompt, `dos.wait_for(console.read_line()).await` keeps guest
+instructions stopped while devices can advance to their next deadlines. Device
+tasks can queue IRQs. Guest IRQ delivery resumes when the next program runs. Register edits and `CpuState` snapshot restoration do not
 change the driver-owned halt or retained host calls. Public `Cpu::step` reports
 `Halted` and remains halted on later steps; `run` performs IRQ acceptance.
 
@@ -196,9 +199,9 @@ Inside the session, `Dos::new(runner).await` connects
 the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current
-process exit code; keeping the main session alive afterwards leaves VGA active
-for final captures and later launches. `dos.frames()` exposes the same
-capacity-one snapshot queue across those launches. One graphics consumer receives
+process exit code. Between launches, `dos.wait_for(...)` can drive guest time
+through a final VGA capture or a wait for console input. `dos.frames()` exposes
+the same capacity-one snapshot queue across those launches. One graphics consumer receives
 the snapshots; cloned receivers compete for them. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
@@ -210,31 +213,36 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-Each worker turn checks cancellation, polls ready Rust tasks and the
-application, then considers guest execution. A device, a completed compiler
-reply or a foreground CPU request can wake the worker. A wake during busy
-guest execution requests a return to Rust at a completed checkpoint.
+`WorkerWake::drive` polls one session future. Each turn checks the stop signal,
+polls ready session tasks and then polls the application. A device or compiler
+reply can wake a parked worker or interrupt busy guest execution so Rust gets
+control at the next completed checkpoint.
 The interpreter and compiled code both honor that request regardless of guest
 IF. A long block or `REP` can delay the checkpoint.
 [Execution checkpoints](../../x86/docs/host-integration.md#execution-interrupts)
 
-With a foreground run, the scheduler polls the CPU's active Rust service and
-checks its execution allowance before dispatching guest code. The CPU handles
-guest IRQ delivery, HLT and resuming nested guest calls. It reports a checkpoint,
-a blocked state or an exit. A checkpoint lets the scheduler publish retired
-instructions and wake due timers. When a service is blocked, the CPU is halted
-or the application is between programs, guest time can advance to the next
-device deadline once ready Rust work has had its turn. Advancing an idle clock
-retires zero instructions. A PIT expiry can then raise IRQ0 and wake a halted
-CPU whose interrupt flag is set. [Guest time and CPU pacing](clock.md#execution-with-guest-time)
+During `run_cpu_until(work)`, the foreground future gets a turn before each
+guest entry. The run polls the CPU’s active Rust service, checks the optional
+CPU allowance and executes to a checkpoint, blocked state or exit. The CPU
+handles IRQ delivery, HLT and nested guest calls. At each boundary, retirement
+determines which guest timers are due. A device awakened there can run on the
+next worker turn.
+
+If the CPU halts or a service blocks, the run can advance idle guest time to
+the earliest device deadline after ready Rust work has had a turn. For example,
+a PIT expiry can raise IRQ0 and wake a halted CPU whose interrupt flag is set.
+Between runs, `wait_for(work)` applies the same idle rule. An ordinary Rust
+`.await` in the application still lets ready session tasks run, but guest time
+stays at its last tick until the application drives it again.
+[Guest time and CPU pacing](clock.md#execution-with-guest-time)
 
 When the worker has no runnable work, it parks immediately. A busy worker can
 execute successive turns inside Wasm. An operation that needs the JavaScript
 event loop registers demand through `runner.host_turns().wait(future).await`.
 Examples include receiving a posted compiler module and awaiting local Wasm
-compilation. While that demand is pending, the scheduler checks elapsed host
-time at CPU checkpoints and returns to the browser after 1 ms of runnable
-work. [Compiler reply delivery](compilation.md#compiler-replies)
+compilation. While that demand is pending, `WorkerWake` requests checkpoints
+and gives runnable work a 1 ms host-time grace period before yielding to the
+browser. A long guest block can delay that yield. [Compiler reply delivery](compilation.md#compiler-replies)
 
 `ExecutionWorker` creates a wake connection before spawning and binds it to
 the transferred CPU's execution interrupt on the new worker. The host keeps
@@ -293,8 +301,8 @@ runner.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga)).await;
 
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
 responds to each CPU access.
-The runner drives its device task throughout the main session, including CPU
-service waits and gaps between programs. VGA follows fixed text-mode raster
+CPU runs and `wait_for` between programs both advance the deadlines that wake
+the VGA task. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
 worker receiving those captures, without borrowing the live device. The
 [graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with

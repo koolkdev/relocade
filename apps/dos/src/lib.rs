@@ -85,7 +85,7 @@ async fn run_machine(
                     .map_err(Clone::clone),
             );
             let mut dos = startup?;
-            run_console(dos.native_console(events)).await;
+            run_console(&mut dos, events).await;
             Ok(())
         },
     );

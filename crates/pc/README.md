@@ -15,6 +15,9 @@ drives timer interrupts and the speaker. To launch the PC, use
 The PC's clock advances one microsecond per retired instruction. PIT, VGA, PS/2
 and firmware use this guest time. The host clock supplies elapsed time for idle
 devices and presentation. Active CPU execution is uncapped by default.
+Use `pc.run().await` to execute the CPU alongside its devices. When the CPU is
+parked between programs, `pc.wait_for(input).await` lets the next device deadline
+advance the clock while the application waits for input.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer

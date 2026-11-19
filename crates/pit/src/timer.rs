@@ -4,16 +4,10 @@ use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
-    Timestamp,
+    Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
-use std::{
-    cell::RefCell,
-    future::{poll_fn, Future},
-    pin::pin,
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 /// Channel-2 state at an observed native timestamp on the PIT's clock.
 #[derive(Clone, Debug)]
@@ -78,6 +72,8 @@ impl Pit {
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
+    /// The PC supplies its guest clock. When running the PIT task with another
+    /// clock, successive waits for future transitions must eventually suspend.
     pub fn with_clock(clock: Clock, pic: &Pic) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
@@ -237,30 +233,15 @@ impl Pit {
 impl Device for Pit {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
-        device.borrow_mut().sync_to_clock();
         loop {
             let (deadline, changed) = {
-                let device = device.borrow();
-                (device.next_deadline(), device.changed.listen())
+                let mut pit = device.borrow_mut();
+                pit.sync_to_clock();
+                (pit.next_deadline(), pit.changed.listen())
             };
-            let mut wait = pin!(async {
-                match deadline {
-                    Some(at) => or(clock.sleep_until(at), changed).await,
-                    None => changed.await,
-                }
-            });
-            let mut suspended = false;
-            poll_fn(|cx| {
-                let result = wait.as_mut().poll(cx);
-                suspended |= result.is_pending();
-                result
-            })
-            .await;
-            device.borrow_mut().sync_to_clock();
-            // An independently advancing clock can overtake every divisor-2 edge.
-            // Give the worker a turn if this wait completed on its first poll.
-            if !suspended {
-                yield_now().await;
+            match deadline {
+                Some(at) => or(clock.sleep_until(at), changed).await,
+                None => changed.await,
             }
         }
     }

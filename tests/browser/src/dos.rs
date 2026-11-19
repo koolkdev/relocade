@@ -86,11 +86,11 @@ pub async fn dos_workers() -> Result<(), String> {
             b'X'
         );
         first_done.send(result.unwrap()).unwrap();
-        next_launch.await.unwrap();
+        dos.wait_for(next_launch).await.unwrap();
         dos.launch_com(SECOND_PROGRAM, Default::default()).unwrap();
         second_done.send(dos.run().await.unwrap()).unwrap();
-        // Registered VGA stays active between launches and after process exit.
-        pending::<()>().await;
+        // Keep producing frames after process exit until the app closes.
+        dos.wait_for(pending::<()>()).await;
     });
 
     let app = async move {

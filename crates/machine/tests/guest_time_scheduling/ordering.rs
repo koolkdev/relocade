@@ -142,21 +142,20 @@ async fn new_activity_registers_earlier_deadline() {
     let cpu = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = cpu.spawn_with_guest_time(
         || GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
-        async |runner| {
-            let clock = runner.clock();
+        async |mut runner| {
+            let clock = runner.clock().clone();
             let start = clock.now();
             let later = clock.deadline_after(start, Duration::from_secs(20));
             runner.start_task(clock.sleep_until(later)).await;
             let earlier = clock.deadline_after(start, Duration::from_secs(1));
             let (send, observed) = futures_channel::oneshot::channel();
-            let clock = clock.clone();
             runner
                 .start_task(async move {
                     clock.sleep_until(earlier).await;
                     send.send(clock.now()).unwrap();
                 })
                 .await;
-            assert_eq!(observed.await.unwrap(), earlier);
+            assert_eq!(runner.wait_for(observed).await.unwrap(), earlier);
         },
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -180,10 +179,7 @@ async fn caller_budget_and_clock_checkpoint() {
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let cpu = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = cpu.spawn_with_guest_time(
-        || {
-            GuestTimeConfig::new(NonZeroU64::new(1_000).unwrap())
-                .with_slice_duration(Duration::from_millis(3))
-        },
+        || GuestTimeConfig::new(NonZeroU64::new(1_000).unwrap()),
         async |mut runner| {
             // LOOP 0100 retires one instruction at each checkpoint.
             prepare_cpu(&mut runner, &[0xe2, 0xfe]).await;
@@ -195,13 +191,25 @@ async fn caller_budget_and_clock_checkpoint() {
                 .await
                 .unwrap();
             let budget = cpu.instruction_target();
-            // The first caller limit crosses the slice at three. The second
-            // coincides with the slice at six.
+            let device = Rc::new(RefCell::new(Deadlines {
+                clock: runner.clock().clone(),
+                deadlines: vec![Timestamp::from_ticks(3), Timestamp::from_ticks(6)],
+                observed: Vec::new(),
+                exit: None,
+                exit_after_waits: false,
+            }));
+            runner.connect(device.clone(), |_| {}).await;
+            // The CPU crosses a device deadline on the first run. The next
+            // device wake coincides with the second caller limit.
             for count in [5, 6] {
                 budget.set(Some(count));
                 assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
                 assert_eq!(state.instruction_count(), count);
             }
+            assert_eq!(
+                device.borrow().observed,
+                [Timestamp::from_ticks(3), Timestamp::from_ticks(6)]
+            );
             budget.set(None);
             assert_eq!(
                 runner.run_cpu().await,

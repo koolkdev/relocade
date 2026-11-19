@@ -125,12 +125,12 @@ command prompt itself does not display a mouse cursor.
 ## Console
 
 The application owns a physical-event channel and runs the prompt on the execution
-owner:
+worker.
 
 ```rust,ignore
 let (input, events) = relocade_frontend::keyboard::channel();
 // Send `input` to AppHost::attach_keyboard on the UI owner.
-run_console(dos.native_console(events)).await;
+run_console(&mut dos, events).await;
 ```
 
 `NativeConsole::read_line().await` consumes physical events using the BIOS US
@@ -143,14 +143,15 @@ commands. It creates no DOS process and writes no duplicate stdout capture.
 Native input belongs to the prompt. It does not enter the controller or the BIOS
 keyboard buffer; native output bypasses DOS handles, redirection and installed
 CON drivers. No guest code, IRQ handlers or resident utilities execute at the
-prompt. The runner continues its device activities, including display/audio;
-BIOS ticks advance only when guest execution services timer interrupts.
+prompt. Each line read runs inside `dos.wait_for(...)`, which advances device
+deadlines with the CPU parked. Display captures and audio continue. BIOS ticks
+advance when guest execution services pending timer interrupts.
 
 Guest programs instead receive physical events through `dos.keyboard_input()`
 and use the AT controller → PIC IRQ1 → guest INT 09h → BIOS buffer path.
 `launch_com` and `launch_mz` accept supplied images; program lookup and input handoff during launch are future application policy.
-There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
-launching or resuming a guest.
+The shell can keep its `NativeConsole` across foreground `dos.run().await` calls
+and resume reading the next command on the same console.
 
 ## Audio validation
 

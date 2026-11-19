@@ -1,4 +1,5 @@
-use relocade_dos::NativeConsole;
+use relocade_dos::Dos;
+use relocade_frontend::keyboard::KeyboardEvents;
 
 const BANNER: &str = r"  ____       _                     _
  |  _ \ ___ | | ___   ___ __ _  __| | ___
@@ -8,16 +9,16 @@ const BANNER: &str = r"  ____       _                     _
 
 ";
 
-/// Runs the Rust console on the DOS execution owner. Executable lookup is left
-/// to future application policy; supplied images can use DOS's launch APIs.
-pub async fn run_console(mut console: NativeConsole<'_>) {
+/// Runs the Rust prompt, driving PC hardware while it waits for keyboard input.
+pub async fn run_console(dos: &mut Dos, events: KeyboardEvents) {
+    let mut console = dos.native_console(events);
     for line in BANNER.lines() {
         console.write(line.as_bytes());
         console.write(b"\r\n");
     }
     loop {
         console.write(b"> ");
-        let Some(line) = console.read_line().await else {
+        let Some(line) = dos.wait_for(console.read_line()).await else {
             return;
         };
         let line = line.trim_ascii_start();

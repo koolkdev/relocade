@@ -6,6 +6,8 @@ mod requests;
 mod suspended;
 
 use super::{call::Call, Cpu};
+use crate::machine::execution::Active;
+use futures_util::task::AtomicWaker;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
@@ -13,7 +15,7 @@ use std::{
     cell::{Cell, RefCell},
     future::poll_fn,
     rc::{Rc, Weak},
-    task::{ready, Context, Poll, Waker},
+    task::{ready, Context, Poll},
 };
 pub(super) use suspended::SuspendedCall;
 
@@ -38,7 +40,7 @@ pub struct ExitHandle(Rc<ExitRequest>);
 #[derive(Default)]
 struct ExitRequest {
     result: Cell<Option<ExecutionExit>>,
-    machine: RefCell<Weak<Waker>>,
+    waiter: RefCell<Weak<AtomicWaker>>,
 }
 
 impl ExitHandle {
@@ -54,16 +56,17 @@ impl ExitHandle {
         self.result().is_some()
     }
 
-    pub(crate) fn bind(&self, machine: &Waker) -> Rc<Waker> {
-        let machine = Rc::new(machine.clone());
-        *self.0.machine.borrow_mut() = Rc::downgrade(&machine);
-        machine
+    /// Register the run's waker while it can be stopped from another task.
+    pub(crate) fn listen(&self) -> Rc<AtomicWaker> {
+        let waiter = Rc::new(AtomicWaker::new());
+        *self.0.waiter.borrow_mut() = Rc::downgrade(&waiter);
+        waiter
     }
 
     fn set(&self, exit: ExecutionExit) {
         self.0.result.set(Some(exit));
-        if let Some(machine) = self.0.machine.borrow().upgrade() {
-            machine.wake_by_ref();
+        if let Some(waiter) = self.0.waiter.borrow().upgrade() {
+            waiter.wake();
         }
     }
 
@@ -117,16 +120,24 @@ impl Cpu {
     /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
+        let exit = self.exit.listen();
         poll_fn(|cx| {
-            let _execution = match &self.execution {
-                Some(execution) => Some(ready!(execution.poll_enter(cx))),
-                None => None,
-            };
+            exit.register(cx.waker());
+            let _execution = ready!(self.poll_enter(cx));
             self.poll_host_work(cx)
                 .or_else(|| self.dispatch(cx, |_| false))
                 .map_or(Poll::Pending, Poll::Ready)
         })
         .await
+    }
+
+    /// Holds the machine's pause permit while inspecting or advancing execution.
+    /// A standalone CPU has no machine to pause it.
+    pub(crate) fn poll_enter(&self, cx: &mut Context<'_>) -> Poll<Option<Active>> {
+        match &self.execution {
+            Some(member) => member.poll_enter(cx).map(Some),
+            None => Poll::Ready(None),
+        }
     }
 
     /// Polls the active host service once and observes any requested exit.

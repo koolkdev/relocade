@@ -48,7 +48,6 @@ mod cpu;
 mod io;
 mod machine;
 mod memory;
-mod runner;
 pub mod runtime;
 mod scheduler;
 
@@ -72,9 +71,8 @@ pub use io::{
 pub use machine::{CpuHandle, Machine};
 pub use memory::{CodeSource, FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
-pub use runner::{yield_now, ExecutionWorker, Runner};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, InstructionTarget, Result,
 };
-pub use scheduler::{GuestTimeConfig, GuestTimeDriver};
+pub use scheduler::{yield_now, ExecutionWorker, GuestTimeConfig, GuestTimeDriver, Runner};

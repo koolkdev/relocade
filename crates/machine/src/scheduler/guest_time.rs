@@ -96,7 +96,7 @@ impl GuestTimeDriver {
     }
 
     /// The machine completes due device sleeps after retirement. Before guest
-    /// entry it only needs to publish a changed slice or throughput checkpoint.
+    /// entry it only needs to publish a next CPU allowance checkpoint.
     pub(crate) fn set_yield_deadline(&self, deadline: Option<Timestamp>) {
         let mut state = self.0.borrow_mut();
         if let Some(cpu) = &mut state.cpu {
@@ -127,7 +127,16 @@ impl GuestTimeDriver {
         self.0.borrow().next_device_deadline()
     }
 
-    pub(crate) fn notify_due(&self) {
+    /// Rearm the current idle waiter when a device cancels or replaces its sleep.
+    pub(super) fn idle_deadline(&self, changed: &Waker) -> Option<Timestamp> {
+        let mut state = self.0.borrow_mut();
+        if let Some(binding) = &mut state.cpu {
+            binding.changed.clone_from(changed);
+        }
+        state.next_device_deadline()
+    }
+
+    pub(crate) fn notify_due(&self) -> bool {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.now();
@@ -139,9 +148,11 @@ impl GuestTimeDriver {
             state.refresh_target();
             due
         };
+        let woke_tasks = !due.is_empty();
         for waker in due {
             waker.wake();
         }
+        woke_tasks
     }
 
     /// Advance only after execution and ready tasks have become idle.

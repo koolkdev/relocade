@@ -24,7 +24,6 @@ async fn idle_deadlines() {
     let worker = prepared.spawn_with_guest_time(
         move || {
             relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(5))
                 .with_host_clock(Clock::new(source))
         },
         async |mut runner| {
@@ -56,7 +55,6 @@ async fn idle_deadlines() {
             observed
         },
     );
-    // Idle waits target the next device directly, irrespective of slice length.
     // A late host wake services the due deadline and starts the next idle wait.
     for (scheduled, wake) in [(2, 11), (13, 13), (15, 15), (17, 17), (19, 19), (21, 21)] {
         assert_eq!(
@@ -145,9 +143,12 @@ async fn replace_idle_deadline() {
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             runner.connect(device.clone(), |_| {}).await;
+            // Only the nested CPU waiter can replace its host sleep and observe the exit.
+            let mut runs = futures_util::stream::FuturesUnordered::new();
+            runs.push(runner.run_cpu());
             assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
+                runs.next().await,
+                Some(ExecutionExit::Host(HostExit::Return))
             );
             let result = device.borrow().observed.clone();
             result
@@ -205,7 +206,7 @@ async fn parked_after_cancellation() {
             }
             stopped.send(()).unwrap();
             let deadline = clock.deadline_after(start, Duration::from_millis(10));
-            clock.sleep_until(deadline).await;
+            runner.wait_for(clock.sleep_until(deadline)).await;
             assert_eq!(clock.now(), deadline);
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert_eq!(
@@ -294,16 +295,10 @@ async fn busy_bursts() {
             )
             .await
             .unwrap();
-            let exit = runner.cpu().exit_handle();
-            let ((), result) = join(
-                async move {
-                    stopped.await.unwrap();
-                    exit.request();
-                },
-                runner.run_cpu(),
-            )
-            .await;
-            assert_eq!(result, ExecutionExit::Host(HostExit::Return));
+            assert!(matches!(
+                runner.run_cpu_until(stopped).await,
+                Either::Right(Ok(()))
+            ));
             assert_eq!(runner.clock().now().ticks(), 8);
             assert_eq!(
                 runner
