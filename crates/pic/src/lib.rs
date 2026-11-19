@@ -52,12 +52,12 @@ impl Default for Pic {
 
 impl Pic {
     /// Creates the BIOS-configured pair and registers both chips with the runner.
-    pub async fn initialize(runner: &Runner) -> Self {
+    pub fn initialize(runner: &Runner) -> Self {
         let pic = Self::default();
         let device = Rc::new(RefCell::new(pic.clone()));
         runner
-            .connect(device.clone(), |io| Self::configure_io(io, &device))
-            .await;
+            .io()
+            .connect(device.clone(), |io| Self::configure_io(io, &device));
         pic
     }
 

@@ -48,13 +48,11 @@ impl Adlib {
     }
 
     /// Connects the address/status and data ports on the existing runner.
-    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
+    pub fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let adlib = Rc::new(RefCell::new(Self::new(runner.clock().clone())));
-        runner
-            .connect(adlib.clone(), |io| {
-                Self::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
-            })
-            .await;
+        runner.io().connect(adlib.clone(), |io| {
+            Self::configure_io(io, &adlib, ADDRESS_STATUS_PORT)
+        });
         adlib
     }
 

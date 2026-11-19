@@ -68,20 +68,19 @@ impl Pc {
         configuration
             .validate()
             .map_err(InitializationError::Validation)?;
-        let dma = Dma::initialize(&runner).await;
+        let dma = Dma::initialize(&runner);
         let video_card = configuration.video_card.initialize(&runner).await;
         let video_firmware = video_card.firmware();
-        let pic = Pic::initialize(&runner).await;
+        let pic = Pic::initialize(&runner);
         let pit = Pit::initialize(&runner, &pic).await;
-        let speaker = Speaker::initialize(&runner, pit).await;
+        let speaker = Speaker::initialize(&runner, pit);
         let sound_card = configuration
             .sound_card
             .initialize(&runner, &dma, &pic)
             .await;
-        let parallel_port = match configuration.parallel_port {
-            Some(port) => Some(Port::initialize(&runner, port.base, pic.irq(port.irq, false)).await),
-            None => None,
-        };
+        let parallel_port = configuration
+            .parallel_port
+            .map(|port| Port::initialize(&runner, port.base, pic.irq(port.irq, false)));
         let (inputs, controller) = relocade_ps2::connect(&runner, &pic).await;
         let memory = runner.memory();
         let keyboard = Keyboard::new(memory.clone());

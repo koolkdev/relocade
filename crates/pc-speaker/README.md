@@ -5,9 +5,8 @@ Emulates the PC speaker control port and synthesizes PIT channel 2. The shared
 arithmetic and programmable channel-0 IRQ scheduler. BIOS keeps its IRQ handler and
 time-of-day data.
 
-`Speaker::initialize(runner, pit).await` connects the speaker to that PIT,
-registers port 0x61. It returns the connected speaker
-handle. Both devices stay on the execution worker.
+`Speaker::initialize(runner, pit)` connects the speaker to that PIT,
+registers port 0x61 and returns the speaker handle. Both devices stay on the execution worker.
 
 The speaker supports byte transfers at `SPEAKER_CONTROL_PORT` (0x61).
 Word/dword writes are ignored and reads return open bus. PIT channel-2 count

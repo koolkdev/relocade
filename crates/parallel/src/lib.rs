@@ -115,11 +115,11 @@ impl Port {
         }
     }
 
-    pub async fn initialize(runner: &Runner, base: u16, irq: IrqLine) -> Rc<RefCell<Self>> {
+    pub fn initialize(runner: &Runner, base: u16, irq: IrqLine) -> Rc<RefCell<Self>> {
         let port = Rc::new(RefCell::new(Self::new(base, irq)));
         runner
-            .connect(port.clone(), |io| Self::configure_io(io, &port))
-            .await;
+            .io()
+            .connect(port.clone(), |io| Self::configure_io(io, &port));
         port
     }
 
@@ -151,7 +151,10 @@ impl Port {
     /// immediately or retained for asynchronous activity. Attachment is permanent
     /// for this port's lifetime; attaching to an occupied port is an error.
     pub fn attach(&mut self, mut peripheral: impl FnMut(OutputPins, &Inputs) + 'static) {
-        assert!(self.peripheral.is_none(), "parallel port is already occupied");
+        assert!(
+            self.peripheral.is_none(),
+            "parallel port is already occupied"
+        );
         peripheral(self.output_pins(), &self.inputs);
         self.peripheral = Some(Box::new(peripheral));
     }
