@@ -235,7 +235,6 @@ async fn retained_service() {
                 clock: runner.clock().clone(),
                 wakes: 0,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let started = Rc::new(Cell::new(0));
             let clock = runner.clock().clone();
@@ -254,6 +253,7 @@ async fn retained_service() {
             })])
             .await
             .unwrap();
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -330,6 +330,69 @@ fn unpaced_idle_time_skips_slice_boundaries() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn unpaced_idle_time_skips_slice_boundaries() {
     unpaced_idle_service().await;
+}
+
+async fn parked_session() {
+    use futures_channel::oneshot;
+    use futures_lite::future::poll_once;
+    use futures_util::future::{select, Either};
+    use relocade_machine::{worker::wake_connection, GuestTimeConfig};
+
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::with_guest_time(
+        GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
+        prepared,
+        endpoint,
+    )
+    .await
+    .unwrap();
+    runner.memory().view().write(0x100, &[0xf4]).unwrap(); // HLT.
+    let (ready, running) = oneshot::channel();
+    let mut session = Box::pin(runner.run(
+        std::future::pending::<()>(),
+        async move |mut runner| {
+            let clock = runner.clock().clone();
+            let deadline = clock.deadline_after(clock.now(), Duration::from_millis(7));
+            clock.sleep_until(deadline).await;
+            assert_eq!(clock.now(), deadline);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
+            assert_eq!(runner.cpu().cpu_state().eip(), 0x100);
+            assert!(ready.send(runner).is_ok());
+            std::future::pending::<()>().await;
+        },
+    ));
+
+    let mut runner = match select(running, session.as_mut()).await {
+        Either::Left((Ok(runner), _)) => runner,
+        _ => panic!("the session must survive its first guest deadline"),
+    };
+    {
+        let mut foreground = pin!(runner.run_cpu());
+        assert!(poll_once(foreground.as_mut()).await.is_none());
+        assert!(poll_once(session.as_mut()).await.is_none());
+        drop(session);
+        assert_eq!(
+            poll_once(foreground).await,
+            Some(ExecutionExit::Interrupted)
+        );
+    }
+    assert_eq!(runner.cpu().cpu_state().instruction_count(), 1);
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
+    pollster::block_on(parked_session());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
+    parked_session().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
