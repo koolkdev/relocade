@@ -9,7 +9,7 @@ use host::HostTime;
 mod wait;
 use wait::{Source, Wait};
 
-use super::{Clock, TickRate, Timestamp};
+use super::{Clock, GuestClock, GuestClockSource, TickRate, Timestamp};
 use crate::{Cpu, CpuStateAccess, InstructionTarget};
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
@@ -17,7 +17,7 @@ use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 /// Published retirement advances time at the configured instruction rate. The
 /// embedding owns CPU execution and calls [`Self::synchronize`] at stopped
 /// boundaries. It also decides when idle time may advance to the next deadline.
-/// Devices use the common [`Clock`] returned by [`Self::clock`].
+/// Timed devices use the [`GuestClock`] returned by [`Self::guest_clock`].
 ///
 /// Callback observations can lag unpublished retirement; instruction targets
 /// remain soft checkpoint limits. Runner chooses pacing boundaries; the driver
@@ -60,7 +60,12 @@ impl GuestTimeDriver {
     }
 
     pub fn clock(&self) -> Clock {
-        Clock::new(Source(self.0.clone()))
+        self.guest_clock().into()
+    }
+
+    /// The device clock driven by this CPU's retired instructions and idle deadlines.
+    pub fn guest_clock(&self) -> GuestClock {
+        GuestClock::new(Source(self.0.clone()))
     }
 
     /// Observes CPU retirement and controls its target until the returned guard
@@ -73,17 +78,25 @@ impl GuestTimeDriver {
     /// Panics if the driver already has a live binding.
     #[must_use = "retain the binding while driving this CPU"]
     pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
+        self.bind_cpu(cpu.cpu_state(), cpu.instruction_target(), changed)
+    }
+
+    pub(crate) fn bind_cpu<'a>(
+        &'a self,
+        cpu_state: CpuStateAccess,
+        target: InstructionTarget,
+        changed: &Waker,
+    ) -> impl Drop + use<'a> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
         let now = state.now();
         if let Some(host) = &mut state.host {
             host.resume(now);
         }
-        let cpu_state = cpu.cpu_state();
         state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {
             state: cpu_state,
-            target: cpu.instruction_target(),
+            target,
             yield_deadline: None,
             changed: changed.clone(),
         });
@@ -155,6 +168,8 @@ impl GuestTimeDriver {
         self.notify_due();
     }
 }
+
+impl GuestClockSource for Source {}
 
 struct BindingGuard<'a>(&'a GuestTimeDriver);
 

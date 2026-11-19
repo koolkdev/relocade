@@ -2,15 +2,18 @@
 
 mod guest_time;
 mod schedule;
+mod session;
 pub use guest_time::GuestTimeConfig;
 mod worker;
 
 use schedule::ExecutionSchedule;
+use session::{Session, SessionScope};
 pub use worker::ExecutionWorker;
 
 use crate::worker::{Executor, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
 use crate::{
-    Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
+    Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, GuestClock, IoBus, Memory,
+    Result,
 };
 use futures_channel::{mpsc, oneshot};
 use futures_lite::future::poll_once;
@@ -18,13 +21,14 @@ use futures_lite::future::poll_once;
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
 use futures_util::{
-    future::{join_all, select, Either, LocalBoxFuture},
+    future::{join_all, LocalBoxFuture},
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
+    num::NonZeroU64,
     pin::pin,
     rc::Rc,
     task::Poll,
@@ -37,12 +41,13 @@ use std::{
 /// An optional compiler connection automatically compiles hot Real16 functions.
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
-    schedule: ExecutionSchedule,
+    schedule: Rc<ExecutionSchedule>,
+    session: Rc<RefCell<Option<Session>>>,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
     workers: Rc<RefCell<Vec<LocalBoxFuture<'static, ()>>>>,
-    cpu: Cpu,
+    cpu: Option<Cpu>,
 }
 
 impl Runner {
@@ -84,29 +89,33 @@ impl Runner {
             .transpose()?;
         let cpu = cpu.with_compiler(compiler);
         Ok(Self {
-            schedule,
+            schedule: Rc::new(schedule),
+            session: Rc::default(),
             activities,
             pending: Some(pending),
             executor,
             workers: Rc::new(RefCell::new(Vec::new())),
-            cpu,
+            cpu: Some(cpu),
         })
     }
 
     /// The shared memory established by the machine before execution started.
     pub fn memory(&self) -> Memory {
-        self.cpu.memory()
+        self.cpu
+            .as_ref()
+            .expect("CPU available outside a run")
+            .memory()
     }
 
     /// The session's device bus for setup and synchronous host I/O.
     pub fn io(&self) -> IoBus {
-        self.cpu.io()
+        self.cpu.as_ref().expect("CPU available outside a run").io()
     }
 
     /// Borrows this runner's stopped CPU for setup and low-level execution.
     /// The borrow must end before calling [`Self::run_cpu`].
     pub fn cpu(&mut self) -> &mut Cpu {
-        &mut self.cpu
+        self.cpu.as_mut().expect("CPU available outside a run")
     }
 
     /// Takes this CPU's compiler connection once.
@@ -115,7 +124,38 @@ impl Runner {
     /// Take it during setup to manage requests and installation explicitly.
     /// Panics if automatic compilation requests are still outstanding.
     pub fn take_compiler(&mut self) -> Option<crate::CompilerClient> {
-        self.cpu.take_compiler()
+        self.cpu().take_compiler()
+    }
+
+    /// Sets up hardware on one guest timeline. After the first successful setup,
+    /// a live session drives that clock between foreground runs. A supplied
+    /// external guest clock keeps its own controller throughout setup and execution.
+    /// Call inside [`Self::run`] when installing device activities.
+    pub async fn initialize_guest_devices<T, E>(
+        mut self,
+        instructions_per_second: NonZeroU64,
+        initialize: impl AsyncFnOnce(Self, GuestClock) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E> {
+        let clock = match self.clock().as_guest() {
+            Some(clock) => clock,
+            None => {
+                let config = GuestTimeConfig::new(instructions_per_second)
+                    .with_host_clock(self.clock().clone());
+                self.schedule = Rc::new(ExecutionSchedule::with_guest_time(config));
+                self.clock()
+                    .as_guest()
+                    .expect("guest schedule has a guest clock")
+            }
+        };
+        let slot = self.session.clone();
+        let driver = Session::new(
+            self.cpu.as_ref().unwrap(),
+            self.schedule.clone(),
+            self.executor.clone(),
+        );
+        let hardware = initialize(self, clock).await?;
+        slot.borrow_mut().get_or_insert(driver);
+        Ok(hardware)
     }
 
     pub fn clock(&self) -> &Clock {
@@ -199,15 +239,25 @@ impl Runner {
         let executor = self.executor.clone();
         let _activities = self.activities.clone();
         let workers = self.workers.clone();
+        let session = SessionScope(self.session.clone());
         let result = executor
             .run_until(stop, async {
-                // Poll ready devices before returning to guest execution.
-                match select(pin!(devices), pin!(main(self))).await {
-                    Either::Right((result, _)) => result,
-                    Either::Left(_) => unreachable!("session retains the activity sender"),
-                }
+                let mut devices = pin!(devices);
+                let mut application = pin!(main(self));
+                poll_fn(|cx| {
+                    let _ = devices.as_mut().poll(cx);
+                    if let Poll::Ready(result) = application.as_mut().poll(cx) {
+                        return Poll::Ready(result);
+                    }
+                    if let Some(session) = session.0.borrow_mut().as_mut() {
+                        session.poll(cx);
+                    }
+                    Poll::Pending
+                })
+                .await
             })
             .await;
+        drop(session);
         let cleanup = std::mem::take(&mut *workers.borrow_mut());
         join_all(cleanup).await;
         result
@@ -216,14 +266,27 @@ impl Runner {
     /// Runs until the guest exits, polling ready Rust work on execution interrupts.
     /// Pending services retain their futures while awaiting input or guest resumption.
     /// Poll within [`Self::run`], which drives scheduling and background activities.
+    /// If a foreground waiter outlives its live session, it returns Interrupted.
     pub async fn run_cpu(&mut self) -> ExecutionExit {
-        let cpu = &mut self.cpu;
+        let foreground = self
+            .session
+            .borrow()
+            .as_ref()
+            .map(|session| session.foreground.clone());
+        if let Some(foreground) = foreground {
+            return foreground.run(&mut self.cpu).await;
+        }
+        let cpu = self.cpu.as_mut().unwrap();
+        let execution = cpu.execution.clone();
         let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-        let _binding = self.schedule.bind(cpu, &changed);
+        let _binding = self
+            .schedule
+            .bind(cpu.cpu_state(), cpu.instruction_target(), &changed);
         let interrupt = cpu.interrupt_handle();
         self.executor.yield_now().await;
         loop {
-            let exit = poll_fn(|cx| self.schedule.poll_cpu(cpu, cx)).await;
+            let exit =
+                poll_fn(|cx| self.schedule.poll_turn(Some(cpu), execution.as_ref(), cx)).await;
             if exit.is_none() || interrupt.is_requested() {
                 self.executor.yield_now().await;
             }
@@ -236,8 +299,8 @@ impl Runner {
     /// Runs on emulated guest time with optional host pacing for active and idle
     /// execution. Device deadlines subdivide each execution slice. Instruction targets
     /// remain soft checkpoint limits, so a slice can overshoot.
-    /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
-    /// the host/guest offset survive those pauses.
+    /// CPU-only runs pause guest time between submissions. A live session created
+    /// by [`Self::initialize_guest_devices`] continues advancing to device deadlines.
     pub async fn with_guest_time(
         config: GuestTimeConfig,
         cpu: CpuHandle,

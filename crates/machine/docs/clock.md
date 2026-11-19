@@ -187,7 +187,7 @@ let worker = cpu.spawn_with_guest_time(
 ```
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. Its
-private `ExecutionSchedule::poll_cpu` owns each turn: poll host work, wait for
+private `ExecutionSchedule::poll_turn` owns each turn: poll host work, wait for
 pacing, prepare instruction targets, drive guest execution and service due waits.
 Continuing execution gives ready activities a turn. Terminal exits yield only
 when an execution notification remains pending, including notifications from
@@ -215,6 +215,16 @@ Unpaced idle execution advances directly to the next device deadline, even if
 it skips slice boundaries. Paced idle advancement stops at the earlier of that
 deadline and the current slice boundary. A slice alone never causes idle time
 to advance when there are no registered sleeps.
+
+`Runner::initialize_guest_devices` supplies the hardware's shared guest clock.
+The first successful setup installs one driver in the live session. Each worker
+turn polls ready device activities and the application before giving the machine
+one turn. Between foreground runs the CPU stays parked. Device deadlines advance
+guest time under the same host pacing and machine pause gate as CPU execution.
+A foreground call to `run_cpu()` lends the stopped CPU to the session and awaits
+its exit. Cancelling the wait returns the CPU with its pending services intact.
+The clock stays bound through these transitions and releases its pacing wait on
+session shutdown. CPU-only runners still bind the clock for each submitted run.
 
 ### Slices paced by a host clock
 
@@ -244,10 +254,10 @@ current allowance. Ready host services and exit requests can progress during a
 pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
 credit. Replacing a device timer does not replace the pacing wait or grant time.
 
-Completing or cancelling `run_cpu` cancels its host wait. The next run retains
-the same slice boundary and the existing lead or lag, subject to the lag limit.
-Time spent between runs is excluded by shifting the host correspondence by the
-exact native pause duration; repeated cancellation cannot grant another slice.
+A live session retains its host pacing wait and slice boundary as foreground
+programs start and stop. For CPU-only runs, completing or cancelling `run_cpu`
+cancels the host wait. The next run keeps its slice boundary and existing lead
+or lag, with the host correspondence shifted by the exact pause duration.
 The clock driver owns this host/guest correspondence, while
 `runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
 
@@ -274,7 +284,7 @@ without registering one. Clocks and waits remain on their execution owner.
 The mapping is captured when `sync_to_host` is called, so later pauses or lag
 recovery cannot remap that wait. Passing a timestamp to a task uses the mapping
 when the task processes it. Host-clock output uses the same timestamp; unpaced guest
-clocks and inactive runs produce an immediately ready wait. Keep the host timer
+clocks and unbound guest clocks produce an immediately ready wait. Keep the host timer
 service alive while execution-owner tasks use it.
 
 ## Host timers

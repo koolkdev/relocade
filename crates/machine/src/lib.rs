@@ -55,8 +55,8 @@ pub mod runtime;
 extern crate self as relocade_machine;
 
 pub use clock::{
-    timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Schedule, Sleep,
-    TickRate, TimerHandle, Timestamp,
+    timer_service, Clock, ClockSource, GuestClock, GuestClockSource, GuestTimeDriver,
+    HostTimerDriver, Instant, Schedule, Sleep, TickRate, TimerHandle, Timestamp,
 };
 pub use compiler::{
     BlockRequest, CompiledCode, CompilerClient, CompilerService, DiscoveryError, DiscoveryLimits,
