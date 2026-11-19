@@ -7,7 +7,6 @@ use crate::address::RegisterValue;
 use crate::flags::image;
 use crate::memory::Intent;
 use crate::register::{Gpr32, RegisterType};
-use crate::ExecutionProfile;
 
 instruction_families! {
     PUSH {
@@ -98,18 +97,18 @@ where
     I32: AtLeast<T>,
 {
     let pointer = execution.stack_pointer()?;
-    if matches!(execution.profile(), ExecutionProfile::Real16) {
-        // PUSHA/PUSHAD specify #GP for these real-mode entry stack offsets,
-        // before the ordinary per-push checks and stores.
-        let sp = pointer.offset();
-        execution.fault_if(
-            sp.and(1)
-                .ne(0)
-                .and(sp.unsigned().ge(7))
-                .and(sp.unsigned().lt(16)),
-            crate::Exception::GeneralProtection { error_code: 0 },
-        )?;
-    }
+    // Real-mode PUSHA/PUSHAD raise #GP at these offsets before the first store.
+    let sp = pointer.offset();
+    let low_odd = sp
+        .and(1)
+        .ne(0)
+        .and(sp.unsigned().ge(7))
+        .and(sp.unsigned().lt(16));
+    let protected = execution.protected_mode()?;
+    execution.fault_if(
+        protected.eq(false).and(low_odd),
+        crate::Exception::GeneralProtection { error_code: 0 },
+    )?;
     // Capture entry ESP along with the other registers before committing the frame.
     let values = Gpr32::ALL
         .into_iter()
