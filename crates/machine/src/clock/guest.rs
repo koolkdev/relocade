@@ -30,7 +30,7 @@ struct State {
     // offset. While paused, the offset holds the frozen reading.
     offset: u64,
     cpu: Option<Binding>,
-    waits: Vec<Wait>,
+    waits: Vec<Rc<Wait>>,
     host: Option<HostTime>,
 }
 
@@ -132,12 +132,13 @@ impl GuestTimeDriver {
             let due = state
                 .waits
                 .extract_if(.., |wait| wait.deadline <= now)
+                .map(|wait| wait.waker.take().expect("registered guest sleep"))
                 .collect::<Vec<_>>();
             state.refresh_target();
             due
         };
-        for wait in due {
-            let _ = wait.complete.send(());
+        for waker in due {
+            waker.wake();
         }
     }
 
