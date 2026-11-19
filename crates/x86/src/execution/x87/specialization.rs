@@ -20,16 +20,20 @@ impl ExecutionBuilder<'_, '_> {
         Ok(())
     }
 
-    /// Keeps the source policy with the load and owns the shared push-slot check.
+    /// Returns the push-slot overflow condition. A successful admission
+    /// proves the slot is empty on the continuing path.
     pub(crate) fn guard_x87_push(
         &mut self,
         source_valid: impl Into<Val<I1>>,
-    ) -> Result<(), BuildError> {
-        self.if_can_fallback(|jit| {
-            let available = jit.x87().push_available()?;
-            jit.guard(source_valid.into().and(available))
-        })?;
-        Ok(())
+    ) -> Result<Val<I1>, BuildError> {
+        let full = self.x87().push_full()?;
+        let guarded =
+            self.if_can_fallback(|jit| jit.guard(source_valid.into().and(full.eq(false))))?;
+        Ok(if guarded.is_some() {
+            false.into()
+        } else {
+            full
+        })
     }
 
     /// Admits the instruction's operand domain and excludes stack faults.

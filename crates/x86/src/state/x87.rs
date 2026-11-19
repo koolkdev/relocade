@@ -164,19 +164,11 @@ impl X87Access<'_, '_> {
         Ok(unmasked.eq(false))
     }
 
-    fn push_tag(&mut self) -> Result<Val<I16>, BuildError> {
-        let target = self.slot(7)?;
-        self.state.registers.tag(self.body, &target)
-    }
-
-    pub(crate) fn push_available(&mut self) -> Result<Val<I1>, BuildError> {
-        Ok(self.push_tag()?.eq(3))
-    }
-
     /// Whether the push destination is occupied; source underflow can still
     /// take priority over an overflow response.
     pub(crate) fn push_full(&mut self) -> Result<Val<I1>, BuildError> {
-        Ok(self.push_tag()?.ne(3))
+        let target = self.slot(7)?;
+        Ok(self.state.registers.tag(self.body, &target)?.ne(3))
     }
 
     /// Writes the entry ST(7) slot, then advances TOP when enabled.
