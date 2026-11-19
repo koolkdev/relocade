@@ -48,9 +48,7 @@ impl BlockModules {
         // execution context. The fixture machine supplies the code and mappings.
         key.validate_fetches(cpu);
         self.0.entry(key).or_insert_with_key(|key| {
-            let module = Compiler::new(target.profile)
-                .with_instruction_budgets(target.instruction_budgets)
-                .with_cpu_model(target.cpu_model)
+            let module = Compiler::from_target(target)
                 .compile_block(key.start, bytes, limit)
                 .unwrap_or_else(|error| panic!("compiling {key:?}: {error:?}"));
             assert_eq!(module.execution_target, Some(target));

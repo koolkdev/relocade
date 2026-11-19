@@ -34,15 +34,27 @@ impl Compiler {
     /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         let profile = profile.into();
+        Self::from_target(ExecutionTarget {
+            profile,
+            memory_backend: MemoryBackend::default_for(profile),
+            cpu_model: CpuModel::default(),
+            instruction_budgets: true,
+        })
+    }
+
+    /// Compiles for an existing target, retaining its memory backend, CPU model and budget policy.
+    pub fn from_target(target: ExecutionTarget) -> Self {
         Self {
-            target: ExecutionTarget {
-                profile,
-                memory_backend: MemoryBackend::default_for(profile),
-                cpu_model: CpuModel::default(),
-                instruction_budgets: true,
-            },
+            target,
             observed_cpu: None,
         }
+    }
+
+    /// Selects how generated code accesses guest memory after segmentation.
+    #[must_use]
+    pub fn with_memory_backend(mut self, memory_backend: MemoryBackend) -> Self {
+        self.target.memory_backend = memory_backend;
+        self
     }
 
     /// Selects processor capabilities for snapshot blocks and dispatch.
