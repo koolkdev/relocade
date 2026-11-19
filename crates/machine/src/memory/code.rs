@@ -1,31 +1,30 @@
-//! Shared instruction sources and the backing pages retained by their snapshots.
+//! Instruction bytes captured by the compiler and registrations for installed PC code.
 
+mod pages;
+pub(crate) use pages::CodeRegistry;
+pub use pages::InstalledCode;
 mod reader;
 pub(crate) use reader::CodeReader;
 
 use super::Memory;
+use crate::{Error, Result};
+use relocade_wasm_runtime::WasmSharedMemory;
 use std::{
-    collections::BTreeMap,
     ops::Range,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex, MutexGuard, Weak,
-    },
+    sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
 const PAGE_BYTES: u32 = relocade_x86::PhysicalMemoryMap::PAGE_BYTES;
 
-/// Immutable instruction bytes used by a compilation. Clones retain the same
-/// source registration, including while results are pending or installed on CPUs.
-#[derive(Clone)]
-pub struct CodeSource {
-    registry: Arc<Mutex<CodeRegistry>>,
-    source: Arc<Source>,
+fn page_base(backing: u32) -> u32 {
+    backing & !(PAGE_BYTES - 1)
 }
 
-struct Source {
-    blocks: Vec<Vec<Span>>,
-    pages: Vec<PageVersion>,
+/// The exact instruction bytes used by a compilation, in the memory where they were read.
+#[derive(Clone)]
+pub struct CodeSource {
+    memory: Weak<Mutex<CodeRegistry>>,
+    spans: Arc<[Span]>,
 }
 
 struct Span {
@@ -34,115 +33,54 @@ struct Span {
     bytes: Box<[u8]>,
 }
 
-struct PageVersion {
-    backing: u32,
-    captured: u64,
-    current: Arc<AtomicU64>,
+impl Span {
+    fn backing_range(&self) -> Range<u64> {
+        u64::from(self.backing)..u64::from(self.backing) + self.bytes.len() as u64
+    }
+
+    fn changed_by(&self, backing: u32, bytes: &[u8]) -> bool {
+        let source = self.backing_range();
+        let write = u64::from(backing);
+        let start = source.start.max(write);
+        let end = source.end.min(write + bytes.len() as u64);
+        start < end
+            && self.bytes[(start - source.start) as usize..(end - source.start) as usize]
+                != bytes[(start - write) as usize..(end - write) as usize]
+    }
 }
 
 impl CodeSource {
     /// Exact instruction ranges, in block order, before A20 and physical mapping.
     pub fn ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
-        self.source
-            .blocks
+        self.spans
             .iter()
-            .flatten()
             .map(|span| u64::from(span.address)..u64::from(span.address) + span.bytes.len() as u64)
     }
 
     /// The same dependencies in shared backing storage, including guest aliases.
     pub fn backing_ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
-        self.source
-            .blocks
-            .iter()
-            .flatten()
-            .map(|span| u64::from(span.backing)..u64::from(span.backing) + span.bytes.len() as u64)
-    }
-
-    /// Reports writes recorded since capture, including data elsewhere on a page.
-    /// Generated stores and raw backing writes bypass these counters.
-    pub fn has_recorded_writes(&self) -> bool {
-        self.source
-            .pages
-            .iter()
-            .any(|page| page.current.load(Ordering::Acquire) != page.captured)
-    }
-
-    /// Hold off managed writes until the caller publishes the checked instructions.
-    pub(crate) fn lock_current_bytes(
-        &self,
-        memory: &Memory,
-    ) -> crate::Result<MutexGuard<'_, CodeRegistry>> {
-        use relocade_wasm_runtime::WasmSharedMemory;
-        let registry = self.registry.lock().unwrap();
-        let mut scratch = [0; PAGE_BYTES as usize];
-        for span in self.source.blocks.iter().flatten() {
-            // The PC memory configuration fixes each span's backing for its lifetime.
-            let live = &mut scratch[..span.bytes.len()];
-            memory.backing.read(span.backing, live);
-            if live != span.bytes.as_ref() {
-                return Err(crate::Error::StaleCompilation);
-            }
-        }
-        Ok(registry)
+        self.spans.iter().map(Span::backing_range)
     }
 
     pub(crate) fn belongs_to(&self, memory: &Memory) -> bool {
-        Arc::ptr_eq(&self.registry, &memory.code)
-    }
-}
-
-/// Rust-only metadata shared by every handle to one guest memory.
-#[derive(Default)]
-pub struct CodeRegistry {
-    pages: BTreeMap<u32, Page>,
-}
-
-struct Page {
-    generation: Weak<AtomicU64>,
-    sources: Vec<Weak<Source>>,
-}
-
-impl CodeRegistry {
-    fn retain_page(&mut self, backing: u32) -> Arc<AtomicU64> {
-        let page = self.pages.entry(backing).or_insert_with(|| Page {
-            generation: Weak::new(),
-            sources: Vec::new(),
-        });
-        if let Some(generation) = page.generation.upgrade() {
-            return generation;
-        }
-        let generation = Arc::new(AtomicU64::new(0));
-        page.generation = Arc::downgrade(&generation);
-        page.sources.clear();
-        generation
+        Weak::ptr_eq(&self.memory, &Arc::downgrade(&memory.code))
     }
 
-    fn register(&mut self, source: &Arc<Source>) {
-        for page in &source.pages {
-            let sources = &mut self
-                .pages
-                .get_mut(&page.backing)
-                .expect("captured page")
-                .sources;
-            sources.retain(|source| source.strong_count() != 0);
-            sources.push(Arc::downgrade(source));
-        }
-    }
-
-    fn wrote(&mut self, backing: u32, len: usize) {
-        if len == 0 {
-            return;
-        }
-        let last = (u64::from(backing) + len as u64 - 1) as u32;
-        for (_, page) in self
-            .pages
-            .range((backing / PAGE_BYTES * PAGE_BYTES)..=(last / PAGE_BYTES * PAGE_BYTES))
-        {
-            if let Some(generation) = page.generation.upgrade() {
-                generation.fetch_add(1, Ordering::Release);
+    /// Hold off managed writes until the caller publishes and registers the checked instructions.
+    pub(crate) fn lock_current_bytes<'a>(
+        &self,
+        memory: &'a Memory,
+    ) -> Result<MutexGuard<'a, CodeRegistry>> {
+        let registry = memory.code.lock().unwrap();
+        let mut scratch = [0; PAGE_BYTES as usize];
+        for span in self.spans.iter() {
+            let live = &mut scratch[..span.bytes.len()];
+            memory.backing.read(span.backing, live);
+            if live != span.bytes.as_ref() {
+                return Err(Error::StaleCompilation);
             }
         }
+        Ok(registry)
     }
 }
 
@@ -151,37 +89,33 @@ impl Memory {
         CodeReader::new(self)
     }
 
-    /// Registered sources covering one backing byte, across pending results and
-    /// CPU installations. Unused read-ahead and gaps between blocks are excluded.
+    /// Active installations whose instructions cover this backing byte.
+    pub fn installed_code_at(&self, backing: u32) -> Vec<Arc<InstalledCode>> {
+        self.code
+            .lock()
+            .unwrap()
+            .covering(backing)
+            .cloned()
+            .collect()
+    }
+
+    /// Instruction snapshots covering this backing byte, one per active installation.
     pub fn code_sources_at(&self, backing: u32) -> Vec<CodeSource> {
-        let mut registry = self.code.lock().unwrap();
-        let Some(page) = registry.pages.get_mut(&(backing / PAGE_BYTES * PAGE_BYTES)) else {
-            return Vec::new();
-        };
-        page.sources.retain(|source| source.strong_count() != 0);
-        page.sources
-            .iter()
-            .filter_map(Weak::upgrade)
-            .filter(|source| {
-                source.blocks.iter().flatten().any(|span| {
-                    u64::from(backing) >= u64::from(span.backing)
-                        && u64::from(backing) < u64::from(span.backing) + span.bytes.len() as u64
-                })
-            })
-            .map(|source| CodeSource {
-                registry: self.code.clone(),
-                source,
-            })
+        self.code
+            .lock()
+            .unwrap()
+            .covering(backing)
+            .map(|code| code.source().clone())
             .collect()
     }
 
     pub(super) fn write_storage(&self, backing: u32, bytes: &[u8]) {
-        use relocade_wasm_runtime::WasmSharedMemory;
-        // Capture and host writes serialize through the same owner. The version
-        // changes before releasing the lock, after all bytes have been written.
-        let mut registry = self.code.lock().unwrap();
+        if bytes.is_empty() {
+            return;
+        }
+        let pages = self.code.lock().unwrap();
         self.backing.write(backing, bytes);
-        registry.wrote(backing, bytes.len());
+        pages.record_write(backing, bytes);
     }
 }
 

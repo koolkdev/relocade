@@ -43,7 +43,7 @@ impl CompiledCode {
         &self.description.ranges
     }
 
-    /// Shared source registration retained by this result and its CPU installations.
+    /// Instruction snapshot used by this compilation.
     pub fn source(&self) -> &CodeSource {
         &self.description.source
     }

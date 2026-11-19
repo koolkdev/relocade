@@ -31,6 +31,8 @@ enum ModuleSource<'a> {
 /// service polling do not hold the runtime.
 pub(super) struct CpuInstance {
     runtime: WasmRuntimeHandle,
+    // Retire source registrations before a standalone CPU releases its memory attachment.
+    modules: Modules<WasmRuntime>,
     pub(super) bindings: RuntimeMemory,
     pub(super) io: IoBus,
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
@@ -40,7 +42,6 @@ pub(super) struct CpuInstance {
     step: Function<WasmRuntime, abi::ExecutionSignature>,
     interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
     far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
-    modules: Modules<WasmRuntime>,
     pub(super) profiling: Profiling,
 }
 
@@ -195,17 +196,21 @@ impl CpuInstance {
         entries: &[DispatchEntry<'_>],
         handlers: Vec<PreparedHandler>,
     ) -> Result<()> {
-        let guard = match source {
+        let checked_source = match source {
             ModuleSource::Wasm(_) => None,
             ModuleSource::Guest(code) => {
-                Some(code.source().lock_current_bytes(&self.bindings.guest)?)
+                let source = code.source();
+                Some((source, source.lock_current_bytes(&self.bindings.guest)?))
             }
         };
         let instance = self.instantiate_module(source)?;
-        self.runtime
+        let installed = self
+            .runtime
             .with_runtime(|wasm| self.modules.register_exports(wasm, instance, entries))?;
+        if let Some((source, mut registry)) = checked_source {
+            installed.registered_source = Some(registry.register(source));
+        }
         // Releasing a host callback can reenter the runtime or write guest memory.
-        drop(guard);
         self.modules.hooks.replace_bindings(entries, handlers);
         Ok(())
     }

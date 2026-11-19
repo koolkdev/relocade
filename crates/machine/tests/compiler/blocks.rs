@@ -70,11 +70,11 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
         let memory = runner.cpu().memory();
         assert_eq!(memory.view().read_u8(0x311).unwrap(), 99);
-        assert!(!compiled.source().has_recorded_writes());
         assert!(matches!(
             compiled.install(runner.cpu()),
             Err(relocade_machine::Error::StaleCompilation)
         ));
+        assert!(memory.installed_code_at(0x1311).is_empty());
         assert_eq!(runner.cpu().compiled_modules_at(first.address()).count(), 0);
         memory.view().write_u8(0x311, 73).unwrap();
         runner

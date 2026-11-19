@@ -1,5 +1,6 @@
 use super::*;
 use relocade_machine::{DiscoveryLimits, FarPointer, FunctionRequest, Runner};
+use std::sync::Arc;
 
 async fn run_caller(runner: &mut Runner, expected: u16) {
     let state = runner.cpu().cpu_state();
@@ -46,21 +47,16 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
                 .request_functions(target, vec![request(entry)])
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
-            assert!(!code.source().has_recorded_writes());
-            assert_eq!(
-                runner
-                    .cpu()
-                    .memory()
-                    .code_sources_at(0x1000 + entry as u32)
-                    .len(),
-                1
-            );
+            assert!(runner
+                .memory()
+                .installed_code_at(0x1000 + u32::from(entry))
+                .is_empty());
             code.install(runner.cpu()).unwrap();
         }
         // Installations retain shared dependencies after the reply is dropped.
         let sources = runner.cpu().memory();
-        assert_eq!(sources.code_sources_at(0x1212).len(), 1);
-        assert!(sources.code_sources_at(0x1206).is_empty());
+        assert_eq!(sources.installed_code_at(0x1212).len(), 1);
+        assert!(sources.installed_code_at(0x1206).is_empty());
         run_caller(&mut runner, 8).await;
 
         // Read-ahead and the gap before the branch target are not source dependencies.
@@ -71,7 +67,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
-        assert!(sources.code_sources_at(0x1212).is_empty());
+        assert!(sources.installed_code_at(0x1212).is_empty());
         runner.cpu().memory().view().write(0x212, &[2]).unwrap();
         run_caller(&mut runner, 9).await;
 
@@ -176,4 +172,84 @@ fn retirement_repairs_links_and_preserves_newer_entries() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn retirement_repairs_links_and_preserves_newer_entries() {
     compilation::run(retire_linked_compilations).await;
+}
+
+async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    machine
+        .memory()
+        .view()
+        .write(0x100, &[0xb8, 0x34, 0x12, 0x90, 0x90])
+        .unwrap();
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let memory = runner.memory();
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        compiler
+            .request(
+                target,
+                vec![BlockRequest {
+                    instruction_limit: 1,
+                    ..request()
+                }],
+            )
+            .unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        let pending_clone = code.clone();
+        assert!(memory.installed_code_at(0x1101).is_empty());
+
+        code.install(runner.cpu()).unwrap();
+        let first = memory.installed_code_at(0x1101).pop().unwrap();
+        assert!(first
+            .source()
+            .backing_ranges()
+            .eq(std::iter::once(0x1100..0x1103)));
+        assert!(memory.installed_code_at(0x1103).is_empty());
+        // Change only the read-ahead byte, then change and restore an instruction byte.
+        memory.view().write(0x102, &[0x12, 0xcc]).unwrap();
+        assert!(!first.was_modified());
+        memory.view().write_u8(0x101, 0x35).unwrap();
+        memory.view().write_u8(0x101, 0x34).unwrap();
+        assert!(first.was_modified());
+
+        pending_clone.install(runner.cpu()).unwrap();
+        let active = memory.installed_code_at(0x1101);
+        assert_eq!(active.len(), 2);
+        assert!(active.iter().any(|item| Arc::ptr_eq(item, &first)));
+        let second = active
+            .iter()
+            .find(|item| !Arc::ptr_eq(item, &first))
+            .unwrap();
+        assert!(!second.was_modified());
+
+        runner.cpu().invalidate_code(0x101..0x102).unwrap();
+        assert!(memory.installed_code_at(0x1101).is_empty());
+        code.install(runner.cpu()).unwrap();
+        let last = memory.installed_code_at(0x1101).pop().unwrap();
+        drop(runner);
+        assert!(memory.installed_code_at(0x1101).is_empty());
+
+        memory.view().write_u8(0x101, 0xff).unwrap();
+        assert!(first.was_modified());
+        assert!(!second.was_modified());
+        assert!(!last.was_modified());
+        assert!(last.source().ranges().eq(pending_clone.source().ranges()));
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn source_registrations_follow_each_installation() {
+    pollster::block_on(compilation::run(installation_lifetimes));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn source_registrations_follow_each_installation() {
+    compilation::run(installation_lifetimes).await;
 }
