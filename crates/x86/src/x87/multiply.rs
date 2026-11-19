@@ -1,13 +1,34 @@
 //! Exact significand multiplication and x87 operand-class responses.
 
-use crate::floating::{FiniteInput, RoundingMode};
+use crate::floating::{BinaryFormat, FiniteInput, RoundingMode};
 use relocade_compiler::{Val, I8};
 
 use super::{
     operand::BinaryOperands,
     result::{BinaryArithmetic, RoundedValue},
-    BinaryOperation,
+    value::KnownClass,
+    ArithmeticCandidate, BinaryOperation, ExtendedValue,
 };
+
+/// Two finite binary32 operands need at most 48 significand bits and their
+/// product fits the normal binary64 exponent range unless it is zero. At PC53
+/// or PC64 the multiply is therefore exact under every rounding control.
+pub(super) fn exact_binary32_product(operands: &BinaryOperands) -> Option<ArithmeticCandidate> {
+    let product = operands
+        .left
+        .binary32_value()?
+        .mul(operands.right.binary32_value()?);
+    let zero = operands.left.zero.or(&operands.right.zero);
+    let class = KnownClass::zero().select(&zero, &KnownClass::normal());
+    Some(ArithmeticCandidate {
+        valid: operands.normal_or_zero(),
+        rounded: RoundedValue::exact(ExtendedValue::from_classified_binary(
+            BinaryFormat::Binary64,
+            product.to_bits(),
+            class,
+        )),
+    })
+}
 
 pub(super) fn multiply(
     operands: &BinaryOperands,

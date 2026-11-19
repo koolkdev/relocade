@@ -28,7 +28,7 @@ fn loaded_binary64_values_compare_without_source_exceptions() {
         .fold(Val::<I32>::from(0), |bits, (index, flag)| {
             bits.or(flag.unsigned().extend::<I32>().shl(index as u32))
         });
-        body.return_((comparison, value.binary64_value().unwrap().to_bits()))
+        body.return_((comparison, value.binary_value().unwrap().value.to_bits()))
     });
     program.export("classify", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {

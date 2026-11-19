@@ -1,11 +1,13 @@
 //! Operands retain exact values, classification and source exception evidence.
 
-use crate::floating::RoundingMode;
+use crate::floating::{BinaryFormat, RoundingMode};
 use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
-    result::RoundedValue, value::Precision53, ArithmeticCandidate, ArithmeticResult,
-    BinaryArithmetic, BinaryOperand, BinaryOperation, ExtendedBits, ExtendedValue,
+    result::RoundedValue,
+    value::{BinaryValue, Precision53},
+    ArithmeticCandidate, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
+    ExtendedBits, ExtendedValue,
 };
 
 pub(crate) struct Operand {
@@ -13,7 +15,7 @@ pub(crate) struct Operand {
     // A native significand retains x87's separate exponent. A whole binary64
     // value requires its own range and precision proof. Neither changes evidence.
     pub(super) precision53_significand: Option<Val<F64>>,
-    pub(super) binary64_value: Option<Val<F64>>,
+    binary_value: Option<BinaryValue>,
     normal_or_zero: Val<I1>,
     pub(super) zero: Val<I1>,
     pub(super) infinity: Val<I1>,
@@ -29,7 +31,7 @@ impl Operand {
         Self {
             bits: value.bits(),
             precision53_significand: value.precision53_significand(),
-            binary64_value: value.binary64_value(),
+            binary_value: value.binary_value(),
             normal_or_zero: class.normal_or_zero(),
             zero: class.zero(),
             infinity: class.infinity(),
@@ -38,6 +40,18 @@ impl Operand {
             denormal: class.denormal(),
             unsupported: class.unsupported(),
         }
+    }
+
+    pub(super) fn binary64_value(&self) -> Option<&Val<F64>> {
+        self.binary_value.as_ref().map(|source| &source.value)
+    }
+
+    /// The binary64 promotion of a value known to fit binary32.
+    pub(super) fn binary32_value(&self) -> Option<&Val<F64>> {
+        self.binary_value
+            .as_ref()
+            .filter(|source| source.format == BinaryFormat::Binary32)
+            .map(|source| &source.value)
     }
 
     pub(crate) fn normal_or_zero(&self) -> Val<I1> {
@@ -72,7 +86,7 @@ impl Operand {
         let class = source.classification();
         Self {
             bits: source.expanded_bits(),
-            binary64_value: Some(source.binary64_value()),
+            binary_value: Some(source.binary_value()),
             precision53_significand: Some(
                 Precision53::from_bits(&source.expanded_bits())
                     .significand()
@@ -201,6 +215,13 @@ impl BinaryOperands {
         precision: Val<I8>,
         rounding: &RoundingMode,
     ) -> Result<ArithmeticCandidate, BuildError> {
+        if matches!(operation, BinaryOperation::Multiply)
+            && matches!(body.constant_bits(precision.and(3))?, Some(2 | 3))
+        {
+            if let Some(product) = super::multiply::exact_binary32_product(self) {
+                return Ok(product);
+            }
+        }
         let native_mode =
             body.constant_bits(super::native::supported_controls(&precision, rounding))? == Some(1);
         if native_mode {
