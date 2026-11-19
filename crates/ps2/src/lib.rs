@@ -8,14 +8,17 @@ pub mod protocol;
 mod scancodes;
 
 pub use controller::Controller;
-use controller::Port;
+use futures_util::{stream, StreamExt};
 use relocade_frontend::{
-    keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
-    mouse::{MouseEvents, MouseInput},
+    keyboard::{self as frontend, KeyboardEvent, KeyboardInput},
+    mouse::{self as pointer, MouseEvent, MouseInput},
 };
-use relocade_machine::{Clock, Device, IoBus, Runner};
+use relocade_machine::{IoBus, Runner};
 use relocade_pic::Pic;
-use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
+use std::{
+    ops::RangeInclusive,
+    rc::{Rc, Weak},
+};
 
 pub const DATA_PORT: u16 = 0x60;
 pub const STATUS_COMMAND_PORT: u16 = 0x64;
@@ -55,39 +58,39 @@ pub struct Inputs {
 /// Host text is ignored: physical positions become scan bytes, with guest repeat.
 /// IRQ1/IRQ12 start low; the auxiliary interface and mouse reporting start disabled.
 pub async fn connect(runner: &Runner, pic: &Pic) -> (Inputs, Rc<Controller>) {
-    let (keyboard, events) = frontend::channel();
-    let (mouse, mouse_events) = relocade_frontend::mouse::channel();
-    let controller = Rc::new(Controller::new(pic, [Port::Keyboard, Port::Auxiliary]));
-    let device = Rc::new(RefCell::new(Ps2Controller {
-        controller: controller.clone(),
-        startup: Some((runner.clock().clone(), events, mouse_events)),
-    }));
-    runner
-        .connect(device, |io| ports::configure(io, &controller))
-        .await;
-    (Inputs { keyboard, mouse }, controller)
-}
-
-/// Port callbacks touch registers only. All firmware tasks run on the same owner.
-struct Ps2Controller {
-    controller: Rc<Controller>,
-    startup: Option<(Clock, KeyboardEvents, MouseEvents)>,
-}
-
-impl Device for Ps2Controller {
-    async fn run(device: Rc<RefCell<Self>>) {
-        let (controller, clock, events, mouse_events) = {
-            let mut device = device.borrow_mut();
-            let (clock, events, mouse_events) = device.startup.take().expect("one PS/2 activity");
-            (device.controller.clone(), clock, events, mouse_events)
-        };
-        futures_util::future::join3(
-            controller.run(),
-            keyboard::run(clock.clone(), events, &controller),
-            mouse::run(clock, mouse_events, &controller),
+    let clock = runner.clock().clone();
+    let controller = Rc::new_cyclic(|weak: &Weak<Controller>| {
+        let controller = weak.clone();
+        let alarm = runner.alarm(move || {
+            if let Some(controller) = controller.upgrade() {
+                controller.service();
+            }
+        });
+        Controller::new(
+            clock.clone(),
+            pic,
+            Some(mouse::Mouse::new(clock)),
+            Some(alarm),
         )
-        .await;
-    }
+    });
+    controller.connect_ports(&runner.io());
+    let (keyboard, keys) = frontend::channel();
+    let (mouse, motion) = pointer::channel();
+    let keyboard_controller = controller.clone();
+    runner.on_input(
+        keys.chain(stream::iter([KeyboardEvent::FocusLost])),
+        move |key| {
+            keyboard_controller.key_event(key);
+        },
+    );
+    let mouse_controller = controller.clone();
+    runner.on_input(
+        motion.chain(stream::iter([MouseEvent::FocusLost])),
+        move |event| {
+            mouse_controller.mouse_event(event);
+        },
+    );
+    (Inputs { keyboard, mouse }, controller)
 }
 
 #[cfg(test)]

@@ -2707,7 +2707,6 @@ dependencies = [
 name = "relocade-ps2"
 version = "0.0.0"
 dependencies = [
- "async-channel",
  "event-listener",
  "futures-util",
  "pollster 1.0.1",

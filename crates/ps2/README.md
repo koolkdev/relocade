@@ -1,11 +1,11 @@
 # PS/2 controller, keyboard and mouse
 
-The compatibility boundary is the PC/AT software interface: scan bytes, port
-status and command replies, IRQ1/IRQ12, repeat timing and buffer overrun. Rust async
-services implement waits for commands, input, output space and clock deadlines.
-Correctness does not depend on a scheduler turn between keyboard events.
+The controller models the PC/AT port registers, scan bytes, command replies,
+IRQ1/IRQ12, repeat timing and buffer overrun. The session schedules firmware
+when the guest writes a port, frees the output latch or reaches a device
+deadline. Host keyboard and mouse input arrives over the frontend channels.
 
-`connect(&runner, &pic).await` registers the controller activity and ports
+`connect(&runner, &pic).await` registers the input receivers and ports
 (60h and 64h), returning `Inputs { keyboard, mouse }` and an execution-owned
 `Rc<Controller>`. Firmware can await
 `wait_input_ready()` or `wait_auxiliary_output()` on that controller; these
@@ -15,23 +15,21 @@ registers are already installed on `runner.io()` when connection returns.
 One connection scope installs four operations: data read/write, status read and
 command write. Each callback captures the shared controller directly and handles
 one register operation.
-Controller, keyboard and mouse firmware run as
-three async futures in the existing device activity, on the execution owner. Physical frontend key positions feed the keyboard;
-characters and host layouts do not enter the hardware protocol. BIOS or a guest
-interrupt handler translates the bytes into characters.
+The keyboard maps physical key positions to scan codes. BIOS or a guest
+interrupt handler translates those codes into characters.
 
 The controller starts with a ready, enabled keyboard, a disabled auxiliary port,
 scan set 2, and command byte 65h: set-1 translation and IRQ1 enabled. Port 64h
-reports input/output-buffer-full, command/data and system status. Port callbacks access the registers synchronously;
-firmware consumes writes asynchronously. Software must wait for
+reports input/output-buffer-full, command/data and system status. Port callbacks access the registers synchronously.
+The firmware consumes each accepted write on a scheduled turn. Software must wait for
 `INPUT_BUFFER_FULL` to clear before writing either port. Writes while busy are
 ignored instead of replacing the accepted byte.
 
 Reading 60h clears `OUTPUT_BUFFER_FULL` and lowers the corresponding IRQ. The data
 latch retains its value until firmware writes another byte, so another read can
 return the same value with the full flag clear. This matters when a guest IRQ1 handler reads the
-register and then chains to BIOS. Reads wake pending transmission, which fills the
-register and raises a new edge when the device activity runs. Unread output is
+register and then chains to BIOS. Reading a full register schedules its refill
+when another byte is ready. Publishing the next byte raises a new IRQ edge. Unread output is
 preserved. `read_keyboard_latch(io)` reads the retained latch for IRQ1 even after
 a guest hook has cleared OBF, leaving unread auxiliary output for IRQ12. Polling
 code checks `OUTPUT_BUFFER_FULL` to distinguish new output from retained data.
@@ -47,7 +45,7 @@ Keyboard commands include LEDs, echo, scan sets 1/2, ID, typematic, enable,
 default-disable, defaults, resend and reset. Commands and parameters return ACK;
 unsupported keyboard commands/scan sets return RESEND. Set-2 translation also
 applies to keyboard replies, including the identification and scan-set bytes.
-Command exchanges await their parameters directly. A new command replaces an
+The keyboard remembers which command is waiting for a parameter. A new command replaces an
 unfinished exchange or untransmitted reply. RESEND retries the initial ACK while
 the keyboard keeps waiting for the option byte. Reset applies defaults after its ACK
 is transmitted. Option and ID exchanges pause scanning, then rescan held keys so
@@ -66,9 +64,13 @@ The frontend event channel transports host input independently of the emulated
 keyboard buffer. Physical transitions continue while controller output is full;
 an unread byte stays intact and further input can overflow the scan buffer.
 Guest reads and interface commands control when transmission can resume.
+The session accepts at most one event per input source on each turn, before
+dispatching alarms. A backlog leaves time for guest work. On the same controller turn, an accepted port command takes precedence
+over new input. A key release cancels a repeat due at that instant. The mouse
+can publish a due packet header before new motion changes its counters.
 
 The controller owns its registers, translation and command handling in one module.
-The keyboard owns scanning, repeat timing and async command exchanges in another;
+The keyboard owns scanning, repeat timing and command exchanges in another;
 scan-code tables remain separate. They follow the
 [IBM PC/AT Technical Reference, March 1986](https://ftpmirror.your.org/pub/misc/bitsavers/pdf/ibm/pc/at/6183355_PC_AT_Technical_Reference_Mar86.pdf),
 pp. 1-42–1-54 and 4-39–4-57. This implements the keyboard path used by the DOS
@@ -83,12 +85,10 @@ bit 0. Interface inhibit bits 4/5 and A7h/A8h control the ports independently.
 D4h routes the next data write to the auxiliary port; D2h/D3h inject tagged output,
 and A9h tests the auxiliary interface. Controller replies use the keyboard source.
 
-Device tasks use the same `Port`-indexed command and output operations.
-The controller alternates waiting, enabled sources at byte boundaries; cancelled
-transmissions surrender their turn. Packet assembly remains with each device.
-
-Only attached devices have command queues. Writes to an empty port produce no
-reply and leave the controller free to service the other port.
+The controller alternates between enabled devices with pending bytes at each
+byte boundary. Each device commits a byte when the controller accepts it and
+owns the rest of its packet. A command sent to an empty port leaves the
+controller free to service the other port.
 
 
 ## Mouse
@@ -136,8 +136,8 @@ header publication instead of generating missed samples in a burst. Guest
 commands clear accumulated motion as specified; returning from a configuration
 exchange reconciles buttons already reported to the guest.
 
-The mouse activity owns async command/input/output/clock waits. Its protocol
-module owns commands and sample deadlines. The transmission module keeps each
+The controller schedules the next mouse sample or keyboard repeat on the session clock.
+The mouse protocol module owns commands and sample deadlines. The transmission module keeps each
 packet's bytes, cursor and state together. One flat packet state distinguishes
 replies, errors, reset, pending stream/Read Data sampling, and captured motion.
 It handles completion and preserves the raw sample for interrupted Read Data or

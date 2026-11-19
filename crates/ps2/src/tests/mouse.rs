@@ -237,7 +237,7 @@ fn stream_scaling_sample_rate_and_remote_read_data_are_distinct() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn disconnect_and_configuration_waits_release_previously_reported_buttons() {
+fn focus_loss_and_configuration_waits_release_previously_reported_buttons() {
     let mut mouse = mouse();
     assert_eq!(command(&mut mouse, 0xf4), [0xfa]);
     button(&mut mouse, MouseButton::Left, ElementState::Pressed);
@@ -251,7 +251,7 @@ fn disconnect_and_configuration_waits_release_previously_reported_buttons() {
     button(&mut mouse, MouseButton::Middle, ElementState::Pressed);
     mouse.advance(Duration::from_millis(30));
     assert_eq!(drain(&mut mouse), [12, 0, 0]);
-    mouse.disconnect_mouse();
+    mouse.mouse_event(MouseEvent::FocusLost);
     mouse.advance(Duration::from_millis(40));
     assert_eq!(drain(&mut mouse), [8, 0, 0]);
     assert_eq!(

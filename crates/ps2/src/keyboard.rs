@@ -1,18 +1,13 @@
 //! Keyboard commands, physical scanning, bounded buffering and typematic timing.
 
 use crate::{
-    controller::{Controller, Port},
     protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
-use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
-use relocade_frontend::keyboard::{
-    ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
-};
-use relocade_machine::{yield_now, Clock, Timestamp};
+use relocade_frontend::keyboard::{ElementState, KeyCode, KeyboardEvent, PhysicalKey};
+use relocade_machine::{Clock, Timestamp};
 use std::{
     collections::{BTreeSet, VecDeque},
-    future::pending,
     time::Duration,
 };
 
@@ -26,30 +21,10 @@ const DEFAULT_DISABLE: u8 = 0xf5;
 const DEFAULTS: u8 = 0xf6;
 const RESET: u8 = 0xff;
 
-pub(super) async fn run(clock: Clock, events: KeyboardEvents, controller: &Controller) {
-    Keyboard {
-        clock,
-        events: Some(events),
-        controller,
-        last_sent: RESEND,
-        held: BTreeSet::new(),
-        scans: VecDeque::new(),
-        overflow: false,
-        paused: None,
-        scanning: true,
-        set: 2,
-        leds: 0,
-        typematic: 0x2b,
-        repeat: None,
-    }
-    .run()
-    .await;
-}
-
-struct Keyboard<'a> {
+pub(super) struct Keyboard {
     clock: Clock,
-    events: Option<KeyboardEvents>,
-    controller: &'a Controller,
+    replies: VecDeque<u8>,
+    after_reply: AfterReply,
     last_sent: u8,
     held: BTreeSet<KeyCode>,
     scans: VecDeque<u8>,
@@ -69,167 +44,139 @@ struct Repeat {
     deadline: Timestamp,
 }
 
-impl Keyboard<'_> {
-    async fn run(mut self) {
-        let mut command = self.receive().await;
-        loop {
-            let result = self.execute(command).await;
-            self.resume();
-            command = match result {
-                Err(CommandReplaced(command)) => command,
-                Ok(()) => self.receive().await,
-            };
+#[derive(Clone, Copy)]
+enum AfterReply {
+    Resume,
+    AwaitOption(u8),
+    Reset,
+}
+
+impl Keyboard {
+    pub(super) fn new(clock: Clock) -> Self {
+        Self {
+            clock,
+            replies: VecDeque::new(),
+            after_reply: AfterReply::Resume,
+            last_sent: RESEND,
+            held: BTreeSet::new(),
+            scans: VecDeque::new(),
+            overflow: false,
+            paused: None,
+            scanning: true,
+            set: 2,
+            leds: 0,
+            typematic: 0x2b,
+            repeat: None,
         }
     }
 
-    async fn execute(&mut self, command: u8) -> Result<(), CommandReplaced> {
+    pub(super) fn command(&mut self, command: u8) {
+        if self.replies.is_empty() {
+            if let AfterReply::AwaitOption(setting) = self.after_reply {
+                if command == RESEND {
+                    self.replies.push_back(self.last_sent);
+                    return;
+                }
+                if command < SET_LEDS {
+                    self.configure(setting, command);
+                    return;
+                }
+            }
+        }
+
+        // A command supersedes any byte still waiting for the controller.
+        self.replies.clear();
+        self.after_reply = AfterReply::Resume;
+        self.resume();
         match command {
-            SET_LEDS | SCAN_SET | SET_TYPEMATIC => self.configure(command).await?,
-            ECHO => self.reply(ECHO).await?,
+            SET_LEDS | SCAN_SET | SET_TYPEMATIC => {
+                self.pause();
+                if command == SCAN_SET {
+                    self.clear_scans();
+                }
+                self.replies.push_back(ACK);
+                self.after_reply = AfterReply::AwaitOption(command);
+            }
+            ECHO => self.replies.push_back(ECHO),
             IDENTIFY => {
                 self.pause();
-                for byte in [ACK, 0xab, 0x83] {
-                    self.reply(byte).await?;
-                }
+                self.replies.extend([ACK, 0xab, 0x83]);
             }
             ENABLE_SCANNING => {
                 self.clear_scans();
                 self.scanning = true;
-                self.reply(ACK).await?;
+                self.replies.push_back(ACK);
             }
             DEFAULT_DISABLE | DEFAULTS => {
                 self.defaults(command != DEFAULT_DISABLE);
-                self.reply(ACK).await?;
+                self.replies.push_back(ACK);
             }
             RESET => {
                 self.pause();
-                self.reply(ACK).await?;
-                self.defaults(true);
-                self.reply(SELF_TEST_PASSED).await?;
+                self.replies.push_back(ACK);
+                self.after_reply = AfterReply::Reset;
             }
-            RESEND => self.reply(self.last_sent).await?,
-            _ => self.reply(RESEND).await?,
-        }
-        Ok(())
-    }
-
-    /// A new command replaces the unfinished option exchange. RESEND leaves it
-    /// waiting for the option, and invalid options request another attempt.
-    async fn configure(&mut self, command: u8) -> Result<(), CommandReplaced> {
-        self.pause();
-        if command == SCAN_SET {
-            self.clear_scans();
-        }
-        self.reply(ACK).await?;
-        loop {
-            let value = self.receive().await;
-            if value == RESEND {
-                self.reply(self.last_sent).await?;
-                continue;
-            }
-            if value >= SET_LEDS {
-                return Err(CommandReplaced(value));
-            }
-            match command {
-                SET_LEDS if value < 8 => self.leds = value,
-                SET_TYPEMATIC if value < 128 => self.typematic = value,
-                SCAN_SET if value == 0 => {
-                    self.reply(ACK).await?;
-                    self.reply(self.set).await?;
-                    return Ok(());
-                }
-                SCAN_SET if value <= 2 => self.set = value,
-                _ => {
-                    self.reply(RESEND).await?;
-                    continue;
-                }
-            }
-            self.reply(ACK).await?;
-            return Ok(());
+            RESEND => self.replies.push_back(self.last_sent),
+            _ => self.replies.push_back(RESEND),
         }
     }
 
-    async fn receive(&mut self) -> u8 {
-        loop {
-            if let Err(CommandReplaced(command)) = self.transfer(None).await {
-                return command;
+    fn configure(&mut self, command: u8, value: u8) {
+        match command {
+            SET_LEDS if value < 8 => self.leds = value,
+            SET_TYPEMATIC if value < 128 => self.typematic = value,
+            SCAN_SET if value == 0 => {
+                self.after_reply = AfterReply::Resume;
+                self.replies.extend([ACK, self.set]);
+                return;
+            }
+            SCAN_SET if value <= 2 => self.set = value,
+            _ => {
+                self.replies.push_back(RESEND);
+                return;
             }
         }
+        self.after_reply = AfterReply::Resume;
+        self.replies.push_back(ACK);
     }
 
-    async fn reply(&mut self, byte: u8) -> Result<(), CommandReplaced> {
-        self.transfer(Some(byte)).await
+    pub(super) fn byte(&self) -> Option<u8> {
+        if let Some(byte) = self.replies.front() {
+            return Some(*byte);
+        }
+        if self.paused.is_some() {
+            return None;
+        }
+        self.peek_byte()
     }
 
-    /// While receiving commands, drain queued scans. Replies take priority over
-    /// scans; a new command cancels a byte that has not reached the controller.
-    /// Every wait also tracks physical key transitions and repeat deadlines.
-    async fn transfer(&mut self, reply: Option<u8>) -> Result<(), CommandReplaced> {
-        loop {
-            let outgoing = match reply {
-                Some(byte) => Some(byte),
-                None if self.paused.is_none() => self.peek_byte(),
-                None => None,
-            };
-            let wake = {
-                let command = self.controller.receive_device(Port::Keyboard).fuse();
-                let output = async {
-                    if let Some(byte) = outgoing {
-                        self.controller.send(Port::Keyboard, byte).await;
-                    } else {
-                        pending::<()>().await;
-                    }
+    /// Commits the byte just accepted by the controller. An unwritten reset ACK
+    /// can still be replaced before the keyboard applies its defaults.
+    pub(super) fn sent(&mut self) {
+        let byte = self.byte().expect("keyboard had a byte for the controller");
+        if byte != RESEND {
+            self.last_sent = byte;
+        }
+        if self.replies.pop_front().is_none() {
+            self.consume_byte();
+        } else if self.replies.is_empty() {
+            match self.after_reply {
+                AfterReply::Resume => self.resume(),
+                AfterReply::AwaitOption(_) => {}
+                AfterReply::Reset => {
+                    self.defaults(true);
+                    self.replies.push_back(SELF_TEST_PASSED);
+                    self.after_reply = AfterReply::Resume;
                 }
-                .fuse();
-                let event = async {
-                    match self.events.as_mut() {
-                        Some(events) => events.next().await,
-                        None => pending().await,
-                    }
-                }
-                .fuse();
-                let timer = async {
-                    if let Some(repeat) = self.repeat {
-                        self.clock.sleep_until(repeat.deadline).await;
-                    } else {
-                        pending::<()>().await;
-                    }
-                }
-                .fuse();
-                pin_mut!(command, output, event, timer);
-                select_biased! {
-                    value = command => Wake::Command(value),
-                    () = output => Wake::Sent,
-                    event = event => Wake::Event(event),
-                    () = timer => Wake::Repeat,
-                }
-            };
-            match wake {
-                Wake::Command(value) => return Err(CommandReplaced(value)),
-                Wake::Sent => {
-                    let byte = outgoing.expect("completed keyboard transmission");
-                    if byte != RESEND {
-                        self.last_sent = byte;
-                    }
-                    if reply.is_none() {
-                        self.consume_byte();
-                    }
-                    return Ok(());
-                }
-                Wake::Event(event) => {
-                    if event.is_none() {
-                        self.events = None;
-                    }
-                    self.event(event.unwrap_or(KeyboardEvent::FocusLost));
-                    // Bound the work per poll when several host events are ready.
-                    yield_now().await;
-                }
-                Wake::Repeat => self.repeat(),
             }
         }
     }
 
-    fn event(&mut self, event: KeyboardEvent) {
+    pub(super) fn deadline(&self) -> Option<Timestamp> {
+        self.repeat.map(|repeat| repeat.deadline)
+    }
+
+    pub(super) fn event(&mut self, event: KeyboardEvent) {
         use KeyCode::*;
         let now = self.clock.now();
         match event {
@@ -302,9 +249,9 @@ impl Keyboard<'_> {
     }
 
     fn resume(&mut self) {
-        let now = self.clock.now();
         if let Some(before) = self.paused.take() {
             if self.scanning {
+                let now = self.clock.now();
                 // Rescan the physical matrix: a release during an option or ID
                 // exchange must not leave a previously reported modifier stuck.
                 let held = self.held.clone();
@@ -332,10 +279,10 @@ impl Keyboard<'_> {
         Duration::from_millis(250 * (u64::from((self.typematic >> 5) & 3) + 1))
     }
 
-    fn repeat(&mut self) {
+    pub(super) fn repeat(&mut self, inhibited: bool) {
         let now = self.clock.now();
         if let Some(repeat) = self.repeat.filter(|repeat| now >= repeat.deadline) {
-            if !self.controller.inhibited(Port::Keyboard) {
+            if !inhibited {
                 self.emit(repeat.key, true);
             }
             // Rate = 240 / ((8 + A) * 2^B) Hz, per the keyboard command.
@@ -374,13 +321,4 @@ impl Keyboard<'_> {
             self.overflow = false;
         }
     }
-}
-
-struct CommandReplaced(u8);
-
-enum Wake {
-    Command(u8),
-    Event(Option<KeyboardEvent>),
-    Repeat,
-    Sent,
 }

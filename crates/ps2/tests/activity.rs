@@ -20,13 +20,13 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-fn key(code: KeyCode, repeat: bool) -> KeyboardEvent {
+fn key(code: KeyCode, state: ElementState, repeat: bool) -> KeyboardEvent {
     KeyboardEvent::Key {
         physical_key: code.into(),
         logical_key: Key::Character("ש".into()),
         location: KeyLocation::Standard,
         text: Some("ש".into()),
-        state: ElementState::Pressed,
+        state,
         repeat,
     }
 }
@@ -59,6 +59,7 @@ async fn no_output(io: &IoBus) {
 }
 
 async fn connected_activity() {
+    use ElementState::{Pressed, Released};
     let clock = ManualClock::default();
     let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
@@ -76,7 +77,9 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0xfa);
             io.write_port(DATA_PORT, 1, 0); // 250ms delay, 30Hz.
             assert_eq!(next_byte(&io).await, 0xfa);
-            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
+            input
+                .unbounded_send(key(KeyCode::KeyA, Pressed, false))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
             clock.advance_to(clock.at(Duration::from_millis(249)));
             no_output(&io).await;
@@ -84,8 +87,22 @@ async fn connected_activity() {
             assert_eq!(next_byte(&io).await, 0x1e);
             clock.advance_to(clock.at(Duration::from_millis(4000)));
             assert_eq!(next_byte(&io).await, 0x1e);
-            no_output(&io).await; // Late scheduling produces one repeat, not a burst.
-            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
+            no_output(&io).await; // Late scheduling produces one repeat.
+            for _ in 0..3 {
+                runner
+                    .spawn_activity(async {
+                        for _ in 0..64 {
+                            relocade_machine::yield_now().await;
+                        }
+                    })
+                    .await;
+            }
+            // Even with multiple runnable Rust activities ahead of the input
+            // notification, an arrived release must beat the repeat alarm.
+            clock.advance_to(clock.at(Duration::from_millis(4034)));
+            input
+                .unbounded_send(key(KeyCode::KeyA, Released, false))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x9e);
             clock.advance_to(clock.at(Duration::from_millis(5000)));
             no_output(&io).await;
@@ -94,12 +111,18 @@ async fn connected_activity() {
                 .unbounded_send(KeyboardEvent::Modifiers(ModifiersState::SHIFT))
                 .unwrap();
             assert_eq!(next_byte(&io).await, 0x2a);
-            input.unbounded_send(key(KeyCode::KeyA, false)).unwrap();
+            input
+                .unbounded_send(key(KeyCode::KeyA, Pressed, false))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x1e);
-            input.unbounded_send(key(KeyCode::KeyA, true)).unwrap();
-            input.unbounded_send(key(KeyCode::KeyB, false)).unwrap();
+            input
+                .unbounded_send(key(KeyCode::KeyA, Pressed, true))
+                .unwrap();
+            input
+                .unbounded_send(key(KeyCode::KeyB, Pressed, false))
+                .unwrap();
             assert_eq!(next_byte(&io).await, 0x30, "host repeat was suppressed");
-            input.unbounded_send(KeyboardEvent::FocusLost).unwrap();
+            drop(input);
             let mut releases = [
                 next_byte(&io).await,
                 next_byte(&io).await,
