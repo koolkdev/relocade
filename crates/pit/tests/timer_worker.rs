@@ -1,9 +1,11 @@
 use futures_channel::oneshot;
+use relocade_clock_test_support::ManualClock;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, MachineConfig, Timestamp,
+    timer_service, Clock, CpuConfig, CpuHandle, Device, DispatchEntry, ExitHandle, Machine,
+    MachineConfig, Timestamp,
 };
 use relocade_pic::Pic;
-use relocade_pit::Pit;
+use relocade_pit::{Pit, CHANNEL_0_PORT, CONTROL_PORT};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::RefCell,
@@ -12,6 +14,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 
@@ -51,17 +54,8 @@ impl Reports {
     }
 }
 
-/// Delivers 500 Hz PIT interrupts to a busy guest while its host cannot relay wakes.
-async fn timer_interrupts() -> Result<(), String> {
-    let (clock, timers) = timer_service();
-    let warmup = clock.clock();
-    let (start, started) = oneshot::channel();
-    let (ready, running) = oneshot::channel();
-    let count = Arc::new(AtomicUsize::new(0));
-    let worker_count = count.clone();
-    let host_busy = Arc::new(AtomicBool::new(false));
-    let worker_host_busy = host_busy.clone();
-    let mut machine = relocade_machine::Machine::new(
+fn machine_and_cpu() -> (Machine, CpuHandle) {
+    let mut machine = Machine::new(
         MachineConfig::new(
             0x1000,
             PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })])
@@ -79,6 +73,20 @@ async fn timer_interrupts() -> Result<(), String> {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
+    (machine, prepared)
+}
+
+/// Delivers 500 Hz PIT interrupts to a busy guest while its host cannot relay wakes.
+async fn timer_interrupts() -> Result<(), String> {
+    let (clock, timers) = timer_service();
+    let warmup = clock.clock();
+    let (start, started) = oneshot::channel();
+    let (ready, running) = oneshot::channel();
+    let count = Arc::new(AtomicUsize::new(0));
+    let worker_count = count.clone();
+    let host_busy = Arc::new(AtomicBool::new(false));
+    let worker_host_busy = host_busy.clone();
+    let (machine, prepared) = machine_and_cpu();
     let worker = prepared.spawn(clock, async move |mut runner| {
         let pic = Pic::initialize(&runner).await;
         let _pit = Pit::initialize(&runner, &pic).await;
@@ -191,4 +199,70 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn timer_interrupts_reach_a_busy_guest_without_host_polling() {
     timer_interrupts().await.unwrap();
+}
+
+async fn reprogram_separate_clock() {
+    let (machine, cpu) = machine_and_cpu();
+    let worker = cpu.spawn_with_clock(
+        || ManualClock::new().clock(),
+        async |runner| {
+            let clock = ManualClock::new();
+            let pic = Pic::initialize(&runner).await;
+            let pit = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
+            runner
+                .connect(pit.clone(), |io| Pit::configure_io(io, &pit))
+                .await;
+            pic.unmask_irq(relocade_pic::TIMER_IRQ);
+            let io = runner.io();
+            assert_eq!(
+                clock.next_deadline(),
+                Some(clock.at(relocade_pit::time_at(32_768)))
+            );
+
+            io.write_port(CONTROL_PORT, 1, 0x34);
+            io.write_port(CHANNEL_0_PORT, 1, 4);
+            io.write_port(CHANNEL_0_PORT, 1, 0);
+            assert_eq!(
+                clock.next_deadline(),
+                Some(clock.at(Duration::from_nanos(839)))
+            );
+            clock.advance_to(clock.at(Duration::from_nanos(3_353))); // Load and OUT low.
+            relocade_machine::yield_now().await;
+            assert_eq!(
+                clock.next_deadline(),
+                Some(clock.at(Duration::from_nanos(4_191)))
+            );
+            assert!(io
+                .poll_interrupt(&mut Context::from_waker(Waker::noop()))
+                .is_pending());
+
+            clock.advance_to(clock.at(Duration::from_nanos(4_191))); // First rising edge.
+            relocade_machine::yield_now().await;
+            assert_eq!(io.read_port(relocade_pic::COMMAND_PORT, 1) & 1, 1);
+            // Disarming the PIT preserves the request already latched in the PIC.
+            io.write_port(CONTROL_PORT, 1, 0x30);
+            assert_eq!(clock.next_deadline(), None);
+            let mut cx = Context::from_waker(Waker::noop());
+            assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
+            relocade_pic::end_of_interrupt(&io, relocade_pic::TIMER_IRQ);
+            clock.advance_by(Duration::from_secs(1));
+            assert!(io.poll_interrupt(&mut cx).is_pending());
+            io.write_port(CONTROL_PORT, 1, 0x36); // Control forces OUT high.
+            assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn reprogramming_channel_zero_replaces_the_alarm_on_its_own_clock() {
+    pollster::block_on(reprogram_separate_clock());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn reprogramming_channel_zero_replaces_the_alarm_on_its_own_clock() {
+    reprogram_separate_clock().await;
 }

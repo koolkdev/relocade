@@ -2693,9 +2693,7 @@ dependencies = [
 name = "relocade-pit"
 version = "0.0.0"
 dependencies = [
- "event-listener",
  "futures-channel",
- "futures-lite",
  "pollster 1.0.1",
  "relocade-clock-test-support",
  "relocade-machine",
