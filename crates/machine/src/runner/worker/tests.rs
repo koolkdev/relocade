@@ -90,7 +90,7 @@ async fn owned_job_cleanup(cancel: bool) {
             // A busy activity keeps the execution worker runnable while the
             // browser delivers the calculation worker's startup handshake.
             runner
-                .spawn_activity(async {
+                .start_task(async {
                     loop {
                         crate::yield_now().await;
                     }

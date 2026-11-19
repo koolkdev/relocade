@@ -125,7 +125,7 @@ async fn halted_at_instruction_limit() {
             let exit = runner.cpu().exit_handle();
             let clock = runner.clock().clone();
             runner
-                .spawn_activity(async move {
+                .start_task(async move {
                     clock.sleep(Duration::from_millis(2)).await;
                     assert_eq!(state.instruction_count(), 1);
                     exit.request();

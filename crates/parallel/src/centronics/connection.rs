@@ -52,12 +52,12 @@ pub struct Centronics {
 }
 
 impl Centronics {
-    /// Attaches one connection and starts its ACK activity on the session.
+    /// Attaches one connection and starts its ACK task on the execution worker.
     /// The returned reader is owned by the peripheral. The writer can be given
     /// to a higher-level service such as a DOS LPT character driver.
     pub async fn connect(runner: &Runner, port: &Rc<RefCell<Port>>) -> (Input, Output) {
         let (input, output) = Self::attach(&mut port.borrow_mut(), runner.clock().clone());
-        runner.spawn_activity(Self::run(input.device.clone())).await;
+        runner.start_task(Self::run(input.device.clone())).await;
         (input, output)
     }
 

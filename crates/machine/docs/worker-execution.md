@@ -43,7 +43,7 @@ PIT waits for its next OUT0 transition or a programming change. The keyboard
 and mouse each await input and their own device deadlines. Each device decides
 the order of events that are ready together.
 
-`runner.spawn_activity(future).await` returns after the scheduler first polls the
+`runner.start_task(future).await` returns after the scheduler first polls the
 future. A pending task can then sleep until its waker signals. Once queued, it
 belongs to the session even if its caller drops the startup wait. Returning from the application ends
 the session and drops any unfinished tasks.

@@ -403,7 +403,7 @@ async fn self_waking_activity_during_execution() {
         target.set(Some(8));
         let (send, observed) = oneshot::channel();
         runner
-            .spawn_activity(async move {
+            .start_task(async move {
                 let mut saw_running_guest = false;
                 // A bounded backlog also terminates if the activity starves the CPU.
                 for _ in 0..64 {

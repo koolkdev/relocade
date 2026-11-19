@@ -104,7 +104,7 @@ async fn retained_hook_wakes_timer_owner() {
             let clock = runner.clock().clone();
             let due = clock.deadline_after(clock.now(), Duration::from_secs(20));
             runner
-                .spawn_activity(async move {
+                .start_task(async move {
                     let timer = pin!(clock.sleep_until(due));
                     assert!(matches!(select(signal, timer).await, Either::Left(_)));
                     assert!(
@@ -146,12 +146,12 @@ async fn new_activity_registers_earlier_deadline() {
             let clock = runner.clock();
             let start = clock.now();
             let later = clock.deadline_after(start, Duration::from_secs(20));
-            runner.spawn_activity(clock.sleep_until(later)).await;
+            runner.start_task(clock.sleep_until(later)).await;
             let earlier = clock.deadline_after(start, Duration::from_secs(1));
             let (send, observed) = futures_channel::oneshot::channel();
             let clock = clock.clone();
             runner
-                .spawn_activity(async move {
+                .start_task(async move {
                     clock.sleep_until(earlier).await;
                     send.send(clock.now()).unwrap();
                 })

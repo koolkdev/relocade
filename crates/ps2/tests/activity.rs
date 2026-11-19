@@ -90,7 +90,7 @@ async fn connected_activity() {
             no_output(&io).await; // Late scheduling produces one repeat.
             for _ in 0..3 {
                 runner
-                    .spawn_activity(async {
+                    .start_task(async {
                         for _ in 0..64 {
                             relocade_machine::yield_now().await;
                         }

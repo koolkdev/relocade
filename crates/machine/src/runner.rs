@@ -180,13 +180,13 @@ impl Runner {
         configure: impl FnOnce(&mut DeviceConnection<'_>),
     ) {
         self.io().connect(device.clone(), configure);
-        self.spawn_activity(D::run(device)).await;
+        self.start_task(D::run(device)).await;
     }
 
     /// Starts a Rust task on this execution worker and returns after its first poll.
     /// The session owns the queued task even if the caller drops this startup wait.
     /// The scheduler polls the task when woken and drops it when the session ends.
-    pub async fn spawn_activity(&self, task: impl Future<Output = ()> + 'static) {
+    pub async fn start_task(&self, task: impl Future<Output = ()> + 'static) {
         let (acknowledge, started) = oneshot::channel();
         let session_task = async move {
             let mut task = pin!(task);
