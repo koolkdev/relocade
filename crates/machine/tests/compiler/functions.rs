@@ -1,6 +1,23 @@
 use super::*;
-use relocade_machine::{DiscoveryLimits, FarPointer, FunctionRequest};
+use relocade_machine::{DiscoveryLimits, FarPointer, FunctionRequest, IoBus, Memory};
 use relocade_x86::{Segment, SegmentRegister};
+
+// Releasing the replaced hook reenters the I/O runtime and writes to this PC's RAM.
+struct WriteOnHookDrop {
+    memory: Memory,
+    io: IoBus,
+}
+
+impl Drop for WriteOnHookDrop {
+    fn drop(&mut self) {
+        let mut view = self.memory.view().with_io(&self.io);
+        let open_bus = view.read_u8(0x1000).unwrap();
+        // The root at physical 0x100 is backed by 0x1100 in this machine.
+        if !self.memory.installed_code_at(0x1100).is_empty() {
+            view.write_u8(0x300, open_bus).unwrap();
+        }
+    }
+}
 
 async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
@@ -54,10 +71,18 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
             );
             let exit = runner.cpu().exit_handle();
             let root_exit = exit.clone();
+            let memory = runner.cpu().memory();
+            let cleanup = WriteOnHookDrop {
+                memory: memory.clone(),
+                io: runner.cpu().io(),
+            };
             runner
                 .cpu()
                 .install([
-                    Hook::host(0x0010_0000, async move || root_exit.request()),
+                    Hook::host(0x0010_0000, async move || {
+                        let _keep_alive = &cleanup;
+                        root_exit.request();
+                    }),
                     Hook::host(0x0010_0020, async move || exit.request()),
                 ])
                 .await
@@ -65,7 +90,6 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
 
             // The CALL at IP 0006 is internal to the module. Changing its displacement
             // through the A20 alias must reject the reply and preserve the root hook.
-            let memory = runner.cpu().memory();
             memory.view().write_u8(0x10_0107, 8).unwrap();
             assert!(matches!(
                 code.install(runner.cpu()),
@@ -76,11 +100,13 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
                 ExecutionExit::Host(HostExit::Return)
             );
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
+            assert_eq!(memory.view().read_u8(0x300).unwrap(), 0);
 
             memory.view().write_u8(0x107, 7).unwrap();
             // Discovery read beyond JMP BX, but that byte is not in the module.
             memory.view().write_u8(0x10e, 0x90).unwrap();
             code.install(runner.cpu()).unwrap();
+            assert_eq!(memory.view().read_u8(0x300).unwrap(), 0xff);
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
