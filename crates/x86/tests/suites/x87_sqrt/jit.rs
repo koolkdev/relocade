@@ -13,8 +13,8 @@ fn native_shape(compiled: &CompiledModule) {
             for op in body.get_operators_reader().unwrap() {
                 match op.unwrap() {
                     Operator::F64Sqrt => roots += 1,
-                    Operator::Loop { .. } => {
-                        panic!("native root emitted an integer refinement loop")
+                    Operator::I64DivU => {
+                        panic!("native root emitted the full-precision integer refinement")
                     }
                     _ => {}
                 }

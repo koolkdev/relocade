@@ -7,12 +7,11 @@ use relocade_compiler::Program;
 #[test]
 fn refined_root_and_rounding_evidence_match_integer_square_root() {
     let mut program = Program::new();
-    let function = program.function::<fn(u64, bool) -> (u64, bool, bool)>(
-        move |mut body, (significand, odd)| {
-            let result = calculate(&mut body, &significand, &odd)?;
+    let function =
+        program.function::<fn(u64, bool) -> (u64, bool, bool)>(move |body, (significand, odd)| {
+            let result = calculate(&significand, &odd);
             body.return_((result.integer, result.guard, result.sticky))
-        },
-    );
+        });
     program.export("sqrt", function).unwrap();
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
@@ -23,6 +22,7 @@ fn refined_root_and_rounding_evidence_match_integer_square_root() {
         1 << 63,
         (1 << 63) + 1,
         (1 << 63) + 2047,
+        (1 << 63) + 4096, // The estimated last digit is 2048 and must decrement.
         0x9000_0000_0000_0000,
         0xdcce_60bd_0e0a_87ff, // The truncated native input needs an upward seed correction.
         u64::MAX - 2047,

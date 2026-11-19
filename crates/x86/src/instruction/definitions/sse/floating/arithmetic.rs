@@ -85,9 +85,9 @@ where
                 value: result.value.extract_lane::<T>(0),
                 exceptions: result.exceptions,
             }),
-            None => execution.calculate(|body| {
-                FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
-            }),
+            None => {
+                Ok(FloatOperand::new(right, controls.denormals_are_zero()).square_root(&controls))
+            }
         }
     })
 }
@@ -108,8 +108,8 @@ where
         })?;
         match guarded_result {
             Some(result) => Ok(result),
-            None => packed_lanes::<T>(execution, left, right, |body, _, right| {
-                FloatOperand::new(right, controls.denormals_are_zero()).square_root(body, &controls)
+            None => packed_lanes::<T>(execution, left, right, |_, _, right| {
+                Ok(FloatOperand::new(right, controls.denormals_are_zero()).square_root(&controls))
             }),
         }
     })

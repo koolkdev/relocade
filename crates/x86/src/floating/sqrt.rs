@@ -4,27 +4,11 @@ use super::{FiniteInput, FiniteMagnitude, RoundingInput};
 
 #[cfg(test)]
 mod tests;
-use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
+use relocade_compiler::{Val, F64, I1, I64};
 
-fn at_least(
-    low: &Val<I64>,
-    high: &Val<I64>,
-    other_low: &Val<I64>,
-    other_high: &Val<I64>,
-) -> Val<I1> {
-    other_high
-        .unsigned()
-        .lt(high)
-        .or(high.eq(other_high).and(low.unsigned().ge(other_low)))
-}
-
-/// The normalized input has its leading bit at 63. The radicand is
-/// S * 2^(63+odd); its root is a normalized 64-bit significand.
-fn calculate(
-    body: &mut BlockBuilder<'_>,
-    significand: &Val<I64>,
-    odd: &Val<I1>,
-) -> Result<RoundingInput, BuildError> {
+/// The normalized input S has its leading bit at 63. The radicand
+/// N = S * 2^(63+odd) has a normalized 64-bit integer square root.
+fn calculate(significand: &Val<I64>, odd: &Val<I1>) -> RoundingInput {
     let coefficient = Val::<F64>::from_bits(
         significand
             .unsigned()
@@ -35,99 +19,61 @@ fn calculate(
     let estimate = odd.select(coefficient.mul(2.0), coefficient).sqrt();
     let seed = estimate.to_bits().and((1_u64 << 52) - 1).or(1_u64 << 52);
 
-    // Truncating S to 53 bits and rounding the native root leaves the correct
-    // 53-bit floor within one of the seed. Compare squares against N/2^22,
-    // where even (seed+1)^2 fits; the full-size next square could equal 2^128.
-    let scaled_low = significand.shl(odd.select(42, 41));
-    let scaled_high = significand.unsigned().shr(odd.select(22, 23));
-    let (square_low, square_high) = seed.unsigned().mul_wide(&seed);
-    let next_low = square_low.add(seed.shl(1).add(1_u64));
-    let next_high = square_high.add(
-        next_low
-            .unsigned()
-            .lt(&square_low)
-            .unsigned()
-            .extend::<I64>(),
-    );
-    let previous_delta = seed.shl(1).sub(1_u64);
-    let previous_low = square_low.sub(&previous_delta);
-    let previous_high = square_high.sub(
-        square_low
-            .unsigned()
-            .lt(previous_delta)
-            .unsigned()
-            .extend::<I64>(),
-    );
-    let down = at_least(&scaled_low, &scaled_high, &square_low, &square_high).eq(false);
-    let up = at_least(&scaled_low, &scaled_high, &next_low, &next_high);
+    // For M = N / 2^22 the seed is within one of floor(sqrt(M)).
+    // The difference M - seed² therefore fits in a signed word.
+    let scaled_radicand_low = significand.shl(odd.select(42, 41));
+    let error = scaled_radicand_low.sub(seed.mul(&seed));
+    let twice_seed = seed.shl(1);
+    let next_square_delta = twice_seed.add(1_u64);
+    let down = error.signed().lt(0);
+    let up = error.signed().ge(&next_square_delta);
     let prefix = seed
-        .sub(down.unsigned().extend::<I64>())
-        .add(up.unsigned().extend::<I64>());
-    let square_low = down.select(previous_low, up.select(next_low, square_low));
-    let square_high = down.select(previous_high, up.select(next_high, square_high));
-
-    let radicand_low = odd.select(0_u64, significand.shl(63));
-    let radicand_high = odd.select(significand, significand.unsigned().shr(1));
-    let product_low = square_low.shl(22);
-    let product_high = square_high.shl(22).or(square_low.unsigned().shr(42));
-    let remainder_low = radicand_low.sub(&product_low);
-    let remainder_high = radicand_high.sub(product_high).sub(
-        radicand_low
-            .unsigned()
-            .lt(product_low)
-            .unsigned()
-            .extend::<I64>(),
+        .add(up.unsigned().extend::<I64>())
+        .sub(down.unsigned().extend::<I64>());
+    let prefix_remainder = down.select(
+        error.add(twice_seed.sub(1_u64)),
+        up.select(error.sub(next_square_delta), &error),
     );
 
-    let (integer, remainder_low, remainder_high) = body
-        .loop_::<(I32, I64, I64, I64), (I64, I64, I64)>(
-            (11, prefix.shl(11), remainder_low, remainder_high),
-            |mut iteration, labels, (remaining, root, low, high)| {
-                iteration.if_(remaining.eq(0), |done| {
-                    done.branch(&labels.exit, (&root, &low, &high))
-                })?;
-                let bit = Val::<I64>::from(1_u64).shl(remaining.sub(1));
-                // The root's lowest `remaining` bits are zero, so the terms in
-                // 2*root*bit + bit^2 do not overlap and OR is exact.
-                let delta_low = root.shl(&remaining).or(bit.shl(remaining.sub(1)));
-                let delta_high = root.unsigned().shr(Val::<I32>::from(64).sub(&remaining));
-                let take = at_least(&low, &high, &delta_low, &delta_high);
-                let difference_high = high
-                    .sub(delta_high)
-                    .sub(low.unsigned().lt(&delta_low).unsigned().extend::<I64>());
-                iteration.branch(
-                    &labels.again,
-                    (
-                        remaining.sub(1),
-                        take.select(root.or(bit), root),
-                        take.select(low.sub(delta_low), low),
-                        take.select(difference_high, high),
-                    ),
-                )
-            },
-        )?;
-    // For integer N, sqrt(N) cannot equal R+1/2. Comparing the integer
-    // remainder with R therefore decides the midpoint without a wide multiply.
-    Ok(RoundingInput {
-        guard: remainder_high
+    // For U = prefix * 2048, N - U² = prefix_remainder * 2^22.
+    // Divide this by 2U to estimate the last eleven root bits. The
+    // prefix is exact, so prefix_remainder <= 2*prefix. The dividend
+    // fits in one word and the digit is at most 2048.
+    let dividend = prefix_remainder.shl(10);
+    let digit = dividend.unsigned().div(&prefix);
+    let linear_remainder = dividend.sub(digit.mul(&prefix));
+    let candidate = prefix.shl(11).add(&digit);
+
+    // N - candidate² = 4096*linear_remainder - digit². A negative
+    // residual has magnitude <= 2^22. Since candidate >= 2^63, the
+    // true root then lies between candidate - 1/2 and candidate. Its floor
+    // is candidate - 1, with both guard and sticky set. A nonnegative integer
+    // residual places the root above the midpoint exactly when it exceeds candidate.
+    let linear_low = linear_remainder.shl(12);
+    let digit_square = digit.mul(&digit);
+    let borrow = linear_low.unsigned().lt(&digit_square);
+    let residual_high = linear_remainder
+        .unsigned()
+        .shr(52)
+        .sub(borrow.unsigned().extend::<I64>());
+    let residual_low = linear_low.sub(digit_square);
+    RoundingInput {
+        integer: candidate.sub(residual_high.signed().lt(0).unsigned().extend::<I64>()),
+        guard: residual_high
             .ne(0_u64)
-            .or(integer.unsigned().lt(&remainder_low)),
-        sticky: remainder_high.or(remainder_low).ne(0_u64),
-        integer,
-    })
+            .or(candidate.unsigned().lt(&residual_low)),
+        sticky: residual_high.or(residual_low).ne(0_u64),
+    }
 }
 
 impl FiniteInput {
     /// Supplies a positive root candidate for normalized, nonzero input.
     /// The architectural caller replaces zero and invalid-operand responses.
-    pub(crate) fn square_root(
-        &self,
-        body: &mut BlockBuilder<'_>,
-    ) -> Result<FiniteMagnitude, BuildError> {
-        Ok(FiniteMagnitude {
-            significand: calculate(body, &self.significand, &self.exponent.and(1).ne(0))?,
+    pub(crate) fn square_root(&self) -> FiniteMagnitude {
+        FiniteMagnitude {
+            significand: calculate(&self.significand, &self.exponent.and(1).ne(0)),
             exponent: self.exponent.signed().shr(1),
             negative: false.into(),
-        })
+        }
     }
 }

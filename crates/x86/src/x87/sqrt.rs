@@ -54,14 +54,14 @@ impl Operand {
         let components = body.if_value::<RoundedShape>(
             &self.zero,
             |body| body.yield_(RoundedValue::zero(self.bits.negative()).components()),
-            |mut body| {
+            |body| {
                 let (significand, exponent) = self.normalized();
                 let magnitude = FiniteInput {
                     significand,
                     exponent,
                     negative: false.into(),
                 }
-                .square_root(&mut body)?;
+                .square_root();
                 body.yield_(
                     magnitude
                         .round(precision.clone(), rounding)
