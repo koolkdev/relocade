@@ -126,11 +126,12 @@ registration remains alive until the compilation and its last installation are
 dropped. `Memory::code_sources_at` queries those dependencies by backing address.
 
 Memory-view writes update the generations of retained source pages under the same
-lock used to capture them. Generated RAM stores do not use this lock or update these
-generations. `CodeSource::has_recorded_writes` therefore reports recorded host writes;
-it does not prove that a compilation is current. Callers must still keep code stable
-during compilation and installation and explicitly retire code before changing it.
-Raw writes through `Memory::backing` bypass this metadata as well.
+lock used to capture them. At installation the stopped CPU holds this lock from
+the comparison of the emitted bytes through publication of its dispatch entries.
+This admits results after unrelated writes or after the original bytes are restored.
+Generated RAM stores and writes through `Memory::backing` bypass the generation
+counters. An embedder using the raw backing must keep its writers quiescent during
+publication. If an instruction changes, retire the affected module before its next execution.
 
 ## Devices
 

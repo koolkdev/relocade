@@ -26,6 +26,12 @@ impl Hotness {
         }
     }
 
+    pub(super) fn resample(&mut self, submitted: &[crate::FarPointer]) {
+        for entry in submitted {
+            self.counts.remove(&entry.packed());
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn count(&self, key: u32) -> u64 {
         self.counts.get(&key).copied().unwrap_or(0)

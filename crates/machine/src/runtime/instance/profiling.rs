@@ -147,14 +147,17 @@ impl Cpu {
                     return;
                 }
             };
-            if let Ok(code) = reply {
-                // Missing roots fall back below if module installation fails.
-                let _ = code.install_missing(self);
-            }
-            for entry in std::mem::take(&mut self.instance.profiling.pending) {
-                if self.instance.install_interpreter_fallback(entry).is_err() {
-                    self.instance.profiling.disable();
-                    return;
+            let result = reply.and_then(|code| code.install_missing(self));
+            let pending = std::mem::take(&mut self.instance.profiling.pending);
+            if matches!(result, Err(crate::Error::StaleCompilation)) {
+                // These roots may be hot again once the guest finishes writing.
+                self.instance.profiling.hotness.resample(&pending);
+            } else {
+                for entry in pending {
+                    if self.instance.install_interpreter_fallback(entry).is_err() {
+                        self.instance.profiling.disable();
+                        return;
+                    }
                 }
             }
             // Observations may have accumulated while the previous batch ran.

@@ -172,7 +172,9 @@ impl CpuInstance {
         module: &Module,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        self.install_instance(module, entries, None)
+        self.publish_module(module, entries, None)?;
+        self.hooks.remove(entries);
+        Ok(())
     }
 
     pub(super) fn install_compilation(
@@ -180,10 +182,14 @@ impl CpuInstance {
         code: &crate::CompiledCode,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        self.install_instance(code.module(), entries, Some(code))
+        let guard = code.source().lock_current_bytes(&self.bindings.guest)?;
+        self.publish_module(code.module(), entries, Some(code))?;
+        drop(guard);
+        self.hooks.remove(entries);
+        Ok(())
     }
 
-    fn install_instance(
+    fn publish_module(
         &mut self,
         module: &Module,
         entries: &[DispatchEntry<'_>],
@@ -207,9 +213,7 @@ impl CpuInstance {
             let instance = wasm.instantiate(module, &imports)?;
             let module = InstalledModule::new(instance, entries, code.cloned(), calls);
             self.modules.install(wasm, module)
-        })?;
-        self.hooks.remove(entries.iter().map(|entry| entry.key));
-        Ok(())
+        })
     }
 
     pub(super) fn has_entry(&self, key: u32) -> bool {

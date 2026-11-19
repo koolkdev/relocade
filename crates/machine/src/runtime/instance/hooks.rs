@@ -99,9 +99,9 @@ impl Hooks {
     }
 
     /// Releases overwritten captures, retaining their IDs for reinstallation.
-    pub(super) fn remove(&mut self, keys: impl IntoIterator<Item = u32>) {
-        for key in keys {
-            if let Some(&id) = self.ids.get(&key) {
+    pub(super) fn remove(&mut self, entries: &[DispatchEntry<'_>]) {
+        for entry in entries {
+            if let Some(&id) = self.ids.get(&entry.key) {
                 self.handlers[id as usize] = None;
             }
         }

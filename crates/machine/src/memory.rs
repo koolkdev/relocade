@@ -66,6 +66,10 @@ impl Memory {
     pub fn configuration(&self) -> &MachineConfig {
         &self.config
     }
+
+    /// Raw Wasm storage. Writers using this handle must pause while the CPU
+    /// installs compiled code. Writes through [`MemoryView`] synchronize with
+    /// installation automatically.
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
     }

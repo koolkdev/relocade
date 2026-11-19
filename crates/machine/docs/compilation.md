@@ -74,11 +74,15 @@ The worker's code reader copies mapped RAM/ROM directly from shared backing,
 including A20 aliases. It shares address resolution with ordinary memory views
 and requires no CPU or device bus. An explicit capture rejects holes, MMIO and
 overflowing ranges before allocating its buffer. Discovery reads the available
-prefix up to those boundaries or the code segment limit. `CompiledCode::install`
-checks the full execution target and uses the existing CPU imports, dispatch
-and hook replacement rules. Each CPU gets its own instance. Pending or parked
-host services must finish before installation. Code discovery, hotness and invalidation remain separate;
-callers keep code and mappings stable through compilation and installed use.
+prefix up to those boundaries or the code segment limit.
+
+`CompiledCode::install` checks the execution target and guest memory identity.
+Before publishing dispatch entries and call links, the stopped CPU compares
+every emitted instruction span with its live backing. A mismatch returns
+`Error::StaleCompilation` and preserves existing entries and hooks. An
+automatically requested function can become hot again after a stale result.
+Pending or parked host services must finish before installation. If a write
+changes installed instructions, retire the affected module before its next execution.
 
 Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles

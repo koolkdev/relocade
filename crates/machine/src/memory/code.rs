@@ -9,7 +9,7 @@ use std::{
     ops::Range,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, Weak,
+        Arc, Mutex, MutexGuard, Weak,
     },
 };
 
@@ -60,13 +60,31 @@ impl CodeSource {
     }
 
     /// Reports writes recorded since capture, including data elsewhere on a page.
-    /// This is not an admission check: generated stores and raw backing writes
-    /// still require the existing code-stability contract until interception is enabled.
+    /// Generated stores and raw backing writes bypass these counters.
     pub fn has_recorded_writes(&self) -> bool {
         self.source
             .pages
             .iter()
             .any(|page| page.current.load(Ordering::Acquire) != page.captured)
+    }
+
+    /// Hold off managed writes until the caller publishes the checked instructions.
+    pub(crate) fn lock_current_bytes(
+        &self,
+        memory: &Memory,
+    ) -> crate::Result<MutexGuard<'_, CodeRegistry>> {
+        use relocade_wasm_runtime::WasmSharedMemory;
+        let registry = self.registry.lock().unwrap();
+        let mut scratch = [0; PAGE_BYTES as usize];
+        for span in self.source.blocks.iter().flatten() {
+            // The PC memory configuration fixes each span's backing for its lifetime.
+            let live = &mut scratch[..span.bytes.len()];
+            memory.backing.read(span.backing, live);
+            if live != span.bytes.as_ref() {
+                return Err(crate::Error::StaleCompilation);
+            }
+        }
+        Ok(registry)
     }
 
     pub(crate) fn belongs_to(&self, memory: &Memory) -> bool {
