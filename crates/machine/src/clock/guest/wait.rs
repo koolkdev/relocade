@@ -1,42 +1,71 @@
-//! Owned sleep registration and synchronous cancellation.
+//! Owned guest sleeps register their task directly on the clock's deadline list.
 
 use super::State;
 use crate::{ClockSource, Sleep, Timestamp};
-use futures_channel::oneshot;
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::Future,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+};
 
 #[derive(Clone)]
 pub(super) struct Source(pub(super) Rc<RefCell<State>>);
 
 pub(super) struct Wait {
-    pub(super) token: Rc<()>,
     pub(super) deadline: Timestamp,
-    pub(super) complete: oneshot::Sender<()>,
+    pub(super) waker: RefCell<Option<Waker>>,
 }
 
-// An owned registration removes its wait and refreshes the CPU target at drop,
-// including cancellation from inside an executing IO/MMIO callback.
-struct Registration {
+struct GuestSleep {
     source: Source,
-    token: Rc<()>,
+    deadline: Timestamp,
+    registered: Option<Rc<Wait>>,
 }
 
-impl Drop for Registration {
+impl Future for GuestSleep {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(wait) = &self.registered {
+            if let Some(waker) = wait.waker.borrow_mut().as_mut() {
+                waker.clone_from(cx.waker());
+                return Poll::Pending;
+            }
+            return Poll::Ready(());
+        }
+        if self.deadline <= self.source.now() {
+            return Poll::Ready(());
+        }
+        let wait = Rc::new(Wait {
+            deadline: self.deadline,
+            waker: RefCell::new(Some(cx.waker().clone())),
+        });
+        self.registered = Some(wait.clone());
+        self.source.update_waits(|waits| waits.push(wait));
+        Poll::Pending
+    }
+}
+
+impl Drop for GuestSleep {
     fn drop(&mut self) {
-        let (removed, changed) = {
-            let mut state = self.source.0.borrow_mut();
-            let Some(index) = state
-                .waits
-                .iter()
-                .position(|wait| Rc::ptr_eq(&wait.token, &self.token))
-            else {
-                return;
-            };
-            let removed = state.waits.swap_remove(index);
+        let Some(wait) = &self.registered else { return };
+        if wait.waker.borrow().is_some() {
+            self.source
+                .update_waits(|waits| waits.retain(|entry| !Rc::ptr_eq(entry, wait)));
+        }
+    }
+}
+
+impl Source {
+    fn update_waits(&self, update: impl FnOnce(&mut Vec<Rc<Wait>>)) {
+        let changed = {
+            let mut state = self.0.borrow_mut();
+            update(&mut state.waits);
             state.refresh_target();
-            (removed, state.cpu.as_ref().map(|cpu| cpu.changed.clone()))
+            state.cpu.as_ref().map(|cpu| cpu.changed.clone())
         };
-        drop(removed);
         if let Some(changed) = changed {
             changed.wake();
         }
@@ -62,35 +91,10 @@ impl ClockSource for Source {
     }
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {
-        let source = self.clone();
-        Sleep::new(async move {
-            let now = source.now();
-            if deadline <= now {
-                return;
-            }
-            let (complete, completed) = oneshot::channel();
-            let token = Rc::new(());
-            let registration = Registration {
-                source,
-                token: token.clone(),
-            };
-            let changed = {
-                let mut state = registration.source.0.borrow_mut();
-                state.waits.push(Wait {
-                    token,
-                    deadline,
-                    complete,
-                });
-                state.refresh_target();
-                state.cpu.as_ref().map(|cpu| cpu.changed.clone())
-            };
-            if let Some(changed) = changed {
-                changed.wake();
-            }
-            completed
-                .await
-                .expect("guest time driver owns pending sleeps");
-            drop(registration);
+        Sleep::new(GuestSleep {
+            source: self.clone(),
+            deadline,
+            registered: None,
         })
     }
 }
