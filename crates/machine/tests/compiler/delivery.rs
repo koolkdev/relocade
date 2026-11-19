@@ -105,3 +105,37 @@ fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
 async fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
     compilation::run(receive_while_running).await;
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn an_unpaced_session_can_compile_on_its_worker_while_a_device_stays_ready() {
+    let (mut machine, config) = setup();
+    let cpu = machine.create_cpu(config, None).unwrap();
+    let (installed, result) = futures_channel::oneshot::channel();
+    let worker = cpu.spawn_with_guest_time(
+        || relocade_machine::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
+        async move |mut runner| {
+            // This session has no external pacing clock. Its first need for JS
+            // occurs while the execution worker already has runnable Rust work.
+            runner
+                .connect(Rc::new(RefCell::new(BusyDevice::default())), |_| {})
+                .await;
+            runner
+                .cpu()
+                .install([Hook::host(0x100, async || {})])
+                .await
+                .unwrap();
+            let _ = installed.send(());
+        },
+    );
+    let completed = matches!(
+        select(result, futures_timer::Delay::new(Duration::from_secs(20))).await,
+        Either::Left((Ok(()), _))
+    );
+    worker.stop().await.unwrap();
+    machine.shutdown().await.unwrap();
+    assert!(
+        completed,
+        "worker-local compilation must get a browser turn"
+    );
+}

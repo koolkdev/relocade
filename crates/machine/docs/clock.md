@@ -161,6 +161,13 @@ and retain soft checkpoint overshoot. Reading time does not dispatch device work
 `CpuStateAccess::restore` preserves cumulative retirement when restoring guest
 registers, including across program loads. Initial counts belong in `CpuConfig`.
 
+Lower-level embeddings can set `cpu.instruction_target()` directly on CPUs with
+instruction budgets enabled. `set(Some(count))` arms an absolute retirement
+target, and `set(None)` disarms it. Keep the target within signed wrapping
+distance of the published count. A target of zero rounds to one because the
+backing reserves zero for disarmed execution. `Cpu::run` reports
+`BudgetExhausted` at a completed checkpoint and leaves rearming to its caller.
+
 ## Execution with guest time
 
 `cpu.spawn_with_guest_time(make_time, session)` constructs a
@@ -186,22 +193,13 @@ let worker = cpu.spawn_with_guest_time(
 );
 ```
 
-`Runner::run_cpu` uses one execution loop for both host and guest clocks. Its
-private `ExecutionSchedule::poll_cpu` owns each turn: poll host work, wait for
-pacing, prepare instruction targets, drive guest execution and service due waits.
-Continuing execution gives ready activities a turn. Terminal exits yield only
-when an execution notification remains pending, including notifications from
-timers made due by the final instructions. The schedule's binding scopes the
-guest driver's target and notifications to one run; completion and cancellation
-release it.
-
-Pending services and suspended calls belong to `Cpu`. Its internal
-`poll_host_work` polls active Rust services and observes exit requests without
-entering the guest. `poll_execution` handles guest calls, IRQ entry, dispatch,
-and new or resumed host calls. Both operations keep terminal-exit cleanup inside
-CPU ownership. `Cpu::run` uses the same operations without pacing; Runner delegates
-their ordering to its scheduler. Ready device work runs before idle time advances,
-and guest execution gets an opportunity to resume before choosing an idle deadline.
+`Runner::run` owns the guest clock binding for the whole session.
+`run_cpu().await` makes the machine runnable and waits for an exit. When guest
+execution returns to the scheduler, it publishes retirement and wakes due
+sleepers. Each sleeper keeps the waker of the task currently polling it. A
+device deadline can expire while the application is waiting at the DOS prompt,
+as well as during execution of a program. Session shutdown releases the clock
+binding and its pacing wait. [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
 The private `ExecutionSlice` owns one retained boundary for cooperative yields
 and host pacing. The next CPU stop is the earlier of that boundary and the next
@@ -244,12 +242,10 @@ current allowance. Ready host services and exit requests can progress during a
 pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
 credit. Replacing a device timer does not replace the pacing wait or grant time.
 
-Completing or cancelling `run_cpu` cancels its host wait. The next run retains
-the same slice boundary and the existing lead or lag, subject to the lag limit.
-Time spent between runs is excluded by shifting the host correspondence by the
-exact native pause duration; repeated cancellation cannot grant another slice.
-The clock driver owns this host/guest correspondence, while
-`runner/schedule/slice.rs` owns the slice boundary and cancellable host wait.
+Completing or cancelling a CPU request stops instruction execution. The
+session retains the current slice boundary, device deadlines and host/guest
+correspondence between requests. Idle advances preserve the CPU's instruction
+count. New CPU requests use the remaining slice credit.
 
 ### Live input and output
 
@@ -274,7 +270,7 @@ without registering one. Clocks and waits remain on their execution owner.
 The mapping is captured when `sync_to_host` is called, so later pauses or lag
 recovery cannot remap that wait. Passing a timestamp to a task uses the mapping
 when the task processes it. Host-clock output uses the same timestamp; unpaced guest
-clocks and inactive runs produce an immediately ready wait. Keep the host timer
+clocks and unbound guest clocks produce an immediately ready wait. Keep the host timer
 service alive while execution-owner tasks use it.
 
 ## Host timers

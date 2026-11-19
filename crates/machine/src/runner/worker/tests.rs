@@ -87,6 +87,15 @@ async fn owned_job_cleanup(cancel: bool) {
     let worker = cpu.spawn_with_guest_time(
         || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
         async move |runner| {
+            // A busy activity keeps the execution worker runnable while the
+            // browser delivers the calculation worker's startup handshake.
+            runner
+                .spawn_activity(async {
+                    loop {
+                        crate::yield_now().await;
+                    }
+                })
+                .await;
             let jobs = runner.spawn_job_thread().await;
             let mut work = std::pin::pin!(jobs.execute(move || {
                 let _cleanup = Dropped(Some(cleanup));

@@ -8,6 +8,8 @@ use relocade_x86::{
 };
 use std::{future::pending, num::NonZeroUsize, time::Duration};
 
+mod suspended;
+
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),

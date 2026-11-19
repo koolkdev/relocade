@@ -8,7 +8,7 @@ impl Cpu {
     /// Enters a host-requested guest call or eligible device IRQ at a stopped boundary.
     /// Both park the active handler until execution reaches its resume entry.
     pub(super) fn try_enter_guest(&mut self, cx: &mut Context<'_>) -> Result<bool, ExecutionExit> {
-        if let Some(exit) = self.exit.0.get() {
+        if let Some(exit) = self.exit.result() {
             return Err(exit);
         }
         let invocation = self.guest_calls.take();
@@ -24,7 +24,7 @@ impl Cpu {
         };
         // Frame writes and IVT reads may also request an exit. Observe it before
         // parking a call or executing the ISR, even when IRQ entry faults.
-        if let Some(exit) = self.exit.0.get() {
+        if let Some(exit) = self.exit.result() {
             return Err(exit);
         }
         if let Err(exit) = entry {
@@ -51,7 +51,7 @@ impl Cpu {
         }
         let vector = self.instance.io.poll_interrupt(cx);
         // Device callbacks may request an exit even without an eligible IRQ.
-        if let Some(exit) = self.exit.0.get() {
+        if let Some(exit) = self.exit.result() {
             return Err(exit);
         }
         Ok(vector)

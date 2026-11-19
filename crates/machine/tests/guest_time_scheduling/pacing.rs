@@ -39,9 +39,9 @@ async fn late_host_wake() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -140,9 +140,9 @@ async fn replace_idle_deadline() {
                 observed: Vec::new(),
                 exit: None,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -172,12 +172,11 @@ async fn replace_idle_deadline() {
     machine.shutdown().await.unwrap();
 }
 
-async fn cancelled_run_rebinds() {
+async fn parked_after_cancellation() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let (pause, paused) = oneshot::channel();
     let (stopped, stop) = oneshot::channel();
-    let (resume, resumed) = oneshot::channel();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
@@ -193,9 +192,9 @@ async fn cancelled_run_rebinds() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+            runner.connect(device.clone(), |_| {}).await;
             {
                 match select(pin!(runner.run_cpu()), pin!(paused)).await {
                     Either::Right((Ok(()), _)) => {}
@@ -203,13 +202,10 @@ async fn cancelled_run_rebinds() {
                 }
             }
             stopped.send(()).unwrap();
-            resumed.await.unwrap();
-            assert_eq!(
-                runner.clock().now(),
-                runner
-                    .clock()
-                    .deadline_after(start, Duration::from_millis(4))
-            );
+            let deadline = clock.deadline_after(start, Duration::from_millis(10));
+            clock.sleep_until(deadline).await;
+            assert_eq!(clock.now(), deadline);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -228,16 +224,14 @@ async fn cancelled_run_rebinds() {
     stop.await.unwrap();
     assert_eq!(
         host.next_deadline(),
-        None,
-        "cancelling execution must cancel its host wait"
+        Some(host_time.at(Duration::from_millis(4)))
     );
-    host.advance_by(Duration::from_secs(1));
-    resume.send(()).unwrap();
+    host.advance_to(host_time.at(Duration::from_millis(4)));
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_millis(1004)))
+        Some(host_time.at(Duration::from_millis(8)))
     );
-    host.advance_by(Duration::from_millis(10));
+    host.advance_to(host_time.at(Duration::from_millis(8)));
     assert_eq!(worker.join().await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
 }
@@ -266,13 +260,13 @@ async fn timer_replacement_preserves_the_current_burst_and_host_wait() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    pollster::block_on(cancelled_run_rebinds());
+fn cancelling_cpu_execution_keeps_device_deadlines_and_host_pacing() {
+    pollster::block_on(parked_after_cancellation());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    cancelled_run_rebinds().await;
+async fn cancelling_cpu_execution_keeps_device_deadlines_and_host_pacing() {
+    parked_after_cancellation().await;
 }
 
 async fn busy_bursts() {
@@ -354,7 +348,6 @@ async fn ready_service_during_pacing() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
@@ -368,6 +361,7 @@ async fn ready_service_during_pacing() {
             })])
             .await
             .unwrap();
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)

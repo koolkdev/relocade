@@ -105,8 +105,8 @@ impl Clock {
     /// Output tasks await this before publishing to another worker.
     ///
     /// Host clocks use the timestamp unchanged. Paced guest clocks use the
-    /// current correspondence, excluding pauses between CPU runs. Unpaced guest
-    /// clocks and clocks outside an active run complete immediately. The mapping
+    /// current correspondence. A managed session keeps its mapping between CPU runs.
+    /// Unpaced guest clocks and unbound clocks complete immediately. The mapping
     /// is captured when this method is called. The deadline stays fixed, including
     /// across pauses and guest lag recovery.
     /// Registration happens on first poll; elapsed deadlines need no timer.

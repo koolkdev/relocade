@@ -4,25 +4,25 @@ use futures_timer::Delay;
 use futures_util::future::LocalBoxFuture;
 use std::{
     cell::Cell,
-    future::Future,
-    pin::Pin,
+    future::{poll_fn, Future},
+    pin::{pin, Pin},
     rc::Rc,
     task::{ready, Context, Poll, Waker},
     time::Duration,
 };
 
 pub(crate) struct HostSchedule {
-    pub(crate) pending: Rc<PendingDeliveries>,
+    pub(crate) pending: HostTurns,
     timer: Option<Box<dyn Fn() -> LocalBoxFuture<'static, ()>>>,
 }
 
 impl HostSchedule {
     pub(super) fn new(wake: Waker) -> Self {
         Self {
-            pending: Rc::new(PendingDeliveries {
+            pending: HostTurns(Rc::new(Pending {
                 count: Cell::new(0),
                 wake,
-            }),
+            })),
             timer: None,
         }
     }
@@ -52,12 +52,16 @@ pub(super) struct HostRun<'a> {
 }
 
 impl HostRun<'_> {
+    pub(super) fn idle(&mut self) {
+        self.timer = None;
+        self.turn = None;
+    }
+
     /// Application work stays runnable during the grace interval and waits only
     /// for the host yield. Stop and parking remain with the executor.
     pub(super) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         if !self.schedule.pending.has_pending() {
-            self.timer = None;
-            self.turn = None;
+            self.idle();
             return Poll::Ready(());
         }
 
@@ -99,35 +103,50 @@ impl HostRun<'_> {
     }
 }
 
-pub(crate) struct PendingDeliveries {
+/// Registers work whose completion requires an event-loop turn on this worker.
+/// Clones use the executor's shared grace timer while any such wait is pending.
+#[derive(Clone)]
+pub struct HostTurns(Rc<Pending>);
+
+impl HostTurns {
+    /// Polls the operation immediately. The first pending poll requests host
+    /// delivery; completion or cancellation releases the request.
+    pub async fn wait<F: Future>(&self, future: F) -> F::Output {
+        let mut future = pin!(future);
+        let mut registration = None;
+        poll_fn(|cx| {
+            let result = future.as_mut().poll(cx);
+            if result.is_pending() && registration.is_none() {
+                let pending = &*self.0;
+                let count = pending.count.get();
+                pending.count.set(count + 1);
+                registration = Some(Registration(pending));
+                if count == 0 {
+                    pending.wake.wake_by_ref();
+                }
+            }
+            result
+        })
+        .await
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        self.0.count.get() != 0
+    }
+}
+
+struct Pending {
     count: Cell<usize>,
     wake: Waker,
 }
 
-impl PendingDeliveries {
-    pub(crate) fn register(&self) -> Delivery<'_> {
-        let count = self.count.get();
-        self.count.set(count + 1);
-        if count == 0 {
-            // A later sibling may enter guest code during this same root poll.
-            // Interrupt it so the executor can arm the shared delivery timer.
-            self.wake.wake_by_ref();
-        }
-        Delivery(self)
-    }
+struct Registration<'a>(&'a Pending);
 
-    pub(crate) fn has_pending(&self) -> bool {
-        self.count.get() != 0
-    }
-}
-
-pub(crate) struct Delivery<'a>(&'a PendingDeliveries);
-
-impl Drop for Delivery<'_> {
+impl Drop for Registration<'_> {
     fn drop(&mut self) {
-        self.0.count.set(self.0.count.get() - 1);
-        if !self.0.has_pending() {
-            // Let the executor cancel its timer when the last receive ends.
+        let remaining = self.0.count.get() - 1;
+        self.0.count.set(remaining);
+        if remaining == 0 {
             self.0.wake.wake_by_ref();
         }
     }

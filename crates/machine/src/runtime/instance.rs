@@ -7,7 +7,7 @@ mod profiling;
 use super::{
     code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
-use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
+use crate::{memory::CpuBinding, worker::HostTurns, FarPointer, IoBus, Result};
 use hooks::Hooks;
 use modules::{Calls, InstalledModule, Modules};
 use profiling::Profiling;
@@ -26,6 +26,7 @@ pub struct DispatchEntry<'a> {
 /// service polling do not hold the runtime.
 pub(super) struct CpuInstance {
     runtime: WasmRuntimeHandle,
+    host_turns: Option<HostTurns>,
     pub(super) bindings: RuntimeMemory,
     pub(super) io: IoBus,
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
@@ -91,6 +92,7 @@ impl CpuInstance {
             };
             Ok(Self {
                 runtime: runtime.clone(),
+                host_turns: None,
                 bindings,
                 io,
                 dispatch,
@@ -163,7 +165,13 @@ impl CpuInstance {
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let compiler = self.runtime.with_runtime(|wasm| wasm.compiler());
-        let module = compiler.compile(bytes).await?;
+        let compilation = compiler.compile(bytes);
+        // Browser compilation completes on this worker's event loop. Device
+        // activities can stay runnable throughout hook or module installation.
+        let module = match &self.host_turns {
+            Some(host) => host.wait(compilation).await?,
+            None => compilation.await?,
+        };
         self.install_compiled_module(&module, entries)
     }
 
@@ -238,5 +246,12 @@ impl CpuInstance {
     #[inline]
     pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
         self.hooks.handler(id)
+    }
+}
+
+impl super::Cpu {
+    pub(crate) fn with_host_turns(mut self, host: HostTurns) -> Self {
+        self.instance.host_turns = Some(host);
+        self
     }
 }

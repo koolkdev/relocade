@@ -4,9 +4,17 @@ mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver};
+use crate::{machine::execution::Member, Clock, Cpu, GuestTimeDriver, Timestamp};
 use relocade_x86::ExecutionExit;
-use std::task::{ready, Context, Poll, Waker};
+use std::{
+    rc::Rc,
+    task::{ready, Context, Poll, Waker},
+};
+
+pub(super) enum Turn {
+    Continue,
+    Exit(ExecutionExit),
+}
 
 pub(super) struct ExecutionSchedule {
     clock: Clock,
@@ -16,6 +24,7 @@ pub(super) struct ExecutionSchedule {
 struct GuestSchedule {
     driver: GuestTimeDriver,
     slice: Option<ExecutionSlice>,
+    deferred_idle: Option<Timestamp>,
 }
 
 impl ExecutionSchedule {
@@ -33,7 +42,11 @@ impl ExecutionSchedule {
         }
         Self {
             clock: driver.clock(),
-            guest: Some(GuestSchedule { driver, slice }),
+            guest: Some(GuestSchedule {
+                driver,
+                slice,
+                deferred_idle: None,
+            }),
         }
     }
 
@@ -41,37 +54,47 @@ impl ExecutionSchedule {
         &self.clock
     }
 
-    /// Retains the slice boundary across runs while cancelling each run's host wait.
-    #[must_use]
-    pub(super) fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> Option<impl Drop + use<'a>> {
-        self.guest.as_ref().map(|guest| Binding {
-            _cpu: guest.driver.bind(cpu, changed),
-            slice: guest.slice.as_ref(),
-        })
+    #[must_use = "retain the exit and deadline wake bindings for the session"]
+    pub(super) fn bind(
+        &self,
+        cpu: &Cpu,
+        changed: &Waker,
+    ) -> (Rc<Waker>, Option<impl Drop + use<>>) {
+        let deadlines = self
+            .guest
+            .as_ref()
+            .map(|guest| guest.driver.bind(cpu, changed));
+        (cpu.exit_handle().bind(changed), deadlines)
     }
 
     /// Polls host work before pacing guest entry, then publishes progress and
     /// chooses whether to yield, wait or return. Pending pacing waits do not
-    /// advance idle time. Ready(None) gives activities a turn; Ready(Some(exit))
-    /// returns the CPU result, with terminal-exit cleanup already complete.
-    pub(super) fn poll_cpu(
-        &self,
-        cpu: &mut Cpu,
+    /// advance idle time. A terminal exit includes CPU cleanup.
+    pub(super) fn poll_turn(
+        &mut self,
+        mut cpu: Option<&mut Cpu>,
+        execution: Option<&Member>,
+        has_ready: impl Fn() -> bool,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<ExecutionExit>> {
-        let _execution = ready!(cpu.poll_enter_execution(cx));
-        let result = if let Some(exit) = cpu.poll_host_work(cx) {
+    ) -> Poll<Turn> {
+        let _execution = match execution {
+            Some(execution) => Some(ready!(execution.poll_enter(cx))),
+            None => None,
+        };
+        let result = if let Some(exit) = cpu.as_mut().and_then(|cpu| cpu.poll_host_work(cx)) {
             Poll::Ready(exit)
         } else {
-            if let Some(guest) = &self.guest {
-                if let Some(slice) = &guest.slice {
+            if let Some(guest) = &mut self.guest {
+                if let Some(slice) = &mut guest.slice {
                     ready!(slice.poll(&self.clock, self.clock.now(), cx));
                 }
                 guest
                     .driver
                     .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
             }
-            cpu.poll_execution(cx)
+            cpu.map_or(Poll::Pending, |cpu| {
+                cpu.poll_scheduled_execution(cx, has_ready())
+            })
         };
         if let Some(guest) = &self.guest {
             guest
@@ -79,42 +102,39 @@ impl ExecutionSchedule {
                 .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
         }
         match result {
-            Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(None),
+            Poll::Ready(ExecutionExit::Interrupted) => Poll::Ready(Turn::Continue),
             Poll::Ready(ExecutionExit::BudgetExhausted) if self.guest.is_some() => {
-                Poll::Ready(None)
+                Poll::Ready(Turn::Continue)
             }
-            Poll::Ready(exit) => Poll::Ready(Some(exit)),
+            Poll::Ready(exit) => Poll::Ready(Turn::Exit(exit)),
             Poll::Pending => {
-                // Let ready activities replace their waits before advancing idle
-                // time. Neither a wake nor a replaced deadline resets the slice.
-                if cpu.interrupt_handle().is_requested() {
-                    return Poll::Ready(None);
-                }
-                let Some(guest) = &self.guest else {
+                let Some(guest) = &mut self.guest else {
                     return Poll::Pending;
                 };
-                let Some(mut deadline) = guest.driver.next_deadline() else {
+                let Some(deadline) = guest.driver.next_deadline() else {
+                    guest.deferred_idle = None;
                     return Poll::Pending;
                 };
-                if let Some(slice) = &guest.slice {
-                    deadline = slice.idle_deadline(deadline);
+                // Tasks already enqueued can cancel or replace the earliest wait.
+                // One FIFO round is sufficient even when an activity wakes itself.
+                if has_ready() && guest.deferred_idle != Some(deadline) {
+                    guest.deferred_idle = Some(deadline);
+                    return Poll::Ready(Turn::Continue);
                 }
+                guest.deferred_idle = None;
+                let deadline = match &guest.slice {
+                    Some(slice) if slice.paced => deadline.min(slice.deadline()),
+                    _ => deadline,
+                };
                 guest.driver.advance_to(deadline);
-                Poll::Ready(None)
+                // Expiration wakes the owning task. The machine itself needs
+                // another idle turn only if there is still a deadline to drive.
+                if guest.driver.next_deadline().is_some() {
+                    Poll::Ready(Turn::Continue)
+                } else {
+                    Poll::Pending
+                }
             }
-        }
-    }
-}
-
-struct Binding<'a, T> {
-    _cpu: T,
-    slice: Option<&'a ExecutionSlice>,
-}
-
-impl<T> Drop for Binding<'_, T> {
-    fn drop(&mut self) {
-        if let Some(slice) = self.slice {
-            slice.cancel_wait();
         }
     }
 }

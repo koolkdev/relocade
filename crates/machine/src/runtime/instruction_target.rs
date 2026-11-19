@@ -17,6 +17,8 @@ struct State {
     enabled: bool,
 }
 
+const OFFSET: u32 = offset_of!(ExecutionContext, instruction_target) as u32;
+
 impl InstructionTarget {
     pub(super) fn new(memory: &RuntimeMemory) -> Self {
         Self(Rc::new(State {
@@ -26,6 +28,11 @@ impl InstructionTarget {
                 .execution_target()
                 .instruction_budgets,
         }))
+    }
+
+    pub(super) fn reached(&self, count: u64) -> bool {
+        let target: u64 = self.0.storage.view().load(OFFSET);
+        target != 0 && count.wrapping_sub(target) as i64 >= 0
     }
 
     /// Sets an absolute wrapping retirement target, or clears it with `None`.
@@ -41,10 +48,10 @@ impl InstructionTarget {
             target.is_none() || self.0.enabled,
             "this execution target disables instruction budgets"
         );
-        self.0.storage.view().store(
-            offset_of!(ExecutionContext, instruction_target) as u32,
-            target.map_or(0, |target| target.max(1)),
-        );
+        self.0
+            .storage
+            .view()
+            .store(OFFSET, target.map_or(0, |target| target.max(1)));
     }
 }
 

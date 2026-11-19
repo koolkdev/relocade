@@ -10,10 +10,10 @@ pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     future::poll_fn,
-    rc::Rc,
-    task::{ready, Context, Poll},
+    rc::{Rc, Weak},
+    task::{ready, Context, Poll, Waker},
 };
 pub(super) use suspended::SuspendedCall;
 
@@ -23,31 +23,53 @@ pub(super) use suspended::SuspendedCall;
 /// returning the requested host exit.
 ///
 /// Requests remain pending until observed by a polled run. This handle
-/// does not wake suspended execution; session cancellation belongs to its owner.
-/// It retains only the requested result, independently of the CPU and Wasm runtime.
+/// wakes the machine when bound to a session. Session cancellation belongs
+/// to the worker owner. The handle retains no CPU or Wasm runtime.
 #[derive(Clone)]
-pub struct ExitHandle(Rc<Cell<Option<ExecutionExit>>>);
+pub struct ExitHandle(Rc<ExitRequest>);
+
+#[derive(Default)]
+struct ExitRequest {
+    result: Cell<Option<ExecutionExit>>,
+    machine: RefCell<Weak<Waker>>,
+}
 
 impl ExitHandle {
     pub(super) fn new() -> Self {
         Self(Rc::default())
     }
 
+    fn result(&self) -> Option<ExecutionExit> {
+        self.0.result.get()
+    }
+
     pub(super) fn is_requested(&self) -> bool {
-        self.0.get().is_some()
+        self.result().is_some()
+    }
+
+    pub(crate) fn bind(&self, machine: &Waker) -> Rc<Waker> {
+        let machine = Rc::new(machine.clone());
+        *self.0.machine.borrow_mut() = Rc::downgrade(&machine);
+        machine
+    }
+
+    fn set(&self, exit: ExecutionExit) {
+        self.0.result.set(Some(exit));
+        if let Some(machine) = self.0.machine.borrow().upgrade() {
+            machine.wake_by_ref();
+        }
     }
 
     /// Requests an execution exit. The current host poll completes normally.
     pub fn request(&self) {
-        self.0.set(Some(ExecutionExit::Host(HostExit::Return)));
+        self.set(ExecutionExit::Host(HostExit::Return));
     }
 
     /// Reports an exception from its installed default handler and ends execution.
     /// The saved interrupt frame retains the original fault location. Pending
     /// and suspended Rust handlers are released when the driver observes this exit.
     pub fn request_unhandled_exception(&self, exception: Exception) {
-        self.0
-            .set(Some(ExecutionExit::UnhandledException(exception)));
+        self.set(ExecutionExit::UnhandledException(exception));
     }
 }
 
@@ -92,7 +114,7 @@ impl Cpu {
             let _execution = ready!(self.poll_enter_execution(cx));
             match self.poll_host_work(cx) {
                 Some(exit) => Poll::Ready(exit),
-                None => self.poll_execution(cx),
+                None => self.poll_execution(cx, false),
             }
         })
         .await
@@ -115,22 +137,52 @@ impl Cpu {
     /// entering guest code. Pending and parked calls remain owned by the CPU.
     /// `None` means no exit; it does not imply that guest execution is runnable.
     pub(crate) fn poll_host_work(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
-        if self.exit.0.get().is_none() {
+        if !self.exit.is_requested() {
             if let Some(call) = self.pending.take() {
                 self.pending = call.poll(cx);
             }
         }
-        if let Some(exit) = self.exit.0.get() {
+        if let Some(exit) = self.exit.result() {
             return Some(self.finish_exit(exit));
         }
         self.poll_compilation(cx);
         None
     }
 
+    /// A completed guest block is one unit of work when another task is
+    /// already waiting. All compiled profiles include the interrupt checkpoint,
+    /// including those compiled without instruction-budget checks.
+    pub(crate) fn poll_scheduled_execution(
+        &mut self,
+        cx: &mut Context<'_>,
+        contended: bool,
+    ) -> Poll<ExecutionExit> {
+        if contended {
+            self.instance.bindings.interrupt.request();
+        }
+        let result = self.poll_execution(cx, true);
+        // Generated checkpoints check the interrupt before the retirement target.
+        // An internal fairness request must preserve a caller's own budget exit.
+        if contended
+            && result == Poll::Ready(ExecutionExit::Interrupted)
+            && self
+                .instruction_target
+                .reached(self.instance.bindings.cpu.instruction_count())
+        {
+            Poll::Ready(ExecutionExit::BudgetExhausted)
+        } else {
+            result
+        }
+    }
+
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
     /// exit or pending service stops execution. New and resumed host calls are
     /// polled at their entries; existing host work is polled by `poll_host_work`.
-    pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+    fn poll_execution(
+        &mut self,
+        cx: &mut Context<'_>,
+        interrupt_between_entries: bool,
+    ) -> Poll<ExecutionExit> {
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
@@ -141,24 +193,32 @@ impl Cpu {
             }
 
             let exit = self.run_guest();
-            if self.exit.0.get().is_some() {
+            if self.exit.is_requested() {
                 continue;
             }
-            self.pending = match exit {
+            match exit {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
-                    Call::start(self.instance.handler(service_id), cx)
+                    self.pending = Call::start(self.instance.handler(service_id), cx);
                 }
                 ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
-                    Ok(call) => call,
+                    Ok(call) => self.pending = call,
                     Err(exit) => break exit,
                 },
                 ExecutionExit::StepComplete
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered
-                | ExecutionExit::FarCallEntered
-                | ExecutionExit::Halted => continue,
+                | ExecutionExit::FarCallEntered => {}
+                ExecutionExit::Halted => continue,
                 exit => break exit,
-            };
+            }
+            // An I/O instruction or Rust hook can wake a sibling and return
+            // here without going through a generated block-end checkpoint.
+            if interrupt_between_entries
+                && !self.exit.is_requested()
+                && self.instance.bindings.interrupt.is_requested()
+            {
+                break ExecutionExit::Interrupted;
+            }
         };
         Poll::Ready(self.finish_exit(exit))
     }
@@ -172,7 +232,7 @@ impl Cpu {
             self.abandon_suspended_calls();
             self.halted = false;
             // Coalesce any requests made while destroying the retained work.
-            self.exit.0.set(None);
+            self.exit.0.result.set(None);
         }
         exit
     }

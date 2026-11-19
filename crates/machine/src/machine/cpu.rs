@@ -87,7 +87,11 @@ impl CpuHandle {
         host_timers: TimerHandle,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> ExecutionWorker<T> {
-        self.spawn_with_clock(move || host_timers.into(), session)
+        ExecutionWorker::spawn(
+            self,
+            async move |cpu, endpoint| Runner::with_host_timers(host_timers, cpu, endpoint).await,
+            session,
+        )
     }
 
     /// Transfers this CPU and constructs its clock on the execution worker.

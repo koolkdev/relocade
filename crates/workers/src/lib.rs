@@ -35,7 +35,7 @@ mod transfer;
 mod wake;
 mod worker;
 pub use channel::{channel, channel_endpoints, ChannelError, Receiver, ReceiverEndpoint, Sender};
-pub use executor::Executor;
+pub use executor::{Executor, HostTurns};
 pub use jobs::{JobExecutor, JobQueue};
 pub use pool::{Pool, PoolError};
 pub use thread::Thread;

@@ -61,8 +61,8 @@ async fn local_output_sync() {
                         .sync_to_host(runner.clock().deadline_after(start, Duration::from_secs(2)))
                 )
                 .await
-                .is_some(),
-                "new waits on an inactive clock complete immediately"
+                .is_none(),
+                "the live machine retains its host mapping after CPU exit"
             );
             host.advance_by(Duration::from_secs(1));
             let (mut sync, elapsed) = retained.borrow_mut().take().unwrap();
@@ -71,7 +71,7 @@ async fn local_output_sync() {
             assert_eq!(
                 host.next_deadline(),
                 Some(host.at(Duration::from_millis(1010))),
-                "the first poll after a pause retains the captured mapping"
+                "the wait retains the host deadline captured during CPU execution"
             );
             host.advance_by(Duration::from_millis(9));
             assert!(poll_once(&mut sync).await.is_none());
@@ -84,6 +84,10 @@ async fn local_output_sync() {
     assert_eq!(
         armed.next().await,
         Some(host_time.at(Duration::from_millis(20)))
+    );
+    assert_eq!(
+        armed.next().await,
+        Some(host_time.at(Duration::from_secs(2)))
     );
     assert_eq!(
         armed.next().await,

@@ -8,6 +8,7 @@ use std::{
     cell::RefCell,
     future::{pending, poll_fn},
     pin::pin,
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,

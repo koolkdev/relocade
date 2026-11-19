@@ -7,17 +7,18 @@ use crate::{
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
-use futures_util::{
-    stream::{self, LocalBoxStream},
-    StreamExt,
-};
+use futures_util::{future::LocalBoxFuture, StreamExt};
 use relocade_x86::ExecutionTarget;
+use std::{
+    future::poll_fn,
+    task::{Context, Poll},
+};
 
 /// One CPU's compilation requests and ordered results.
 /// Connects directly to the shared service. Dropping it closes the request stream.
 pub struct CompilerClient {
     requests: mpsc::UnboundedSender<Request>,
-    results: LocalBoxStream<'static, Result<CompiledCode>>,
+    results: mpsc::Receiver<Result<CompiledCode>>,
 }
 
 #[derive(Transfer)]
@@ -31,24 +32,35 @@ impl Endpoint {
     pub(crate) fn connect(
         mut self,
         executor: &Executor<ExecutionInterrupt>,
-    ) -> Result<CompilerClient> {
+    ) -> Result<(CompilerClient, LocalBoxFuture<'static, ()>)> {
         self.peer.send(executor.peer())?;
-        let results = self.results.bind().with_executor(executor);
-        // Retain the receive future between CPU polls so its pending browser
-        // delivery stays registered with the executor.
-        let results = stream::unfold(results, async |mut results| {
-            let result = match results.recv().await? {
-                Ok(Reply(result)) => result,
-                Err(error) => Err(error.into()),
-            };
-            Some((result, results))
-        })
-        .fuse()
-        .boxed_local();
-        Ok(CompilerClient {
-            requests: self.requests,
-            results,
-        })
+        let mut posted = self.results.bind().with_executor(executor);
+        // A single sender owns one slot in a zero-capacity futures channel.
+        let (mut ready, results) = mpsc::channel(0);
+        let receive = async move {
+            // Finish transport on its own task even if the foreground stops
+            // while a JS object is in flight. Waiting for client capacity
+            // requests no host turns.
+            while poll_fn(|cx| ready.poll_ready(cx)).await.is_ok() {
+                let Some(reply) = posted.recv().await else {
+                    break;
+                };
+                let result = match reply {
+                    Ok(Reply(result)) => result,
+                    Err(error) => Err(error.into()),
+                };
+                if ready.try_send(result).is_err() {
+                    break;
+                }
+            }
+        };
+        Ok((
+            CompilerClient {
+                requests: self.requests,
+                results,
+            },
+            Box::pin(receive),
+        ))
     }
 }
 
@@ -87,11 +99,15 @@ impl CompilerClient {
 
     /// Receives the next result in request order. Installation is explicit.
     /// Dropping this wait leaves that result available for the next receive.
-    /// The client retains any unfinished receive and its host-delivery registration.
+    /// The session finishes posted-object delivery independently of this wait.
     /// Returns `None` once the compiler has finished and all replies are consumed.
     /// Poll within the Runner session that supplied this connection.
     pub async fn recv(&mut self) -> Option<Result<CompiledCode>> {
-        self.results.next().await
+        poll_fn(|cx| self.poll_recv(cx)).await
+    }
+
+    pub(crate) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<CompiledCode>>> {
+        self.results.poll_next_unpin(cx)
     }
 }
 

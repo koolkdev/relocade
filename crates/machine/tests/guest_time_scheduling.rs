@@ -39,22 +39,27 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8]) {
     memory.view().write(0x100, code).unwrap();
 }
 
-async fn unpaced_slice_overshoot() {
-    for (rate, slice, elapsed) in [
+async fn unpaced_deadline_overshoot() {
+    for (rate, slice, elapsed, instruction_budgets) in [
         (
             3,
             Duration::from_secs(1),
             Duration::from_nanos(3_333_333_333),
+            true,
         ),
         (
             3_000_000_000,
             Duration::from_nanos(1),
             Duration::from_nanos(3),
+            false,
         ),
     ] {
         let setup = configuration();
+        let compiler =
+            Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(instruction_budgets);
+        let config = relocade_machine::CpuConfig::new(compiler.target(), *setup.cpu.cpu()).unwrap();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-        let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+        let prepared = machine.create_cpu(config, None).unwrap();
         let worker = prepared.spawn_with_guest_time(
             move || {
                 relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
@@ -66,9 +71,7 @@ async fn unpaced_slice_overshoot() {
                 let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
                 prepare_cpu(&mut runner, &code).await;
                 let cpu = runner.cpu();
-                let block = Compiler::new(ExecutionProfile::Real16)
-                    .compile_block(0x100, &code, 2)
-                    .unwrap();
+                let block = compiler.compile_block(0x100, &code, 2).unwrap();
                 cpu.install_module(
                     &block.bytes,
                     &[DispatchEntry {
@@ -80,23 +83,20 @@ async fn unpaced_slice_overshoot() {
                 .unwrap();
                 let state = cpu.cpu_state();
                 let stop = cpu.exit_handle();
-                let mut samples = Vec::new();
-                let observe = poll_fn(|_| {
-                    let count = state.instruction_count();
-                    if count != 0 && samples.last() != Some(&count) {
-                        samples.push(count);
+                let observe = async {
+                    let mut samples = Vec::new();
+                    for edge in 1..=3 {
+                        clock
+                            .sleep_until(clock.deadline_after(start, slice * edge))
+                            .await;
+                        samples.push(state.instruction_count());
                     }
-                    if samples.len() == 3 {
-                        stop.request();
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                });
-                let ((), exit) = join(observe, runner.run_cpu()).await;
+                    stop.request();
+                    samples
+                };
+                let (samples, exit) = join(observe, runner.run_cpu()).await;
                 assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
-                // Two-instruction blocks cross the targets 3, 6 and 9. Overshoot
-                // must shorten the next allowance instead of shifting the timebase.
+                // Two-instruction blocks cross absolute deadlines at ticks 3, 6 and 9.
                 assert_eq!(samples, [4, 6, 10]);
                 assert_eq!(
                     runner.clock().duration_between(start, runner.clock().now()),
@@ -235,7 +235,6 @@ async fn retained_service() {
                 clock: runner.clock().clone(),
                 wakes: 0,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let started = Rc::new(Cell::new(0));
             let clock = runner.clock().clone();
@@ -254,6 +253,7 @@ async fn retained_service() {
             })])
             .await
             .unwrap();
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -293,6 +293,10 @@ async fn unpaced_idle_service() {
             let cpu = runner.cpu();
             let exit = cpu.exit_handle();
             cpu.install([Hook::host(0x100, async move || {
+                #[cfg(target_arch = "wasm32")]
+                let browser_turn = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
+                    &wasm_bindgen::JsValue::UNDEFINED,
+                ));
                 let mut observed = Vec::new();
                 let mut sleep = pin!(clock.sleep_until(deadline));
                 poll_fn(|cx| {
@@ -306,6 +310,11 @@ async fn unpaced_idle_service() {
                 // A pending service resumes at its guest deadline without
                 // artificial idle-time steps at the intervening slice boundaries.
                 assert_eq!(observed, [start, deadline]);
+                #[cfg(target_arch = "wasm32")]
+                assert!(
+                    futures_util::FutureExt::now_or_never(browser_turn).is_none(),
+                    "an unpaced guest deadline can complete in the same browser task"
+                );
                 exit.request();
             })])
             .await
@@ -332,15 +341,78 @@ async fn unpaced_idle_time_skips_slice_boundaries() {
     unpaced_idle_service().await;
 }
 
+async fn parked_session() {
+    use futures_channel::oneshot;
+    use futures_lite::future::poll_once;
+    use futures_util::future::{select, Either};
+    use relocade_machine::{worker::wake_connection, GuestTimeConfig};
+
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let (_host, endpoint) = wake_connection(prepared.interrupt_handle());
+    let runner = Runner::with_guest_time(
+        GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
+        prepared,
+        endpoint,
+    )
+    .await
+    .unwrap();
+    runner.memory().view().write(0x100, &[0xf4]).unwrap(); // HLT.
+    let (ready, running) = oneshot::channel();
+    let mut session = Box::pin(runner.run(
+        std::future::pending::<()>(),
+        async move |mut runner| {
+            let clock = runner.clock().clone();
+            let deadline = clock.deadline_after(clock.now(), Duration::from_millis(7));
+            clock.sleep_until(deadline).await;
+            assert_eq!(clock.now(), deadline);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
+            assert_eq!(runner.cpu().cpu_state().eip(), 0x100);
+            assert!(ready.send(runner).is_ok());
+            std::future::pending::<()>().await;
+        },
+    ));
+
+    let mut runner = match select(running, session.as_mut()).await {
+        Either::Left((Ok(runner), _)) => runner,
+        _ => panic!("the session must survive its first guest deadline"),
+    };
+    {
+        let mut foreground = pin!(runner.run_cpu());
+        assert!(poll_once(foreground.as_mut()).await.is_none());
+        assert!(poll_once(session.as_mut()).await.is_none());
+        drop(session);
+        assert_eq!(
+            poll_once(foreground).await,
+            Some(ExecutionExit::Interrupted)
+        );
+    }
+    assert_eq!(runner.cpu().cpu_state().instruction_count(), 1);
+    machine.shutdown().await.unwrap();
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn unpaced_slices_carry_checkpoint_overshoot_forward() {
-    pollster::block_on(unpaced_slice_overshoot());
+fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
+    pollster::block_on(parked_session());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn parked_session_drives_guest_time_and_wakes_its_cpu_waiter_at_shutdown() {
+    parked_session().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn unpaced_deadlines_preserve_their_grid_across_checkpoint_overshoot() {
+    pollster::block_on(unpaced_deadline_overshoot());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn unpaced_slices_carry_checkpoint_overshoot_forward() {
-    unpaced_slice_overshoot().await;
+async fn unpaced_deadlines_preserve_their_grid_across_checkpoint_overshoot() {
+    unpaced_deadline_overshoot().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -435,3 +507,5 @@ mod lag;
 mod output;
 #[path = "guest_time_scheduling/pacing.rs"]
 mod pacing;
+#[path = "guest_time_scheduling/queue.rs"]
+mod queue;

@@ -23,7 +23,11 @@ impl Cpu {
         if let Some(returned) = call.returned {
             let _ = returned.send(());
         }
-        Ok(call.call.poll(cx))
+        let pending = call.call.poll(cx);
+        if pending.is_none() {
+            self.resume_compilation(cx);
+        }
+        Ok(pending)
     }
 
     /// Drops parked calls innermost first after guest code redirects execution

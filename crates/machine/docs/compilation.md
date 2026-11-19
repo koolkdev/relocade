@@ -92,33 +92,40 @@ After all Machines finish, await `CompilerService::shutdown`. It closes admissio
 drains the pool and joins its workers. Dropping the service
 early can terminate browser workers before Rust destructors run.
 
-Compiler clients bind receipt to the Runner's executor during setup. Poll their
-receive futures inside that session, independently of `runner.run_cpu()`.
-Guest and device work continue while compilation is in progress. Once the
-compiler posts a reply, the channel's Rust state confirms that its host payload
-is on the way. If that payload is not yet available, the receiver registers a
-pending delivery. The executor shares one 1 ms interval on the independent host
-clock across pending deliveries before requesting a zero-delay event-loop turn.
+## Compiler replies
 
-The executor suspends the whole activity set for that turn, including busy
-devices, then resumes it even when delivery is still pending. Each retry gives
-work another 1 ms interval. Empty channels, compilation that has not posted a
-reply, and already available payloads request no timer. Completion or cancellation
-clears the receive's registration; the last one cancels the shared timer and yield.
-Actual intervals can overshoot
-because guest checkpoints and host callbacks do not have fixed latency bounds.
+A session activity receives posted compiler replies. It can receive a module
+while the CPU is stopped or a manual reader is between calls. A local queue
+holds one reply for the client. Once that slot is full, the activity waits for
+the client to consume it before receiving the next module.
 
-`Runner::new` uses its supplied independently progressing clock. Guest-time
-execution uses the explicitly configured host clock; without one, it requests
-the host turn immediately instead of waiting on guest time. The generic worker
-API exposes this through `Receiver::with_executor` and `Executor::with_host_timer`.
-Compiler code contains no platform-specific delivery flags.
-The internal host policy reports application readiness: ready during the grace
-interval, pending during the yield, then ready again even if delivery is late.
-The executor polls stop before readiness and uses the same parking path for idle
-work and host yields. The Runner's execution schedule continues to own CPU budgets,
-guest deadlines and guest-time pacing.
+Sending a reply posts the module first and then publishes its Rust state, which
+wakes the activity. On a busy CPU this wake also requests a checkpoint.
+In the browser, the Rust notification can arrive before the receiving worker's
+`MessagePort` callback has delivered the module.
 
-Receiving code does not install it or stop the guest automatically. Drop or finish
-the current run waiter at an allowed CPU boundary, install explicitly, and resume
-execution. Local module instantiation is synchronous on both current backends.
+The receiver polls for the payload immediately. A pending poll registers demand
+for a browser turn. The execution worker also registers demand while local
+WebAssembly compilation is pending, for example when installing BIOS hooks
+after the PIT and VGA have started. These operations share the same host timer.
+An empty reply channel or a background compilation still on the compiler worker
+creates no demand.
+
+When demand starts, runnable tasks get 1 ms on an independent host clock.
+If demand remains at expiry, the execution worker gives its browser event loop
+a turn, then resumes runnable work. This repeats while a callback is pending.
+An idle worker can park immediately. Completion or cancellation of the last
+registered operation disarms the timer. `CpuHandle::spawn` and `run_until`
+reuse their host timer worker for these deadlines. All other browser sessions,
+including paced guest sessions and sessions with a custom device clock, start
+a separate host timer worker before dispatch. This lets delivery proceed even
+when the device or pacing clock is stopped. The worker sleeps until a deadline
+is requested.
+
+For automatic Real16 compilation, the CPU uses the reply at a stopped boundary
+when no active or suspended Rust service retains dispatch entries. It installs
+compiled code for missing entries and provides interpreter fallbacks for
+remaining roots. An application that takes ownership through
+`Runner::take_compiler` can instead await `CompilerClient::recv` as a session
+activity, stop its CPU run at an allowed boundary, and install the returned code
+explicitly. Dropping that receive wait preserves the result for another wait.

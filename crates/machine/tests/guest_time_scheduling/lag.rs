@@ -92,7 +92,6 @@ async fn device_deadlines_during_recovery() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let arrival = Rc::new(RefCell::new(Some(arrival)));
@@ -124,6 +123,7 @@ async fn device_deadlines_during_recovery() {
             })])
             .await
             .unwrap();
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
