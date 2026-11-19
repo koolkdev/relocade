@@ -70,14 +70,17 @@ async fn timed_updates() {
     assert!(display.encode_image(&queue, &mut encoder).is_none());
     queue.submit([encoder.finish()]);
 
+    // The next guest retrace stays armed during the first host wait.
+    assert_eq!(guest.next_deadline(), Some(guest.at(common::boundary(2))));
     set_cell(&vga.io, 1, 0xdb, 1);
     guest.advance_to(guest.at(common::boundary(2)));
-    vga.io.read_port(0x3da, 1);
+    common::service_video(video.as_mut());
+    assert_eq!(guest.next_deadline(), Some(guest.at(common::boundary(3))));
     // A different memory page distinguishes retaining both updates from only
     // uploading the last publication's dirty pages.
     set_cell(&vga.io, 1999, 0xdb, 2);
     guest.advance_to(guest.at(common::boundary(3)));
-    vga.io.read_port(0x3da, 1);
+    common::service_video(video.as_mut());
     // Pending timestamps use the mapping when the task processes them. An
     // already-started wait keeps its original deadline across mapping changes.
     offset.set(Duration::from_secs(1));
@@ -131,6 +134,7 @@ async fn timed_updates() {
         Some(host.at(common::boundary(4) + offset.get()))
     );
     drop(video);
+    assert_eq!(guest.next_deadline(), None);
     assert_eq!(host.next_deadline(), None);
     drop(vga);
 

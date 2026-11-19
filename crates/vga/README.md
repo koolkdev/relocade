@@ -625,7 +625,8 @@ and also captures sequencer/CRTC/graphics/attribute settings, font memory,
 the effective start address, and both blink phases.
 When captured memory is written or display settings change, the device stages
 the snapshot and its retrace timestamp.
-Its async task synchronizes with host time before sending the snapshot.
+The card arms its next guest retrace immediately. A separate publication future
+on the same worker waits for the mapped host time before sending the snapshot.
 Refreshes without either produce no new snapshot. Rewriting identical memory
 still produces a snapshot; capture does not compare VRAM contents.
 Late service coalesces missed boundaries. The scheduled VGA task and due status
