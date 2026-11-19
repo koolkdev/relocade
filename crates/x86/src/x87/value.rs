@@ -1,6 +1,7 @@
 //! Values retain exact representations and established numerical classification.
 
 mod classification;
+mod integer_origin;
 mod precision53;
 
 #[cfg(test)]
@@ -13,6 +14,7 @@ use crate::floating::BinaryFormat;
 use super::ConversionResult;
 pub(crate) use classification::Classification;
 pub(super) use classification::KnownClass;
+pub(super) use integer_origin::IntegerOrigin;
 pub(super) use precision53::Precision53;
 
 #[derive(Clone, Copy)]
@@ -51,6 +53,7 @@ impl ExtendedBits {
 #[derive(Clone)]
 pub(crate) struct ExtendedValue {
     representation: Representation,
+    pub(super) integer_origin: Option<IntegerOrigin>,
     // An exact class established by construction or a successful guard.
     // Unknown encodings retain their bits rather than acquiring a guessed class.
     class: Option<KnownClass>,
@@ -99,6 +102,7 @@ impl BinaryValue {
 impl ExtendedValue {
     pub(crate) fn from_bits(bits: ExtendedBits) -> Self {
         Self {
+            integer_origin: None,
             representation: Representation::Extended(bits),
             conditional_binary64: None,
             class: None,
@@ -107,6 +111,7 @@ impl ExtendedValue {
 
     pub(super) fn from_binary(format: BinaryFormat, bits: Val<I64>) -> Self {
         Self {
+            integer_origin: None,
             representation: Representation::Binary {
                 format,
                 bits,
@@ -125,6 +130,7 @@ impl ExtendedValue {
         class: KnownClass,
     ) -> Self {
         Self {
+            integer_origin: None,
             representation: Representation::Binary {
                 format,
                 bits,
@@ -137,6 +143,7 @@ impl ExtendedValue {
 
     pub(super) fn from_precision53(value: Precision53) -> Self {
         Self {
+            integer_origin: None,
             representation: Representation::Precision53(value),
             conditional_binary64: None,
             class: None,
@@ -241,6 +248,9 @@ impl ExtendedValue {
                     },
                 }
             }),
+            // Negating i64::MIN exceeds the coefficient range. The bits carry
+            // every result, including both signs of zero.
+            integer_origin: None,
             class: self.class.clone(),
         }
     }
@@ -255,6 +265,7 @@ impl ExtendedValue {
                 bits,
                 native_class,
             } => Self {
+                integer_origin: None,
                 representation: Representation::Binary {
                     format: *format,
                     bits: invalid.select(format.indefinite_bits(), bits),
@@ -277,6 +288,9 @@ impl ExtendedValue {
                     valid: native.valid.and(invalid.eq(false)),
                     value: native.value.clone(),
                 });
+        // An indefinite replacement changes the class. The coefficient still
+        // describes every normal or zero outcome.
+        value.integer_origin = self.integer_origin.clone();
         value.class = self
             .class
             .as_ref()
@@ -330,6 +344,11 @@ impl ExtendedValue {
                     valid: condition.select(&left.valid, &right.valid),
                     value: condition.select(&left.value, &right.value),
                 }),
+            integer_origin: self
+                .integer_origin
+                .as_ref()
+                .zip(otherwise.integer_origin.as_ref())
+                .map(|(left, right)| left.select(condition, right)),
             class: self
                 .class
                 .as_ref()

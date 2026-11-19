@@ -4,7 +4,7 @@ use crate::floating::{RoundingInput, RoundingMode};
 use relocade_compiler::{AtLeast, MemoryInt, Val, F64, I1, I16, I32, I64};
 
 use super::{
-    value::{KnownClass, Precision53},
+    value::{IntegerOrigin, KnownClass, Precision53},
     ConversionResult, ExtendedBits, ExtendedValue,
 };
 
@@ -23,10 +23,11 @@ impl ExtendedValue {
         // Wrapping negation preserves the unsigned magnitude of i64::MIN.
         let magnitude = negative.select(Val::<I64>::from(0_u64).sub(&integer), &integer);
         let bits = ExtendedBits::from_integer_magnitude(&magnitude, &negative);
-        let value = match native {
+        let mut value = match native {
             Some(native) => Self::from_precision53(Precision53::from_binary64(&bits, native)),
             None => Self::from_bits(bits),
         };
+        value.integer_origin = Some(IntegerOrigin::signed_input(integer.clone(), T::BYTES * 8));
         value.assume_class(KnownClass::zero().select(&integer.eq(0_u64), &KnownClass::normal()))
     }
 
@@ -35,6 +36,19 @@ impl ExtendedValue {
         rounding: &RoundingMode,
     ) -> ConversionResult {
         let sign_bit = 1_u64 << (T::BYTES * 8 - 1);
+        if let Some(integer) = &self.integer_origin {
+            if integer.fits_signed(T::BYTES * 8) {
+                let valid = self.classification().normal_or_zero();
+                return ConversionResult {
+                    bits: valid.select(&integer.coefficient, sign_bit),
+                    invalid: valid.eq(false),
+                    inexact: false.into(),
+                    incremented: false.into(),
+                    overflow: false.into(),
+                    tiny: false.into(),
+                };
+            }
+        }
         if T::BYTES <= 4 {
             if let Some(value) = self.binary_value() {
                 return native_integer_store(&value.value, rounding, sign_bit);
