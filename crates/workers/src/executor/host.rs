@@ -14,6 +14,7 @@ use std::{
 pub(crate) struct HostSchedule {
     pub(crate) pending: Rc<PendingDeliveries>,
     timer: Option<Box<dyn Fn() -> LocalBoxFuture<'static, ()>>>,
+    turn_requested: Cell<bool>,
 }
 
 impl HostSchedule {
@@ -24,6 +25,7 @@ impl HostSchedule {
                 wake,
             }),
             timer: None,
+            turn_requested: Cell::new(false),
         }
     }
 
@@ -35,8 +37,13 @@ impl HostSchedule {
         self.timer = Some(Box::new(move || Box::pin(timer(interval))));
     }
 
+    pub(super) fn request_turn(&self) {
+        self.turn_requested.set(true);
+    }
+
     /// Keep the active timer local to the run so stopping drops it immediately.
     pub(super) fn run(&self) -> HostRun<'_> {
+        self.turn_requested.set(false);
         HostRun {
             schedule: self,
             timer: None,
@@ -55,7 +62,8 @@ impl HostRun<'_> {
     /// Application work stays runnable during the grace interval and waits only
     /// for the host yield. Stop and parking remain with the executor.
     pub(super) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        if !self.schedule.pending.has_pending() {
+        let delivery = self.schedule.pending.has_pending();
+        if !delivery && !self.schedule.turn_requested.get() {
             self.timer = None;
             self.turn = None;
             return Poll::Ready(());
@@ -64,16 +72,17 @@ impl HostRun<'_> {
         if let Some(turn) = &mut self.turn {
             ready!(Pin::new(turn).poll(cx));
             self.turn = None;
+            self.schedule.turn_requested.set(false);
             // Arm the next interval before synchronous work resumes. Without
             // a grace interval, let work run once and request its next checkpoint.
-            if self.interval_elapsed(cx) {
+            if delivery && self.interval_elapsed(cx) {
                 self.turn = Some(Delay::new(Duration::ZERO));
                 cx.waker().wake_by_ref();
             }
             return Poll::Ready(());
         }
 
-        if !self.interval_elapsed(cx) {
+        if !self.schedule.turn_requested.get() && !self.interval_elapsed(cx) {
             return Poll::Ready(());
         }
         self.turn = Some(Delay::new(Duration::ZERO));

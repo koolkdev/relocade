@@ -72,7 +72,7 @@ impl GuestTimeDriver {
     /// service is pending. The embedding must be this CPU's only target writer.
     /// Panics if the driver already has a live binding.
     #[must_use = "retain the binding while driving this CPU"]
-    pub fn bind<'a>(&'a self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<'a> {
+    pub fn bind(&self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<> {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
         let now = state.now();
@@ -88,7 +88,7 @@ impl GuestTimeDriver {
             changed: changed.clone(),
         });
         state.refresh_target();
-        BindingGuard(self)
+        BindingGuard(self.0.clone())
     }
 
     /// Reads guest time, completes due sleeps and arms the CPU
@@ -157,11 +157,11 @@ impl GuestTimeDriver {
     }
 }
 
-struct BindingGuard<'a>(&'a GuestTimeDriver);
+struct BindingGuard(Rc<RefCell<State>>);
 
-impl Drop for BindingGuard<'_> {
+impl Drop for BindingGuard {
     fn drop(&mut self) {
-        let mut state = self.0 .0.borrow_mut();
+        let mut state = self.0.borrow_mut();
         let now = state.now();
         if let Some(host) = &mut state.host {
             host.pause();

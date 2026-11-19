@@ -2,7 +2,6 @@
 
 use crate::{Clock, Schedule, Sleep, Timestamp};
 use std::{
-    cell::{Cell, RefCell},
     future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
@@ -11,9 +10,9 @@ use std::{
 
 pub(super) struct ExecutionSlice {
     duration: Duration,
-    end: Cell<Schedule>,
-    paced: bool,
-    wait: RefCell<Option<Sleep>>,
+    end: Schedule,
+    pub(super) paced: bool,
+    wait: Option<Sleep>,
 }
 
 impl ExecutionSlice {
@@ -22,39 +21,25 @@ impl ExecutionSlice {
         end.advance(duration);
         Self {
             duration,
-            end: Cell::new(end),
+            end,
             paced,
-            wait: RefCell::new(None),
+            wait: None,
         }
     }
 
     pub(super) fn deadline(&self) -> Timestamp {
-        self.end.get().deadline()
+        self.end.deadline()
     }
 
-    /// Unpaced idle time can skip slices; a slice alone never advances time.
-    pub(super) fn idle_deadline(&self, device_deadline: Timestamp) -> Timestamp {
-        if self.paced {
-            device_deadline.min(self.deadline())
-        } else {
-            device_deadline
-        }
-    }
-
-    pub(super) fn cancel_wait(&self) {
-        self.wait.borrow_mut().take();
-    }
-
-    pub(super) fn poll(&self, clock: &Clock, now: Timestamp, cx: &mut Context<'_>) -> Poll<()> {
-        let mut end = self.end.get();
+    pub(super) fn poll(&mut self, clock: &Clock, now: Timestamp, cx: &mut Context<'_>) -> Poll<()> {
+        let end = &mut self.end;
         if now < end.deadline() {
             return Poll::Ready(());
         }
         if self.paced {
-            let mut wait = self.wait.borrow_mut();
-            let sleep = wait.get_or_insert_with(|| clock.sync_to_host(now));
+            let sleep = self.wait.get_or_insert_with(|| clock.sync_to_host(now));
             ready!(Pin::new(sleep).poll(cx));
-            wait.take();
+            self.wait = None;
         }
         // Advance from the retained boundary to preserve the slice grid even
         // when a CPU checkpoint overshoots by a fractional nanosecond.
@@ -65,7 +50,6 @@ impl ExecutionSlice {
             (whole % 1_000_000_000) as u32,
         ));
         end.advance(self.duration);
-        self.end.set(end);
         Poll::Ready(())
     }
 }

@@ -203,18 +203,12 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-`run_cpu` cooperates with the main/device task set when a wake requests an
-execution interrupt. Host-timed runners leave the instruction target unarmed.
-The same runner loop handles guest time. Runner delegates each CPU turn to
-`ExecutionSchedule::poll_cpu` and gives ready activities a turn afterward. The
-scheduler polls host work before waiting for pacing, then prepares instruction
-targets and drives guest execution. Pending services, suspended calls, guest entry
-and terminal-exit cleanup remain owned by the CPU. The schedule also owns clock
-selection, execution slices and idle decisions; the `GuestTimeDriver` owns
-registered sleeps and instruction-target updates. Time is published before
-polling activities, including after a terminal CPU exit.
-A terminal result returns immediately when no execution notification is pending;
-otherwise ready activities receive a turn before the result returns.
+The worker executor polls the session, delivers wakeups and parks when idle.
+The runner polls ready devices and the application before choosing the next
+machine turn. The CPU handles pending services, suspended calls, guest entry
+and terminal exits. The guest clock owns registered deadlines and the CPU
+instruction target. A managed session can reach a deadline even when the
+application is waiting without an active CPU request.
 
 Guest-time workers receive a configuration factory, following the same owner-local
 construction rule as `spawn_with_clock`. `GuestTimeConfig` selects the instruction
@@ -222,10 +216,8 @@ rate, optional slice duration and optional host pacing. `with_slice_duration`
 sets the guest-time boundary shared by cooperative yields and pacing.
 `with_host_clock(clock)` defaults to 4 ms slices if no duration was supplied.
 Device deadlines subdivide each slice. The embedding retains and drives the host
-timer service. Scheduling notifications preserve the
-allowance, and ready host services remain pollable during a pacing wait. Run
-cancellation drops that wait while preserving guest progress and remaining credit;
-time between runs is excluded from the host/guest correspondence.
+timer service. Ready host services remain pollable during a pacing wait.
+Cancelling CPU execution preserves the session's pacing and device deadlines.
 
 Lower-level embeddings capture `cpu.instruction_target()` before execution and use
 `target.set(Some(absolute_count))` or `target.set(None)`. Updates take effect at

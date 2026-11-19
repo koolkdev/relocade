@@ -14,7 +14,6 @@ async fn pit_interrupts() {
     let worker = prepared.spawn_with_guest_time(
         || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
         async |runner| {
-            let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
             let cpu = pc.cpu();
             let memory = cpu.memory();
@@ -60,6 +59,15 @@ async fn pit_interrupts() {
             cpu.install([Hook::host(0x101d, async move || stop.request())])
                 .await
                 .unwrap();
+            // Start the measurement with OUT0 high and any setup-time IRQ0
+            // acknowledged. The program loads the divisor for all eight samples.
+            let io = cpu.io();
+            io.write_port(relocade_pit::CONTROL_PORT, 1, 0x36);
+            io.write_port(relocade_pic::COMMAND_PORT, 1, 0x0c); // PIC poll command.
+            if io.read_port(relocade_pic::COMMAND_PORT, 1) == 0x80 {
+                relocade_pic::end_of_interrupt(&io, relocade_pic::TIMER_IRQ);
+            }
+            let start = pc.clock().now();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(memory.view().read_u16(0x702).unwrap(), 8);
             let samples = (0..8)
@@ -118,7 +126,7 @@ async fn keyboard_at_guest_receipt_time() {
     let mut session = pin!(
         runner.run(std::future::pending::<()>(), async move |runner| {
             let mut pc = Pc::new(runner).await.unwrap();
-            ready.try_send(pc.keyboard_input()).unwrap();
+            let keyboard = pc.keyboard_input();
             let cpu = pc.cpu();
             let memory = cpu.memory();
             // Bumpy's PIT divisor, IRQ0/IRQ1 enabled, then a blocking BIOS key read.
@@ -134,22 +142,30 @@ async fn keyboard_at_guest_receipt_time() {
             cpu.install([Hook::host(0x1016, async move || exit.request())])
                 .await
                 .unwrap();
+            ready.try_send((keyboard, state.clone())).unwrap();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             (state.ax(), pc.clock().now())
         })
     );
-    // Poll the real session until its first idle host wait is registered.
+    let (keyboard, state) = poll_fn(|cx| {
+        assert!(session.as_mut().poll(cx).is_pending());
+        input.try_recv().map_or(Poll::Pending, Poll::Ready)
+    })
+    .await;
+    // A device can arm pacing during PC setup. Reach the guest's own idle
+    // boundary before delivering the key.
     poll_fn(|cx| {
         assert!(session.as_mut().poll(cx).is_pending());
-        if host.next_deadline().is_some() {
-            Poll::Ready(())
-        } else {
-            Poll::Pending
+        if let Some(at) = host.next_deadline() {
+            if state.instruction_count() != 0 {
+                return Poll::Ready(());
+            }
+            host.advance_to(at);
         }
+        Poll::Pending
     })
     .await;
     host.advance_by(Duration::from_millis(7));
-    let keyboard = input.try_recv().unwrap();
     let boundary = clock.now();
     keyboard
         .unbounded_send(KeyboardEvent::Key {

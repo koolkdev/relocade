@@ -112,6 +112,21 @@ impl<R: WakeTarget> Executor<R> {
         }
     }
 
+    /// Requests another poll of this worker's root at a stopped boundary.
+    /// Local work can become runnable without interrupting the next CPU entry.
+    pub fn request_poll(&self) {
+        self.wake.schedule();
+    }
+
+    /// Polls the root again after giving the browser worker's event loop a turn.
+    /// Native workers can poll immediately.
+    pub fn request_host_turn(&self) {
+        if cfg!(target_arch = "wasm32") {
+            self.host.request_turn();
+        }
+        self.request_poll();
+    }
+
     /// Yields busy execution without requesting another interrupt. The current
     /// task's waker still runs, including any enclosing combinator's bookkeeping.
     pub async fn yield_now(&self) {
@@ -150,6 +165,13 @@ struct ExecutorWake {
     notified: AtomicBool,
 }
 
+impl ExecutorWake {
+    fn schedule(&self) {
+        self.runnable.store(true, Ordering::SeqCst);
+        self.parked.wake();
+    }
+}
+
 impl Wake for ExecutorWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
@@ -162,8 +184,7 @@ impl Wake for ExecutorWake {
             self.notified.store(true, Ordering::SeqCst);
             self.interrupt.wake_by_ref();
         }
-        self.runnable.store(true, Ordering::SeqCst);
-        self.parked.wake();
+        self.schedule();
     }
 }
 
