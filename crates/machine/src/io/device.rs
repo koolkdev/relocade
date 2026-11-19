@@ -17,6 +17,14 @@ use std::{
 /// Use the supplied [`IoContext`] to forward I/O;
 /// host convenience methods acquire a separate stopped-runtime borrow.
 pub trait Device {
+    /// Registers hardware transitions on connection. Synchronous register writes
+    /// may reprogram these deadlines during execution.
+    fn register_deadlines(_device: &Rc<RefCell<Self>>, _runner: &crate::Runner)
+    where
+        Self: Sized,
+    {
+    }
+
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
     /// Connection waits for the first poll, which installs this activity's wake
     /// path. Device state must already be initialized before connecting the device.

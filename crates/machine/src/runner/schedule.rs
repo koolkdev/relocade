@@ -39,6 +39,10 @@ impl ExecutionSchedule {
         }
     }
 
+    pub(super) fn guest_driver(&self) -> Option<&GuestTimeDriver> {
+        self.guest.as_ref().map(|guest| &guest.driver)
+    }
+
     pub(super) fn clock(&self) -> &Clock {
         &self.clock
     }

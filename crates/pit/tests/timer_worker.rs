@@ -87,8 +87,7 @@ async fn timer_interrupts() -> Result<(), String> {
     let worker = prepared.spawn_with_guest_time(guest_time, async move |mut runner| {
         let pic = Pic::initialize(&runner).await;
         let host_clock = clock.clock();
-        let guest_clock = runner.clock().as_guest().unwrap();
-        let _pit = Pit::initialize(&runner, guest_clock, &pic).await;
+        let _pit = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
             clock: host_clock,
             ready: Some(ready),
