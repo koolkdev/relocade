@@ -1,4 +1,4 @@
-//! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
+//! PC timer registers and IRQ0 delivery. BIOS owns the handler and clock data.
 
 use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
 use event_listener::Event;
@@ -8,7 +8,12 @@ use relocade_machine::{
     Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::{poll_fn, Future},
+    pin::pin,
+    rc::Rc,
+};
 
 /// Channel-2 state at an observed native timestamp on the PIT's clock.
 #[derive(Clone, Debug)]
@@ -34,7 +39,7 @@ pub struct Pit {
 }
 
 impl Pit {
-    /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
+    /// Creates the timer on the runner's clock, connects IRQ0 and starts its task.
     pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
         let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
         runner
@@ -238,15 +243,25 @@ impl Device for Pit {
                 let device = device.borrow();
                 (device.next_deadline(), device.changed.listen())
             };
-            if let Some(deadline) = deadline {
-                or(clock.sleep_until(deadline), changed).await;
-            } else {
-                changed.await;
-            }
+            let mut wait = pin!(async {
+                match deadline {
+                    Some(at) => or(clock.sleep_until(at), changed).await,
+                    None => changed.await,
+                }
+            });
+            let mut suspended = false;
+            poll_fn(|cx| {
+                let result = wait.as_mut().poll(cx);
+                suspended |= result.is_pending();
+                result
+            })
+            .await;
             device.borrow_mut().sync_to_clock();
-            // Divisor 2 can leave every deadline overdue. Give the CPU a turn
-            // even then; elapsed edges still coalesce at the next synchronization.
-            yield_now().await;
+            // An independently advancing clock can overtake every divisor-2 edge.
+            // Give the worker a turn if this wait completed on its first poll.
+            if !suspended {
+                yield_now().await;
+            }
         }
     }
 }
