@@ -50,6 +50,7 @@ mod machine;
 mod memory;
 mod runner;
 pub mod runtime;
+mod scheduler;
 
 #[cfg(test)]
 extern crate self as relocade_machine;
@@ -71,8 +72,9 @@ pub use io::{
 pub use machine::{CpuHandle, Machine};
 pub use memory::{CodeSource, FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
-pub use runner::{yield_now, Alarm, ExecutionWorker, GuestTimeConfig, Runner};
+pub use runner::{yield_now, ExecutionWorker, Runner};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, InstructionTarget, Result,
 };
+pub use scheduler::GuestTimeConfig;

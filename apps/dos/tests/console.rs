@@ -12,7 +12,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let console = prepared.run_until(std::future::pending::<()>(), async move |runner| {
+    let console = async move |runner: relocade_machine::Runner| {
         let clock = runner.clock().clone();
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
@@ -121,7 +121,12 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
             dos.process().is_none(),
             "echo executes in Rust without launching guest code"
         );
-    });
-    assert_eq!(pollster::block_on(console).unwrap(), Some(()));
+    };
+    let execution = prepared.run_until_with_guest_time(
+        |host| relocade_dos::configuration::guest_time(host, None),
+        std::future::pending::<()>(),
+        console,
+    );
+    assert_eq!(pollster::block_on(execution).unwrap(), Some(()));
     pollster::block_on(machine.shutdown()).unwrap();
 }

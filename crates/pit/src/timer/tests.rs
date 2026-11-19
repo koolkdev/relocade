@@ -172,16 +172,22 @@ fn native_observations_keep_counter_phase_and_deadlines_on_the_same_grid() {
     assert!(initial.as_mut().poll(&mut cx).is_pending());
     assert!(driver.advance_to_next_deadline()); // One third of a nanosecond.
     let pic = Pic::new(8, 0x70);
-    let mut timer = Pit::with_clock(clock.clone(), &pic);
+    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clone(), &pic)));
+    let mut activity = pin!(Pit::run(timer.clone()));
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
     // The default mode-3 counter first falls after 32,768 PIT input clocks.
     let edge = Timestamp::from_ticks(1 + (32_768u64 * 3_000_000_000).div_ceil(crate::INPUT_HZ));
     for reading in 2..=4 {
-        timer.advance_to(Timestamp::from_ticks(reading));
-        let snapshot = timer.channel2_snapshot();
+        let mut observation = pin!(clock.sleep_until(Timestamp::from_ticks(reading)));
+        assert!(observation.as_mut().poll(&mut cx).is_pending());
+        assert!(driver.advance_to_next_deadline());
+        timer.borrow_mut().sync_to_clock();
+        let snapshot = timer.borrow().channel2_snapshot();
         assert_eq!(snapshot.at, Timestamp::from_ticks(reading));
         assert_eq!(snapshot.fraction, (reading - 1) * crate::INPUT_HZ);
     }
-    assert_eq!(timer.next_deadline(), Some(edge));
-    timer.advance_to(edge);
-    assert!(!timer.channel0.output());
+    assert_eq!(driver.next_deadline(), Some(edge));
+    assert!(driver.advance_to_next_deadline());
+    timer.borrow_mut().sync_to_clock();
+    assert!(!timer.borrow().channel0.output());
 }

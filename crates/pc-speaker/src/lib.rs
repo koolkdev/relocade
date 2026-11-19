@@ -25,11 +25,11 @@ pub struct Speaker {
 
 impl Speaker {
     /// Creates the speaker and registers its control port.
-    pub async fn initialize(runner: &Runner, pit: Rc<RefCell<Pit>>) -> Rc<RefCell<Self>> {
+    pub fn initialize(runner: &Runner, pit: Rc<RefCell<Pit>>) -> Rc<RefCell<Self>> {
         let speaker = Rc::new(RefCell::new(Self::new(pit)));
         runner
-            .connect(speaker.clone(), |io| Self::configure_io(io, &speaker))
-            .await;
+            .io()
+            .connect(speaker.clone(), |io| Self::configure_io(io, &speaker));
         speaker
     }
 

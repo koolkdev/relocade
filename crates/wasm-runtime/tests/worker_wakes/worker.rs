@@ -1,13 +1,27 @@
 use super::*;
-use futures_util::{future::join, stream::FuturesUnordered, StreamExt};
-use relocade_wasm_runtime::worker::Executor;
+use futures_util::{
+    future::{join, select, Either},
+    stream::FuturesUnordered,
+    StreamExt,
+};
+use relocade_wasm_runtime::worker::WorkerWake;
 use std::{
-    cell::{Cell, RefCell},
-    future::{pending, poll_fn, Future},
+    cell::RefCell,
+    future::{poll_fn, Future},
     pin::pin,
     sync::atomic::AtomicBool,
     task::{Context, Poll, Wake},
 };
+
+async fn drive<F: Future>(worker: &WorkerWake<Signal>, future: F) -> F::Output {
+    let mut future = pin!(future);
+    loop {
+        if let Poll::Ready(result) = worker.poll(|cx| future.as_mut().poll(cx)) {
+            return result;
+        }
+        worker.wait().await;
+    }
+}
 
 #[derive(Default)]
 struct CountWakes(AtomicUsize);
@@ -41,8 +55,8 @@ async fn busy_session() {
         let (mut incoming, task) = worker
             .listen(move |mut incoming: Receiver<Signal>| async move {
                 let signal = incoming.recv().await.unwrap().unwrap();
-                let executor = Executor::new(endpoint.bind(signal.clone()));
-                let session = async {
+                let worker = WorkerWake::new(endpoint.bind(signal.clone()));
+                let session = async move {
                     let _dropped = Dropped(worker_drop);
                     let busy = async {
                         started.send(()).unwrap();
@@ -57,7 +71,10 @@ async fn busy_session() {
                     // Register the ordinary input receiver before entering busy work.
                     join(input, busy).await.0.unwrap()
                 };
-                executor.run_until(cancelled, session).await
+                match drive(&worker, select(cancelled, pin!(session))).await {
+                    Either::Left(_) => None,
+                    Either::Right((value, _)) => Some(value),
+                }
             })
             .unwrap();
         incoming.send(signal).unwrap();
@@ -92,74 +109,26 @@ async fn composition() {
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
-            let executor = Executor::new(endpoint.bind(signal.clone()));
-            for (unordered, during_poll) in [(false, false), (true, false), (false, true)] {
-                let (send, input) = oneshot::channel();
-                let (start, started) = oneshot::channel();
-                let (send_between, send_during) = if during_poll {
-                    (None, Some(send))
-                } else {
-                    (Some(send), None)
-                };
-                let consumed = Cell::new(false);
-                let cpu = async {
-                    if during_poll {
-                        executor.yield_now().await;
-                    } else {
-                        started.await.unwrap();
-                    }
-                    assert_ne!(
-                        signal.memory.atomic_load::<u8>(0),
-                        0,
-                        "ready input must interrupt CPU-first composition"
-                    );
-                    executor.yield_now().await;
-                    assert!(consumed.get(), "ready sibling must run before CPU resumes");
-                    if !unordered {
-                        assert_eq!(
-                            signal.memory.atomic_load::<u8>(0),
-                            0,
-                            "our own cooperative yield must not request another interrupt"
-                        );
-                    }
-                };
-                let cpu = async {
-                    if unordered {
-                        let mut tasks = FuturesUnordered::new();
-                        tasks.push(cpu);
-                        tasks.next().await.unwrap();
-                    } else {
-                        cpu.await;
-                    }
-                };
-                let receive = async {
-                    assert_eq!(input.await.unwrap(), 42);
-                    consumed.set(true);
-                };
-                let late_send = async {
-                    // The receiver was already polled Pending this turn.
-                    if let Some(send) = send_during {
-                        send.send(42).unwrap();
-                    }
-                };
-                let mut session =
-                    pin!(executor.run_until(pending::<()>(), join(cpu, join(receive, late_send))));
-                let outer = Arc::new(CountWakes::default());
-                let waker = Waker::from(outer.clone());
-                let mut context = Context::from_waker(&waker);
-                if let Some(send) = send_between {
-                    assert!(session.as_mut().poll(&mut context).is_pending());
-                    send.send(42).unwrap();
-                    start.send(()).unwrap();
-                    outer.0.store(0, Ordering::SeqCst);
-                }
-                assert!(session.as_mut().poll(&mut context).is_ready());
-                assert_eq!(
-                    outer.0.load(Ordering::SeqCst),
-                    0,
-                    "busy repolling must stay inside the worker executor"
-                );
-            }
+            let worker = WorkerWake::new(endpoint.bind(signal.clone()));
+            let (send, input) = oneshot::channel();
+            let mut tasks = FuturesUnordered::new();
+            tasks.push(input);
+            worker.poll(|cx| {
+                assert!(tasks.poll_next_unpin(cx).is_pending());
+                // This nested task has already been polled this turn.
+                send.send(42).unwrap();
+                assert_eq!(signal.memory.atomic_load::<u8>(0), 1);
+            });
+            assert_eq!(signal.memory.atomic_load::<u8>(0), 1);
+            assert!(worker.has_pending_poll());
+            worker.wait().await;
+            worker.poll(|cx| {
+                assert_eq!(tasks.poll_next_unpin(cx), Poll::Ready(Some(Ok(42))));
+            });
+            assert_eq!(signal.memory.atomic_load::<u8>(0), 0);
+            worker.request_poll();
+            assert_eq!(signal.memory.atomic_load::<u8>(0), 0);
+            worker.wait().await;
         })
         .unwrap();
     incoming.send(signal).unwrap();
@@ -199,17 +168,14 @@ async fn reentrant_input() {
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
-            let executor = Executor::new(endpoint.bind(signal.clone()));
+            let worker = WorkerWake::new(endpoint.bind(signal.clone()));
             let (trigger, triggered) = oneshot::channel();
             let (send, receive) = oneshot::channel();
             let waker = Waker::from(Arc::new(DeliverInput(Mutex::new(Some(send)))));
             let mut context = Context::from_waker(&waker);
-            // The parked executor publishes another input synchronously while
-            // the first wake is still unwinding through the executor waker.
-            let mut session = pin!(executor.run_until(pending::<()>(), async {
-                executor.yield_now().await;
-                join(triggered, receive).await
-            }));
+            // The parked worker publishes another input synchronously while
+            // the first wake is still unwinding through the worker waker.
+            let mut session = pin!(drive(&worker, join(triggered, receive)));
             assert!(session.as_mut().poll(&mut context).is_pending());
             trigger.send(()).unwrap();
             assert_eq!(
@@ -219,7 +185,7 @@ async fn reentrant_input() {
             );
             assert_eq!(
                 session.as_mut().poll(&mut context),
-                Poll::Ready(Some((Ok(()), Ok(()))))
+                Poll::Ready((Ok(()), Ok(())))
             );
         })
         .unwrap();
@@ -229,13 +195,13 @@ async fn reentrant_input() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn a_parked_executor_wake_can_publish_another_input() {
+fn a_parked_worker_wake_can_publish_another_input() {
     pollster::block_on(reentrant_input());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn a_parked_executor_wake_can_publish_another_input() {
+async fn a_parked_worker_wake_can_publish_another_input() {
     reentrant_input().await;
 }
 
@@ -247,7 +213,7 @@ async fn parking_lifetime() {
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
-            let executor = Executor::new(endpoint.bind(signal));
+            let worker = WorkerWake::new(endpoint.bind(signal));
             for complete in [false, true] {
                 let (send, input) = oneshot::channel();
                 let mut input = pin!(input);
@@ -259,10 +225,7 @@ async fn parking_lifetime() {
                     poll_fn(|cx| {
                         let mut captured = captured.borrow_mut();
                         if let Some(waker) = &*captured {
-                            assert!(
-                                waker.will_wake(cx.waker()),
-                                "executor waker must stay stable"
-                            );
+                            assert!(waker.will_wake(cx.waker()), "worker waker must stay stable");
                         } else {
                             *captured = Some(cx.waker().clone());
                         }
@@ -270,7 +233,7 @@ async fn parking_lifetime() {
                     })
                     .await
                 };
-                let mut session = Box::pin(executor.run_until(pending::<()>(), root));
+                let mut session = Box::pin(drive(&worker, root));
                 let first = Arc::new(CountWakes::default());
                 let first_weak = Arc::downgrade(&first);
                 let first_waker = Waker::from(first.clone());
@@ -299,7 +262,7 @@ async fn parking_lifetime() {
                         session
                             .as_mut()
                             .poll(&mut Context::from_waker(&second_waker)),
-                        Poll::Ready(Some(Ok(42)))
+                        Poll::Ready(Ok(42))
                     );
                 }
                 drop(session);
@@ -311,7 +274,7 @@ async fn parking_lifetime() {
                 drop(second);
                 assert!(
                     second_weak.upgrade().is_none(),
-                    "escaped executor wakers must not retain the outer task"
+                    "escaped worker wakers must not retain the outer task"
                 );
             }
         })
@@ -342,21 +305,13 @@ async fn idle_session() {
     let (mut incoming, task) = worker
         .listen(move |mut incoming: Receiver<Signal>| async move {
             let signal = incoming.recv().await.unwrap().unwrap();
-            let executor = Executor::new(endpoint.bind(signal));
-            assert_eq!(
-                executor
-                    .run_until(std::future::ready(()), async {
-                        panic!("a stopped session must not enter application code");
-                    })
-                    .await,
-                None::<()>
-            );
-            let mut session = pin!(executor.run_until(pending::<()>(), input));
+            let worker = WorkerWake::new(endpoint.bind(signal));
+            let mut session = pin!(drive(&worker, input));
             assert!(poll_fn(|cx| Poll::Ready(session.as_mut().poll(cx)))
                 .await
                 .is_pending());
             parked.send(()).unwrap();
-            session.await.unwrap().unwrap()
+            session.await.unwrap()
         })
         .unwrap();
     incoming.send(signal).unwrap();
@@ -367,12 +322,12 @@ async fn idle_session() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn host_input_resumes_an_idle_session_through_the_worker_executor() {
+fn host_input_wakes_an_idle_worker() {
     pollster::block_on(idle_session());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn host_input_resumes_an_idle_session_through_the_worker_executor() {
+async fn host_input_wakes_an_idle_worker() {
     idle_session().await;
 }

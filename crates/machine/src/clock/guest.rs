@@ -3,9 +3,6 @@
 #[cfg(test)]
 mod tests;
 
-mod host;
-use host::HostTime;
-
 mod wait;
 use wait::{Source, Wait};
 
@@ -22,8 +19,8 @@ use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 /// Callback observations can lag unpublished retirement; instruction targets
 /// remain soft checkpoint limits. Profiles compiled without budget checks return
 /// via an execution interrupt at each completed block while a deadline is armed.
-/// Runner chooses pacing boundaries; the driver
-/// retains the optional host/guest time correspondence.
+/// The runner chooses scheduling boundaries.
+/// Output can wait for remaining guest intervals on an attached host clock.
 pub struct GuestTimeDriver(Rc<RefCell<State>>);
 
 struct State {
@@ -33,7 +30,7 @@ struct State {
     offset: u64,
     cpu: Option<Binding>,
     waits: Vec<Rc<Wait>>,
-    host: Option<HostTime>,
+    host: Option<Clock>,
 }
 
 struct Binding {
@@ -55,9 +52,7 @@ impl GuestTimeDriver {
     }
 
     pub(crate) fn with_host_clock(self, clock: Clock) -> Self {
-        let mut state = self.0.borrow_mut();
-        state.host = Some(HostTime::new(clock, state.tick_rate));
-        drop(state);
+        self.0.borrow_mut().host = Some(clock);
         self
     }
 
@@ -78,9 +73,6 @@ impl GuestTimeDriver {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
         let now = state.now();
-        if let Some(host) = &mut state.host {
-            host.resume(now);
-        }
         let cpu_state = cpu.cpu_state();
         state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {
@@ -96,14 +88,26 @@ impl GuestTimeDriver {
     /// Reads guest time, completes due sleeps and arms the CPU
     /// target. `yield_deadline` is an optional absolute guest time at which the
     /// embedding wants execution to yield. Wait changes preserve it until the next
-    /// synchronization. With host pacing, lag over 20 ms resets the correspondence
-    /// without moving guest time or device deadlines. Call after execution stops
-    /// and after ready activities have had a turn.
+    /// synchronization. Call after execution stops and ready activities have had a turn.
     pub fn synchronize(&self, yield_deadline: Option<Timestamp>) {
         if let Some(cpu) = &mut self.0.borrow_mut().cpu {
             cpu.yield_deadline = yield_deadline;
         }
         self.notify_due();
+    }
+
+    /// The machine completes due device sleeps after retirement. Before guest
+    /// entry it only needs to publish a changed slice or throughput checkpoint.
+    pub(crate) fn set_yield_deadline(&self, deadline: Option<Timestamp>) {
+        let mut state = self.0.borrow_mut();
+        if let Some(cpu) = &mut state.cpu {
+            // Profiles without budget checks use a block-end interrupt. The
+            // worker may have acknowledged it since the previous CPU turn.
+            if cpu.yield_deadline != deadline || !cpu.state.execution_target().instruction_budgets {
+                cpu.yield_deadline = deadline;
+                state.refresh_target();
+            }
+        }
     }
 
     /// Advances guest time to the earliest registered sleep and completes due sleeps.
@@ -128,9 +132,6 @@ impl GuestTimeDriver {
         let due = {
             let mut state = self.0.borrow_mut();
             let now = state.now();
-            if let Some(host) = &mut state.host {
-                host.discard_lag(now);
-            }
             let due = state
                 .waits
                 .extract_if(.., |wait| wait.deadline <= now)
@@ -165,9 +166,6 @@ impl Drop for BindingGuard {
     fn drop(&mut self) {
         let mut state = self.0.borrow_mut();
         let now = state.now();
-        if let Some(host) = &mut state.host {
-            host.pause();
-        }
         state.cpu.take().unwrap().target.set_deadline(None);
         state.offset = now.ticks();
     }

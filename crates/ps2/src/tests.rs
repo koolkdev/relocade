@@ -8,8 +8,6 @@ use fixture::Fixture;
 use relocade_frontend::keyboard::{
     ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, ModifiersState, NativeKey,
 };
-use relocade_machine::Device;
-use std::cell::RefCell;
 use std::{
     task::{Context, Poll, Waker},
     time::Duration,
@@ -364,8 +362,7 @@ fn replies_wait_for_output_space_and_new_commands_interrupt_untransmitted_acks()
     controller.command(0xae);
     assert_eq!(drain(&mut controller), [0xee]);
 
-    // An accepted ID command pauses scanning before the next host event is processed.
-    controller.write_unpolled(DATA_PORT, 0xf2);
+    controller.data(0xf2); // Three-byte ID reply advances only as the guest reads.
     event(&mut controller, key(KeyCode::KeyB, true));
     event(&mut controller, key(KeyCode::KeyB, false));
     assert_eq!(drain(&mut controller), [0xfa, 0xab, 0x41]);
@@ -375,12 +372,12 @@ fn replies_wait_for_output_space_and_new_commands_interrupt_untransmitted_acks()
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn unread_output_is_preserved_when_input_overflows_the_keyboard() {
+fn unread_output_is_preserved_when_queued_input_overflows_the_keyboard() {
     let (mut controller, _) = controller();
     event(&mut controller, key(KeyCode::KeyB, true));
     for _ in 0..32 {
-        controller.event(key(KeyCode::KeyA, true));
-        controller.event(key(KeyCode::KeyA, false));
+        controller.queue_event(key(KeyCode::KeyA, true));
+        controller.queue_event(key(KeyCode::KeyA, false));
     }
     controller.settle();
     // The unread B make stays in the controller. Sixteen keyboard bytes fit
@@ -396,11 +393,11 @@ fn unread_output_is_preserved_when_input_overflows_the_keyboard() {
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn focus_loss_releases_held_keys_and_keeps_guest_command_service_alive() {
+fn disconnect_releases_held_keys_and_keeps_guest_command_service_alive() {
     let (mut controller, _) = controller();
     event(&mut controller, key(KeyCode::KeyA, true));
     assert_eq!(drain(&mut controller), [0x1e]);
-    controller.event(KeyboardEvent::FocusLost);
+    controller.disconnect();
     assert_eq!(drain(&mut controller), [0x9e]);
     controller.advance(Duration::from_secs(1));
     assert!(drain(&mut controller).is_empty());

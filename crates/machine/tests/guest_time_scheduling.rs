@@ -40,18 +40,20 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8]) {
 }
 
 async fn unpaced_deadline_overshoot() {
-    for (rate, slice, elapsed, instruction_budgets) in [
+    for (rate, slice, elapsed, instruction_budgets, expected) in [
         (
             3,
             Duration::from_secs(1),
             Duration::from_nanos(3_333_333_333),
             true,
+            [4, 6, 10],
         ),
         (
             3_000_000_000,
-            Duration::from_nanos(1),
-            Duration::from_nanos(3),
+            Duration::from_nanos(17),
+            Duration::from_nanos(51),
             false,
+            [52, 102, 154],
         ),
     ] {
         let setup = configuration();
@@ -96,8 +98,10 @@ async fn unpaced_deadline_overshoot() {
                 };
                 let (samples, exit) = join(observe, runner.run_cpu()).await;
                 assert_eq!(exit, ExecutionExit::Host(HostExit::Return));
-                // Two-instruction blocks cross absolute deadlines at ticks 3, 6 and 9.
-                assert_eq!(samples, [4, 6, 10]);
+                // Two-instruction blocks cross odd deadlines by one instruction.
+                // Without budget checks the same distant deadline must survive
+                // repeated block-end interrupt acknowledgements.
+                assert_eq!(samples, expected);
                 assert_eq!(
                     runner.clock().duration_between(start, runner.clock().now()),
                     elapsed
@@ -497,14 +501,10 @@ async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
     terminal_exit_without_notifications().await;
 }
 
-#[path = "guest_time_scheduling/alarm.rs"]
-mod alarm;
 #[path = "guest_time_scheduling/halt.rs"]
 mod halt;
 #[path = "guest_time_scheduling/host.rs"]
 mod host;
-#[path = "guest_time_scheduling/lag.rs"]
-mod lag;
 #[path = "guest_time_scheduling/ordering.rs"]
 mod ordering;
 #[path = "guest_time_scheduling/output.rs"]

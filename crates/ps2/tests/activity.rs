@@ -97,8 +97,8 @@ async fn connected_activity() {
                     })
                     .await;
             }
-            // Even with multiple runnable Rust activities ahead of the input
-            // notification, an arrived release must beat the repeat alarm.
+            // A queued release comes before a due repeat, even when other
+            // worker activities delay the keyboard's next turn.
             clock.advance_to(clock.at(Duration::from_millis(4034)));
             input
                 .unbounded_send(key(KeyCode::KeyA, Released, false))

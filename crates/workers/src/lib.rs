@@ -27,15 +27,14 @@ mod parallelism;
 pub use parallelism::available_parallelism;
 
 mod channel;
-mod executor;
 mod jobs;
 mod pool;
 mod thread;
 mod transfer;
 mod wake;
 mod worker;
+mod worker_wake;
 pub use channel::{channel, channel_endpoints, ChannelError, Receiver, ReceiverEndpoint, Sender};
-pub use executor::{Executor, HostTurns};
 pub use jobs::{JobExecutor, JobQueue};
 pub use pool::{Pool, PoolError};
 pub use thread::Thread;
@@ -46,3 +45,4 @@ pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };
 pub use worker::{Worker, WorkerError};
+pub use worker_wake::{yield_to_host, HostTurns, WorkerWake};

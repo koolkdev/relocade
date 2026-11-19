@@ -44,6 +44,7 @@ fn mouse_capture_keyboard_echo_resize_and_shutdown() -> Result<(), Box<dyn Error
     let protocols = atom(b"WM_PROTOCOLS")?;
     let delete = atom(b"WM_DELETE_WINDOW")?;
     let mut app = App(Command::new(env!("CARGO_BIN_EXE_relocade-dos"))
+        .args(["--mips", "2"])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()?);

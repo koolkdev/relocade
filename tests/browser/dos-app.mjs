@@ -84,8 +84,10 @@ export async function testApplication(config) {
         await displayedGlyph(session, 0, promptRow + 3, xGlyph);
         await displayedGlyph(session, 0, promptRow + 4, prompt);
         assert.equal(await observe(session, () => audioContexts.at(-1).resumeRequests), 1);
-        // Keyboard activation also works when the user never clicks the canvas.
-        await page.reload();
+        // A capped session also accepts keyboard activation without a canvas click.
+        const capped = new URL(server.resolvedUrls.local[0]);
+        capped.searchParams.set("mips", "2");
+        await page.goto(capped.href);
         await displayedGlyph(session, 0, promptRow, prompt);
         await assertWaitingForActivation(session);
         await observe(session, () => document.querySelector("#screen").focus());

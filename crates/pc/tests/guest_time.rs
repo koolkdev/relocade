@@ -1,7 +1,7 @@
 use relocade_machine::{DispatchEntry, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
-use std::{num::NonZeroU64, time::Duration};
+use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -11,8 +11,9 @@ async fn pit_interrupts() {
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+    let execution = prepared.run_until_with_guest_time(
+        |host| relocade_pc::configuration::guest_time(host, None),
+        std::future::pending::<()>(),
         async |runner| {
             let mut pc = Pc::new(runner).await.unwrap();
             let cpu = pc.cpu();
@@ -83,7 +84,7 @@ async fn pit_interrupts() {
             assert!(pc.clock().now() < pc.clock().deadline_after(start, Duration::from_millis(20)));
         },
     );
-    assert_eq!(worker.join().await.unwrap(), Some(()));
+    assert_eq!(execution.await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
 }
 
@@ -101,7 +102,7 @@ async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
 async fn keyboard_at_guest_receipt_time() {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
-    use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
+    use relocade_machine::{worker::wake_connection, Runner};
     use std::{
         future::{poll_fn, Future},
         pin::pin,
@@ -115,7 +116,7 @@ async fn keyboard_at_guest_receipt_time() {
         .unwrap();
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
-        GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()).with_host_clock(host.clock()),
+        relocade_pc::configuration::guest_time(host.clock(), None),
         prepared,
         endpoint,
     )
@@ -152,8 +153,8 @@ async fn keyboard_at_guest_receipt_time() {
         input.try_recv().map_or(Poll::Pending, Poll::Ready)
     })
     .await;
-    // A device can arm pacing during PC setup. Reach the guest's own idle
-    // boundary before delivering the key.
+    // PC setup may already have requested a device deadline. Wait until the
+    // guest has run and is waiting on its own input before delivering the key.
     poll_fn(|cx| {
         assert!(session.as_mut().poll(cx).is_pending());
         if let Some(at) = host.next_deadline() {
@@ -192,11 +193,11 @@ async fn keyboard_at_guest_receipt_time() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+fn queued_keyboard_input_uses_guest_receipt_time_while_the_cpu_waits() {
     pollster::block_on(keyboard_at_guest_receipt_time());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+async fn queued_keyboard_input_uses_guest_receipt_time_while_the_cpu_waits() {
     keyboard_at_guest_receipt_time().await;
 }

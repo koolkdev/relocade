@@ -1,11 +1,15 @@
 use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_dma::Dma;
-use relocade_machine::{CpuConfig, MachineConfig, Runner};
+use relocade_machine::{Clock, CpuConfig, GuestTimeConfig, MachineConfig, Runner};
 use relocade_pic::Pic;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    num::{NonZeroU32, NonZeroU64},
+    rc::Rc,
+};
 
 /// Hardware installed before guest execution, independently of host playback.
 #[derive(Clone, Copy, Debug, Default)]
@@ -101,7 +105,7 @@ impl SoundCard {
     ) -> Option<Box<dyn crate::sound_card::SoundCard>> {
         match self {
             Self::None => None,
-            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner).await)),
+            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner))),
             Self::SoundBlaster2 => Some(Box::new(
                 relocade_sound_blaster::SoundBlaster::initialize(runner, dma.clone(), pic).await,
             )),
@@ -137,4 +141,18 @@ pub fn cpu() -> CpuConfig {
         CpuState::real_mode(),
     )
     .expect("fixed real-mode PC CPU")
+}
+
+/// The PC advances by one guest microsecond per retired instruction. The host
+/// clock drives idle time and presentation. A MIPS limit caps active retirement
+/// per host second independently of the device clock rate.
+pub fn guest_time(host: Clock, max_mips: Option<NonZeroU32>) -> GuestTimeConfig {
+    let time = GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap());
+    match max_mips {
+        Some(mips) => {
+            let per_second = NonZeroU64::new(u64::from(mips.get()) * 1_000_000).unwrap();
+            time.with_cpu_limit(per_second, host)
+        }
+        None => time.with_host_clock(host),
+    }
 }

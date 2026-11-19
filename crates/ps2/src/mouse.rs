@@ -1,219 +1,72 @@
-//! Standard three-button PS/2 commands and sample scheduling.
+//! Mouse firmware on the same execution owner as the shared controller.
 
 mod motion;
+mod protocol;
 mod transmission;
 
-use crate::protocol::{mouse::*, RESEND};
-use motion::Motion;
-use relocade_frontend::mouse::MouseEvent;
-use relocade_machine::{Clock, Timestamp};
-use std::time::Duration;
-use transmission::Transmission;
+use crate::controller::{Controller, Port};
+use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
+use protocol::Protocol;
+use relocade_frontend::mouse::{MouseEvent, MouseEvents};
+use relocade_machine::{yield_now, Clock};
+use std::future::pending;
 
-#[derive(Clone, Copy)]
-enum Parameter {
-    Resolution,
-    SampleRate,
-}
-
-pub(super) struct Mouse {
-    clock: Clock,
-    motion: Motion,
-    resolution: u8,
-    sample_rate: u8,
-    scaling: bool,
-    enabled: bool,
-    remote: bool,
-    wrapped: bool,
-    parameter: Option<Parameter>,
-    invalid_inputs: u8,
-    sampled_at: Timestamp,
-    transmission: Transmission,
-}
-
-impl Mouse {
-    pub fn new(clock: Clock) -> Self {
-        let now = clock.now();
-        Self {
-            clock,
-            motion: Motion::default(),
-            resolution: 2,
-            sample_rate: 100,
-            scaling: false,
-            enabled: false,
-            remote: false,
-            wrapped: false,
-            parameter: None,
-            invalid_inputs: 0,
-            sampled_at: now,
-            transmission: Transmission::new(),
-        }
-    }
-
-    fn streaming(&self) -> bool {
-        self.enabled && !self.remote && !self.wrapped && self.parameter.is_none()
-    }
-
-    pub fn event(&mut self, event: MouseEvent) {
-        self.motion.event(event, self.resolution, self.streaming());
-    }
-
-    pub fn byte(&self) -> Option<u8> {
-        self.transmission.byte(&self.motion)
-    }
-
-    pub fn sent(&mut self) {
-        // Start the interval when a movement packet's header reaches the controller.
-        if self.transmission.sent(&mut self.motion) {
-            self.sampled_at = self.clock.now();
-        }
-    }
-
-    fn invalid(&mut self) {
-        self.invalid_inputs = self.invalid_inputs.saturating_add(1);
-        self.transmission.invalid(if self.invalid_inputs == 1 {
-            RESEND
-        } else {
-            ERROR
-        });
-    }
-
-    pub fn command(&mut self, byte: u8) {
-        let now = self.clock.now();
-        // BAT and device ID complete reset before another command is accepted.
-        if self.transmission.resetting() {
-            return;
-        }
-        if self.wrapped && byte != RESET && byte != RESET_WRAP_MODE {
-            self.transmission.reply(false, &[byte]);
-            return;
-        }
-        if byte == RESEND {
-            self.transmission.resend();
-            return;
-        }
-        if let Some(parameter) = self.parameter {
-            if byte < SCALING_1_TO_1 {
-                let valid = match parameter {
-                    Parameter::Resolution if byte <= 3 => {
-                        self.resolution = byte;
-                        true
-                    }
-                    Parameter::SampleRate if [10, 20, 40, 60, 80, 100, 200].contains(&byte) => {
-                        self.sample_rate = byte;
-                        true
-                    }
-                    _ => false,
-                };
-                if valid {
-                    self.parameter = None;
-                    self.invalid_inputs = 0;
-                    self.motion.clear();
-                    self.sampled_at = now;
-                    self.transmission.reply(true, &[]);
+pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
+    let mut protocol = Protocol::new(clock.clone());
+    let mut events = Some(events);
+    loop {
+        let wake = {
+            let command = controller.receive_device(Port::Auxiliary).fuse();
+            let output = async {
+                if let Some(byte) = protocol.byte() {
+                    controller.send(Port::Auxiliary, byte).await;
                 } else {
-                    self.invalid();
-                }
-                return;
-            }
-        }
-        let interrupted_parameter = self.parameter.take();
-        // Read Data observes the current counters before the command clears them.
-        if byte == READ_DATA {
-            self.invalid_inputs = 0;
-            self.transmission.read_data(&mut self.motion);
-            return;
-        }
-        self.motion.clear();
-        match byte {
-            RESET | SET_DEFAULTS => {
-                self.resolution = 2;
-                self.sample_rate = 100;
-                self.scaling = false;
-                self.enabled = false;
-                self.remote = false;
-                self.wrapped = false;
-                self.motion.reset();
-                self.sampled_at = now;
-                if byte == RESET {
-                    self.transmission.reset();
-                } else {
-                    self.transmission.reply(true, &[]);
+                    pending::<()>().await;
                 }
             }
-            DISABLE_REPORTING => {
-                self.enabled = false;
-                self.transmission.reply(true, &[]);
+            .fuse();
+            let event = async {
+                match events.as_mut() {
+                    Some(events) => events.next().await,
+                    None => pending().await,
+                }
             }
-            ENABLE_REPORTING => {
-                self.enabled = true;
-                self.sampled_at = now;
-                self.transmission.reply(true, &[]);
-            }
-            SET_SAMPLE_RATE | SET_RESOLUTION => {
-                self.parameter = Some(if byte == SET_SAMPLE_RATE {
-                    Parameter::SampleRate
+            .fuse();
+            let timer = async {
+                if let Some(deadline) = protocol.deadline() {
+                    clock.sleep_until(deadline).await;
                 } else {
-                    Parameter::Resolution
-                });
-                self.transmission.reply(true, &[]);
+                    pending::<()>().await;
+                }
             }
-            IDENTIFY => self.transmission.reply(true, &[DEVICE_ID]),
-            SET_REMOTE_MODE => {
-                self.remote = true;
-                self.transmission.reply(true, &[]);
+            .fuse();
+            pin_mut!(command, output, event, timer);
+            select_biased! {
+                byte = command => Wake::Command(byte),
+                () = output => Wake::Sent,
+                () = timer => Wake::Sample,
+                event = event => Wake::Event(event),
             }
-            SET_WRAP_MODE => {
-                self.wrapped = true;
-                self.enabled = false;
-                self.transmission.reply(true, &[]);
+        };
+        match wake {
+            Wake::Command(byte) => protocol.command(byte),
+            Wake::Sent => protocol.sent(),
+            Wake::Event(event) => {
+                if event.is_none() {
+                    events = None;
+                }
+                protocol.event(event.unwrap_or(MouseEvent::FocusLost));
+                // Bound the work per poll when the host has queued more motion.
+                yield_now().await;
             }
-            RESET_WRAP_MODE => {
-                self.wrapped = false;
-                self.transmission.reply(true, &[]);
-            }
-            SET_STREAM_MODE => {
-                self.remote = false;
-                self.sampled_at = now;
-                self.transmission.reply(true, &[]);
-            }
-            STATUS => {
-                let buttons = self.motion.buttons;
-                let status = (u8::from(self.remote) << 6)
-                    | (u8::from(self.enabled) << 5)
-                    | (u8::from(self.scaling) << 4)
-                    | ((buttons & 1) << 2)
-                    | ((buttons & 2) >> 1)
-                    | ((buttons & 4) >> 1);
-                self.transmission
-                    .reply(true, &[status, self.resolution, self.sample_rate]);
-            }
-            SCALING_1_TO_1 | SCALING_2_TO_1 => {
-                self.scaling = byte == SCALING_2_TO_1;
-                self.transmission.reply(true, &[]);
-            }
-            _ => {
-                self.parameter = interrupted_parameter;
-                self.invalid();
-                return;
-            }
-        }
-        self.invalid_inputs = 0;
-    }
-
-    pub fn deadline(&self) -> Option<Timestamp> {
-        (self.streaming() && self.transmission.idle() && self.motion.pending()).then(|| {
-            self.clock.deadline_after(
-                self.sampled_at,
-                Duration::from_nanos(1_000_000_000_u64.div_ceil(u64::from(self.sample_rate))),
-            )
-        })
-    }
-
-    pub fn sample(&mut self) {
-        let now = self.clock.now();
-        if self.deadline().is_some_and(|deadline| now >= deadline) {
-            self.transmission.stream(self.scaling);
+            Wake::Sample => protocol.sample(),
         }
     }
+}
+
+enum Wake {
+    Command(u8),
+    Sent,
+    Event(Option<MouseEvent>),
+    Sample,
 }

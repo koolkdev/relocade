@@ -1,38 +1,24 @@
 //! CPU execution and registered device activities on one owner.
 
-mod guest_time;
-mod hardware;
-mod schedule;
-pub use guest_time::GuestTimeConfig;
 mod worker;
-
-pub use hardware::Alarm;
-use hardware::Hardware;
-use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
-use crate::runtime::CpuStop;
-use crate::worker::{Executor, HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
+use crate::scheduler::{GuestTimeConfig, Scheduler, Timing};
+use crate::worker::{HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker, WorkerWake};
 use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
-use futures_lite::future::poll_once;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
-use futures_util::{
-    future::{join_all, LocalBoxFuture},
-    Stream, StreamExt,
-};
+use futures_util::future::{join_all, LocalBoxFuture};
 use relocade_x86::ExecutionExit;
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
     pin::pin,
     rc::{Rc, Weak},
-    task::{ready, Poll},
-    time::Duration,
 };
 
 /// Owns a worker's execution session, including its CPU backend and device activities.
@@ -42,20 +28,19 @@ use std::{
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
     clock: Clock,
-    hardware: Weak<Hardware>,
     activities: mpsc::UnboundedSender<Activity>,
-    session: Option<(ExecutionSchedule, mpsc::UnboundedReceiver<Activity>)>,
-    running: Weak<RefCell<Option<CpuRun>>>,
-    executor: Rc<Executor<ExecutionInterrupt>>,
+    session: Option<Scheduler>,
+    pub(crate) running: Weak<RefCell<Option<CpuRun>>>,
+    wake: Rc<WorkerWake<ExecutionInterrupt>>,
     workers: Rc<RefCell<Vec<LocalBoxFuture<'static, ()>>>>,
     cpu: Rc<RefCell<Cpu>>,
 }
 
-type Activity = LocalBoxFuture<'static, ()>;
+pub(crate) type Activity = LocalBoxFuture<'static, ()>;
 
-struct CpuRun {
-    cpu: Rc<RefCell<Cpu>>,
-    completed: oneshot::Sender<ExecutionExit>,
+pub(crate) struct CpuRun {
+    pub(crate) cpu: Rc<RefCell<Cpu>>,
+    pub(crate) completed: oneshot::Sender<ExecutionExit>,
 }
 
 // Cancelling the foreground wait returns exclusive access to Runner::cpu immediately.
@@ -65,7 +50,7 @@ impl Drop for CancelRun<'_> {
     fn drop(&mut self) {
         if let Some(running) = self.0.running.upgrade() {
             if running.take().is_some() {
-                self.0.executor.request_poll();
+                self.0.wake.request_poll();
             }
         }
     }
@@ -82,23 +67,20 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
+        Self::with_schedule(Timing::from_clock(clock), cpu, endpoint).await
     }
 
     async fn with_schedule(
-        schedule: ExecutionSchedule,
+        time: Timing,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        let executor = Rc::new(
-            Executor::new(endpoint.bind(cpu.interrupt_handle()))
-                .with_cooperative_host_grace(Duration::from_millis(1)),
-        );
+        let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
         let (activities, inbox) = mpsc::unbounded();
         let compiler = compiler
             .map(|endpoint| {
-                let (client, replies) = endpoint.connect(&executor)?;
+                let (client, replies) = endpoint.connect(&wake)?;
                 activities
                     .unbounded_send(replies)
                     .expect("new session activity inbox");
@@ -107,14 +89,13 @@ impl Runner {
             .transpose()?;
         let cpu = cpu
             .with_compiler(compiler)
-            .with_host_turns(executor.host_turns());
+            .with_host_turns(wake.host_turns());
         Ok(Self {
-            clock: schedule.clock().clone(),
-            hardware: Weak::new(),
+            clock: time.clock().clone(),
             activities,
-            session: Some((schedule, inbox)),
+            session: Some(Scheduler::new(time, inbox, wake.clone())),
             running: Weak::new(),
-            executor,
+            wake,
             workers: Rc::new(RefCell::new(Vec::new())),
             cpu: Rc::new(RefCell::new(cpu)),
         })
@@ -151,44 +132,16 @@ impl Runner {
         &self.clock
     }
 
-    /// Registers a disarmed hardware alarm on the session's clock.
-    pub fn alarm(&self, fire: impl FnMut() + 'static) -> Alarm {
-        self.alarm_on(&self.clock, fire)
-    }
-
-    /// Registers a device that was configured with its own clock. The callback
-    /// still runs on this session, after guest execution returns to the worker.
-    pub fn alarm_on(&self, clock: &Clock, fire: impl FnMut() + 'static) -> Alarm {
-        self.hardware
-            .upgrade()
-            .expect("alarm needs a running session")
-            .alarm(clock.clone(), fire)
-    }
-
-    /// Delivers at most one queued item from this stream per worker turn, before
-    /// due alarms. Sources are visited in registration order. The session owns
-    /// the stream and callback until the stream closes or execution ends.
-    pub fn on_input<T>(
-        &self,
-        source: impl Stream<Item = T> + 'static,
-        receive: impl FnMut(T) + 'static,
-    ) {
-        self.hardware
-            .upgrade()
-            .expect("input needs a running session")
-            .on_input(source, receive);
-    }
-
     /// Post this resource to another worker and retain its `bind()` guard there
     /// before sending ordinary Rust notifications to this execution session.
     pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
-        self.executor.peer()
+        self.wake.peer()
     }
 
     /// Declares an operation whose completion needs this worker's host event loop.
     /// Clone before awaiting a browser promise alongside runnable guest work.
     pub fn host_turns(&self) -> HostTurns {
-        self.executor.host_turns()
+        self.wake.host_turns()
     }
 
     /// Starts a reusable calculation thread owned by this execution session.
@@ -219,18 +172,17 @@ impl Runner {
         jobs
     }
 
-    /// Connects a device's mappings and attaches it to this session.
-    /// Await this during setup inside [`Self::run`]. Configuration finishes and
-    /// releases the runtime context before the device installs alarms or starts
-    /// an activity. The default activity completes its first poll before this
-    /// returns. Once queued, it belongs to the session even if the wait is cancelled.
+    /// Registers a device's mappings, then starts its activity on this session.
+    /// On return, the activity has completed its first poll and installed its waker.
+    /// Once queued, it belongs to the session even if this wait is cancelled.
+    /// Devices without an activity can register directly through [`IoBus::connect`].
     pub async fn connect<D: Device + 'static>(
         &self,
         device: Rc<RefCell<D>>,
         configure: impl FnOnce(&mut DeviceConnection<'_>),
     ) {
         self.io().connect(device.clone(), configure);
-        D::attach(&device, self).await;
+        self.spawn_activity(D::run(device)).await;
     }
 
     /// Starts a local activity with the same lifetime and first-poll guarantee
@@ -238,12 +190,16 @@ impl Runner {
     pub async fn spawn_activity(&self, activity: impl Future<Output = ()> + 'static) {
         let (started, ready) = oneshot::channel();
         let activity = async move {
-            let mut run = pin!(activity);
-            let completed = poll_once(run.as_mut()).await.is_some();
-            let _ = started.send(());
-            if !completed {
-                run.await;
-            }
+            let mut activity = pin!(activity);
+            let mut started = Some(started);
+            poll_fn(|cx| {
+                let result = activity.as_mut().poll(cx);
+                if let Some(started) = started.take() {
+                    let _ = started.send(());
+                }
+                result
+            })
+            .await;
         };
         self.activities
             .unbounded_send(Box::pin(activity))
@@ -264,62 +220,9 @@ impl Runner {
         stop: impl Future,
         main: impl AsyncFnOnce(Self) -> R,
     ) -> Option<R> {
-        let (mut schedule, inbox) = self.session.take().expect("new execution session");
-        let executor = self.executor.clone();
+        let scheduler = self.session.take().expect("new execution session");
         let workers = self.workers.clone();
-        let result = executor
-            .run_until(stop, async {
-                let wake = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                let _binding = schedule.bind(&self.cpu.borrow(), &wake);
-                let hardware = Hardware::new(wake);
-                self.hardware = Rc::downgrade(&hardware);
-                let execution = self.cpu.borrow().execution.clone();
-                let running = Rc::new(RefCell::new(None::<CpuRun>));
-                self.running = Rc::downgrade(&running);
-                let mut devices = pin!(inbox.for_each_concurrent(None, |activity| activity));
-                let mut application = pin!(main(self));
-
-                poll_fn(|cx| {
-                    hardware.deliver_input();
-                    hardware.fire_alarms();
-                    let _ = devices.as_mut().poll(cx);
-                    if let Poll::Ready(result) = application.as_mut().poll(cx) {
-                        return Poll::Ready(result);
-                    }
-                    let _permit = match &execution {
-                        Some(member) => Some(ready!(member.poll_enter(cx))),
-                        None => None,
-                    };
-                    let mut active = running.borrow_mut();
-                    let turn = {
-                        let mut cpu = active.as_ref().map(|run| run.cpu.borrow_mut());
-                        // A BIOS hook may finish while host pacing prevents another guest block.
-                        if let Some(exit) = cpu.as_mut().and_then(|cpu| cpu.poll_host_work(cx)) {
-                            CpuStop::Exit(exit)
-                        } else {
-                            ready!(schedule.poll_pacing(cx));
-                            cpu.map_or(CpuStop::Blocked, |mut cpu| cpu.run_to_boundary(cx))
-                        }
-                    };
-                    match turn {
-                        CpuStop::Checkpoint => schedule.notify_due(),
-                        CpuStop::Exit(exit) => {
-                            schedule.notify_due();
-                            let run = active.take().expect("only a running CPU can exit");
-                            let _ = run.completed.send(exit);
-                        }
-                        CpuStop::Blocked => {
-                            if executor.has_pending_poll() || !schedule.advance_idle() {
-                                return Poll::Pending;
-                            }
-                        }
-                    }
-                    executor.request_poll();
-                    Poll::Pending
-                })
-                .await
-            })
-            .await;
+        let result = scheduler.run(self, stop, main).await;
         let cleanup = std::mem::take(&mut *workers.borrow_mut());
         join_all(cleanup).await;
         result
@@ -337,21 +240,19 @@ impl Runner {
             cpu: self.cpu.clone(),
             completed,
         }));
-        self.executor.request_poll();
+        self.wake.request_poll();
         drop(running);
         let _cancel = CancelRun(self);
         exit.await.unwrap_or(ExecutionExit::Interrupted)
     }
 
-    /// Runs on emulated guest time with optional host pacing for active and idle
-    /// execution. Device deadlines subdivide each execution slice. Instruction targets
-    /// remain soft checkpoint limits, so a slice can overshoot.
-    /// The session advances guest deadlines even while its CPU is stopped.
+    /// Runs devices on guest time. An optional CPU throughput limit applies to
+    /// retired instructions. Device deadlines remain active between foreground runs.
     pub async fn with_guest_time(
         config: GuestTimeConfig,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
+        Self::with_schedule(Timing::with_guest_time(config), cpu, endpoint).await
     }
 }

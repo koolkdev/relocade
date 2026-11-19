@@ -149,7 +149,8 @@
 //! binding. Numbered LPT bindings and the PRN driver are configured independently.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
-//! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
+//! Start a PC guest-time session with [`relocade_machine::CpuHandle::run_until_with_guest_time`]
+//! and [`configuration::guest_time`], then construct DOS on its runner.
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
 //! [`Dos::with_configuration`] selects its hardware using the PC's [`Configuration`].
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
@@ -214,7 +215,8 @@ pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
 pub use relocade_pc::{
-    configuration, video_card, Configuration, InitializationError, ParallelPort, SoundCard, VideoCard,
+    configuration, video_card, Configuration, InitializationError, ParallelPort, SoundCard,
+    VideoCard,
 };
 use relocade_pc::{
     sound_card::{Settings as SoundCardSettings, SoundBlasterModel},
@@ -232,7 +234,8 @@ pub struct Dos {
 }
 
 impl Dos {
-    /// Creates a BIOS-initialized PC and installs DOS services on it.
+    /// Creates a BIOS-initialized PC on a runner started with [`configuration::guest_time`]
+    /// and installs DOS services on it.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: Runner) -> Result<Self, InitializationError> {
         Self::with_configuration(runner, Configuration::default()).await
@@ -439,10 +442,10 @@ impl Dos {
     /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
-    /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().run();
+    /// // An event handler can retain this writer while the program waits.
+    /// let run = dos.run();
     /// input.write_all(b"y")?;
-    /// run.await;
+    /// run.await?;
     /// assert_eq!(process.status(), ProcessStatus::Exited(Ok(b'y')));
     /// # Ok(())
     /// # }

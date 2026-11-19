@@ -3,7 +3,7 @@ use super::{
     BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
-    worker::{ChannelError, Executor, ReceiverEndpoint, Sender, Transfer, WakePeer},
+    worker::{ChannelError, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
@@ -28,10 +28,10 @@ pub struct Endpoint {
 impl Endpoint {
     pub(crate) fn connect(
         mut self,
-        executor: &Executor<ExecutionInterrupt>,
+        worker: &WorkerWake<ExecutionInterrupt>,
     ) -> Result<(CompilerClient, LocalBoxFuture<'static, ()>)> {
-        self.peer.send(executor.peer())?;
-        let mut posted = self.results.bind().with_executor(executor);
+        self.peer.send(worker.peer())?;
+        let mut posted = self.results.bind().with_worker(worker);
         // A single sender owns one slot in a zero-capacity futures channel.
         let (mut ready, results) = mpsc::channel(0);
         let receive = async move {

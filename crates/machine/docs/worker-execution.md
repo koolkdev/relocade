@@ -1,49 +1,46 @@
 # Worker execution
 
-Each execution worker owns one CPU session. `Runner::run` drives the
-application, device activities and machine together.
-`runner.run_cpu().await` submits a request to run the CPU and waits for its exit.
-Devices remain active while the application waits for input or another program.
+Each execution worker owns one CPU session. Its scheduler drives the
+application, device activities and CPU. A DOS console can wait for input
+between programs while devices continue running on guest time.
+`runner.run_cpu().await` asks the scheduler to execute guest instructions
+and returns when the foreground run exits.
 
-Create the [shared timer service](clock.md) on the host, and pass its transferable handle into
-the execution worker. `ExecutionWorker` uses the existing
-[worker transport](workers.md) and owns runner completion and cancellation:
-
-Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
-or `None` to use the bundled interpreter without background compilation.
+The PC runtime passes a guest clock to its devices. To configure an execution
+worker directly, set the guest clock rate with `GuestTimeConfig`. An optional
+CPU limit sets how many instructions may retire per host second.
+[Clock and CPU limit](clock.md#execution-with-guest-time)
 
 ```rust,ignore
 let mut machine = Machine::new(memory_config)?;
 let cpu = machine.create_cpu(cpu_config, None)?;
-let (handle, timers) = relocade_machine::timer_service();
-let execution = cpu.spawn(handle, async move |mut runner| {
-    let device = create_device(runner.clock().clone());
-    runner.connect(device, |io| {
-        io.bind_mmio(memory_range, &memory_read, &memory_write);
-        io.bind(ports, &read, &write);
-    }).await;
-    runner.run_cpu().await;
-    wait_for_next_program().await;
-    Ok::<(), Error>(())
-});
-let timers = timers.spawn_with_peer(execution.wake_peer());
+let execution = cpu.spawn_with_guest_time(
+    move || GuestTimeConfig::new(guest_rate),
+    async move |mut runner| {
+        let device = create_device(runner.clock().clone());
+        runner.connect(device, |io| {
+            io.bind_mmio(memory_range, &memory_read, &memory_write);
+            io.bind(ports, &read, &write);
+        }).await;
+        runner.run_cpu().await;
+        wait_for_next_program().await;
+        Ok::<(), Error>(())
+    },
+);
 let result = execution.join().await;
-let timers = timers.stop().await;
 machine.shutdown().await?;
-timers?;
 ```
 
-`connect(...).await` installs the device's mappings, releases the setup context,
-then calls `Device::attach`. The PIT uses this hook to install a replaceable
-alarm on its clock. Reprogramming the PIT inside a port write updates the
-deadline immediately. The callback runs after guest execution returns.
-Dropping the alarm or ending the session cancels it.
+Pass `Some(&compiler)` to `machine.create_cpu` to enable background compilation.
+[Compiler service](compilation.md)
 
-The default hook starts `Device::run` and waits for its first poll. Devices
-use this for work such as publishing video frames. For a stream of physical
-input, `Runner::on_input` delivers each item to a synchronous callback.
-Initialize device state before connecting and release mutable borrows before
-awaiting. Ending the main activity drops these futures on their execution owner.
+Use `runner.io().connect(device, configure)` for a device that only handles
+synchronous bus accesses. For a device with an activity, `runner.connect(...).await`
+installs its mappings and starts `Device::run`. When it returns, the activity
+has had its first poll and can already receive input or timer notifications.
+PIT waits for its next OUT0 transition or a programming change. The keyboard
+and mouse each await input and their own device deadlines. Each device decides
+the order of events that are ready together.
 
 `spawn_activity(future).await` starts a service without bus mappings with the
 same first-poll and session lifetime guarantees. `spawn_job_thread().await` returns a
@@ -129,9 +126,10 @@ process and returns an already completed process's result without running the CP
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
-For a session tied to a host lifetime, `cpu.run_until(stop, session)` consumes the CPU
-handle, creates the timer service and drives it on a timer worker while the
-session runs on execution. It returns the session result on completion, or `None` after the stop
+For a guest-timed session tied to a host lifetime,
+`cpu.run_until_with_guest_time(make_time, stop, session)` consumes the CPU
+handle and runs the host timer service for the session. The factory receives
+the host clock on the execution worker. It returns the session result on completion, or `None` after the stop
 signal and worker cleanup. The stop signal's value is ignored. Await the whole
 operation; dropping it early is not orderly shutdown. The timer service ends with
 the session. Use `spawn` with an externally driven clock when clock handles must
@@ -139,10 +137,10 @@ remain usable afterward or the embedding needs separate control.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` owns a stop channel. `worker::Executor` polls its receiver before
+`ExecutionWorker` owns a stop channel. The scheduler polls its receiver before
 dispatching runnable work. `stop().await` sends through that channel. Dropping
 the sender also requests cancellation. Either wakes the session while a CPU service is pending
-or requests a return from busy guest execution. The executor drops the application
+or requests a return from busy guest execution. The scheduler drops the application
 and devices on their execution thread before reporting completion. `stop().await`
 waits for that completion before releasing the thread.
 `join().await` waits for ordinary main-activity completion. As with `Thread`, await
@@ -187,8 +185,9 @@ been abandoned. Retained `cpu.cpu_state()`, memory and input/output handles rema
 usable. Dropping the CPU releases active and parked calls innermost first, then
 the backend; independently retained resources can outlive it.
 
-Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
-registers VGA with the runner and shares its timer. Mount filesystems and retain
+The DOS launcher passes `relocade_pc::configuration::guest_time` its host clock
+and optional MIPS limit. Inside the session, `Dos::new(runner).await` connects
+the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current
 process exit code; keeping the main session alive afterwards leaves VGA active
@@ -205,39 +204,31 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-The worker executor runs one session future and checks cancellation before
-each poll. When input is ready, the session takes at most one item per input
-source in registration order. It dispatches due hardware alarms next, followed by
-ready Rust activities (including compiler receipt) and the application. A key
-release at the head of the keyboard stream can cancel a typematic repeat due
-at the same instant, even if the timer woke the worker first. If the application
-is still waiting, the machine gets one turn. A wake during guest execution requests a return to Rust at a
-completed checkpoint, independently of guest IF. A long block or `REP` can
-delay that return.
+Each worker turn checks cancellation, polls ready Rust activities and the
+application, then considers guest execution. A device, a completed compiler
+reply or a foreground CPU request can wake the worker. A wake during busy
+guest execution requests a return to Rust at a completed checkpoint.
+The interpreter and compiled code both honor that request regardless of guest
+IF. A long block or `REP` can delay the checkpoint.
 [Execution checkpoints](../../x86/docs/host-integration.md#execution-interrupts)
 
-With a foreground run request, the worker services the active Rust hook and
-checks pacing before asking the CPU to run to a boundary. The CPU decides when
-it can accept an IRQ, leave HLT, resume a nested guest call or install a compiler
-reply. It reports a checkpoint, a blocked state or an exit. After a guest-time
-checkpoint the worker publishes retirement and wakes
-due sleepers. When guest execution is blocked or between programs, the clock
-advances to the next device deadline only after Rust work stops requesting polls.
-A device woken by a host service can cancel its timer at the current guest time.
-Once the worker is quiet, a PIT deadline can raise IRQ0 and resume a halted CPU
-with interrupts enabled. An activity that continually wakes itself keeps an idle
-guest clock stationary.
-[Guest clock and pacing](clock.md#execution-with-guest-time)
+With a foreground run, the scheduler polls the CPU's active Rust service and
+checks its execution allowance before dispatching guest code. The CPU handles
+guest IRQ delivery, HLT and resuming nested guest calls. It reports a checkpoint,
+a blocked state or an exit. A checkpoint lets the scheduler publish retired
+instructions and wake due timers. When a service is blocked, the CPU is halted
+or the application is between programs, guest time can advance to the next
+device deadline once ready Rust work has had its turn. Advancing an idle clock
+retires zero instructions. A PIT expiry can then raise IRQ0 and wake a halted
+CPU whose interrupt flag is set. [Guest time and CPU pacing](clock.md#execution-with-guest-time)
 
-The execution worker can process successive turns entirely inside Wasm.
-It parks when all work is waiting. An operation that needs its JavaScript event
-loop registers that demand, for example while compiling a local Wasm module or
-receiving a posted module. A session activity can wrap its own browser promise
-future in `runner.host_turns().wait(future).await`. If Rust work stays runnable
-while a callback is pending, the worker checks elapsed host time between turns
-and yields to the browser after 1 ms. Guest instructions return at completed
-checkpoints during that interval.
-[Compiler reply delivery](compilation.md#compiler-replies)
+When the worker has no runnable work, it parks immediately. A busy worker can
+execute successive turns inside Wasm. An operation that needs the JavaScript
+event loop registers demand through `runner.host_turns().wait(future).await`.
+Examples include receiving a posted compiler module and awaiting local Wasm
+compilation. While that demand is pending, the scheduler checks elapsed host
+time at CPU checkpoints and returns to the browser after 1 ms of runnable
+work. [Compiler reply delivery](compilation.md#compiler-replies)
 
 `ExecutionWorker` creates a wake connection before spawning and binds it to
 the transferred CPU's execution interrupt on the new worker. The host keeps

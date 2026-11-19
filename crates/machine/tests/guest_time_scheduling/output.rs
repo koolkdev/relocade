@@ -62,7 +62,7 @@ async fn local_output_sync() {
                 )
                 .await
                 .is_none(),
-                "the live machine retains its host mapping after CPU exit"
+                "the live machine still times output after CPU exit"
             );
             host.advance_by(Duration::from_secs(1));
             let (mut sync, elapsed) = retained.borrow_mut().take().unwrap();
@@ -132,4 +132,57 @@ fn unpaced_output_and_elapsed_host_output_complete_immediately() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn unpaced_output_and_elapsed_host_output_complete_immediately() {
     output_without_pacing().await;
+}
+
+async fn output_from_an_unlimited_cpu() {
+    let (host, _armed, source) = host();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = prepared.spawn_with_guest_time(
+        move || {
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000).unwrap())
+                .with_host_clock(Clock::new(source))
+        },
+        async move |mut runner| {
+            prepare_cpu(&mut runner, &[0xe2, 0xfe]).await; // LOOP 0100.
+            let cpu = runner.cpu();
+            cpu.cpu_state().set_cx(100);
+            cpu.instruction_target().set(Some(64));
+            assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
+
+            let clock = runner.clock();
+            assert_eq!(clock.now(), Timestamp::from_ticks(64));
+            assert_eq!(host.clock().now(), host.at(Duration::ZERO));
+            assert!(poll_once(clock.sync_to_host(clock.now())).await.is_some());
+            assert!(poll_once(clock.sync_to_host(Timestamp::from_ticks(32)))
+                .await
+                .is_some());
+
+            let at = clock.deadline_after(clock.now(), Duration::from_millis(10));
+            let captured = clock.sync_to_host(at);
+            host.advance_by(Duration::from_secs(1));
+            assert!(poll_once(captured).await.is_some());
+            let mut fresh = clock.sync_to_host(at);
+            assert!(poll_once(&mut fresh).await.is_none());
+            assert_eq!(
+                host.next_deadline(),
+                Some(host.at(Duration::from_millis(1010)))
+            );
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn due_frames_from_an_unlimited_cpu_publish_without_waiting_for_host_catchup() {
+    pollster::block_on(output_from_an_unlimited_cpu());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn due_frames_from_an_unlimited_cpu_publish_without_waiting_for_host_catchup() {
+    output_from_an_unlimited_cpu().await;
 }

@@ -1,8 +1,11 @@
-//! PC timer registers and channel-0 transitions. BIOS owns the IRQ0 handler.
+//! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
 
 use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
+use event_listener::Event;
+use futures_lite::future::or;
 use relocade_machine::{
-    Alarm, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
+    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
+    Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
@@ -27,11 +30,11 @@ pub struct Pit {
     channel2: Counter,
     channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
     irq: IrqLine,
-    alarm: Option<Alarm>,
+    changed: Event,
 }
 
 impl Pit {
-    /// Connects IRQ0 and schedules channel-0 transitions on the runner's clock.
+    /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
     pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
         let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
         runner
@@ -70,8 +73,6 @@ impl Pit {
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
-    /// [`Runner::connect`] schedules transitions on this clock. A standalone
-    /// timer can be driven by calling [`Self::advance_to`] at each deadline.
     pub fn with_clock(clock: Clock, pic: &Pic) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
@@ -89,7 +90,7 @@ impl Pit {
             channel2: Counter::default(),
             channel2_observer: None,
             irq,
-            alarm: None,
+            changed: Event::new(),
         }
     }
 
@@ -159,13 +160,7 @@ impl Pit {
 
     fn notify_channel0(&self) {
         self.irq.set_level(self.channel0.output());
-        self.schedule_transition();
-    }
-
-    fn schedule_transition(&self) {
-        if let Some(alarm) = &self.alarm {
-            alarm.replace(self.next_deadline());
-        }
+        self.changed.notify(1);
     }
 
     fn write_control(&mut self, value: u8) {
@@ -235,18 +230,24 @@ impl Pit {
 }
 
 impl Device for Pit {
-    async fn attach(device: &Rc<RefCell<Self>>, runner: &Runner) {
-        let timer = Rc::downgrade(device);
-        let mut pit = device.borrow_mut();
-        pit.alarm = Some(runner.alarm_on(&pit.clock, move || {
-            if let Some(timer) = timer.upgrade() {
-                let mut pit = timer.borrow_mut();
-                pit.sync_to_clock();
-                pit.schedule_transition();
+    async fn run(device: Rc<RefCell<Self>>) {
+        let clock = device.borrow().clock.clone();
+        device.borrow_mut().sync_to_clock();
+        loop {
+            let (deadline, changed) = {
+                let device = device.borrow();
+                (device.next_deadline(), device.changed.listen())
+            };
+            if let Some(deadline) = deadline {
+                or(clock.sleep_until(deadline), changed).await;
+            } else {
+                changed.await;
             }
-        }));
-        pit.sync_to_clock();
-        pit.schedule_transition();
+            device.borrow_mut().sync_to_clock();
+            // Divisor 2 can leave every deadline overdue. Give the CPU a turn
+            // even then; elapsed edges still coalesce at the next synchronization.
+            yield_now().await;
+        }
     }
 }
 

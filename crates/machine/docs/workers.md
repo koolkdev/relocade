@@ -122,12 +122,10 @@ task.await??;
 Dropping a receive wait preserves its message. Dropping the sender lets the
 receiver drain accepted messages before returning `None`; dropping the receiver
 closes further sends. Browser object delivery still requires an event-loop turn
-on the receiver. `Receiver::with_executor` requests such a turn once Rust
+on the receiver. `Receiver::with_worker` registers a host dependency once Rust
 state confirms posting and the receiver is still waiting for its payload.
-Machine sessions check elapsed host time at guest checkpoints while delivery
-is pending. A standalone executor can use `Executor::with_host_timer` with an
-independently driven timer. Receivers on the same executor share the interval
-before a browser turn. [Compiler reply delivery](compilation.md#compiler-replies)
+The machine parks immediately when idle. While work is runnable, pending
+receivers share one grace interval before the machine yields to the browser. [Compiler reply delivery](compilation.md#compiler-replies)
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
 CPU construction. Retain `storage.interrupt_handle()`, send the storage through
@@ -175,7 +173,8 @@ Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
 `CpuHandle` startup does this automatically with its prepared CPU; callers attach
 local devices through `runner.cpu().io().connect` or `Dos::new`. `WakeConnection` retains the
-binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
+binding. The machine polls with `worker::WorkerWake` and waits on it when idle.
+A task wake both interrupts guest execution and queues the next poll.
 
 ## Browser build and lifetime
 

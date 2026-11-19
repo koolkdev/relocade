@@ -17,16 +17,6 @@ use std::{
 /// Use the supplied [`IoContext`] to forward I/O;
 /// host convenience methods acquire a separate stopped-runtime borrow.
 pub trait Device {
-    /// Attaches this device to its execution session after port and MMIO setup.
-    /// Timer-driven devices can install a [`crate::Alarm`] here. The default
-    /// starts the device's asynchronous activity and waits for its first poll.
-    fn attach(device: &Rc<RefCell<Self>>, runner: &crate::Runner) -> impl Future<Output = ()>
-    where
-        Self: Sized + 'static,
-    {
-        runner.spawn_activity(Self::run(device.clone()))
-    }
-
     /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
     /// Connection waits for the first poll, which installs this activity's wake
     /// path. Device state must already be initialized before connecting the device.

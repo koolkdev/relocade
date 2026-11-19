@@ -145,6 +145,11 @@ impl Cpu {
         None
     }
 
+    /// Guest instruction execution is waiting for an eligible IRQ or a host service.
+    pub(crate) fn is_blocked(&self) -> bool {
+        self.halted || self.pending.is_some()
+    }
+
     /// Runs guest instructions up to the next checkpoint, blocked handler, HLT,
     /// or exit. A caller's retirement limit still ends its foreground run when
     /// an interrupt and the machine's scheduling deadline coincide with it.
@@ -177,7 +182,7 @@ impl Cpu {
                 Ok(delivered) => delivered,
                 Err(exit) => break exit,
             };
-            if !guest_entered && (self.pending.is_some() || self.halted) {
+            if !guest_entered && self.is_blocked() {
                 return None;
             }
 

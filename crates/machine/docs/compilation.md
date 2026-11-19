@@ -100,7 +100,7 @@ holds one reply for the client. Once that slot is full, the activity waits for
 the client to consume it before receiving the next module.
 
 Sending a reply posts the module first and then publishes its Rust state, which
-wakes the activity. On a busy CPU this wake also requests a checkpoint.
+wakes the activity. On a busy CPU this wake also requests a checkpoint in interpreted or compiled code.
 In the browser, the Rust notification can arrive before the receiving worker's
 `MessagePort` callback has delivered the module.
 
@@ -110,8 +110,8 @@ WebAssembly compilation is pending, for example when installing BIOS hooks
 after the PIT and VGA have started.
 
 If the worker is idle, it returns to the browser immediately. While Rust work
-is runnable and a callback is pending, that work gets 1 ms of elapsed host
-time before the worker yields to the browser. The CPU returns at completed
+is runnable and a callback is pending, the machine scheduler gives that work
+1 ms of elapsed host time before yielding to the browser. The CPU returns at completed
 checkpoints so the worker can check the deadline between turns. A long guest
 block can overshoot it. Pending callbacks share this interval. After a browser
 turn, the worker resumes runnable work and retries if necessary. Completing

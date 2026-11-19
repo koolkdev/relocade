@@ -43,7 +43,7 @@ pub trait ClockSource {
     }
 
     /// Captures a local wait on the configured host timebase. Sources without
-    /// an active correspondence complete immediately.
+    /// a host clock complete immediately.
     fn sync_to_host(&self, _time: Timestamp) -> Sleep {
         Sleep::new(async {})
     }
@@ -101,20 +101,18 @@ impl Clock {
     }
 
     /// Waits for the host time corresponding to a timestamp from this clock.
-    /// CPU pacing and device output use the configured host timer on this owner.
+    /// Device output uses the configured host timer on this owner.
     /// Output tasks await this before publishing to another worker.
     ///
-    /// Host clocks use the timestamp unchanged. Paced guest clocks use the
-    /// current correspondence. A managed session keeps its mapping between CPU runs.
-    /// Unpaced guest clocks and unbound clocks complete immediately. The mapping
-    /// is captured when this method is called. The deadline stays fixed, including
-    /// across pauses and guest lag recovery.
-    /// Registration happens on first poll; elapsed deadlines need no timer.
+    /// A host clock uses the timestamp unchanged. A live guest clock maps the
+    /// interval remaining until the timestamp onto its host clock at the call.
+    /// Due frames, detached clocks and clocks without a host complete immediately.
+    /// A captured wait retains its deadline and registers on first poll.
     pub fn sync_to_host(&self, time: Timestamp) -> Sleep {
         self.source.sync_to_host(time)
     }
 
-    fn sleep_until_if_needed(&self, deadline: Timestamp) -> Sleep {
+    pub(crate) fn sleep_until_if_needed(&self, deadline: Timestamp) -> Sleep {
         let clock = self.clone();
         Sleep::new(async move {
             if clock.now() < deadline {

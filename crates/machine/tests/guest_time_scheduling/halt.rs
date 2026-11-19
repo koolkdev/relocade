@@ -30,9 +30,8 @@ impl Device for TimerIrq {
     }
 }
 
-async fn paced_halt() {
+async fn halt_with_cpu_limit() {
     let (host, mut armed, source) = host();
-    let host_time = host.clone();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
@@ -81,27 +80,80 @@ async fn paced_halt() {
             );
         },
     );
-    // The halted CPU advances idle guest time through the existing paced slices.
-    // No instructions retire while it waits for the timer IRQ at guest 10 ms.
-    for millis in [4, 8] {
-        let boundary = host_time.at(Duration::from_millis(millis));
-        assert_eq!(armed.next().await, Some(boundary));
-        host.advance_to(boundary);
-    }
+    // STI and HLT consumed two guest ticks. While the CPU is halted, the
+    // remaining eight ticks elapse at the device clock's nominal 1 kHz.
+    let device_timer = host.at(Duration::from_millis(8));
+    assert_eq!(armed.next().await, Some(device_timer));
+    host.advance_to(device_timer);
     assert_eq!(worker.join().await.unwrap(), Some(()));
-    assert_eq!(host.next_deadline(), None);
     assert_eq!(armed.next().await, None);
+    assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn halted_cpu_advances_paced_guest_time_until_a_timer_irq() {
-    pollster::block_on(paced_halt());
+fn halted_cpu_waits_directly_for_its_next_device_irq() {
+    pollster::block_on(halt_with_cpu_limit());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn halted_cpu_advances_paced_guest_time_until_a_timer_irq() {
-    paced_halt().await;
+async fn halted_cpu_waits_directly_for_its_next_device_irq() {
+    halt_with_cpu_limit().await;
+}
+
+async fn halted_at_instruction_limit() {
+    use futures_lite::future::poll_once;
+    use relocade_clock_test_support::ManualClock;
+    use relocade_machine::{worker::wake_connection, GuestTimeConfig};
+
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let cpu = machine.create_cpu(setup.cpu, None).unwrap();
+    let (_host, endpoint) = wake_connection(cpu.interrupt_handle());
+    let host = ManualClock::new();
+    let timing = GuestTimeConfig::new(NonZeroU64::new(1_000).unwrap())
+        .with_cpu_limit(NonZeroU64::new(250).unwrap(), host.clock());
+    let runner = Runner::with_guest_time(timing, cpu, endpoint)
+        .await
+        .unwrap();
+    runner.memory().view().write(0x100, &[0xf4]).unwrap(); // HLT.
+    let mut session = pin!(
+        runner.run(std::future::pending::<()>(), async |mut runner| {
+            let state = runner.cpu().cpu_state();
+            let exit = runner.cpu().exit_handle();
+            let clock = runner.clock().clone();
+            runner
+                .spawn_activity(async move {
+                    clock.sleep(Duration::from_millis(2)).await;
+                    assert_eq!(state.instruction_count(), 1);
+                    exit.request();
+                })
+                .await;
+            runner.run_cpu().await
+        })
+    );
+
+    // HLT retires the entire one-instruction allowance. The device has one
+    // millisecond left on its guest timer. The CPU's next credit is at 4 ms.
+    assert!(poll_once(session.as_mut()).await.is_none());
+    host.advance_by(Duration::from_millis(1));
+    assert_eq!(
+        poll_once(session.as_mut()).await,
+        Some(Some(ExecutionExit::Host(HostExit::Return))),
+    );
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_halted_cpu_at_its_limit_allows_an_earlier_device_deadline() {
+    pollster::block_on(halted_at_instruction_limit());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_halted_cpu_at_its_limit_allows_an_earlier_device_deadline() {
+    halted_at_instruction_limit().await;
 }

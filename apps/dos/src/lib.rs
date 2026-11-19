@@ -3,24 +3,33 @@
 
 use futures_channel::oneshot;
 use futures_lite::future::or;
+use std::num::NonZeroU32;
 
 mod console;
+mod options;
 pub use console::run_console;
 
 /// Opens the Rust DOS console using the shared application host.
 /// Native execution returns after cleanup; browser startup returns immediately.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn run() -> Result<(), String> {
-    run_with_configuration(relocade_dos::Configuration::default())
+    open_console(relocade_dos::Configuration::default(), options::max_mips()?)
 }
 
 /// Opens the console with the selected PC hardware.
 /// This Rust entrypoint shares the lifecycle of [`run`], including host audio.
 pub fn run_with_configuration(configuration: relocade_dos::Configuration) -> Result<(), String> {
+    open_console(configuration, None)
+}
+
+fn open_console(
+    configuration: relocade_dos::Configuration,
+    max_mips: Option<NonZeroU32>,
+) -> Result<(), String> {
     relocade_app::run_app("Relocade DOS", move |app| async move {
         let compiler =
             relocade_machine::CompilerService::start().map_err(|error| error.to_string())?;
-        let result = run_machine(app, &compiler, configuration).await;
+        let result = run_machine(app, &compiler, configuration, max_mips).await;
         compiler
             .shutdown()
             .await
@@ -33,6 +42,7 @@ async fn run_machine(
     mut app: relocade_app::AppHost,
     compiler: &relocade_machine::CompilerService,
     configuration: relocade_dos::Configuration,
+    max_mips: Option<NonZeroU32>,
 ) -> Result<(), String> {
     let output = app.open_audio().ok();
     let (endpoints, ready) = oneshot::channel();
@@ -50,7 +60,8 @@ async fn run_machine(
             return Err(error.to_string());
         }
     };
-    let execution = cpu.run_until(
+    let execution = cpu.run_until_with_guest_time(
+        move |host| relocade_dos::configuration::guest_time(host, max_mips),
         async {
             app_result = or(closing, async {
                 let (keyboard, mouse, frames) = ready

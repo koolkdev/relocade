@@ -29,7 +29,7 @@ the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
 `Pit::initialize(runner, &pic).await` creates the execution-owned
-device on the runner's clock, connects its registers and arms channel 0's alarm.
+device on the runner's clock, connects its registers and starts its activity.
 It returns the shared PIT. It owns byte transfers at
 channel 0 (0x40), channel 2 (0x42) and control/read-back (0x43). Channel 1 (0x41)
 and wider transfers are unsupported: writes are ignored and reads return open bus.
@@ -40,9 +40,10 @@ connects IRQ0 at OUT0's starting level without creating an edge. The first
 IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
 configuration; pending divisor loads follow the same mode-specific rules as channel 2.
 
-The PIT arms one alarm for its next OUT0 transition. A guest write to channel 0
-first accounts for elapsed ticks, then updates or disarms the same alarm.
-The PIT drives the PIC's IRQ0 level and preserves one rising edge when a late alarm spans many
+Channel-0 port writes advance the counter to the current clock reading before
+changing its configuration. The PIT activity waits for the next output transition
+or for a programming change that replaces this wait. It drives the PIC's
+IRQ0 level and preserves one pending rising edge when a delayed wake spans many
 periods. Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
 because an obsolete wait completed. BIOS keeps its handler, tick data, midnight
 rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing the

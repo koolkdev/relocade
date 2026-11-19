@@ -1,6 +1,6 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::{Executor, HostTurns, SendTask, Transfer, WakeTarget};
+use crate::{HostTurns, SendTask, Transfer, WakeTarget, WorkerWake};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 use std::{
@@ -160,11 +160,11 @@ impl<T: Transfer> Sender<T> {
 }
 
 impl<T: Transfer> Receiver<T> {
-    /// Binds posted-object receipt to this executor's host-turn policy.
-    /// Poll receives inside its root future. Empty channels and already delivered
+    /// Tracks posted-object receipt as a host dependency of this worker.
+    /// Poll receives on the worker. Empty channels and already delivered
     /// payloads request no host turn; cancelling receipt preserves the message.
-    pub fn with_executor<R: WakeTarget>(mut self, executor: &Executor<R>) -> Self {
-        self.deliveries = Some(executor.host_turns());
+    pub fn with_worker<R: WakeTarget>(mut self, worker: &WorkerWake<R>) -> Self {
+        self.deliveries = Some(worker.host_turns());
         self
     }
 

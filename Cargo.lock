@@ -2556,6 +2556,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "web-sys",
  "x11rb",
 ]
 
@@ -2694,7 +2695,9 @@ dependencies = [
 name = "relocade-pit"
 version = "0.0.0"
 dependencies = [
+ "event-listener",
  "futures-channel",
+ "futures-lite",
  "pollster 1.0.1",
  "relocade-clock-test-support",
  "relocade-machine",
@@ -2707,6 +2710,7 @@ dependencies = [
 name = "relocade-ps2"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
  "event-listener",
  "futures-util",
  "pollster 1.0.1",
@@ -2833,7 +2837,6 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-thread-select",
- "web-time",
 ]
 
 [[package]]

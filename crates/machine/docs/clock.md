@@ -31,13 +31,9 @@ returns native progress without any duration conversion. `duration_between(start
 end)` measures a single interval in whole nanoseconds, returning zero for reversed
 readings; its checked form returns `None` instead.
 
-The PIT advances its counters to a native reading when its alarm fires.
-It then replaces the alarm with the next OUT0 transition:
-
-```rust,ignore
-pit.advance_to(clock.now());
-alarm.replace(pit.next_deadline());
-```
+The PIT advances its counters when a port access reads or reprograms them and
+when its guest deadline expires. Its activity waits for the next OUT0 transition
+or a programming change, then computes the next deadline from the counter state.
 
 PIT and VGA multiply elapsed native ticks by their oscillator rate, divide by the
 native tick rate, and retain the division remainder in device state. They convert
@@ -85,8 +81,8 @@ use native differences only with the matching `TickRate`. `Clock::new(source)` c
 behind the common consumer API. `Sleep::new(future)` owns its wait state.
 
 Sources preserve monotonic readings and first-poll registration/drop cancellation.
-Host sources progress independently of execution; guest sources advance with
-published CPU retirement or controlled idle advancement. Host pacing uses
+Host sources progress independently of execution. Guest sources advance with
+published CPU retirement or controlled idle advancement. Output can await
 `sync_to_host(timestamp)` without moving guest time or changing device deadlines.
 
 `Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
@@ -172,82 +168,56 @@ when both are due at the same checkpoint.
 
 ## Execution with guest time
 
-`cpu.spawn_with_guest_time(make_time, session)` constructs a
-`GuestTimeConfig` on the execution owner. `GuestTimeConfig::new(rate)` selects
-unpaced guest time and device deadlines only. `with_slice_duration(duration)`
-adds execution slices measured in guest time. At a slice boundary, ready activities
-get a turn before execution continues. `with_host_clock(clock)` also waits for the
-corresponding host time and defaults to 4 ms slices unless a duration was supplied.
-The slice duration must be positive; either builder-call order uses the supplied
-duration. The host clock is constructed in the factory.
-The lower-level `Runner::with_guest_time` takes the same configuration directly.
+`GuestTimeConfig::new(guest_rate)` sets the number of retired instructions per
+guest second. The DOS launcher sets the rate to one million and supplies this
+clock to the PIT, VGA and PS/2. Each thousand instructions represent one
+millisecond on their timeline. `with_cpu_limit(max_instructions_per_second,
+host_clock)` optionally caps how many instructions retire per *host* second.
 
-```rust
+```rust,ignore
 let cpu = machine.create_cpu(cpu_config, None)?;
-let worker = cpu.spawn_with_guest_time(
-    move || GuestTimeConfig::new(instructions_per_second)
-        .with_slice_duration(Duration::from_millis(4))
-        .with_host_clock(host_timers.clock()),
-    async |runner| {
-        // Devices receive runner.clock(); the host timer service runs alongside
-        // this worker and binds its wake peer.
+let result = cpu.run_until_with_guest_time(
+    move |host_clock| GuestTimeConfig::new(guest_rate)
+        .with_cpu_limit(max_instructions_per_second, host_clock),
+    stop,
+    async |mut runner| {
+        // Configure the guest CPU and connect devices to runner.clock().
+        runner.run_cpu().await
     },
-);
+).await?;
 ```
 
-`Runner::run` owns the guest clock binding for the whole session.
-`run_cpu().await` makes the machine runnable and waits for an exit. When guest
-execution returns to the scheduler, it publishes retirement and wakes due
-sleepers. Each sleeper keeps the waker of the task currently polling it. A
-device deadline can expire while the application is waiting at the DOS prompt,
-as well as during execution of a program. Session shutdown releases the clock
-binding and its pacing wait. [Worker scheduling](worker-execution.md#event-loop-scheduling)
+The host-timed entry point owns the timer service for the session.
+`cpu.spawn_with_guest_time(make_time, session)` accepts a guest configuration
+factory when the embedding owns that service. `Runner::with_guest_time` accepts
+the configuration directly. `with_host_clock(host_clock)` supplies a host clock
+for idle device deadlines and output presentation without setting a CPU limit.
 
-The private `ExecutionSlice` owns one retained boundary for cooperative yields
-and host pacing. The next CPU stop is the earlier of that boundary and the next
-device deadline. Device timers and execution notifications leave the boundary
-unchanged. Crossing it carries checkpoint overshoot forward on the same slice
-grid. With no configured slice, the scheduler does not sample the clock to choose
-a periodic execution deadline. Devices use the same `Clock` API in either mode;
-the guest time driver has no CPU execution or yield callback.
+`run_cpu().await` makes the CPU runnable and waits for its exit. The scheduler
+arms guest execution for the earliest registered device deadline. An optional
+`with_slice_duration(duration)` adds periodic checkpoints measured in guest time.
+A positive duration sets the interval. Instruction blocks can overshoot a
+checkpoint. Both the interpreter and compiled code publish retirement when
+execution returns to Rust. A device sleep registers its own activity's waker.
+[Worker scheduling](worker-execution.md#event-loop-scheduling)
 
-Unpaced idle execution advances directly to the next device deadline, even if
-it skips slice boundaries. Paced idle advancement stops at the earlier of that
-deadline and the current slice boundary. A slice alone never causes idle time
-to advance when there are no registered sleeps.
+### CPU limits and idle device deadlines
 
-### Slices paced by a host clock
+The CPU limit accounts for retired instructions. It lets guest execution proceed
+in short bursts and waits for the corresponding absolute host time before
+allowing more instructions. Rust services, device tasks and cancellation can run
+while CPU entry is waiting. Sending a new CPU request leaves the current
+retirement allowance in effect.
 
-Host waits use a separate host `Clock` constructed from `TimerHandle` on the
-execution owner. `HostTimerDriver::spawn_with_peer` binds direct notifications so
-host deadlines can wake services while guest execution stays runnable.
-
-At the slice boundary, Runner waits for the corresponding absolute host time.
-Checkpoint overshoot is included in that wait and shortens the next slice.
-Late host wakes preserve the slice grid and each intervening device deadline;
-guest time never jumps directly to the current host time. Devices and the CPU
-receive execution opportunities between deadlines; IRQ acceptance still depends
-on guest interrupt state. A slice can contain several PIT deadlines without
-requiring a host wait for every transition.
-
-At stopped boundaries, the clock driver compares host time with the mapped guest
-time. Lag of at most 20 ms can catch up without pacing sleeps. Beyond 20 ms, the
-driver shifts the host correspondence forward by whole nanoseconds of lag,
-retaining any fraction in the correspondence. This treats a long host stall as a
-pause without skipping guest execution or device deadlines. The tolerance is
-fixed independently of the configured slice duration. Guest time, fractional retirement, instruction
-rate and the slice grid do not change. Future CPU and output waits use the new
-correspondence; already-created host waits retain their deadlines.
-
-An execution notification makes ready activities pollable while preserving the
-current allowance. Ready host services and exit requests can progress during a
-pacing wait, but guest calls, IRQ entry and instruction dispatch need execution
-credit. Replacing a device timer does not replace the pacing wait or grant time.
-
-Completing or cancelling a CPU request stops instruction execution. The
-session retains the current slice boundary, device deadlines and host/guest
-correspondence between requests. Idle advances preserve the CPU's instruction
-count. New CPU requests use the remaining slice credit.
+When the CPU is halted, waiting for a Rust service, or between programs, the
+scheduler lets ready Rust work run before advancing to the next device
+deadline. A deterministic session can advance guest time directly to that
+deadline. A session with a host clock waits for the remaining duration at the
+device clock's nominal rate. If Rust work becomes ready, the scheduler can
+reconsider the deadline. A late host wake advances guest time to the device
+deadline that woke it. The next idle interval starts at the current host time.
+Idle advancement retires zero CPU instructions. An idle machine with no guest
+deadline parks until an external wake.
 
 ### Live input and output
 
@@ -255,25 +225,18 @@ Live keyboard and mouse events arrive at the execution owner without timestamps.
 Each device processes its events in order. Keyboard repeat and mouse sampling
 use the device clock.
 
-For output, the device's async task awaits the
-ordinary local `Sleep` returned by `clock.sync_to_host(time)` before publishing
-to another worker:
+A device can await `clock.sync_to_host(output_time)` before publishing a frame
+or audio block. If the guest has already reached `output_time`, the frame or
+block is ready for immediate delivery. For a future timestamp, a bound guest
+clock measures the remaining interval at the nominal guest rate and adds it
+to the current host time. For example, at guest time 7 ms and host time 100 ms,
+requesting presentation for guest time 9 ms creates a host deadline of 102 ms.
+That sleep keeps its deadline if the guest later runs ahead or pauses.
 
-```rust,ignore
-clock.sync_to_host(output_time).await;
-```
-
-CPU pacing uses this same operation. The wait retains the mapped deadline and
-the configured host clock. It uses that clock's ordinary `sleep_until`, including
-the dedicated timer service's native and browser waits. Registration happens on
-first poll, cancellation releases the timer, and elapsed deadlines complete
-without registering one. Clocks and waits remain on their execution owner.
-
-The mapping is captured when `sync_to_host` is called, so later pauses or lag
-recovery cannot remap that wait. Passing a timestamp to a task uses the mapping
-when the task processes it. Host-clock output uses the same timestamp; unpaced guest
-clocks and unbound guest clocks produce an immediately ready wait. Keep the host timer
-service alive while execution-owner tasks use it.
+An unbound guest clock or one configured without a host clock returns an
+immediately ready wait. A host clock uses the supplied timestamp directly.
+The host timer service registers each pending sleep on first poll and releases
+it on cancellation. Keep the service alive while presentation waits use it.
 
 ## Host timers
 

@@ -78,20 +78,20 @@ async fn connected_before_startup() {
             io.write_port(0x81, 1, 0x22);
             assert_eq!(io.read_port(0x80, 1), 0x22);
 
-            runner
-                .connect(Rc::new(RefCell::new(Adjacent)), |io| {
-                    io.bind_mmio(
-                        0x2001..=0x2001,
-                        &MmioRead::new(|_, _, _| 0x33),
-                        &MmioWrite::new(|_, _, _, _| {}),
-                    );
-                    io.bind(
-                        0x82,
-                        &relocade_machine::PortRead::new(|_, _, _| 0x44),
-                        &relocade_machine::PortWrite::new(|_, _, _, _| {}),
-                    );
-                })
-                .await;
+            io.connect(Rc::new(RefCell::new(Adjacent)), |io| {
+                io.bind_mmio(
+                    0x2001..=0x2001,
+                    &MmioRead::new(|_, _, _| 0x33),
+                    &MmioWrite::new(|_, _, _, _| {}),
+                );
+                io.bind(
+                    0x82,
+                    &relocade_machine::PortRead::new(|_, _, _| 0x44),
+                    &relocade_machine::PortWrite::new(|_, _, _, _| {}),
+                );
+            });
+            assert_eq!(device.borrow().polls, 1);
+            relocade_machine::yield_now().await;
             assert_eq!(device.borrow().polls, 2);
             assert_eq!(io.read_mmio(0x2000, 2), 0x3322);
             assert_eq!(io.read_port(0x82, 1), 0x44);

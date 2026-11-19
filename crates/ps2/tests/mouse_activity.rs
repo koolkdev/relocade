@@ -65,7 +65,7 @@ async fn connected_mouse_and_keyboard() {
     let (runner, _host, machine) = common::runner(clock.clock()).await;
     let result = runner
         .run(pending::<()>(), async |runner| {
-            let pic = Pic::initialize(&runner).await;
+            let pic = Pic::initialize(&runner);
             for irq in [KEYBOARD_IRQ, CASCADE_IRQ, MOUSE_IRQ] {
                 pic.unmask_irq(irq);
             }
@@ -156,7 +156,7 @@ async fn queued_mouse_input() {
     assert_eq!(
         runner
             .run(pending::<()>(), async |runner| {
-                let pic = Pic::initialize(&runner).await;
+                let pic = Pic::initialize(&runner);
                 for irq in [CASCADE_IRQ, MOUSE_IRQ] {
                     pic.unmask_irq(irq);
                 }

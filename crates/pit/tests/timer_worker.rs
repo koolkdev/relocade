@@ -88,7 +88,7 @@ async fn timer_interrupts() -> Result<(), String> {
     let worker_host_busy = host_busy.clone();
     let (machine, prepared) = machine_and_cpu();
     let worker = prepared.spawn(clock, async move |mut runner| {
-        let pic = Pic::initialize(&runner).await;
+        let pic = Pic::initialize(&runner);
         let _pit = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
             clock: runner.clock().clone(),
@@ -207,7 +207,7 @@ async fn reprogram_separate_clock() {
         || ManualClock::new().clock(),
         async |runner| {
             let clock = ManualClock::new();
-            let pic = Pic::initialize(&runner).await;
+            let pic = Pic::initialize(&runner);
             let pit = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
             runner
                 .connect(pit.clone(), |io| Pit::configure_io(io, &pit))
@@ -222,30 +222,25 @@ async fn reprogram_separate_clock() {
             io.write_port(CONTROL_PORT, 1, 0x34);
             io.write_port(CHANNEL_0_PORT, 1, 4);
             io.write_port(CHANNEL_0_PORT, 1, 0);
-            assert_eq!(
-                clock.next_deadline(),
-                Some(clock.at(Duration::from_nanos(839)))
-            );
             clock.advance_to(clock.at(Duration::from_nanos(3_353))); // Load and OUT low.
             relocade_machine::yield_now().await;
-            assert_eq!(
-                clock.next_deadline(),
-                Some(clock.at(Duration::from_nanos(4_191)))
-            );
             assert!(io
                 .poll_interrupt(&mut Context::from_waker(Waker::noop()))
                 .is_pending());
 
             clock.advance_to(clock.at(Duration::from_nanos(4_191))); // First rising edge.
-            relocade_machine::yield_now().await;
-            assert_eq!(io.read_port(relocade_pic::COMMAND_PORT, 1) & 1, 1);
-            // Disarming the PIT preserves the request already latched in the PIC.
+            assert_eq!(std::future::poll_fn(|cx| io.poll_interrupt(cx)).await, 8);
+            relocade_pic::end_of_interrupt(&io, relocade_pic::TIMER_IRQ);
+
+            // A control write at the next rising edge accounts for elapsed ticks
+            // before it stops the counter. The PIC retains that final request.
+            clock.advance_to(clock.at(relocade_pit::time_at(9)));
             io.write_port(CONTROL_PORT, 1, 0x30);
-            assert_eq!(clock.next_deadline(), None);
             let mut cx = Context::from_waker(Waker::noop());
             assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
             relocade_pic::end_of_interrupt(&io, relocade_pic::TIMER_IRQ);
             clock.advance_by(Duration::from_secs(1));
+            relocade_machine::yield_now().await;
             assert!(io.poll_interrupt(&mut cx).is_pending());
             io.write_port(CONTROL_PORT, 1, 0x36); // Control forces OUT high.
             assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
@@ -257,12 +252,12 @@ async fn reprogram_separate_clock() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn reprogramming_channel_zero_replaces_the_alarm_on_its_own_clock() {
+fn reprogrammed_channel_zero_delivers_irq0_on_its_own_clock() {
     pollster::block_on(reprogram_separate_clock());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn reprogramming_channel_zero_replaces_the_alarm_on_its_own_clock() {
+async fn reprogrammed_channel_zero_delivers_irq0_on_its_own_clock() {
     reprogram_separate_clock().await;
 }

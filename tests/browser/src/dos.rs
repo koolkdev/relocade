@@ -52,7 +52,8 @@ pub async fn dos_workers() -> Result<(), String> {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let execution = prepared.spawn(clock, async move |runner| {
+    let time = move || relocade_dos::configuration::guest_time(clock.into(), None);
+    let execution = prepared.spawn_with_guest_time(time, async move |runner| {
         let mut dos = Dos::with_configuration(
             runner,
             Configuration {

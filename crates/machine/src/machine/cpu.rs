@@ -72,12 +72,22 @@ impl CpuHandle {
         stop: impl Future,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Result<Option<T>> {
-        let (handle, timers) = timer_service();
-        let execution = self.spawn(handle, session);
-        let timers = timers.spawn_with_peer(execution.wake_peer());
-        let result = execution.run_until(stop).await;
-        timers.stop().await?;
-        result
+        run_with_timers(|handle| self.spawn(handle, session), stop).await
+    }
+
+    /// Runs a guest-time session with a host clock available for presentation or a CPU limit.
+    /// The clock and guest-time configuration are constructed on the execution owner.
+    pub async fn run_until_with_guest_time<T: Send + 'static>(
+        self,
+        make_time: impl FnOnce(Clock) -> GuestTimeConfig + Send + 'static,
+        stop: impl Future,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
+    ) -> Result<Option<T>> {
+        run_with_timers(
+            |handle| self.spawn_with_guest_time(move || make_time(handle.into()), session),
+            stop,
+        )
+        .await
     }
 
     /// Transfers this CPU to an execution worker using the supplied host timers.
@@ -115,4 +125,16 @@ impl CpuHandle {
             session,
         )
     }
+}
+
+async fn run_with_timers<T: Send + 'static>(
+    spawn: impl FnOnce(TimerHandle) -> ExecutionWorker<T>,
+    stop: impl Future,
+) -> Result<Option<T>> {
+    let (handle, timers) = timer_service();
+    let execution = spawn(handle);
+    let timers = timers.spawn_with_peer(execution.wake_peer());
+    let result = execution.run_until(stop).await;
+    timers.stop().await?;
+    result
 }
