@@ -59,13 +59,15 @@ impl CompilerClient {
         self.submit(target, Compilation::Blocks(blocks))
     }
 
-    /// Queues clean real-mode function candidates for one shared module. Callees
-    /// are not followed. Keep code, mappings and each entry's CS addressing stable;
-    /// candidates must have no interior host hooks or registered execution boundaries.
-    /// Discovery failures omit individual functions. If none produce blocks, the
-    /// first discovery error is returned, or an empty module for unreadable entries.
-    /// Errors building the shared module fail the request.
-    /// Results use the same ordered stream and explicit installation as block requests.
+    /// Queues guest functions for compilation into one module. Each requested
+    /// entry is a root for block discovery. Discovery follows branches and call
+    /// continuations, and shares blocks across roots. Request a callee by its
+    /// entry to include it in the batch.
+    /// Keep code, mappings and CS addressing stable. Discovered blocks must have
+    /// no interior host hooks or other registered execution boundaries.
+    /// Rejected roots leave earlier discoveries intact. If no root yields blocks,
+    /// the result reports the first discovery error, or is empty for unreadable roots.
+    /// Receive and install the result in the same way as an explicit block request.
     pub fn request_functions(
         &self,
         target: ExecutionTarget,

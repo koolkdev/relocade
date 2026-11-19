@@ -1,4 +1,4 @@
-use crate::{ConfigurationError, MemoryError};
+use crate::{ConfigurationError, DiscoveryError, MemoryError};
 use relocade_compiler::BuildError;
 use std::fmt;
 
@@ -6,6 +6,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum Error {
     Generate(BuildError),
+    Discovery(DiscoveryError),
     Compile(relocade_x86::BlockError),
     Configuration(ConfigurationError),
     Memory(MemoryError),
@@ -21,6 +22,7 @@ impl fmt::Display for Error {
         match self {
             Self::Generate(error) => write!(f, "generate execution module: {error}"),
             Self::Compile(error) => error.fmt(f),
+            Self::Discovery(error) => error.fmt(f),
             Self::Configuration(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::Wasm(error) => error.fmt(f),
@@ -41,6 +43,7 @@ impl std::error::Error for Error {
         match self {
             Self::Generate(error) => Some(error),
             Self::Compile(error) => Some(error),
+            Self::Discovery(error) => Some(error),
             Self::Configuration(error) => Some(error),
             Self::Memory(error) => Some(error),
             Self::Wasm(error) => Some(error),
@@ -60,6 +63,12 @@ impl From<BuildError> for Error {
 impl From<relocade_x86::BlockError> for Error {
     fn from(error: relocade_x86::BlockError) -> Self {
         Self::Compile(error)
+    }
+}
+
+impl From<DiscoveryError> for Error {
+    fn from(error: DiscoveryError) -> Self {
+        Self::Discovery(error)
     }
 }
 

@@ -63,11 +63,10 @@ impl ExecutionModule {
         &self,
         entries: BTreeMap<u32, Func>,
         call_sites: BTreeMap<u32, u32>,
-        local_calls: bool,
     ) -> Self {
         Self {
             entries: Arc::new(entries),
-            call_links: Arc::new(self.call_links.with_sites(call_sites, local_calls)),
+            call_links: Arc::new(self.call_links.with_sites(call_sites)),
             ..self.clone()
         }
     }

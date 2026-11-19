@@ -174,11 +174,21 @@ fn a20_aliases_and_enabled_high_memory_use_the_same_backing() {
 }
 
 #[test]
-fn segment_transfers_check_the_whole_span_before_copying() {
+fn segment_limits_bound_full_transfers_and_code_prefixes() {
+    // Map both sides of 0100:FFFF and the address a 16-bit offset would wrap to.
     let map = PhysicalMemoryMap::new([
-        (0xf000..=0xffff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (
+            0x1000..=0x1fff,
+            PhysicalMapping::Ram {
+                backing_offset: 0x2000,
+            },
+        ),
         (
             0x10000..=0x10fff,
+            PhysicalMapping::Ram { backing_offset: 0 },
+        ),
+        (
+            0x11000..=0x11fff,
             PhysicalMapping::Ram {
                 backing_offset: 0x1000,
             },
@@ -187,8 +197,15 @@ fn segment_transfers_check_the_whole_span_before_copying() {
     .unwrap();
     let backing = allocate(map);
     let mut memory = backing.view();
-    let ds = SegmentRegister::real_mode(Segment::Ds, 0);
-    memory.write(0xfffe, b"ABCD").unwrap();
+    let ds = SegmentRegister::real_mode(Segment::Ds, 0x100);
+    memory.write(0x10ffe, b"ABCD").unwrap();
+    let cs = SegmentRegister::real_mode(Segment::Cs, 0x100);
+    let mut reader = backing.code_reader();
+    let mut prefix = [0x55; 4];
+    assert_eq!(reader.read_segment_prefix(&cs, 0xfffe, &mut prefix), 2);
+    assert_eq!(prefix, [b'A', b'B', 0x55, 0x55]);
+    assert_eq!(reader.read_segment_prefix(&cs, 0x10000, &mut prefix), 0);
+    assert_eq!(prefix, [b'A', b'B', 0x55, 0x55]);
     for offset in [0xffff, 0x10000, u32::MAX] {
         let mut bytes = [0x55; 2];
         assert_eq!(
@@ -202,12 +219,12 @@ fn segment_transfers_check_the_whole_span_before_copying() {
         );
     }
     let mut bytes = [0; 4];
-    memory.read(0xfffe, &mut bytes).unwrap();
+    memory.read(0x10ffe, &mut bytes).unwrap();
     assert_eq!(&bytes, b"ABCD");
     memory.read_segment(&ds, 0xffff, &mut bytes[..1]).unwrap();
     assert_eq!(bytes[0], b'B');
     memory.write_segment(&ds, 0xfffe, b"XY").unwrap();
-    memory.read(0xfffe, &mut bytes).unwrap();
+    memory.read(0x10ffe, &mut bytes).unwrap();
     assert_eq!(&bytes, b"XYCD");
     memory.read_segment(&ds, 0xffff, &mut []).unwrap();
     memory.write_segment(&ds, 0xffff, &[]).unwrap();

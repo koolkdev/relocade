@@ -4,17 +4,19 @@ mod client;
 mod code;
 pub use code::{CompiledCode, Description};
 mod connection;
+mod discovery;
 mod service;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
+pub use discovery::{DiscoveryError, DiscoveryLimits};
 pub use service::CompilerService;
 
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
-    BlockSnapshot, CodeAddress, ExecutionProfile, ExecutionTarget, FunctionLimits,
-    SegmentDefaultSize,
+    BlockSnapshot, CodeAddress, DecodedBlock, ExecutionProfile, ExecutionTarget, Segment,
+    SegmentDefaultSize, SegmentRegister,
 };
 
 /// One real-mode CS:IP and the bounds of the bytes to capture at that address.
@@ -26,13 +28,12 @@ pub struct BlockRequest {
     pub instruction_limit: u32,
 }
 
-/// One clean real-mode function candidate. Its blocks are discovered by x86 on
-/// the compiler service, without reading code on the submitting CPU.
-/// Interior host hooks and mutable code require separate admission/invalidation.
+/// A real-mode guest function entry to compile.
+/// The limits bound the new instructions and bytes discovered from this entry.
 #[derive(Clone, Copy, Debug)]
 pub struct FunctionRequest {
     pub entry: FarPointer,
-    pub limits: FunctionLimits,
+    pub limits: DiscoveryLimits,
 }
 
 /// Successes and errors occupy the same ordered channel message.
@@ -94,46 +95,55 @@ async fn compile(
             x86.compile_blocks_with(&snapshots, jobs).await?
         }
         connection::Compilation::Functions(requests) => {
-            let mut module = x86.function_module();
-            let mut has_blocks = false;
-            let mut first_error = None;
-            for request in requests {
-                let base = request.entry.segment_base();
-                match module.add_function(
-                    request.entry.into(),
-                    SegmentDefaultSize::Bits16,
-                    request.limits,
-                    |eip, buffer| {
-                        let len = buffer.len().min(0x10000_u32.saturating_sub(eip) as usize);
-                        if len == 0 {
-                            return 0;
-                        }
-                        reader.read_prefix(base + eip, &mut buffer[..len])
-                    },
-                ) {
-                    Ok(entries) => has_blocks |= !entries.is_empty(),
-                    Err(error) => {
-                        first_error.get_or_insert(error);
-                    }
-                }
-            }
-            if !has_blocks {
-                if let Some(error) = first_error {
-                    return Err(error.into());
-                }
-            }
-            module.compile_with(jobs).await?
+            let blocks = discover_functions(target, requests, &mut reader)?;
+            x86.compile_decoded_blocks_with(blocks, jobs).await?
         }
     };
-    let source = reader.finish(blocks.entries.iter().map(|block| {
-        let CodeAddress::RealMode { segment, eip } = block.address else {
-            unreachable!("the machine supplies a real-mode CS for every entry")
-        };
-        ((u32::from(segment) << 4).wrapping_add(eip), block.byte_len)
-    }));
+    let source = reader.finish(
+        blocks
+            .spans
+            .iter()
+            .map(|&(address, len)| (code_segment(address).base + address.eip(), len)),
+    );
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
         blocks,
         source,
     ))
+}
+
+/// Plan a batch over the worker's retained snapshots. A rejected candidate
+/// leaves other roots eligible, including their shared continuations.
+pub(crate) fn discover_functions(
+    target: ExecutionTarget,
+    requests: impl IntoIterator<Item = FunctionRequest>,
+    reader: &mut crate::memory::code::CodeReader<'_>,
+) -> Result<Vec<DecodedBlock>> {
+    let mut discovery = discovery::BlockDiscovery::new(target, |address, bytes| {
+        reader.read_segment_prefix(&code_segment(address), address.eip(), bytes)
+    });
+    let mut first_error = None;
+    for request in requests {
+        if let Err(error) = discovery.add_root(
+            request.entry.into(),
+            SegmentDefaultSize::Bits16,
+            request.limits,
+        ) {
+            first_error.get_or_insert(error);
+        }
+    }
+    let blocks = discovery.finish()?;
+    if blocks.is_empty() {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+    }
+    Ok(blocks)
+}
+
+fn code_segment(address: CodeAddress) -> SegmentRegister {
+    let CodeAddress::RealMode { segment, .. } = address else {
+        unreachable!("the machine supplies a real-mode CS for every entry")
+    };
+    SegmentRegister::real_mode(Segment::Cs, segment)
 }

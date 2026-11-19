@@ -3,7 +3,6 @@
 mod address;
 mod block;
 mod dispatch;
-mod function;
 
 pub use address::CodeAddress;
 pub use block::{
@@ -11,7 +10,6 @@ pub use block::{
     BlockSnapshot, CompiledBlocks, DecodedBlock,
 };
 pub use dispatch::EntryTable;
-pub use function::{FunctionLimits, FunctionModule};
 
 use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
 

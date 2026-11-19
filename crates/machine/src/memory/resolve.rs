@@ -1,6 +1,23 @@
 use super::{range_fits, MemoryError};
 use crate::IoBus;
-use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{PhysicalMapping, PhysicalMemoryMap, SegmentRegister};
+
+/// Bytes from this offset through the segment's inclusive limit.
+pub(super) fn segment_remaining(
+    segment: &SegmentRegister,
+    offset: u32,
+) -> Result<u64, MemoryError> {
+    (u64::from(segment.limit) + 1)
+        .checked_sub(u64::from(offset))
+        .ok_or(MemoryError::SegmentRange)
+}
+
+pub(super) fn linear_address(segment: &SegmentRegister, offset: u32) -> Result<u32, MemoryError> {
+    segment
+        .base
+        .checked_add(offset)
+        .ok_or(MemoryError::AddressRange)
+}
 
 pub(super) struct Span {
     pub(super) mapping: PhysicalMapping,

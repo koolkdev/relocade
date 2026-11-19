@@ -2,7 +2,11 @@ mod io;
 mod read;
 mod write;
 
-use super::{range_fits, resolve::Spans, Memory, MemoryError};
+use super::{
+    range_fits,
+    resolve::{linear_address, segment_remaining, Spans},
+    Memory, MemoryError,
+};
 use crate::{IoBus, IoContext, MachineConfig};
 use io::Routing;
 use relocade_wasm_runtime::{MemoryAccess, WasmSharedMemory};
@@ -57,13 +61,10 @@ impl<'a> MemoryView<'a> {
 }
 
 fn segment_address(segment: &SegmentRegister, offset: u32, len: usize) -> Result<u32, MemoryError> {
-    if !range_fits(offset, len, u64::from(segment.limit) + 1) {
+    if len as u64 > segment_remaining(segment, offset)? {
         return Err(MemoryError::SegmentRange);
     }
-    segment
-        .base
-        .checked_add(offset)
-        .ok_or(MemoryError::AddressRange)
+    linear_address(segment, offset)
 }
 
 #[cfg(test)]
