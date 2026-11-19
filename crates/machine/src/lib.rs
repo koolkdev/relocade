@@ -56,8 +56,8 @@ mod scheduler;
 extern crate self as relocade_machine;
 
 pub use clock::{
-    timer_service, Clock, ClockSource, GuestTimeDriver, HostTimerDriver, Instant, Schedule, Sleep,
-    TickRate, TimerHandle, Timestamp,
+    timer_service, Clock, ClockSource, HostTimerDriver, Instant, Schedule, Sleep, TickRate,
+    TimerHandle, Timestamp,
 };
 pub use compiler::{
     BlockRequest, CompiledCode, CompilerClient, CompilerService, DiscoveryError, DiscoveryLimits,
@@ -77,4 +77,4 @@ pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, InstructionTarget, Result,
 };
-pub use scheduler::GuestTimeConfig;
+pub use scheduler::{GuestTimeConfig, GuestTimeDriver};

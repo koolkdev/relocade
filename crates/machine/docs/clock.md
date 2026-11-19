@@ -104,16 +104,18 @@ fixture deadline.
 
 ## Emulated guest time
 
-`GuestTimeDriver::new(instructions_per_second)` owns emulated guest time,
-pending sleeps and the corresponding CPU instruction target. Its timeline starts
-at zero. One instruction advances one tick. While bound, `now()` reads the
-published instruction count and adds an offset; it performs no duration conversion
-or clock-state update. The offset changes only for binding, pausing and idle
-advancement. Pending deadlines stay in the same guest coordinate system, and the
-CPU target is obtained by subtracting the offset. While the CPU is idle, the
-embedding may advance time to the next registered sleep without changing retired
-instruction accounting. The driver is synchronous; the embedding owns execution
-and executor turns.
+The machine scheduler owns guest time for the session. Each device receives a
+`Clock` for reading the current tick and waiting for a deadline. The scheduler's
+`GuestTimeDriver` records those waits, arms the CPU's instruction target and
+wakes sleepers when deadlines expire. The scheduler decides when to run ready
+work or advance idle time.
+
+The guest timeline starts at zero. One retired instruction advances it by one
+tick. While bound, `now()` reads the published instruction count plus an offset.
+Binding, pausing and idle advancement update that offset. Pending deadlines
+stay in guest coordinates. Subtracting the offset gives their CPU targets.
+
+A lower-level embedding can drive guest time directly.
 
 ```rust,ignore
 let driver = GuestTimeDriver::new(instructions_per_second);

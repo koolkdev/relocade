@@ -3,8 +3,8 @@
 mod slice;
 use slice::{CpuLimit, ExecutionSlice};
 
-use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver, Sleep, Timestamp};
+use super::{GuestTimeConfig, GuestTimeDriver};
+use crate::{Clock, Cpu, Sleep, Timestamp};
 use std::{
     future::Future,
     pin::Pin,

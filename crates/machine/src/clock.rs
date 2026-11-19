@@ -1,11 +1,9 @@
 //! Clock readings, integer deadlines and owned waits.
 
 mod driver;
-mod guest;
 mod host;
 
 pub use driver::HostTimerDriver;
-pub use guest::GuestTimeDriver;
 pub use host::{timer_service, TimerHandle};
 pub use relocade_time::{Schedule, TickRate, Timestamp};
 pub use web_time::Instant;

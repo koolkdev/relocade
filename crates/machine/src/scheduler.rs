@@ -1,8 +1,10 @@
 //! Arbitration between the CPU, local activities, guest time and the host event loop.
 
+mod config;
 mod guest_time;
 mod timing;
-pub use guest_time::GuestTimeConfig;
+pub use config::GuestTimeConfig;
+pub use guest_time::GuestTimeDriver;
 pub(crate) use timing::Timing;
 
 use crate::{
