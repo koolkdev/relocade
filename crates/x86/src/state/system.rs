@@ -4,6 +4,7 @@ use super::{
     access::{cpu_load, cpu_location},
     cr0, cr4, State,
 };
+use crate::ssa::StateFields;
 use crate::PrivilegeLevel;
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32, I8};
 
@@ -13,6 +14,30 @@ mod tests;
 pub(crate) struct DescriptorTableValues {
     pub limit: Val<I16>,
     pub base: Val<I32>,
+}
+
+fn protection_enabled(
+    body: &mut BlockBuilder<'_>,
+    fields: &mut StateFields,
+) -> Result<Val<I1>, BuildError> {
+    let cr0 = fields.read(body, cpu_location!(cr0))?;
+    Ok(cr0.and(cr0::PROTECTION_ENABLE).ne(0))
+}
+
+fn virtual_8086_flag(
+    body: &mut BlockBuilder<'_>,
+    fields: &mut StateFields,
+) -> Result<Val<I1>, BuildError> {
+    Ok(fields.read(body, cpu_location!(flags.bytes.vm))?.truncate())
+}
+
+pub(crate) fn protected_mode(
+    body: &mut BlockBuilder<'_>,
+    fields: &mut StateFields,
+) -> Result<Val<I1>, BuildError> {
+    let protected = protection_enabled(body, fields)?;
+    let vm = virtual_8086_flag(body, fields)?;
+    Ok(protected.and(vm.eq(false)))
 }
 
 impl State<'_> {
@@ -31,17 +56,14 @@ impl State<'_> {
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I1>, BuildError> {
-        let cr0 = self.fields.read(body, cpu_location!(cr0))?;
-        Ok(cr0.and(cr0::PROTECTION_ENABLE).ne(0))
+        protection_enabled(body, &mut self.fields)
     }
 
     pub(crate) fn protected_mode(
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I1>, BuildError> {
-        let protected = self.protection_enabled(body)?;
-        let vm = self.virtual_8086_flag(body)?;
-        Ok(protected.and(vm.eq(false)))
+        protected_mode(body, &mut self.fields)
     }
 
     pub(crate) fn privilege_level(
@@ -49,7 +71,7 @@ impl State<'_> {
         body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I8>, BuildError> {
         let protected = self.protection_enabled(body)?;
-        let vm = self.virtual_8086_flag(body)?;
+        let vm = virtual_8086_flag(body, &mut self.fields)?;
         let selector = self
             .fields
             .read(body, cpu_location!(segments.cs.selector))?;
@@ -71,13 +93,6 @@ impl State<'_> {
             .and(cr4::TIMESTAMP_DISABLE)
             .ne(0);
         Ok(cpl.ne(PrivilegeLevel::Ring0 as u32).and(timestamp_disabled))
-    }
-
-    fn virtual_8086_flag(&mut self, body: &mut BlockBuilder<'_>) -> Result<Val<I1>, BuildError> {
-        Ok(self
-            .fields
-            .read(body, cpu_location!(flags.bytes.vm))?
-            .truncate())
     }
 
     pub(crate) fn machine_status_word(

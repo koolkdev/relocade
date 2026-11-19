@@ -26,7 +26,7 @@ pub use layout::{
 #[cfg(test)]
 pub(crate) use observation::compile_flag_observer;
 pub(crate) use simd::Mxcsr;
-pub(crate) use system::DescriptorTableValues;
+pub(crate) use system::{protected_mode, DescriptorTableValues};
 pub(crate) use x87::X87Access;
 
 use access::{cpu_load, cpu_store, register_location};
@@ -94,12 +94,11 @@ impl<'cpu> State<'cpu> {
 
     pub(crate) fn profile(&self) -> crate::ExecutionProfile {
         self.profile
-            .expect("segment access requires an admitted profile")
+            .expect("execution requires an admitted profile")
     }
 
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {
-        let profile = self.profile();
-        SegmentAccess::new(&mut self.fields, profile)
+        SegmentAccess::new(&mut self.fields)
     }
 
     pub(super) fn with_instruction_budgets(mut self, enabled: bool) -> Self {

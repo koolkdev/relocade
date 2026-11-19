@@ -4,13 +4,13 @@ use crate::{
     CpuState, SegmentDefaultSize, SegmentRegister,
 };
 
-fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
+fn probe(segment: Segment) -> TestModule {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32)>(move |mut body, (offset, bytes)| {
-            let mut fields = crate::ssa::StateFields::new(cpu.memory());
-            let check = crate::segment::SegmentAccess::new(&mut fields, profile).check(
+            let mut state = State::new(&cpu);
+            let check = state.segments().check(
                 &mut body,
                 &segment.into(),
                 &offset,
@@ -32,7 +32,7 @@ fn probe(profile: crate::ExecutionProfile, segment: Segment) -> TestModule {
 
 #[test]
 fn runtime_segment_spans_check_limits_and_wrap() {
-    let module = probe(SegmentProfile::Segmented32.into(), Segment::Fs);
+    let module = probe(Segment::Fs);
     use SegmentDefaultSize::{Bits16, Bits32};
     for (down, size, limit, cases) in [
         (
@@ -115,7 +115,7 @@ fn runtime_segment_spans_check_limits_and_wrap() {
 
 #[test]
 fn real_mode_spans_use_the_loaded_limit_and_allow_cs_writes() {
-    let module = probe(crate::ExecutionProfile::Real16, Segment::Cs);
+    let module = probe(Segment::Cs);
     let mut cpu = CpuState::real_mode();
     cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
     for (limit, offset, bytes, denied) in [

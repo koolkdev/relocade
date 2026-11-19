@@ -33,6 +33,58 @@ fn expect_address(
 }
 
 #[test]
+fn one_translation_reads_mode_and_segment_fields_from_each_cpu_image() {
+    let module = TestModule::new(&translation(
+        None,
+        Intent::Write,
+        Some(SegmentSelection::indexed),
+    ));
+    let mut cpu = CpuState::real_mode();
+    cpu.segments.cs.base = 0x4000;
+    cpu.segments.ss.base = 0x8000;
+    cpu.segments.ss.writable = 0;
+    let pe = crate::state::cr0::PROTECTION_ENABLE;
+    for (protection, vm, protected) in [(0, 0, false), (pe, 0, true), (pe, 1, false)] {
+        cpu.cr0 = (cpu.cr0 & !pe) | protection;
+        cpu.flags.bytes.vm = vm;
+        expect_address(
+            &module,
+            cpu,
+            Segment::Cs as i32,
+            if protected {
+                AccessResult::Fault(crate::Exception::GeneralProtection { error_code: 0 })
+            } else {
+                AccessResult::Value(0x4020)
+            },
+        );
+        expect_address(
+            &module,
+            cpu,
+            Segment::Ss as i32,
+            if protected {
+                AccessResult::Fault(crate::Exception::StackFault { error_code: 0 })
+            } else {
+                AccessResult::Value(0x8020)
+            },
+        );
+    }
+
+    // The same loaded SS limit constrains both real and protected accesses.
+    cpu.flags.bytes.vm = 0;
+    cpu.segments.ss.writable = 1;
+    cpu.segments.ss.limit = 0x22;
+    for protection in [0, pe] {
+        cpu.cr0 = (cpu.cr0 & !pe) | protection;
+        expect_address(
+            &module,
+            cpu,
+            Segment::Ss as i32,
+            AccessResult::Fault(crate::Exception::StackFault { error_code: 0 }),
+        );
+    }
+}
+
+#[test]
 fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
     let mut cpu = CpuState::default();
     cpu.segments.fs = SegmentRegister {
