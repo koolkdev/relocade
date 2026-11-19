@@ -14,7 +14,7 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{HandlerCall, SizedHandlers},
-    Availability, Group1Prefix, OperandSize, PrefixState, Requirements,
+    Availability, Group1Prefix, InstructionFlow, OperandSize, PrefixState, Requirements,
 };
 use crate::flags::Condition;
 use crate::register::NamedRegister;
@@ -204,8 +204,13 @@ pub(crate) struct ResolvedForm {
     locked: bool,
 }
 
-pub(crate) enum CallTarget {
+/// The destination operand encoded in a direct CALL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallTarget {
+    /// CS-relative offset after applying the displacement and operand size.
     Near(u32),
+    /// The selector and offset from the far pointer in the instruction.
+    /// Protected-mode execution must resolve the selector to determine its destination.
     Far { selector: u16, offset: u32 },
 }
 
@@ -216,10 +221,7 @@ impl ResolvedForm {
         fallthrough: u32,
     ) -> Option<CallTarget> {
         let immediate = immediates[0]?;
-        let mask = match self.operand_size {
-            OperandSize::Word => 0xffff,
-            OperandSize::Dword => u32::MAX,
-        };
+        let mask = self.offset_mask();
         match self.form.control_flow {
             Some(ControlFlow::Call) => {
                 Some(CallTarget::Near(fallthrough.wrapping_add(immediate) & mask))
@@ -232,45 +234,43 @@ impl ResolvedForm {
         }
     }
 
-    pub(crate) fn successors(
-        &self,
-        immediates: [Option<u32>; 2],
-        fallthrough: u32,
-        target: crate::ExecutionTarget,
-    ) -> [Option<u32>; 2] {
-        if self.form.requirements.known_fault(target).is_some() {
-            return [None, None];
-        }
-        let mask = match self.operand_size {
+    fn offset_mask(&self) -> u32 {
+        match self.operand_size {
             OperandSize::Word => 0xffff,
             OperandSize::Dword => u32::MAX,
-        };
-        match self.form.control_flow {
-            Some(ControlFlow::Fallthrough) => [Some(fallthrough), None],
-            Some(ControlFlow::Jump | ControlFlow::Branch) => {
-                let destination = fallthrough
-                    .wrapping_add(immediates[0].expect("relative transfers have a displacement"))
-                    & mask;
-                [
-                    Some(destination),
-                    matches!(self.form.control_flow, Some(ControlFlow::Branch))
-                        .then_some(fallthrough),
-                ]
-            }
-            // Protected far transfers need destination-context handling before
-            // discovery follows their return continuations.
-            Some(ControlFlow::FarCall) if target.profile != crate::ExecutionProfile::Real16 => {
-                [None, None]
-            }
-            // CALL saves an operand-sized return offset. Real16 far returns also
-            // restore the caller's CS, so its continuation uses the same reader.
-            Some(ControlFlow::Call | ControlFlow::FarCall) => [Some(fallthrough & mask), None],
-            None => [None, None],
         }
     }
 
-    pub(crate) fn ends_block(&self, target: crate::ExecutionTarget) -> bool {
-        self.form.ends_block || self.form.requirements.known_fault(target).is_some()
+    pub(crate) fn flow(
+        &self,
+        immediates: [Option<u32>; 2],
+        next_eip: u32,
+        target: crate::ExecutionTarget,
+    ) -> InstructionFlow {
+        if self.form.requirements.known_fault(target).is_some() {
+            return InstructionFlow::Stop;
+        }
+        let relative_target = || {
+            let displacement = immediates[0].expect("relative transfers have a displacement");
+            next_eip.wrapping_add(displacement) & self.offset_mask()
+        };
+        match self.form.control_flow {
+            Some(ControlFlow::Fallthrough) => InstructionFlow::Fallthrough,
+            Some(ControlFlow::Jump) => InstructionFlow::Jump {
+                target: relative_target(),
+            },
+            Some(ControlFlow::Branch) => InstructionFlow::Branch {
+                taken: relative_target(),
+            },
+            Some(ControlFlow::Call) => InstructionFlow::NearCall {
+                return_eip: next_eip & self.offset_mask(),
+            },
+            Some(ControlFlow::FarCall) => InstructionFlow::FarCall {
+                return_eip: next_eip & self.offset_mask(),
+            },
+            None if self.form.ends_block => InstructionFlow::Stop,
+            None => InstructionFlow::Continue,
+        }
     }
 
     pub(crate) fn encoding(&self) -> Encoding {

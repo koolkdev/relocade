@@ -1,9 +1,7 @@
 use super::{CodeAddress, FunctionLimits};
 use crate::{
-    compile::block::decode::DecodedBlock,
-    decode::{snapshot, SnapshotInstruction},
-    instruction::MAX_INSTRUCTION_BYTES,
-    BlockError, ExecutionTarget, SegmentDefaultSize,
+    compile::block::decode::DecodedBlock, BlockError, ExecutionProfile, ExecutionTarget,
+    InstructionFlow, SegmentDefaultSize, SnapshotInstruction, MAX_INSTRUCTION_BYTES,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -34,7 +32,7 @@ pub(super) fn blocks(
                 .next_back()
                 .or_else(|| instructions.last_key_value())
                 .is_some_and(|(&start, instruction)| {
-                    eip.wrapping_sub(start) < instruction.fallthrough_eip.wrapping_sub(start)
+                    eip.wrapping_sub(start) < instruction.next_eip().wrapping_sub(start)
                 })
             {
                 break;
@@ -46,7 +44,7 @@ pub(super) fn blocks(
             if limits.instructions == 0 || limits.bytes == 0 {
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
-            let (instruction, _) = match snapshot(bytes, eip, code_default_size) {
+            let instruction = match SnapshotInstruction::decode(bytes, eip, code_default_size) {
                 Ok(decoded) => decoded,
                 Err(error) if instructions.is_empty() => return Err(error),
                 Err(
@@ -56,7 +54,7 @@ pub(super) fn blocks(
                 ) => break,
                 Err(error) => return Err(error),
             };
-            let len = instruction.fallthrough_eip.wrapping_sub(eip);
+            let len = instruction.next_eip().wrapping_sub(eip);
             if instructions
                 .range(eip..)
                 .next()
@@ -69,17 +67,31 @@ pub(super) fn blocks(
             if len as usize > limits.bytes {
                 return Err(BlockError::FunctionTooLarge { address: start_eip });
             }
-            let next = instruction.fallthrough_eip;
-            let ends_block = instruction.ends_block(target);
-            if ends_block {
-                for successor in instruction.successors(target).into_iter().flatten() {
-                    enqueue(successor, &mut entries, &mut pending);
+            let next = instruction.next_eip();
+            let flow = instruction.flow(target);
+            match flow {
+                InstructionFlow::Fallthrough => enqueue(next, &mut entries, &mut pending),
+                InstructionFlow::Jump { target } => enqueue(target, &mut entries, &mut pending),
+                InstructionFlow::Branch { taken } => {
+                    enqueue(taken, &mut entries, &mut pending);
+                    enqueue(next, &mut entries, &mut pending);
                 }
+                InstructionFlow::NearCall { return_eip } => {
+                    enqueue(return_eip, &mut entries, &mut pending);
+                }
+                InstructionFlow::FarCall { return_eip }
+                    if target.profile == ExecutionProfile::Real16 =>
+                {
+                    enqueue(return_eip, &mut entries, &mut pending);
+                }
+                InstructionFlow::Continue
+                | InstructionFlow::FarCall { .. }
+                | InstructionFlow::Stop => {}
             }
             instructions.insert(eip, instruction);
             limits.instructions -= 1;
             limits.bytes -= len as usize;
-            if ends_block {
+            if flow != InstructionFlow::Continue {
                 break;
             }
             eip = next;
@@ -93,8 +105,8 @@ pub(super) fn blocks(
         let mut block = DecodedBlock::new(origin.with_eip(entry), code_default_size);
         let mut eip = entry;
         while let Some(instruction) = instructions.remove(&eip) {
-            eip = instruction.fallthrough_eip;
-            let ends_block = instruction.ends_block(target);
+            eip = instruction.next_eip();
+            let ends_block = instruction.flow(target) != InstructionFlow::Continue;
             block.push(instruction);
             if ends_block || entries.contains(&eip) {
                 break;

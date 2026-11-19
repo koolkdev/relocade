@@ -131,20 +131,6 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
 }
 
 #[test]
-fn real_mode_far_call_continuations_use_the_saved_offset_width() {
-    let target = Compiler::new(ExecutionProfile::Real16).target();
-    for (start, call, continuation) in [
-        (0xfffb, &[0x9a, 0, 0x20, 0, 0x30][..], 0),
-        (0xfffc, &[0xff, 0x1e, 0, 0x20], 0),
-        (0xfff8, &[0x66, 0x9a, 0, 0x20, 0, 0, 0, 0x30], 0x10000),
-        (0xfffb, &[0x66, 0xff, 0x1e, 0, 0x20], 0x10000),
-    ] {
-        let (instruction, _) = snapshot(call, start, SegmentDefaultSize::Bits16).unwrap();
-        assert_eq!(instruction.successors(target), [Some(continuation), None]);
-    }
-}
-
-#[test]
 fn context_changes_and_known_faults_do_not_discover_fallthrough() {
     for (profile, code) in [
         (ExecutionProfile::Real16, &[0xea, 0, 0, 0, 0][..]), // far JMP

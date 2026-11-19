@@ -3,7 +3,8 @@ mod runtime;
 mod snapshot;
 
 pub(super) use runtime::RuntimeDecoder;
-pub(super) use snapshot::{snapshot, SnapshotInstruction};
+pub(super) use snapshot::snapshot;
+pub use snapshot::SnapshotInstruction;
 
 use crate::instruction::{
     opcode_forms, Form, OpcodeMap, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,

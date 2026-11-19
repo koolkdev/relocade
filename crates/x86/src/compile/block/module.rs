@@ -85,7 +85,7 @@ impl<'a> BlockModule<'a> {
                     self.call_targets.push(target);
                     index
                 });
-                call_sites.insert(instruction.eip, index);
+                call_sites.insert(instruction.eip(), index);
             }
         }
         let module = self.execution.with_function(entries, call_sites);

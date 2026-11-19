@@ -7,6 +7,7 @@ mod prefixes;
 mod requirements;
 
 pub(crate) use definitions::opcode_forms;
+pub use forms::CallTarget;
 pub(crate) use forms::*;
 use handlers::HandlerCall;
 pub(super) use lower::lower;
@@ -24,8 +25,30 @@ use crate::register::RegisterOperand;
 use crate::Segment;
 use relocade_compiler::{Val, I16, I32};
 
-pub(super) const MAX_INSTRUCTION_BYTES: u32 = 15;
+/// Maximum length of one x86 instruction, including all prefixes and operands.
+pub const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
+
+/// Control flow of a decoded instruction under the supplied execution target.
+/// Offsets are relative to the current CS. Execution can fault before a transfer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstructionFlow {
+    /// Execution can continue at the next encoded instruction in the same block.
+    Continue,
+    /// This instruction ends its block and can resume at the next encoded instruction.
+    Fallthrough,
+    /// A direct near jump.
+    Jump { target: u32 },
+    /// A conditional near transfer. The untaken path uses the next encoded EIP.
+    Branch { taken: u32 },
+    /// A near call saves the operand-sized return EIP in the caller's CS.
+    NearCall { return_eip: u32 },
+    /// For an ordinary far call, the operand-sized return EIP in the caller's CS.
+    /// Protected-mode far transfers require resolving the destination descriptor.
+    FarCall { return_eip: u32 },
+    /// This instruction ends its block with no statically known continuation in this CS.
+    Stop,
+}
 
 /// The effective operand-size attribute after applying CS.D and prefixes.
 #[derive(Clone, Copy, Eq, PartialEq)]
