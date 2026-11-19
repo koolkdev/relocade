@@ -150,6 +150,11 @@ impl Pc {
         self.runner.run_cpu().await
     }
 
+    /// Runs the PC's devices while native code waits without dispatching guest instructions.
+    pub async fn idle_until<F: std::future::Future>(&mut self, ready: F) -> F::Output {
+        self.runner.idle_until(ready).await
+    }
+
     /// The BIOS keyboard shared with INT 16h and console services.
     pub fn keyboard(&self) -> Keyboard {
         self.keyboard.clone()

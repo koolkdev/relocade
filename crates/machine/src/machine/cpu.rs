@@ -3,7 +3,7 @@ use crate::{timer_service, Clock, ExecutionWorker, GuestTimeConfig, Runner, Time
 use crate::{
     Cpu, CpuConfig, CpuStateAccess, CpuStorage, ExecutionInterrupt, IoBus, Memory, Result,
 };
-use std::future::Future;
+use std::{future::Future, num::NonZeroU64};
 
 /// The single execution capability for a CPU created by [`super::Machine`].
 /// Moving it to a worker preserves initialized registers and guest memory.
@@ -73,11 +73,24 @@ impl CpuHandle {
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Result<Option<T>> {
         let (handle, timers) = timer_service();
-        let execution = self.spawn(handle, session);
-        let timers = timers.spawn_with_peer(execution.wake_peer());
-        let result = execution.run_until(stop).await;
-        timers.stop().await?;
-        result
+        self.spawn(handle, session).run_until(stop, timers).await
+    }
+
+    /// Runs a guest instruction clock paced by this session's host timer service.
+    /// Completion and cancellation join both workers, as in [`Self::run_until`].
+    pub async fn run_until_with_guest_time<T: Send + 'static>(
+        self,
+        instructions_per_second: NonZeroU64,
+        stop: impl Future,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
+    ) -> Result<Option<T>> {
+        let (host, timers) = timer_service();
+        self.spawn_with_guest_time(
+            move || GuestTimeConfig::new(instructions_per_second).with_host_clock(host.clock()),
+            session,
+        )
+        .run_until(stop, timers)
+        .await
     }
 
     /// Transfers this CPU to an execution worker using the supplied host timers.

@@ -172,6 +172,8 @@ corresponding host time and defaults to 4 ms slices unless a duration was suppli
 The slice duration must be positive; either builder-call order uses the supplied
 duration. The host clock is constructed in the factory.
 The lower-level `Runner::with_guest_time` takes the same configuration directly.
+`cpu.run_until_with_guest_time(rate, stop, session)` owns both the execution and
+host timer workers for a paced session.
 
 ```rust
 let cpu = machine.create_cpu(cpu_config, None)?;
@@ -215,6 +217,11 @@ Unpaced idle execution advances directly to the next device deadline, even if
 it skips slice boundaries. Paced idle advancement stops at the earlier of that
 deadline and the current slice boundary. A slice alone never causes idle time
 to advance when there are no registered sleeps.
+
+A native activity that owns a stopped CPU can await `runner.idle_until(ready)`.
+This services device deadlines under the same pacing and machine pause rules while
+leaving guest instructions and pending IRQs for the next CPU run. Guest time
+pauses when neither a CPU run nor an idle wait is active.
 
 ### Slices paced by a host clock
 

@@ -492,9 +492,7 @@ impl Dos {
         &mut self,
         events: relocade_frontend::keyboard::KeyboardEvents,
     ) -> NativeConsole<'_> {
-        let memory = self.pc.cpu().memory();
-        let io = self.pc.cpu().context().io.clone();
-        NativeConsole::new(memory.with_io(io), self.state.stdio(), events)
+        NativeConsole::new(&mut self.pc, self.state.stdio(), events)
     }
 
     /// Installs a driver as a named character device at the front of DOS's chain.

@@ -233,10 +233,27 @@ impl Runner {
         }
     }
 
+    /// Keeps device time running while native code waits with guest dispatch stopped.
+    /// Ready activities run between deadlines. Dropping the wait pauses guest time
+    /// with the same slice credit as leaving [`Self::run_cpu`].
+    pub async fn idle_until<F: Future>(&mut self, ready: F) -> F::Output {
+        let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+        let Some(_binding) = self.schedule.bind(&self.cpu, &changed) else {
+            return ready.await;
+        };
+        futures_lite::future::or(ready, async {
+            loop {
+                self.executor.yield_now().await;
+                poll_fn(|cx| self.schedule.poll_idle(&self.cpu, cx)).await;
+            }
+        })
+        .await
+    }
+
     /// Runs on emulated guest time with optional host pacing for active and idle
     /// execution. Device deadlines subdivide each execution slice. Instruction targets
     /// remain soft checkpoint limits, so a slice can overshoot.
-    /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
+    /// Time pauses outside [`Self::run_cpu`] and [`Self::idle_until`]; existing pacing credit and
     /// the host/guest offset survive those pauses.
     pub async fn with_guest_time(
         config: GuestTimeConfig,

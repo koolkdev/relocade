@@ -1,6 +1,6 @@
 use super::Runner;
 use crate::worker::{wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
-use crate::{CpuHandle, ExecutionInterrupt, Result};
+use crate::{CpuHandle, ExecutionInterrupt, HostTimerDriver, Result};
 use futures_lite::future::or;
 use futures_util::future::{select, Either};
 use std::{future::Future, pin::pin};
@@ -28,7 +28,12 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         self.wake_host.peer()
     }
 
-    pub(crate) async fn run_until(mut self, stop: impl Future) -> Result<Option<T>> {
+    pub(crate) async fn run_until(
+        mut self,
+        stop: impl Future,
+        timers: HostTimerDriver,
+    ) -> Result<Option<T>> {
+        let timers = timers.spawn_with_peer(self.wake_peer());
         let completed = or(
             async {
                 stop.await;
@@ -37,10 +42,13 @@ impl<T: Send + 'static> ExecutionWorker<T> {
             async { Some(self.worker.finished().await) },
         )
         .await;
-        match completed {
-            Some(result) => result?.transpose().map(Option::flatten),
+        let result = match completed {
+            Some(Ok(session)) => session.transpose().map(Option::flatten),
+            Some(Err(error)) => Err(error.into()),
             None => self.stop().await.map(|_| None),
-        }
+        };
+        timers.stop().await?;
+        result
     }
 
     pub(crate) fn spawn(
