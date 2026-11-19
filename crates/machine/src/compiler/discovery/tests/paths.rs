@@ -93,6 +93,7 @@ fn io_and_segment_loads_split_fallthrough_until_a_known_fault() {
         0x8e, 0xd8, // MOV DS,AX
         0xf3, 0x6e, // REP OUTSB
         0x17, // POP SS
+        0x0f, 0xa2, // CPUID
         0x0f, 0x0b, // UD2
         0x90, 0xc3, // NOP; RET beyond the fault
     ];
@@ -104,9 +105,13 @@ fn io_and_segment_loads_split_fallthrough_until_a_known_fault() {
             (0x1001, 2),
             (0x1003, 2),
             (0x1005, 1),
-            (0x1006, 2)
+            (0x1006, 2),
+            (0x1008, 2)
         ]
     );
+    assert!(real[0].is_exported());
+    assert!(real[1..].iter().all(|block| !block.is_exported()));
+
     // The Flat32 profile faults at the first IN, before discovering any successor.
     let flat = discover(SegmentProfile::Flat32.into(), Bits32, &code, limits).unwrap();
     assert_eq!(spans(&flat), [(0x1000, 1)]);

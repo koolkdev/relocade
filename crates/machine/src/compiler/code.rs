@@ -48,6 +48,8 @@ impl CompiledCode {
         &self.description.source
     }
 
+    /// CPU dispatch entries exported by this module. Source ranges also cover
+    /// the internal blocks reached by direct transfers within the module.
     pub fn blocks(&self) -> &[BlockEntry] {
         &self.description.blocks
     }
