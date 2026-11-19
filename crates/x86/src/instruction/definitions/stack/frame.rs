@@ -7,7 +7,6 @@ use crate::{
     instruction::{Input, TypedLocation},
     memory::Intent,
     register::{Gpr32, RegisterType},
-    ExecutionProfile,
 };
 
 /// The push frame and display keep one availability decision across the copies.
@@ -89,12 +88,7 @@ where
     )?;
 
     let allocated = pointer.with_offset(display_end.sub(allocation.unsigned().extend::<I32>()));
-    // Protected-mode ENTER probes the allocation without storing. Real16's
-    // 16-bit SP always fits its 64 KiB SS, and unused allocation needs no backing.
-    // Earlier pushes remain visible if a check or display copy faults.
-    if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
-        allocated.check_write(execution, T::BYTES)?;
-    }
+    allocated.check_write(execution, T::BYTES)?;
     TypedLocation::<T>::register(Gpr32::Ebp).write(execution, frame_pointer.truncate::<T>())?;
     allocated.commit(execution)
 }

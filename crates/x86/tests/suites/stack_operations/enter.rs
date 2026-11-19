@@ -143,6 +143,11 @@ fn fault_stages() -> Vec<Case> {
         Case::preserving_flags("ENTER final write probe checks the complete word without storing it", &[0x66, 0xc8, 1, 0x10, 0])
             .initial_register(Esp, 0x9002).initial_register(Ebp, 0x1234_5678).memory(0x9000, &[0xa5; 2], ReadWrite)
             .memory(0x7fff, &[0x5a], ReadWrite).expect_memory(0x9000, &[0x78, 0x56]).fault(0x8000, 2),
+        Case::preserving_flags("ENTER checks the final word against SS before probing its second page", &[0x66, 0xc8, 1, 0x90, 0])
+            .segmented_only().segment(Segment::Ss, stack_segment(0x20000, 0x7fff, false))
+            .initial_registers(&[(Esp, 0x1002), (Ebp, 0x1234_5678)])
+            .memory(0x21000, &[0xa5; 2], ReadWrite).expect_memory(0x21000, &[0x78, 0x56])
+            .memory(0x27fff, &[0x5a], ReadWrite).stack_fault(0),
         Case::preserving_flags("ENTER allocation probe requires write permission after saving BP", &[0x66, 0xc8, 4, 0x10, 0])
             .initial_registers(&[(Esp, 0x9002), (Ebp, 0x1234_5678)])
             .memory(0x9000, &[0xa5; 2], ReadWrite).expect_memory(0x9000, &[0x78, 0x56])
@@ -198,6 +203,59 @@ fn procedure_frames() -> Vec<Sequence> {
             .step(Step::preserving_flags(&[0xc8, 0, 0, 2]).expect_memory(0x8ffc, &[0, 0x70, 0, 0]).fault(0x6ffc, 0))
             .trailing_code(&[0x89, 0xc7], 1),
     ]
+}
+
+#[test]
+fn protected_enter_allocates_over_mmio_without_accessing_the_device() {
+    use crate::support::{
+        machine::{expected, expected_steps, Exit, Image, Step},
+        step::TestModule,
+    };
+    use relocade_x86::{Compiler, MemoryBackend, SegmentProfile};
+
+    let code = [
+        0xc8, 0, 0x10, 0, // ENTER 1000h,0
+        0x89, 0x65, 4, // MOV [EBP+4],ESP
+    ];
+    let mut image = Image::new(&code);
+    image.cpu.registers.esp = 0x9004;
+    image.cpu.registers.ebp = 0x1234_5678;
+    image.cpu.instruction_count = 0;
+    image.map(9, 0x6000, true);
+    let mut input = image.input();
+    input.mmio_pages.push((8, 0xa000));
+    input.observe_mmio = true;
+
+    let mut frame = image.cpu;
+    frame.eip = 0x1004;
+    frame.instruction_count = 1;
+    frame.registers.esp = 0x8000;
+    frame.registers.ebp = 0x9000;
+    let mut after = frame;
+    after.eip = 0x1007;
+    after.instruction_count = 2;
+    let steps = [
+        Step {
+            cpu: frame,
+            ram: &[(0x6000, &[0x78, 0x56, 0x34, 0x12])],
+            exit: Exit::Dispatch(frame.eip),
+        },
+        Step {
+            cpu: after,
+            ram: &[(0x6000, &[0x78, 0x56, 0x34, 0x12, 0, 0x80, 0, 0])],
+            exit: Exit::Dispatch(after.eip),
+        },
+    ];
+    let compiler =
+        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let block = TestModule::new(&compiler.compile_block(image.cpu.eip, &code, 2).unwrap());
+    assert_eq!(block.observe(&input, 1), expected(&image, &steps[1..]));
+
+    let interpreter = TestModule::interpreter_with_target(compiler.target());
+    assert_eq!(
+        interpreter.observe(&input, 2),
+        expected_steps(&image, &steps)
+    );
 }
 
 test_cases!(independent_operand_and_stack_widths, widths());

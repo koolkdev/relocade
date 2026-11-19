@@ -1,0 +1,97 @@
+//! Stack instructions with live mode and segment-cache fields.
+
+use crate::{
+    execution::ExecutionModule,
+    profile::EntryGuarantees,
+    state::{cr0, State},
+    support::machine::{check, Exit, Image, Step},
+    test_step::TestModule,
+    Compiler, CpuState, ExecutionExit, ExecutionExitValues, MemoryBackend, SegmentDefaultSize,
+    SegmentProfile, SnapshotInstruction,
+};
+use relocade_compiler::Program;
+
+fn instruction(bytes: &[u8]) -> TestModule {
+    let mut program = Program::new();
+    let target = Compiler::new(SegmentProfile::Segmented16)
+        .with_memory_backend(MemoryBackend::PhysicalBus)
+        .target();
+    let module = ExecutionModule::declare(
+        &mut program,
+        target,
+        EntryGuarantees::for_profile(target.profile),
+    );
+    let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
+    let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
+        let mut execution = module.builder(body, 0x1000)?;
+        // Both CPU modes execute this body with live segment caches on the PC bus.
+        execution.state = State::new(&module.cpu);
+        execution.execute(decoded.bind())?;
+        execution.complete(|body, _| body.return_(ExecutionExitValues::step_complete()))
+    });
+    program.export("step", function).unwrap();
+    TestModule::from_bytes(&program.compile().unwrap(), "step", None)
+}
+
+#[test]
+fn pusha_checks_mode_before_the_first_push() {
+    let module = instruction(&[0x60]);
+    let mut image = Image::empty();
+    image.cpu = CpuState::real_mode();
+    image.cpu.eip = 0x1000;
+    image.cpu.registers.esp = 0xabcd_0007;
+    image.cpu.segments.ss.limit = 0;
+
+    image.check_unchanged_exit(
+        &module,
+        "real low odd SP",
+        Exit::GeneralProtection { error: 0 },
+    );
+    image.cpu.cr0 |= cr0::PROTECTION_ENABLE;
+    image.check_unchanged_exit(
+        &module,
+        "protected stack limit",
+        Exit::StackFault { error: 0 },
+    );
+}
+
+#[test]
+fn enter_checks_the_final_word_after_saving_bp() {
+    // After saving BP at 1000h, ENTER checks the word at F000h..=F001h.
+    let module = instruction(&[0xc8, 0x00, 0x20, 0]);
+    for (protected, limit, exit) in [
+        (false, 0xf000, Exit::StackFault { error: 0 }),
+        (false, 0xf001, Exit::Other(ExecutionExit::StepComplete)),
+        (true, 0xf000, Exit::StackFault { error: 0 }),
+        (true, 0xf001, Exit::Other(ExecutionExit::StepComplete)),
+    ] {
+        let mut image = Image::empty();
+        image.cpu = CpuState::real_mode();
+        image.cpu.eip = 0x1000;
+        image.cpu.registers.esp = 0xabcd_1002;
+        image.cpu.registers.ebp = 0x5678_1234;
+        image.cpu.segments.ss.limit = limit;
+        if protected {
+            image.cpu.cr0 |= cr0::PROTECTION_ENABLE;
+        }
+        image.map(1, 0x3000, true);
+
+        let mut cpu = image.cpu;
+        if exit == Exit::Other(ExecutionExit::StepComplete) {
+            cpu.registers.esp = 0xabcd_f000;
+            cpu.registers.ebp = 0x5678_1000;
+            cpu.eip += 4;
+            cpu.instruction_count += 1;
+        }
+        check(
+            &module,
+            "final ENTER allocation",
+            &image,
+            &[Step {
+                cpu,
+                ram: &[(0x3000, &[0x34, 0x12])],
+                exit,
+            }],
+        );
+    }
+}

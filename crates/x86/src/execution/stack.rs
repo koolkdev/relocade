@@ -1,6 +1,8 @@
 //! Stack frames separate capacity checks, memory transfers and pointer commitment.
 
 mod access;
+#[cfg(test)]
+mod tests;
 pub(crate) use access::StackAccess;
 
 use std::marker::PhantomData;
@@ -129,13 +131,15 @@ impl StackPointer {
         self.with_offset(self.esp.add(bytes))
     }
 
-    /// Checks a write at this stack offset without storing or committing ESP.
+    /// Check whether a stack write would fault without performing the transfer.
     pub(crate) fn check_write(
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
         bytes: u32,
     ) -> Result<(), BuildError> {
-        execution.checked(&Segment::Ss.into(), &self.offset(), bytes, Intent::Write)?;
+        let linear =
+            execution.translate(&Segment::Ss.into(), &self.offset(), bytes, Intent::Write)?;
+        execution.resolve_access(&linear, bytes, Intent::Write)?;
         Ok(())
     }
 

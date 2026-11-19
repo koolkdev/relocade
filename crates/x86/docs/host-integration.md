@@ -1219,8 +1219,12 @@ faults are reported to the host; exception delivery, double faults and shutdown
 are outside this execution model. PUSHA prepares a complete direct frame once
 and reuses its backing for all eight stores. A frame that cannot use direct
 backing restarts in the interpreter, which retains ordered per-push checks and
-stack-pointer wrapping. ENTER checks actual transfers without requiring
-backing for its unused allocation; Real16's SP always fits its canonical SS.
+stack-pointer wrapping. ENTER checks whether an operand-sized write at the
+final SP or ESP would fault. The span must fit SS before the memory backend
+checks page permissions. The probe performs no memory transfer, including at
+MMIO addresses. A fault preserves earlier pushes and the entry BP and SP.
+The operand width follows the ENTER pseudocode in the
+[AMD Architecture Programmer’s Manual, Volume 3, pp. 182–183](https://kib.kiev.ua/x86docs/AMD/AMD64/24594_APM_v3-r3.39.pdf#page=221).
 
 These rules follow Intel's Pentium 4 [Volume 3, §15.1 and §9.9.2](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)
 and the instruction entries in [Volume 2A](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366621.pdf)

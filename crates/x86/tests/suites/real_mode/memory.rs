@@ -119,22 +119,32 @@ fn stack_edges(frontend: Frontend) {
             );
         }
     }
-    for allocation in [0x3000u16, 0x7fff] {
+    for (allocation, final_sp) in [
+        (0x3000u16, Some(0x4ffe)),
+        (0x8000, Some(0xfffe)),
+        (0x7fff, None),
+    ] {
         let code = [0xc8, allocation as u8, (allocation >> 8) as u8, 0];
         let mut image = image(&code);
         image.cpu.registers.esp = 0xabcd_8000;
         image.map(7, 0x8000, true);
-        let mut cpu = retired(&image, code.len());
-        cpu.registers.esp = 0xabcd_0000 | u32::from(0x7ffeu16.wrapping_sub(allocation));
-        cpu.registers.ebp = 0x6666_7ffe;
+        let (cpu, exit) = match final_sp {
+            Some(sp) => {
+                let mut cpu = retired(&image, code.len());
+                cpu.registers.esp = 0xabcd_0000 | sp;
+                cpu.registers.ebp = 0x6666_7ffe;
+                (cpu, Exit::Dispatch(cpu.eip))
+            }
+            None => (image.cpu, Exit::StackFault { error: 0 }),
+        };
         cases.check(
-            "ENTER allocation needs no backing and may end at FFFF",
+            "ENTER checks the final word against SS even on an unbacked physical page",
             &code,
             &image,
             &[Step {
                 cpu,
                 ram: &[(0x8ffe, &[0x66, 0x66])],
-                exit: Exit::Dispatch(cpu.eip),
+                exit,
             }],
         );
     }
