@@ -26,8 +26,9 @@ fn value(observation: &Observation) -> i64 {
 
 #[test]
 fn tracked_pages_keep_reads_direct_and_route_ram_writes_by_backing() {
-    for address in [0x1801, 0x101801, 0x9801] {
+    for (address, writable) in [(0x1801, true), (0x101801, true), (0x1801, false)] {
         let mut input = input();
+        input.physical_pages = vec![(1, 0x3000, writable)];
         input.a20_enabled = false;
         input.code_pages = vec![0x3000];
         input
@@ -44,7 +45,7 @@ fn tracked_pages_keep_reads_direct_and_route_ram_writes_by_backing() {
         let written = 0x8877_6655_4433_2211u64;
         input.arguments.push(Argument::I64(written as i64));
         let write = transfer(&input, "write64");
-        if address == 0x9801 {
+        if !writable {
             assert_eq!(write.events.len(), 1);
             assert!(write.guest_unchanged, "tracked ROM still ignores writes");
         } else {
@@ -237,6 +238,9 @@ fn mixed() {
 fn backing_and_holes() {
     for address in [0x1801, 0x9fff, 0xafff, 0xb000] {
         let mut input = input();
+        if address >= 0x9000 {
+            input.physical_pages = vec![(9, 0x3000, false), (10, 0x5000, false)];
+        }
         input
             .guest
             .push((0x3801, vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11]));

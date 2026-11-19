@@ -12,15 +12,15 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
     real.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1100);
     real.segments.ds = SegmentRegister::real_mode(Segment::Ds, 0x0200);
 
-    // Protected CS:EIP fetches the same code through a high physical alias.
+    // Protected CS:EIP fetches the same instructions above the real-mode address range.
     let mut protected = CpuState::protected_mode(Bits16, Bits16);
     protected.segments.cs.base = 0xd000_1000;
     protected.eip = 0x1_0000;
     protected.segments.ds.base = 0x2000;
 
-    for (profile, cpu) in [
-        (ExecutionProfile::Real16, real),
-        (SegmentProfile::Segmented16.into(), protected),
+    for (profile, cpu, code_page) in [
+        (ExecutionProfile::Real16, real, 0x11),
+        (SegmentProfile::Segmented16.into(), protected, 0xd0011),
     ] {
         let target = ExecutionTarget {
             memory_backend: MemoryBackend::PhysicalBus,
@@ -42,11 +42,7 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
         image.data(0x8030, &[0x34, 0x12]);
         let mut input = image.input();
         // Only the physical bus has mappings for these guest addresses.
-        input.physical_pages = vec![
-            (0x11, 0x4000, true),
-            (0xd0011, 0x4000, true),
-            (2, 0x5000, true),
-        ];
+        input.physical_pages = vec![(code_page, 0x4000, true), (2, 0x5000, true)];
         input.mmio_pages = vec![(3, 0x8000)];
         input.observe_mmio = true;
 

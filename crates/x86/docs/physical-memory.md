@@ -27,7 +27,8 @@ and device mappings have routing records and consume no guest RAM backing.
 Unspecified pages are unmapped. Ignoring ROM/hole writes and returning FF from holes
 are this backend's machine policy, not universal x86 behavior. Devices such as
 flash that interpret writes must use MMIO. Subpage mixtures of RAM, ROM and MMIO
-are not represented. Several physical pages may alias the same backing.
+are not represented. A RAM or ROM page may use a backing offset different
+from its physical address, so RAM and ROM can be packed around physical holes.
 
 `PhysicalMemoryMap::new(regions)` constructs the table from inclusive ranges:
 
@@ -41,9 +42,10 @@ let map = PhysicalMemoryMap::new([
 # Ok::<(), PhysicalMapError>(())
 ```
 
-Ranges contain complete pages within the table; later regions replace earlier
-ones where they overlap. RAM/ROM backing offsets are page aligned and may address
-any part of the host's 32-bit backing memory. `get(address)` resolves one physical
+Ranges contain complete pages. Later regions replace earlier ones where they
+overlap. Each final RAM or ROM page must own a distinct, page-aligned backing
+page, including physical pages hidden by A20. An MMIO overlay releases the
+replaced backing page for use elsewhere. `get(address)` resolves one physical
 byte for host inspection, adjusting direct offsets to that byte.
 
 `as_bytes()` exposes the routing image for installation at offset zero in

@@ -57,9 +57,10 @@ fn calls(frontend: Frontend) {
         ),
         (&[0xff, 0x1e, 0, 0x20][..], 6, 2, &[4, 0x10, 0, 2][..]),
     ] {
-        let mut image = image(code);
+        let mut image = image(&[]);
         image.cpu.segments.cs = cache(Segment::Cs, 0x200);
-        image.map(3, 0x3000, false);
+        image.map(3, 0x4000, false);
+        image.data(0x4000, code);
         image.cpu.segments.ss = cache(Segment::Ss, 0x1000);
         image.cpu.registers.esp = 0xabcd_0000 | sp;
         image.map((0x10000 + frame) >> 12, 0x8000, true);

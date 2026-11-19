@@ -100,8 +100,8 @@ impl PhysicalMapping {
 }
 
 /// Host routing for the 32-bit physical address space. Each 4-KiB page has
-/// one mapping. Unspecified pages are unmapped, and several physical ranges
-/// may share backing. The host allocates RAM and ROM backing separately.
+/// one mapping. Each RAM or ROM page has its own page in the host backing
+/// allocation. Unspecified pages are unmapped.
 ///
 /// This type constructs routing metadata. The host owns backing allocation,
 /// device behavior and updates to the installed Wasm table.
@@ -120,6 +120,7 @@ impl PhysicalMapping {
 #[derive(Clone, Debug)]
 pub struct PhysicalMemoryMap {
     image: Box<[u8]>,
+    required_backing: u64,
 }
 
 impl PhysicalMemoryMap {
@@ -137,10 +138,7 @@ impl PhysicalMemoryMap {
 
     /// Checks all RAM/ROM backing, including pages currently hidden by A20.
     pub fn fits_backing(&self, memory_size: u64) -> bool {
-        self.entries()
-            .iter()
-            .filter_map(|entry| PhysicalMapping::from_entry(entry).backing_offset())
-            .all(|offset| u64::from(offset) + u64::from(Self::PAGE_BYTES) <= memory_size)
+        self.required_backing <= memory_size
     }
 
     /// Physical page addresses and the byte offsets of their serialized MMIO
@@ -163,16 +161,18 @@ impl PhysicalMemoryMap {
     /// A20 starts disabled for DOS-compatible address wrapping.
     /// Each range must contain complete pages.
     /// For RAM/ROM, `backing_offset` names the first byte and must be page aligned;
-    /// subsequent pages use consecutive backing. Backing must fit the 32-bit
-    /// address space, but its allocation remains the host's duty.
+    /// subsequent pages use consecutive backing. After overlays, every RAM or ROM
+    /// page must own a distinct page of the 32-bit backing address space.
     pub fn new(
         regions: impl IntoIterator<Item = (RangeInclusive<u32>, PhysicalMapping)>,
     ) -> Result<Self, PhysicalMapError> {
         let mut map = Self {
             image: vec![0; Self::BYTE_LEN].into_boxed_slice(),
+            required_backing: 0,
         };
         map.set_a20_enabled(false);
         let (pages, _) = map.image.as_chunks_mut::<8>();
+        let mut backed_end_page = 0;
         for (range, mapping) in regions {
             if range.is_empty() {
                 return Err(PhysicalMapError::EmptyRange);
@@ -191,16 +191,38 @@ impl PhysicalMemoryMap {
                 if u64::from(backing) + bytes > 1 << 32 {
                     return Err(PhysicalMapError::BackingOverflow);
                 }
+                backed_end_page = backed_end_page.max(end_page);
             }
             for (index, page) in pages[first_page..end_page].iter_mut().enumerate() {
                 *page = mapping.advance((index as u32) << PAGE_SHIFT).entry();
             }
         }
+        map.required_backing = Self::validate_backing(&pages[..backed_end_page])?;
         Ok(map)
     }
 
+    /// Only the final physical routes own backing, including pages hidden by A20.
+    fn validate_backing(entries: &[[u8; Self::ENTRY_BYTES]]) -> Result<u64, PhysicalMapError> {
+        let mut used = vec![0u64; Self::PAGE_COUNT / 64];
+        let mut required = 0;
+        for offset in entries
+            .iter()
+            .filter_map(|entry| PhysicalMapping::from_entry(entry).backing_offset())
+        {
+            let page = (offset >> PAGE_SHIFT) as usize;
+            let word = &mut used[page / 64];
+            let bit = 1 << (page % 64);
+            if *word & bit != 0 {
+                return Err(PhysicalMapError::DuplicateBackingPage(offset));
+            }
+            *word |= bit;
+            required = required.max(u64::from(offset) + u64::from(Self::PAGE_BYTES));
+        }
+        Ok(required)
+    }
+
     /// Marks the backing page containing `backing_offset` as containing tracked code.
-    /// All RAM/ROM aliases receive the flag, including pages hidden by A20.
+    /// Updates its physical RAM or ROM page even when A20 hides that page.
     /// Reads and ROM write policy are unchanged; RAM writes use the host callback.
     /// The host coordinates tracking and installs the updated image while execution
     /// is stopped. This metadata alone does not invalidate compiled code.
@@ -214,6 +236,7 @@ impl PhysicalMemoryMap {
                 } else {
                     entry[0] &= !(CODE_PAGE as u8);
                 }
+                break;
             }
         }
     }
@@ -264,6 +287,8 @@ pub enum PhysicalMapError {
     UnalignedRange,
     UnalignedBacking,
     BackingOverflow,
+    /// Two final physical pages use the same page-aligned backing offset.
+    DuplicateBackingPage(u32),
 }
 
 impl fmt::Display for PhysicalMapError {
@@ -273,6 +298,9 @@ impl fmt::Display for PhysicalMapError {
             Self::UnalignedRange => "physical mapping range must contain complete 4-KiB pages",
             Self::UnalignedBacking => "physical mapping backing must be 4-KiB aligned",
             Self::BackingOverflow => "physical mapping backing exceeds the 32-bit address space",
+            Self::DuplicateBackingPage(offset) => {
+                return write!(f, "multiple physical pages use backing page {offset:#x}")
+            }
         })
     }
 }

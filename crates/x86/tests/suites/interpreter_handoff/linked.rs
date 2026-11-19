@@ -68,17 +68,17 @@ fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
 }
 
 #[test]
-fn protected_physical_bus_blocks_use_aliases_and_restart_mmio_in_the_interpreter() {
+fn protected_physical_bus_blocks_follow_a20_and_restart_mmio_in_the_interpreter() {
     let store = [0xa3, 4, 0x40, 0, 0xd0]; // MOV [D0004004],EAX
-    let load = [0x8b, 0x0d, 4, 0x50, 0, 0xd0]; // MOV ECX,[D0005004] through the alias
+    let load = [0x8b, 0x0d, 4, 0x40, 0x10, 0xd0]; // MOV ECX,[D0104004] through the A20 alias
     let device = [0x89, 0x0d, 4, 0x60, 0, 0xe0]; // MOV [E0006004],ECX through MMIO
     let code = [&store[..], &load, &device].concat();
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 0;
     image.cpu.registers.eax = 0x7856_3412;
     image.map(0xd0004, 0x8000, true);
-    image.map(0xd0005, 0x8000, true);
     let mut input = image.input();
+    input.a20_enabled = false;
     input.machine.clear(); // Only the physical bus maps code and data.
     input.mmio_pages.push((0xe0006, 0x9000));
     input.observe_mmio = true;

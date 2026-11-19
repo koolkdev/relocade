@@ -78,12 +78,7 @@ fn input() -> Input {
             (0x3fff, vec![0x88]),
             (0x5000, vec![0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11]),
         ],
-        physical_pages: vec![
-            (1, 0x3000, true),
-            (2, 0x5000, true),
-            (9, 0x3000, false),
-            (10, 0x5000, false),
-        ],
+        physical_pages: vec![(1, 0x3000, true), (2, 0x5000, true)],
         observe_mmio: true,
         observe_guest: true,
         ..Input::new(&[])
@@ -233,6 +228,7 @@ fn updates() {
             execution_target: None,
         });
         let mut input = input();
+        input.physical_pages = vec![(9, 0x3000, false), (10, 0x5000, false)];
         input.mmio_pages = vec![(1, 0x3000), (2, 0x5000), (8, 0x6000)];
         let observed = module.observe(&input, 1);
         assert_eq!(
