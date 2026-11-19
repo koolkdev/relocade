@@ -1,6 +1,6 @@
 //! Host-owned routing from physical pages to backing memory or MMIO devices.
 
-use std::{collections::BTreeSet, fmt, ops::RangeInclusive};
+use std::{fmt, ops::RangeInclusive};
 
 pub(super) const PAGE_SHIFT: u32 = 12;
 pub(super) const PAGE_MASK: u32 = PhysicalMemoryMap::PAGE_BYTES - 1;
@@ -56,6 +56,36 @@ impl PhysicalMapping {
         }
     }
 
+    fn from_entry(entry: &[u8; 8]) -> Self {
+        let payload = u32::from_le_bytes(entry[4..].try_into().unwrap());
+        match u32::from(entry[0]) & !CODE_PAGE {
+            UNMAPPED => Self::Unmapped,
+            RAM => Self::Ram {
+                backing_offset: payload,
+            },
+            ROM => Self::Rom {
+                backing_offset: payload,
+            },
+            MMIO => Self::Mmio {
+                handler: MmioHandlerId::new(payload),
+            },
+            _ => unreachable!("only physical mapping kinds are encoded"),
+        }
+    }
+
+    fn entry(self) -> [u8; 8] {
+        let (kind, payload) = match self {
+            Self::Unmapped => (UNMAPPED, 0),
+            Self::Ram { backing_offset } => (RAM, backing_offset),
+            Self::Rom { backing_offset } => (ROM, backing_offset),
+            Self::Mmio { handler } => (MMIO, handler.index()),
+        };
+        let mut entry = [0; 8];
+        entry[..4].copy_from_slice(&kind.to_le_bytes());
+        entry[4..].copy_from_slice(&payload.to_le_bytes());
+        entry
+    }
+
     fn advance(self, bytes: u32) -> Self {
         match self {
             Self::Unmapped | Self::Mmio { .. } => self,
@@ -69,11 +99,9 @@ impl PhysicalMapping {
     }
 }
 
-/// Host routing for ordinary real mode, in complete 4-KiB pages. The fixed table
-/// covers physical addresses below 0x110000: enough for every `selector << 4`
-/// base plus a 16-bit offset, with A20 enabled. Unspecified pages are unmapped.
-/// Each page has one mapping; mixed RAM/ROM/MMIO regions within a page are not
-/// represented. Several physical ranges may share backing.
+/// Host routing for the 32-bit physical address space. Each 4-KiB page has
+/// one mapping. Unspecified pages are unmapped, and several physical ranges
+/// may share backing. The host allocates RAM and ROM backing separately.
 ///
 /// This type constructs routing metadata. The host owns backing allocation,
 /// device behavior and updates to the installed Wasm table.
@@ -91,37 +119,60 @@ impl PhysicalMapping {
 /// ```
 #[derive(Clone, Debug)]
 pub struct PhysicalMemoryMap {
-    pages: [PhysicalMapping; Self::PAGE_COUNT],
-    code_pages: BTreeSet<u32>,
-    a20_enabled: bool,
+    image: Box<[u8]>,
 }
 
 impl PhysicalMemoryMap {
     pub const PAGE_BYTES: u32 = 1 << PAGE_SHIFT;
-    pub const PAGE_COUNT: usize = 272;
-    /// The trailing address-mask word; page-entry offsets are independent of A20.
-    pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * 8;
+    pub const PAGE_COUNT: usize = 1 << 20;
+    /// Size of one serialized routing entry, in bytes.
+    pub const ENTRY_BYTES: usize = 8;
+    /// The trailing address-mask word. Page-entry offsets are independent of A20.
+    pub const A20_MASK_OFFSET: usize = Self::PAGE_COUNT * Self::ENTRY_BYTES;
     pub const BYTE_LEN: usize = Self::A20_MASK_OFFSET + 4;
+
+    fn entries(&self) -> &[[u8; Self::ENTRY_BYTES]] {
+        self.image.as_chunks().0
+    }
 
     /// Checks all RAM/ROM backing, including pages currently hidden by A20.
     pub fn fits_backing(&self, memory_size: u64) -> bool {
-        self.pages
+        self.entries()
             .iter()
-            .filter_map(|page| page.backing_offset())
+            .filter_map(|entry| PhysicalMapping::from_entry(entry).backing_offset())
             .all(|offset| u64::from(offset) + u64::from(Self::PAGE_BYTES) <= memory_size)
+    }
+
+    /// Physical page addresses and the byte offsets of their serialized MMIO
+    /// handler words. Includes pages hidden by A20. Device publication updates
+    /// the underlying routing independently of the current address gate.
+    pub fn mmio_handler_offsets(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.entries()
+            .iter()
+            .enumerate()
+            .filter_map(|(page, entry)| {
+                (u32::from(entry[0]) == MMIO).then_some((
+                    page as u32 * Self::PAGE_BYTES,
+                    (page * Self::ENTRY_BYTES + 4) as u32,
+                ))
+            })
     }
 
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
     /// A20 starts disabled for DOS-compatible address wrapping.
-    /// Each range must contain complete pages within 0..=0x10ffff.
+    /// Each range must contain complete pages.
     /// For RAM/ROM, `backing_offset` names the first byte and must be page aligned;
     /// subsequent pages use consecutive backing. Backing must fit the 32-bit
     /// address space, but its allocation remains the host's duty.
     pub fn new(
         regions: impl IntoIterator<Item = (RangeInclusive<u32>, PhysicalMapping)>,
     ) -> Result<Self, PhysicalMapError> {
-        let mut pages = [PhysicalMapping::Unmapped; Self::PAGE_COUNT];
+        let mut map = Self {
+            image: vec![0; Self::BYTE_LEN].into_boxed_slice(),
+        };
+        map.set_a20_enabled(false);
+        let (pages, _) = map.image.as_chunks_mut::<8>();
         for (range, mapping) in regions {
             if range.is_empty() {
                 return Err(PhysicalMapError::EmptyRange);
@@ -132,9 +183,6 @@ impl PhysicalMemoryMap {
             }
             let first_page = (start >> PAGE_SHIFT) as usize;
             let end_page = (end >> PAGE_SHIFT) as usize + 1;
-            if end_page > Self::PAGE_COUNT {
-                return Err(PhysicalMapError::RangeOutOfBounds);
-            }
             if let Some(backing) = mapping.backing_offset() {
                 if backing & PAGE_MASK != 0 {
                     return Err(PhysicalMapError::UnalignedBacking);
@@ -145,14 +193,10 @@ impl PhysicalMemoryMap {
                 }
             }
             for (index, page) in pages[first_page..end_page].iter_mut().enumerate() {
-                *page = mapping.advance((index as u32) << PAGE_SHIFT);
+                *page = mapping.advance((index as u32) << PAGE_SHIFT).entry();
             }
         }
-        Ok(Self {
-            pages,
-            code_pages: BTreeSet::new(),
-            a20_enabled: false,
-        })
+        Ok(map)
     }
 
     /// Marks the backing page containing `backing_offset` as containing tracked code.
@@ -162,77 +206,54 @@ impl PhysicalMemoryMap {
     /// is stopped. This metadata alone does not invalidate compiled code.
     pub fn set_code_page(&mut self, backing_offset: u32, contains_code: bool) {
         let page = backing_offset & !PAGE_MASK;
-        if contains_code {
-            self.code_pages.insert(page);
-        } else {
-            self.code_pages.remove(&page);
+        let (entries, _) = self.image.as_chunks_mut::<8>();
+        for entry in entries {
+            if PhysicalMapping::from_entry(entry).backing_offset() == Some(page) {
+                if contains_code {
+                    entry[0] |= CODE_PAGE as u8;
+                } else {
+                    entry[0] &= !(CODE_PAGE as u8);
+                }
+            }
         }
     }
 
     /// Selects the platform A20 gate. New maps disable it. The host installs the
     /// updated serialized mask before the next transfer that should observe it.
     pub fn set_a20_enabled(&mut self, enabled: bool) {
-        self.a20_enabled = enabled;
-    }
-
-    fn address_mask(&self) -> u32 {
-        if self.a20_enabled {
-            u32::MAX
-        } else {
-            !(1 << 20)
-        }
+        let mask = if enabled { u32::MAX } else { !(1 << 20) };
+        self.image[Self::A20_MASK_OFFSET..].copy_from_slice(&mask.to_le_bytes());
     }
 
     /// Applies the platform A20 gate to an address on the physical bus.
     /// MMIO devices receive this address, independently of RAM backing offsets.
     pub fn bus_address(&self, address: u32) -> u32 {
-        address & self.address_mask()
+        let mask = u32::from_le_bytes(self.image[Self::A20_MASK_OFFSET..].try_into().unwrap());
+        address & mask
     }
 
     /// Applies A20 and resolves one byte, adjusting direct offsets to that byte.
-    /// Input addresses outside the table return [`PhysicalMapping::Unmapped`].
     /// This lookup performs no memory transfer or fault check.
     pub fn get(&self, address: u32) -> PhysicalMapping {
-        if address >= Self::PAGE_COUNT as u32 * Self::PAGE_BYTES {
-            return PhysicalMapping::Unmapped;
-        }
         let address = self.bus_address(address);
-        self.pages
-            .get((address >> PAGE_SHIFT) as usize)
-            .copied()
-            .unwrap_or_default()
-            .advance(address & PAGE_MASK)
+        let entry = &self.entries()[(address >> PAGE_SHIFT) as usize];
+        PhysicalMapping::from_entry(entry).advance(address & PAGE_MASK)
     }
 
-    /// Serializes 272 entries of eight bytes each, followed by the A20 mask. Each entry
-    /// contains a little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO)
-    /// with bit 2 set on RAM/ROM pages containing tracked code,
-    /// followed by a u32 backing-page offset or MMIO handler index. Unmapped
-    /// payloads are zero; MMIO index zero selects generic range resolution.
-    /// The trailing u32 is FFFFFFFF when A20 is enabled and FFEFFFFF otherwise.
-    /// The host installs the 2180-byte image at offset zero in `physicalMap`.
-    /// This format uses explicit fields, independent of Rust's enum layout.
-    pub fn to_bytes(&self) -> [u8; Self::BYTE_LEN] {
-        let mut bytes = [0; Self::BYTE_LEN];
-        let (entries, _) = bytes.as_chunks_mut::<8>();
-        for (entry, page) in entries.iter_mut().zip(&self.pages) {
-            let (mut kind, backing): (u32, u32) = match *page {
-                PhysicalMapping::Unmapped => (UNMAPPED, 0),
-                PhysicalMapping::Ram { backing_offset } => (RAM, backing_offset),
-                PhysicalMapping::Rom { backing_offset } => (ROM, backing_offset),
-                PhysicalMapping::Mmio { handler } => (MMIO, handler.index()),
-            };
-            if page
-                .backing_offset()
-                .is_some_and(|offset| self.code_pages.contains(&offset))
-            {
-                kind |= CODE_PAGE;
-            }
-            entry[..4].copy_from_slice(&kind.to_le_bytes());
-            entry[4..].copy_from_slice(&backing.to_le_bytes());
-        }
-        bytes[Self::A20_MASK_OFFSET..].copy_from_slice(&self.address_mask().to_le_bytes());
-        bytes
+    /// Borrows the routing image installed at offset zero of `physicalMap`. Each
+    /// eight-byte entry holds a little-endian u32 kind (0 = unmapped, 1 = RAM,
+    /// 2 = ROM, 3 = MMIO) and a little-endian u32 backing-page offset or MMIO
+    /// handler index. Kind bit 2 marks tracked RAM/ROM. Unmapped payloads are
+    /// zero. MMIO index zero selects generic range resolution.
+    ///
+    /// The trailing u32 mask is FFFFFFFF with A20 enabled and FFEFFFFF otherwise.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.image
+    }
+
+    /// Copies the routing image. Use [`Self::as_bytes`] to borrow it for installation.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.image.to_vec()
     }
 }
 
@@ -241,7 +262,6 @@ impl PhysicalMemoryMap {
 pub enum PhysicalMapError {
     EmptyRange,
     UnalignedRange,
-    RangeOutOfBounds,
     UnalignedBacking,
     BackingOverflow,
 }
@@ -251,7 +271,6 @@ impl fmt::Display for PhysicalMapError {
         f.write_str(match self {
             Self::EmptyRange => "physical mapping range is empty",
             Self::UnalignedRange => "physical mapping range must contain complete 4-KiB pages",
-            Self::RangeOutOfBounds => "physical mapping range exceeds the real-mode table",
             Self::UnalignedBacking => "physical mapping backing must be 4-KiB aligned",
             Self::BackingOverflow => "physical mapping backing exceeds the 32-bit address space",
         })

@@ -15,8 +15,8 @@ pub use service::CompilerService;
 use crate::{worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
-    BlockSnapshot, CodeAddress, DecodedBlock, ExecutionProfile, ExecutionTarget, Segment,
-    SegmentDefaultSize, SegmentRegister,
+    BlockSnapshot, CodeAddress, DecodedBlock, ExecutionTarget, Segment, SegmentDefaultSize,
+    SegmentRegister,
 };
 
 /// One real-mode CS:IP and the bounds of the bytes to capture at that address.
@@ -69,9 +69,7 @@ async fn compile(
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
-    if target.profile != ExecutionProfile::Real16 {
-        return Err(crate::ConfigurationError::UnsupportedMode.into());
-    }
+    memory.configuration().validate_target(target)?;
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::new(target.profile)
         .with_cpu_model(target.cpu_model)

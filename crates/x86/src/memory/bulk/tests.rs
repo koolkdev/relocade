@@ -1,13 +1,13 @@
 use crate::{
     memory::{Intent, Memory},
     test_step::{Argument, Event, Input, Outcome, TestModule},
-    CompiledModule, ExecutionProfile,
+    CompiledModule, MemoryBackend,
 };
 use relocade_compiler::{Program, I16};
 
 fn transfers(fill: bool) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(&mut program, ExecutionProfile::Real16);
+    let memory = Memory::declare(&mut program, MemoryBackend::PhysicalBus);
     let function = program.function::<fn(u32, u32, u32) -> u64>(
         move |mut body, (destination, source, bytes)| {
             let destination =

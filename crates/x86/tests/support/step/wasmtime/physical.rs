@@ -44,9 +44,30 @@ pub(super) fn register(
     for &backing in &input.code_pages {
         map.set_code_page(backing, true);
     }
-    let image = map.to_bytes();
-    let table = Memory::new(&mut *store, MemoryType::new(1, None)).unwrap();
-    table.write(&mut *store, 0, &image).unwrap();
+    let table = Memory::new(
+        &mut *store,
+        MemoryType::new(relocade_x86::abi::PHYSICAL_MAP.minimum, None),
+    )
+    .unwrap();
+    // The fresh Wasm memory already contains the unmapped records.
+    let bytes = map.as_bytes();
+    for page in input
+        .physical_pages
+        .iter()
+        .map(|&(page, _, _)| page)
+        .chain(input.mmio_pages.iter().map(|&(page, _)| page))
+    {
+        let offset = page as usize * PhysicalMemoryMap::ENTRY_BYTES;
+        table
+            .write(
+                &mut *store,
+                offset,
+                &bytes[offset..offset + PhysicalMemoryMap::ENTRY_BYTES],
+            )
+            .unwrap();
+    }
+    let mask = PhysicalMemoryMap::A20_MASK_OFFSET;
+    table.write(&mut *store, mask, &bytes[mask..]).unwrap();
     linker
         .define(&*store, "relocade", "physicalMap", table)
         .unwrap();
@@ -161,11 +182,7 @@ pub(super) fn register(
 
 fn device_backing(devices: &BTreeMap<u32, u32>, table: &[u8], address: u32, index: u32) -> usize {
     let page = address >> 12;
-    assert!(
-        (page as usize) < PhysicalMemoryMap::PAGE_COUNT,
-        "callback must stay within MMIO"
-    );
-    let offset = page as usize * 8;
+    let offset = page as usize * PhysicalMemoryMap::ENTRY_BYTES;
     assert_eq!(
         u32::from_le_bytes(table[offset..offset + 4].try_into().unwrap()),
         3,

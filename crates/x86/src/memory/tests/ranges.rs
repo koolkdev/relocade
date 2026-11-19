@@ -2,10 +2,7 @@ use super::*;
 
 fn checked_range(intent: Intent, constant_bytes: Option<u32>) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(
-        &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    );
+    let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
     let function = program.raw_function(
         Signature {
             parameters: vec![Type::I32, Type::I32],

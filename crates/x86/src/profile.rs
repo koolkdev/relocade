@@ -1,6 +1,6 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-pub use relocade_x86_profile::ExecutionProfile;
+pub use relocade_x86_profile::{ExecutionProfile, MemoryBackend};
 use std::sync::Arc;
 
 use crate::{
@@ -77,6 +77,8 @@ impl EntryGuarantees {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ExecutionTarget {
     pub profile: ExecutionProfile,
+    /// Memory routing and imports required by instruction fetch and data accesses.
+    pub memory_backend: MemoryBackend,
     pub cpu_model: CpuModel,
     /// Whether the execution owner may arm instruction budgets. When false,
     /// snapshot blocks omit their budget checks and the live budget must stay zero.

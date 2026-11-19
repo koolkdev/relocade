@@ -4,7 +4,7 @@ fn field_module() -> TestModule {
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     let function = program.raw_function(
         Signature {
@@ -120,7 +120,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     for (name, intent) in [
         ("read_fields", Intent::Read),

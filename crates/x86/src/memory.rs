@@ -16,7 +16,7 @@ pub(crate) use page_table::{PageCache, PageCacheInputs};
 pub use physical_map::{MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub(crate) use value::TransferType;
 
-use crate::{alu::OperandUpdate, ExecutionProfile};
+use crate::{alu::OperandUpdate, MemoryBackend};
 use access::FaultHandler;
 use page_table::{PRESENT, WRITABLE};
 use physical::PhysicalMemory;
@@ -65,10 +65,10 @@ impl Memory {
 
     /// Declares one module's memory handles and deferred access helpers.
     /// The compiler constructs and retains only reachable helper bodies.
-    pub(crate) fn declare(program: &mut Program, profile: ExecutionProfile) -> Self {
-        match profile {
-            ExecutionProfile::Protected(_) => Self::Virtual(VirtualMemory::declare(program)),
-            ExecutionProfile::Real16 => Self::Physical(PhysicalMemory::declare(program)),
+    pub(crate) fn declare(program: &mut Program, backend: MemoryBackend) -> Self {
+        match backend {
+            MemoryBackend::HostPageTable => Self::Virtual(VirtualMemory::declare(program)),
+            MemoryBackend::PhysicalBus => Self::Physical(PhysicalMemory::declare(program)),
         }
     }
 

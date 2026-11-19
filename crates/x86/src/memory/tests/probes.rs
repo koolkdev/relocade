@@ -2,10 +2,7 @@ use super::*;
 
 fn probe_module(constant_bytes: Option<u32>, intent: Intent) -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(
-        &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    );
+    let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
     let function =
         program.function::<fn(u32, u32) -> (u32, u32, u32, u32)>(move |mut body, (start, _)| {
             let bytes = match constant_bytes {

@@ -1,7 +1,10 @@
-//! Share interpreter code by profile while retaining per-target execution fixtures.
+//! Share interpreter code by profile and memory backend across per-target execution fixtures.
 
 use super::TestModule;
-use crate::{Compiler, ExecutionProfile, ExecutionTarget, SegmentProfile};
+use crate::{
+    build_interpreter_with_memory, Compiler, ExecutionProfile, ExecutionTarget, MemoryBackend,
+    SegmentProfile,
+};
 use relocade_test_support::Module;
 use std::{
     collections::HashMap,
@@ -39,11 +42,18 @@ impl TestModule {
     }
 
     fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
-        static CODE: Fixtures<ExecutionProfile, Arc<Module>> = Fixtures::new();
+        static CODE: Fixtures<(ExecutionProfile, MemoryBackend), Arc<Module>> = Fixtures::new();
         static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
-            let module = CODE.get(target.profile, || {
-                Arc::new(Module::new(relocade_interpreter::module(target.profile)))
+            let module = CODE.get((target.profile, target.memory_backend), || {
+                if target.memory_backend == MemoryBackend::default_for(target.profile) {
+                    return Arc::new(Module::new(relocade_interpreter::module(target.profile)));
+                }
+                let bytes = build_interpreter_with_memory(target.profile, target.memory_backend)
+                    .unwrap()
+                    .compile()
+                    .unwrap();
+                Arc::new(Module::new(&bytes))
             });
             Self {
                 module: Arc::clone(module),

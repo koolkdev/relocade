@@ -1,8 +1,100 @@
 use super::*;
+use relocade_compiler::{I32, I64};
 use relocade_machine::{MmioRead, MmioWrite};
+use relocade_x86::{abi, ExecutionExitValues, MmioHandlerId};
 
 struct Registers;
 impl Device for Registers {}
+
+async fn check_high_physical_mmio() {
+    const BASE: u32 = 0xe000_0000;
+    const ADDRESS: u32 = BASE + 0xfff;
+    let map = PhysicalMemoryMap::new([
+        (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
+        (BASE..=BASE + 0x1fff, PhysicalMapping::MMIO),
+    ])
+    .unwrap();
+    let (_, handler_offset) = map
+        .mmio_handler_offsets()
+        .find(|&(page, _)| page == BASE)
+        .unwrap();
+    let config = support::configuration(
+        Compiler::new(ExecutionProfile::Real16).target(),
+        CpuState::real_mode(),
+        0x1000,
+        map,
+    )
+    .unwrap();
+    let mut cpu = support::create_cpu(config).await.unwrap();
+    // Real-mode segments cannot reach this window. Read the same routing word and
+    // callback table a generated physical transfer uses, in the live CPU instance.
+    cpu.install([Hook::block(0, move |program| {
+        let map = program.import_memory(abi::PHYSICAL_MAP);
+        let reads = program.import_table(abi::MMIO_READS);
+        let guest = program.import_memory(abi::GUEST);
+        program
+            .function::<abi::ExecutionSignature>(move |mut body, ()| {
+                let handler = body.load::<I32>(map, handler_offset)?;
+                let value =
+                    body.call_indirect::<I64>(reads, &handler, &[ADDRESS.into(), 4.into()])?;
+                body.store(guest, 0, handler)?;
+                body.store(guest, 4, value.truncate::<I32>())?;
+                body.return_(ExecutionExitValues::host(HostExit::Return))
+            })
+            .into()
+    })])
+    .await
+    .unwrap();
+    let io = cpu.io();
+    let memory = cpu.memory().with_io(io.clone());
+    let mut view = memory.view();
+    run(&mut cpu).await;
+    assert_eq!(view.read_u32(0).unwrap(), MmioHandlerId::GENERIC.index());
+    assert_eq!(view.read_u32(4).unwrap(), u32::MAX);
+
+    let device = RecordingDevice::new(BASE);
+    let mut binding = None;
+    io.connect(device.clone(), |io| {
+        binding = Some(RecordingDevice::bind_memory(
+            io,
+            &device,
+            BASE..=BASE + 0x1fff,
+        ));
+    });
+    // A20 clears bit 20 without discarding the upper address bits.
+    view.write_u32(ADDRESS | (1 << 20), 0x4433_2211).unwrap();
+    assert_eq!(view.read_u32(ADDRESS).unwrap(), 0x4433_2211);
+    run(&mut cpu).await;
+    assert_ne!(view.read_u32(0).unwrap(), MmioHandlerId::GENERIC.index());
+    assert_eq!(view.read_u32(4).unwrap(), 0x4433_2211);
+    assert_eq!(
+        device.borrow_mut().take_transfers(),
+        [
+            Transfer::MemoryWrite {
+                address: ADDRESS,
+                bytes: 4,
+                value: 0x4433_2211
+            },
+            Transfer::MemoryRead {
+                address: ADDRESS,
+                bytes: 4
+            },
+            Transfer::MemoryRead {
+                address: ADDRESS,
+                bytes: 4
+            },
+        ]
+    );
+
+    io.with_context(|context| {
+        binding
+            .unwrap()
+            .set_read(context, &MmioRead::new(|_, _, _| 7))
+    });
+    run(&mut cpu).await;
+    assert_eq!(view.read_u32(4).unwrap(), 7);
+    assert_eq!(view.read_u32(ADDRESS).unwrap(), 7);
+}
 
 async fn check_live_mmio() {
     for compiled in [false, true] {
@@ -102,6 +194,10 @@ async fn check_split_mmio() {
     }
 }
 
+test_backends!(
+    late_high_mmio_binding_publishes_a_callable_slot_to_existing_modules,
+    check_high_physical_mmio
+);
 test_backends!(
     late_mmio_bindings_and_replacements_reach_existing_guests_and_views,
     check_live_mmio

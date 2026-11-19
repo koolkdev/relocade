@@ -11,7 +11,7 @@ pub use block::{
 };
 pub use dispatch::EntryTable;
 
-use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget};
+use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend};
 
 /// Compiles snapshot blocks and dispatch for one execution target.
 /// CPU observations specialize snapshot blocks. Use [`crate::build_interpreter`]
@@ -33,9 +33,11 @@ impl Compiler {
     /// Selects the profile guarantees shared by every entry and the default processor model.
     /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
+        let profile = profile.into();
         Self {
             target: ExecutionTarget {
-                profile: profile.into(),
+                profile,
+                memory_backend: MemoryBackend::default_for(profile),
                 cpu_model: CpuModel::default(),
                 instruction_budgets: true,
             },

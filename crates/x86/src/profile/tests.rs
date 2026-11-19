@@ -61,10 +61,15 @@ fn segmented_admission_accepts_independent_stack_widths() {
 
 #[test]
 fn entry_compatibility_requires_the_complete_target_and_current_segment_assumptions() {
-    use crate::{Compiler, CpuFeature, CpuModel, SegmentProfile};
+    use crate::{Compiler, CpuFeature, CpuModel, ExecutionTarget, MemoryBackend, SegmentProfile};
     let target = Compiler::new(SegmentProfile::Flat32).target();
     let flat = CpuState::default();
     assert!(target.is_compatible_with(target, &flat));
+    let physical = ExecutionTarget {
+        memory_backend: MemoryBackend::PhysicalBus,
+        ..target
+    };
+    assert!(!physical.is_compatible_with(target, &flat));
     let restricted = Compiler::new(SegmentProfile::Flat32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
         .target();

@@ -6,10 +6,7 @@ use crate::test_step::CallPatches;
 
 fn write_then_read() -> TestModule {
     let mut program = Program::new();
-    let memory = Memory::declare(
-        &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    );
+    let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
     let function = program.raw_function(
         Signature {
             parameters: vec![Type::I32, Type::I32],
@@ -140,10 +137,7 @@ fn consecutive_spans_preserve_aliases_boundaries_and_fault_progress() {
 fn narrower_updates_keep_their_width_and_require_write_permissions() {
     for first_write in [false, true] {
         let mut program = Program::new();
-        let memory = Memory::declare(
-            &mut program,
-            crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        );
+        let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
         let function = program.raw_function(
             Signature {
                 parameters: vec![Type::I32],
@@ -235,10 +229,7 @@ fn narrower_updates_keep_their_width_and_require_write_permissions() {
 #[test]
 fn later_pages_and_new_entries_use_current_mappings() {
     let mut program = Program::new();
-    let memory = Memory::declare(
-        &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    );
+    let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
     let function = program.raw_function(
         Signature {
             parameters: vec![Type::I32, Type::I32],

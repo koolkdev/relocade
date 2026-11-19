@@ -4,7 +4,7 @@ use relocade_compiler::{BuildError, Program};
 
 use crate::{
     decode::RuntimeDecoder, execution::ExecutionModule, profile::EntryGuarantees, state::State,
-    CpuModel, ExecutionProfile, ExecutionTarget,
+    CpuModel, ExecutionProfile, ExecutionTarget, MemoryBackend,
 };
 
 /// Builds one interpreter program exporting both `run` and `step`.
@@ -62,11 +62,28 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
-    build(profile, EntryGuarantees::for_profile(profile))
+    build_interpreter_with_memory(profile, MemoryBackend::default_for(profile))
+}
+
+/// Builds the same `run` and `step` entries as [`build_interpreter`] with explicit
+/// memory routing. The execution profile determines segment and privilege semantics.
+/// Both instruction fetch and data accesses use the selected backend after segment checks.
+/// For a protected-mode PC with guest paging disabled, choose [`MemoryBackend::PhysicalBus`].
+pub fn build_interpreter_with_memory(
+    profile: impl Into<ExecutionProfile>,
+    memory_backend: MemoryBackend,
+) -> Result<Program, BuildError> {
+    let profile = profile.into();
+    build(
+        profile,
+        memory_backend,
+        EntryGuarantees::for_profile(profile),
+    )
 }
 
 fn build(
     profile: ExecutionProfile,
+    memory_backend: MemoryBackend,
     entry_guarantees: EntryGuarantees,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
@@ -76,6 +93,7 @@ fn build(
         &mut program,
         ExecutionTarget {
             profile,
+            memory_backend,
             cpu_model: CpuModel::default(),
             instruction_budgets: true,
         },

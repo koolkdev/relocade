@@ -86,7 +86,7 @@ fn accesses() -> Vec<u8> {
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     define_read::<I8>(&mut program, &memory, "read8");
     define_write::<I8>(&mut program, &memory, "write8");
@@ -103,10 +103,7 @@ fn accesses() -> Vec<u8> {
 fn access_fault_handlers_must_terminate_the_denied_path() {
     fn reject_fallthrough<T: MemoryInt + crate::memory::TransferType>() {
         let mut program = Program::new();
-        let memory = Memory::declare(
-            &mut program,
-            crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-        );
+        let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
         let result = program.raw_function(
             Signature {
                 parameters: vec![Type::I32],
