@@ -53,11 +53,33 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
                 [(0, 3), (3, 3), (9, 5)]
             );
             let exit = runner.cpu().exit_handle();
+            let root_exit = exit.clone();
             runner
                 .cpu()
-                .install([Hook::host(0x0010_0020, async move || exit.request())])
+                .install([
+                    Hook::host(0x0010_0000, async move || root_exit.request()),
+                    Hook::host(0x0010_0020, async move || exit.request()),
+                ])
                 .await
                 .unwrap();
+
+            // The CALL at IP 0006 is internal to the module. Changing its displacement
+            // through the A20 alias must reject the reply and preserve the root hook.
+            let memory = runner.cpu().memory();
+            memory.view().write_u8(0x10_0107, 8).unwrap();
+            assert!(matches!(
+                code.install(runner.cpu()),
+                Err(relocade_machine::Error::StaleCompilation)
+            ));
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
+
+            memory.view().write_u8(0x107, 7).unwrap();
+            // Discovery read beyond JMP BX, but that byte is not in the module.
+            memory.view().write_u8(0x10e, 0x90).unwrap();
             code.install(runner.cpu()).unwrap();
             assert_eq!(
                 runner.run_cpu().await,

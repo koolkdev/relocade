@@ -45,8 +45,9 @@ impl Machine {
     /// Pass a compiler service to enable background compilation, or `None` to
     /// use the bundled interpreter without opening a compiler connection.
     /// A CPU with a compiler discovers and compiles hot Real16 callees in the
-    /// background. Code and mappings must stay stable, and candidates must have
-    /// no interior hooks; invalidation and boundary admission are not implemented.
+    /// background. It checks the captured bytes before installing a result.
+    /// Retire modules affected by a write before resuming the CPU. Discovered
+    /// functions must have no interior hooks.
     /// A compiler connection can queue requests while the service starts.
     /// Move the returned handle to its execution worker. Its state remains
     /// available through [`Self::cpus`] after that worker is joined.

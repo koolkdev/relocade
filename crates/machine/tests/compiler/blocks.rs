@@ -24,6 +24,13 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
             .write(entry.address(), &[0xb8, immediate, 0])
             .unwrap();
     }
+    // MOV [0321], AL with DS=FFFF writes the last entry's immediate through A20.
+    // The backward jump gives the runner a budget checkpoint after the store.
+    machine
+        .memory()
+        .view()
+        .write(0x400, &[0xa2, 0x21, 0x03, 0xeb, 0xfe])
+        .unwrap();
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
     cpu.run_until(pending::<()>(), async move |mut runner| {
         let state = runner.cpu().cpu_state();
@@ -53,6 +60,23 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
             entries.map(CodeAddress::from)
         );
         assert_eq!(compiled.ranges(), &[0x110..0x113, 0x310..0x313]);
+        state.set_eip(0);
+        state.set_segment(Segment::Ds, SegmentRegister::real_mode(Segment::Ds, 0xffff));
+        state.set_al(99);
+        runner
+            .cpu()
+            .instruction_target()
+            .set(Some(state.instruction_count() + 2));
+        assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
+        let memory = runner.cpu().memory();
+        assert_eq!(memory.view().read_u8(0x311).unwrap(), 99);
+        assert!(!compiled.source().has_recorded_writes());
+        assert!(matches!(
+            compiled.install(runner.cpu()),
+            Err(relocade_machine::Error::StaleCompilation)
+        ));
+        assert_eq!(runner.cpu().compiled_modules_at(first.address()).count(), 0);
+        memory.view().write_u8(0x311, 73).unwrap();
         runner
             .cpu()
             .install(entries.map(|entry| {

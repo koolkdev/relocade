@@ -54,7 +54,7 @@ impl Endpoint {
 
 impl CompilerClient {
     /// Queues compilation for this target using the machine's shared guest memory.
-    /// Keep code and mappings stable until the result arrives or the machine shuts down.
+    /// The stopped CPU validates the emitted instruction bytes at installation.
     pub fn request(&self, target: ExecutionTarget, blocks: Vec<BlockRequest>) -> Result<()> {
         self.submit(target, Compilation::Blocks(blocks))
     }
@@ -63,8 +63,8 @@ impl CompilerClient {
     /// entry is a root for block discovery. Discovery follows branches and call
     /// continuations, and shares blocks across roots. Request a callee by its
     /// entry to include it in the batch.
-    /// Keep code, mappings and CS addressing stable. Discovered blocks must have
-    /// no interior host hooks or other registered execution boundaries.
+    /// Discovered blocks must have no interior host hooks or other registered
+    /// execution boundaries.
     /// Rejected roots leave earlier discoveries intact. If no root yields blocks,
     /// the result reports the first discovery error, or is empty for unreadable roots.
     /// Receive and install the result in the same way as an explicit block request.

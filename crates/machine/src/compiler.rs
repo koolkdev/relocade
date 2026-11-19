@@ -20,7 +20,7 @@ use relocade_x86::{
 };
 
 /// One real-mode CS:IP and the bounds of the bytes to capture at that address.
-/// Keep bytes and mappings stable until its result arrives or the machine shuts down.
+/// Installation checks the bytes used by the emitted instructions.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockRequest {
     pub entry: FarPointer,

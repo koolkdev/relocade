@@ -63,7 +63,9 @@ impl CompiledCode {
     }
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
-    /// The caller maintains code/mapping validity for the installed code's lifetime.
+    /// Returns [`Error::StaleCompilation`] if the live instruction bytes differ
+    /// from the compiled snapshot. If installed bytes change, retire the affected
+    /// module before its next execution.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         self.install_entries(cpu, false)
@@ -104,7 +106,7 @@ impl CompiledCode {
         if entries.is_empty() {
             return Ok(());
         }
-        cpu.install_compilation(self, &entries)
+        cpu.install_guest_code(self, &entries)
     }
 }
 
