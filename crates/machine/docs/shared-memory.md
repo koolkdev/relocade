@@ -118,20 +118,23 @@ Worker lifetime belongs to the application.
 
 ## Compiled instruction sources
 
-`Memory` owns the registry of instruction sources shared by compiler jobs and CPU
-installations. Compilation copies each backing page once and reuses that copy for
-aliases and repeated discovery reads. A completed `CompiledCode` retains only the
-bytes used by emitted blocks, excluding gaps and read-ahead. Its `CodeSource`
-registration remains alive until the compilation and its last installation are
-dropped. `Memory::code_sources_at` queries those dependencies by backing address.
+The compiler copies each backing page once, including when discovery reaches it
+through an A20 alias. A compiled module retains a `CodeSource` with the
+instruction bytes used by its emitted blocks. Read-ahead and gaps are excluded.
 
-Memory-view writes update the generations of retained source pages under the same
-lock used to capture them. At installation the stopped CPU holds this lock from
-the comparison of the emitted bytes through publication of its dispatch entries.
-This admits results after unrelated writes or after the original bytes are restored.
-Generated RAM stores and writes through `Memory::backing` bypass the generation
-counters. An embedder using the raw backing must keep its writers quiescent during
-publication. If an instruction changes, retire the affected module before its next execution.
+Each successful installation on a stopped CPU validates the source bytes and
+registers the installed module's backing pages while holding the same lock as
+memory-view writers. `Memory::installed_code_at` looks up installations by
+backing byte. `InstalledCode::was_modified` records whether a managed write
+changed any instruction byte during that installation. A neighboring write or
+a write of identical bytes leaves its history unchanged.
+
+Retiring the module or dropping the CPU removes its registration. An outstanding
+compiler result can be installed again after validation, and an inspection
+handle retains the history of its original installation. Callers coordinate
+guest writes and explicitly retire affected modules before executing changed
+code. Writers using `Memory::backing` bypass managed-write tracking and must
+remain quiescent during publication.
 
 ## Devices
 

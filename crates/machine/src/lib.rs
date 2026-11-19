@@ -69,7 +69,9 @@ pub use io::{
     PortBinding, PortRange, PortRead, PortWrite, WeakIoBus,
 };
 pub use machine::{CpuHandle, Machine};
-pub use memory::{CodeSource, FarPointer, Memory, MemoryBus, MemoryError, MemoryView};
+pub use memory::{
+    CodeSource, FarPointer, InstalledCode, Memory, MemoryBus, MemoryError, MemoryView,
+};
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
 pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner};
 pub use runtime::{

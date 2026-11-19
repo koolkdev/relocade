@@ -1,5 +1,5 @@
 pub(crate) mod code;
-pub use code::CodeSource;
+pub use code::{CodeSource, InstalledCode};
 mod resolve;
 mod view;
 pub use relocade_x86::real_mode::FarPointer;

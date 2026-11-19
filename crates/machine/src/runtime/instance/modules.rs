@@ -5,12 +5,13 @@ pub(super) use calls::Calls;
 mod table;
 
 use super::hooks::Hooks;
-use crate::{CompiledCode, DispatchEntry, FarPointer, Result};
+use crate::{CompiledCode, DispatchEntry, FarPointer, InstalledCode, Result};
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
+    sync::Arc,
 };
 use table::DispatchTable;
 
@@ -21,6 +22,7 @@ pub(super) struct ModuleInstance<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
     entry_keys: Vec<u32>,
     code: Option<CompiledCode>,
+    pub(super) registered_source: Option<Arc<InstalledCode>>,
     calls: Option<Calls<B>>,
     pages: BTreeSet<u32>,
 }
@@ -41,6 +43,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
             instance,
             entry_keys: Vec::new(),
             code,
+            registered_source: None,
             calls,
             pages,
         }
@@ -48,6 +51,14 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
 
     pub(super) fn code(&self) -> Option<&CompiledCode> {
         self.code.as_ref()
+    }
+}
+
+impl<B: ExportFunction<abi::ExecutionSignature>> Drop for ModuleInstance<B> {
+    fn drop(&mut self) {
+        if let Some(code) = &self.registered_source {
+            code.unregister();
+        }
     }
 }
 
@@ -102,7 +113,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         backend: &mut B,
         mut module: ModuleInstance<B>,
         entries: &[DispatchEntry<'_>],
-    ) -> Result<()> {
+    ) -> Result<&mut ModuleInstance<B>> {
         let id = ModuleId(self.next_module_id);
         module.entry_keys = self
             .table
@@ -117,8 +128,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .next_module_id
             .checked_add(1)
             .expect("module identity fits usize");
-        self.modules.insert(id, module);
-        Ok(())
+        Ok(self.modules.entry(id).insert_entry(module).into_mut())
     }
 
     /// Retires complete linked versions: their direct internal calls cannot be
@@ -160,7 +170,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         let keys = self.table.remove(backend, exports)?;
         for id in retired_modules {
             let module = self.modules.remove(&id).expect("installed module");
-            for page in module.pages {
+            for &page in &module.pages {
                 let modules = self.pages.get_mut(&page).expect("registered source page");
                 modules.remove(&id);
                 if modules.is_empty() {
