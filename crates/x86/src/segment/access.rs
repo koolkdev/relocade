@@ -2,7 +2,7 @@
 
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32};
 
-use crate::{exception::ExceptionValues, memory::Intent, ssa::StateFields, ExecutionProfile};
+use crate::{exception::ExceptionValues, memory::Intent, ssa::StateFields, state};
 
 use super::{Segment, SegmentSelection};
 
@@ -14,24 +14,21 @@ mod tests;
 /// Segment reads and access rules over the current path's retained CPU fields.
 pub(crate) struct SegmentAccess<'state> {
     fields: &'state mut StateFields,
-    profile: ExecutionProfile,
 }
 
 impl<'state> SegmentAccess<'state> {
-    pub(crate) fn new(fields: &'state mut StateFields, profile: ExecutionProfile) -> Self {
-        Self { fields, profile }
+    pub(crate) fn new(fields: &'state mut StateFields) -> Self {
+        Self { fields }
     }
 }
 
-/// A non-faulting segment probe. A profile-proven span needs no runtime guard.
+/// A non-faulting segment probe. A proven span needs no runtime guard.
 pub(crate) struct SegmentCheck {
     pub(crate) linear: Val<I32>,
     pub(crate) denied: Option<Val<I1>>,
 }
 
 impl SegmentAccess<'_> {
-    /// The runtime maintains profile compatibility throughout execution, including
-    /// when segment loads replace a cache.
     /// Known flat data segments need no cache reads or segment guards.
     /// Unknown indices use the complete checked path.
     /// The span must be nonempty.
@@ -68,35 +65,27 @@ impl SegmentAccess<'_> {
     ) -> Result<SegmentCheck, BuildError> {
         let bytes = body.value(bytes)?;
         let base = self.base(body, segment)?;
-        let denied = match self.profile {
-            ExecutionProfile::Real16 => {
-                // Real mode uses the loaded limit without protected-mode type permissions.
-                let limit = self.limit(body, segment)?;
-                // Fixed limits and sizes fold to one offset comparison.
-                let tail_bytes = bytes.sub(1);
-                limit
-                    .unsigned()
-                    .lt(&tail_bytes)
-                    .or(limit.sub(tail_bytes).unsigned().lt(offset))
-            }
-            ExecutionProfile::Protected(_) => {
-                self.access_denied(body, segment, offset, &bytes, intent)?
-            }
-        };
-        let denied = bytes.eq(0).or(denied);
+        let limit = self.limit(body, segment)?;
+        let protected = state::protected_mode(body, self.fields)?;
+        let allowed = protected.select(
+            self.check_protected_mode(body, segment, intent, &limit, offset, &bytes)?,
+            check_real_mode(&limit, offset, &bytes),
+        );
+        let denied = bytes.eq(0).or(allowed.eq(false));
         Ok(SegmentCheck {
             linear: base.add(offset),
             denied: (body.constant_bits(&denied)? != Some(0)).then_some(denied),
         })
     }
 
-    fn access_denied(
+    fn check_protected_mode(
         &mut self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
+        intent: Intent,
+        limit: &Val<I32>,
         offset: &Val<I32>,
         bytes: &Val<I32>,
-        intent: Intent,
     ) -> Result<Val<I1>, BuildError> {
         let usable = self.usable(body, segment)?;
         let permitted = match intent {
@@ -107,33 +96,31 @@ impl SegmentAccess<'_> {
             Intent::Write => self.writable(body, segment)?,
             Intent::Fetch => self.executable(body, segment)?,
         };
-        let permitted = usable.and(permitted);
-        let limit = self.limit(body, segment)?;
-        let expand_down = self.expand_down(body, segment)?;
-        // A known full-size expand-up segment has no offset restriction. Avoid
-        // constructing range expressions or reading its unused D/B field.
-        if body.constant_bits(&expand_down)? == Some(0)
-            && body.constant_bits(&limit)? == Some(u64::from(u32::MAX))
-        {
-            return Ok(permitted.eq(false));
-        }
         let last = offset.add(bytes.sub(1));
         let no_wrap = last.unsigned().ge(offset);
-        // Full-size expand-up segments permit wrapping offsets in this emulator.
-        // Finite limits must cover every byte without offset arithmetic wrapping.
-        let expand_up = limit
-            .eq(u32::MAX)
-            .or(no_wrap.and(limit.unsigned().ge(&last)));
         let upper = self.big(body, segment)?.select(u32::MAX, 0xffffu32);
-        let down_range = limit
-            .unsigned()
-            .lt(offset)
-            .and(&no_wrap)
-            .and(upper.unsigned().ge(&last));
-        Ok(permitted
-            .and(expand_down.select(down_range, expand_up))
-            .eq(0))
+        let in_bounds = self.expand_down(body, segment)?.select(
+            limit
+                .unsigned()
+                .lt(offset)
+                .and(&no_wrap)
+                .and(upper.unsigned().ge(&last)),
+            // A full-size protected expand-up segment permits wrapping offsets.
+            limit
+                .eq(u32::MAX)
+                .or(no_wrap.and(limit.unsigned().ge(&last))),
+        );
+        Ok(usable.and(permitted).and(in_bounds))
     }
+}
+
+// Compare against the last legal start so a wrapping end cannot pass the check.
+fn check_real_mode(limit: &Val<I32>, offset: &Val<I32>, bytes: &Val<I32>) -> Val<I1> {
+    let tail_bytes = bytes.sub(1);
+    limit
+        .unsigned()
+        .ge(&tail_bytes)
+        .and(limit.sub(tail_bytes).unsigned().ge(offset))
 }
 
 impl SegmentCheck {

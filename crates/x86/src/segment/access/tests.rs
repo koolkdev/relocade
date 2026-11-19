@@ -13,10 +13,11 @@ mod ranges;
 mod runtime;
 
 fn translation(
-    profile: ExecutionProfile,
+    profile: impl Into<Option<ExecutionProfile>>,
     intent: Intent,
     selection: Option<fn(Val<I32>) -> SegmentSelection>,
 ) -> CompiledModule {
+    let profile = profile.into();
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.raw_function(
@@ -29,11 +30,14 @@ fn translation(
             .results,
         },
         move |mut body| {
-            let mut state = State::for_entry(
-                &cpu,
-                profile,
-                &crate::profile::EntryGuarantees::for_profile(profile),
-            );
+            let mut state = match profile {
+                Some(profile) => State::for_entry(
+                    &cpu,
+                    profile,
+                    &crate::profile::EntryGuarantees::for_profile(profile),
+                ),
+                None => State::new(&cpu),
+            };
             let choice = body.parameter::<I32>(0)?;
             let offset = body.parameter::<I32>(1)?;
             let linear = match selection {
@@ -56,7 +60,7 @@ fn translation(
     CompiledModule {
         bytes,
         entry: "translate".into(),
-        execution_target: Some(crate::Compiler::new(profile).target()),
+        execution_target: profile.map(|profile| crate::Compiler::new(profile).target()),
     }
 }
 
