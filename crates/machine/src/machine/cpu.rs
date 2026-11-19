@@ -1,3 +1,4 @@
+use crate::memory::CpuBinding;
 use crate::{timer_service, Clock, ExecutionWorker, GuestTimeConfig, Runner, TimerHandle};
 use crate::{
     Cpu, CpuConfig, CpuStateAccess, CpuStorage, ExecutionInterrupt, IoBus, Memory, Result,
@@ -10,41 +11,37 @@ use std::future::Future;
 #[derive(crate::worker::Transfer)]
 pub struct CpuHandle {
     storage: CpuStorage,
-    memory: Memory,
-    config: CpuConfig,
+    binding: CpuBinding,
     compiler: Option<crate::compiler::Endpoint>,
     execution: super::execution::Member,
 }
 
 impl CpuHandle {
     pub(super) fn new(
-        machine: &super::Machine,
-        config: CpuConfig,
+        binding: CpuBinding,
+        execution: super::execution::Member,
         compiler: Option<crate::compiler::Endpoint>,
     ) -> Result<(Self, CpuStateAccess)> {
-        let memory = machine.memory();
-        memory.configuration().validate_for(config.cpu().mode())?;
         let storage = CpuStorage::new()?;
-        let backing = storage.initialize(&config);
-        let state = CpuStateAccess::new(&config, backing);
+        let backing = storage.initialize(&binding.config);
+        let state = CpuStateAccess::new(&binding.config, backing);
         Ok((
             Self {
                 storage,
-                memory,
-                config,
+                binding,
                 compiler,
-                execution: machine.execution.member(),
+                execution,
             },
             state,
         ))
     }
 
     pub fn memory(&self) -> Memory {
-        self.memory.clone()
+        self.binding.memory.clone()
     }
 
     pub fn configuration(&self) -> &CpuConfig {
-        &self.config
+        &self.binding.config
     }
 
     pub fn interrupt_handle(&self) -> ExecutionInterrupt {
@@ -62,10 +59,7 @@ impl CpuHandle {
         self,
         io: IoBus,
     ) -> Result<(Cpu, Option<crate::compiler::Endpoint>)> {
-        let mut cpu = self
-            .storage
-            .into_initialized_cpu(self.memory, self.config, io)
-            .await?;
+        let mut cpu = self.storage.into_initialized_cpu(self.binding, io).await?;
         cpu.execution = Some(self.execution);
         Ok((cpu, self.compiler))
     }

@@ -1,17 +1,18 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
 use super::{ExecutionInterrupt, Result};
-use crate::{CpuConfig, CpuStateAccess, Memory as GuestMemory};
+use crate::{memory::CpuBinding, CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
 use relocade_wasm_runtime::{
     FunctionRef, Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess,
 };
 use relocade_x86::abi;
+use std::sync::Arc;
 
 /// Retained CPU and guest storage, plus private mapping storage.
 /// Retaining the guest handle lets the context borrow it independently of the Wasm runtime.
 pub(super) struct RuntimeMemory {
-    pub(crate) config: CpuConfig,
+    config: Arc<CpuConfig>,
     pub(crate) context: Memory,
     /// Retained backing for execution controls whose cleanup outlives a Wasm call.
     pub(crate) context_backing: SharedMemory,
@@ -26,10 +27,13 @@ pub(super) struct RuntimeMemory {
 impl RuntimeMemory {
     pub fn new(
         wasm: &mut super::WasmRuntime,
-        guest: GuestMemory,
-        config: CpuConfig,
+        binding: CpuBinding,
         storage: SharedMemory,
     ) -> Result<Self> {
+        let CpuBinding {
+            memory: guest,
+            config,
+        } = binding;
         guest.configuration().validate_for(config.cpu().mode())?;
         let context = wasm.import_shared_memory(&storage);
         let interrupt = ExecutionInterrupt::new(storage.clone());

@@ -33,12 +33,15 @@ async fn check_memory_profile() {
         CpuState::default(),
     )
     .unwrap();
+    let memory = Memory::new(config).unwrap();
     assert!(matches!(
-        Cpu::new(Memory::new(config).unwrap(), protected, Default::default()).await,
+        Cpu::new(memory.clone(), protected, Default::default()).await,
         Err(relocade_machine::Error::Configuration(
             ConfigurationError::UnsupportedMode
         ))
     ));
+    let real = CpuConfig::new(target(), CpuState::real_mode()).unwrap();
+    Cpu::new(memory, real, Default::default()).await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

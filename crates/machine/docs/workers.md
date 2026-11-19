@@ -27,7 +27,7 @@ completion against another event while retaining the owner. Dropping that wait
 does not cancel the task; consume its completed result only once.
 Timer drivers, `ExecutionWorker` and graphics use this shared lifecycle.
 
-For CPUs owned by one machine, prepare state before choosing a worker:
+Prepare the machine's guest CPU before choosing its execution worker:
 
 Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
 or `None` to use the bundled interpreter without background compilation.

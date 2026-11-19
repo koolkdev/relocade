@@ -48,18 +48,11 @@ async fn check_guest_memory() {
     let mut runtime = Cpu::new(shared.clone(), config.cpu, Default::default())
         .await
         .unwrap();
-    let mut other = Cpu::new(shared.clone(), config.cpu, Default::default())
-        .await
-        .unwrap();
-    runtime.context().cpu.set_ax(0x1234);
     assert_eq!(
         crate::support::checkpoint(&mut runtime).await,
         ExecutionExit::Interrupted
     );
     assert_eq!(runtime.context().cpu.eip(), 0x108);
-    assert_eq!(other.context().cpu.eip(), 0x100);
-    assert_eq!(other.context().cpu.ax(), 0);
-    assert_eq!(other.memory().view().read_u16(0xffe).unwrap(), 0x0741);
     runtime.context().memory.write(0x1000, &[0, 0]).unwrap(); // ROM ignores writes.
     let mut bytes = [0; 4];
     reader.read(0xffe, &mut bytes).unwrap();
@@ -81,7 +74,6 @@ async fn check_guest_memory() {
         Err(MemoryError::BackingRange)
     );
     drop(runtime);
-    drop(other);
     assert_eq!(reader.read_u16(0xffe).unwrap(), 0x0741);
 }
 

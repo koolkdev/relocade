@@ -7,6 +7,9 @@ use relocade_x86::{
 };
 use std::{pin::pin, time::Duration};
 
+#[path = "machine/admission.rs"]
+mod admission;
+
 #[path = "machine/pause.rs"]
 mod pause;
 
@@ -33,12 +36,10 @@ fn setup() -> (Machine, CpuConfig) {
     (machine, config)
 }
 
-async fn prepared_cpus() {
+async fn prepared_cpu() {
     let (mut machine, config) = setup();
-    let first = machine.create_cpu(config, None).unwrap();
-    let second = machine.create_cpu(config, None).unwrap();
+    let handle = machine.create_cpu(config, None).unwrap();
     machine.cpus()[0].set_ax(0x1234);
-    machine.cpus()[1].set_ax(11);
     // INC AX; MOV [0080],AX; JMP 0100. The requested interrupt ends the block.
     machine
         .memory()
@@ -46,7 +47,7 @@ async fn prepared_cpus() {
         .write(0x100, &[0x40, 0xa3, 0x80, 0, 0xeb, 0xfa])
         .unwrap();
 
-    let interrupt = first.interrupt_handle();
+    let interrupt = handle.interrupt_handle();
     interrupt.request();
     let worker = Thread::new();
     let (mut input, task) = worker
@@ -66,42 +67,25 @@ async fn prepared_cpus() {
             assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
         })
         .unwrap();
-    input.send(first).unwrap();
+    input.send(handle).unwrap();
     task.await.unwrap();
     assert!(interrupt.take());
     assert_eq!(machine.cpus()[0].ax(), 0x1235);
     assert_eq!(machine.cpus()[0].instruction_count(), 3);
-    assert_eq!(machine.cpus()[1].ax(), 11);
-    assert_eq!(machine.cpus()[1].instruction_count(), 0);
     assert_eq!(machine.memory().view().read_u16(0x80).unwrap(), 0x1235);
-
-    second.interrupt_handle().request();
-    let (mut input, task) = worker
-        .listen(|mut input: Receiver<CpuHandle>| async move {
-            let prepared = input.recv().await.unwrap().unwrap();
-            assert_eq!(prepared.memory().view().read_u16(0x80).unwrap(), 0x1235);
-            let mut cpu = prepared.into_cpu(Default::default()).await.unwrap();
-            assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
-        })
-        .unwrap();
-    input.send(second).unwrap();
-    task.await.unwrap();
-    assert_eq!(machine.cpus()[0].ax(), 0x1235);
-    assert_eq!(machine.cpus()[1].ax(), 12);
-    assert_eq!(machine.memory().view().read_u16(0x80).unwrap(), 12);
     machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    pollster::block_on(prepared_cpus());
+fn machine_cpu_keeps_its_state_when_transferred_to_a_worker() {
+    pollster::block_on(prepared_cpu());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn machine_cpus_keep_their_state_when_transferred_to_a_worker() {
-    prepared_cpus().await;
+async fn machine_cpu_keeps_its_state_when_transferred_to_a_worker() {
+    prepared_cpu().await;
 }
 
 async fn session_shutdown() {
@@ -140,7 +124,9 @@ async fn session_shutdown() {
         .unwrap();
     assert_eq!(completed, 42);
     assert_eq!(machine.cpus()[0].ax(), 42);
+    machine.shutdown().await.unwrap();
 
+    let (mut machine, config) = setup();
     let (armed, stop) = futures_channel::oneshot::channel();
     let prepared = machine.create_cpu(config, None).unwrap();
     let result = prepared

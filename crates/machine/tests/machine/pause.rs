@@ -1,11 +1,20 @@
 use super::*;
 use futures_channel::oneshot;
-use relocade_machine::{ExecutionWorker, GuestTimeConfig, Hook};
+use relocade_machine::{GuestTimeConfig, Hook};
 use std::{num::NonZeroU64, sync::Mutex};
 
-fn run_loop(cpu: CpuHandle) -> (ExecutionWorker<()>, oneshot::Receiver<()>) {
-    let (entered, started) = oneshot::channel();
-    let worker = cpu.spawn_with_guest_time(
+async fn pause_worker() {
+    let (mut machine, config) = setup();
+    machine
+        .memory()
+        .view()
+        .write(0x101, &[0x40, 0xeb, 0xfd])
+        .unwrap();
+    let cpu = machine.create_cpu(config, None).unwrap();
+    let paused = machine.pause_cpus().await;
+    let (polled, first_poll) = oneshot::channel();
+    let (entered, mut started) = oneshot::channel();
+    let worker = cpu.spawn_with_guest_time::<()>(
         || GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
         async move |mut runner| {
             let state = runner.cpu().cpu_state();
@@ -18,53 +27,30 @@ fn run_loop(cpu: CpuHandle) -> (ExecutionWorker<()>, oneshot::Receiver<()>) {
                 })])
                 .await
                 .unwrap();
-            runner.run_cpu().await;
+            let mut run = pin!(runner.run_cpu());
+            assert!(futures_lite::future::poll_once(run.as_mut())
+                .await
+                .is_none());
+            polled.send(()).unwrap();
+            run.await;
             panic!("the loop ends only through worker cancellation");
         },
     );
-    (worker, started)
-}
-
-async fn pause_workers() {
-    let (mut machine, config) = setup();
-    // Register-only loops avoid adding concurrent guest data writers.
-    machine
-        .memory()
-        .view()
-        .write(0x101, &[0x40, 0xeb, 0xfd])
-        .unwrap();
-    let first = machine.create_cpu(config, None).unwrap();
-    let second = machine.create_cpu(config, None).unwrap();
-    let late = machine.create_cpu(config, None).unwrap();
-    let _idle = machine.create_cpu(config, None).unwrap();
-    let (first, first_started) = run_loop(first);
-    let (second, second_started) = run_loop(second);
-    first_started.await.unwrap();
-    second_started.await.unwrap();
-
-    let paused = machine.pause_cpus().await;
-    let counts: Vec<_> = machine
-        .cpus()
-        .iter()
-        .map(|cpu| cpu.instruction_count())
-        .collect();
-    let (late, mut late_started) = run_loop(late);
-    futures_timer::Delay::new(Duration::from_millis(5)).await;
-    assert_eq!(late_started.try_recv().unwrap(), None);
-    for (cpu, count) in machine.cpus().iter().zip(&counts) {
-        assert_eq!(cpu.instruction_count(), *count);
-    }
+    first_poll.await.unwrap();
+    assert_eq!(started.try_recv().unwrap(), None);
     drop(paused);
-    late_started.await.unwrap();
+    started.await.unwrap();
+
+    let paused = machine.pause_cpus().await;
+    let count = machine.cpus()[0].instruction_count();
+    futures_timer::Delay::new(Duration::from_millis(5)).await;
+    assert_eq!(machine.cpus()[0].instruction_count(), count);
+    drop(paused);
     futures_timer::Delay::new(Duration::from_millis(5)).await;
     let paused = machine.pause_cpus().await;
-    for (cpu, count) in machine.cpus().iter().take(2).zip(counts) {
-        assert!(cpu.instruction_count() > count);
-    }
-    // Stop stays live even when entry is closed. Dropped CPUs do not hold a pause.
-    assert_eq!(first.stop().await.unwrap(), None);
-    assert_eq!(second.stop().await.unwrap(), None);
-    assert_eq!(late.stop().await.unwrap(), None);
+    assert!(machine.cpus()[0].instruction_count() > count);
+    // Cancellation stays available while entry is closed.
+    assert_eq!(worker.stop().await.unwrap(), None);
     drop(paused);
     drop(machine.pause_cpus().await);
     machine.shutdown().await.unwrap();
@@ -121,14 +107,14 @@ async fn paused_step_and_service() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn machine_pause_stops_workers_and_blocks_late_entry_until_release() {
-    pollster::block_on(pause_workers());
+fn machine_pause_stops_the_worker_and_blocks_entry_until_release() {
+    pollster::block_on(pause_worker());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn machine_pause_stops_workers_and_blocks_late_entry_until_release() {
-    pause_workers().await;
+async fn machine_pause_stops_the_worker_and_blocks_entry_until_release() {
+    pause_worker().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
