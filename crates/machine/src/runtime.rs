@@ -57,6 +57,7 @@ use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
 pub use context::CpuContext;
 pub use error::{Error, Result};
+pub(crate) use execution::CpuStop;
 pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;

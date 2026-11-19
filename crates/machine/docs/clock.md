@@ -31,13 +31,12 @@ returns native progress without any duration conversion. `duration_between(start
 end)` measures a single interval in whole nanoseconds, returning zero for reversed
 readings; its checked form returns `None` instead.
 
-Devices that count their own cycles take native observations directly:
+The PIT advances its counters to a native reading when its alarm fires.
+It then replaces the alarm with the next OUT0 transition:
 
 ```rust,ignore
 pit.advance_to(clock.now());
-if let Some(deadline) = pit.next_deadline() {
-    clock.sleep_until(deadline).await;
-}
+alarm.replace(pit.next_deadline());
 ```
 
 PIT and VGA multiply elapsed native ticks by their oscillator rate, divide by the
@@ -135,7 +134,7 @@ drop(binding);
 
 `bind` retains CPU progress and target handles without borrowing the CPU. The
 returned guard scopes target ownership and wait-change notifications. Dropping
-it records final retirement, clears the target and releases the execution waker.
+it records final retirement, clears the clock's target and releases the execution waker.
 The clock pauses between bindings, and pending device waits remain registered.
 Each binding starts from the CPU's current count without charging earlier work.
 
@@ -144,7 +143,7 @@ the next CPU target. `yield_deadline` is an optional absolute guest time at
 which the embedding wants execution to yield. The driver does not choose yield
 intervals. Registration and cancellation update the target synchronously,
 including during IO/MMIO callbacks, without extending the supplied yield
-deadline. With neither device waits nor a yield deadline, the target is unarmed.
+deadline. With neither device waits nor a yield deadline, the clock releases its target.
 Changed waits wake the embedding so it can reconsider idle scheduling while a
 CPU service is pending.
 
@@ -167,6 +166,9 @@ target, and `set(None)` disarms it. Keep the target within signed wrapping
 distance of the published count. A target of zero rounds to one because the
 backing reserves zero for disarmed execution. `Cpu::run` reports
 `BudgetExhausted` at a completed checkpoint and leaves rearming to its caller.
+The machine programs the backend with the earlier of the caller's limit and its
+own clock deadline. Reaching the caller's limit ends the foreground run even
+when both are due at the same checkpoint.
 
 ## Execution with guest time
 

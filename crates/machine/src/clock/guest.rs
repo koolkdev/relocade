@@ -67,11 +67,11 @@ impl GuestTimeDriver {
 
     /// Observes CPU retirement and controls its target until the returned guard
     /// is dropped. Preexisting retirement is not charged to the clock. Dropping
-    /// the guard records final progress, clears the target and releases the waker.
+    /// the guard records final progress, clears the clock's deadline and releases the waker.
     /// The clock pauses between bindings; pending device waits remain registered.
     ///
     /// `changed` wakes the embedding when waits change, including while a CPU
-    /// service is pending. The embedding must be this CPU's only target writer.
+    /// service is pending. The clock's deadlines coexist with caller instruction limits.
     /// Panics if the driver already has a live binding.
     #[must_use = "retain the binding while driving this CPU"]
     pub fn bind(&self, cpu: &Cpu, changed: &Waker) -> impl Drop + use<> {
@@ -168,7 +168,7 @@ impl Drop for BindingGuard {
         if let Some(host) = &mut state.host {
             host.pause();
         }
-        state.cpu.take().unwrap().target.set(None);
+        state.cpu.take().unwrap().target.set_deadline(None);
         state.offset = now.ticks();
     }
 }
@@ -194,7 +194,7 @@ impl State {
         if cpu.state.execution_target().instruction_budgets {
             let target =
                 deadline.map(|deadline| deadline.max(now).ticks().wrapping_sub(self.offset));
-            cpu.target.set(target);
+            cpu.target.set_deadline(target);
         } else if deadline.is_some() {
             // These compiled entries check only the interrupt at block end.
             // Re-evaluate retirement at that boundary until the wait is due.

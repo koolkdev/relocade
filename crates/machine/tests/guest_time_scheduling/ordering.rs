@@ -174,3 +174,53 @@ fn a_new_activity_can_register_an_earlier_idle_deadline() {
 async fn a_new_activity_can_register_an_earlier_idle_deadline() {
     new_activity_registers_earlier_deadline().await;
 }
+
+async fn caller_budget_and_clock_checkpoint() {
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let cpu = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = cpu.spawn_with_guest_time(
+        || {
+            GuestTimeConfig::new(NonZeroU64::new(1_000).unwrap())
+                .with_slice_duration(Duration::from_millis(3))
+        },
+        async |mut runner| {
+            // LOOP 0100 retires one instruction at each checkpoint.
+            prepare_cpu(&mut runner, &[0xe2, 0xfe]).await;
+            let cpu = runner.cpu();
+            let state = cpu.cpu_state();
+            state.set_cx(9);
+            let exit = cpu.exit_handle();
+            cpu.install([Hook::host(0x102, async move || exit.request())])
+                .await
+                .unwrap();
+            let budget = cpu.instruction_target();
+            // The first caller limit crosses the slice at three. The second
+            // coincides with the slice at six.
+            for count in [5, 6] {
+                budget.set(Some(count));
+                assert_eq!(runner.run_cpu().await, ExecutionExit::BudgetExhausted);
+                assert_eq!(state.instruction_count(), count);
+            }
+            budget.set(None);
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn caller_budgets_end_the_foreground_run_across_clock_checkpoints() {
+    pollster::block_on(caller_budget_and_clock_checkpoint());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn caller_budgets_end_the_foreground_run_across_clock_checkpoints() {
+    caller_budget_and_clock_checkpoint().await;
+}

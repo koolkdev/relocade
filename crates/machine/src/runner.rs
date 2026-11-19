@@ -1,13 +1,17 @@
 //! CPU execution and registered device activities on one owner.
 
 mod guest_time;
+mod hardware;
 mod schedule;
 pub use guest_time::GuestTimeConfig;
 mod worker;
 
-use schedule::{ExecutionSchedule, MachineTurn};
+pub use hardware::Alarm;
+use hardware::Hardware;
+use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
+use crate::runtime::CpuStop;
 use crate::worker::{Executor, HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
 use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
@@ -19,7 +23,7 @@ use futures_lite::future::poll_once;
 pub use futures_lite::future::yield_now;
 use futures_util::{
     future::{join_all, LocalBoxFuture},
-    StreamExt,
+    Stream, StreamExt,
 };
 use relocade_x86::ExecutionExit;
 use std::{
@@ -38,6 +42,7 @@ use std::{
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
     clock: Clock,
+    hardware: Weak<Hardware>,
     activities: mpsc::UnboundedSender<Activity>,
     session: Option<(ExecutionSchedule, mpsc::UnboundedReceiver<Activity>)>,
     running: Weak<RefCell<Option<CpuRun>>>,
@@ -105,6 +110,7 @@ impl Runner {
             .with_host_turns(executor.host_turns());
         Ok(Self {
             clock: schedule.clock().clone(),
+            hardware: Weak::new(),
             activities,
             session: Some((schedule, inbox)),
             running: Weak::new(),
@@ -143,6 +149,34 @@ impl Runner {
 
     pub fn clock(&self) -> &Clock {
         &self.clock
+    }
+
+    /// Registers a disarmed hardware alarm on the session's clock.
+    pub fn alarm(&self, fire: impl FnMut() + 'static) -> Alarm {
+        self.alarm_on(&self.clock, fire)
+    }
+
+    /// Registers a device that was configured with its own clock. The callback
+    /// still runs on this session, after guest execution returns to the worker.
+    pub fn alarm_on(&self, clock: &Clock, fire: impl FnMut() + 'static) -> Alarm {
+        self.hardware
+            .upgrade()
+            .expect("alarm needs a running session")
+            .alarm(clock.clone(), fire)
+    }
+
+    /// Delivers at most one queued item from this stream per worker turn, before
+    /// due alarms. Sources are visited in registration order. The session owns
+    /// the stream and callback until the stream closes or execution ends.
+    pub fn on_input<T>(
+        &self,
+        source: impl Stream<Item = T> + 'static,
+        receive: impl FnMut(T) + 'static,
+    ) {
+        self.hardware
+            .upgrade()
+            .expect("input needs a running session")
+            .on_input(source, receive);
     }
 
     /// Post this resource to another worker and retain its `bind()` guard there
@@ -185,19 +219,18 @@ impl Runner {
         jobs
     }
 
-    /// Connects a device's mappings and starts its activity on this session.
+    /// Connects a device's mappings and attaches it to this session.
     /// Await this during setup inside [`Self::run`]. Configuration finishes and
-    /// releases the runtime context before activity starts. On return, activity
-    /// has completed its first poll with the device waker installed.
-    /// Once queued, the connected device and its activity belong to the session
-    /// even if this wait is cancelled.
+    /// releases the runtime context before the device installs alarms or starts
+    /// an activity. The default activity completes its first poll before this
+    /// returns. Once queued, it belongs to the session even if the wait is cancelled.
     pub async fn connect<D: Device + 'static>(
         &self,
         device: Rc<RefCell<D>>,
         configure: impl FnOnce(&mut DeviceConnection<'_>),
     ) {
         self.io().connect(device.clone(), configure);
-        self.spawn_activity(D::run(device)).await;
+        D::attach(&device, self).await;
     }
 
     /// Starts a local activity with the same lifetime and first-poll guarantee
@@ -238,6 +271,8 @@ impl Runner {
             .run_until(stop, async {
                 let wake = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
                 let _binding = schedule.bind(&self.cpu.borrow(), &wake);
+                let hardware = Hardware::new(wake);
+                self.hardware = Rc::downgrade(&hardware);
                 let execution = self.cpu.borrow().execution.clone();
                 let running = Rc::new(RefCell::new(None::<CpuRun>));
                 self.running = Rc::downgrade(&running);
@@ -245,27 +280,38 @@ impl Runner {
                 let mut application = pin!(main(self));
 
                 poll_fn(|cx| {
+                    hardware.deliver_input();
+                    hardware.fire_alarms();
                     let _ = devices.as_mut().poll(cx);
                     if let Poll::Ready(result) = application.as_mut().poll(cx) {
                         return Poll::Ready(result);
                     }
+                    let _permit = match &execution {
+                        Some(member) => Some(ready!(member.poll_enter(cx))),
+                        None => None,
+                    };
                     let mut active = running.borrow_mut();
                     let turn = {
                         let mut cpu = active.as_ref().map(|run| run.cpu.borrow_mut());
-                        ready!(schedule.poll_turn(cpu.as_deref_mut(), execution.as_ref(), cx,))
+                        // A BIOS hook may finish while host pacing prevents another guest block.
+                        if let Some(exit) = cpu.as_mut().and_then(|cpu| cpu.poll_host_work(cx)) {
+                            CpuStop::Exit(exit)
+                        } else {
+                            ready!(schedule.poll_pacing(cx));
+                            cpu.map_or(CpuStop::Blocked, |mut cpu| cpu.run_to_boundary(cx))
+                        }
                     };
                     match turn {
-                        MachineTurn::Checkpoint => {}
-                        MachineTurn::Exit(exit) => {
+                        CpuStop::Checkpoint => schedule.notify_due(),
+                        CpuStop::Exit(exit) => {
+                            schedule.notify_due();
                             let run = active.take().expect("only a running CPU can exit");
                             let _ = run.completed.send(exit);
                         }
-                        MachineTurn::IdleUntil(clock, deadline) => {
-                            // A device woken this turn can still replace its timer.
-                            if executor.has_pending_poll() {
+                        CpuStop::Blocked => {
+                            if executor.has_pending_poll() || !schedule.advance_idle() {
                                 return Poll::Pending;
                             }
-                            clock.advance_to(deadline);
                         }
                     }
                     executor.request_poll();

@@ -17,6 +17,13 @@ use std::{
 };
 pub(super) use suspended::SuspendedCall;
 
+/// What stopped a CPU at a safe boundary. The machine decides which work runs next.
+pub(crate) enum CpuStop {
+    Checkpoint,
+    Blocked,
+    Exit(ExecutionExit),
+}
+
 /// Requests a return to the embedding after the current guest dispatch or host poll.
 /// Capture this with a service's other resources, for example when DOS terminates
 /// a program. The driver releases pending work and consumes the request before
@@ -111,26 +118,15 @@ impl Cpu {
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
         poll_fn(|cx| {
-            let _execution = ready!(self.poll_enter_execution(cx));
-            match self.poll_host_work(cx) {
-                Some(exit) => Poll::Ready(exit),
-                None => self.poll_execution(cx, false),
-            }
+            let _execution = match &self.execution {
+                Some(execution) => Some(ready!(execution.poll_enter(cx))),
+                None => None,
+            };
+            self.poll_host_work(cx)
+                .or_else(|| self.dispatch(cx, |_| false))
+                .map_or(Poll::Pending, Poll::Ready)
         })
         .await
-    }
-
-    /// Enters one synchronous CPU turn, including service polling and IRQ entry.
-    /// While paused, registers a wakeup for resumption and returns Pending.
-    /// Runners retain the returned guard through both poll operations.
-    pub(crate) fn poll_enter_execution(
-        &self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<crate::machine::execution::Active>> {
-        match &self.execution {
-            Some(execution) => execution.poll_enter(cx).map(Some),
-            None => Poll::Ready(None),
-        }
     }
 
     /// Polls the active host service once and observes exit requests without
@@ -149,22 +145,40 @@ impl Cpu {
         None
     }
 
-    /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
-    /// exit or pending service stops execution. New and resumed host calls are
-    /// polled at their entries; existing host work is polled by `poll_host_work`.
-    /// In a session, return at host boundaries when an activity requests a turn.
-    pub(crate) fn poll_execution(
+    /// Runs guest instructions up to the next checkpoint, blocked handler, HLT,
+    /// or exit. A caller's retirement limit still ends its foreground run when
+    /// an interrupt and the machine's scheduling deadline coincide with it.
+    pub(crate) fn run_to_boundary(&mut self, cx: &mut Context<'_>) -> CpuStop {
+        match self.dispatch(cx, |cpu| cpu.instance.bindings.interrupt.is_requested()) {
+            None => CpuStop::Blocked,
+            Some(ExecutionExit::Interrupted | ExecutionExit::BudgetExhausted) => {
+                if self
+                    .instruction_target
+                    .caller_reached(self.instance.bindings.cpu.instruction_count())
+                {
+                    CpuStop::Exit(ExecutionExit::BudgetExhausted)
+                } else {
+                    CpuStop::Checkpoint
+                }
+            }
+            Some(exit) => CpuStop::Exit(exit),
+        }
+    }
+
+    /// A host boundary has published the guest state. The worker can service
+    /// newly woken activities there, including on the way into HLT.
+    fn dispatch(
         &mut self,
         cx: &mut Context<'_>,
-        in_session: bool,
-    ) -> Poll<ExecutionExit> {
+        yield_at_host_boundary: impl Fn(&Self) -> bool,
+    ) -> Option<ExecutionExit> {
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
                 Err(exit) => break exit,
             };
             if !guest_entered && (self.pending.is_some() || self.halted) {
-                return Poll::Pending;
+                return None;
             }
 
             let exit = self.run_guest();
@@ -186,23 +200,11 @@ impl Cpu {
                 | ExecutionExit::Halted => {}
                 exit => break exit,
             }
-            // Device I/O or a Rust hook can wake a sibling before guest code
-            // reaches a block-end checkpoint, including on the way into HLT.
-            if in_session && self.instance.bindings.interrupt.is_requested() {
+            if yield_at_host_boundary(self) {
                 break self.exit.result().unwrap_or(ExecutionExit::Interrupted);
             }
         };
-        // A session consumes its scheduling interrupts internally. If both
-        // checkpoints fired, deliver the caller's instruction target.
-        if in_session
-            && exit == ExecutionExit::Interrupted
-            && self
-                .instruction_target
-                .reached(self.instance.bindings.cpu.instruction_count())
-        {
-            return Poll::Ready(ExecutionExit::BudgetExhausted);
-        }
-        Poll::Ready(self.finish_exit(exit))
+        Some(self.finish_exit(exit))
     }
 
     fn finish_exit(&mut self, exit: ExecutionExit) -> ExecutionExit {

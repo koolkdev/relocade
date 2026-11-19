@@ -33,14 +33,17 @@ machine.shutdown().await?;
 timers?;
 ```
 
-`connect(...).await` installs the device's mappings and retains the device, then
-starts its ordinary async `Device::run` future. Setup releases its runtime context
-before the activity's first poll; synchronous I/O is available during that poll.
-Connection returns once the activity has installed its wake path. Initialize
-device state before connecting. Passive devices use the default empty activity. Device
-activities retain their own handles, release mutable borrows before awaiting,
-and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
-main activity drops all device futures on their owner.
+`connect(...).await` installs the device's mappings, releases the setup context,
+then calls `Device::attach`. The PIT uses this hook to install a replaceable
+alarm on its clock. Reprogramming the PIT inside a port write updates the
+deadline immediately. The callback runs after guest execution returns.
+Dropping the alarm or ending the session cancels it.
+
+The default hook starts `Device::run` and waits for its first poll. Devices
+use this for work such as publishing video frames. For a stream of physical
+input, `Runner::on_input` delivers each item to a synchronous callback.
+Initialize device state before connecting and release mutable borrows before
+awaiting. Ending the main activity drops these futures on their execution owner.
 
 `spawn_activity(future).await` starts a service without bus mappings with the
 same first-poll and session lifetime guarantees. `spawn_job_thread().await` returns a
@@ -203,16 +206,21 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 ## Event-loop scheduling
 
 The worker executor runs one session future and checks cancellation before
-each poll. The session polls ready device and compiler-receipt futures first,
-then the application. If the application is still waiting, the machine gets
-one turn. A wake during guest execution requests a return to Rust at a
+each poll. When input is ready, the session takes at most one item per input
+source in registration order. It dispatches due hardware alarms next, followed by
+ready Rust activities (including compiler receipt) and the application. A key
+release at the head of the keyboard stream can cancel a typematic repeat due
+at the same instant, even if the timer woke the worker first. If the application
+is still waiting, the machine gets one turn. A wake during guest execution requests a return to Rust at a
 completed checkpoint, independently of guest IF. A long block or `REP` can
 delay that return.
 [Execution checkpoints](../../x86/docs/host-integration.md#execution-interrupts)
 
-With a pending CPU run request, the machine polls retained Rust services,
-installs available compiler replies when safe, checks pacing and executes
-guest code. After a guest-time checkpoint it publishes retirement and wakes
+With a foreground run request, the worker services the active Rust hook and
+checks pacing before asking the CPU to run to a boundary. The CPU decides when
+it can accept an IRQ, leave HLT, resume a nested guest call or install a compiler
+reply. It reports a checkpoint, a blocked state or an exit. After a guest-time
+checkpoint the worker publishes retirement and wakes
 due sleepers. When guest execution is blocked or between programs, the clock
 advances to the next device deadline only after Rust work stops requesting polls.
 A device woken by a host service can cancel its timer at the current guest time.

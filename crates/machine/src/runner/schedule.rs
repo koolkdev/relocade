@@ -1,11 +1,10 @@
-//! Drives CPU turns, guest deadlines and host pacing.
+//! Guest deadlines and host pacing for the machine turn.
 
 mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{machine::execution::Member, Clock, Cpu, GuestTimeDriver, Timestamp};
-use relocade_x86::ExecutionExit;
+use crate::{Clock, Cpu, GuestTimeDriver};
 use std::{
     rc::Rc,
     task::{ready, Context, Poll, Waker},
@@ -19,12 +18,6 @@ pub(super) struct ExecutionSchedule {
 struct GuestSchedule {
     driver: GuestTimeDriver,
     slice: Option<ExecutionSlice>,
-}
-
-pub(super) enum MachineTurn<'a> {
-    Checkpoint,
-    Exit(ExecutionExit),
-    IdleUntil(&'a GuestTimeDriver, Timestamp),
 }
 
 impl ExecutionSchedule {
@@ -63,57 +56,40 @@ impl ExecutionSchedule {
         (cpu.exit_handle().bind(changed), deadlines)
     }
 
-    /// Runs to a CPU checkpoint or exit. A blocked CPU offers its next deadline
-    /// to the runner, which knows whether another Rust activity is ready.
-    pub(super) fn poll_turn(
-        &mut self,
-        mut cpu: Option<&mut Cpu>,
-        execution: Option<&Member>,
-        cx: &mut Context<'_>,
-    ) -> Poll<MachineTurn<'_>> {
-        let _execution = match execution {
-            Some(execution) => Some(ready!(execution.poll_enter(cx))),
-            None => None,
-        };
-        // A host service can complete even while guest entry is paced.
-        let result = if let Some(exit) = cpu.as_mut().and_then(|cpu| cpu.poll_host_work(cx)) {
-            Poll::Ready(exit)
-        } else {
-            if let Some(guest) = &mut self.guest {
-                if let Some(slice) = &mut guest.slice {
-                    ready!(slice.poll(&self.clock, self.clock.now(), cx));
-                }
-                guest
-                    .driver
-                    .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
+    /// Waits for the host pace boundary and arms the next guest checkpoint.
+    pub(super) fn poll_pacing(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        if let Some(guest) = &mut self.guest {
+            if let Some(slice) = &mut guest.slice {
+                ready!(slice.poll(&self.clock, self.clock.now(), cx));
             }
-            cpu.map_or(Poll::Pending, |cpu| cpu.poll_execution(cx, true))
-        };
-        let exit = match result {
-            Poll::Ready(exit) => exit,
-            Poll::Pending => {
-                let Some(guest) = &self.guest else {
-                    return Poll::Pending;
-                };
-                let Some(deadline) = guest.driver.next_deadline() else {
-                    return Poll::Pending;
-                };
-                let deadline = match &guest.slice {
-                    Some(slice) if slice.paced => deadline.min(slice.deadline()),
-                    _ => deadline,
-                };
-                return Poll::Ready(MachineTurn::IdleUntil(&guest.driver, deadline));
-            }
-        };
+            guest
+                .driver
+                .synchronize(guest.slice.as_ref().map(ExecutionSlice::deadline));
+        }
+        Poll::Ready(())
+    }
+
+    /// Publishes retirements and wakes any due waits after a CPU turn.
+    pub(super) fn notify_due(&self) {
         if let Some(guest) = &self.guest {
             guest.driver.notify_due();
         }
-        match exit {
-            ExecutionExit::Interrupted => Poll::Ready(MachineTurn::Checkpoint),
-            ExecutionExit::BudgetExhausted if self.guest.is_some() => {
-                Poll::Ready(MachineTurn::Checkpoint)
+    }
+
+    /// Advances a blocked machine to its earliest guest deadline, within its pacing allowance.
+    pub(super) fn advance_idle(&self) -> bool {
+        let Some(guest) = &self.guest else {
+            return false;
+        };
+        let Some(mut deadline) = guest.driver.next_deadline() else {
+            return false;
+        };
+        if let Some(slice) = &guest.slice {
+            if slice.paced {
+                deadline = deadline.min(slice.deadline());
             }
-            exit => Poll::Ready(MachineTurn::Exit(exit)),
         }
+        guest.driver.advance_to(deadline);
+        true
     }
 }
