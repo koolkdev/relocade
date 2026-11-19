@@ -1,17 +1,27 @@
 //! Exact binary32/64 expansion and directly rounded narrowing of extended values.
 
 mod operand;
+mod single;
 
 pub(crate) use operand::BinaryOperand;
 
-use relocade_compiler::{AtLeast, Val, I16, I32, I64};
+use relocade_compiler::{Val, I1, I16, I32, I64};
 
-use crate::floating::{BinaryEncoding, BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
+use crate::floating::{BinaryFormat, FiniteMagnitude, RoundingInput, RoundingMode};
 
 use super::{
     value::{Classification, KnownClass},
     ConversionResult, ExtendedBits, ExtendedValue,
 };
+
+/// Unsigned destination encoding and the rounding evidence for a finite source.
+struct StoredMagnitude {
+    bits: Val<I64>,
+    overflow: Val<I1>,
+    tiny: Val<I1>,
+    inexact: Val<I1>,
+    incremented: Val<I1>,
+}
 
 impl BinaryFormat {
     /// Expands the encoding exactly, preserving an SNaN's quiet bit and payload.
@@ -68,77 +78,39 @@ impl BinaryFormat {
         }
     }
 
-    /// Rounds the original extended value directly to the destination. PC is
-    /// irrelevant to stores; no intermediate binary64 value is constructed.
+    /// Stores round the original value under RC independently of the arithmetic PC.
     pub(crate) fn encode(self, value: &ExtendedValue, rounding: &RoundingMode) -> ConversionResult {
         if let Some(exact) = value.exact_conversion(self) {
             return exact;
         }
-        match self {
-            Self::Binary32 => Self::encode_rounded::<I32>(value, rounding),
-            Self::Binary64 => Self::encode_rounded::<I64>(value, rounding),
-        }
-    }
-
-    fn encode_rounded<T: BinaryEncoding>(
-        value: &ExtendedValue,
-        rounding: &RoundingMode,
-    ) -> ConversionResult
-    where
-        I64: AtLeast<T>,
-    {
-        let format = T::FORMAT;
         let class = value.classification();
         let unsupported = class.unsupported();
         let special = class.special_exponent();
-        let nan = class.nan();
-        let signaling_nan = class.signaling_nan();
-        let value = value.bits();
-        let fraction_bits = format.fraction_bits();
-        let shift = 63 - fraction_bits;
-        let infinity = format.infinity();
-        let quiet_bit = format.quiet_bit();
-        let sign_bit = format.sign_bit();
-        let significand = &value.significand;
-        let exponent = value.exponent_field();
-        let negative = value.negative();
-        let sign = negative.select(sign_bit, 0_u64);
         let finite = unsupported.or(&special).eq(false);
-        // E=0, including pseudo-denormals, uses the E=1 exponent. Extended
-        // subnormals are far below the binary32/64 destination range.
-        let rounded = FiniteMagnitude {
-            significand: RoundingInput::exact(significand.clone()),
-            exponent: exponent.eq(0).select(1_u32, exponent).sub(16383),
-            negative: negative.clone(),
-        }
-        .round_binary::<T>(rounding, &finite);
-        let overflow = rounded.overflow;
-        let magnitude = overflow.select(
-            rounding.overflow_magnitude::<T>(&negative),
-            rounded.magnitude,
-        );
-        let nan_bits = significand
+        let bits = value.bits();
+        let negative = value.negative();
+        let magnitude = match self {
+            Self::Binary32 => single::round(value, &bits, &negative, rounding),
+            Self::Binary64 => bits.round_binary64(&negative, rounding),
+        };
+        let fraction_bits = self.fraction_bits();
+        let nan_payload = bits
+            .significand
             .unsigned()
-            .shr(shift)
+            .shr(63 - fraction_bits)
             .and((1_u64 << fraction_bits) - 1)
-            .or(quiet_bit);
-        let special_bits = nan.select(nan_bits, 0_u64).or(infinity);
-        let bits = unsupported.select(
-            sign_bit | infinity | quiet_bit,
-            special
-                .select(special_bits, magnitude.unsigned().extend::<I64>())
-                .or(sign),
-        );
+            .or(self.quiet_bit());
+        let special_bits = class.nan().select(nan_payload, 0_u64).or(self.infinity());
+        let signed = special
+            .select(special_bits, magnitude.bits)
+            .or(negative.select(self.sign_bit(), 0_u64));
         ConversionResult {
-            bits,
-            invalid: unsupported.or(signaling_nan),
-            overflow: overflow.clone(),
-            tiny: rounded.tiny,
-            inexact: finite.and(overflow.or(rounded.bounded_inexact)),
-            incremented: finite.and(overflow.select(
-                rounding.overflow_to_infinity(&negative),
-                rounded.bounded_incremented,
-            )),
+            bits: unsupported.select(self.indefinite_bits(), signed),
+            invalid: unsupported.or(class.signaling_nan()),
+            overflow: finite.and(magnitude.overflow),
+            tiny: finite.and(magnitude.tiny),
+            inexact: finite.and(magnitude.inexact),
+            incremented: finite.and(magnitude.incremented),
         }
     }
 
@@ -160,6 +132,33 @@ impl BinaryFormat {
             },
             inexact: false.into(),
             incremented: false.into(),
+        }
+    }
+}
+
+impl ExtendedBits {
+    fn round_binary64(&self, negative: &Val<I1>, rounding: &RoundingMode) -> StoredMagnitude {
+        let exponent = self.exponent_field();
+        // E=0 and E=1 share an exponent, including for pseudo-denormals.
+        let rounded = FiniteMagnitude {
+            significand: RoundingInput::exact(self.significand.clone()),
+            exponent: exponent.eq(0).select(1_u32, exponent).sub(16383),
+            negative: negative.clone(),
+        }
+        .round_binary::<I64>(rounding, &true.into());
+        let overflow = rounded.overflow;
+        StoredMagnitude {
+            bits: overflow.select(
+                rounding.overflow_magnitude::<I64>(negative),
+                rounded.magnitude,
+            ),
+            inexact: overflow.or(rounded.bounded_inexact),
+            incremented: overflow.select(
+                rounding.overflow_to_infinity(negative),
+                rounded.bounded_incremented,
+            ),
+            overflow,
+            tiny: rounded.tiny,
         }
     }
 }
