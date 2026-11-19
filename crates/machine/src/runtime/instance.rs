@@ -7,7 +7,7 @@ mod profiling;
 use super::{
     code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
-use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
+use crate::{memory::CpuBinding, CompiledCode, FarPointer, IoBus, Result};
 use hooks::Hooks;
 use modules::{Calls, InstalledModule, Modules};
 use profiling::Profiling;
@@ -19,6 +19,11 @@ use std::{ops::Range, rc::Rc};
 pub struct DispatchEntry<'a> {
     pub key: u32,
     pub export: &'a str,
+}
+
+enum ModuleSource<'a> {
+    Wasm(&'a Module),
+    Guest(&'a CompiledCode),
 }
 
 /// Binds guest execution and installed modules to one runtime and its memory.
@@ -151,39 +156,39 @@ impl CpuInstance {
 
     pub(super) async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
         let module = self.hooks.compile(hooks)?;
-        self.install_module(&module.bytes, &module.entries())
+        self.install_wasm_bytes(&module.bytes, &module.entries())
             .await?;
         self.hooks.install(module);
         Ok(())
     }
 
-    pub(super) async fn install_module(
+    pub(super) async fn install_wasm_bytes(
         &mut self,
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let compiler = self.runtime.with_runtime(|wasm| wasm.compiler());
         let module = compiler.compile(bytes).await?;
-        self.install_compiled_module(&module, entries)
+        self.install_wasm_module(&module, entries)
     }
 
-    pub(super) fn install_compiled_module(
+    pub(super) fn install_wasm_module(
         &mut self,
         module: &Module,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        self.publish_module(module, entries, None)?;
+        self.publish_module(ModuleSource::Wasm(module), entries)?;
         self.hooks.remove(entries);
         Ok(())
     }
 
-    pub(super) fn install_compilation(
+    pub(super) fn install_guest_code(
         &mut self,
-        code: &crate::CompiledCode,
+        code: &CompiledCode,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let guard = code.source().lock_current_bytes(&self.bindings.guest)?;
-        self.publish_module(code.module(), entries, Some(code))?;
+        self.publish_module(ModuleSource::Guest(code), entries)?;
         drop(guard);
         self.hooks.remove(entries);
         Ok(())
@@ -191,12 +196,15 @@ impl CpuInstance {
 
     fn publish_module(
         &mut self,
-        module: &Module,
+        source: ModuleSource<'_>,
         entries: &[DispatchEntry<'_>],
-        code: Option<&crate::CompiledCode>,
     ) -> Result<()> {
         self.runtime.with_runtime(|wasm| {
-            let calls = Calls::new(wasm, code, &self.resolve_and_jump)?;
+            let (module, guest_code) = match source {
+                ModuleSource::Wasm(module) => (module, None),
+                ModuleSource::Guest(code) => (code.module(), Some(code)),
+            };
+            let calls = Calls::new(wasm, guest_code, &self.resolve_and_jump)?;
             let mut imports = self.bindings.imports(wasm).to_vec();
             imports.extend(self.modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
@@ -211,7 +219,7 @@ impl CpuInstance {
                 imports.push(calls.import(wasm));
             }
             let instance = wasm.instantiate(module, &imports)?;
-            let module = InstalledModule::new(instance, entries, code.cloned(), calls);
+            let module = InstalledModule::new(instance, entries, guest_code.cloned(), calls);
             self.modules.install(wasm, module)
         })
     }

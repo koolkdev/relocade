@@ -106,7 +106,7 @@ impl CompiledCode {
         if entries.is_empty() {
             return Ok(());
         }
-        cpu.install_compilation(self, &entries)
+        cpu.install_guest_code(self, &entries)
     }
 }
 

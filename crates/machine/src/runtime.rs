@@ -167,7 +167,7 @@ impl Cpu {
         self.instance_mut().invalidate_code(range)
     }
 
-    pub(crate) fn install_compilation(
+    pub(crate) fn install_guest_code(
         &mut self,
         code: &crate::CompiledCode,
         entries: &[DispatchEntry<'_>],
@@ -176,14 +176,14 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        self.instance_mut().install_compilation(code, entries)
+        self.instance_mut().install_guest_code(code, entries)
     }
 
     pub(crate) fn has_entry(&self, key: u32) -> bool {
         self.instance.has_entry(key)
     }
 
-    /// Links a module to this runtime and publishes its callable exports.
+    /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Keys are packed real-mode CS:IP. Installing an
     /// existing key replaces its function.
@@ -206,10 +206,10 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        self.instance_mut().install_module(bytes, entries).await
+        self.instance_mut().install_wasm_bytes(bytes, entries).await
     }
 
-    /// Instantiates an already compiled module against this CPU's imports and
+    /// Instantiates a caller-supplied Wasm module against this CPU's imports and
     /// publishes its entries through the same dispatch path as [`Self::install_module`].
     /// The module can be compiled on another worker and reused across CPUs;
     /// each installation binds to the receiving CPU's state and memory.
@@ -228,7 +228,7 @@ impl Cpu {
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        self.instance_mut().install_compiled_module(module, entries)
+        self.instance_mut().install_wasm_module(module, entries)
     }
 
     /// Installs host and Wasm hooks in one batch. Each CS:IP entry is independently
