@@ -16,8 +16,8 @@ use std::{
 
 const PAGE_BYTES: u32 = relocade_x86::PhysicalMemoryMap::PAGE_BYTES;
 
-fn page_base(backing: u32) -> u32 {
-    backing & !(PAGE_BYTES - 1)
+fn page_base(address: u32) -> u32 {
+    address & !(PAGE_BYTES - 1)
 }
 
 /// The exact instruction bytes used by a compilation, in the memory where they were read.
@@ -29,6 +29,8 @@ pub struct CodeSource {
 
 struct Span {
     address: u32,
+    /// Physical page after A20, where this backing page's write route lives.
+    physical_page: u32,
     backing: u32,
     bytes: Box<[u8]>,
 }

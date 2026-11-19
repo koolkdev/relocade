@@ -52,6 +52,39 @@ fn code_flags_follow_the_owning_backing_page_even_when_a20_hides_it() {
 }
 
 #[test]
+fn host_write_updates_one_physical_entry_and_preserves_configured_routing() {
+    let mut map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            Ram {
+                backing_offset: 0x1000,
+            },
+        ),
+        (
+            0x1000..=0x1fff,
+            Rom {
+                backing_offset: 0x2000,
+            },
+        ),
+        (0x2000..=0x2fff, PhysicalMapping::MMIO),
+        (0xfff0_0000..=0xfff0_0fff, Ram { backing_offset: 0 }),
+    ])
+    .unwrap();
+    // The decoder supplies the bus address after A20 has already been applied.
+    assert_eq!(map.host_write_entry(0xfff0_0123, true), Some((0x7ff800, 5)));
+    assert_eq!(map.host_write_entry(0x1123, true), Some((8, 6)));
+    assert_eq!(map.host_write_entry(0x2123, true), None);
+    assert_eq!(map.host_write_entry(0x3123, true), None);
+
+    map.set_code_page(0x1123, true);
+    assert_eq!(map.host_write_entry(0x123, false), Some((0, 5)));
+    assert_eq!(
+        map.host_write_entry(0xfff0_0123, false),
+        Some((0x7ff800, 1))
+    );
+}
+
+#[test]
 fn mmio_handler_indices_use_the_existing_payload_word() {
     let mapping = PhysicalMapping::Mmio {
         handler: MmioHandlerId::new(7),

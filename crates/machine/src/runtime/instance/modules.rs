@@ -57,7 +57,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
 impl<B: ExportFunction<abi::ExecutionSignature>> Drop for ModuleInstance<B> {
     fn drop(&mut self) {
         if let Some(code) = &self.registered_source {
-            code.unregister();
+            code.unregister(|_| {});
         }
     }
 }
@@ -133,9 +133,9 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
 
     /// Retires complete linked versions: their direct internal calls cannot be
     /// changed by updating only the entry for the modified block.
-    pub(super) fn invalidate(&mut self, backend: &mut B, range: Range<u64>) -> Result<()> {
+    pub(super) fn invalidate(&mut self, backend: &mut B, range: Range<u64>) -> Result<Vec<u32>> {
         if range.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let mut retired_modules: BTreeSet<_> = self
             .pages
@@ -152,7 +152,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .get(index)
                 .is_some_and(|source| source.start < range.end)
         });
-        self.retire(backend, retired_modules).map(|_| ())
+        self.retire(backend, retired_modules)
     }
 
     fn retire(&mut self, backend: &mut B, retired_modules: BTreeSet<ModuleId>) -> Result<Vec<u32>> {
@@ -167,9 +167,13 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .iter()
                 .map(move |&key| (id, key))
         });
-        let keys = self.table.remove(backend, exports)?;
+        self.table.remove(backend, exports)?;
+        let mut removed = Vec::new();
         for id in retired_modules {
-            let module = self.modules.remove(&id).expect("installed module");
+            let mut module = self.modules.remove(&id).expect("installed module");
+            if let Some(code) = module.registered_source.take() {
+                code.unregister(|page| removed.push(page));
+            }
             for &page in &module.pages {
                 let modules = self.pages.get_mut(&page).expect("registered source page");
                 modules.remove(&id);
@@ -178,7 +182,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 }
             }
         }
-        Ok(keys)
+        Ok(removed)
     }
 
     pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &ModuleInstance<B>> {

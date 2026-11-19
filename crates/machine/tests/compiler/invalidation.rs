@@ -55,20 +55,33 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         }
         // Installations retain shared dependencies after the reply is dropped.
         let sources = runner.cpu().memory();
-        assert_eq!(sources.installed_code_at(0x1212).len(), 1);
+        let callee = sources.installed_code_at(0x1212).pop().unwrap();
+        let caller = sources.installed_code_at(0x1100).pop().unwrap();
         assert!(sources.installed_code_at(0x1206).is_empty());
         run_caller(&mut runner, 8).await;
+        // CALL pushes onto the same backing page as both installations.
+        assert!(!callee.was_modified());
+        assert!(!caller.was_modified());
 
         // Read-ahead and the gap before the branch target are not source dependencies.
         runner.cpu().invalidate_code(0x206..0x210).unwrap();
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
 
+        // Single-step MOV byte [0212],2, then retire before entering the changed code.
+        sources
+            .view()
+            .write(0x400, &[0xc6, 0x06, 0x12, 0x02, 2])
+            .unwrap();
+        runner.cpu().cpu_state().set_eip(0x400);
+        assert_eq!(runner.cpu().step(), ExecutionExit::StepComplete);
+        assert!(callee.was_modified());
+        assert!(!caller.was_modified());
+        assert_eq!(sources.view().read_u8(0x212).unwrap(), 2);
         runner.cpu().invalidate_code(0x212..0x213).unwrap();
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
         assert!(sources.installed_code_at(0x1212).is_empty());
-        runner.cpu().memory().view().write(0x212, &[2]).unwrap();
         run_caller(&mut runner, 9).await;
 
         // Incoming calls must also reconnect when a replacement arrives.

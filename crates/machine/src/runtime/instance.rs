@@ -208,7 +208,10 @@ impl CpuInstance {
             .runtime
             .with_runtime(|wasm| self.modules.register_exports(wasm, instance, entries))?;
         if let Some((source, mut registry)) = checked_source {
-            installed.registered_source = Some(registry.register(source));
+            let (registered, added) = registry.register(source);
+            installed.registered_source = Some(registered);
+            self.runtime
+                .with_runtime(|wasm| self.bindings.set_host_writes(wasm, added, true));
         }
         // Releasing a host callback can reenter the runtime or write guest memory.
         self.modules.hooks.replace_bindings(entries, handlers);
@@ -245,8 +248,11 @@ impl CpuInstance {
     }
 
     pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
-        self.runtime
-            .with_runtime(|wasm| self.modules.invalidate(wasm, range))
+        self.runtime.with_runtime(|wasm| {
+            let removed = self.modules.invalidate(wasm, range)?;
+            self.bindings.set_host_writes(wasm, removed, false);
+            Ok(())
+        })
     }
 
     pub(super) fn compiled_modules_at(

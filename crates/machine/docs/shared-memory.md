@@ -129,6 +129,11 @@ backing byte. `InstalledCode::was_modified` records whether a managed write
 changed any instruction byte during that installation. A neighboring write or
 a write of identical bytes leaves its history unchanged.
 
+The first installation on a physical page sets its host-write bit in the CPU's
+routing table. Compiled stores to marked RAM hand off to the interpreter, whose
+write callback updates the affected installations. Retiring the last module on a
+page restores its configured write route.
+
 Retiring the module or dropping the CPU removes its registration. An outstanding
 compiler result can be installed again after validation, and an inspection
 handle retains the history of its original installation. Callers coordinate
