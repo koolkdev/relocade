@@ -18,7 +18,7 @@ use crate::{
     memory::VideoMemory, output::Output, scanout::DisplayConfiguration, DisplaySnapshot, Registers,
     VgaCore, VgaCoreState,
 };
-use relocade_machine::{Clock, Runner};
+use relocade_machine::{GuestClock, Runner};
 use std::{cell::RefCell, rc::Rc};
 
 /// Physical DRAM installed on this ET4000AX profile.
@@ -42,8 +42,8 @@ pub struct Et4000Ax {
 }
 
 impl Et4000Ax {
-    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
-        let card = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
+    pub async fn initialize(runner: &Runner, clock: GuestClock) -> Rc<RefCell<Self>> {
+        let card = Rc::new(RefCell::new(Self::with_clock(clock)));
         runner
             .connect(card.clone(), |io| Self::configure_io(io, &card))
             .await;
@@ -51,11 +51,11 @@ impl Et4000Ax {
     }
 
     /// Start from the common legacy preset. Firmware supplies fonts and a mode.
-    pub fn with_clock(clock: Clock) -> Self {
+    pub fn with_clock(clock: GuestClock) -> Self {
         let vga = VgaCore::default();
         let extensions = registers::Extensions::default();
         let output = Output::new(
-            clock,
+            clock.into(),
             Self::display_timing(&vga, &extensions),
             DisplayConfiguration::vga(&vga.registers),
         );

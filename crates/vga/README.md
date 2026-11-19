@@ -767,7 +767,7 @@ pages 3-78–3-79. Eight-bit graphics bypass this attribute palette operation;
 text keeps its foreground/background blink behavior. Phase changes update the
 sixteen vertex-resolved colors without copying VRAM or changing pixel addressing.
 
-`DispiAdapter::initialize(runner).await` creates VGA on the session clock, registers its
+`DispiAdapter::initialize(runner, guest_clock).await` creates VGA on the supplied guest clock, registers its
 memory aperture and ports, and starts display capture. It returns the device
 handle with its mappings already installed on the runner's bus.
 

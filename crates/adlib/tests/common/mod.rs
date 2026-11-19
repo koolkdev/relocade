@@ -1,8 +1,8 @@
 use relocade_adlib::{Adlib, ADDRESS_STATUS_PORT, DATA_PORT};
-use relocade_machine::{Clock, IoBus};
+use relocade_machine::{GuestClock, IoBus};
 use std::{cell::RefCell, rc::Rc};
 
-pub fn hardware(clock: Clock) -> (IoBus, Rc<RefCell<Adlib>>) {
+pub fn hardware(clock: GuestClock) -> (IoBus, Rc<RefCell<Adlib>>) {
     let adlib = Rc::new(RefCell::new(Adlib::new(clock)));
     let io = IoBus::default();
     io.connect(adlib.clone(), |io| {

@@ -1,3 +1,6 @@
+#[path = "guest_time/halt_input.rs"]
+mod halt_input;
+
 use relocade_machine::{DispatchEntry, Hook};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
@@ -12,10 +15,12 @@ async fn pit_interrupts() {
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
     let worker = prepared.spawn_with_guest_time(
-        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(2_000_000).unwrap()),
         async |runner| {
-            let start = runner.clock().now();
+            let before_setup = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
+            assert_eq!(pc.clock().now(), before_setup);
+            assert_eq!(pc.clock().tick_rate().ticks_per_second().get(), 2_000_000);
             let cpu = pc.cpu();
             let memory = cpu.memory();
             // Program Bumpy's mode-3 divisor 0951h, unmask IRQ0, then perform
@@ -60,6 +65,7 @@ async fn pit_interrupts() {
             cpu.install([Hook::host(0x101d, async move || stop.request())])
                 .await
                 .unwrap();
+            let start = pc.clock().now();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(memory.view().read_u16(0x702).unwrap(), 8);
             let samples = (0..8)
@@ -183,4 +189,51 @@ fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
     keyboard_at_guest_receipt_time().await;
+}
+
+async fn advancing_host_clock_without_a_machine_turn() {
+    use relocade_clock_test_support::ManualClock;
+    use relocade_machine::{worker::wake_connection, Clock, Runner};
+
+    let host = ManualClock::new();
+    let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
+    let cpu = machine
+        .create_cpu(relocade_pc::configuration::cpu(), None)
+        .unwrap();
+    let (_wake, endpoint) = wake_connection(cpu.interrupt_handle());
+    let runner = Runner::new(Clock::new(host.clone()), cpu, endpoint)
+        .await
+        .unwrap();
+    runner
+        .run(std::future::pending::<()>(), async |runner| {
+            let pc = Pc::new(runner).await.unwrap();
+            let io = pc.runner().io();
+            let pit_count = || {
+                io.write_port(0x43, 1, 0); // Latch channel 0, then read its low and high bytes.
+                io.read_port(0x40, 1) | (io.read_port(0x40, 1) << 8)
+            };
+            let start = pc.clock().now();
+            let count = pit_count();
+            host.advance_by(Duration::from_millis(250));
+            assert_eq!(pc.clock().now(), start);
+            assert_eq!(pit_count(), count);
+            assert_eq!(
+                pc.clock().tick_rate().ticks_per_second(),
+                relocade_pc::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND
+            );
+        })
+        .await
+        .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn host_clock_changes_reach_the_pit_only_through_a_machine_turn() {
+    pollster::block_on(advancing_host_clock_without_a_machine_turn());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn host_clock_changes_reach_the_pit_only_through_a_machine_turn() {
+    advancing_host_clock_without_a_machine_turn().await;
 }

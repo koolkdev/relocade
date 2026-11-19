@@ -31,7 +31,7 @@ pub use registers::{
     VIDEO_MEMORY_BYTES, VIRTUAL_HEIGHT, VIRTUAL_WIDTH, X_OFFSET, X_RESOLUTION, Y_OFFSET,
     Y_RESOLUTION,
 };
-use relocade_machine::{Clock, Runner};
+use relocade_machine::{GuestClock, Runner};
 pub use state::DispiState;
 use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
@@ -64,9 +64,9 @@ pub struct DispiAdapter {
 }
 
 impl DispiAdapter {
-    /// Creates VGA on the runner's clock and starts display capture.
-    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
-        let vga = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone())));
+    /// Creates VGA on the supplied guest clock and starts display capture.
+    pub async fn initialize(runner: &Runner, clock: GuestClock) -> Rc<RefCell<Self>> {
+        let vga = Rc::new(RefCell::new(Self::with_clock(clock)));
         runner
             .connect(vga.clone(), |io| Self::configure_io(io, &vga))
             .await;
@@ -74,10 +74,10 @@ impl DispiAdapter {
     }
 
     /// Uses the same timebase for guest status reads and asynchronous scanout.
-    pub fn with_clock(clock: Clock) -> Self {
+    pub fn with_clock(clock: GuestClock) -> Self {
         let vga = VgaCore::default();
         let output = Output::new(
-            clock,
+            clock.into(),
             Timing::vga(&vga.registers),
             DisplayConfiguration::vga(&vga.registers),
         );

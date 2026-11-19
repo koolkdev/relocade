@@ -4,8 +4,8 @@ use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
-    Timestamp,
+    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, GuestClock, PortRead, PortWrite,
+    Runner, Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
@@ -34,9 +34,9 @@ pub struct Pit {
 }
 
 impl Pit {
-    /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
-    pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
-        let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
+    /// Creates the timer on the guest clock, connects IRQ0 and starts its activity.
+    pub async fn initialize(runner: &Runner, clock: GuestClock, pic: &Pic) -> Rc<RefCell<Self>> {
+        let pit = Rc::new(RefCell::new(Self::with_clock(clock, pic)));
         runner
             .connect(pit.clone(), |io| Self::configure_io(io, &pit))
             .await;
@@ -73,7 +73,8 @@ impl Pit {
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
-    pub fn with_clock(clock: Clock, pic: &Pic) -> Self {
+    pub fn with_clock(clock: GuestClock, pic: &Pic) -> Self {
+        let clock: Clock = clock.into();
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
         channel0.control(0x36);

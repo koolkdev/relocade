@@ -35,7 +35,7 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     let io = relocade_machine::IoBus::new(pic_device.clone(), |io| {
         Pic::configure_io(io, &pic_device);
     });
-    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
+    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.guest_clock(), &pic)));
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
     let mut activity = pin!(Pit::run(timer.clone()));
     let mut device_cx = Context::from_waker(Waker::noop());
@@ -109,7 +109,7 @@ fn programming_rearms_the_wait_and_preserves_pending_irq0() {
     let io = relocade_machine::IoBus::new(pic_device.clone(), |io| {
         Pic::configure_io(io, &pic_device);
     });
-    let pit = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(clock.guest_clock(), &pic)));
     io.connect(pit.clone(), |io| Pit::configure_io(io, &pit));
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
     let mut activity = pin!(Pit::run(pit.clone()));
@@ -147,7 +147,7 @@ fn programming_rearms_the_wait_and_preserves_pending_irq0() {
 fn readback_latches_both_channels_without_changing_speaker_playback() {
     let clock = ManualClock::default();
     let pit = Rc::new(RefCell::new(Pit::with_clock(
-        clock.clock(),
+        clock.guest_clock(),
         &relocade_pic::Pic::new(8, 0x70),
     )));
     let io = relocade_machine::IoBus::new(pit.clone(), |io| Pit::configure_io(io, &pit));
@@ -185,7 +185,7 @@ fn irq0_tracks_output_levels_for_a_level_triggered_pic() {
     let io = relocade_machine::IoBus::new(pic_device.clone(), |io| {
         Pic::configure_io(io, &pic_device);
     });
-    let pit = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(clock.guest_clock(), &pic)));
     io.connect(pit.clone(), |io| Pit::configure_io(io, &pit));
     program(&io, 0x36, 4);
     // Guest selects level-triggered operation.
@@ -219,7 +219,7 @@ fn native_observations_keep_counter_phase_and_deadlines_on_the_same_grid() {
     use std::num::NonZeroU64;
 
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
-    let clock = driver.clock();
+    let clock = driver.guest_clock();
     let mut cx = Context::from_waker(Waker::noop());
     let mut initial = pin!(clock.sleep_until(Timestamp::from_ticks(1)));
     assert!(initial.as_mut().poll(&mut cx).is_pending());

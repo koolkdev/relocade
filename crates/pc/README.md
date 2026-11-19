@@ -10,8 +10,13 @@ VGA, speaker and AdLib behavior.
 The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
 identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboard
 and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
-drives timer interrupts and the speaker. Devices run on the supplied runner and
-share its clock.
+drives timer interrupts and the speaker. The PIT, VGA raster, PS/2 typematic and
+mouse sampling, sound cards and BIOS timeout services share one guest clock.
+A PC created on a host-timed runner starts a paced guest clock at 1,000,000
+retired instructions per guest second. A runner with an existing guest clock
+keeps its configured rate and pacing. The live session starts after hardware and
+BIOS setup. Device deadlines advance guest time between programs and while a
+running program waits in HLT.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer

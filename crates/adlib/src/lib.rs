@@ -8,7 +8,7 @@ pub use audio::{EventRecorder, RegisterWrite, SampleGenerator};
 mod timer;
 
 use relocade_machine::{
-    Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
+    Device, DeviceCallbacks, DeviceConnection, GuestClock, PortRead, PortWrite, Runner, Timestamp,
 };
 use std::{
     cell::RefCell,
@@ -29,7 +29,7 @@ const TIMER_CONTROL_REGISTER: u8 = 0x04;
 /// Guest-visible AdLib state on the execution clock.
 /// Timer flags are updated on access; classic AdLib has no connected PIC IRQ.
 pub struct Adlib {
-    clock: Clock,
+    clock: GuestClock,
     address: u8,
     registers: [u8; 256],
     timers: [Timer; 2],
@@ -37,7 +37,7 @@ pub struct Adlib {
 }
 
 impl Adlib {
-    pub fn new(clock: Clock) -> Self {
+    pub fn new(clock: GuestClock) -> Self {
         Self {
             clock,
             address: 0,
@@ -48,8 +48,8 @@ impl Adlib {
     }
 
     /// Connects the address/status and data ports on the existing runner.
-    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
-        let adlib = Rc::new(RefCell::new(Self::new(runner.clock().clone())));
+    pub async fn initialize(runner: &Runner, clock: GuestClock) -> Rc<RefCell<Self>> {
+        let adlib = Rc::new(RefCell::new(Self::new(clock)));
         runner
             .connect(adlib.clone(), |io| {
                 Self::configure_io(io, &adlib, ADDRESS_STATUS_PORT)

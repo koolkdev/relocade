@@ -44,10 +44,7 @@ fn guest_pans_to_a_second_image_with_a_wider_logical_scanline() {
             (first_eip + 2, second_eip, [24, 600]),
         ] {
             dos.cpu().context().cpu.set_eip(entry);
-            assert_eq!(
-                common::run_until(dos.cpu(), stop).await,
-                ExecutionExit::Interrupted
-            );
+            assert_eq!(dos.run_until(stop).await, ExecutionExit::Interrupted);
             let current = dos.frames().try_recv().ok().filter(|capture| {
                 matches!(capture.scanout(), relocade_vga::Scanout::Packed(layout)
                     if layout.pitch() == 1024 && layout.origin() == origin)
@@ -136,7 +133,7 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
         program.extend([0xeb, 0xfe, 0xc3]); // JMP $ gives run_until a boundary; RET follows.
         dos.launch_com(&program, Default::default()).unwrap();
         assert_eq!(
-            common::run_until(dos.cpu(), graphics_eip).await,
+            dos.run_until(graphics_eip).await,
             ExecutionExit::Interrupted
         );
         let (oem, modes) = {
@@ -174,10 +171,7 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
             assert_eq!(*pixel, expected, "VBE guest pixel {offset}");
         }
         dos.cpu().context().cpu.set_eip(graphics_eip + 2);
-        assert_eq!(
-            common::run_until(dos.cpu(), changed_eip).await,
-            ExecutionExit::Interrupted
-        );
+        assert_eq!(dos.run_until(changed_eip).await, ExecutionExit::Interrupted);
         {
             let context = dos.cpu().context();
             let base = u32::from(context.cpu.snapshot().segments.ds.selector) << 4;
@@ -197,7 +191,7 @@ fn guest_discovers_vbe_restores_banked_graphics_and_returns_to_text() {
 
         dos.cpu().context().cpu.set_eip(changed_eip + 2);
         assert_eq!(
-            common::run_until(dos.cpu(), completion_eip).await,
+            dos.run_until(completion_eip).await,
             ExecutionExit::Interrupted
         );
         {

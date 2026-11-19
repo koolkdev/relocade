@@ -159,8 +159,7 @@
 //! Guest AdLib ports (388h/389h) and PC-speaker ports share that output and work
 //! independently of DOS services. Attach before starting the first guest program.
 //! DOS opens no platform output; the PC submits PCM on the execution worker.
-//! [`Dos::run`] returns the current program's exit code; devices keep running while
-//! the main session awaits input or another program. [`Dos::frames`] exposes
+//! [`Dos::run`] returns the current program's exit code; [`Dos::frames`] exposes
 //! captured display state across launches. The caller chooses the rendering implementation
 //! and its worker, scheduling and presentation lifetime.
 //! Direct CPU control remains available through [`Dos::cpu`].
@@ -259,7 +258,7 @@ impl Dos {
     /// # Panics
     /// The CPU must be stopped with no pending or suspended host services.
     pub async fn from_pc(mut pc: Pc) -> relocade_machine::Result<Self> {
-        let clock = pc.clock().clone();
+        let clock = pc.clock().clone().into();
         let keyboard = pc.keyboard();
         let mouse = mouse::Mouse::new(pc.video_card().framebuffer_access());
         let cpu = pc.cpu();

@@ -31,7 +31,7 @@ fn advance_to(driver: &GuestTimeDriver, ticks: u64) -> Timestamp {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn fine_frame_grid_preserves_pitch_and_level() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
-    let (io, speaker) = common::hardware(driver.clock());
+    let (io, speaker) = common::hardware(driver.guest_clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
     io.write_port(CHANNEL_2_PORT, 1, 2);
     io.write_port(CHANNEL_2_PORT, 1, 0);
@@ -68,7 +68,7 @@ fn fine_frame_grid_preserves_pitch_and_level() {
 fn offset_sample_epoch_preserves_level_across_a_pit_write() {
     let driver = GuestTimeDriver::new(NonZeroU64::new(3_000_000_000).unwrap());
     advance_to(&driver, 1);
-    let (io, speaker) = common::hardware(driver.clock());
+    let (io, speaker) = common::hardware(driver.guest_clock());
     io.write_port(CONTROL_PORT, 1, 0xb6);
     io.write_port(SPEAKER_CONTROL_PORT, 1, 2);
     // The shared audio origin can differ from PIT initialization.

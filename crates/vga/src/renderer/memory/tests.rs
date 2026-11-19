@@ -35,7 +35,7 @@ impl Uploads {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn newly_captured_blocks_require_complete_uploads_without_a_baseline() {
-    let vga = DispiAdapter::with_clock(ManualClock::new().clock());
+    let vga = DispiAdapter::with_clock(ManualClock::new().guest_clock());
     let memory = crate::memory::VideoMemory::new(1024 * 1024);
     let mut narrow = vga.snapshot();
     narrow.memory = memory.snapshot(0x40000, None);
@@ -129,7 +129,7 @@ fn start_video(
     IoBus,
     Pin<Box<impl Future<Output = ()>>>,
 ) {
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.guest_clock())));
     let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     let mut video = Box::pin(DispiAdapter::run(vga.clone()));
     assert!(video.as_mut().now_or_never().is_none());
@@ -308,7 +308,7 @@ fn skipped_queued_snapshots_restore_blocks_with_a_different_upload_baseline() {
     drop(vga);
     assert_eq!(uploads.update(&skipped), [(0, 65536)]);
     assert_eq!(uploads.update(&first), [(0, 65536)]);
-    let other = DispiAdapter::with_clock(ManualClock::new().clock());
+    let other = DispiAdapter::with_clock(ManualClock::new().guest_clock());
     assert_eq!(
         uploads.update(&other.snapshot()),
         [(0, 65536), (65536, 65536), (131072, 65536), (196608, 65536)]
