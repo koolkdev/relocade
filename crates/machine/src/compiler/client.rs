@@ -3,21 +3,19 @@ use super::{
     BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
-    worker::{ChannelError, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
+    worker::{ChannelError, Receiver, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
-use futures_util::{
-    stream::{self, LocalBoxStream},
-    StreamExt,
-};
+use futures_util::{future::LocalBoxFuture, StreamExt};
 use relocade_x86::ExecutionTarget;
+use std::future::poll_fn;
 
 /// One CPU's compilation requests and ordered results.
 /// Connects directly to the shared service. Dropping it closes the request stream.
 pub struct CompilerClient {
     requests: mpsc::UnboundedSender<Request>,
-    results: LocalBoxStream<'static, Result<CompiledCode>>,
+    results: mpsc::Receiver<Result<CompiledCode>>,
 }
 
 #[derive(Transfer)]
@@ -31,24 +29,38 @@ impl Endpoint {
     pub(crate) fn connect(
         mut self,
         worker: &WorkerWake<ExecutionInterrupt>,
-    ) -> Result<CompilerClient> {
+    ) -> Result<(CompilerClient, LocalBoxFuture<'static, ()>)> {
         self.peer.send(worker.peer())?;
-        let results = self.results.bind().with_worker(worker);
-        // Retain the receive future between CPU polls so its pending browser
-        // delivery stays registered with the worker.
-        let results = stream::unfold(results, async |mut results| {
-            let result = match results.recv().await? {
-                Ok(Reply(result)) => result,
-                Err(error) => Err(error.into()),
-            };
-            Some((result, results))
-        })
-        .fuse()
-        .boxed_local();
-        Ok(CompilerClient {
-            requests: self.requests,
-            results,
-        })
+        let posted = self.results.bind().with_worker(worker);
+        // A single sender owns one slot in a zero-capacity futures channel.
+        let (ready, results) = mpsc::channel(0);
+        Ok((
+            CompilerClient {
+                requests: self.requests,
+                results,
+            },
+            Box::pin(forward_replies(posted, ready)),
+        ))
+    }
+}
+
+// The session owns transport so cancelling a CPU run cannot strand a posted module.
+async fn forward_replies(
+    mut posted: Receiver<Reply>,
+    mut ready: mpsc::Sender<Result<CompiledCode>>,
+) {
+    // Wait for local capacity before requesting a browser turn for the next reply.
+    while poll_fn(|cx| ready.poll_ready(cx)).await.is_ok() {
+        let Some(reply) = posted.recv().await else {
+            break;
+        };
+        let result = match reply {
+            Ok(Reply(result)) => result,
+            Err(error) => Err(error.into()),
+        };
+        if ready.try_send(result).is_err() {
+            break;
+        }
     }
 }
 
@@ -87,11 +99,18 @@ impl CompilerClient {
 
     /// Receives the next result in request order. Installation is explicit.
     /// Dropping this wait leaves that result available for the next receive.
-    /// The client retains any unfinished receive and its host-delivery registration.
+    /// The session finishes posted-object delivery independently of this wait.
     /// Returns `None` once the compiler has finished and all replies are consumed.
     /// Poll within the Runner session that supplied this connection.
     pub async fn recv(&mut self) -> Option<Result<CompiledCode>> {
         self.results.next().await
+    }
+
+    /// Takes a delivered result at an eligible CPU boundary.
+    pub(crate) fn try_recv(
+        &mut self,
+    ) -> std::result::Result<Result<CompiledCode>, mpsc::TryRecvError> {
+        self.results.try_recv()
     }
 }
 

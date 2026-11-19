@@ -1,16 +1,15 @@
 //! Collects Real16 call observations and submits hot batches on this CPU's client.
 //! Keys are packed 16:16 CS:IP values. Protected-mode dispatch does not record.
 
-use super::{modules::Modules, WasmRuntime};
-use crate::{CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant, Result};
+use super::{modules::Modules, CpuInstance, WasmRuntime};
+use crate::{
+    CompiledCode, CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant,
+    Result,
+};
+use futures_channel::mpsc::TryRecvError;
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, CallProfile, ExecutionProfile, ExecutionTarget};
-use std::{
-    future::Future,
-    pin::pin,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::time::Duration;
 mod hotness;
 use hotness::Hotness;
 
@@ -114,56 +113,58 @@ impl Cpu {
         );
         profiling.compiler.take()
     }
+}
 
-    pub(in crate::runtime) fn poll_compilation(&mut self, cx: &mut Context<'_>) {
-        let instance = &mut self.instance;
-        if instance.profiling.compiler.is_none()
-            || instance.profiling.target.profile != ExecutionProfile::Real16
+impl CpuInstance {
+    /// Sample calls and accept a completed batch once per CPU dispatch turn.
+    pub(in crate::runtime) fn update_compilation(&mut self) {
+        if self.profiling.compiler.is_none()
+            || self.profiling.target.profile != ExecutionProfile::Real16
         {
             return;
         }
-        instance.runtime.with_runtime(|wasm| {
-            instance
-                .profiling
-                .collect_if_due(wasm, &instance.modules, Instant::now());
+        self.runtime.with_runtime(|wasm| {
+            self.profiling
+                .collect_if_due(wasm, &self.modules, Instant::now());
         });
-        // Host services may retain dispatch entries. Keep replies queued until
-        // installation can use the ordinary CPU API.
-        if self.pending.is_some() || !self.suspended.is_empty() {
+        if self.profiling.pending.is_empty() {
             return;
         }
-        loop {
-            let Some(compiler) = &mut self.instance.profiling.compiler else {
+        let Some(compiler) = &mut self.profiling.compiler else {
+            return;
+        };
+        let reply = match compiler.try_recv() {
+            Ok(reply) => reply,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Closed) => {
+                self.profiling.disable();
                 return;
-            };
-            // Register a receive even before a request exists: a full-buffer
-            // collection can submit while guest execution is still running.
-            let reply = pin!(compiler.recv()).poll(cx);
-            let reply = match reply {
-                Poll::Pending => return,
-                Poll::Ready(Some(reply)) => reply,
-                Poll::Ready(None) => {
-                    self.instance.profiling.disable();
+            }
+        };
+        let result = reply.and_then(|code| self.install_missing(&code));
+        let pending = std::mem::take(&mut self.profiling.pending);
+        if matches!(result, Err(crate::Error::StaleCompilation)) {
+            // These roots may be hot again once the guest finishes writing.
+            self.profiling.hotness.resample(&pending);
+        } else {
+            for entry in pending {
+                if self.install_interpreter_fallback(entry).is_err() {
+                    self.profiling.disable();
                     return;
                 }
-            };
-            let result = reply.and_then(|code| code.install_missing(self));
-            let pending = std::mem::take(&mut self.instance.profiling.pending);
-            if matches!(result, Err(crate::Error::StaleCompilation)) {
-                // These roots may be hot again once the guest finishes writing.
-                self.instance.profiling.hotness.resample(&pending);
-            } else {
-                for entry in pending {
-                    if self.instance.install_interpreter_fallback(entry).is_err() {
-                        self.instance.profiling.disable();
-                        return;
-                    }
-                }
             }
-            // Observations may have accumulated while the previous batch ran.
-            let instance = &mut self.instance;
-            instance.profiling.submit(&instance.modules);
         }
+        self.profiling.submit(&self.modules);
+    }
+
+    fn install_missing(&mut self, code: &CompiledCode) -> Result<()> {
+        let mut entries =
+            code.dispatch_entries(self.bindings.cpu.execution_target(), &self.bindings.guest)?;
+        entries.retain(|entry| !self.modules.has_entry(entry.key));
+        if entries.is_empty() {
+            return Ok(());
+        }
+        self.install_guest_code(code, &entries)
     }
 }
 

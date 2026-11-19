@@ -67,7 +67,13 @@ impl Runner {
         let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
         let compiler = compiler
-            .map(|compiler| compiler.connect(&wake))
+            .map(|endpoint| {
+                let (client, replies) = endpoint.connect(&wake)?;
+                activities
+                    .unbounded_send(replies)
+                    .expect("new session task queue");
+                Ok::<_, crate::Error>(client)
+            })
             .transpose()?;
         let cpu = cpu
             .with_compiler(compiler)

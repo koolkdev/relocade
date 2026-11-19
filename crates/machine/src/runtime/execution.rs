@@ -89,7 +89,7 @@ impl Cpu {
     pub async fn run(&mut self) -> ExecutionExit {
         poll_fn(|cx| {
             let _execution = ready!(self.poll_enter_execution(cx));
-            match self.poll_host_work(cx) {
+            match self.poll_host_call(cx) {
                 Some(exit) => Poll::Ready(exit),
                 None => self.poll_execution(cx),
             }
@@ -110,26 +110,21 @@ impl Cpu {
         }
     }
 
-    /// Polls the active host service once and observes exit requests without
-    /// entering guest code. Pending and parked calls remain owned by the CPU.
-    /// `None` means no exit; it does not imply that guest execution is runnable.
-    pub(crate) fn poll_host_work(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
+    /// Polls the active host service once and observes any requested exit.
+    pub(crate) fn poll_host_call(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
         if self.exit.0.get().is_none() {
             if let Some(call) = self.pending.take() {
                 self.pending = call.poll(cx);
             }
         }
-        if let Some(exit) = self.exit.0.get() {
-            return Some(self.finish_exit(exit));
-        }
-        self.poll_compilation(cx);
-        None
+        self.exit.0.get().map(|exit| self.finish_exit(exit))
     }
 
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
     /// exit or pending service stops execution. New and resumed host calls are
-    /// polled at their entries; existing host work is polled by `poll_host_work`.
+    /// polled at their entries; the active call is polled by `poll_host_call`.
     pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+        self.instance.update_compilation();
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
@@ -143,14 +138,16 @@ impl Cpu {
             if self.exit.0.get().is_some() {
                 continue;
             }
-            self.pending = match exit {
+            match exit {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
-                    Call::start(self.instance.handler(service_id), cx)
+                    self.pending = Call::start(self.instance.handler(service_id), cx);
                 }
-                ExecutionExit::Host(HostExit::Resume) => match self.resume_call(cx) {
-                    Ok(call) => call,
-                    Err(exit) => break exit,
-                },
+                ExecutionExit::Host(HostExit::Resume) => {
+                    let Some(call) = self.take_suspended_call() else {
+                        break exit;
+                    };
+                    self.pending = call.poll(cx);
+                }
                 ExecutionExit::StepComplete
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered

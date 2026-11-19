@@ -79,7 +79,7 @@ async fn call_after_write() {
     );
     assert_eq!(memory.view().read_u8(0x1001).unwrap(), 9);
     assert!(memory.installed_code_at(0x1001).is_empty());
-    assert!(cpu.has_entry(0x100));
+    assert!(cpu.instance.modules.has_entry(0x100));
     assert_eq!(cpu.cpu_state().ax(), 9);
 }
 

@@ -173,10 +173,6 @@ impl Cpu {
         self.instance_mut().install_guest_code(code, entries)
     }
 
-    pub(crate) fn has_entry(&self, key: u32) -> bool {
-        self.instance.has_entry(key)
-    }
-
     /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
     /// publication and continuation. Keys are packed real-mode CS:IP. Installing an
