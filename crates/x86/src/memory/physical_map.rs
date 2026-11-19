@@ -158,6 +158,24 @@ impl PhysicalMemoryMap {
             })
     }
 
+    /// Encodes a device binding for the page at a physical bus address, including
+    /// pages currently hidden by A20. Configured RAM and ROM keep their backing.
+    pub fn mmio_page_entry(
+        &self,
+        address: u32,
+        handler: MmioHandlerId,
+    ) -> Option<(u32, [u8; Self::ENTRY_BYTES])> {
+        let page = address >> PAGE_SHIFT;
+        let mapping = PhysicalMapping::from_entry(&self.entries()[page as usize]);
+        match mapping {
+            PhysicalMapping::Unmapped | PhysicalMapping::Mmio { .. } => Some((
+                page * Self::ENTRY_BYTES as u32,
+                PhysicalMapping::Mmio { handler }.entry(),
+            )),
+            PhysicalMapping::Ram { .. } | PhysicalMapping::Rom { .. } => None,
+        }
+    }
+
     /// Constructs a table from inclusive physical ranges. Empty input leaves all
     /// pages unmapped; later regions replace earlier overlapping regions.
     /// A20 starts disabled for DOS-compatible address wrapping.

@@ -117,7 +117,6 @@ pub fn memory() -> MachineConfig {
             0..=CONVENTIONAL_MEMORY_SIZE - 1,
             PhysicalMapping::Ram { backing_offset: 0 },
         ),
-        (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
         (
             BIOS_ROM_START..=MEMORY_SIZE - 1,
             PhysicalMapping::Rom {

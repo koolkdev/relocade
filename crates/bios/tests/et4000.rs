@@ -32,7 +32,6 @@ impl Firmware {
     fn with_clock(clock: Clock) -> Self {
         let map = PhysicalMemoryMap::new([
             (0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (relocade_vga::MEMORY_RANGE, PhysicalMapping::MMIO),
             (
                 0xf0000..=0xfffff,
                 PhysicalMapping::Rom {

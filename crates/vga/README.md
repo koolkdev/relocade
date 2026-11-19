@@ -170,9 +170,9 @@ consistent with IBM's sequence, not a hardware-validated priority rule. Video
 Seven documents disable taking priority instead. Motherboard controls at 0094h/03C3h,
 option-ROM banking, additional adapters and clone-specific aliases are not modeled.
 
-Embeddings register `MEMORY_RANGE` (A0000–BFFFF) as MMIO on both the machine's
-physical map and device bus. The Graphics Controller selects the active aperture;
-reads outside it return FF and writes are ignored. BIOS modes 00h/01h use 40
+Connecting the card maps `MEMORY_RANGE` (A0000–BFFFF) on the physical bus.
+The Graphics Controller selects the active window. Reads outside it return FF
+and writes are ignored. BIOS modes 00h/01h use 40
 text columns and modes 02h/03h use 80, all with 25 rows and restored font memory.
 The even/odd pairs produce identical VGA color output. Their eight pages occupy
 0800h or 1000h bytes each. The 200/350-line color profiles use eight-dot cells.
@@ -1275,10 +1275,11 @@ access with FF reads and ignored writes.
 Register selection changes only controller state. Data operations read that
 state and declare their effects when invoked. Both cards use the same private
 `with_effects` implementation in `effects`. It preserves overdue output, remembers
-the previous layout and decoding, runs the mutation, applies configuration and
-mapping changes, then notifies affected waiters before returning. Each card
-supplies its timing/layout, retrace-latch policy and effective address decoding;
-DISPI also updates its prepared bank window. CPU-only controls avoid clock work. VGA's
+the previous display layout and port decoding, runs the mutation, applies
+configuration and mapping changes, then notifies affected waiters before
+returning. Each card binds a physical memory window to the register decoding
+that controls it. Each window updates its VRAM views and handlers when that
+decoding changes. CPU-only controls avoid clock work. VGA's
 I/O companion retains fixed bindings and active/disabled operations, replacing
 only the address groups whose enable or mono/color selection actually changes.
 `PortDecoding` represents the effective address routing as `Disabled`,

@@ -3,12 +3,12 @@ mod writes;
 
 use super::scanout;
 use crate::{
-    effects::CardEffects, io::Io, mmio::MemoryDecoding, ports::PortDecoding,
-    scanout::DisplayConfiguration, DispiAdapter, Timing, Viewport,
+    effects::CardEffects, io::Io, ports::PortDecoding, scanout::DisplayConfiguration, DispiAdapter,
+    Timing, Viewport,
 };
 
 impl CardEffects for DispiAdapter {
-    fn io(&self) -> Option<&Io> {
+    fn io(&self) -> Option<&Io<Self>> {
         self.io.as_ref()
     }
 
@@ -29,9 +29,5 @@ impl CardEffects for DispiAdapter {
 
     fn port_decoding(&self) -> PortDecoding {
         PortDecoding::vga(&self.vga)
-    }
-
-    fn memory_decoding(&self) -> MemoryDecoding {
-        DispiAdapter::memory_decoding(self)
     }
 }

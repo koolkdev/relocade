@@ -1,4 +1,4 @@
-//! DISPI's banked memory operations and card-level access selection.
+//! DISPI selects VGA memory decoding or the packed-mode banked window.
 use crate::{
     memory::VideoMemory,
     mmio::{MemoryDecoding, VgaMemory},
@@ -6,15 +6,11 @@ use crate::{
 };
 
 impl DispiAdapter {
-    pub(super) fn memory_decoding(&self) -> MemoryDecoding {
-        if !self.vga.setup.enabled() || !self.vga.registers.video_memory_enabled() {
+    pub(super) fn vga_window_decoding(&self) -> MemoryDecoding {
+        if !self.vga.decodes_video_memory() {
             MemoryDecoding::Disabled
-        } else if let Some(window) = self.dispi.bank_mapping() {
-            MemoryDecoding::Linear {
-                window: window.cpu_start..window.cpu_start + window.bytes,
-                read: window,
-                write: window,
-            }
+        } else if let Some(window) = self.dispi.banked_window() {
+            MemoryDecoding::linear(window)
         } else {
             MemoryDecoding::vga(&self.vga)
         }

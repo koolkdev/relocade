@@ -74,6 +74,8 @@ async fn connected_before_startup() {
                 })
                 .await;
             assert_eq!(io.read_mmio(0x2000, 2), 0x3322);
+            let memory = runner.memory().with_io((*io).clone());
+            assert_eq!(memory.view().read_u32(0x1fff).unwrap(), 0xff3322ff);
             assert_eq!(io.read_port(0x82, 1), 0x44);
         },
     );

@@ -1,6 +1,6 @@
 use futures_channel::oneshot;
 use relocade_machine::{CpuConfig, ExecutionWorker, Hook, MachineConfig, TimerHandle};
-use relocade_vga::{DispiAdapter, DisplaySnapshot, MEMORY_RANGE};
+use relocade_vga::{DispiAdapter, DisplaySnapshot};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
@@ -27,11 +27,7 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     let cpu_progress = progress.clone();
     let config = MachineConfig::new(
         0x1000,
-        PhysicalMemoryMap::new([
-            (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (MEMORY_RANGE, PhysicalMapping::MMIO),
-        ])
-        .unwrap(),
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();

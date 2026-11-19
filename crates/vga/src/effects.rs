@@ -1,7 +1,6 @@
 //! Effects of video state changes on display output and address decoding.
 use crate::{
     io::Io,
-    mmio::MemoryDecoding,
     output::{CardOutput, Output},
     ports::PortDecoding,
     registers::WriteKind,
@@ -77,10 +76,9 @@ impl Effects {
 /// Card policy used by the shared synchronous effects operation. Calls are
 /// specialized for the concrete card; installed I/O operations use no vtable.
 pub(crate) trait CardEffects: CardOutput {
-    fn io(&self) -> Option<&Io>;
+    fn io(&self) -> Option<&Io<Self>>;
     fn timing(&self) -> Timing;
     fn port_decoding(&self) -> PortDecoding;
-    fn memory_decoding(&self) -> MemoryDecoding;
     fn display_configuration(&self) -> DisplayConfiguration;
     fn viewport(&self) -> Option<Viewport>;
 
@@ -100,7 +98,6 @@ pub(crate) trait CardEffects: CardOutput {
             .then(|| self.output().display.packed_layout());
         let previous_viewport = effects.scanout.then(|| self.viewport());
         let previous_ports = effects.port_decode.then(|| self.port_decoding());
-        let previous_memory = effects.memory_decode.then(|| self.memory_decoding());
 
         let result = mutate(self);
 
@@ -125,12 +122,10 @@ pub(crate) trait CardEffects: CardOutput {
             }
             true
         });
-        if let Some(previous) = previous_memory {
-            let decoding = self.memory_decoding();
-            if previous != decoding {
-                if let Some(io) = self.io() {
-                    io.memory
-                        .update_decoding(context.reborrow(), Some(previous), decoding);
+        if effects.memory_decode {
+            if let Some(io) = self.io() {
+                for window in &io.memory_windows {
+                    window.update_decoding(context.reborrow(), self);
                 }
             }
         }

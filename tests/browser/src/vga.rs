@@ -2,7 +2,7 @@ use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
 use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig};
-use relocade_vga::{DispiAdapter, MEMORY_RANGE};
+use relocade_vga::DispiAdapter;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
@@ -19,11 +19,7 @@ pub async fn vga_workers() -> Result<(), String> {
     let display = Thread::new();
     let config = MachineConfig::new(
         0x1000,
-        PhysicalMemoryMap::new([
-            (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-            (MEMORY_RANGE, PhysicalMapping::MMIO),
-        ])
-        .unwrap(),
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();

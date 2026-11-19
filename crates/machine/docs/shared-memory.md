@@ -150,9 +150,11 @@ let memory = Memory::new(machine_config)?;
 let mut cpu = Cpu::new(memory.clone(), cpu_config, io.clone()).await?;
 ```
 
-The board's physical map must mark that memory range `PhysicalMapping::MMIO`.
-The device owns its storage; it does not use guest RAM backing. CPU-context memory
-transfers and guest instructions route to the same device, after A20 translation.
+`bind_mmio` claims the physical range and installs its operations together.
+Device windows can occupy unbacked pages anywhere in the 32-bit physical
+address space. Configured RAM and ROM retain their existing mappings. Once
+connected, host views with the bus and guest instructions reach the same
+device after A20 translation, including when the CPU was created first.
 BIOS services capture a `MemoryBus` for memory and port operations. Unconnected
 ranges retain
 the open-bus behavior: FF reads and ignored writes. A host operation on the same

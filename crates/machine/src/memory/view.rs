@@ -14,10 +14,11 @@ use relocade_x86::SegmentRegister;
 use std::cell::RefCell;
 
 /// Guest physical memory through the configured map, including A20 aliases.
-/// RAM/ROM use backing storage. MMIO requires a local I/O bus. Holes and
-/// unconnected device ranges return FF; writes to them and ROM are ignored.
+/// RAM and ROM use backing storage. With a local I/O bus, device bindings
+/// serve addresses in unbacked pages. Holes and unconnected device ranges
+/// return FF bytes and ignore writes.
 /// The view borrows one storage handle; other shared handles remain usable.
-/// Accessing MMIO without a local bus is a programming error and panics.
+/// Accessing an explicit MMIO reservation without a local bus panics.
 pub struct MemoryView<'a> {
     memory: &'a Memory,
     config: &'a MachineConfig,

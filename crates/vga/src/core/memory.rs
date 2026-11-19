@@ -17,6 +17,10 @@ pub(crate) enum MemoryWrite {
 }
 
 impl VgaCore {
+    pub(crate) fn decodes_video_memory(&self) -> bool {
+        self.setup.enabled() && self.registers.video_memory_enabled()
+    }
+
     pub(crate) fn write_sequencer(&mut self, value: u8) {
         if self.registers.sequencer.write(value)
             && matches!(

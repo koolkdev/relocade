@@ -9,15 +9,9 @@ impl Device for Registers {}
 async fn check_high_physical_mmio() {
     const BASE: u32 = 0xe000_0000;
     const ADDRESS: u32 = BASE + 0xfff;
-    let map = PhysicalMemoryMap::new([
-        (0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 }),
-        (BASE..=BASE + 0x1fff, PhysicalMapping::MMIO),
-    ])
-    .unwrap();
-    let (_, handler_offset) = map
-        .mmio_handler_offsets()
-        .find(|&(page, _)| page == BASE)
-        .unwrap();
+    let map =
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let entry_offset = BASE / PhysicalMemoryMap::PAGE_BYTES * PhysicalMemoryMap::ENTRY_BYTES as u32;
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState::real_mode(),
@@ -34,11 +28,13 @@ async fn check_high_physical_mmio() {
         let guest = program.import_memory(abi::GUEST);
         program
             .function::<abi::ExecutionSignature>(move |mut body, ()| {
-                let handler = body.load::<I32>(map, handler_offset)?;
+                let kind = body.load::<I32>(map, entry_offset)?;
+                let handler = body.load::<I32>(map, entry_offset + 4)?;
                 let value =
                     body.call_indirect::<I64>(reads, &handler, &[ADDRESS.into(), 4.into()])?;
                 body.store(guest, 0, handler)?;
                 body.store(guest, 4, value.truncate::<I32>())?;
+                body.store(guest, 8, kind)?;
                 body.return_(ExecutionExitValues::host(HostExit::Return))
             })
             .into()
@@ -51,6 +47,7 @@ async fn check_high_physical_mmio() {
     run(&mut cpu).await;
     assert_eq!(view.read_u32(0).unwrap(), MmioHandlerId::GENERIC.index());
     assert_eq!(view.read_u32(4).unwrap(), u32::MAX);
+    assert_eq!(view.read_u32(8).unwrap(), 0); // Unmapped before the device connects.
 
     let device = RecordingDevice::new(BASE);
     let mut binding = None;
@@ -66,6 +63,7 @@ async fn check_high_physical_mmio() {
     assert_eq!(view.read_u32(ADDRESS).unwrap(), 0x4433_2211);
     run(&mut cpu).await;
     assert_ne!(view.read_u32(0).unwrap(), MmioHandlerId::GENERIC.index());
+    assert_eq!(view.read_u32(8).unwrap(), 3); // MMIO in the guest physical map.
     assert_eq!(view.read_u32(4).unwrap(), 0x4433_2211);
     assert_eq!(
         device.borrow_mut().take_transfers(),

@@ -37,6 +37,7 @@ pub const GET_CAPABILITIES: u16 = 2;
 pub const EIGHT_BIT_DAC: u16 = 0x20;
 pub const NO_CLEAR_MEMORY: u16 = 0x80;
 pub const BANK_BYTES: u32 = 65536;
+/// Physical start of the banked window (VBE Window A).
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
 
@@ -51,7 +52,7 @@ pub(crate) enum WriteAction {
 }
 
 /// Geometry writes stage a request while disabled. Only a supported complete
-/// request can enable the packed aperture; active geometry writes are ignored.
+/// request enables packed graphics. Geometry writes are ignored while active.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Dispi {
     index: u16,
@@ -164,7 +165,7 @@ impl Dispi {
 
     /// The bank register is validated on writes and restoration, so the whole
     /// CPU window is backed by physical VRAM.
-    pub fn bank_mapping(&self) -> Option<VramWindow> {
+    pub fn banked_window(&self) -> Option<VramWindow> {
         self.enabled().then_some(VramWindow {
             cpu_start: BANK_START,
             vram_start: u32::from(self.bank) * BANK_BYTES,
