@@ -7,17 +7,14 @@ for an absent physical mapping. The host controls the A20 gate in the routing ma
 
 ## Physical page map
 
-The host supplies two distinct Wasm memories in the `relocade` module:
-shared `guest` backing and unshared `physicalMap` routing metadata. Both imports
-have a minimum size of one 64-KiB Wasm page. The `guest` import declares a maximum
-of 65536 pages (the Wasm32 address space); its supplied memory may have a smaller
-maximum. The host allocates enough initial memory for all mapped backing.
-The routing table fits in one Wasm page.
+The host supplies shared `guest` backing and an unshared `physicalMap`. Guest
+backing has a minimum of one 64-KiB Wasm page and a maximum of 65536. Allocate
+enough backing for the configured RAM and ROM.
 
-`PhysicalMemoryMap` contains 272 entries for complete 4-KiB physical pages below
-0x110000. This covers the highest ordinary real-mode address, 0x10ffef, formed by
-`0xffff << 4` plus `0xffff`. The last page includes 16 bytes that canonical
-real-mode segment accesses cannot reach. Each page has one kind:
+The physical map has one eight-byte record for each of the 1,048,576 physical
+pages in the 32-bit address space. Its entries occupy 8 MiB. A four-byte A20
+mask follows, bringing the Wasm import minimum to 129 pages. Unmapped pages
+and device mappings have routing records and consume no guest RAM backing.
 
 | Mapping | Reads | Writes |
 | --- | --- | --- |
@@ -48,20 +45,23 @@ ones where they overlap. RAM/ROM backing offsets are page aligned and may addres
 any part of the host's 32-bit backing memory. `get(address)` resolves one physical
 byte for host inspection, adjusting direct offsets to that byte.
 
-`to_bytes()` produces a fixed 2180-byte image without a header. Each entry has a
-little-endian u32 kind (0 = unmapped, 1 = RAM, 2 = ROM, 3 = MMIO), followed by a u32
-backing-page offset. Unmapped and MMIO offsets are zero. Install the image at
-offset zero in `physicalMap`; physical page `p` has its kind at `p * 8` and backing
-offset at `p * 8 + 4`. A trailing u32 at `PhysicalMemoryMap::A20_MASK_OFFSET`
-(2176) is the address mask: FFFFFFFF with A20 enabled, FFEFFFFF with it disabled.
-New maps disable A20 for DOS compatibility: addresses with bit 20 set alias the
-corresponding low address before routing or MMIO callbacks. Call
-`set_a20_enabled(true)` to preserve addresses above 1 MiB. Install the updated
-serialized mask to change the live gate; page entries stay intact.
+`as_bytes()` exposes the routing image for installation at offset zero in
+`physicalMap`. Page `p` has two little-endian words. At `p * 8` the kind is
+0 for unmapped, 1 for RAM, 2 for ROM, or 3 for MMIO. Bit 2 marks tracked RAM
+or ROM. At `p * 8 + 4` the payload is a backing-page offset for RAM or ROM, a
+handler index for MMIO, or zero for an unmapped page.
+
+The A20 mask at `PhysicalMemoryMap::A20_MASK_OFFSET` (`0x800000`) is
+`0xFFEFFFFF` at startup. It clears address bit 20 before choosing a page or
+calling MMIO. Call `set_a20_enabled(true)` and install the updated mask
+(`0xFFFFFFFF`) to preserve all 32 address bits. Page entries stay in place.
 `get(address)` applies the same gate for host inspection. The host models the
 keyboard-controller or fast-A20 port that controls this platform state.
 
 Runtime mapping and gate changes update the installed Wasm table.
+Device attachment obtains physical page addresses and serialized handler-word
+offsets from `mmio_handler_offsets()`. This includes mappings hidden by A20 and
+keeps device publication independent of the routing table's indexing scheme.
 
 ## MMIO callbacks
 
@@ -107,8 +107,8 @@ DMA or another processor.
 
 ## Generated access and fetch
 
-Segment checks establish physical table bounds before lookup, including for
-speculative fetch windows. The JIT guards complete operand spans: reads must fit
+After the segment check and A20 translation, every 32-bit address has a
+physical page entry. The JIT guards complete operand spans: reads must fit
 one RAM/ROM page and writes must fit one RAM page. Successful guards retain the
 backing address for direct loads and stores. A failed guard publishes completed
 instructions and restarts the current instruction in the interpreter, before

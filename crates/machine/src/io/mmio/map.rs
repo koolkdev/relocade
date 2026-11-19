@@ -3,9 +3,10 @@ use crate::{io::State, IoContext, Result};
 use relocade_wasm_runtime::{
     FunctionRef, Import, Memory, Table, WasmBackend, WasmMemoryAccess, WasmRuntime,
 };
-use relocade_x86::{abi, MmioHandlerId, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{abi, MmioHandlerId, PhysicalMemoryMap};
 use std::{
     cell::{OnceCell, RefCell},
+    collections::BTreeMap,
     ops::RangeInclusive,
     rc::Weak,
 };
@@ -23,7 +24,8 @@ struct Tables {
 
 struct PhysicalPages {
     memory: Memory,
-    mmio: [bool; PhysicalMemoryMap::PAGE_COUNT],
+    /// Byte offsets of MMIO handler indices in `memory`, keyed by physical page address.
+    mmio_handler_offsets: BTreeMap<u32, u32>,
 }
 
 /// Slot zero resolves mixed pages. Every registered range owns one further slot;
@@ -80,25 +82,13 @@ impl Mmio {
             );
         }
         self.tables.set(tables).unwrap_or_else(|_| unreachable!());
-        // Publication targets physical pages even while A20 hides their aliases.
-        let mut physical = map.clone();
-        physical.set_a20_enabled(true);
-        let mmio = std::array::from_fn(|page| {
-            matches!(
-                physical.get(page as u32 * PhysicalMemoryMap::PAGE_BYTES),
-                PhysicalMapping::Mmio { .. }
-            )
-        });
         self.physical
             .set(PhysicalPages {
                 memory: memory.clone(),
-                mmio,
+                mmio_handler_offsets: map.mmio_handler_offsets().collect(),
             })
             .unwrap_or_else(|_| unreachable!());
-        self.publish_pages(
-            &mut context,
-            0..=PhysicalMemoryMap::PAGE_COUNT as u32 * PhysicalMemoryMap::PAGE_BYTES - 1,
-        );
+        self.publish_pages(&mut context, 0..=u32::MAX);
         Ok(())
     }
 
@@ -221,17 +211,15 @@ impl Mmio {
         let Some(physical) = self.physical.get() else {
             return;
         };
-        let first = *addresses.start() as usize / PhysicalMemoryMap::PAGE_BYTES as usize;
-        let end = (*addresses.end() as usize / PhysicalMemoryMap::PAGE_BYTES as usize + 1)
-            .min(PhysicalMemoryMap::PAGE_COUNT);
-        for page in first..end {
-            if physical.mmio[page] {
-                let handler = self.page_handler(page as u32 * PhysicalMemoryMap::PAGE_BYTES);
-                context
-                    .runtime
-                    .memory(&physical.memory)
-                    .write(page as u32 * 8 + 4, &handler.index().to_le_bytes());
-            }
+        let mask = !(PhysicalMemoryMap::PAGE_BYTES - 1);
+        let first = *addresses.start() & mask;
+        let last = *addresses.end() & mask;
+        for (&address, &offset) in physical.mmio_handler_offsets.range(first..=last) {
+            let handler = self.page_handler(address);
+            context
+                .runtime
+                .memory(&physical.memory)
+                .write(offset, &handler.index().to_le_bytes());
         }
     }
 

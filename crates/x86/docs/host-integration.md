@@ -539,7 +539,7 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | `executionContext` | 1 | `ExecutionContext` backing, containing CPU state and execution controls. |
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
 | `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
-| `physicalMap` | 1 | Real16 physical routing table at byte zero. |
+| `physicalMap` | 129 | Flat 32-bit physical routing table followed by the A20 mask. |
 | `executionEntries` | 1 | Execution-address table. |
 | `callProfile` | 1 | Bounded CPU-local call observations, drained while execution is stopped. |
 

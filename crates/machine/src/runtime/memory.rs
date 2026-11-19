@@ -39,14 +39,12 @@ impl RuntimeMemory {
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage.clone());
         let guest_import = wasm.import_shared_memory(guest.backing());
-        let mapping_bytes = guest.configuration().memory_map().to_bytes();
-        let mapping_pages = mapping_bytes.len().div_ceil(65536).max(1) as u32;
         let mapping = wasm.create_memory(MemoryDeclaration {
-            minimum: mapping_pages,
-            maximum: Some(mapping_pages),
+            maximum: Some(abi::PHYSICAL_MAP.minimum),
             ..abi::PHYSICAL_MAP
         })?;
-        wasm.memory(&mapping).write(0, &mapping_bytes);
+        wasm.memory(&mapping)
+            .write(0, guest.configuration().memory_map().as_bytes());
         let write_guest = guest.clone();
         let code_write = FunctionRef::new(
             &mut wasm.context(),

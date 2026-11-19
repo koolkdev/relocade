@@ -10,7 +10,7 @@ mod support;
 
 use relocade_machine::{
     Cpu, Device, DeviceCallbacks, DeviceConnection, DispatchEntry, FarPointer, IoBus, Memory,
-    MmioRead, MmioWrite, PortBinding, PortRange, PortRead, PortWrite,
+    MmioBinding, MmioRead, MmioWrite, PortBinding, PortRange, PortRead, PortWrite,
 };
 use relocade_x86::{
     BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
@@ -85,7 +85,7 @@ impl RecordingDevice {
         io: &mut DeviceConnection<'_>,
         device: &Rc<RefCell<Self>>,
         addresses: std::ops::RangeInclusive<u32>,
-    ) {
+    ) -> MmioBinding {
         let callbacks = DeviceCallbacks::new(device);
         io.bind_mmio(
             addresses,
@@ -95,7 +95,7 @@ impl RecordingDevice {
             &MmioWrite::new(callbacks.write_mmio(|_, device, address, bytes, value| {
                 device.write_memory(address, bytes, value);
             })),
-        );
+        )
     }
 
     fn read_memory(&mut self, address: u32, bytes: u8) -> u64 {

@@ -17,7 +17,11 @@ pub const GUEST: Memory = Memory {
     shared: true,
     ..Memory::new("relocade", "guest", 1)
 };
-pub const PHYSICAL_MAP: Memory = Memory::new("relocade", "physicalMap", 1);
+pub const PHYSICAL_MAP: Memory = Memory::new(
+    "relocade",
+    "physicalMap",
+    crate::PhysicalMemoryMap::BYTE_LEN.div_ceil(65536) as u32,
+);
 /// Writes one through eight bytes within a tracked RAM backing page. The address
 /// is a backing offset after physical translation, and unused value bits are zero.
 /// The embedding performs the write, including any required code invalidation,
