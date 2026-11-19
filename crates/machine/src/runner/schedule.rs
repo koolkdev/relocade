@@ -4,7 +4,7 @@ mod slice;
 use slice::ExecutionSlice;
 
 use super::GuestTimeConfig;
-use crate::{Clock, Cpu, GuestTimeDriver};
+use crate::{worker::WorkerWake, Clock, Cpu, ExecutionInterrupt, GuestTimeDriver};
 use relocade_x86::ExecutionExit;
 use std::task::{ready, Context, Poll, Waker};
 
@@ -57,6 +57,7 @@ impl ExecutionSchedule {
     pub(super) fn poll_cpu(
         &self,
         cpu: &mut Cpu,
+        wake: &WorkerWake<ExecutionInterrupt>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<ExecutionExit>> {
         let _execution = ready!(cpu.poll_enter_execution(cx));
@@ -87,7 +88,7 @@ impl ExecutionSchedule {
             Poll::Pending => {
                 // Let ready activities replace their waits before advancing idle
                 // time. Neither a wake nor a replaced deadline resets the slice.
-                if cpu.interrupt_handle().is_requested() {
+                if wake.has_pending_poll() {
                     return Poll::Ready(None);
                 }
                 let Some(guest) = &self.guest else {

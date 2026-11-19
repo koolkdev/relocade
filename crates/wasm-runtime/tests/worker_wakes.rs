@@ -11,8 +11,8 @@ use std::{
     task::Waker,
 };
 
-#[path = "worker_wakes/executor.rs"]
-mod executor;
+#[path = "worker_wakes/worker.rs"]
+mod worker;
 
 #[path = "worker_wakes/peers.rs"]
 mod peers;

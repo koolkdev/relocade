@@ -1,9 +1,12 @@
 //! Typed messages with Rust state and posted objects delivered in the same order.
 
-use crate::{executor::host::PendingDeliveries, Executor, SendTask, Transfer, WakeTarget};
+use crate::{HostTurns, SendTask, Transfer, WakeTarget, WorkerWake};
 use futures_channel::mpsc;
 use futures_util::StreamExt;
-use std::{fmt, future::Future, rc::Rc};
+use std::{
+    fmt,
+    future::{poll_fn, Future},
+};
 
 #[cfg_attr(not(target_arch = "wasm32"), path = "channel/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "channel/web.rs")]
@@ -40,7 +43,7 @@ pub struct Receiver<T: Transfer> {
     payloads: platform::Receiver<T::Payload>,
     states: mpsc::UnboundedReceiver<T::State>,
     pending: Option<T::State>,
-    deliveries: Option<Rc<PendingDeliveries>>,
+    deliveries: HostTurns,
 }
 
 /// Creates an unbounded channel with one sender and one receiver.
@@ -80,7 +83,7 @@ impl<T: Transfer> ReceiverEndpoint<T> {
             payloads: self.payloads.bind(),
             states: self.states,
             pending: None,
-            deliveries: None,
+            deliveries: HostTurns::default(),
         }
     }
 }
@@ -157,11 +160,11 @@ impl<T: Transfer> Sender<T> {
 }
 
 impl<T: Transfer> Receiver<T> {
-    /// Binds posted-object receipt to this executor's host-turn policy.
-    /// Poll receives inside its root future. Empty channels and already delivered
+    /// Tracks posted-object receipt as a host dependency of this worker.
+    /// Poll receives on the worker. Empty channels and already delivered
     /// payloads request no host turn; cancelling receipt preserves the message.
-    pub fn with_executor<R: WakeTarget>(mut self, executor: &Executor<R>) -> Self {
-        self.deliveries = Some(executor.host.pending.clone());
+    pub fn with_worker<R: WakeTarget>(mut self, worker: &WorkerWake<R>) -> Self {
+        self.deliveries = worker.host_turns();
         self
     }
 
@@ -173,17 +176,8 @@ impl<T: Transfer> Receiver<T> {
         if self.pending.is_none() {
             self.pending = Some(self.states.next().await?);
         }
-        let deliveries = self.deliveries.as_deref();
-        let mut waiting = None;
-        let payload = std::future::poll_fn(|cx| {
-            let payload = self.payloads.poll_recv(cx);
-            if payload.is_pending() && waiting.is_none() {
-                waiting = deliveries.map(PendingDeliveries::register);
-            }
-            payload
-        })
-        .await;
-        drop(waiting);
+        let payload = poll_fn(|cx| self.payloads.poll_recv(cx));
+        let payload = self.deliveries.wait(payload).await;
         let state = self.pending.take().expect("pending message state");
         Some(payload.map(|payload| T::decode(state, payload)))
     }

@@ -3,7 +3,7 @@ use super::{
     BlockRequest, CompiledCode, FunctionRequest, Reply,
 };
 use crate::{
-    worker::{ChannelError, Executor, ReceiverEndpoint, Sender, Transfer, WakePeer},
+    worker::{ChannelError, ReceiverEndpoint, Sender, Transfer, WakePeer, WorkerWake},
     ExecutionInterrupt, Result,
 };
 use futures_channel::mpsc;
@@ -30,12 +30,12 @@ pub struct Endpoint {
 impl Endpoint {
     pub(crate) fn connect(
         mut self,
-        executor: &Executor<ExecutionInterrupt>,
+        worker: &WorkerWake<ExecutionInterrupt>,
     ) -> Result<CompilerClient> {
-        self.peer.send(executor.peer())?;
-        let results = self.results.bind().with_executor(executor);
+        self.peer.send(worker.peer())?;
+        let results = self.results.bind().with_worker(worker);
         // Retain the receive future between CPU polls so its pending browser
-        // delivery stays registered with the executor.
+        // delivery stays registered with the worker.
         let results = stream::unfold(results, async |mut results| {
             let result = match results.recv().await? {
                 Ok(Reply(result)) => result,

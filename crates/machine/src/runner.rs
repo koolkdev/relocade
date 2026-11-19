@@ -8,7 +8,7 @@ mod worker;
 use schedule::ExecutionSchedule;
 pub use worker::ExecutionWorker;
 
-use crate::worker::{Executor, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker};
+use crate::worker::{HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker, WorkerWake};
 use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
@@ -18,7 +18,7 @@ use futures_lite::future::poll_once;
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
 use futures_util::{
-    future::{join_all, select, Either, LocalBoxFuture},
+    future::{join_all, LocalBoxFuture},
     StreamExt,
 };
 use relocade_x86::ExecutionExit;
@@ -28,7 +28,6 @@ use std::{
     pin::pin,
     rc::Rc,
     task::Poll,
-    time::Duration,
 };
 
 /// Owns a worker's execution session, including its CPU backend and device activities.
@@ -40,7 +39,7 @@ pub struct Runner {
     schedule: ExecutionSchedule,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
-    executor: Rc<Executor<ExecutionInterrupt>>,
+    wake: Rc<WorkerWake<ExecutionInterrupt>>,
     workers: Rc<RefCell<Vec<LocalBoxFuture<'static, ()>>>>,
     cpu: Cpu,
 }
@@ -56,38 +55,28 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(
-            ExecutionSchedule::from_clock(clock.clone()),
-            cpu,
-            endpoint,
-            Some(clock),
-        )
-        .await
+        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
     }
 
     async fn with_schedule(
         schedule: ExecutionSchedule,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
-        host_clock: Option<Clock>,
     ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
-        let mut executor = Executor::new(endpoint.bind(cpu.interrupt_handle()));
-        if let Some(clock) = host_clock {
-            executor =
-                executor.with_host_timer(Duration::from_millis(1), move |delay| clock.sleep(delay));
-        }
-        let executor = Rc::new(executor);
+        let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
         let compiler = compiler
-            .map(|compiler| compiler.connect(&executor))
+            .map(|compiler| compiler.connect(&wake))
             .transpose()?;
-        let cpu = cpu.with_compiler(compiler);
+        let cpu = cpu
+            .with_compiler(compiler)
+            .with_host_turns(wake.host_turns());
         Ok(Self {
             schedule,
             activities,
             pending: Some(pending),
-            executor,
+            wake,
             workers: Rc::new(RefCell::new(Vec::new())),
             cpu,
         })
@@ -125,7 +114,12 @@ impl Runner {
     /// Post this resource to another worker and retain its `bind()` guard there
     /// before sending ordinary Rust notifications to this execution session.
     pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
-        self.executor.peer()
+        self.wake.peer()
+    }
+
+    /// Declares an operation whose completion needs this worker's host event loop.
+    pub fn host_turns(&self) -> HostTurns {
+        self.wake.host_turns()
     }
 
     /// Starts a reusable calculation thread owned by this execution session.
@@ -146,7 +140,10 @@ impl Runner {
         self.workers.borrow_mut().push(Box::pin(async move {
             let _ = worker.stop().await.expect("session job thread cleanup");
         }));
-        ready.await.expect("session job thread startup");
+        self.host_turns()
+            .wait(ready)
+            .await
+            .expect("session job thread startup");
         jobs
     }
 
@@ -195,19 +192,21 @@ impl Runner {
         main: impl AsyncFnOnce(Self) -> R,
     ) -> Option<R> {
         let pending = self.pending.take().expect("new runner activity queue");
-        let devices = pending.for_each_concurrent(None, |activity| activity);
-        let executor = self.executor.clone();
-        let _activities = self.activities.clone();
+        let wake = self.wake.clone();
         let workers = self.workers.clone();
-        let result = executor
-            .run_until(stop, async {
-                // Poll ready devices before returning to guest execution.
-                match select(pin!(devices), pin!(main(self))).await {
-                    Either::Right((result, _)) => result,
-                    Either::Left(_) => unreachable!("session retains the activity sender"),
+        let result = {
+            let mut stop = pin!(stop);
+            let mut devices = pin!(pending.for_each_concurrent(None, |activity| activity));
+            let mut main = pin!(main(self));
+            wake.drive(poll_fn(|cx| {
+                if stop.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(None);
                 }
-            })
-            .await;
+                let _ = devices.as_mut().poll(cx);
+                main.as_mut().poll(cx).map(Some)
+            }))
+            .await
+        };
         let cleanup = std::mem::take(&mut *workers.borrow_mut());
         join_all(cleanup).await;
         result
@@ -218,19 +217,24 @@ impl Runner {
     /// Poll within [`Self::run`], which drives scheduling and background activities.
     pub async fn run_cpu(&mut self) -> ExecutionExit {
         let cpu = &mut self.cpu;
-        let changed = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-        let _binding = self.schedule.bind(cpu, &changed);
         let interrupt = cpu.interrupt_handle();
-        self.executor.yield_now().await;
-        loop {
-            let exit = poll_fn(|cx| self.schedule.poll_cpu(cpu, cx)).await;
-            if exit.is_none() || interrupt.is_requested() {
-                self.executor.yield_now().await;
+        let mut binding = None;
+        let exit = poll_fn(|cx| {
+            if binding.is_none() {
+                binding = Some(self.schedule.bind(cpu, cx.waker()));
+            } else if let Some(exit) =
+                std::task::ready!(self.schedule.poll_cpu(cpu, &self.wake, cx))
+            {
+                return Poll::Ready(exit);
             }
-            if let Some(exit) = exit {
-                return exit;
-            }
+            self.wake.repoll(cx);
+            Poll::Pending
+        })
+        .await;
+        if interrupt.is_requested() {
+            yield_now().await;
         }
+        exit
     }
 
     /// Runs on emulated guest time with optional host pacing for active and idle
@@ -243,13 +247,6 @@ impl Runner {
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        let host_clock = config.host_clock.clone();
-        Self::with_schedule(
-            ExecutionSchedule::with_guest_time(config),
-            cpu,
-            endpoint,
-            host_clock,
-        )
-        .await
+        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
     }
 }
