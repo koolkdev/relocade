@@ -25,19 +25,18 @@ pub(crate) async fn run<Card: CardOutput>(device: Rc<RefCell<Card>>) {
         } else {
             // All producers are on this owner. No await separates the pending
             // check from installing both wake paths, and no borrow spans a wait.
-            let wait = {
+            let (captured, retrace) = {
                 let mut device = device.borrow_mut();
                 let output = device.output();
-                let captured = output.ready.listen();
-                let retrace = output.retrace_wait(output.raster.next_retrace_at());
-                async move {
-                    or(captured, async {
-                        retrace.await;
-                    })
-                    .await;
-                }
+                (
+                    output.ready.listen(),
+                    output.retrace_wait(output.raster.next_retrace_at()),
+                )
             };
-            wait.await;
+            or(captured, async {
+                retrace.await;
+            })
+            .await;
         }
     }
 }

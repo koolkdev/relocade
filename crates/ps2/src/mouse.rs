@@ -4,48 +4,32 @@ mod motion;
 mod protocol;
 mod transmission;
 
-use crate::controller::{Controller, Port};
-use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
+use crate::{
+    controller::{Controller, Port},
+    optional_wait,
+};
+use futures_util::{select_biased, FutureExt, StreamExt};
 use protocol::Protocol;
 use relocade_frontend::mouse::{MouseEvent, MouseEvents};
 use relocade_machine::{yield_now, Clock};
-use std::future::pending;
 
 pub(super) async fn run(clock: Clock, events: MouseEvents, controller: &Controller) {
     let mut protocol = Protocol::new(clock.clone());
     let mut events = Some(events);
     loop {
         let wake = {
-            let command = controller.receive_device(Port::Auxiliary).fuse();
-            let output = async {
-                if let Some(byte) = protocol.byte() {
-                    controller.send(Port::Auxiliary, byte).await;
-                } else {
-                    pending::<()>().await;
-                }
-            }
-            .fuse();
-            let event = async {
-                match events.as_mut() {
-                    Some(events) => events.next().await,
-                    None => pending().await,
-                }
-            }
-            .fuse();
-            let timer = async {
-                if let Some(deadline) = protocol.deadline() {
-                    clock.sleep_until(deadline).await;
-                } else {
-                    pending::<()>().await;
-                }
-            }
-            .fuse();
-            pin_mut!(command, output, event, timer);
+            let output = protocol
+                .byte()
+                .map(|byte| controller.send(Port::Auxiliary, byte));
+            let input = events.as_mut().map(StreamExt::next);
+            let sample = protocol
+                .deadline()
+                .map(|deadline| clock.sleep_until(deadline));
             select_biased! {
-                byte = command => Wake::Command(byte),
-                () = output => Wake::Sent,
-                () = timer => Wake::Sample,
-                event = event => Wake::Event(event),
+                byte = controller.receive_device(Port::Auxiliary).fuse() => Wake::Command(byte),
+                () = optional_wait(output) => Wake::Sent,
+                () = optional_wait(sample) => Wake::Sample,
+                event = optional_wait(input) => Wake::Event(event),
             }
         };
         match wake {
