@@ -13,7 +13,6 @@ use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
-use futures_lite::future::poll_once;
 /// Gives other ready Rust activities a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
@@ -171,11 +170,15 @@ impl Runner {
         let (started, ready) = oneshot::channel();
         let activity = async move {
             let mut run = pin!(activity);
-            let completed = poll_once(run.as_mut()).await.is_some();
-            let _ = started.send(());
-            if !completed {
-                run.await;
-            }
+            let mut started = Some(started);
+            poll_fn(|cx| {
+                let result = run.as_mut().poll(cx);
+                if let Some(started) = started.take() {
+                    let _ = started.send(());
+                }
+                result
+            })
+            .await;
         };
         self.activities
             .unbounded_send(Box::pin(activity))
