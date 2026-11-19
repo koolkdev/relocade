@@ -3,61 +3,51 @@ use super::{MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap}
 use PhysicalMapping::{Ram, Rom, Unmapped};
 
 #[test]
-fn code_pages_mark_all_backing_aliases_without_changing_routing() {
+fn code_flags_follow_the_owning_backing_page_even_when_a20_hides_it() {
     let mut map = PhysicalMemoryMap::new([
-        (
-            0..=0xfff,
-            Ram {
-                backing_offset: 0x4000,
-            },
-        ),
+        (0..=0xfff, Ram { backing_offset: 0 }),
         (
             0x1000..=0x1fff,
             Rom {
-                backing_offset: 0x4000,
+                backing_offset: 0x2000,
             },
         ),
         (
             0x2000..=0x2fff,
             PhysicalMapping::Mmio {
-                handler: MmioHandlerId::new(0x4000),
-            },
-        ),
-        (
-            0x3000..=0x3fff,
-            Ram {
-                backing_offset: 0x5000,
+                handler: MmioHandlerId::new(0x2000),
             },
         ),
         (
             0x100000..=0x100fff,
             Ram {
-                backing_offset: 0x4000,
+                backing_offset: 0x1000,
             },
         ),
     ])
     .unwrap();
     let original = map.to_bytes();
-    map.set_code_page(0x4123, true);
+    map.set_code_page(0x1123, true);
+    map.set_code_page(0x2123, true);
     let mut expected = original.clone();
-    for (page, kind) in [(0, 5u32), (1, 6), (0x100, 5)] {
+    for (page, kind) in [(0x100, 5u32), (1, 6)] {
         expected[page * 8..page * 8 + 4].copy_from_slice(&kind.to_le_bytes());
     }
     assert_eq!(map.as_bytes(), expected);
     assert_eq!(
         map.get(0x100123),
         Ram {
-            backing_offset: 0x4123
+            backing_offset: 0x123
         }
     );
     assert_eq!(
         map.get(0x1123),
         Rom {
-            backing_offset: 0x4123
+            backing_offset: 0x2123
         }
     );
-    assert!(map.fits_backing(0x6000));
-    map.set_code_page(0x4fff, false);
+    map.set_code_page(0x1fff, false);
+    map.set_code_page(0x2fff, false);
     assert_eq!(map.as_bytes(), original);
 }
 
@@ -160,7 +150,7 @@ fn direct_ranges_translate_bytes_and_preserve_ram_and_rom_kinds() {
 fn later_regions_replace_only_the_requested_pages() {
     let map = PhysicalMemoryMap::new([
         (
-            0..=0x4fff,
+            0..=0x5fff,
             Ram {
                 backing_offset: 0x9000,
             },
@@ -173,8 +163,11 @@ fn later_regions_replace_only_the_requested_pages() {
         ),
         (0x2000..=0x3fff, PhysicalMapping::MMIO),
         (0x3000..=0x3fff, Unmapped),
+        (0x5000..=0x5fff, Unmapped),
     ])
     .unwrap();
+    assert!(map.fits_backing(0xe000));
+    assert!(!map.fits_backing(0xdfff));
     assert_eq!(
         map.get(0xfff),
         Ram {
@@ -198,35 +191,41 @@ fn later_regions_replace_only_the_requested_pages() {
 }
 
 #[test]
-fn separate_physical_ranges_can_alias_the_same_backing() {
-    let mut map = PhysicalMemoryMap::new([
-        (
-            0..=0x1fff,
-            Ram {
-                backing_offset: 0x4000,
-            },
-        ),
-        (
-            0x100000..=0x101fff,
-            Ram {
-                backing_offset: 0x4000,
-            },
-        ),
-    ])
-    .unwrap();
+fn backing_ownership_uses_the_final_routes_even_when_a20_hides_a_page() {
+    let ram = (
+        0xe000_0000..=0xe000_1fff,
+        Ram {
+            backing_offset: 0x4000,
+        },
+    );
+    let rom = (
+        0xe010_0000..=0xe010_0fff,
+        Rom {
+            backing_offset: 0x5000,
+        },
+    );
+    assert_eq!(
+        PhysicalMemoryMap::new([ram.clone(), rom.clone()]).unwrap_err(),
+        PhysicalMapError::DuplicateBackingPage(0x5000)
+    );
+    let mut map =
+        PhysicalMemoryMap::new([ram, rom, (0xe000_1000..=0xe000_1fff, PhysicalMapping::MMIO)])
+            .unwrap();
+    assert!(map.fits_backing(0x6000));
+    assert_eq!(
+        map.get(0xe010_0123),
+        Ram {
+            backing_offset: 0x4123
+        }
+    );
     map.set_a20_enabled(true);
     assert_eq!(
-        map.get(0x1234),
-        Ram {
-            backing_offset: 0x5234
+        map.get(0xe010_0123),
+        Rom {
+            backing_offset: 0x5123
         }
     );
-    assert_eq!(
-        map.get(0x101234),
-        Ram {
-            backing_offset: 0x5234
-        }
-    );
+    assert_eq!(map.get(0xe000_1000), PhysicalMapping::MMIO);
 }
 
 #[test]

@@ -53,8 +53,8 @@ fn fetches() {
         let mut image = image(&[]);
         image.cpu.eip = start;
         if !code.is_empty() {
-            image.map(start >> 12, 0x3000, false);
-            image.data(0x3000 + (start & 0xfff), code);
+            image.map(start >> 12, 0x4000, false);
+            image.data(0x4000 + (start & 0xfff), code);
         }
         image.check_unchanged_exit(
             module,
@@ -307,11 +307,11 @@ fn fetch_callbacks(mmio: bool) {
     ] {
         let mut image = image(&[]);
         image.cpu.eip = start;
-        image.map(start >> 12, 0x3000, false);
-        image.data(0x3000 + (start & 0xfff), code);
+        image.map(start >> 12, 0x4000, false);
+        image.data(0x4000 + (start & 0xfff), code);
         let mut input = image.input();
         if mmio {
-            input.mmio_pages.push((start >> 12, 0x3000));
+            input.mmio_pages.push((start >> 12, 0x4000));
         }
         input.observe_mmio = true;
         let mut observed = module.observe(&input, 1);

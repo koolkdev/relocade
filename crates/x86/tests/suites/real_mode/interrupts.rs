@@ -92,10 +92,10 @@ test_frontends!(word_frames_and_prefixes, frames);
 
 fn return_ip_wraps(frontend: Frontend) {
     let code = [0x66, 0xcc];
-    let mut image = interrupt_image(&code, 3);
+    let mut image = interrupt_image(&[], 3);
     image.cpu.eip = 0xfffe;
-    image.map(0xf, 0x3000, false);
-    image.data(0x3ffe, &code);
+    image.map(0xf, 0x4000, false);
+    image.data(0x4ffe, &code);
     let cpu = entered(&image, code.len());
     sequences(frontend).check(
         "the saved return IP wraps after an instruction ending at the CS limit",
@@ -150,11 +150,11 @@ fn stack_bounds(frontend: Frontend) {
         let mut image = interrupt_image(&code, 3);
         image.cpu.registers.esp = 0xabcd_0000 | sp;
         let (page, backing) = if sp == 0 {
-            (0x2f, 0x8ffa)
+            (0x2f, 0x9ffa)
         } else {
-            (0x20, 0x8000)
+            (0x20, 0x9000)
         };
-        image.map(page, 0x8000, true);
+        image.map(page, 0x9000, true);
         let mut cpu = entered(&image, code.len());
         cpu.registers.esp = 0xabcd_0000 | (sp.wrapping_sub(6) & 0xffff);
         sequences(frontend).check(
