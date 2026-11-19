@@ -19,6 +19,11 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
+Native and browser DOS use the same guest clock for PC hardware. The default is
+1,000,000 retired instructions per guest second. The host timer paces execution
+in 4 ms slices. A halted CPU or an idle command prompt lets guest time advance
+to device deadlines, including PIT edges and VGA retrace.
+
 The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
 select the installed cards before startup:
 
@@ -73,13 +78,12 @@ route is available to native and browser Rust callers. `dos.video_card()` expose
 the card's frame delivery and native framebuffer access, which the DOS mouse
 driver uses to draw its cursor and restore the pixels underneath it.
 
-The application entrypoint connects existing owners. One execution worker owns
-DOS, keyboard, VGA, speaker, the selected sound card and the Rust command loop.
-It sends the native console's input sender, `dos.mouse_input()` and `dos.frames()` through a startup
-channel. Main attaches those endpoints to its `AppHost` while driving the
-application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
-a pending console read, and waits for execution and graphics cleanup. Execution
-errors remain visible even when startup ends before the endpoints arrive.
+The execution worker owns DOS, the PC hardware and the Rust command loop.
+During startup it sends the prompt's keyboard sender, `dos.mouse_input()` and
+`dos.frames()` to the UI thread. The UI attaches those endpoints to `AppHost`.
+The graphics worker owns the display surface. A host timer worker supplies
+pacing deadlines. Closing the window stops the execution session during startup
+or a pending shell read, and the UI waits for execution and graphics cleanup.
 
 `AppHost::open_audio` opens and owns CPAL output on main. Only its stream
 configuration and bounded Rust PCM sender go to the execution worker.
@@ -137,17 +141,17 @@ uses cooked tab stops and the shared BIOS/VGA text, cursor and scrolling code.
 The prompt implements `echo`, with case-insensitive matching, and reports unknown
 commands. It creates no DOS process and writes no duplicate stdout capture.
 
-Native input belongs to the prompt. It does not enter the controller or the BIOS
-keyboard buffer; native output bypasses DOS handles, redirection and installed
-CON drivers. No guest code, IRQ handlers or resident utilities execute at the
-prompt. The runner continues its device activities, including display/audio;
-BIOS ticks advance only when guest execution services timer interrupts.
+The prompt reads its own input channel and writes directly to BIOS video. The
+execution worker keeps the PIT, VGA and other timed devices running on guest
+time across all shell waits. With no foreground program the CPU stays parked
+and retires zero instructions. The BIOS tick count advances when a running
+guest services a timer interrupt.
 
-Guest programs instead receive physical events through `dos.keyboard_input()`
-and use the AT controller → PIC IRQ1 → guest INT 09h → BIOS buffer path.
-`launch_com` and `launch_mz` accept supplied images; program lookup and input handoff during launch are future application policy.
-There is no mode flag in the CPU, PIC or BIOS. Drop the native console before
-launching or resuming a guest.
+An embedding can keep the console handle, launch a supplied image with
+`dos.launch_com` or `dos.launch_mz`, await `dos.run()`, and resume the same
+prompt on exit. To send physical events to the foreground guest, use
+`dos.keyboard_input()`. Those events go through the AT controller, IRQ1 and
+the guest INT 09h handler.
 
 ## Audio validation
 

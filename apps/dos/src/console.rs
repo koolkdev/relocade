@@ -10,7 +10,7 @@ const BANNER: &str = r"  ____       _                     _
 
 /// Runs the Rust console on the DOS execution owner. Executable lookup is left
 /// to future application policy; supplied images can use DOS's launch APIs.
-pub async fn run_console(mut console: NativeConsole<'_>) {
+pub async fn run_console(mut console: NativeConsole) {
     for line in BANNER.lines() {
         console.write(line.as_bytes());
         console.write(b"\r\n");

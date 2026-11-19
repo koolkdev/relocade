@@ -25,7 +25,7 @@ pub(crate) struct DosState {
     pub(crate) allocation_strategy: Cell<AllocationStrategy>,
     console_input: ConsoleInput,
     filesystem: RefCell<FileSystem>,
-    stdio: Stdio,
+    stdio: Rc<Stdio>,
     devices: DeviceChain,
     process: RefCell<Option<Rc<Process>>>,
     exit: ExitHandle,
@@ -57,7 +57,7 @@ impl DosState {
             allocation_strategy: Cell::default(),
             console_input,
             filesystem,
-            stdio: Stdio::new(keyboard),
+            stdio: Rc::new(Stdio::new(keyboard)),
             devices,
             process: RefCell::default(),
             exit,
@@ -84,7 +84,7 @@ impl DosState {
         &self.devices
     }
 
-    pub(crate) fn stdio(&self) -> &Stdio {
+    pub(crate) fn stdio(&self) -> &Rc<Stdio> {
         &self.stdio
     }
 

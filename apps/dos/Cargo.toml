@@ -20,6 +20,7 @@ relocade-machine = { path = "../../crates/machine" }
 relocade-vga = { path = "../../crates/vga", features = ["renderer"] }
 futures-lite = "=2.6.1"
 futures-channel = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 async-channel = { version = "=2.5.0", default-features = false }
