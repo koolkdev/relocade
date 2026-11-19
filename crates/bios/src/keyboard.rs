@@ -11,6 +11,7 @@ pub(crate) use irq::interrupt;
 pub use physical::PhysicalKeyboard;
 
 use data::{DataArea, HeldKeys, KeyboardStatus, ShiftFlags};
+use event_listener::Event;
 use scan::{Decoder, Scan};
 
 use relocade_machine::{
@@ -19,11 +20,11 @@ use relocade_machine::{
 };
 use std::{
     cell::RefCell,
-    future::Future,
+    future::{poll_fn, Future},
     io::{self, Write},
     pin::Pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
+    task::{ready, Poll},
 };
 
 /// Modifier and toggle states reported by INT 16h/AH=02h.
@@ -78,79 +79,62 @@ impl ShiftState {
 
 struct Input {
     data: DataArea,
-    decoder: Decoder,
-    waker: Option<Waker>,
+    decoder: RefCell<Decoder>,
+    key_stored: Event,
 }
 
 /// An owned handle to the guest's BIOS keyboard data area.
 ///
 /// Physical input reaches the BDA through the default IRQ1 handler. INT 16h and
 /// DOS consume that same guest-visible ring; replacing INT 09h replaces translation.
-/// Clones share one pending read registration. The guest RAM ring is the only
-/// keystroke queue. `Write` stores character bytes with scan code zero and reports
-/// short writes or `WouldBlock` when the ring is full.
+/// Concurrent reads consume from the same guest RAM ring. `Write` stores character
+/// bytes with scan code zero and reports short writes or `WouldBlock` when full.
 #[derive(Clone)]
-pub struct Keyboard(Rc<RefCell<Input>>);
+pub struct Keyboard(Rc<Input>);
 
 impl Keyboard {
     /// Initializes keyboard flags and the buffer in a new session's low-memory RAM.
     pub fn new(memory: Memory) -> Self {
-        Self(Rc::new(RefCell::new(Input {
+        Self(Rc::new(Input {
             data: DataArea::new(memory),
-            decoder: Decoder::default(),
-            waker: None,
-        })))
+            decoder: RefCell::default(),
+            key_stored: Event::new(),
+        }))
     }
 
     fn scan_code(&self, byte: u8) -> Scan {
-        let (scan, waker) = {
-            let mut input = self.0.borrow_mut();
-            let Input { data, decoder, .. } = &mut *input;
-            let scan = decoder.scan(data, byte);
-            let waker = if scan == Scan::Key {
-                input.waker.take()
-            } else {
-                None
-            };
-            (scan, waker)
-        };
-        if let Some(waker) = waker {
-            waker.wake();
+        let scan = self.0.decoder.borrow_mut().scan(&self.0.data, byte);
+        if let Scan::Key(key) = scan {
+            let _ = self.store_key(key);
         }
         scan
     }
 
     /// Stores one translated keystroke in the guest ring, as for INT 16h/AH=05h.
     /// Returns false when full, leaving the buffer unchanged. A successful store
-    /// wakes a pending reader. This does not produce scan bytes or hardware IRQs.
+    /// wakes waiting readers. This does not produce scan bytes or hardware IRQs.
     #[must_use]
     #[interrupt(
         args(key = KeyStroke { character: cl, scan_code: ch }),
         returns { true => { al = 0 }, false => { al = 1 } }
     )]
     pub fn store_key(&self, key: KeyStroke) -> bool {
-        let waker = {
-            let mut input = self.0.borrow_mut();
-            if !input.data.push(key) {
-                return false;
-            }
-            input.waker.take()
-        };
-        if let Some(waker) = waker {
-            waker.wake();
+        if !self.0.data.push(key) {
+            return false;
         }
+        self.0.key_stored.notify(usize::MAX);
         true
     }
 
     /// Returns the modifier and toggle states, as for INT 16h/AH=02h.
     #[interrupt(returns { shifts => { al = shifts.bits() } })]
     pub fn shift_state(&self) -> ShiftState {
-        self.0.borrow().data.shift_state()
+        self.0.data.shift_state()
     }
 
     #[interrupt(returns { flags => { ax = flags } })]
     fn enhanced_shift_state(&self) -> u16 {
-        let flags = self.0.borrow().data.flags();
+        let flags = self.0.data.flags();
         let held = flags.held
             & (HeldKeys::LEFT_CONTROL
                 | HeldKeys::LEFT_ALT
@@ -167,12 +151,12 @@ impl Keyboard {
     }
 
     pub fn set_shift_state(&self, shifts: ShiftState) {
-        self.0.borrow().data.set_shift_state(shifts);
+        self.0.data.set_shift_state(shifts);
     }
 
     /// Discards queued keystrokes without changing modifier states.
     pub fn discard_queued(&self) {
-        self.0.borrow().data.discard();
+        self.0.data.discard();
     }
 
     /// Reports the next keystroke for INT 16h/AH=01h or AH=11h without consuming it.
@@ -182,36 +166,36 @@ impl Keyboard {
         None => { zf = true },
     })]
     pub fn peek_key(&self, mode: KeyMode) -> Option<KeyStroke> {
-        let input = self.0.borrow();
         loop {
-            let key = input.data.peek()?;
+            let key = self.0.data.peek()?;
             if let Some(key) = mode.translate(key) {
                 return Some(key);
             }
-            input.data.read();
+            self.0.data.read();
         }
     }
 
     /// Consumes the next whole keystroke, or returns None without waiting.
     pub fn try_read_key(&self, mode: KeyMode) -> Option<KeyStroke> {
         let key = self.peek_key(mode)?;
-        self.0.borrow().data.read();
+        self.0.data.read();
         Some(key)
     }
 
     /// Waits for and consumes one keystroke for INT 16h/AH=00h or AH=10h.
     #[interrupt(returns { key => { al = key.character, ah = key.scan_code } })]
     pub async fn read_key(&self, mode: KeyMode) -> KeyStroke {
-        loop {
+        let mut stored = self.0.key_stored.listen();
+        poll_fn(|cx| loop {
+            // A guest IRQ handler can write directly to the ring. Recheck it
+            // when the service resumes even without a BIOS store notification.
             if let Some(key) = self.try_read_key(mode) {
-                return key;
+                return Poll::Ready(key);
             }
-            self.wait_for_key().await;
-        }
-    }
-
-    fn wait_for_key(&self) -> WaitForKey<'_> {
-        WaitForKey { keyboard: self }
+            ready!(Pin::new(&mut stored).poll(cx));
+            stored = self.0.key_stored.listen();
+        })
+        .await
     }
 }
 
@@ -251,30 +235,6 @@ impl Write for Keyboard {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-struct WaitForKey<'a> {
-    keyboard: &'a Keyboard,
-}
-
-impl Future for WaitForKey<'_> {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        let mut input = self.keyboard.0.borrow_mut();
-        if input.data.peek().is_none() {
-            input.waker = Some(cx.waker().clone());
-            Poll::Pending
-        } else {
-            Poll::Ready(())
-        }
-    }
-}
-
-impl Drop for WaitForKey<'_> {
-    fn drop(&mut self) {
-        self.keyboard.0.borrow_mut().waker = None;
     }
 }
 

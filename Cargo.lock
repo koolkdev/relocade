@@ -2424,6 +2424,7 @@ name = "relocade-bios"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.13.1",
+ "event-listener",
  "futures-util",
  "pollster 1.0.1",
  "relocade-clock-test-support",

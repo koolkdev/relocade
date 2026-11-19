@@ -1,6 +1,7 @@
 use super::*;
 use relocade_machine::MachineConfig;
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
+use std::task::{Context, Waker};
 
 mod enhanced;
 
@@ -50,11 +51,14 @@ fn guest_ring_and_shift_edits_are_authoritative() {
         None,
         "guest can flush the buffer"
     );
+    let mut read = std::pin::pin!(keyboard.read_key(KeyMode::Enhanced));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(read.as_mut().poll(&mut cx).is_pending());
     memory.view().write_u16(0x420, 0x2c5a).unwrap();
     memory.view().write_u16(0x41c, 0x22).unwrap();
     assert_eq!(
-        keyboard.try_read_key(KeyMode::Enhanced),
-        Some(KeyStroke {
+        read.as_mut().poll(&mut cx),
+        Poll::Ready(KeyStroke {
             character: b'Z',
             scan_code: 0x2c
         })

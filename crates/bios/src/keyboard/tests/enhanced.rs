@@ -78,3 +78,26 @@ fn a_legacy_read_waits_after_discarding_enhanced_only_input() {
     assert!(keyboard.store_key(key(0x1e61)));
     assert_eq!(read.as_mut().poll(&mut cx), Poll::Ready(key(0x1e61)));
 }
+
+#[test]
+fn storing_a_key_wakes_the_reader_left_after_cancellation() {
+    use futures_util::{stream::FuturesUnordered, StreamExt};
+
+    let (keyboard, _) = keyboard();
+    let console = keyboard.clone();
+    let mut readers = FuturesUnordered::new();
+    readers.push(console.read_key(KeyMode::Enhanced));
+    let mut cx = Context::from_waker(Waker::noop());
+    {
+        let mut cancelled = std::pin::pin!(keyboard.read_key(KeyMode::Legacy));
+        assert!(cancelled.as_mut().poll(&mut cx).is_pending());
+        assert!(readers.poll_next_unpin(&mut cx).is_pending());
+    }
+    assert!(keyboard.store_key(key(0x1e61)));
+    // The stream only polls the surviving read if the store woke it.
+    assert_eq!(
+        readers.poll_next_unpin(&mut cx),
+        Poll::Ready(Some(key(0x1e61)))
+    );
+    assert_eq!(keyboard.try_read_key(KeyMode::Enhanced), None);
+}

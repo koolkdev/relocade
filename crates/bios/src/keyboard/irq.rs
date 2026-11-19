@@ -13,7 +13,7 @@ pub(crate) async fn interrupt(call: &mut CpuContext<'_>, keyboard: &Keyboard) {
     if keyboard.scan_code(byte) != Scan::ControlBreak {
         return;
     }
-    keyboard.0.borrow().data.control_break();
+    keyboard.0.data.control_break();
 
     // The AT IRQ1 handler saves these 16-bit registers around INT 1Bh.
     call.cpu
