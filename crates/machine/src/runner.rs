@@ -1,15 +1,15 @@
-//! CPU execution and registered device activities on one owner.
+//! CPU execution and registered device tasks on one owner.
 
 mod worker;
 pub use worker::ExecutionWorker;
 
-use crate::scheduler::{GuestTimeConfig, Scheduler, Timing};
+use crate::scheduler::{GuestTimeConfig, Scheduler, SessionTask, Timing};
 use crate::worker::{HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker, WorkerWake};
 use crate::{
     Clock, Cpu, CpuHandle, Device, DeviceConnection, ExecutionInterrupt, IoBus, Memory, Result,
 };
 use futures_channel::{mpsc, oneshot};
-/// Gives other ready Rust activities a polling opportunity without a host timer.
+/// Gives other ready Rust tasks a polling opportunity without a host timer.
 /// This does not promise a browser event-loop turn.
 pub use futures_lite::future::yield_now;
 use futures_util::future::{join_all, LocalBoxFuture};
@@ -21,22 +21,20 @@ use std::{
     rc::{Rc, Weak},
 };
 
-/// Owns a worker's execution session, including its CPU backend and device activities.
+/// Owns a worker's execution session, including its CPU backend and device tasks.
 /// [`crate::Machine`] prepares CPU state before [`ExecutionWorker`] transfers it here.
-/// Notifications interrupt guest execution so ready Rust activities can run.
+/// Notifications interrupt guest execution so ready Rust tasks can run.
 /// An optional compiler connection automatically compiles hot Real16 functions.
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
     clock: Clock,
-    activities: mpsc::UnboundedSender<Activity>,
+    new_tasks: mpsc::UnboundedSender<SessionTask>,
     session: Option<Scheduler>,
     pub(crate) running: Weak<RefCell<Option<CpuRun>>>,
     wake: Rc<WorkerWake<ExecutionInterrupt>>,
     workers: Rc<RefCell<Vec<LocalBoxFuture<'static, ()>>>>,
     cpu: Rc<RefCell<Cpu>>,
 }
-
-pub(crate) type Activity = LocalBoxFuture<'static, ()>;
 
 pub(crate) struct CpuRun {
     pub(crate) cpu: Rc<RefCell<Cpu>>,
@@ -77,13 +75,13 @@ impl Runner {
     ) -> Result<Self> {
         let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
         let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
-        let (activities, inbox) = mpsc::unbounded();
+        let (new_tasks, incoming_tasks) = mpsc::unbounded();
         let compiler = compiler
             .map(|endpoint| {
                 let (client, replies) = endpoint.connect(&wake)?;
-                activities
+                new_tasks
                     .unbounded_send(replies)
-                    .expect("new session activity inbox");
+                    .expect("new session task queue");
                 Ok::<_, crate::Error>(client)
             })
             .transpose()?;
@@ -92,8 +90,8 @@ impl Runner {
             .with_host_turns(wake.host_turns());
         Ok(Self {
             clock: time.clock().clone(),
-            activities,
-            session: Some(Scheduler::new(time, inbox, wake.clone())),
+            new_tasks,
+            session: Some(Scheduler::new(time, incoming_tasks, wake.clone())),
             running: Weak::new(),
             wake,
             workers: Rc::new(RefCell::new(Vec::new())),
@@ -149,7 +147,7 @@ impl Runner {
     /// so browser startup can finish before synchronous guest execution begins.
     /// The session retains the worker if this startup wait is cancelled.
     /// Each submitted closure owns its inputs and returns its result asynchronously.
-    /// The submitting activity can await a result while guest execution continues.
+    /// The submitting task can await a result while guest execution continues.
     /// Session shutdown closes admission and drains accepted work before joining.
     pub async fn spawn_job_thread(&self) -> JobExecutor {
         let (queue, jobs) = JobQueue::new();
@@ -172,10 +170,10 @@ impl Runner {
         jobs
     }
 
-    /// Registers a device's mappings, then starts its activity on this session.
-    /// On return, the activity has completed its first poll and installed its waker.
+    /// Registers a device's mappings, then starts its task on this worker.
+    /// On return, the task has completed its first poll and had a chance to register its waits.
     /// Once queued, it belongs to the session even if this wait is cancelled.
-    /// Devices without an activity can register directly through [`IoBus::connect`].
+    /// A device that only handles bus accesses can register directly through [`IoBus::connect`].
     pub async fn connect<D: Device + 'static>(
         &self,
         device: Rc<RefCell<D>>,
@@ -185,33 +183,32 @@ impl Runner {
         self.spawn_activity(D::run(device)).await;
     }
 
-    /// Starts a local activity with the same lifetime and first-poll guarantee
-    /// as a connected device. Use for services without bus mappings.
-    pub async fn spawn_activity(&self, activity: impl Future<Output = ()> + 'static) {
-        let (started, ready) = oneshot::channel();
-        let activity = async move {
-            let mut activity = pin!(activity);
-            let mut started = Some(started);
+    /// Starts a Rust task on this execution worker and returns after its first poll.
+    /// The session owns the queued task even if the caller drops this startup wait.
+    /// The scheduler polls the task when woken and drops it when the session ends.
+    pub async fn spawn_activity(&self, task: impl Future<Output = ()> + 'static) {
+        let (acknowledge, started) = oneshot::channel();
+        let session_task = async move {
+            let mut task = pin!(task);
+            let mut acknowledge = Some(acknowledge);
             poll_fn(|cx| {
-                let result = activity.as_mut().poll(cx);
-                if let Some(started) = started.take() {
-                    let _ = started.send(());
+                let result = task.as_mut().poll(cx);
+                if let Some(acknowledge) = acknowledge.take() {
+                    let _ = acknowledge.send(());
                 }
                 result
             })
             .await;
         };
-        self.activities
-            .unbounded_send(Box::pin(activity))
+        self.new_tasks
+            .unbounded_send(Box::pin(session_task))
             .expect("running session");
-        ready
-            .await
-            .expect("session must poll registered activities");
+        started.await.expect("session must poll queued tasks");
     }
 
-    /// Runs the main activity and devices for one execution lifetime.
-    /// Devices remain active while the main activity awaits input or another
-    /// process. Completion or cancellation drops every activity on this owner,
+    /// Runs the application and its background tasks for one execution session.
+    /// Devices remain active while the application awaits input or another
+    /// process. Completion or cancellation drops the session’s tasks on this worker,
     /// then drains calculations and joins their threads.
     /// The stop future is registered before application code runs. It returns
     /// `None` on cancellation; ordinary main completion returns `Some(result)`.

@@ -94,13 +94,13 @@ early can terminate browser workers before Rust destructors run.
 
 ## Compiler replies
 
-A session activity receives posted compiler replies. It can receive a module
+A session task receives posted compiler replies. It can receive a module
 while the CPU is stopped or a manual reader is between calls. A local queue
-holds one reply for the client. Once that slot is full, the activity waits for
+holds one reply for the client. Once that slot is full, the task waits for
 the client to consume it before receiving the next module.
 
 Sending a reply posts the module first and then publishes its Rust state, which
-wakes the activity. On a busy CPU this wake also requests a checkpoint in interpreted or compiled code.
+wakes the task. On a busy CPU this wake also requests a checkpoint in interpreted or compiled code.
 In the browser, the Rust notification can arrive before the receiving worker's
 `MessagePort` callback has delivered the module.
 
@@ -123,5 +123,5 @@ stays in the client slot until that boundary. The CPU installs
 compiled code for missing entries and provides interpreter fallbacks for
 remaining roots. An application that takes ownership through
 `Runner::take_compiler` can instead await `CompilerClient::recv` as a session
-activity, stop its CPU run at an allowed boundary, and install the returned code
+task, stop its CPU run at an allowed boundary, and install the returned code
 explicitly. Dropping that receive wait preserves the result for another wait.

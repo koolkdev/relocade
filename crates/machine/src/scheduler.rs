@@ -1,4 +1,4 @@
-//! Arbitration between the CPU, local activities, guest time and the host event loop.
+//! Arbitration between the CPU, local tasks, guest time and the host event loop.
 
 mod config;
 mod guest_time;
@@ -8,14 +8,13 @@ pub use guest_time::GuestTimeDriver;
 pub(crate) use timing::Timing;
 
 use crate::{
-    runner::Activity,
     runtime::CpuStop,
     worker::{yield_to_host, WorkerWake},
     ExecutionInterrupt, Instant, Runner,
 };
 use futures_channel::mpsc;
 use futures_util::{
-    future::{select, Either},
+    future::{select, Either, LocalBoxFuture},
     StreamExt,
 };
 use std::{cell::RefCell, future::Future, pin::pin, rc::Rc, task::Poll, time::Duration};
@@ -24,9 +23,11 @@ use std::{cell::RefCell, future::Future, pin::pin, rc::Rc, task::Poll, time::Dur
 // Give runnable work this long before returning the worker to its event loop.
 const HOST_DELIVERY_GRACE: Duration = Duration::from_millis(1);
 
+pub(crate) type SessionTask = LocalBoxFuture<'static, ()>;
+
 pub(crate) struct Scheduler {
     time: Timing,
-    inbox: mpsc::UnboundedReceiver<Activity>,
+    incoming_tasks: mpsc::UnboundedReceiver<SessionTask>,
     wake: Rc<WorkerWake<ExecutionInterrupt>>,
 }
 
@@ -39,10 +40,14 @@ enum Turn<T> {
 impl Scheduler {
     pub(crate) fn new(
         time: Timing,
-        inbox: mpsc::UnboundedReceiver<Activity>,
+        incoming_tasks: mpsc::UnboundedReceiver<SessionTask>,
         wake: Rc<WorkerWake<ExecutionInterrupt>>,
     ) -> Self {
-        Self { time, inbox, wake }
+        Self {
+            time,
+            incoming_tasks,
+            wake,
+        }
     }
 
     pub(crate) async fn run<R>(
@@ -53,14 +58,14 @@ impl Scheduler {
     ) -> Option<R> {
         let Self {
             mut time,
-            inbox,
+            incoming_tasks,
             wake,
         } = self;
         let _binding = wake.poll(|cx| time.bind(runner.cpu(), cx.waker()));
         let execution = runner.cpu().execution.clone();
         let running = Rc::new(RefCell::new(None));
         runner.running = Rc::downgrade(&running);
-        let mut activities = pin!(inbox.for_each_concurrent(None, |activity| activity));
+        let mut tasks = pin!(incoming_tasks.for_each_concurrent(None, |task| task));
         let mut main = pin!(main(runner));
         let mut stop = pin!(stop);
         let host = wake.host_turns();
@@ -71,7 +76,7 @@ impl Scheduler {
                 if stop.as_mut().poll(cx).is_ready() {
                     return Turn::Complete(None);
                 }
-                let _ = activities.as_mut().poll(cx);
+                let _ = tasks.as_mut().poll(cx);
                 if let Poll::Ready(result) = main.as_mut().poll(cx) {
                     return Turn::Complete(Some(result));
                 }
@@ -108,7 +113,7 @@ impl Scheduler {
                     }
                     CpuStop::Checkpoint => {}
                     CpuStop::Blocked => {
-                        // A woken activity may cancel the timer or install an earlier one.
+                        // A woken task may cancel the timer or install an earlier one.
                         if wake.has_pending_poll() || !time.advance_idle(cx) {
                             return Turn::Wait;
                         }

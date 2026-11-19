@@ -1,8 +1,9 @@
 # Worker execution
 
 Each execution worker owns one CPU session. Its scheduler drives the
-application, device activities and CPU. A DOS console can wait for input
-between programs while devices continue running on guest time.
+application, session tasks and CPU. A session task is a Rust future polled on
+the execution worker, such as the PIT timer loop or the compiler reply receiver. The DOS console
+can wait for input between programs while devices continue running on guest time.
 `runner.run_cpu().await` asks the scheduler to execute guest instructions
 and returns when the foreground run exits.
 
@@ -35,24 +36,27 @@ Pass `Some(&compiler)` to `machine.create_cpu` to enable background compilation.
 [Compiler service](compilation.md)
 
 Use `runner.io().connect(device, configure)` for a device that only handles
-synchronous bus accesses. For a device with an activity, `runner.connect(...).await`
-installs its mappings and starts `Device::run`. When it returns, the activity
+synchronous bus accesses. For a device with background work, `runner.connect(...).await`
+installs its mappings and starts `Device::run`. When it returns, the task
 has had its first poll and can already receive input or timer notifications.
 PIT waits for its next OUT0 transition or a programming change. The keyboard
 and mouse each await input and their own device deadlines. Each device decides
 the order of events that are ready together.
 
-`spawn_activity(future).await` starts a service without bus mappings with the
-same first-poll and session lifetime guarantees. `spawn_job_thread().await` returns a
-sendable job executor backed by one reusable calculation thread. Jobs own their
-inputs and return results through Rust memory; awaiting one suspends only its
-calling activity. The thread binds the session's wake peer once, so completion
+`runner.spawn_activity(future).await` returns after the scheduler first polls the
+future. A pending task can then sleep until its waker signals. Once queued, it
+belongs to the session even if its caller drops the startup wait. Returning from the application ends
+the session and drops any unfinished tasks.
+
+`spawn_job_thread().await` returns a sendable job executor backed by one
+reusable calculation thread. Jobs own their inputs and return results through
+Rust memory. Awaiting one suspends only its calling task. The thread binds the session's wake peer once, so completion
 can interrupt busy guest execution without a JavaScript message per block.
 In the browser, `spawn_job_thread` registers host-turn demand while waiting
 for the worker startup callback. Subsequent job results wake their waiting
-Rust activity directly.
+Rust task directly.
 
-Ending or cancelling the session drops local activities, then closes job
+Ending or cancelling the session drops local tasks, then closes job
 admission, drains accepted calculations and joins their threads. Retained job
 handles cannot keep a stopped session alive. Calculations must finish without
 waiting for another job on the same queue.
@@ -72,7 +76,7 @@ execute guest instructions.
 
 The callback receives its `Runner` by value. PC/DOS retain it across programs;
 `runner.cpu()` lends the stopped backend for setup. The outer session keeps
-driving device activities until the callback completes, even if it releases its
+driving device tasks until the callback completes, even if it releases its
 runner earlier. BIOS/DOS services capture their own
 application resources and execute on the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
@@ -97,11 +101,12 @@ not in destructors that also run when a parked invocation is abandoned. Destruct
 release ordinary resources. Captured CPU handles are not revoked on abandonment.
 
 ```text
-host input and timer tasks --Rust channels--> execution activity + devices
+host input and timers --Rust channels--> tasks on the execution worker
 ```
 
-For a blocking console read, the CPU activity awaits input after the guest
-returns. A local input activity receives bytes through a Rust channel and writes
+For a blocking guest console read, the CPU retains the pending DOS service
+while the scheduler runs other work. An input task can receive bytes through
+a Rust channel and write
 them through the existing stdin handle. Its queue is independent of CPU state access. Browser input and I/O callbacks
 stay on a responsive host and send
 results through shared Rust channels. Local JavaScript message handlers are not
@@ -121,7 +126,7 @@ synchronous; the execution task awaits services after those calls return.
 ## Task lifetime
 
 The worker can outlive individual DOS programs. The Rust console and device
-activities run without driving guest instructions. `Dos::run` requires a launched
+tasks run without driving guest instructions. `Dos::run` requires a launched
 process and returns an already completed process's result without running the CPU.
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
@@ -143,7 +148,7 @@ the sender also requests cancellation. Either wakes the session while a CPU serv
 or requests a return from busy guest execution. The scheduler drops the application
 and devices on their execution thread before reporting completion. `stop().await`
 waits for that completion before releasing the thread.
-`join().await` waits for ordinary main-activity completion. As with `Thread`, await
+`join().await` waits for ordinary application completion. As with `Thread`, await
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
@@ -164,7 +169,7 @@ and execution-interrupt requests let host work run but do not resume guest code.
 `STI; HLT` executes HLT as STI's protected successor before accepting a queued IRQ;
 the interrupt return frame therefore names the instruction after HLT.
 
-Device activities and worker cancellation remain runnable while the guest is
+Device tasks and worker cancellation remain runnable while the guest is
 halted. An outer host service stays parked if its ISR halts, even when that
 service's input becomes ready. Terminal `HostExit::Return` and `UnhandledException`
 clear the halt and release retained calls, allowing another program to use the CPU.
@@ -173,7 +178,7 @@ HLT with IF clear waits indefinitely unless the embedding ends execution;
 NMI, reset and debug wake events are not modeled yet.
 
 An idle DOS environment does not execute HLT: it has no active CPU run. Device
-activities can queue IRQs, but guest delivery starts only when execution is
+tasks can queue IRQs, but guest delivery starts only when execution is
 explicitly driven. Register edits and `CpuState` snapshot restoration do not
 change the driver-owned halt or retained host calls. Public `Cpu::step` reports
 `Halted` and remains halted on later steps; `run` performs IRQ acceptance.
@@ -204,7 +209,7 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-Each worker turn checks cancellation, polls ready Rust activities and the
+Each worker turn checks cancellation, polls ready Rust tasks and the
 application, then considers guest execution. A device, a completed compiler
 reply or a foreground CPU request can wake the worker. A wake during busy
 guest execution requests a return to Rust at a completed checkpoint.
@@ -266,7 +271,7 @@ resources. The host event loop must remain responsive. This fallback adds host
 scheduling latency; it is not a real-time deadline. Explicit peer bindings still
 signal synchronously and avoid that extra turn.
 
-PC audio runs as a session activity. It waits for block deadlines, collects
+The PC audio task runs on the execution worker. It waits for block deadlines, collects
 recorded device events and submits each PCM block to a reusable session-owned job
 thread. The job synthesizes and mixes owned events while guest execution continues.
 One calculation is in flight; completion returns synthesis state for the next
@@ -287,7 +292,7 @@ runner.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga)).await;
 
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
 responds to each CPU access.
-The runner drives its device activity throughout the main session, including CPU
+The runner drives its device task throughout the main session, including CPU
 service waits and gaps between programs. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
 worker receiving those captures, without borrowing the live device. The

@@ -32,7 +32,7 @@ end)` measures a single interval in whole nanoseconds, returning zero for revers
 readings; its checked form returns `None` instead.
 
 The PIT advances its counters when a port access reads or reprograms them and
-when its guest deadline expires. Its activity waits for the next OUT0 transition
+when its guest deadline expires. Its task waits for the next OUT0 transition
 or a programming change, then computes the next deadline from the counter state.
 
 PIT and VGA multiply elapsed native ticks by their oscillator rate, divide by the
@@ -125,7 +125,7 @@ let binding = driver.bind(&cpu, &execution_waker);
 driver.synchronize(None); // No additional yield deadline.
 // Run the CPU. At each stopped boundary:
 driver.synchronize(None);
-// Poll awakened activities before continuing or deciding that execution is idle.
+// Poll awakened tasks before continuing or deciding that execution is idle.
 // Only when idle, driver.advance_to_next_deadline() services the next guest deadline.
 drop(binding);
 ```
@@ -147,9 +147,9 @@ CPU service is pending.
 
 `advance_to_next_deadline()` advances guest time to the earliest registered sleep
 and completes all due sleeps. The embedding calls it only after polling ready
-activities and finding execution still idle. It returns false if there is no
+tasks and finding execution still idle. It returns false if there is no
 registered sleep. The yield deadline does not cause this advance. Completing
-sleeps wakes device activities; those activities deliver IRQs through the existing
+sleeps wakes device tasks; those tasks deliver IRQs through the existing
 interrupt path. Advancing guest time does not add retired CPU instructions.
 
 Reads preserve fractional nanoseconds and counter wrap. Synchronous callbacks
@@ -200,7 +200,7 @@ arms guest execution for the earliest registered device deadline. An optional
 `with_slice_duration(duration)` adds periodic checkpoints measured in guest time.
 A positive duration sets the interval. Instruction blocks can overshoot a
 checkpoint. Both the interpreter and compiled code publish retirement when
-execution returns to Rust. A device sleep registers its own activity's waker.
+execution returns to Rust. A device sleep registers its own task's waker.
 [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
 ### CPU limits and idle device deadlines
