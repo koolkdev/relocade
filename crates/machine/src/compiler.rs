@@ -71,9 +71,7 @@ async fn compile(
 ) -> Result<CompiledCode> {
     memory.configuration().validate_target(target)?;
     let mut reader = memory.code_reader();
-    let x86 = relocade_x86::Compiler::new(target.profile)
-        .with_cpu_model(target.cpu_model)
-        .with_instruction_budgets(target.instruction_budgets);
+    let x86 = relocade_x86::Compiler::from_target(target);
     let blocks = match request {
         connection::Compilation::Blocks(requests) => {
             let captured: Vec<_> = requests

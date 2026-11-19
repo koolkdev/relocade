@@ -2,7 +2,9 @@ use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_dma::Dma;
 use relocade_machine::{CpuConfig, MachineConfig, Runner};
 use relocade_pic::Pic;
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{
+    Compiler, CpuState, ExecutionProfile, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
+};
 use std::{cell::RefCell, rc::Rc};
 
 /// Hardware installed before guest execution, independently of host playback.
@@ -129,7 +131,9 @@ pub fn memory() -> MachineConfig {
 
 pub fn cpu() -> CpuConfig {
     CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16)
+            .with_memory_backend(MemoryBackend::PhysicalBus)
+            .target(),
         CpuState::real_mode(),
     )
     .expect("fixed real-mode PC CPU")

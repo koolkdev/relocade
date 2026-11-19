@@ -6,8 +6,8 @@ use crate::support::{
     x87::{complete_x87, stack_image, write_register_bits},
 };
 use relocade_x86::{
-    compile_block_from_bytes, BlockSnapshot, CodeAddress, Compiler, CpuState, ExecutionExit,
-    SegmentDefaultSize, SegmentProfile,
+    compile_block_from_bytes, BlockSnapshot, CodeAddress, Compiler, CpuState, DecodedBlock,
+    ExecutionExit, MemoryBackend, SegmentDefaultSize, SegmentProfile, SnapshotInstruction,
 };
 
 pub(super) fn interpreter_run() -> &'static TestModule {
@@ -65,6 +65,82 @@ fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
             }]
         )
     );
+}
+
+#[test]
+fn protected_physical_bus_blocks_use_aliases_and_restart_mmio_in_the_interpreter() {
+    let store = [0xa3, 4, 0x40, 0, 0xd0]; // MOV [D0004004],EAX
+    let load = [0x8b, 0x0d, 4, 0x50, 0, 0xd0]; // MOV ECX,[D0005004] through the alias
+    let device = [0x89, 0x0d, 4, 0x60, 0, 0xe0]; // MOV [E0006004],ECX through MMIO
+    let code = [&store[..], &load, &device].concat();
+    let mut image = Image::new(&code);
+    image.cpu.instruction_count = 0;
+    image.cpu.registers.eax = 0x7856_3412;
+    image.map(0xd0004, 0x8000, true);
+    image.map(0xd0005, 0x8000, true);
+    let mut input = image.input();
+    input.machine.clear(); // Only the physical bus maps code and data.
+    input.mmio_pages.push((0xe0006, 0x9000));
+    input.observe_mmio = true;
+
+    let start = image.cpu.eip;
+    let compiler =
+        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let raw = compiler.compile_block(start, &code, 3).unwrap();
+    let decode = |eip, bytes: &[u8]| {
+        SnapshotInstruction::decode(bytes, eip, SegmentDefaultSize::Bits32).unwrap()
+    };
+    let mut block =
+        DecodedBlock::new(CodeAddress::CsRelative(start), decode(start, &store), true).unwrap();
+    block.push(decode(start + 5, &load)).unwrap();
+    block.push(decode(start + 11, &device)).unwrap();
+    let decoded = compiler.compile_decoded_blocks(vec![block]).unwrap();
+
+    let mut restart = image.cpu;
+    restart.eip = 0x100b;
+    restart.instruction_count = 2;
+    restart.registers.ecx = 0x7856_3412;
+    let mut complete = restart;
+    complete.eip = 0x1011;
+    complete.instruction_count = 3;
+    let value = 0x7856_3412_u32.to_le_bytes();
+    let before_mmio = expected(
+        &image,
+        &[Step {
+            cpu: restart,
+            ram: &[(0x8004, &value)],
+            exit: Exit::Interpret,
+        }],
+    );
+    let mut after_mmio = expected(
+        &image,
+        &[Step {
+            cpu: complete,
+            ram: &[(0x8004, &value), (0x9004, &value)],
+            exit: Exit::Other(ExecutionExit::StepComplete),
+        }],
+    );
+    after_mmio.events.insert(
+        0,
+        Event::MmioWrite {
+            address: 0xe000_6004,
+            value: value.to_vec(),
+        },
+    );
+
+    for module in [
+        TestModule::new(&raw),
+        TestModule::from_bytes(
+            &decoded.bytes,
+            &decoded.entries[0].export,
+            Some(decoded.execution_target),
+        ),
+    ] {
+        assert_eq!(module.observe(&input, 1), before_mmio);
+        let linked =
+            module.with_interpreter(TestModule::interpreter_with_target(compiler.target()));
+        assert_eq!(linked.observe(&input, 1), after_mmio);
+    }
 }
 
 fn subnormal_loaded(cpu: CpuState) -> CpuState {

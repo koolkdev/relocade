@@ -1,4 +1,4 @@
-//! Share interpreter code by profile and memory backend across per-target execution fixtures.
+//! Share interpreter code by execution profile and memory backend across target fixtures.
 
 use super::TestModule;
 use crate::{
@@ -46,14 +46,16 @@ impl TestModule {
         static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
             let module = CODE.get((target.profile, target.memory_backend), || {
-                if target.memory_backend == MemoryBackend::default_for(target.profile) {
-                    return Arc::new(Module::new(relocade_interpreter::module(target.profile)));
+                if let Some(bytes) =
+                    relocade_interpreter::module_with_memory(target.profile, target.memory_backend)
+                {
+                    Arc::new(Module::new(bytes))
+                } else {
+                    let program =
+                        build_interpreter_with_memory(target.profile, target.memory_backend)
+                            .expect("build interpreter for the requested memory backend");
+                    Arc::new(Module::new(&program.compile().unwrap()))
                 }
-                let bytes = build_interpreter_with_memory(target.profile, target.memory_backend)
-                    .unwrap()
-                    .compile()
-                    .unwrap();
-                Arc::new(Module::new(&bytes))
             });
             Self {
                 module: Arc::clone(module),

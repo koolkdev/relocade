@@ -6,10 +6,7 @@ pub(super) async fn dispatcher<C: WasmCompiler>(
     compiler: &C,
     target: ExecutionTarget,
 ) -> Result<C::Module> {
-    let dispatcher = Compiler::new(target.profile)
-        .with_cpu_model(target.cpu_model)
-        .with_instruction_budgets(target.instruction_budgets)
-        .compile_dispatcher()?;
+    let dispatcher = Compiler::from_target(target).compile_dispatcher()?;
     Ok(compiler.compile(&dispatcher.bytes).await?)
 }
 
@@ -18,7 +15,8 @@ pub(super) async fn interpreter<C: WasmCompiler>(
     cache: Option<&ModuleCache<C::Module>>,
     target: ExecutionTarget,
 ) -> Result<C::Module> {
-    let bytes = relocade_interpreter::module(target.profile);
+    let bytes = relocade_interpreter::module_with_memory(target.profile, target.memory_backend)
+        .ok_or(crate::ConfigurationError::UnsupportedMemoryBackend)?;
     Ok(if let Some(cache) = cache {
         cache
             .get_or_compile(bytes, |bytes| compiler.compile(bytes))
