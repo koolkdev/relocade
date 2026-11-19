@@ -7,7 +7,7 @@ mod profiling;
 use super::{
     code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
 };
-use crate::{CpuConfig, FarPointer, IoBus, Memory, Result};
+use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
 use hooks::Hooks;
 use modules::{Calls, InstalledModule, Modules};
 use profiling::Profiling;
@@ -41,15 +41,9 @@ pub(super) struct CpuInstance {
 }
 
 impl CpuInstance {
-    pub(super) async fn new(
-        memory: Memory,
-        cpu: CpuConfig,
-        io: IoBus,
-        storage: SharedMemory,
-    ) -> Result<Self> {
+    pub(super) async fn new(binding: CpuBinding, io: IoBus, storage: SharedMemory) -> Result<Self> {
         let runtime = io.attach_cpu()?;
-        let bindings =
-            runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, memory, cpu, storage))?;
+        let bindings = runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, binding, storage))?;
         let target = bindings.configuration().execution_target();
         let (compiler, cache) =
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));

@@ -5,11 +5,11 @@ mod view;
 pub use relocade_x86::real_mode::FarPointer;
 pub use view::MemoryView;
 
-use crate::{IoBus, MachineConfig, Result};
+use crate::{ConfigurationError, CpuConfig, IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::SharedMemory;
 use std::{
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 /// Owned guest memory and its address policy, independent of CPU execution.
@@ -21,6 +21,15 @@ pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
     code: Arc<Mutex<code::CodeRegistry>>,
+    cpu: Arc<Mutex<Weak<CpuConfig>>>,
+}
+
+/// One CPU configuration bound to this PC's memory. Keeping this binding on a
+/// prepared handle or its runtime prevents another CPU from attaching.
+#[derive(Clone, crate::worker::Transfer)]
+pub struct CpuBinding {
+    pub(crate) memory: Memory,
+    pub(crate) config: Arc<CpuConfig>,
 }
 
 impl Memory {
@@ -35,6 +44,20 @@ impl Memory {
             config: Arc::new(config),
             backing,
             code: Arc::default(),
+            cpu: Arc::default(),
+        })
+    }
+
+    pub(crate) fn attach_cpu(&self, config: CpuConfig) -> Result<CpuBinding> {
+        let mut cpu = self.cpu.lock().unwrap();
+        if cpu.strong_count() != 0 {
+            return Err(ConfigurationError::CpuAlreadyAttached.into());
+        }
+        let config = Arc::new(config);
+        *cpu = Arc::downgrade(&config);
+        Ok(CpuBinding {
+            memory: self.clone(),
+            config,
         })
     }
 

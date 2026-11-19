@@ -1,6 +1,6 @@
 # Background compilation
 
-Start one `CompilerService` and connect each CPU to it. The service owns
+Independent PCs can share one `CompilerService`. The service owns
 its coordinator worker, backend compiler and Rust compilation pool. It progresses
 independently; the application does not poll a separate pool driver.
 
@@ -13,8 +13,8 @@ shutdown?;
 ```
 
 Here `run_machine` creates `Machine::new(memory_config)` and calls
-`machine.create_cpu(cpu_config, Some(compiler))` for each CPU. CPU creation borrows the
-service only to open that CPU's connection. Its request and result endpoints
+`machine.create_cpu(cpu_config, Some(compiler))` once for its guest CPU.
+CPU creation borrows the service only to open that connection. Its request and result endpoints
 transfer with the CPU to its execution worker; the worker communicates directly
 with the service. The Machine retains no service borrow or routing task.
 Await `Machine::shutdown` after execution finishes. Several Machines can use
@@ -46,8 +46,8 @@ that integration; `relocade-workers` has no dependency on the compiler.
 Each connection has an async request loop on the service worker. Connections keep
 their memory sources and ordered request streams independent while sharing
 compilation capacity. CPU creation stays synchronous; connections and requests can
-queue during startup. Every request supplies its execution target. Creating
-another CPU or Machine does not create another pool.
+queue during startup. Every request supplies its execution target. All connected
+PCs use the same pool.
 
 The service owns compilation and delivery. Hotness, candidate selection, code
 validity, installation, and future module caching or sharing between CPUs belong
@@ -84,10 +84,9 @@ Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles
 require no startup acknowledgement.
 Await `Machine::shutdown` after joining execution workers, or join them separately
-while shutting down. The Machine closes all its CPUs' request streams and waits
-for every connection to drain accepted work, including when one reports an error.
-Dropping the Machine also closes those streams; awaiting shutdown additionally
-waits for completion. Other Machines continue using the service.
+while shutting down. The machine closes its CPU's request stream. Shutdown waits
+for accepted work to drain and returns any connection error. Dropping the machine
+also closes the stream. Other PCs continue using the service.
 
 After all Machines finish, await `CompilerService::shutdown`. It closes admission,
 drains the pool and joins its workers. Dropping the service

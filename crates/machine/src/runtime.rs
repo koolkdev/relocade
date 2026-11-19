@@ -83,6 +83,8 @@ pub struct Cpu {
 
 impl Cpu {
     /// Creates CPU state and dispatch over existing guest memory.
+    /// Returns [`crate::ConfigurationError::CpuAlreadyAttached`] if that memory
+    /// already has a CPU. Dropping a standalone CPU releases its attachment.
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
     ///
@@ -94,12 +96,11 @@ impl Cpu {
     }
 
     async fn with_storage(
-        memory: Memory,
-        cpu: CpuConfig,
+        binding: crate::memory::CpuBinding,
         io: IoBus,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
-        let instance = CpuInstance::new(memory, cpu, io, storage).await?;
+        let instance = CpuInstance::new(binding, io, storage).await?;
         let instruction_target = InstructionTarget::new(&instance.bindings);
         Ok(Self {
             execution: None,

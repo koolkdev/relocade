@@ -1,7 +1,7 @@
 //! CPU storage prepared before its Wasm runtime is constructed.
 
 use super::{Cpu, ExecutionInterrupt, Result};
-use crate::{CpuConfig, IoBus, Memory};
+use crate::{memory::CpuBinding, CpuConfig, IoBus, Memory};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::ExecutionContext;
 use std::mem::offset_of;
@@ -30,17 +30,13 @@ impl CpuStorage {
     /// Constructs the Wasm runtime over this storage and existing guest RAM.
     /// CPU initialization preserves any concurrent execution-interrupt request.
     pub async fn into_cpu(self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
-        self.initialize(&config);
-        self.into_initialized_cpu(memory, config, io).await
+        let binding = memory.attach_cpu(config)?;
+        self.initialize(&binding.config);
+        self.into_initialized_cpu(binding, io).await
     }
 
-    pub(crate) async fn into_initialized_cpu(
-        self,
-        memory: Memory,
-        config: CpuConfig,
-        io: IoBus,
-    ) -> Result<Cpu> {
-        Cpu::with_storage(memory, config, io, self.0).await
+    pub(crate) async fn into_initialized_cpu(self, binding: CpuBinding, io: IoBus) -> Result<Cpu> {
+        Cpu::with_storage(binding, io, self.0).await
     }
 
     pub(crate) fn initialize(&self, config: &CpuConfig) -> SharedMemory {

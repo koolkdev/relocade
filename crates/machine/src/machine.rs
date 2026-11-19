@@ -5,28 +5,32 @@ pub use cpu::CpuHandle;
 pub(crate) mod execution;
 
 use crate::{CompilerService, CpuConfig, CpuStateAccess, MachineConfig, Memory, Result};
-use futures_util::future::join_all;
 use std::sync::Arc;
 
-/// Owns guest memory, every CPU's state and their compiler connection lifetimes.
-/// CPU handles grant execution access once; the machine retains state after the
-/// worker finishes. Backends and devices are constructed on execution workers.
+/// Owns one PC's guest memory, CPU state and optional compiler connection.
+/// The CPU handle grants execution access once. The machine retains its CPU
+/// after the worker finishes.
 pub struct Machine {
     memory: Memory,
-    cpus: Vec<CpuStateAccess>,
-    compiler_connections: Vec<crate::compiler::Connection>,
+    cpu: Option<MachineCpu>,
     execution: Arc<execution::Execution>,
 }
 
+struct MachineCpu {
+    state: CpuStateAccess,
+    // The machine owns its CPU even after its execution handle has been dropped.
+    _binding: crate::memory::CpuBinding,
+    compiler: Option<crate::compiler::Connection>,
+}
+
 impl Machine {
-    /// Allocates shared memory before creating CPUs and connecting them to a compiler.
+    /// Allocates shared memory before creating the PC's CPU.
     /// Await [`Self::shutdown`] after execution owners have finished.
     pub fn new(config: MachineConfig) -> Result<Self> {
         let memory = Memory::new(config)?;
         Ok(Self {
             memory,
-            cpus: Vec::new(),
-            compiler_connections: Vec::new(),
+            cpu: None,
             execution: Arc::default(),
         })
     }
@@ -35,39 +39,50 @@ impl Machine {
         self.memory.clone()
     }
 
-    /// Creates and initializes one CPU without starting guest execution.
+    /// Creates and initializes this PC's sole CPU without starting guest execution.
+    /// A second attachment to the same memory returns
+    /// [`crate::ConfigurationError::CpuAlreadyAttached`].
     /// Pass a compiler service to enable background compilation, or `None` to
     /// use the bundled interpreter without opening a compiler connection.
     /// A CPU with a compiler discovers and compiles hot Real16 callees in the
     /// background. Code and mappings must stay stable, and candidates must have
     /// no interior hooks; invalidation and boundary admission are not implemented.
     /// A compiler connection can queue requests while the service starts.
-    /// Move the returned handle to its execution worker. State is appended to
-    /// [`Self::cpus`] and remains available after that worker is joined.
+    /// Move the returned handle to its execution worker. Its state remains
+    /// available through [`Self::cpus`] after that worker is joined.
     pub fn create_cpu(
         &mut self,
         config: CpuConfig,
         compiler: Option<&CompilerService>,
     ) -> Result<CpuHandle> {
+        self.memory
+            .configuration()
+            .validate_for(config.cpu().mode())?;
+        let binding = self.memory.attach_cpu(config)?;
         let (connection, endpoint) = compiler
             .map(|compiler| crate::compiler::Connection::new(self.memory(), compiler))
             .transpose()?
             .unzip();
-        let (cpu, state) = CpuHandle::new(self, config, endpoint)?;
-        self.cpus.push(state);
-        self.compiler_connections.extend(connection);
+        let (cpu, state) = CpuHandle::new(binding.clone(), self.execution.member(), endpoint)?;
+        self.cpu = Some(MachineCpu {
+            state,
+            _binding: binding,
+            compiler: connection,
+        });
         Ok(cpu)
     }
 
-    /// State in creation order, for access at stopped guest boundaries.
+    /// The CPU state, if created, for access at stopped guest boundaries.
     /// Configure before transferring a CPU, inspect after its worker joins, or
     /// hold a [`Self::pause_cpus`] guard during a session. State handles themselves
     /// do not stop or synchronize guest execution.
     pub fn cpus(&self) -> &[CpuStateAccess] {
-        &self.cpus
+        self.cpu
+            .as_ref()
+            .map_or(&[], |cpu| std::slice::from_ref(&cpu.state))
     }
 
-    /// Pauses CPUs created by this machine at completed execution boundaries.
+    /// Pauses the CPU created by this machine at a completed execution boundary.
     /// The returned guard blocks guest entry and CPU host-service polling until
     /// dropped. Idle, unstarted and dropped CPUs require no acknowledgement.
     /// Concurrent pause requests serialize; cancellation releases a pending pause.
@@ -80,24 +95,20 @@ impl Machine {
     pub async fn pause_cpus(&self) -> impl Drop + '_ {
         self.execution
             .pause(|| {
-                for cpu in &self.cpus {
-                    cpu.interrupt_handle().request();
+                if let Some(cpu) = &self.cpu {
+                    cpu.state.interrupt_handle().request();
                 }
             })
             .await
     }
 
-    /// Closes this machine's compiler connections and drains their accepted work.
+    /// Closes this machine's compiler connection and drains its accepted work.
     /// Other machines can continue using the compiler service.
     /// Other execution owners must already be stopped or be joined independently.
     pub async fn shutdown(self) -> Result<()> {
-        join_all(
-            self.compiler_connections
-                .into_iter()
-                .map(|connection| connection.shutdown()),
-        )
-        .await
-        .into_iter()
-        .collect()
+        if let Some(connection) = self.cpu.and_then(|cpu| cpu.compiler) {
+            connection.shutdown().await?;
+        }
+        Ok(())
     }
 }

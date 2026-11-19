@@ -63,19 +63,18 @@ fn request() -> BlockRequest {
 }
 
 async fn connections(compiler: &relocade_machine::CompilerService) {
-    let (mut machine, config) = setup();
-    // An unused CPU must not block later connections or compiler shutdown.
-    let _unused = machine.create_cpu(config, Some(compiler)).unwrap();
-    let first = machine.create_cpu(config, Some(compiler)).unwrap();
+    let (mut first_machine, config) = setup();
+    let (mut second_machine, _) = setup();
+    let first = first_machine.create_cpu(config, Some(compiler)).unwrap();
     let mut other_target = config.execution_target();
     other_target.instruction_budgets = !other_target.instruction_budgets;
-    let second = machine
+    let second = second_machine
         .create_cpu(
             CpuConfig::new(other_target, *config.cpu()).unwrap(),
             Some(compiler),
         )
         .unwrap();
-    for (cpu, value) in [(first, 42_u16), (second, 73)] {
+    for (machine, cpu, value) in [(first_machine, first, 42_u16), (second_machine, second, 73)] {
         machine
             .memory()
             .view()
@@ -178,8 +177,8 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
             .unwrap()
             .unwrap();
         assert_eq!(observed, value);
+        machine.shutdown().await.unwrap();
     }
-    machine.shutdown().await.unwrap();
 }
 
 async fn shutdown(compiler: &relocade_machine::CompilerService) {
@@ -324,9 +323,8 @@ async fn service_shutdown() {
     )
     .unwrap();
     let (mut machine, config) = setup();
-    let _first = machine.create_cpu(config, Some(&compiler)).unwrap();
-    let _second = machine.create_cpu(config, Some(&compiler)).unwrap();
-    // Retained CPU handles must not keep a dropped machine's connections open.
+    let _cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
+    // A retained CPU handle must not keep a dropped machine's connection open.
     drop(machine);
     // Joining must allow startup and pool cleanup to finish before returning.
     compiler.shutdown().await.unwrap();
@@ -367,12 +365,12 @@ async fn machine_shutdown_joins_compiler_startup() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn compiler_serves_independent_cpu_connections_over_shared_memory() {
+fn compiler_serves_independent_pc_connections() {
     pollster::block_on(compilation::run(connections));
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn compiler_serves_independent_cpu_connections_over_shared_memory() {
+async fn compiler_serves_independent_pc_connections() {
     compilation::run(connections).await;
 }
 

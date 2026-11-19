@@ -12,8 +12,12 @@ memory.view().write(0x100, &program)?;
 let mut runtime = Cpu::new(memory.clone(), cpu_config, Default::default()).await?;
 ```
 
-Each CPU imports the supplied allocation and creates its own CPU state, mapping
-storage and dispatch. CPU construction preserves the existing guest bytes.
+One guest CPU owns execution on a PC's physical bus. A `Machine` reserves that
+CPU when `create_cpu` succeeds. The reservation lasts while the machine or its
+execution handle owns the CPU. A standalone `Cpu::new` or `CpuStorage::into_cpu`
+over a clone of the same `Memory` uses the same reservation. Dropping the last
+CPU owner releases it. Memory views and retained register handles can outlive it.
+CPU construction preserves the existing guest bytes.
 Registered hooks capture their own application state and service handles.
 
 Retain memory access while the CPU executes:
@@ -45,17 +49,17 @@ may cache fields internally until they publish state on exit. Synchronous guest
 device callbacks must not edit this backing. Memory safety does not make such
 mid-entry architectural edits valid.
 
-For CPUs created by a `Machine`, acquire a stopped boundary from its owner:
+To inspect the CPU of a running `Machine`, acquire a stopped boundary from its owner:
 
 ```rust
 let paused = machine.pause_cpus().await;
-let states: Vec<_> = machine.cpus().iter().map(|cpu| cpu.snapshot()).collect();
+let state = machine.cpus()[0].snapshot();
 drop(paused);
 ```
 
 The guard blocks CPU execution and CPU host-service polling until released.
-Running CPUs stop at existing execution checkpoints; idle and unstarted CPUs need
-no acknowledgement. Cancellation also releases the pause. The execution owner
+A running CPU stops at its next execution checkpoint. An idle or unstarted CPU
+needs no acknowledgement. Cancellation also releases the pause. The execution owner
 continues to acknowledge execution-interrupt requests through its normal loop.
 Independent device tasks, host memory writers and standalone `Cpu::new` instances
 are outside this boundary. Pausing CPUs alone is not a memory-write transaction.
