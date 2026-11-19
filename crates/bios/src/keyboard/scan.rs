@@ -3,6 +3,7 @@
 use super::{
     data::{DataArea, HeldKeys, KeyboardStatus},
     layout::{self, Key},
+    KeyStroke,
 };
 
 const EXTENDED_PREFIX: u8 = 0xe0;
@@ -19,7 +20,7 @@ pub(super) struct Decoder {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scan {
     None,
-    Key,
+    Key(KeyStroke),
     ControlBreak,
 }
 
@@ -114,8 +115,8 @@ impl Decoder {
         }
         let shifts = flags.shifts;
         data.set_flags(flags);
-        if pressed && layout::keystroke(key, shifts).is_some_and(|key| data.push(key)) {
-            Scan::Key
+        if pressed {
+            layout::keystroke(key, shifts).map_or(Scan::None, Scan::Key)
         } else {
             Scan::None
         }
