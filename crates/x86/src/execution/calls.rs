@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 pub(super) struct CallLinks {
     table: Table,
     sites: BTreeMap<u32, u32>,
+    pub(super) local_calls: bool,
 }
 
 impl CallLinks {
@@ -19,13 +20,15 @@ impl CallLinks {
         Self {
             table: program.import_table(abi::CALL_TARGETS),
             sites: BTreeMap::new(),
+            local_calls: false,
         }
     }
 
-    pub(super) fn for_function(&self, sites: BTreeMap<u32, u32>) -> Self {
+    pub(super) fn with_sites(&self, sites: BTreeMap<u32, u32>, local_calls: bool) -> Self {
         Self {
             table: self.table,
             sites,
+            local_calls,
         }
     }
 }

@@ -37,6 +37,15 @@ uses its segment and offset, so `0010:0000` and `0020:0000` have distinct export
 whether compiled separately or together. Repeated addresses in a batch are rejected.
 The fixed-profile helpers for raw bytes use their profile's decode width.
 
+A caller that already decoded the instructions can group them into `DecodedBlock`s
+and pass them to `compile_decoded_blocks`. The caller chooses the block boundaries
+and which starts to export. Split a block where control must be available to the
+runtime, including interior hooks. The compiler can link known jumps and
+fallthroughs to private or exported targets in the same segment and decode width.
+CALL uses runtime bindings and RET dispatches to its guest return address.
+`CompiledBlocks::entries` identifies the exports. `CompiledBlocks::spans` covers
+the bytes of every block, including private targets, for invalidation.
+
 Capture the loaded CS.D with the address when observing a destination, after any
 CS reload that led there. At a stopped machine boundary,
 `cpu.cpu_state().code_default_size()` reads that width from the loaded CS cache.
@@ -44,7 +53,7 @@ An asynchronous compiler uses the width from the observation. The canonical Real
 worker can supply `Bits16` for every request because its execution target fixes CS.D.
 
 Every compiled destination checks its captured width before checking the fetch
-span or executing a guest instruction, including when reached by a linked call.
+span or executing a guest instruction, including when reached by a local jump.
 The check reads the same CS.D as the interpreter. The target's entry assumptions
 fold it to a constant wherever they establish CS.D. A mismatch hands the
 destination EIP to the interpreter so it can decode the bytes at the live width.
@@ -52,8 +61,8 @@ The host supplies a fallback compatible with the live state and keeps each entry
 code bytes, fetch permissions and mappings valid. An empty batch produces no exports.
 Offsets advance with 32-bit wrapping. A supplied entry ends another block only
 when reached between instructions. The caller must limit snapshots at registered execution boundaries absent from the batch.
-Every entry still publishes state and dispatches at its boundary, even when the
-successor is another entry in the same module.
+Explicit snapshots publish state and dispatch at their boundary, including when the
+successor is another supplied snapshot.
 
 `compiler.compile_blocks_with(&snapshots, &executor).await` uses the host's
 `CompileExecutor` for independent compilation jobs. It returns the same
@@ -80,10 +89,10 @@ Execution-mode and control-register assumptions remain separate from capability
 selection. The model is host configuration, not mutable `CpuState`; keep it fixed
 for a guest.
 
-On success, an entry publishes CPU state, updates EIP and the completed-instruction
-count, checks execution interrupts and optional instruction budgets, then tail-calls
-`relocade.dispatch() -> ExecutionExit`. Dispatch reads the published EIP from CPU state,
-and its result is returned unchanged. EIP is an offset relative to CS and wraps
+At a completed block boundary, generated code publishes CPU state, including EIP
+and the completed-instruction count, then checks execution interrupts and optional
+budgets. A linked jump enters its compiled target. Runtime dispatch reads
+the published EIP and returns the destination's execution result. EIP is an offset relative to CS and wraps
 at 32 bits; the instruction count wraps at 64 bits. A taken transfer checks its
 segment target before committing instruction effects; fetching the destination
 belongs to the next entry.
@@ -235,14 +244,14 @@ no target-kind tag or host-service import.
 
 Bind the module's `dispatch() -> ExecutionExit` and `interpret() -> ExecutionExit` exports as the
 corresponding imports of execution modules. Both use the published CPU state.
-The host starts or resumes execution by calling `dispatch`; generated entries
-tail-call the same function after publishing their successor EIP. `interpret`
+The host starts or resumes execution by calling `dispatch`. A compiled RET
+publishes the guest return address and tail-calls the same dispatcher. `interpret`
 directly enters the fallback when a snapshot fails an entry guard or optimization
 assumption. These transfers stay inside Wasm, and callee results pass through unchanged.
 
 The embedding scopes lookup to one guest address space and execution target (profile,
-CPU model and budget support). Keys are CS.base + EIP, wrapping to 32 bits, before
-paging, A20 or backing translation. The embedding must keep the execution profile valid while calling these
+CPU model and budget support). The Real16 dispatcher uses packed CS:IP keys, so
+two segment aliases of the same bytes can have independent entries. The embedding must keep the execution profile valid while calling these
 entries. A miss tail-calls the interpreter. Each destination owns its entry checks:
 snapshot blocks guard their compiled CS span, and the interpreter checks instruction
 fetches. Lookup itself does not validate CS permissions or limits. Registering an export

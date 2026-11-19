@@ -131,20 +131,15 @@ impl FunctionModule<'_> {
         limits: FunctionLimits,
         read: impl FnMut(u32, &mut [u8]) -> usize,
     ) -> Result<&[BlockEntry], BlockError> {
-        let mut decoded = discover::blocks(
+        let decoded = discover::blocks(
             entry,
             code_default_size,
             self.module.compiler.target,
             limits,
             read,
         )?;
-        if self.functions != 0 {
-            for block in &mut decoded {
-                block.entry.export = format!("function_{}_{}", self.functions, block.entry.export);
-            }
-        }
         let start = self.module.entries.len();
-        self.module.append(decoded, entry)?;
+        self.module.append(decoded, Some(self.functions))?;
         self.functions += 1;
         Ok(&self.module.entries[start..])
     }

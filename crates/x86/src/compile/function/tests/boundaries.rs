@@ -88,7 +88,7 @@ fn block_boundaries_with_known_fallthrough_continue_discovery() {
         assert_eq!(
             blocks
                 .iter()
-                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+                .map(|block| (block.address().eip(), block.byte_len()))
                 .collect::<Vec<_>>(),
             [(0x1000, code.len()), (0x1000 + code.len() as u32, 2)],
             "{code:02x?}",
@@ -122,7 +122,7 @@ fn real_mode_far_calls_discover_only_the_return_continuation() {
         assert_eq!(
             blocks
                 .iter()
-                .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+                .map(|block| (block.address().eip(), block.byte_len()))
                 .collect::<Vec<_>>(),
             [(0x1000, call.len()), (0x1000 + call.len() as u32, 2)],
             "{call:02x?}",
@@ -157,7 +157,7 @@ fn context_changes_and_known_faults_do_not_discover_fallthrough() {
         )
         .unwrap();
         assert_eq!(blocks.len(), 1, "{profile:?}, {code:02x?}");
-        assert_eq!(blocks[0].entry.byte_len, code.len());
+        assert_eq!(blocks[0].byte_len(), code.len());
     }
 }
 

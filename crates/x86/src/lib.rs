@@ -65,7 +65,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, EntryTable, FunctionLimits,
+    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DecodedBlock, EntryTable, FunctionLimits,
     FunctionModule,
 };
 pub use decode::SnapshotInstruction;
@@ -112,7 +112,20 @@ pub enum BlockError {
     FunctionTooLarge {
         address: u32,
     },
-    /// Two snapshots would export the same CS-relative entry.
+    /// A decoded instruction does not start at the next offset in its block.
+    NoncontiguousInstruction {
+        expected: u32,
+        actual: u32,
+    },
+    /// A decoded instruction uses a different CS.D from the rest of its block.
+    InconsistentCodeSize {
+        address: u32,
+    },
+    /// An instruction that ends a block for this target precedes another instruction.
+    InteriorBlockBoundary {
+        address: u32,
+    },
+    /// Two blocks have the same start in a code view or the same export name.
     DuplicateBlock {
         address: CodeAddress,
     },
@@ -151,6 +164,24 @@ impl fmt::Display for BlockError {
                 write!(
                     formatter,
                     "function at {address:#x} exceeds its exploration limits"
+                )
+            }
+            Self::NoncontiguousInstruction { expected, actual } => {
+                write!(
+                    formatter,
+                    "expected instruction at {expected:#x}, found {actual:#x}"
+                )
+            }
+            Self::InconsistentCodeSize { address } => {
+                write!(
+                    formatter,
+                    "instruction at {address:#x} changes decode width within a block"
+                )
+            }
+            Self::InteriorBlockBoundary { address } => {
+                write!(
+                    formatter,
+                    "instruction at {address:#x} ends the block before its last instruction"
                 )
             }
             Self::DuplicateBlock { address } => {

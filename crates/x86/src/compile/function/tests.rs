@@ -26,7 +26,7 @@ fn entries(code: &[u8], limits: FunctionLimits) -> Vec<(u32, usize)> {
     )
     .unwrap()
     .into_iter()
-    .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+    .map(|block| (block.address().eip(), block.byte_len()))
     .collect()
 }
 
@@ -257,7 +257,7 @@ fn short_reads_and_address_wrap_reuse_bytes_without_redecoding() {
     assert_eq!(
         blocks
             .iter()
-            .map(|block| (block.entry.address.eip(), block.entry.byte_len))
+            .map(|block| (block.address().eip(), block.byte_len()))
             .collect::<Vec<_>>(),
         [(245, 5), (u32::MAX - 10, 256)],
     );

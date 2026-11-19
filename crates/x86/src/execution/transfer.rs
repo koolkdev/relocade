@@ -42,7 +42,7 @@ impl ExecutionBuilder<'_, '_> {
                 enter(self.body, fallthrough, self.runtime)
             }
             Transfer::Call(link) | Transfer::FarCall(link) => {
-                if matches!(self.transfer, Transfer::Call(_)) {
+                if self.call_links.local_calls && matches!(self.transfer, Transfer::Call(_)) {
                     if let Some(function) = local_entry(&self.body, &self.eip, self.entries)? {
                         return self.body.tail_call(function, &[]);
                     }
