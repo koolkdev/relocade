@@ -8,6 +8,9 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64};
 
 use crate::floating::{FiniteMagnitude, RoundingInput};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) type DoubleShape = (F64, F64);
 
 #[derive(Clone)]
@@ -71,6 +74,34 @@ impl DoubleDouble {
     pub(super) fn add(&self, other: &Self) -> Self {
         let sum = Self::sum(self.high.clone(), other.high.clone());
         Self::sum(sum.high, sum.low.add(self.low.add(&other.low)))
+    }
+
+    /// Requires finite normalized pairs and a nonzero sum. Each series forms
+    /// its next term by multiplying by the fixed factor and may divide the
+    /// term or its contribution by an integer between 2 and 2048.
+    pub(super) fn absorbs_series_tail(&self, term: &Self, factor: &Self) -> Val<I1> {
+        // The nearer rounding midpoint of either nonzero component is at least
+        // 2^-54 times its magnitude, even at a binade boundary. A term below
+        // half that bound for the low component leaves both words unchanged:
+        // TwoSum(H, t.high) gives (H, t.high), and the two additions to L
+        // both round to L. Renormalizing (H, L) then returns the original pair.
+        let bound = self.low.abs().mul(2_f64.powi(-55));
+        // For B >= 2^-500 and |term.high| <= B, splitting introduces less
+        // than 2^-24 B error in either part relative to (term.high, 0).
+        // Bounding the split products and low cross terms in mul gives a
+        // high-word error below 2^-18 B for |factor.high| <= 3/4. In divide
+        // the reconstructed estimate times the divisor is within 2^-16 B of
+        // the numerator, so the corrected quotient is below 1.02 B/divisor.
+        // Both updates stay within B. The lower bound on B keeps even errors
+        // from gradual underflow far below this margin in later iterations.
+        let absorbed = bound.ge(2_f64.powi(-500)).and(term.high.abs().lt(bound));
+        // A normalized zero term remains zero. Adding it could still turn
+        // a negative-zero low component into positive zero.
+        let zero = term
+            .high
+            .eq(0.0)
+            .and(self.low.to_bits().ne((-0.0_f64).to_bits()));
+        factor.high.abs().le(0.75).and(zero.or(absorbed))
     }
 
     pub(super) fn neg(&self) -> Self {
@@ -187,21 +218,20 @@ pub(super) fn odd_power_series(
     square: &DoubleDouble,
     terms: u32,
 ) -> Result<DoubleDouble, BuildError> {
-    let parts = body.loop_::<(I32, F64, F64, F64, F64), DoubleShape>(
-        (3, 1.0, 0.0, 1.0, 0.0),
-        |mut iteration, labels, (index, term_high, term_low, sum_high, sum_low)| {
-            iteration.if_(index.eq(2 * terms + 1), |done| {
-                done.branch(&labels.exit, (&sum_high, &sum_low))
-            })?;
-            let term = DoubleDouble::from_parts((term_high, term_low)).mul(square);
-            let sum = DoubleDouble::from_parts((sum_high, sum_low))
-                .add(&term.divide(&DoubleDouble::from_f64(index.unsigned().to_f64())));
-            let (term_high, term_low) = term.parts();
-            let (sum_high, sum_low) = sum.parts();
-            iteration.branch(
-                &labels.again,
-                (index.add(2), term_high, term_low, sum_high, sum_low),
-            )
+    let parts = body.loop_::<(I32, DoubleShape, DoubleShape), DoubleShape>(
+        (3, (1.0, 0.0), (1.0, 0.0)),
+        |mut iteration, labels, (index, term, sum)| {
+            let term = DoubleDouble::from_parts(term);
+            let sum = DoubleDouble::from_parts(sum);
+            iteration.if_(
+                index
+                    .eq(2 * terms + 1)
+                    .or(sum.absorbs_series_tail(&term, square)),
+                |done| done.branch(&labels.exit, sum.parts()),
+            )?;
+            let term = term.mul(square);
+            let sum = sum.add(&term.divide(&DoubleDouble::from_f64(index.unsigned().to_f64())));
+            iteration.branch(&labels.again, (index.add(2), term.parts(), sum.parts()))
         },
     )?;
     Ok(DoubleDouble::from_parts(parts))
