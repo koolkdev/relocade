@@ -55,9 +55,6 @@ impl Machine {
         config: CpuConfig,
         compiler: Option<&CompilerService>,
     ) -> Result<CpuHandle> {
-        self.memory
-            .configuration()
-            .validate_for(config.cpu().mode())?;
         let binding = self.memory.attach_cpu(config)?;
         let (connection, endpoint) = compiler
             .map(|compiler| crate::compiler::Connection::new(self.memory(), compiler))

@@ -70,10 +70,10 @@ pub use compile::{
 pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use instruction::{CallTarget, InstructionFlow, MAX_INSTRUCTION_BYTES};
-pub use interpreter::build_interpreter;
+pub use interpreter::{build_interpreter, build_interpreter_with_memory};
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
-pub use profile::{ExecutionProfile, ExecutionTarget};
+pub use profile::{ExecutionProfile, ExecutionTarget, MemoryBackend};
 pub use profiling::{CallCount, CallProfile};
 pub use register::Gpr32;
 pub use segment::{

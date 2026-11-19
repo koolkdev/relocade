@@ -32,7 +32,7 @@ impl ExecutionModule {
     ) -> Self {
         let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
-            memory: Arc::new(Memory::declare(program, target.profile)),
+            memory: Arc::new(Memory::declare(program, target.memory_backend)),
             entries: Arc::default(),
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),

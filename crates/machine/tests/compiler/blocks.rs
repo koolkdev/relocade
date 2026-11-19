@@ -96,3 +96,47 @@ fn block_requests_keep_their_own_code_segments() {
 async fn block_requests_keep_their_own_code_segments() {
     compilation::run(requested_segments).await;
 }
+
+async fn reject_host_page_table(service: &relocade_machine::CompilerService) {
+    use relocade_machine::{ConfigurationError, Error, FunctionRequest};
+    use relocade_x86::MemoryBackend;
+
+    let (mut machine, config) = setup();
+    let mut target = config.execution_target();
+    target.memory_backend = MemoryBackend::HostPageTable;
+    let cpu = machine.create_cpu(config, Some(service)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let mut compiler = runner.take_compiler().unwrap();
+        let block = request();
+        let function = FunctionRequest {
+            entry: block.entry,
+            limits: Default::default(),
+        };
+        compiler.request(target, vec![block]).unwrap();
+        compiler.request_functions(target, vec![function]).unwrap();
+        for _ in 0..2 {
+            assert!(matches!(
+                compiler.recv().await.unwrap(),
+                Err(Error::Configuration(
+                    ConfigurationError::UnsupportedMemoryBackend
+                ))
+            ));
+        }
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn compiler_requests_require_the_physical_bus() {
+    pollster::block_on(compilation::run(reject_host_page_table));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn compiler_requests_require_the_physical_bus() {
+    compilation::run(reject_host_page_table).await;
+}

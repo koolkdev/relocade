@@ -1,7 +1,7 @@
 use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig, Memory};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, ExecutionTarget, PhysicalMapping, PhysicalMemoryMap,
-    SegmentProfile,
+    Compiler, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend, PhysicalMapping,
+    PhysicalMemoryMap, SegmentProfile,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -28,18 +28,31 @@ fn cpu_must_match_the_execution_profile() {
 
 async fn check_memory_profile() {
     let config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
-    let protected = CpuConfig::new(
-        Compiler::new(SegmentProfile::Flat32).target(),
-        CpuState::default(),
-    )
-    .unwrap();
     let memory = Memory::new(config).unwrap();
-    assert!(matches!(
-        Cpu::new(memory.clone(), protected, Default::default()).await,
-        Err(relocade_machine::Error::Configuration(
-            ConfigurationError::UnsupportedMode
-        ))
-    ));
+    for (profile, backend, state, expected) in [
+        (
+            SegmentProfile::Flat32.into(),
+            MemoryBackend::PhysicalBus,
+            CpuState::default(),
+            ConfigurationError::UnsupportedMode,
+        ),
+        (
+            ExecutionProfile::Real16,
+            MemoryBackend::HostPageTable,
+            CpuState::real_mode(),
+            ConfigurationError::UnsupportedMemoryBackend,
+        ),
+    ] {
+        let target = ExecutionTarget {
+            memory_backend: backend,
+            ..Compiler::new(profile).target()
+        };
+        let cpu = CpuConfig::new(target, state).unwrap();
+        assert!(matches!(
+            Cpu::new(memory.clone(), cpu, Default::default()).await,
+            Err(relocade_machine::Error::Configuration(error)) if error == expected
+        ));
+    }
     let real = CpuConfig::new(target(), CpuState::real_mode()).unwrap();
     Cpu::new(memory, real, Default::default()).await.unwrap();
 }

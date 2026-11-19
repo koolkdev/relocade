@@ -357,6 +357,7 @@ fn serialization_has_fixed_little_endian_entries_without_a_header() {
 #[test]
 fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
     let mut map = PhysicalMemoryMap::new([
+        (0x10000..=0x10fff, PhysicalMapping::MMIO),
         (
             0..=0xfff,
             Ram {
@@ -384,12 +385,14 @@ fn a20_defaults_to_disabled_and_toggling_preserves_mappings() {
         }
     );
     assert_eq!(map.get(u32::MAX), Unmapped);
+    assert_eq!(map.get(0x110123), PhysicalMapping::MMIO);
     let disabled = map.to_bytes();
     assert_eq!(
         &disabled[PhysicalMemoryMap::A20_MASK_OFFSET..],
         &[0xff, 0xff, 0xef, 0xff]
     );
     map.set_a20_enabled(true);
+    assert_eq!(map.get(0x110123), Unmapped);
     assert_eq!(
         map.get(0x100123),
         Rom {

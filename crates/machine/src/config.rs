@@ -9,6 +9,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
     UnsupportedMode,
+    UnsupportedMemoryBackend,
     IncompatibleCpu,
     CpuAlreadyAttached,
     InvalidMemorySize,
@@ -23,6 +24,9 @@ impl fmt::Display for ConfigurationError {
                 "CPU table registers do not satisfy the execution profile"
             }
             Self::UnsupportedMode => "physical machine configuration requires real mode",
+            Self::UnsupportedMemoryBackend => {
+                "physical machine configuration requires the physical memory bus"
+            }
             Self::CpuAlreadyAttached => "a guest CPU is already attached to this PC",
             Self::IncompatibleCpu => "CPU state does not satisfy the execution target",
             Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",

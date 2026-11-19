@@ -1,9 +1,10 @@
 # Physical memory
 
-`ExecutionProfile::Real16` translates segment offsets to physical addresses, then
-uses generated Wasm to route accesses. RAM and ROM reads use `guest` backing;
-only MMIO accesses call the host. Ordinary real mode does not raise a page fault
-for an absent physical mapping. The host controls the A20 gate in the routing map.
+`MemoryBackend::PhysicalBus` routes instruction fetch and data accesses on a PC
+with guest paging disabled. Segment checks and base addition produce the linear
+address. The bus applies A20 and looks up the physical page for both real-mode
+and protected-mode segment state. RAM and ROM reads use `guest` backing.
+MMIO reads and writes call the host.
 
 ## Physical page map
 

@@ -112,7 +112,7 @@ where
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     for name in ["read_a", "read_b"] {
         define_read::<T>(&mut program, &memory, name);
@@ -176,7 +176,7 @@ fn read_only_accesses_do_not_build_writers_or_other_widths() {
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     define_read::<I16>(&mut program, &memory, "read");
     let module = Module::inspect(&program.compile().unwrap());
@@ -191,7 +191,7 @@ fn byte_accesses_do_not_build_transfer_helpers() {
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     define_read::<I8>(&mut program, &memory, "read");
     define_write::<I8>(&mut program, &memory, "write");
@@ -205,7 +205,7 @@ fn shared_readers_preserve_old_and_new_values_across_a_scattered_write_in_wasmti
     let mut program = Program::new();
     let memory = std::sync::Arc::new(Memory::declare(
         &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
+        crate::MemoryBackend::HostPageTable,
     ));
     let function = program.raw_function(
         Signature {

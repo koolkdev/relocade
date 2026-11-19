@@ -9,10 +9,7 @@ use wasmparser::{Operator, Parser, Payload};
 #[test]
 fn aligned_complete_updates_need_no_scattered_access_helpers() {
     let mut program = Program::new();
-    let memory = Memory::declare(
-        &mut program,
-        crate::ExecutionProfile::Protected(crate::SegmentProfile::Flat32),
-    );
+    let memory = Memory::declare(&mut program, crate::MemoryBackend::HostPageTable);
     Function::<fn() -> AccessResult>::new("test", "update")
         .define(&mut program, move |mut body, ()| {
             let access = memory.resolve_access(

@@ -15,14 +15,20 @@ Compile it once with `Program::compile()` or `Program::compile_with(&executor).a
 then choose either export when invoking the module. All execution entries have
 the shared Rust signature `fn() -> ExecutionExit`.
 
+`build_interpreter(profile)` uses the physical bus for Real16 and the host page
+table for protected profiles. To generate a protected-mode interpreter for a PC
+with guest paging disabled, use
+`build_interpreter_with_memory(profile, MemoryBackend::PhysicalBus)`.
+The profile still governs segmentation and privilege checks.
+
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_blocks` and `compile_dispatcher`.
 `with_cpu_model(model)` selects the same capabilities for every entry; `target()`
-returns the resulting `ExecutionTarget { profile, cpu_model, instruction_budgets }`.
+returns the resulting `ExecutionTarget { profile, memory_backend, cpu_model, instruction_budgets }`.
 Instruction budgets are supported by default. `with_instruction_budgets(false)`
 declares that the owner will keep the live allowance zero, removing budget-specific
 code from snapshot blocks. This setting belongs in cache and direct-link keys
-alongside the profile and model. Free compilation functions use the default model
+alongside the profile, memory backend and model. Free compilation functions use the default model
 and budget support without CPU observations.
 
 Each module owns memory handles and generates access helpers on demand. The
@@ -538,18 +544,16 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | --- | ---: | --- |
 | `executionContext` | 1 | `ExecutionContext` backing, containing CPU state and execution controls. |
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
-| `machine` | 64 | Protected-mode linear-to-backing page table at byte zero. |
+| `machine` | 64 | Host-managed linear page table at byte zero. |
 | `physicalMap` | 129 | Flat 32-bit physical routing table followed by the A20 mask. |
 | `executionEntries` | 1 | Execution-address table. |
 | `callProfile` | 1 | Bounded CPU-local call observations, drained while execution is stopped. |
 
-Protected-mode interpreters import `executionContext`, `guest`, `machine`, `dispatch`,
-`resolveSegment`, `completeSegmentLoad` and `querySegmentDescriptor`. Real16 interpreters import
-`executionContext`, `guest`, `physicalMap`, `dispatch`, the MMIO callbacks and the port
-callbacks. They use generated RAM/ROM accesses and do not call descriptor callbacks. The physical
-memory contract below describes routing and callback widths.
-Snapshot modules omit imports they do not use: protected-mode memory instructions
-require guest backing and the page table, protected-mode segment loads require
+Interpreters import `executionContext`, `guest` and `dispatch`. The host page
+table backend imports `machine`. The physical bus backend imports `physicalMap`
+and the MMIO callbacks. Protected segment operations use `resolveSegment`,
+`completeSegmentLoad` and `querySegmentDescriptor`. Real16 uses the port callbacks.
+Snapshot modules retain the imports their instructions need. Protected segment loads require
 `resolveSegment` and `completeSegmentLoad`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
@@ -579,7 +583,7 @@ Use [`page_table::entry_offset`] and [`page_table::encode_entry`] to prepare
 individual entry writes. Writing [`page_table::UNMAPPED_ENTRY`] removes a mapping.
 The host owns the table storage and applies updates between guest execution calls.
 
-Segment translation precedes this protected-mode backing-map lookup.
+Segment translation precedes this host page table lookup.
 Linear addresses wrap at 32 bits, and a span
 crossing linear zero uses the mappings on both sides. All pages of a data store
 are permission-checked before any byte is written, including scattered backing.
@@ -1057,17 +1061,17 @@ code cache or automatic invalidation in these libraries. A snapshot producer tha
 cannot read a complete instruction can stop at the valid prefix and enter the
 interpreter at the next EIP to handle the fetch precisely.
 
-Protected-mode execution may reuse successful data-access checks while mappings
-remain stable. Each access still checks its segment and transfers current guest
+Execution using the host page table may reuse successful data-access checks while
+mappings remain stable. Each access still checks its segment and transfers current guest
 bytes; retained checks never cache guest contents or survive an entry's dispatch.
 
 The interpreter checks required instruction bytes through CS and the backing map
-at runtime. The protected-mode direct decoding loop may retain the current
-page-table entry until it leaves
+at runtime. With the host page table, the direct decoding loop may retain the
+current page-table entry until it leaves
 that decoder invocation. It still fetches live guest bytes and checks every access;
 no mapping cache survives a host dispatch or a new interpreter entry. The host may
 therefore remap code pages between entries under the existing validity rules.
-CS checks precede mapping checks. Real16 uses direct RAM/ROM windows and exact
+CS checks precede mapping checks. The physical bus uses direct RAM/ROM windows and exact
 required-byte reads when a direct window is unavailable. Physical routing is
 rechecked after each instruction, including after MMIO callbacks that remap code. It fetches all fields of a supported
 form before data access, but rejects an unsupported group extension before reading

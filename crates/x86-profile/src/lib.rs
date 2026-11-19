@@ -20,6 +20,26 @@ pub enum ExecutionProfile {
     Real16,
 }
 
+/// How generated x86 code resolves a linear address after checking the segment.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MemoryBackend {
+    /// The PC physical bus with guest paging disabled. A20 and physical page routing
+    /// select RAM, ROM, MMIO or unmapped space for both instruction and data accesses.
+    PhysicalBus,
+    /// The host's linear page table maps guest addresses to backing pages and permissions.
+    HostPageTable,
+}
+
+impl MemoryBackend {
+    /// The backend used by the packaged interpreter for this execution profile.
+    pub const fn default_for(profile: ExecutionProfile) -> Self {
+        match profile {
+            ExecutionProfile::Real16 => Self::PhysicalBus,
+            ExecutionProfile::Protected(_) => Self::HostPageTable,
+        }
+    }
+}
+
 /// Protected-mode segment assumptions fixed when an entry is compiled.
 /// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
 /// select real mode. Entry validity and invalidation follow [`crate::ExecutionProfile`].

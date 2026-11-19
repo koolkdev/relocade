@@ -14,7 +14,7 @@ fn interpreter() -> &'static TestModule {
         let profile = SegmentProfile::Segmented32.into();
         let guarantees =
             crate::profile::EntryGuarantees::for_profile(profile).without_code_default();
-        let bytes = super::super::build(profile, guarantees)
+        let bytes = super::super::build(profile, crate::MemoryBackend::HostPageTable, guarantees)
             .unwrap()
             .compile()
             .unwrap();
