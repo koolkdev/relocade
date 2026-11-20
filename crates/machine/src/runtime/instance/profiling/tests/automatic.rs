@@ -87,7 +87,7 @@ async fn automatic() {
                 assert!(runner.cpu().cpu_state().instruction_count() > retired);
                 if targets
                     .iter()
-                    .all(|entry| runner.cpu().instance.modules.has_entry(entry.packed()))
+                    .all(|entry| runner.cpu().instance.code.modules.has_entry(entry.packed()))
                 {
                     for entry in &targets {
                         assert_eq!(
@@ -100,7 +100,7 @@ async fn automatic() {
                     }
                     if partial {
                         // The RET after JNZ is an internal fallthrough.
-                        assert!(!runner.cpu().instance.modules.has_entry(0x205));
+                        assert!(!runner.cpu().instance.code.modules.has_entry(0x205));
                         assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
                     }
                     assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
@@ -167,7 +167,7 @@ async fn full_collection(compiler: &CompilerService) {
         };
         runner.cpu().cpu_state().set_sp(0xe00);
         // No opportunistic collection can submit during this run.
-        runner.cpu().instance.profiling.next_collection =
+        runner.cpu().instance.code.profiling.next_collection =
             Some(Instant::now() + Duration::from_secs(3600));
         let exit = runner.cpu().exit_handle();
         runner
@@ -180,11 +180,11 @@ async fn full_collection(compiler: &CompilerService) {
             ExecutionExit::Host(HostExit::Return)
         );
         let cpu = runner.cpu();
-        if cpu.instance.profiling.pending.contains(&target) {
-            assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
+        if cpu.instance.code.pending.contains(&target) {
+            assert!(cpu.instance.code.profiling.hotness.count(target.packed()) >= 4096);
         } else {
             assert!(
-                cpu.instance.modules.has_entry(target.packed()),
+                cpu.instance.code.modules.has_entry(target.packed()),
                 "expected a compiled reply"
             );
         }
@@ -229,7 +229,8 @@ async fn patched_callee() {
             .await
             .unwrap();
         // Collect exactly once after each guest loop, independently of host timing.
-        cpu.instance.profiling.next_collection = Some(Instant::now() + Duration::from_secs(3600));
+        cpu.instance.code.profiling.next_collection =
+            Some(Instant::now() + Duration::from_secs(3600));
         for (opcode, expect_request, compiled) in [
             (0x40, true, true),   // initial compilation
             (0x40, false, true),  // bound calls bypass profiling
@@ -257,14 +258,14 @@ async fn patched_callee() {
                 collected_count(cpu, FarPointer::from_packed(0x200)) > 0,
                 expect_request
             );
-            assert_eq!(!cpu.instance.profiling.pending.is_empty(), expect_request);
+            assert_eq!(!cpu.instance.code.pending.is_empty(), expect_request);
             if expect_request {
-                let compiler = cpu.instance.profiling.compiler.as_mut().unwrap();
+                let compiler = cpu.instance.code.compiler.as_mut().unwrap();
                 let code = compiler.recv().await.unwrap().unwrap();
                 assert_eq!(!code.blocks().is_empty(), compiled);
-                cpu.instance.finish_compilation(Ok(code));
+                cpu.instance.code.install_compiler_reply(Ok(code));
             }
-            assert!(cpu.instance.modules.has_entry(0x200));
+            assert!(cpu.instance.code.modules.has_entry(0x200));
             assert_eq!(
                 cpu.compiled_modules_at(0x200).count(),
                 usize::from(compiled)
@@ -276,7 +277,7 @@ async fn patched_callee() {
             segment: 0x10,
             offset: 0x100,
         };
-        assert!(!runner.cpu().instance.modules.has_entry(alias.packed()));
+        assert!(!runner.cpu().instance.code.modules.has_entry(alias.packed()));
         let target = runner.cpu().cpu_state().execution_target();
         let mut client = runner.take_compiler().unwrap();
         client
@@ -292,7 +293,7 @@ async fn patched_callee() {
         let code = client.recv().await.unwrap().unwrap();
         assert!(code.blocks().is_empty());
         code.install(runner.cpu()).unwrap();
-        assert!(runner.cpu().instance.modules.has_entry(alias.packed()));
+        assert!(runner.cpu().instance.code.modules.has_entry(alias.packed()));
     })
     .join()
     .await;

@@ -134,10 +134,11 @@ async fn replace_fallback() {
         .await
         .unwrap();
     cpu.instance
+        .code
         .bind_interpreter_if_vacant([0x200, 0x300].map(crate::FarPointer::from_packed))
         .unwrap();
     assert!(
-        !cpu.instance.modules.has_entry(
+        !cpu.instance.code.modules.has_entry(
             crate::FarPointer {
                 segment: 1,
                 offset: 0x1f0

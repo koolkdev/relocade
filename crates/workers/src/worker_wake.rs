@@ -9,7 +9,7 @@ use std::{
     pin::pin,
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU8, Ordering},
         Arc,
     },
     task::{Context, Poll, Wake, Waker},
@@ -20,6 +20,46 @@ use web_time::Instant;
 // A posted browser object can arrive after its Rust wake. Keep running ready
 // work briefly before returning this worker to the browser's event loop.
 const HOST_DELIVERY_GRACE: Duration = Duration::from_millis(1);
+
+const WORKER_READY: u8 = 1 << 7;
+
+/// Coalesces readiness notifications shared by a worker and its application.
+/// Application owners use bits 0 through 6. Passing bit 7 panics.
+/// Recording a reason does not itself wake a task.
+#[derive(Default)]
+pub struct WakeReasons {
+    bits: AtomicU8,
+}
+
+impl WakeReasons {
+    /// Publish the selected reasons after making their associated work ready.
+    pub fn record(&self, mask: u8) {
+        self.bits.fetch_or(application_mask(mask), Ordering::SeqCst);
+    }
+
+    /// Acknowledge the selected reasons and return the bits that were pending.
+    pub fn take(&self, mask: u8) -> u8 {
+        // Unrelated turns and clean guest entries only read this shared byte.
+        if self.pending(mask) {
+            self.bits.fetch_and(!mask, Ordering::SeqCst) & mask
+        } else {
+            0
+        }
+    }
+
+    /// Whether any of the selected reasons are pending.
+    pub fn pending(&self, mask: u8) -> bool {
+        self.bits.load(Ordering::SeqCst) & application_mask(mask) != 0
+    }
+}
+
+fn application_mask(mask: u8) -> u8 {
+    assert!(
+        mask & WORKER_READY == 0,
+        "wake reason bit 7 belongs to the worker"
+    );
+    mask
+}
 
 /// Connects a worker's polled futures, synchronous checkpoints and idle wait.
 pub struct WorkerWake<R: WakeTarget> {
@@ -33,11 +73,16 @@ pub struct WorkerWake<R: WakeTarget> {
 impl<R: WakeTarget> WorkerWake<R> {
     /// Binds notifications to the running worker's interrupt and idle wait.
     pub fn new(connection: WakeConnection<R>) -> Self {
+        Self::with_reasons(connection, Arc::default())
+    }
+
+    /// Shares the worker's readiness mask with application work on this connection.
+    pub fn with_reasons(connection: WakeConnection<R>, reasons: Arc<WakeReasons>) -> Self {
         let (notify, runnable) = async_channel::bounded(1);
         let wake = Arc::new(Notify {
             interrupt: connection.waker().clone(),
             notify,
-            notified: AtomicBool::new(false),
+            reasons,
         });
         Self {
             host: HostTurns::new(connection.waker()),
@@ -97,12 +142,15 @@ impl<R: WakeTarget> WorkerWake<R> {
     /// Polls one turn with a waker that can interrupt synchronous work. An
     /// interrupt stays set through the whole turn so later siblings see it.
     pub fn poll<T>(&self, poll: impl FnOnce(&mut Context<'_>) -> T) -> T {
-        self.wake.notified.store(false, Ordering::SeqCst);
+        self.wake
+            .reasons
+            .bits
+            .fetch_and(!WORKER_READY, Ordering::SeqCst);
         let result = poll(&mut Context::from_waker(&self.waker));
         self.connection.acknowledge();
         // A sibling can wake after its poll, including during acknowledgement.
         // Preserve its checkpoint for the next turn.
-        if self.wake.notified.load(Ordering::SeqCst) {
+        if self.wake.reasons.bits.load(Ordering::SeqCst) & WORKER_READY != 0 {
             self.request_checkpoint();
         }
         result
@@ -137,7 +185,7 @@ impl<R: WakeTarget> WorkerWake<R> {
 struct Notify {
     interrupt: Waker,
     notify: Sender<()>,
-    notified: AtomicBool,
+    reasons: Arc<WakeReasons>,
 }
 
 impl Wake for Notify {
@@ -146,7 +194,7 @@ impl Wake for Notify {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.notified.store(true, Ordering::SeqCst);
+        self.reasons.bits.fetch_or(WORKER_READY, Ordering::SeqCst);
         self.interrupt.wake_by_ref();
         // A single retained notification covers all wakes until the next poll.
         let _ = self.notify.try_send(());
@@ -210,3 +258,6 @@ impl Drop for Registration<'_> {
         self.0.count.set(self.0.count.get() - 1);
     }
 }
+
+#[cfg(test)]
+mod tests;

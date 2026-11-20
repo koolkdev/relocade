@@ -6,12 +6,12 @@ mod requests;
 mod run;
 mod suspended;
 
+use super::CodeWake;
 use super::{call::Call, Cpu};
 use crate::machine::execution::Active;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
-use run::RunWake;
 use std::{
     cell::{Cell, RefCell},
     future::poll_fn,
@@ -42,7 +42,7 @@ pub struct ExitHandle(Rc<ExitRequest>);
 #[derive(Default)]
 struct ExitRequest {
     result: Cell<Option<ExecutionExit>>,
-    waiter: RefCell<Weak<RunWake>>,
+    waiter: RefCell<Weak<CodeWake>>,
 }
 
 impl ExitHandle {
@@ -60,8 +60,9 @@ impl ExitHandle {
 
     fn set(&self, exit: ExecutionExit) {
         self.0.result.set(Some(exit));
-        if let Some(waiter) = self.0.waiter.borrow().upgrade() {
-            waiter.task.wake();
+        let waiter = self.0.waiter.borrow().upgrade();
+        if let Some(waiter) = waiter {
+            waiter.wake_run();
         }
     }
 
@@ -119,7 +120,7 @@ impl Cpu {
             let _execution = ready!(run.poll_enter(self, cx));
             self.poll_host_call(cx)
                 .or_else(|| self.dispatch(cx, |_| false))
-                .map_or(Poll::Pending, Poll::Ready)
+                .map_or_else(|| run.park(cx), Poll::Ready)
         })
         .await
     }
@@ -151,7 +152,9 @@ impl Cpu {
     /// Runs guest instructions up to the next checkpoint, blocked handler, HLT,
     /// or exit.
     pub(crate) fn run_to_boundary(&mut self, cx: &mut Context<'_>) -> CpuStop {
-        match self.dispatch(cx, |cpu| cpu.instance.bindings.interrupt.is_requested()) {
+        match self.dispatch(cx, |cpu| {
+            cpu.instance.guest.bindings.interrupt.is_requested()
+        }) {
             None => CpuStop::Blocked,
             Some(ExecutionExit::Interrupted | ExecutionExit::BudgetExhausted) => {
                 CpuStop::Checkpoint
@@ -167,7 +170,7 @@ impl Cpu {
         cx: &mut Context<'_>,
         yield_at_host_boundary: impl Fn(&Self) -> bool,
     ) -> Option<ExecutionExit> {
-        self.instance.sample_calls();
+        self.instance.code.sample_calls();
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
@@ -183,7 +186,7 @@ impl Cpu {
             }
             match exit {
                 ExecutionExit::Host(HostExit::Call { service_id }) => {
-                    self.pending = Call::start(self.instance.handler(service_id), cx);
+                    self.pending = Call::start(self.instance.code.handler(service_id), cx);
                 }
                 ExecutionExit::Host(HostExit::Resume) => {
                     let Some(call) = self.take_suspended_call() else {

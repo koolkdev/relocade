@@ -62,7 +62,7 @@ impl Runner {
             } else if self.cpu.is_blocked() {
                 CpuStop::Blocked
             } else {
-                return Poll::Pending;
+                return run.park(cx);
             };
             // HLT and the final guest instruction can both make a device due.
             let due = self.time.notify_due();
@@ -71,7 +71,7 @@ impl Runner {
                 CpuStop::Checkpoint => self.wake.repoll(cx),
                 CpuStop::Blocked => self.poll_idle(cx),
             }
-            Poll::Pending
+            run.park(cx)
         })
         .await
     }

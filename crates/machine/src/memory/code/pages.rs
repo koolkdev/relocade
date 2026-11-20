@@ -49,9 +49,7 @@ impl InstalledCode {
             return;
         };
         let mut registry = memory.pages.lock().unwrap();
-        if registry.modified.remove(&self.id) && registry.modified.is_empty() {
-            memory.needs_retirement.store(false, Ordering::Release);
-        }
+        registry.modified.remove(&self.id);
         for page in self.spans_by_page.keys() {
             let codes = registry.by_backing.get_mut(page).expect("installed page");
             codes.retain(|code| !Arc::ptr_eq(code, self));

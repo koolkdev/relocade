@@ -45,4 +45,4 @@ pub use wake::{
     wake_connection, WakeBinding, WakeConnection, WakeEndpoint, WakeHost, WakePeer, WakeTarget,
 };
 pub use worker::{Worker, WorkerError};
-pub use worker_wake::{HostTurns, WorkerWake};
+pub use worker_wake::{HostTurns, WakeReasons, WorkerWake};
