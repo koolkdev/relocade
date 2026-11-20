@@ -1,7 +1,9 @@
 //! Instruction bytes captured by the compiler and registrations for installed PC code.
 
+mod blacklist;
 mod pages;
 use pages::CodePages;
+pub(super) use pages::CodeWrite;
 pub use pages::InstalledCode;
 mod reader;
 pub(crate) use reader::CodeReader;
@@ -136,13 +138,13 @@ impl Memory {
             .collect()
     }
 
-    pub(super) fn write_storage(&self, backing: u32, bytes: &[u8], write_id: &mut u64) {
+    pub(super) fn write_storage(&self, backing: u32, bytes: &[u8], write: &mut CodeWrite) {
         if bytes.is_empty() {
             return;
         }
         let mut pages = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
-        if pages.mark_modified(backing, bytes, write_id) {
+        if pages.mark_modified(backing, bytes, write) {
             self.code.needs_retirement.store(true, Ordering::Release);
         }
     }

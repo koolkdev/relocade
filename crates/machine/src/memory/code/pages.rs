@@ -1,10 +1,13 @@
 //! Installed guest instructions indexed by backing page.
 
-use super::{page_base, CodeSource, Span};
+use super::{
+    blacklist::{CodeBlacklist, ExcludedCode},
+    page_base, CodeSource, Span,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
 };
@@ -14,8 +17,7 @@ use std::{
 pub struct InstalledCode {
     source: CodeSource,
     spans_by_page: BTreeMap<u32, Vec<usize>>,
-    /// Zero until the first write invalidates this installation.
-    invalidated_by: AtomicU64,
+    modified: AtomicBool,
 }
 
 impl InstalledCode {
@@ -25,7 +27,7 @@ impl InstalledCode {
 
     /// Whether a managed write changed an instruction byte while this module was installed.
     pub fn was_modified(&self) -> bool {
-        self.invalidated_by.load(Ordering::Acquire) != 0
+        self.modified.load(Ordering::Acquire)
     }
 
     /// Each backing page belongs to one physical RAM or ROM page, including across A20 aliases.
@@ -56,63 +58,31 @@ impl InstalledCode {
     }
 }
 
-/// Backing bytes that writes invalidated in two successive installations.
-#[derive(Clone, Default)]
-pub(super) struct ExcludedCode(Arc<BTreeSet<u32>>);
-
-impl ExcludedCode {
-    pub(super) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(super) fn intersects(&self, backing: u32, len: usize) -> bool {
-        !self.is_empty()
-            && self
-                .0
-                .range(backing..)
-                .next()
-                .is_some_and(|&byte| ((byte - backing) as usize) < len)
-    }
-
-    fn insert(&mut self, byte: u32) {
-        if !self.0.contains(&byte) {
-            Arc::make_mut(&mut self.0).insert(byte);
-        }
-    }
-}
-
+/// Shared by all backing spans of one memory write, including page and segment crossings.
 #[derive(Default)]
-struct CodePatches {
-    last_write: u64,
-    /// Overlapping installations report the same byte with the same write ID.
-    first_write: BTreeMap<u32, u64>,
-    excluded: ExcludedCode,
+pub(in crate::memory) struct CodeWrite {
+    invalidated: Vec<Arc<InstalledCode>>,
+    // Aliases and overlapping installations can report the same backing byte.
+    counted_bytes: BTreeSet<u32>,
 }
 
-impl CodePatches {
-    fn record(&mut self, byte: u32, write_id: &mut u64) {
-        if *write_id == 0 {
-            self.last_write = self
-                .last_write
-                .checked_add(1)
-                .expect("invalidating write ID exhausted");
-            *write_id = self.last_write;
-        }
-        if *self.first_write.entry(byte).or_insert(*write_id) != *write_id {
-            self.excluded.insert(byte);
-        }
+impl CodeWrite {
+    fn invalidated_here(&self, code: &Arc<InstalledCode>) -> bool {
+        self.invalidated
+            .iter()
+            .any(|other| Arc::ptr_eq(other, code))
     }
 }
 
 #[derive(Default)]
 pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
-    patches: CodePatches,
+    blacklist: CodeBlacklist,
 }
 
 impl CodePages {
     pub(super) fn excluded(&self) -> &ExcludedCode {
-        &self.patches.excluded
+        &self.blacklist.excluded
     }
 
     pub(crate) fn register(&mut self, source: &CodeSource) -> Arc<InstalledCode> {
@@ -126,7 +96,7 @@ impl CodePages {
         let code = Arc::new(InstalledCode {
             source: source.clone(),
             spans_by_page,
-            invalidated_by: AtomicU64::new(0),
+            modified: AtomicBool::new(false),
         });
         for &page in code.spans_by_page.keys() {
             self.by_backing.entry(page).or_default().push(code.clone());
@@ -147,22 +117,33 @@ impl CodePages {
     }
 
     /// Returns true if this write newly marked at least one installation.
-    pub(super) fn mark_modified(&mut self, backing: u32, bytes: &[u8], write_id: &mut u64) -> bool {
+    pub(super) fn mark_modified(
+        &mut self,
+        backing: u32,
+        bytes: &[u8],
+        write: &mut CodeWrite,
+    ) -> bool {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
         let mut changed = false;
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
-                let invalidated_by = code.invalidated_by.load(Ordering::Acquire);
-                if invalidated_by != 0 && invalidated_by != *write_id {
+                let was_modified = code.was_modified();
+                // An unpacker can keep writing after invalidation. Only count the write
+                // that made this installation stale, including any later spans of that write.
+                if was_modified && !write.invalidated_here(code) {
                     continue;
                 }
                 let mut modified = false;
                 for span in code.spans_on(page) {
-                    modified |= span
-                        .record_changes(backing, bytes, |byte| self.patches.record(byte, write_id));
+                    modified |= span.record_changes(backing, bytes, |byte| {
+                        if write.counted_bytes.insert(byte) {
+                            self.blacklist.record_invalidation(byte);
+                        }
+                    });
                 }
-                if modified && invalidated_by == 0 {
-                    code.invalidated_by.store(*write_id, Ordering::Release);
+                if modified && !was_modified {
+                    code.modified.store(true, Ordering::Release);
+                    write.invalidated.push(code.clone());
                     changed = true;
                 }
             }
