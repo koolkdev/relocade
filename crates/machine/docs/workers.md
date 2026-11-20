@@ -122,12 +122,10 @@ task.await??;
 Dropping a receive wait preserves its message. Dropping the sender lets the
 receiver drain accepted messages before returning `None`; dropping the receiver
 closes further sends. Browser object delivery still requires an event-loop turn
-on the receiver. `Receiver::with_executor` lets the worker executor arrange those
-turns after Rust state confirms posting. `Executor::with_host_timer` supplies an
-independent timer and a shared execution interval before each turn. Receivers
-register pending payloads while the executor owns delivery timing and gates its
-complete activity set. The channel retains message ownership. See
-[background compilation](compilation.md) for the Runner integration.
+on the receiver. `Receiver::with_worker` registers a host dependency once Rust
+state confirms posting and the receiver is still waiting for its payload.
+The machine parks immediately when idle. While work is runnable, pending
+receivers share one grace interval before the machine yields to the browser. [Compiler reply delivery](compilation.md#compiler-replies)
 
 Use `CpuStorage::new()` when the host needs an execution-interrupt handle before
 CPU construction. Retain `storage.interrupt_handle()`, send the storage through
@@ -173,9 +171,11 @@ returns a host guard plus Send endpoint metadata. Capture the endpoint alongside
 an already posted resource, then call `endpoint.bind(local_target)` on execution.
 Both target handles must address the same signal. This reuses the resource's
 existing transfer instead of posting it again through a registration channel.
-`CpuHandle` startup does this automatically with its prepared CPU; callers attach
-local devices through `runner.cpu().io().connect` or `Dos::new`. `WakeConnection` retains the
-binding; the separate `worker::Executor` owns polling, stop handling and idle parking.
+`CpuHandle` startup binds the prepared CPU automatically. Callers attach local
+devices through `runner.connect(...).await` or construct the PC with `Dos::new`.
+`WakeConnection` retains the binding. `WorkerWake::drive` polls the session
+future and parks when it has no runnable work. A task wake interrupts guest
+execution at its next checkpoint and queues another poll.
 
 ## Browser build and lifetime
 

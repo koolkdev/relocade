@@ -143,10 +143,14 @@ async fn replace_idle_deadline() {
             runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
-            );
+            {
+                let mut runs = futures_util::stream::FuturesUnordered::new();
+                runs.push(runner.run_cpu());
+                assert_eq!(
+                    runs.next().await,
+                    Some(ExecutionExit::Host(HostExit::Return))
+                );
+            }
             let result = device.borrow().observed.clone();
             result
         },

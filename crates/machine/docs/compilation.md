@@ -103,32 +103,19 @@ After all Machines finish, await `CompilerService::shutdown`. It closes admissio
 drains the pool and joins its workers. Dropping the service
 early can terminate browser workers before Rust destructors run.
 
-Compiler clients bind receipt to the Runner's executor during setup. Poll their
-receive futures inside that session, independently of `runner.run_cpu()`.
-Guest and device work continue while compilation is in progress. Once the
-compiler posts a reply, the channel's Rust state confirms that its host payload
-is on the way. If that payload is not yet available, the receiver registers a
-pending delivery. The executor shares one 1 ms interval on the independent host
-clock across pending deliveries before requesting a zero-delay event-loop turn.
+## Compiler replies
 
-The executor suspends the whole activity set for that turn, including busy
-devices, then resumes it even when delivery is still pending. Each retry gives
-work another 1 ms interval. Empty channels, compilation that has not posted a
-reply, and already available payloads request no timer. Completion or cancellation
-clears the receive's registration; the last one cancels the shared timer and yield.
-Actual intervals can overshoot
-because guest checkpoints and host callbacks do not have fixed latency bounds.
+Compiler clients bind receipt to the worker with `Receiver::with_worker`. Poll their
+receive futures inside the session, independently of `runner.run_cpu()`. After
+the compiler posts a reply, the channel receives its Rust state and awaits any
+remaining browser payload. This wait registers host-turn demand until the
+payload arrives or receipt is cancelled.
 
-`Runner::new` uses its supplied independently progressing clock. Guest-time
-execution uses the explicitly configured host clock; without one, it requests
-the host turn immediately instead of waiting on guest time. The generic worker
-API exposes this through `Receiver::with_executor` and `Executor::with_host_timer`.
-Compiler code contains no platform-specific delivery flags.
-The internal host policy reports application readiness: ready during the grace
-interval, pending during the yield, then ready again even if delivery is late.
-The executor polls stop before readiness and uses the same parking path for idle
-work and host yields. The Runner's execution schedule continues to own CPU budgets,
-guest deadlines and guest-time pacing.
+An idle worker parks immediately. While guest or device work remains runnable,
+all pending deliveries share a 1 ms wall-clock grace period. If delivery is
+still pending after that interval, the worker returns to its event loop, then
+resumes its session. Long guest blocks and host scheduling can extend the
+interval. Host turns work with both independent and guest clocks.
 
 Receiving code does not install it or stop the guest automatically. Drop or finish
 the current run waiter at an allowed CPU boundary, install explicitly, and resume

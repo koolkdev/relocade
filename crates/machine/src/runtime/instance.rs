@@ -8,7 +8,7 @@ use super::{
     code, hooks::Handler, memory::HostWritePages, CpuContext, Hook, RuntimeMemory, WasmRuntime,
     WasmRuntimeHandle,
 };
-use crate::{memory::CpuBinding, CompiledCode, FarPointer, IoBus, Result};
+use crate::{memory::CpuBinding, worker::HostTurns, CompiledCode, FarPointer, IoBus, Result};
 use hooks::PreparedHandler;
 use modules::{Calls, CpuModules, ModuleInstance};
 use profiling::Profiling;
@@ -40,6 +40,7 @@ struct GuestEntryPoints {
 /// service polling do not hold the runtime.
 pub(super) struct CpuInstance {
     runtime: WasmRuntimeHandle,
+    host_turns: HostTurns,
     // Discard the private routes before dropping the modules that hold them.
     host_writes: Rc<HostWritePages>,
     // Retire source registrations before a standalone CPU releases its memory attachment.
@@ -105,6 +106,7 @@ impl CpuInstance {
             };
             Ok(Self {
                 runtime: runtime.clone(),
+                host_turns: HostTurns::default(),
                 host_writes: HostWritePages::new(&runtime, &bindings),
                 bindings,
                 io,
@@ -202,7 +204,8 @@ impl CpuInstance {
 
     async fn compile_wasm(&self, bytes: &[u8]) -> Result<Module> {
         let compiler = self.runtime.with_runtime(|wasm| wasm.compiler());
-        Ok(compiler.compile(bytes).await?)
+        // Browser compilation completes on this worker's event loop.
+        Ok(self.host_turns.wait(compiler.compile(bytes)).await?)
     }
 
     pub(super) fn install_wasm_module(
@@ -300,5 +303,12 @@ impl CpuInstance {
     #[inline]
     pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
         self.modules.hooks.handler(id)
+    }
+}
+
+impl super::Cpu {
+    pub(crate) fn with_host_turns(mut self, host: HostTurns) -> Self {
+        self.instance.host_turns = host;
+        self
     }
 }

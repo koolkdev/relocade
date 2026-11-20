@@ -136,7 +136,7 @@ remain usable afterward or the embedding needs separate control.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` owns a stop channel. `worker::Executor` polls its receiver before
+`ExecutionWorker` owns a stop channel. `Runner::run` polls its receiver before
 the application/device future, so cancellation is registered before any guest
 execution. `stop().await` sends through that channel; dropping the sender also
 requests cancellation. Either wakes the session while a CPU service is pending
@@ -250,9 +250,9 @@ any asynchronous construction. A new `run_cpu` future yields once so siblings in
 CPU-first async composition can register their waits; it performs no device setup.
 The host guard stays alive until worker completion.
 
-`WakeConnection` owns only the fixed signal binding. `worker::Executor` owns the
-stable executor waker, polling and parking. `Runner` owns that executor and composes
-the application and registered devices under it. On the execution owner:
+`WakeConnection` binds the worker signal. `WorkerWake::drive` supplies the root
+waker, polls the session, and parks when work is blocked. The runner composes
+the application, devices and cancellation into that session.
 
 ```rust,ignore
 let runner = Runner::new(clock, cpu, endpoint).await?;
@@ -296,10 +296,9 @@ retain coalesced notifications. Requests already pending at guest reentry use
 the same block/STEP checkpoints as requests arriving during execution. After
 `Interrupted`, the runner yields to Rust work before resuming the CPU. There is
 no additional pre-entry check or yield for an already-pending notification.
-The runner's cooperative yield wakes its current
-child task without requesting another interrupt from its first root notification.
-Separate notifications still request an interrupt, including reentrant input
-delivered while waking a parked executor.
+The runner can repoll the root directly at a cooperative checkpoint. A nested
+CPU waiter wakes its own task so its parent can put it back on the ready queue.
+Input delivered while waking a parked worker can still interrupt execution.
 Pending CPU services keep their original future and IRQ-suspended outer services
 remain parked until guest resumption.
 
@@ -347,14 +346,11 @@ an execution interrupt to inspect a completed guest boundary while retaining
 suspended work. See the [connection contract](workers.md#browser-build-and-lifetime).
 
 Continuously ready device loops must also cooperate with the other root futures.
-When the whole session is waiting, including for Wasm compilation, the executor
-parks through the underlying executor. A Rust cooperative yield does not promise
-a browser event-loop turn. CPU-owned [compiler clients](compilation.md) bind
-posted replies to the executor: a missing payload gets a 1 ms host-clock grace
-interval, followed by one event-loop turn that gates CPU and device activities.
-Guest execution resumes between attempts. Installation remains explicit while
-the CPU is exclusively stopped. Other JavaScript callbacks receive no periodic
-fairness turn. Execution checkpoints remain at completed
+An idle worker parks immediately. If work stays runnable, a pending posted
+reply, browser compilation, or job-thread startup can request a host turn with
+`HostTurns`. The worker gives ready work a shared 1 ms grace interval before
+returning to the event loop. It resumes the session between attempts.
+[Compiler reply delivery](compilation.md#compiler-replies) Execution checkpoints remain at completed
 blocks, with [no fixed notification-latency guarantee](../../x86/docs/host-integration.md#execution-interrupts)
 for long straight-line code or REP.
 
