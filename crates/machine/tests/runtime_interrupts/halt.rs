@@ -1,9 +1,10 @@
 use super::{cpu, Irq};
-use relocade_machine::DispatchEntry;
+use relocade_machine::{DispatchEntry, GuestTimeDriver};
 use relocade_x86::{Compiler, Exception, ExecutionExit, ExecutionProfile, HostExit};
 use std::{
     cell::RefCell,
     future::Future,
+    num::NonZeroU64,
     pin::pin,
     rc::Rc,
     sync::{
@@ -53,8 +54,10 @@ async fn waiting() {
         let wakes = Arc::new(WakeCount::default());
         let waker = Waker::from(wakes.clone());
         interrupt.request();
-        // Reaching the instruction target must retain HLT before yielding.
-        cpu.instruction_target().set(Some(1));
+        // A device deadline at the HLT instruction must preserve the halted state.
+        let time = GuestTimeDriver::new(NonZeroU64::MIN);
+        let _binding = time.bind(&cpu, Waker::noop());
+        let sleep = crate::support::guest_sleep(&time, 1);
         if entry == 2 {
             assert_eq!(cpu.step(), ExecutionExit::Halted);
         } else {
@@ -82,7 +85,7 @@ async fn waiting() {
         );
 
         state.set_interrupts_enabled(true);
-        cpu.instruction_target().set(None);
+        drop(sleep);
         pending(cpu.run(), &waker);
         assert_eq!(irq.borrow().acknowledged, 1);
         assert_eq!(cpu.memory().view().read_u16(0x7ffa).unwrap(), 0x101);

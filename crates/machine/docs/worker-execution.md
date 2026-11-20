@@ -227,13 +227,6 @@ allowance, and ready host services remain pollable during a pacing wait. Run
 cancellation drops that wait while preserving guest progress and remaining credit;
 time between runs is excluded from the host/guest correspondence.
 
-Lower-level embeddings capture `cpu.instruction_target()` before execution and use
-`target.set(Some(absolute_count))` or `target.set(None)`. Updates take effect at
-existing checkpoints, including when made from synchronous device callbacks.
-`Cpu::run()` reports `BudgetExhausted` without changing the target; the controller
-owns rearming and cleanup. Targets use signed wrapping distance, and zero is
-rounded to one because the backing reserves zero for unarmed execution. Completed
-instruction counts include checkpoint overshoot.
 Yielding gives ready Rust activities a polling opportunity. The host timer
 driver delivers deadline notifications through Rust channels even while the
 execution worker stays runnable. CPU services can sleep without suspending

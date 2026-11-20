@@ -133,9 +133,12 @@ driver.synchronize(None);
 drop(binding);
 ```
 
-`bind` retains CPU progress and target handles without borrowing the CPU. The
-returned guard scopes target ownership and wait-change notifications. Dropping
-it records final retirement, clears the target and releases the execution waker.
+Guest time requires a CPU built with instruction budgets enabled, including for
+unthrottled execution. A worker reports an incompatible target during startup.
+
+The guard returned by `bind` lets the clock observe retirement and update the
+CPU checkpoint as device waits change. Dropping it records final retirement,
+clears the clock's deadline and releases the execution waker.
 The clock pauses between bindings, and pending device waits remain registered.
 Each binding starts from the CPU's current count without charging earlier work.
 
@@ -144,7 +147,8 @@ the next CPU target. `yield_deadline` is an optional absolute guest time at
 which the embedding wants execution to yield. The driver does not choose yield
 intervals. Registration and cancellation update the target synchronously,
 including during IO/MMIO callbacks, without extending the supplied yield
-deadline. With neither device waits nor a yield deadline, the target is unarmed.
+deadline. The CPU returns to the scheduler at the first block boundary that
+reaches the earlier of the next device deadline and the yield deadline.
 Changed waits wake the embedding so it can reconsider idle scheduling while a
 CPU service is pending.
 

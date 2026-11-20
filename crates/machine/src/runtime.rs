@@ -47,7 +47,6 @@ mod execution_interrupt;
 mod guest;
 mod hooks;
 mod instance;
-mod instruction_target;
 mod memory;
 pub mod real_mode_interrupt;
 mod storage;
@@ -63,7 +62,6 @@ pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
 use instance::CpuInstance;
 pub use instance::DispatchEntry;
-pub use instruction_target::InstructionTarget;
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
@@ -77,7 +75,6 @@ pub struct Cpu {
     guest_calls: GuestCalls,
     instance: CpuInstance,
     exit: ExitHandle,
-    instruction_target: InstructionTarget,
     halted: bool,
 }
 
@@ -101,7 +98,6 @@ impl Cpu {
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
         let instance = CpuInstance::new(binding, io, storage).await?;
-        let instruction_target = InstructionTarget::new(&instance.bindings);
         Ok(Self {
             execution: None,
             pending: None,
@@ -109,7 +105,6 @@ impl Cpu {
             guest_calls: GuestCalls::default(),
             instance,
             exit: ExitHandle::new(),
-            instruction_target,
             halted: false,
         })
     }

@@ -11,6 +11,7 @@ pub enum ConfigurationError {
     UnsupportedMode,
     UnsupportedMemoryBackend,
     IncompatibleCpu,
+    GuestTimeRequiresInstructionBudgets,
     CpuAlreadyAttached,
     InvalidMemorySize,
     InsufficientMemory,
@@ -28,6 +29,9 @@ impl fmt::Display for ConfigurationError {
                 "physical machine configuration requires the physical memory bus"
             }
             Self::CpuAlreadyAttached => "a guest CPU is already attached to this PC",
+            Self::GuestTimeRequiresInstructionBudgets => {
+                "guest time requires CPU instruction budgets"
+            }
             Self::IncompatibleCpu => "CPU state does not satisfy the execution target",
             Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",
             Self::InsufficientMemory => "physical mappings exceed memory_size",

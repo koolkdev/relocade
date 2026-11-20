@@ -1,6 +1,21 @@
 #![allow(dead_code)]
 
+use relocade_machine::{GuestTimeDriver, Sleep, Timestamp};
 use relocade_x86::ExecutionExit;
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Waker},
+};
+
+/// Registers a device wait on the guest clock. Dropping the sleep cancels it.
+pub fn guest_sleep(driver: &GuestTimeDriver, tick: u64) -> Sleep {
+    let mut sleep = driver.clock().sleep_until(Timestamp::from_ticks(tick));
+    assert!(Pin::new(&mut sleep)
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    sleep
+}
 
 /// Bounded instruction tests use the interpreter's explicit step return.
 pub fn steps(cpu: &mut relocade_machine::Cpu, count: usize) {

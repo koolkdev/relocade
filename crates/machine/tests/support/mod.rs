@@ -31,4 +31,4 @@ pub async fn create_cpu(
 
 mod execution;
 #[allow(unused_imports)]
-pub use execution::{checkpoint, run_until, steps};
+pub use execution::{checkpoint, guest_sleep, run_until, steps};

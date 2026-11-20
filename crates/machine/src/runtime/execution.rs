@@ -64,8 +64,7 @@ impl Cpu {
     /// with `ExecutionInterrupt::take`. Checkpoints occur at completed blocks;
     /// straight-line execution and REP have no fixed notification-latency bound.
     ///
-    /// Reaching the instruction target returns `BudgetExhausted`; the external
-    /// controller owns target updates and cleanup, independently of this waiter.
+    /// Reaching a checkpoint armed by the guest scheduler returns `BudgetExhausted`.
     ///
     /// Dropping this waiter preserves active and parked calls and their locals.
     /// A subsequent run continues from the same call or guest position. An observed
