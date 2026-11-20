@@ -10,7 +10,7 @@ use crate::runtime::{
     WasmRuntime,
 };
 use crate::{CompiledCode, DispatchEntry, FarPointer, InstalledCode, Result};
-use relocade_wasm_runtime::{ExportFunction, Import, Memory, WasmMemoryAccess};
+use relocade_wasm_runtime::{Context, ExportFunction, Import, Memory, WasmMemoryAccess};
 use relocade_x86::abi;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -159,7 +159,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
 
 impl Modules<WasmRuntime> {
     /// Retire each complete linked version that covers a changed byte.
-    pub(super) fn invalidate(&mut self, wasm: &mut WasmRuntime, range: Range<u64>) -> Result<()> {
+    pub(super) fn invalidate(
+        &mut self,
+        context: &mut Context<'_>,
+        range: Range<u64>,
+    ) -> Result<()> {
         if range.is_empty() {
             return Ok(());
         }
@@ -178,12 +182,27 @@ impl Modules<WasmRuntime> {
                 .get(index)
                 .is_some_and(|source| source.start < range.end)
         });
-        self.retire(wasm, retired_modules)
+        self.retire(context, retired_modules)
+    }
+
+    pub(super) fn retire_modified(&mut self, context: &mut Context<'_>) -> Result<()> {
+        let modified = self
+            .modules
+            .iter()
+            .filter_map(|(&id, module)| {
+                module
+                    .registered_source
+                    .as_ref()?
+                    .was_modified()
+                    .then_some(id)
+            })
+            .collect();
+        self.retire(context, modified)
     }
 
     fn retire(
         &mut self,
-        wasm: &mut WasmRuntime,
+        context: &mut Context<'_>,
         retired_modules: BTreeSet<ModuleId>,
     ) -> Result<()> {
         for id in &retired_modules {
@@ -197,10 +216,10 @@ impl Modules<WasmRuntime> {
                 .iter()
                 .map(move |&key| (id, key))
         });
-        self.table.remove(wasm, exports)?;
+        self.table.remove(context, exports)?;
         for id in retired_modules {
             let mut module = self.modules.remove(&id).expect("installed module");
-            module.release_host_write_pages(wasm);
+            module.release_host_write_pages(context);
             for &page in &module.linear_pages {
                 let modules = self
                     .by_linear_page

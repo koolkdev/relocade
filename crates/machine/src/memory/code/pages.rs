@@ -58,6 +58,7 @@ impl InstalledCode {
 #[derive(Default)]
 pub struct CodeRegistry {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
+    pub(super) needs_retirement: bool,
 }
 
 impl CodeRegistry {
@@ -92,15 +93,17 @@ impl CodeRegistry {
             })
     }
 
-    pub(super) fn record_write(&self, backing: u32, bytes: &[u8]) {
+    pub(super) fn record_write(&mut self, backing: u32, bytes: &[u8]) {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
-                if code
-                    .spans_on(page)
-                    .any(|span| span.changed_by(backing, bytes))
+                if !code.was_modified()
+                    && code
+                        .spans_on(page)
+                        .any(|span| span.changed_by(backing, bytes))
                 {
                     code.changed.store(true, Ordering::Release);
+                    self.needs_retirement = true;
                 }
             }
         }

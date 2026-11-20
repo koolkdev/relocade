@@ -3,7 +3,7 @@
 use super::{calls::CallSite, Calls, ModuleId};
 use crate::{DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table};
+use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table, WasmMemoryAccess};
 use relocade_x86::{abi, EntryTable};
 use std::collections::BTreeMap;
 
@@ -203,7 +203,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     /// Only withdraw exports still owned by the retiring installation.
     pub(super) fn remove(
         &mut self,
-        backend: &mut B,
+        context: &mut B::Context<'_>,
         exports: impl IntoIterator<Item = (ModuleId, u32)>,
     ) -> Result<()> {
         let updates: BTreeMap<_, _> = exports
@@ -211,11 +211,16 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             .filter(|&(module, key)| self.owner(key) == Some(module))
             .map(|(_, key)| (key, Target::Unresolved))
             .collect();
+        if updates.is_empty() {
+            return Ok(());
+        }
         let slots: Vec<_> = updates
             .keys()
             .map(|key| self.entries[key].target.slot().expect("published export"))
             .collect();
-        self.publish(backend, updates)?;
+        // Withdrawal only shrinks the lookup and reuses existing function slots.
+        let bytes = self.lookup_after(&updates).to_bytes();
+        self.apply(context, updates, &bytes)?;
         self.free_slots.extend(slots);
         Ok(())
     }
@@ -228,11 +233,21 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         }
         let bytes = self.lookup_after(&updates).to_bytes();
         let next_slot = self.reserve(backend, &updates, bytes.len())?;
-        for (key, target) in updates {
-            self.bind(backend, key, target)?;
-        }
-        backend.memory(&self.memory).write(0, &bytes);
+        self.apply(&mut backend.context(), updates, &bytes)?;
         self.next_slot = next_slot;
+        Ok(())
+    }
+
+    fn apply(
+        &mut self,
+        context: &mut B::Context<'_>,
+        updates: BTreeMap<u32, Target<B>>,
+        lookup: &[u8],
+    ) -> Result<()> {
+        for (key, target) in updates {
+            self.bind(context, key, target)?;
+        }
+        context.memory(&self.memory).write(0, lookup);
         Ok(())
     }
 
@@ -275,19 +290,19 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     }
 
     /// Update the function-table slot and registered callers for one entry.
-    fn bind(&mut self, backend: &mut B, key: u32, target: Target<B>) -> Result<()> {
+    fn bind(&mut self, context: &mut B::Context<'_>, key: u32, target: Target<B>) -> Result<()> {
         let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
         if let Target::Export { slot, function, .. } = &target {
-            self.functions.set(backend, *slot, function)?;
+            self.functions.set(context, *slot, function)?;
         } else if let Target::Export { slot, .. } = &entry.target {
             self.functions.set(
-                backend,
+                context,
                 *slot,
                 self.interpreter.as_ref().expect("installed interpreter"),
             )?;
         }
         for caller in entry.callers.values() {
-            caller.bind(backend, target.function(self.interpreter.as_ref()))?;
+            caller.bind(context, target.function(self.interpreter.as_ref()))?;
         }
         entry.target = target;
         if entry.target.slot().is_none() && entry.callers.is_empty() {

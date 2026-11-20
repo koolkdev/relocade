@@ -115,9 +115,14 @@ impl Memory {
         if bytes.is_empty() {
             return;
         }
-        let pages = self.code.lock().unwrap();
+        let mut registry = self.code.lock().unwrap();
         self.backing.write(backing, bytes);
-        pages.record_write(backing, bytes);
+        registry.record_write(backing, bytes);
+    }
+
+    /// Consume the notification before examining installations so a later write remains pending.
+    pub(crate) fn take_retirement_request(&self) -> bool {
+        std::mem::take(&mut self.code.lock().unwrap().needs_retirement)
     }
 }
 

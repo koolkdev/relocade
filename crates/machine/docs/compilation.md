@@ -81,8 +81,10 @@ Before publishing dispatch entries and call links, the stopped CPU compares
 every emitted instruction span with its live backing. A mismatch returns
 `Error::StaleCompilation` and preserves existing entries and hooks. An
 automatically requested function can become hot again after a stale result.
-Pending or parked host services must finish before installation. If a write
-changes installed instructions, retire the affected module before its next execution.
+Pending or parked host services must finish before installation. A managed write
+to an instruction while the CPU is stopped retires the affected installation
+when the host next enters the guest. Other installations retain their entries
+and call links.
 
 Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles

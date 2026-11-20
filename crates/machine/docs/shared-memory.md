@@ -136,10 +136,11 @@ hold restores the page's configured route.
 
 Retiring the module or dropping the CPU removes its registration. An outstanding
 compiler result can be installed again after validation. Its previous
-installation's write history remains available to observers. Callers coordinate
-guest writes and explicitly retire affected modules before executing changed
-code. Writers using `Memory::backing` bypass managed-write tracking and must
-remain quiescent during publication.
+installation's write history remains available to observers. A stopped host
+write or an interpreter step that changes instruction bytes marks the affected
+installations. The CPU retires them when the host next enters the guest.
+Writers using `Memory::backing` bypass this tracking. They must remain quiescent
+during publication and arrange explicit retirement before executing changed code.
 
 ## Devices
 
