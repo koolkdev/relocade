@@ -1,8 +1,12 @@
-//! Reasons for the execution worker to service this PC's compiled code.
+//! Compiler deliveries and modified installations for one CPU.
 
-use crate::worker::WakeReasons;
+use crate::{memory::code::ModuleId, worker::WakeReasons, Cpu};
 use futures_util::task::{ArcWake, AtomicWaker};
-use std::{sync::Arc, task::Waker};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+    task::Waker,
+};
 
 const RETIRE: u8 = 1 << 0;
 const COMPILER_REPLY: u8 = 1 << 1;
@@ -25,6 +29,13 @@ impl CodeWork {
 pub(crate) struct CodeWake {
     reasons: Arc<WakeReasons>,
     run: AtomicWaker,
+    modified: Mutex<BTreeSet<ModuleId>>,
+}
+
+impl Cpu {
+    pub(crate) fn code_wake(&self) -> &Arc<CodeWake> {
+        &self.instance.code.wake
+    }
 }
 
 impl CodeWake {
@@ -44,8 +55,26 @@ impl CodeWake {
         self.run.wake();
     }
 
-    pub(crate) fn record_retirements(&self) {
+    pub(crate) fn record_retirement(&self, id: ModuleId) -> Option<Waker> {
+        self.modified.lock().unwrap().insert(id);
         self.reasons.record(RETIRE);
+        self.run.take()
+    }
+
+    pub(crate) fn forget_retirement(&self, id: ModuleId) {
+        self.modified.lock().unwrap().remove(&id);
+    }
+
+    pub(super) fn drain_modified_modules(&self) -> BTreeSet<ModuleId> {
+        std::mem::take(&mut *self.modified.lock().unwrap())
+    }
+
+    pub(crate) fn take_modified_modules(&self) -> BTreeSet<ModuleId> {
+        if self.take_retirements() {
+            self.drain_modified_modules()
+        } else {
+            BTreeSet::new()
+        }
     }
 
     pub(crate) fn compiler_connected(&self) {
@@ -53,7 +82,7 @@ impl CodeWake {
         self.reasons.record(COMPILER_REPLY);
     }
 
-    pub(crate) fn take_retirements(&self) -> bool {
+    pub(super) fn take_retirements(&self) -> bool {
         self.reasons.take(RETIRE) != 0
     }
 

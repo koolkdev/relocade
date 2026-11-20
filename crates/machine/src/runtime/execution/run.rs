@@ -15,7 +15,7 @@ pub(crate) struct CpuRun {
 
 impl Cpu {
     pub(crate) fn listen_for_run(&self) -> CpuRun {
-        let work = self.instance.guest.bindings.guest.code_wake().clone();
+        let work = self.code_wake().clone();
         self.exit.0.waiter.replace(Arc::downgrade(&work));
         CpuRun {
             work,

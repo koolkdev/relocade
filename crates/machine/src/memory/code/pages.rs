@@ -4,17 +4,21 @@ use super::{
     blacklist::{CodeBlacklist, ExcludedCode},
     page_base, CodeSource, ModuleId, Span,
 };
+use crate::runtime::CodeWake;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    task::Waker,
 };
 
 /// One installation of compiled guest code. Observers can retain its write history
 /// after the CPU removes the module from dispatch.
 pub struct InstalledCode {
+    // Module IDs and wake registrations belong to the CPU that published the code.
+    owner: Arc<CodeWake>,
     id: ModuleId,
     source: CodeSource,
     spans_by_page: BTreeMap<u32, Vec<usize>>,
@@ -49,7 +53,9 @@ impl InstalledCode {
             return;
         };
         let mut registry = memory.pages.lock().unwrap();
-        registry.modified.remove(&self.id);
+        if self.was_modified() {
+            self.owner.forget_retirement(self.id);
+        }
         for page in self.spans_by_page.keys() {
             let codes = registry.by_backing.get_mut(page).expect("installed page");
             codes.retain(|code| !Arc::ptr_eq(code, self));
@@ -80,7 +86,6 @@ impl CodeWrite {
 pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
     blacklist: CodeBlacklist,
-    pub(super) modified: BTreeSet<ModuleId>,
 }
 
 impl CodePages {
@@ -88,7 +93,12 @@ impl CodePages {
         &self.blacklist.excluded
     }
 
-    pub(crate) fn register(&mut self, id: ModuleId, source: &CodeSource) -> Arc<InstalledCode> {
+    pub(crate) fn register(
+        &mut self,
+        owner: &Arc<CodeWake>,
+        id: ModuleId,
+        source: &CodeSource,
+    ) -> Arc<InstalledCode> {
         let mut spans_by_page = BTreeMap::<_, Vec<_>>::new();
         for (index, span) in source.spans.iter().enumerate() {
             spans_by_page
@@ -97,6 +107,7 @@ impl CodePages {
                 .push(index);
         }
         let code = Arc::new(InstalledCode {
+            owner: owner.clone(),
             id,
             source: source.clone(),
             spans_by_page,
@@ -120,15 +131,15 @@ impl CodePages {
             })
     }
 
-    /// Returns true if this write newly marked at least one installation.
+    /// Take run waiters here and wake them after unlocking the registry.
     pub(super) fn mark_modified(
         &mut self,
         backing: u32,
         bytes: &[u8],
         write: &mut CodeWrite,
-    ) -> bool {
+    ) -> Vec<Waker> {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
-        let mut changed = false;
+        let mut waiters = Vec::new();
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
                 let was_modified = code.was_modified();
@@ -148,11 +159,12 @@ impl CodePages {
                 if modified && !was_modified {
                     code.modified.store(true, Ordering::Release);
                     write.invalidated.push(code.clone());
-                    self.modified.insert(code.id);
-                    changed = true;
+                    if let Some(waiter) = code.owner.record_retirement(code.id) {
+                        waiters.push(waiter);
+                    }
                 }
             }
         }
-        changed
+        waiters
     }
 }
