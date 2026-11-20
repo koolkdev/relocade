@@ -31,10 +31,13 @@ is one. `start_with_workers(NonZeroUsize)` supplies an explicit pool size.
 
 Each CPU connection transfers a handle to its Machine's shared guest memory once.
 Requests carry guest addresses and compilation bounds. For explicit block requests,
-the service captures the bytes and calls `Compiler::compile_blocks_with`. For
-function requests, the service asks x86 to decode each instruction and uses its
-control flow to discover reachable blocks. It passes those decoded blocks to
-`Compiler::compile_decoded_blocks_with`. IR construction, placement and Wasm
+x86 decodes each captured snapshot up to the next requested entry or execution
+boundary. For function requests, the machine follows decoded control flow to
+discover reachable blocks. The machine selects whole blocks after decoding.
+Both request types link known jumps and fallthroughs to eligible blocks in the
+same module, code segment and decode width. A CPU-callable export can also be
+the target of a local jump. Calls use the current callee binding and returns
+dispatch to the popped guest address. IR construction, placement and Wasm
 emission use pool jobs. The service compiles the emitted Wasm
 with its backend compiler and returns the module. The pool limits concurrent
 Rust jobs. The backend engine controls its own parallelism.
@@ -76,11 +79,34 @@ and requires no CPU or device bus. An explicit capture rejects holes, MMIO and
 overflowing ranges before allocating its buffer. Discovery reads the available
 prefix up to those boundaries or the code segment limit.
 
+The first write that changes an installed instruction byte retires the affected
+code. Its new bytes remain eligible for compilation, so unpacked code can run
+in the JIT. If a write changes that same backing byte again after replacement
+code covering it has been installed, the byte stays blacklisted for the lifetime
+of the machine's memory. All writes made before a replacement is installed
+count at most once for that byte. An unchanged value does not count.
+
+The worker omits a decoded block if its instruction span contains a blacklisted
+byte, including through a different CS:IP or an A20 alias. Other blocks stay
+eligible. `CompiledCode::bindings()` gives the destination of each public
+CS:IP, either a named Wasm export or the interpreter. A private
+block has no CPU binding. A jump to an omitted private block uses ordinary
+dispatch.
+
+Explicit installation can replace an existing entry with a Wasm export.
+Automatic installation fills only vacant entries, preserving hooks and exports
+installed while the worker was compiling. Both paths bind the interpreter
+only at vacant addresses. A profiled root that discovery could not decode also
+receives this fallback.
+
 `CompiledCode::install` checks the execution target and guest memory identity.
 Before publishing dispatch entries and call links, the stopped CPU compares
-every emitted instruction span with its live backing. A mismatch returns
-`Error::StaleCompilation` and preserves existing entries and hooks. An
-automatically requested function can become hot again after a stale result.
+every emitted instruction span with its live backing and checks the current
+blacklist. Either check can reject a result with `Error::StaleCompilation`,
+even if the guest has since restored a blacklisted byte. The profiler clears
+the submitted roots' counts when a request finishes. After retirement, fresh
+unresolved calls can make a root hot again. Calls to an installed interpreter
+binding bypass the recorder.
 Explicit installation requires pending or parked host services to finish. A guest store
 to RAM containing compiled instructions runs through the interpreter. If the
 store changes an installed instruction byte, its host callback withdraws the

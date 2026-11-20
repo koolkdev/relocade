@@ -40,7 +40,8 @@ async fn call_after_write() {
                 .map(|&(address, len)| (address.eip(), len)),
         );
         let module = wasm_compiler.compile(&blocks.bytes).await.unwrap();
-        CompiledCode::new(module, blocks, source)
+        CompiledCode::new(module, blocks, source, Vec::new())
+            .unwrap()
             .install(&mut cpu)
             .unwrap();
     }

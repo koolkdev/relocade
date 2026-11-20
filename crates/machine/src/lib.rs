@@ -59,8 +59,8 @@ pub use clock::{
     TimerHandle, Timestamp,
 };
 pub use compiler::{
-    BlockRequest, CompiledCode, CompilerClient, CompilerService, DiscoveryError, DiscoveryLimits,
-    FunctionRequest,
+    BlockRequest, CompilationBinding, CompiledCode, CompilerClient, CompilerService,
+    DiscoveryError, DiscoveryLimits, FunctionRequest,
 };
 pub use config::{ConfigurationError, CpuConfig, MachineConfig};
 pub use cpu::{registers, CpuStateAccess, SavedRegisters};

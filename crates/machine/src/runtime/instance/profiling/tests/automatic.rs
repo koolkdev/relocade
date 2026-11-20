@@ -110,7 +110,6 @@ async fn automatic() {
                         .iter()
                         .map(|&entry| collected_count(runner.cpu(), entry))
                         .collect();
-                    assert!(counts.iter().any(|&count| count >= 4096));
                     let retired = runner.cpu().cpu_state().instruction_count();
                     slice(&mut runner).await;
                     assert!(runner.cpu().cpu_state().instruction_count() > retired);
@@ -181,12 +180,14 @@ async fn full_collection(compiler: &CompilerService) {
             ExecutionExit::Host(HostExit::Return)
         );
         let cpu = runner.cpu();
-        assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
-        assert!(
-            cpu.instance.profiling.pending.contains(&target)
-                || cpu.instance.modules.has_entry(target.packed()),
-            "full-buffer collection must submit before guest execution returns"
-        );
+        if cpu.instance.profiling.pending.contains(&target) {
+            assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
+        } else {
+            assert!(
+                cpu.instance.modules.has_entry(target.packed()),
+                "expected a compiled reply"
+            );
+        }
     })
     .join()
     .await;
@@ -204,4 +205,109 @@ fn collection_compiles_hot_functions_with_partially_discovered_branches() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn collection_compiles_hot_functions_with_partially_discovered_branches() {
     automatic().await;
+}
+
+async fn patched_callee() {
+    let compiler = CompilerService::start_with_workers(NonZeroUsize::new(1).unwrap()).unwrap();
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    let caller = [
+        0xb9, 0, 0x20, // MOV CX,8192
+        0xe8, 0xfa, 0, // CALL 0200
+        0xe2, 0xfb, // LOOP 0103
+        0xe9, 0xf5, 2, // JMP 0400 (return to host)
+    ];
+    memory.view().write(0x100, &caller).unwrap();
+    memory.view().write(0x200, &[0x40, 0xc3]).unwrap(); // INC AX; RET
+    let cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
+    let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let cpu = runner.cpu();
+        cpu.cpu_state().set_sp(0x800);
+        let exit = cpu.exit_handle();
+        cpu.install([Hook::host(0x400, async move || exit.request())])
+            .await
+            .unwrap();
+        // Collect exactly once after each guest loop, independently of host timing.
+        cpu.instance.profiling.next_collection = Some(Instant::now() + Duration::from_secs(3600));
+        for (opcode, expect_request, compiled) in [
+            (0x40, true, true),   // initial compilation
+            (0x40, false, true),  // bound calls bypass profiling
+            (0x42, true, true),   // first patch: compile the replacement
+            (0x42, false, true),  // the replacement runs compiled
+            (0x40, true, false),  // second patch: bind this block to the interpreter
+            (0x42, false, false), // restoring the replacement bytes keeps that binding
+        ] {
+            memory.view().write(0x200, &[opcode]).unwrap();
+            let state = runner.cpu().cpu_state();
+            state.set_eip(0x100);
+            state.set_ax(0);
+            state.set_dx(0);
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            let cpu = runner.cpu();
+            assert_eq!(
+                (state.ax(), state.dx()),
+                if opcode == 0x40 { (8192, 0) } else { (0, 8192) }
+            );
+            // A scheduler stop after a completed CALL can skip its profile sample.
+            assert_eq!(
+                collected_count(cpu, FarPointer::from_packed(0x200)) > 0,
+                expect_request
+            );
+            assert_eq!(!cpu.instance.profiling.pending.is_empty(), expect_request);
+            if expect_request {
+                let compiler = cpu.instance.profiling.compiler.as_mut().unwrap();
+                let code = compiler.recv().await.unwrap().unwrap();
+                assert_eq!(!code.blocks().is_empty(), compiled);
+                cpu.instance.finish_compilation(Ok(code));
+            }
+            assert!(cpu.instance.modules.has_entry(0x200));
+            assert_eq!(
+                cpu.compiled_modules_at(0x200).count(),
+                usize::from(compiled)
+            );
+        }
+
+        // An explicit request at a new alias can return only an interpreter binding.
+        let alias = FarPointer {
+            segment: 0x10,
+            offset: 0x100,
+        };
+        assert!(!runner.cpu().instance.modules.has_entry(alias.packed()));
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut client = runner.take_compiler().unwrap();
+        client
+            .request(
+                target,
+                vec![crate::BlockRequest {
+                    entry: alias,
+                    byte_len: 2,
+                    instruction_limit: 2,
+                }],
+            )
+            .unwrap();
+        let code = client.recv().await.unwrap().unwrap();
+        assert!(code.blocks().is_empty());
+        code.install(runner.cpu()).unwrap();
+        assert!(runner.cpu().instance.modules.has_entry(alias.packed()));
+    })
+    .join()
+    .await;
+    machine.shutdown().await.unwrap();
+    compiler.shutdown().await.unwrap();
+    assert_eq!(result.unwrap(), Some(()));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_hot_patched_callee_uses_the_interpreter_binding() {
+    pollster::block_on(patched_callee());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_hot_patched_callee_uses_the_interpreter_binding() {
+    patched_callee().await;
 }
