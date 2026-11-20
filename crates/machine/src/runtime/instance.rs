@@ -249,7 +249,8 @@ impl CpuInstance {
     }
 
     pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
-        self.modules.invalidate(&self.runtime, range)
+        self.runtime
+            .with_runtime(|wasm| self.modules.invalidate(wasm, range))
     }
 
     pub(super) fn compiled_modules_at(

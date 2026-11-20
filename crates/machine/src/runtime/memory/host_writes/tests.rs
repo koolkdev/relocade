@@ -1,6 +1,6 @@
 use super::*;
 use crate::{CpuConfig, Memory};
-use relocade_wasm_runtime::SharedMemory;
+use relocade_wasm_runtime::{SharedMemory, WasmBackend};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -36,9 +36,9 @@ fn the_last_page_holder_restores_the_configured_write_route() {
     let first = pages.hold(0x1000);
     assert_eq!(kind(8), 5); // RAM routed through the host
     let second = pages.hold(0x1080);
-    drop(first);
+    runtime.with_runtime(|wasm| first.release(&mut wasm.context()));
     assert_eq!(kind(8), 5);
-    drop(second);
+    runtime.with_runtime(|wasm| second.release(&mut wasm.context()));
     assert_eq!(kind(8), 1);
 
     let held_again = pages.hold(0x1000);

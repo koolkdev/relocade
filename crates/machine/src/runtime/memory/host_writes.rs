@@ -36,7 +36,8 @@ impl HostWritePages {
         if let Some(page) = held.get(&physical_page) {
             return page.upgrade().expect("live host-write page");
         }
-        self.route_writes(physical_page, true);
+        self.runtime
+            .with_runtime(|wasm| self.route_writes(wasm, physical_page, true));
         let page = Rc::new(HostWritePage {
             physical_page,
             owner: Rc::downgrade(self),
@@ -45,14 +46,23 @@ impl HostWritePages {
         page
     }
 
-    fn route_writes(&self, physical_page: u32, via_host: bool) {
+    fn route_writes(
+        &self,
+        wasm: &mut impl WasmMemoryAccess<Memory = WasmMemory>,
+        physical_page: u32,
+        via_host: bool,
+    ) {
         let (offset, kind) = self
             .config
             .memory_map()
             .host_write_entry(physical_page, via_host)
             .expect("host writes require a RAM or ROM page");
-        self.runtime
-            .with_runtime(|wasm| wasm.memory(&self.mapping).store(offset, kind));
+        wasm.memory(&self.mapping).store(offset, kind);
+    }
+
+    fn release(&self, wasm: &mut impl WasmMemoryAccess<Memory = WasmMemory>, physical_page: u32) {
+        self.held.borrow_mut().remove(&physical_page);
+        self.route_writes(wasm, physical_page, false);
     }
 }
 
@@ -62,11 +72,28 @@ pub(in crate::runtime) struct HostWritePage {
     owner: Weak<HostWritePages>,
 }
 
+impl HostWritePage {
+    /// Release a hold while the engine is already borrowed, including in a Wasm callback.
+    pub(in crate::runtime) fn release(
+        self: Rc<Self>,
+        wasm: &mut impl WasmMemoryAccess<Memory = WasmMemory>,
+    ) {
+        let Some(mut page) = Rc::into_inner(self) else {
+            return;
+        };
+        // The supplied context handles the final release. Drop has nothing left to restore.
+        if let Some(owner) = std::mem::take(&mut page.owner).upgrade() {
+            owner.release(wasm, page.physical_page);
+        }
+    }
+}
+
 impl Drop for HostWritePage {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.upgrade() {
-            owner.held.borrow_mut().remove(&self.physical_page);
-            owner.route_writes(self.physical_page, false);
+            owner
+                .runtime
+                .with_runtime(|wasm| owner.release(wasm, self.physical_page));
         }
     }
 }

@@ -7,10 +7,10 @@ mod table;
 use super::hooks::Hooks;
 use crate::runtime::{
     memory::{HostWritePage, HostWritePages},
-    WasmRuntime, WasmRuntimeHandle,
+    WasmRuntime,
 };
 use crate::{CompiledCode, DispatchEntry, FarPointer, InstalledCode, Result};
-use relocade_wasm_runtime::{ExportFunction, Import};
+use relocade_wasm_runtime::{ExportFunction, Import, Memory, WasmMemoryAccess};
 use relocade_x86::abi;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -70,6 +70,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
             .map(|page| host_writes.hold(page))
             .collect();
         self.registered_source = Some(source);
+    }
+
+    fn release_host_write_pages(&mut self, wasm: &mut impl WasmMemoryAccess<Memory = Memory>) {
+        for page in self.host_write_pages.drain(..) {
+            page.release(wasm);
+        }
     }
 }
 
@@ -153,11 +159,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
 
 impl Modules<WasmRuntime> {
     /// Retire each complete linked version that covers a changed byte.
-    pub(super) fn invalidate(
-        &mut self,
-        runtime: &WasmRuntimeHandle,
-        range: Range<u64>,
-    ) -> Result<()> {
+    pub(super) fn invalidate(&mut self, wasm: &mut WasmRuntime, range: Range<u64>) -> Result<()> {
         if range.is_empty() {
             return Ok(());
         }
@@ -176,12 +178,12 @@ impl Modules<WasmRuntime> {
                 .get(index)
                 .is_some_and(|source| source.start < range.end)
         });
-        self.retire(runtime, retired_modules)
+        self.retire(wasm, retired_modules)
     }
 
     fn retire(
         &mut self,
-        runtime: &WasmRuntimeHandle,
+        wasm: &mut WasmRuntime,
         retired_modules: BTreeSet<ModuleId>,
     ) -> Result<()> {
         for id in &retired_modules {
@@ -195,10 +197,10 @@ impl Modules<WasmRuntime> {
                 .iter()
                 .map(move |&key| (id, key))
         });
-        // Release the runtime borrow before dropping the modules' host-write pages.
-        runtime.with_runtime(|wasm| self.table.remove(wasm, exports))?;
+        self.table.remove(wasm, exports)?;
         for id in retired_modules {
-            let module = self.modules.remove(&id).expect("installed module");
+            let mut module = self.modules.remove(&id).expect("installed module");
+            module.release_host_write_pages(wasm);
             for &page in &module.linear_pages {
                 let modules = self
                     .by_linear_page
