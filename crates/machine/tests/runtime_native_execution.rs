@@ -2,11 +2,10 @@
 mod support;
 use support::Configuration;
 
-use relocade_machine::Cpu;
-use relocade_machine::MemoryError;
+use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory, MemoryError};
 use relocade_x86::{
     Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segment,
+    PhysicalMapping, PhysicalMemoryMap, Segment, SegmentProfile, SegmentRegister,
 };
 
 fn create(config: Configuration) -> Cpu {
@@ -77,6 +76,38 @@ fn runtimes_keep_private_cpu_and_backing() {
     assert_eq!(bytes, [0, 0]);
     assert_eq!(second.context().cpu.instruction_count(), 0);
     assert_eq!(second.context().cpu.eax(), 0);
+}
+
+#[test]
+fn protected_segment_loads_use_the_empty_descriptor_tables() {
+    let memory = Memory::new(MachineConfig::flat(0x1000).unwrap()).unwrap();
+    memory
+        .view()
+        .write(
+            0,
+            &[
+                0x31, 0xc0, // XOR EAX,EAX sets ZF.
+                0x8e, 0xe0, // MOV FS,AX accepts the null selector.
+                0xb0, 0x23, // MOV AL,23h selects the initial data segment.
+                0x0f, 0x00, 0xe0, // VERR AX clears ZF because the slot is empty.
+                0x8e, 0xe0, // MOV FS,AX faults without changing FS.
+            ],
+        )
+        .unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState::default(),
+    )
+    .unwrap();
+    let mut cpu = pollster::block_on(Cpu::new_without_io(memory, config)).unwrap();
+    assert_eq!(
+        pollster::block_on(cpu.run()),
+        ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0x20 })
+    );
+    let state = cpu.cpu_state();
+    assert_eq!(state.eip(), 9);
+    assert_eq!(state.segment(Segment::Fs), SegmentRegister::unusable(0));
+    assert_eq!(state.eflags() & (1 << 6), 0);
 }
 
 #[test]

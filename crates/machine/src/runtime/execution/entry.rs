@@ -1,7 +1,8 @@
 //! Arbitrates guest calls and device IRQs, suspending host work after entry.
 
 use super::{Cpu, GuestCall, SuspendedCall};
-use relocade_x86::{CpuMode, ExecutionExit};
+use crate::runtime::instance::Environment;
+use relocade_x86::ExecutionExit;
 use std::task::{Context, Poll};
 
 impl Cpu {
@@ -45,14 +46,14 @@ impl Cpu {
     }
 
     fn poll_irq(&self, cx: &mut Context<'_>) -> Result<Poll<u8>, ExecutionExit> {
+        let Environment::Pc(io) = &self.instance.guest.environment else {
+            return Ok(Poll::Pending);
+        };
         let cpu = &self.instance.guest.bindings.cpu;
-        if self.instance.guest.io.is_empty()
-            || cpu.mode() != CpuMode::Real
-            || !cpu.interrupts_enabled()
-        {
+        if io.is_empty() || !cpu.interrupts_enabled() {
             return Ok(Poll::Pending);
         }
-        let vector = self.instance.guest.io.poll_interrupt(cx);
+        let vector = io.poll_interrupt(cx);
         // Device callbacks may request an exit even without an eligible IRQ.
         if let Some(exit) = self.exit.result() {
             return Err(exit);

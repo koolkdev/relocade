@@ -128,3 +128,62 @@ fn far_buffers_wrap_offsets_across_multiple_laps() {
     expected[0x10000..].copy_from_slice(b"WXYZ");
     assert_eq!(bytes, expected);
 }
+
+async fn check_flat_guest_memory() {
+    use relocade_machine::{CpuConfig, Hook};
+    use relocade_x86::{Exception, SegmentProfile};
+    const ENTRY: u32 = 0x10_0100;
+    const END: u32 = 0x10_1000;
+
+    let memory = Memory::new(MachineConfig::flat(END.into()).unwrap()).unwrap();
+    let mut view = memory.view();
+    view.write_u32(0x400, 0x11).unwrap();
+    view.write_u32(0x10_0400, 0x22).unwrap();
+    view.write(
+        ENTRY,
+        &[
+            0xa1, 0x00, 0x04, 0x10, 0x00, // MOV EAX,[100400]
+            0xeb, 0x00, // JMP to the host hook
+            0x0f, 0x0b, // UD2 if the hook is missed
+            0xa1, 0x00, 0x10, 0x10, 0x00, // MOV EAX,[101000] (first unmapped page)
+        ],
+    )
+    .unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState {
+            eip: ENTRY,
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let mut cpu = Cpu::new_without_io(memory, config).await.unwrap();
+    let state = cpu.cpu_state();
+    cpu.install([Hook::host(ENTRY + 7, {
+        let state = state.clone();
+        async move || state.set_eip(ENTRY + 9)
+    })])
+    .await
+    .unwrap();
+    assert_eq!(
+        cpu.run().await,
+        ExecutionExit::Exception(Exception::PageFault {
+            linear_address: END,
+            error_code: 0, // Host page table reports an absent page on a read.
+        })
+    );
+    assert_eq!(state.eip(), ENTRY + 9);
+    assert_eq!(state.eax(), 0x22);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn flat_cpu_uses_linear_addresses_and_faults_outside_its_memory() {
+    pollster::block_on(check_flat_guest_memory());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn flat_cpu_uses_linear_addresses_and_faults_outside_its_memory() {
+    check_flat_guest_memory().await;
+}

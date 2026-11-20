@@ -3,7 +3,7 @@
 use super::execution::{GuestCall, GuestCalls};
 use crate::{CpuStateAccess, FarPointer, IoBus, MemoryView};
 
-/// Resource access for embeddings and host services.
+/// Resource access for PC embeddings and real-mode host services.
 /// The fields borrow separate handles and apply writes immediately. A context
 /// obtained from a runner excludes another mutable borrow of that runner.
 /// Registered interrupt handlers receive these resources together with access

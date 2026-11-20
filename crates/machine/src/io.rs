@@ -18,15 +18,16 @@ pub use ports::{PortBinding, PortRange, PortRead, PortWrite};
 use crate::runtime::WasmRuntimeHandle;
 use relocade_wasm_runtime::WasmBackend;
 use std::{
-    cell::{Cell, RefCell},
+    cell::{OnceCell, RefCell},
     ops::RangeInclusive,
     rc::{Rc, Weak},
     task::{Context, Poll},
 };
 
-/// An owned handle to device connections and their runtime on one execution worker.
+/// An owned handle to device connections on one execution worker.
 /// Obtain it through [`crate::Cpu::io`] or clone an existing handle. Clones share
-/// routing and retain the devices and runtime independently of the CPU controller.
+/// routing and retain the devices independently of the CPU controller. Standalone
+/// host I/O works before attachment. Once a CPU attaches, the bus also retains its runtime.
 /// Port and MMIO methods perform synchronous transfers through `&self`. Retain
 /// the handle across awaits and use it at stopped host boundaries, including
 /// after the CPU is dropped. Engine callbacks hold weak routing references.
@@ -61,8 +62,7 @@ impl WeakIoBus {
 }
 
 pub(crate) struct State {
-    runtime: WasmRuntimeHandle,
-    cpu_attached: Cell<bool>,
+    runtime: OnceCell<WasmRuntimeHandle>,
     connections: RefCell<Vec<ConnectedDevice>>,
     ports: ports::Ports,
     mmio: mmio::Mmio,
@@ -73,8 +73,7 @@ impl Default for IoBus {
     fn default() -> Self {
         Self {
             state: Rc::new_cyclic(|identity| State {
-                runtime: WasmRuntimeHandle::default(),
-                cpu_attached: Cell::new(false),
+                runtime: OnceCell::new(),
                 connections: RefCell::default(),
                 ports: ports::Ports::default(),
                 mmio: mmio::Mmio::default(),
@@ -126,9 +125,13 @@ impl IoBus {
     /// escape this call or remain borrowed across an await. Reuse it when a batch
     /// performs several transfers. Panics if guest execution already owns the runtime.
     pub fn with_context<R>(&self, access: impl FnOnce(IoContext<'_>) -> R) -> R {
-        self.state
-            .runtime
-            .with_runtime(|wasm| access(IoContext::new(wasm.context(), &self.state.identity)))
+        let bus = &self.state.identity;
+        match self.state.runtime.get() {
+            Some(runtime) => {
+                runtime.with_runtime(|wasm| access(IoContext::new(wasm.context(), bus)))
+            }
+            None => access(IoContext { bus, runtime: None }),
+        }
     }
 
     /// Acknowledges the first ready interrupt in connection order.
@@ -160,14 +163,12 @@ impl IoBus {
         self.with_context(|context| self.state.write_port(context, port, bytes, value))
     }
 
-    /// Claims this bus for one CPU, including if runtime initialization fails.
-    pub(crate) fn attach_cpu(&self) -> crate::Result<WasmRuntimeHandle> {
+    /// Binds device routing to the CPU's runtime for the lifetime of this bus.
+    pub(crate) fn bind_runtime(&self, runtime: &WasmRuntimeHandle) {
         assert!(
-            !self.state.cpu_attached.replace(true),
+            self.state.runtime.set(runtime.clone()).is_ok(),
             "an I/O bus supports exactly one CPU"
         );
-        self.state.runtime.initialize()?;
-        Ok(self.state.runtime.clone())
     }
 
     pub(crate) fn mmio_map(&self) -> &mmio::Mmio {

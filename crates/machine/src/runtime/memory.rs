@@ -7,7 +7,7 @@ use super::{ExecutionInterrupt, Result};
 use crate::{memory::CpuBinding, CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
 use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
-use relocade_x86::abi;
+use relocade_x86::{abi, page_table, MemoryBackend};
 use std::sync::Arc;
 
 /// Retained CPU and guest storage, plus private mapping storage.
@@ -36,12 +36,21 @@ impl RuntimeMemory {
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage);
         let guest_import = wasm.import_shared_memory(guest.backing());
+        let declaration = mapping_import(config.execution_target().memory_backend);
         let mapping = wasm.create_memory(MemoryDeclaration {
-            maximum: Some(abi::PHYSICAL_MAP.minimum),
-            ..abi::PHYSICAL_MAP
+            maximum: Some(declaration.minimum),
+            ..declaration
         })?;
-        wasm.memory(&mapping)
-            .write(0, guest.configuration().memory_map().as_bytes());
+        let policy = guest.configuration();
+        if let Some(map) = policy.physical_map() {
+            wasm.memory(&mapping).write(0, map.as_bytes());
+        } else {
+            let entries: Vec<u8> = (0..policy.memory_size())
+                .step_by(page_table::PAGE_BYTES as usize)
+                .flat_map(|offset| page_table::encode_entry(offset as u32, true).unwrap())
+                .collect();
+            wasm.memory(&mapping).write(0, &entries);
+        }
         Ok(Self {
             config,
             context,
@@ -53,15 +62,22 @@ impl RuntimeMemory {
         })
     }
 
-    pub fn configuration(&self) -> &CpuConfig {
-        &self.config
-    }
-    /// Binds CPU storage, guest memory and physical routing.
+    /// Binds CPU storage, guest memory and the configured address translation.
     pub fn imports<'a>(&'a self, wasm: &super::WasmRuntime) -> [Import<'a, super::WasmRuntime>; 3] {
         [
             wasm.bind(abi::EXECUTION_CONTEXT, &self.context),
             wasm.bind(abi::GUEST, &self.guest_import),
-            wasm.bind(abi::PHYSICAL_MAP, &self.mapping),
+            wasm.bind(
+                mapping_import(self.config.execution_target().memory_backend),
+                &self.mapping,
+            ),
         ]
+    }
+}
+
+fn mapping_import(backend: MemoryBackend) -> MemoryDeclaration {
+    match backend {
+        MemoryBackend::PhysicalBus => abi::PHYSICAL_MAP,
+        MemoryBackend::HostPageTable => abi::PAGE_TABLE,
     }
 }

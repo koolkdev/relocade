@@ -6,18 +6,30 @@ use std::rc::Weak;
 /// Every transfer receives this as its first argument. Native callbacks borrow
 /// Wasmtime's Caller; browser callbacks need no runtime-state borrow.
 pub struct IoContext<'a> {
-    pub(super) runtime: Context<'a>,
+    pub(super) runtime: Option<Context<'a>>,
     pub(super) bus: &'a Weak<State>,
 }
 
 impl<'a> IoContext<'a> {
     pub(crate) fn new(runtime: Context<'a>, bus: &'a Weak<State>) -> Self {
-        Self { runtime, bus }
+        Self {
+            runtime: Some(runtime),
+            bus,
+        }
     }
 
     /// Borrows this context for another synchronous operation.
     pub fn reborrow(&mut self) -> IoContext<'_> {
-        IoContext::new(self.runtime.reborrow(), self.bus)
+        IoContext {
+            runtime: self.runtime.as_mut().map(WasmContext::reborrow),
+            bus: self.bus,
+        }
+    }
+
+    pub(super) fn runtime(&mut self) -> &mut Context<'a> {
+        self.runtime
+            .as_mut()
+            .expect("I/O bus bound to a Wasm runtime")
     }
 
     pub(crate) fn io(&self) -> IoBus {

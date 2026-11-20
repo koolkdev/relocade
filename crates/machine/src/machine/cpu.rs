@@ -57,7 +57,10 @@ impl CpuHandle {
         self,
         io: IoBus,
     ) -> Result<(Cpu, Option<crate::compiler::Endpoint>)> {
-        let mut cpu = self.storage.into_initialized_cpu(self.binding, io).await?;
+        let mut cpu = self
+            .storage
+            .into_initialized_cpu(self.binding, Some(io))
+            .await?;
         cpu.execution = Some(self.execution);
         Ok((cpu, self.compiler))
     }

@@ -5,7 +5,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 use std::collections::BTreeMap;
 
 const HASH_MULTIPLIER: u32 = 0x9e37_79b1;
-/// Packed real-mode CS:IP keys mapped to `() -> ExecutionExit` function-table slots.
+/// Guest dispatch keys mapped to `() -> ExecutionExit` function-table slots.
 /// Slot zero is reserved; slot one holds the interpreter fallback. The embedding
 /// installs callable functions before publishing their keys.
 #[derive(Clone, Debug, Default)]

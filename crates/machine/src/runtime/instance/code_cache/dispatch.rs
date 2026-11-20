@@ -1,4 +1,4 @@
-//! Real-mode entries own their current binding and incoming call-table slots.
+//! Dispatch entries own their current binding and incoming call-table slots.
 
 use super::calls::{CallSite, Calls};
 use crate::memory::code::ModuleId;

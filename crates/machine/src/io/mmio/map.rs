@@ -107,8 +107,8 @@ impl Mmio {
         read: &MmioRead,
         write: &MmioWrite,
     ) -> MmioHandlerId {
-        read.0.function(&mut context);
-        write.0.function(&mut context);
+        read.0.bind_to(context.bus);
+        write.0.bind_to(context.bus);
         let index = {
             let mut mappings = self.mappings.borrow_mut();
             mappings.push(Mapping {
@@ -135,21 +135,21 @@ impl Mmio {
     ) {
         tables
             .reads
-            .ensure_size(&mut context.runtime, index + 1, None)
+            .ensure_size(context.runtime(), index + 1, None)
             .expect("grow MMIO read table");
         tables
             .writes
-            .ensure_size(&mut context.runtime, index + 1, None)
+            .ensure_size(context.runtime(), index + 1, None)
             .expect("grow MMIO write table");
         let function = read.0.function(context);
         tables
             .reads
-            .set(&mut context.runtime, index, function)
+            .set(context.runtime(), index, function)
             .expect("MMIO read slot");
         let function = write.0.function(context);
         tables
             .writes
-            .set(&mut context.runtime, index, function)
+            .set(context.runtime(), index, function)
             .expect("MMIO write slot");
     }
 
@@ -159,11 +159,12 @@ impl Mmio {
         handler: MmioHandlerId,
         read: &MmioRead,
     ) {
-        let function = read.0.function(&mut context);
+        read.0.bind_to(context.bus);
         if let Some(tables) = self.tables.get() {
+            let function = read.0.function(&mut context);
             tables
                 .reads
-                .set(&mut context.runtime, handler.index(), function)
+                .set(context.runtime(), handler.index(), function)
                 .expect("MMIO read slot");
         }
         let replaced = std::mem::replace(
@@ -179,11 +180,12 @@ impl Mmio {
         handler: MmioHandlerId,
         write: &MmioWrite,
     ) {
-        let function = write.0.function(&mut context);
+        write.0.bind_to(context.bus);
         if let Some(tables) = self.tables.get() {
+            let function = write.0.function(&mut context);
             tables
                 .writes
-                .set(&mut context.runtime, handler.index(), function)
+                .set(context.runtime(), handler.index(), function)
                 .expect("MMIO write slot");
         }
         let replaced = std::mem::replace(
@@ -217,7 +219,7 @@ impl Mmio {
         for (&address, &offset) in physical.mmio_handler_offsets.range(first..=last) {
             let handler = self.page_handler(address);
             context
-                .runtime
+                .runtime()
                 .memory(&physical.memory)
                 .write(offset, &handler.index().to_le_bytes());
         }

@@ -20,8 +20,15 @@ impl<'a> MemoryView<'a> {
         mut bytes: &[u8],
         write: &mut CodeWrite,
     ) -> Result<(), MemoryError> {
-        for span in Spans::new(self.config.memory_map(), address, bytes.len())?
-            .with_io(self.io.as_ref().map(Routing::bus))
+        let Some(map) = self.config.physical_map() else {
+            if !range_fits(address, bytes.len(), self.backing_size()) {
+                return Err(MemoryError::BackingRange);
+            }
+            self.memory.write_storage(address, bytes, write);
+            return Ok(());
+        };
+        for span in
+            Spans::new(map, address, bytes.len())?.with_io(self.io.as_ref().map(Routing::bus))
         {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {

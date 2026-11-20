@@ -16,13 +16,16 @@ pub struct Interrupts<'cpu> {
 }
 
 impl<'cpu> Interrupts<'cpu> {
-    /// Begins registration while no host service is pending or suspended.
+    /// Begins registration on a PC CPU while no host service is pending or suspended.
+    ///
+    /// # Panics
+    /// Panics if the CPU has no PC bus or a host service is pending or suspended.
     pub fn new(cpu: &'cpu mut Cpu) -> Self {
         assert!(
             cpu.suspended.is_empty(),
             "host calls are parked; complete or abandon them before registering interrupts"
         );
-        cpu.instance_mut();
+        cpu.instance_mut().guest.environment.pc_bus();
         Self {
             cpu,
             hooks: Vec::new(),
@@ -112,7 +115,7 @@ impl<'cpu> Interrupts<'cpu> {
         }
 
         let cpu = self.cpu.cpu_state();
-        let memory = memory.with_io(self.cpu.instance.guest.io.clone());
+        let memory = memory.with_io(self.cpu.io());
         let guest_calls = self.cpu.guest_calls.clone();
         self.hooks
             .extend(hook(entry.packed(), cpu.clone(), async move || {

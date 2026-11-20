@@ -122,3 +122,17 @@ fn backing_can_reach_the_end_of_the_32_bit_address_space() {
         Err(ConfigurationError::InvalidMemorySize)
     ));
 }
+
+#[test]
+fn flat_memory_requires_whole_pages_within_the_32_bit_address_space() {
+    assert!(MachineConfig::flat(0).is_ok());
+    assert!(MachineConfig::flat(1 << 32).is_ok());
+    assert!(matches!(
+        MachineConfig::flat(4097),
+        Err(ConfigurationError::UnalignedMemorySize)
+    ));
+    assert!(matches!(
+        MachineConfig::flat((1 << 32) + 4096),
+        Err(ConfigurationError::InvalidMemorySize)
+    ));
+}

@@ -27,6 +27,9 @@ impl Machine {
     /// Allocates shared memory before creating the PC's CPU.
     /// Await [`Self::shutdown`] after execution owners have finished.
     pub fn new(config: MachineConfig) -> Result<Self> {
+        if config.physical_map().is_none() {
+            return Err(crate::ConfigurationError::UnsupportedMemoryBackend.into());
+        }
         let memory = Memory::new(config)?;
         Ok(Self {
             memory,

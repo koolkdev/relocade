@@ -2,7 +2,9 @@
 
 use crate::{CodeSource, ConfigurationError, Cpu, Error, FarPointer, Memory, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, ExecutionTarget, SegmentDefaultSize};
+use relocade_x86::{
+    BlockEntry, CodeAddress, CompiledBlocks, ExecutionProfile, ExecutionTarget, SegmentDefaultSize,
+};
 use std::ops::Range;
 
 /// The destination selected for one public guest entry.
@@ -121,7 +123,7 @@ impl CompiledCode {
     }
 
     pub(crate) fn check_destination(&self, target: ExecutionTarget, memory: &Memory) -> Result<()> {
-        if target != self.description.target {
+        if target.profile != ExecutionProfile::Real16 || target != self.description.target {
             return Err(Error::CompilationTarget);
         }
         if !self.source().belongs_to(memory) {
