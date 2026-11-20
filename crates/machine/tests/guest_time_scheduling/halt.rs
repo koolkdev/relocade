@@ -75,19 +75,18 @@ async fn halt_with_cpu_limit() {
                 0x102
             );
             assert_eq!(state.instruction_count(), 3); // STI; HLT; IRET.
-            assert_eq!(
-                runner.clock().now(),
-                clock.deadline_after(start, Duration::from_millis(11))
-            );
+            assert_eq!(runner.clock().now(), deadline);
         },
     );
-    // STI and HLT consumed two guest ticks. While the CPU is halted, the
-    // remaining eight ticks elapse at the device clock's nominal 1 kHz.
-    let device_timer = host.at(Duration::from_millis(8));
-    assert_eq!(armed.next().await, Some(device_timer));
+    // STI and HLT retire while the controlled host clock stands still.
+    let device_timer = host.at(Duration::from_millis(10));
+    expect_parked_timer(&mut armed, &host, device_timer).await;
     host.advance_to(device_timer);
     assert_eq!(worker.join().await.unwrap(), Some(()));
-    assert_eq!(armed.next().await, None);
+    // The interrupt handler can briefly resume calibration before final exit.
+    while let Some(at) = armed.next().await {
+        assert_eq!(at, host.at(Duration::from_millis(14)));
+    }
     assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
 }
@@ -136,8 +135,10 @@ async fn halted_at_instruction_limit() {
         })
     );
 
-    // HLT retires the entire one-instruction allowance. The device has one
-    // millisecond left on its guest timer. The CPU's next credit is at 4 ms.
+    // HLT retires the entire one-instruction allowance. The device's deadline
+    // is at 2 ms and the CPU's next credit is at 4 ms.
+    assert!(poll_once(session.as_mut()).await.is_none());
+    host.advance_by(Duration::from_millis(1));
     assert!(poll_once(session.as_mut()).await.is_none());
     host.advance_by(Duration::from_millis(1));
     assert_eq!(

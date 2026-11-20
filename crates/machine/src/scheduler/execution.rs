@@ -1,4 +1,4 @@
-//! Drives the CPU or advances idle device time while the foreground waits.
+//! Drives the foreground CPU to a guest checkpoint, a pending service or an exit.
 
 use super::Runner;
 use crate::runtime::CpuStop;
@@ -8,23 +8,14 @@ use std::{
     convert::Infallible,
     future::{pending, poll_fn, Future},
     pin::pin,
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 
 impl Runner {
     /// Waits for foreground work while devices can advance to their next guest deadline.
     /// Guest instructions remain stopped for the duration of the wait.
     pub async fn wait_for<F: Future>(&mut self, work: F) -> F::Output {
-        let mut work = pin!(work);
-        poll_fn(|cx| {
-            if let Poll::Ready(result) = work.as_mut().poll(cx) {
-                return Poll::Ready(result);
-            }
-            let _permit = ready!(self.cpu.poll_enter(cx));
-            self.poll_idle(cx);
-            Poll::Pending
-        })
-        .await
+        work.await
     }
 
     /// Executes guest instructions until exit. Dropping the future immediately returns
@@ -66,21 +57,17 @@ impl Runner {
                 return Poll::Pending;
             };
             // HLT and the final guest instruction can both make a device due.
-            let due = self.time.notify_due();
+            let due = self
+                .time
+                .cpu_boundary(&self.cpu, matches!(boundary, CpuStop::Checkpoint));
             match boundary {
                 CpuStop::Exit(exit) => return Poll::Ready((exit, due)),
                 CpuStop::Checkpoint => self.wake.repoll(cx),
-                CpuStop::Blocked => self.poll_idle(cx),
+                CpuStop::Blocked if self.wake.has_pending_poll() => self.wake.repoll(cx),
+                CpuStop::Blocked => {}
             }
             Poll::Pending
         })
         .await
-    }
-
-    fn poll_idle(&mut self, cx: &mut Context<'_>) {
-        // Ready tasks can cancel a timer or replace it with an earlier one.
-        if self.wake.has_pending_poll() || self.time.advance_idle(cx) {
-            self.wake.repoll(cx);
-        }
     }
 }

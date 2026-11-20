@@ -143,7 +143,7 @@ async fn output_from_an_unlimited_cpu() {
     let worker = ExecutionWorker::spawn(
         prepared,
         SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
-            NonZeroU64::new(1_000).unwrap(),
+            NonZeroU64::new(3_000).unwrap(),
         ))
         .with_host_clock(source),
         async move |mut runner| {
@@ -158,24 +158,32 @@ async fn output_from_an_unlimited_cpu() {
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 64);
 
-            let clock = runner.clock();
-            assert_eq!(clock.now(), Timestamp::from_ticks(64));
+            let clock = runner.clock().clone();
+            assert_eq!(clock.now(), Timestamp::from_ticks(0));
             assert_eq!(host.clock().now(), host.at(Duration::ZERO));
             assert!(poll_once(clock.sync_to_host(clock.now())).await.is_some());
-            assert!(poll_once(clock.sync_to_host(Timestamp::from_ticks(32)))
-                .await
-                .is_some());
 
             let at = clock.deadline_after(clock.now(), Duration::from_millis(10));
-            let captured = clock.sync_to_host(at);
-            host.advance_by(Duration::from_secs(1));
-            assert!(poll_once(captured).await.is_some());
-            let mut fresh = clock.sync_to_host(at);
-            assert!(poll_once(&mut fresh).await.is_none());
+            let mut captured = clock.sync_to_host(at);
+            assert!(poll_once(&mut captured).await.is_none());
             assert_eq!(
                 host.next_deadline(),
-                Some(host.at(Duration::from_millis(1010)))
+                Some(host.at(Duration::from_millis(10)))
+            );
+            host.advance_by(Duration::from_secs(1));
+            assert!(poll_once(captured).await.is_some());
+            assert!(poll_once(clock.sync_to_host(at)).await.is_some());
+            runner.wait_for(clock.sleep_until(at)).await;
+            assert_eq!(clock.now(), Timestamp::from_ticks(3000));
+            // Request the next 1/3000 s tick partway through its interval.
+            host.advance_by(Duration::from_micros(200));
+            let mut next = clock.sync_to_host(Timestamp::from_ticks(3001));
+            assert!(poll_once(&mut next).await.is_none());
+            assert_eq!(
+                host.next_deadline(),
+                Some(host.at(Duration::from_nanos(1_000_333_334)))
             );
         },
     );
@@ -185,12 +193,12 @@ async fn output_from_an_unlimited_cpu() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn due_frames_from_an_unlimited_cpu_publish_without_waiting_for_host_catchup() {
+fn device_time_and_presentation_follow_the_host_with_an_uncapped_cpu() {
     pollster::block_on(output_from_an_unlimited_cpu());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn due_frames_from_an_unlimited_cpu_publish_without_waiting_for_host_catchup() {
+async fn device_time_and_presentation_follow_the_host_with_an_uncapped_cpu() {
     output_from_an_unlimited_cpu().await;
 }

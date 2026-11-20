@@ -13,6 +13,7 @@ where
     if execution.profile() == crate::ExecutionProfile::Real16 {
         execution.if_can_fallback(|jit| jit.guard(false))?;
     }
+    execution.begin_port_io()?;
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(
@@ -42,6 +43,7 @@ where
     if execution.profile() == crate::ExecutionProfile::Real16 {
         execution.if_can_fallback(|jit| jit.guard(false))?;
     }
+    execution.begin_port_io()?;
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;
     let stride = element_stride::<T>(execution)?;
     repetition.execute::<T, 1>(

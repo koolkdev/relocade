@@ -12,12 +12,11 @@ identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboa
 and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
 drives timer interrupts and the speaker. Launch the execution worker with
 `ExecutionWorker::spawn(cpu, SessionConfig::guest(configuration::guest_time()), session)`.
-The PC's clock advances one microsecond per retired instruction. PIT, VGA, PS/2
-and firmware use this guest time. The host clock supplies elapsed time for idle
-devices and presentation. Active CPU execution is uncapped by default.
+PIT, VGA, PS/2 and firmware share a guest clock that tracks elapsed host time
+in microsecond ticks. Active CPU execution is uncapped by default.
 Use `pc.run().await` to execute the CPU alongside its devices. When the CPU is
-parked between programs, `pc.wait_for(input).await` lets the next device deadline
-advance the clock while the application waits for input.
+parked between programs, devices continue to run while
+`pc.wait_for(input).await` waits for input.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer

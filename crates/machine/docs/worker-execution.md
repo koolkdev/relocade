@@ -1,9 +1,9 @@
 # Worker execution
 
 The application receives a `Runner` that owns the session’s CPU. It borrows that
-CPU with `runner.run_cpu().await` to execute a program. Between programs it can
-await `runner.wait_for(input)` to keep guest device time advancing while the CPU
-is stopped. The PIT and the compiler reply receiver are ordinary Rust tasks
+CPU with `runner.run_cpu().await` to execute a program. Between programs the
+foreground can await input directly. The session keeps device time advancing
+while the CPU is stopped. The PIT and the compiler reply receiver are ordinary Rust tasks
 retained by the session and polled on the same worker.
 
 The PC runtime passes a guest clock to its devices. To configure an execution
@@ -22,7 +22,7 @@ let worker = ExecutionWorker::spawn(cpu, config, async move |mut runner| {
         io.bind(ports, &read, &write);
     }).await;
     runner.run_cpu().await;
-    runner.wait_for(wait_for_next_program()).await;
+    wait_for_next_program().await;
     Ok::<(), Error>(())
 });
 let result = worker.run_until(stop).await;
@@ -196,8 +196,8 @@ Inside the session, `Dos::new(runner).await` connects
 the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current
-process exit code. Between launches, `dos.wait_for(...)` can drive guest time
-through a final VGA capture or a wait for console input. `dos.frames()` exposes
+process exit code. Between launches, the session keeps guest time advancing
+while the foreground awaits a final VGA capture or console input. `dos.frames()` exposes
 the same capacity-one snapshot queue across those launches. One graphics consumer receives
 the snapshots; cloned receivers compete for them. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.
@@ -221,16 +221,14 @@ IF. A long block or `REP` can delay the checkpoint.
 During `run_cpu_until(work)`, the foreground future gets a turn before each
 guest entry. The run polls the CPU’s active Rust service, checks the optional
 CPU allowance and executes to a checkpoint, blocked state or exit. The CPU
-handles IRQ delivery, HLT and nested guest calls. At each boundary, retirement
-determines which guest timers are due. A device awakened there can run on the
-next worker turn.
+handles IRQ delivery, HLT and nested guest calls. Device time follows elapsed
+host time across these boundaries.
 
-If the CPU halts or a service blocks, ready Rust work gets a turn. The runner
-then waits on the host clock for the earliest guest device deadline. For example,
-a PIT expiry can raise IRQ0 and wake a halted CPU whose interrupt flag is set.
-Between runs, `wait_for(work)` applies the same idle rule. An ordinary Rust
-`.await` in the application still lets ready session tasks run, but guest time
-stays at its last tick until the application drives it again.
+While the CPU runs, its instruction target covers the next reachable device
+deadline and the timer worker supplies 4 ms calibration samples. During HLT
+or a foreground Rust wait, the timer worker wakes the session for the earliest
+device deadline. A PIT expiry can then raise IRQ0 and resume a halted CPU
+whose interrupt flag is set.
 [Guest time and CPU pacing](clock.md#execution-with-guest-time)
 
 When the worker has no runnable work, it parks immediately. A busy worker can
