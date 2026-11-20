@@ -6,7 +6,7 @@ use crate::{
     exception::Exception,
     execution::{segments::ResolvedSegment, transfer::Transfer, ExecutionBuilder},
     register::RegisterType,
-    ExecutionProfile, Segment,
+    ExecutionMode, Segment,
 };
 
 /// A resolved CS and offset. Callers must validate its limit before commitment,
@@ -34,7 +34,7 @@ impl CodeTarget {
         &self,
         execution: &mut ExecutionBuilder<'_, '_>,
     ) -> Result<(), BuildError> {
-        // The new limit applies even when the incoming profile was flat.
+        // The destination limit applies even when the incoming CS was flat.
         execution.fault_if(
             self.segment.limit().unsigned().lt(&self.offset),
             Exception::GeneralProtection { error_code: 0 },
@@ -70,9 +70,9 @@ impl ExecutionBuilder<'_, '_> {
         let stack_bytes = stack_bytes.into();
         let target = CodeTarget::resolve(self, offset, &selector)?;
         // Real-mode CALL transfers a word selector even in a dword-sized slot.
-        let checked_bytes = match self.profile() {
-            ExecutionProfile::Real16 => T::BYTES + 2,
-            ExecutionProfile::Protected(_) => 2 * T::BYTES,
+        let checked_bytes = match self.entry_mode() {
+            ExecutionMode::Real => T::BYTES + 2,
+            ExecutionMode::ProtectedUser => 2 * T::BYTES,
         };
         let frame = self.push_frame(
             stack_bytes.add(2 * T::BYTES),
@@ -87,9 +87,8 @@ impl ExecutionBuilder<'_, '_> {
         offset.write(self, &return_ip.truncate::<T>())?;
         frame.commit(self, 0)?;
         let offset = target.commit(self)?;
-        // Real16 keeps the same execution profile after loading CS. Protected
-        // CS transitions retain ordinary dispatch across the context change.
-        if self.profile() == ExecutionProfile::Real16 {
+        // A real-mode CS load preserves the canonical cache required by the callee.
+        if self.entry_mode() == ExecutionMode::Real {
             self.transfer = Transfer::Call(self.call_link()?);
         }
         Ok(offset)

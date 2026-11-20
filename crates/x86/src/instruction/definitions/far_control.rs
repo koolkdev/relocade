@@ -14,7 +14,7 @@ use crate::{
     execution::CodeTarget,
     flags::{image, Flag},
     register::RegisterType,
-    ExecutionProfile,
+    ExecutionMode,
 };
 
 instruction_families! {
@@ -158,29 +158,29 @@ fn return_interrupt<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => {
+    match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => {
             // Only protected mode interprets entry NT as a task return.
             let nested_task = execution.read_flag(Flag::NT)?;
             execution.unsupported_if(nested_task, 0xcf)?;
         }
-        ExecutionProfile::Real16 => {}
+        ExecutionMode::Real => {}
     }
     let frame = execution.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
     let offset = frame.field::<T>(execution, 0)?.read(execution)?;
-    match execution.profile() {
-        ExecutionProfile::Real16 => {
+    match execution.entry_mode() {
+        ExecutionMode::Real => {
             // IRETD checks EIP before reading CS or FLAGS. Both current and
             // destination Real16 code segments have the canonical 64 KiB limit.
             execution.jump(offset.unsigned().extend::<I32>())?;
         }
-        ExecutionProfile::Protected(_) => {}
+        ExecutionMode::ProtectedUser => {}
     }
     let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
     let flags = frame.field::<T>(execution, 2 * T::BYTES)?.read(execution)?;
-    let target = match execution.profile() {
-        ExecutionProfile::Real16 => CodeTarget::resolve(execution, offset, &selector)?,
-        ExecutionProfile::Protected(_) => resolve_return_target(execution, offset, &selector)?,
+    let target = match execution.entry_mode() {
+        ExecutionMode::Real => CodeTarget::resolve(execution, offset, &selector)?,
+        ExecutionMode::ProtectedUser => resolve_return_target(execution, offset, &selector)?,
     };
     let enabled = image::write_stack_image(execution, &flags)?;
     frame.commit(execution, 0)?;
@@ -197,7 +197,7 @@ fn resolve_return_target<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
+    if execution.entry_mode() == ExecutionMode::ProtectedUser {
         // Protected-mode returns cannot go inward. With CPL fixed at 3, only
         // RPL 3 is valid; real-mode segment values have no privilege bits.
         execution.fault_if(

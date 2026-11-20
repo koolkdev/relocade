@@ -6,7 +6,7 @@ use crate::{
     memory::{Intent, TransferType},
     state::x87::EnvironmentMode,
     x87::ExtendedBits,
-    ExecutionProfile,
+    ExecutionMode,
 };
 use relocade_compiler::{MemoryInt, I64};
 
@@ -50,9 +50,9 @@ impl ImageKind {
 }
 
 fn mode(execution: &ExecutionBuilder<'_, '_>) -> EnvironmentMode {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => EnvironmentMode::Protected,
-        ExecutionProfile::Real16 => EnvironmentMode::Real,
+    match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => EnvironmentMode::Protected,
+        ExecutionMode::Real => EnvironmentMode::Real,
     }
 }
 

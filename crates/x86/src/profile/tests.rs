@@ -60,6 +60,32 @@ fn segmented_admission_accepts_independent_stack_widths() {
 }
 
 #[test]
+fn code_width_and_segment_guarantees_are_admitted_independently() {
+    use crate::{EntryAssumptions, SegmentDefaultSize::*};
+    let live_width = EntryAssumptions {
+        code_default_size: None,
+        ..EntryAssumptions::FLAT32
+    };
+    for code in [Bits16, Bits32] {
+        let mut cpu = CpuState::protected_mode(code, Bits32);
+        assert!(cpu.is_compatible_with(live_width));
+        cpu.segments.ds.base = 100;
+        assert!(!cpu.is_compatible_with(live_width));
+    }
+    let flat16 = EntryAssumptions {
+        code_default_size: Some(Bits16),
+        ..live_width
+    };
+    assert!(CpuState::protected_mode(Bits16, Bits32).is_compatible_with(flat16));
+    assert!(!CpuState::protected_mode(Bits32, Bits32).is_compatible_with(flat16));
+    let real32 = EntryAssumptions {
+        code_default_size: Some(Bits32),
+        ..EntryAssumptions::REAL_MODE
+    };
+    assert!(!CpuState::real_mode().is_compatible_with(real32));
+}
+
+#[test]
 fn entry_compatibility_requires_the_complete_target_and_current_segment_assumptions() {
     use crate::{Compiler, CpuFeature, CpuModel, ExecutionTarget, MemoryBackend, SegmentProfile};
     let target = Compiler::new(SegmentProfile::Flat32).target();

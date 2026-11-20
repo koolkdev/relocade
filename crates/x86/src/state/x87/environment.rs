@@ -8,7 +8,6 @@ mod legacy;
 use super::X87Access;
 use crate::state::access::cpu_location;
 use crate::x87::ExtendedBits;
-use crate::SegmentDefaultSize;
 
 struct Pointer {
     offset: Val<I32>,
@@ -48,10 +47,10 @@ impl X87Access<'_, '_> {
     /// FXSAVE retains only occupancy, so its tags need no payload classification.
     pub(crate) fn fx_environment(
         &mut self,
-        pointer_size: SegmentDefaultSize,
+        pointer_mask: &Val<I32>,
     ) -> Result<[Val<I32>; 6], BuildError> {
         let tags = self.state.registers.tag_word(self.body)?;
-        Ok(self.capture_environment(tags)?.encode_fx(pointer_size))
+        Ok(self.capture_environment(tags)?.encode_fx(pointer_mask))
     }
 
     fn capture_environment(&mut self, tags: Val<I16>) -> Result<Environment, BuildError> {
@@ -103,11 +102,11 @@ impl X87Access<'_, '_> {
 
     pub(crate) fn restore_fx(
         &mut self,
-        pointer_size: SegmentDefaultSize,
+        pointer_mask: &Val<I32>,
         words: &[Val<I32>; 6],
         registers: &[ExtendedBits; 8],
     ) -> Result<(), BuildError> {
-        self.restore_environment(Environment::decode_fx(words, pointer_size), Some(registers))
+        self.restore_environment(Environment::decode_fx(words, pointer_mask), Some(registers))
     }
 
     fn restore_environment(

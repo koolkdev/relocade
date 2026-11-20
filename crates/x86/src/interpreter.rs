@@ -4,7 +4,7 @@ use relocade_compiler::{BuildError, Program};
 
 use crate::{
     decode::RuntimeDecoder, execution::ExecutionModule, profile::EntryGuarantees, state::State,
-    CpuModel, ExecutionProfile, ExecutionTarget, MemoryBackend,
+    CpuModel, EntryAssumptions, ExecutionMode, MemoryBackend,
 };
 
 /// Builds one interpreter program exporting both `run` and `step`.
@@ -60,44 +60,30 @@ use crate::{
 /// // The same module contains both entry exports.
 /// # Ok::<(), relocade_compiler::BuildError>(())
 /// ```
-pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
-    let profile = profile.into();
-    build_interpreter_with_memory(profile, MemoryBackend::default_for(profile))
+pub fn build_interpreter(entry: impl Into<EntryAssumptions>) -> Result<Program, BuildError> {
+    let entry = entry.into();
+    let memory = match entry.mode {
+        ExecutionMode::Real => MemoryBackend::PhysicalBus,
+        ExecutionMode::ProtectedUser => MemoryBackend::HostPageTable,
+    };
+    build_interpreter_with_memory(entry, memory)
 }
 
-/// Builds the same `run` and `step` entries as [`build_interpreter`] with explicit
-/// memory routing. The execution profile determines segment and privilege semantics.
+/// Builds the interpreter's run and step entries under the supplied CPU guarantees.
 /// Both instruction fetch and data accesses use the selected backend after segment checks.
-/// For a protected-mode PC with guest paging disabled, choose [`MemoryBackend::PhysicalBus`].
 pub fn build_interpreter_with_memory(
-    profile: impl Into<ExecutionProfile>,
+    entry: impl Into<EntryAssumptions>,
     memory_backend: MemoryBackend,
-) -> Result<Program, BuildError> {
-    let profile = profile.into();
-    build(
-        profile,
-        memory_backend,
-        EntryGuarantees::for_profile(profile),
-    )
-}
-
-fn build(
-    profile: ExecutionProfile,
-    memory_backend: MemoryBackend,
-    entry_guarantees: EntryGuarantees,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
     // live allowance zero; snapshot compilation alone omits the checks.
-    let execution = ExecutionModule::declare(
+    let execution = ExecutionModule::declare_with_guarantees(
         &mut program,
-        ExecutionTarget {
-            profile,
-            memory_backend,
-            cpu_model: CpuModel::default(),
-            instruction_budgets: true,
-        },
-        entry_guarantees,
+        memory_backend,
+        CpuModel::default(),
+        true,
+        EntryGuarantees::from_assumptions(entry.into()),
     );
     execution.export_entries(&mut program)?;
     let before_cpu = execution.cpu.clone();

@@ -5,8 +5,7 @@ use crate::{
     flags::{image, Flag},
     memory::{Access, Intent},
     real_mode::{FarPointer, InterruptFrame},
-    ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, ExecutionProfile,
-    Segment,
+    ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, ExecutionMode, Segment,
 };
 use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I8};
 
@@ -135,14 +134,14 @@ impl ExecutionBuilder<'_, '_> {
         self.body.return_(ExecutionExitValues::interrupt_entered())
     }
 
-    /// Completes the current Real16 instruction and requests its protected successor.
+    /// Completes the current real-mode instruction and requests its protected successor.
     /// Call only after all of the instruction's effects and fault checks.
     pub(crate) fn interrupt_inhibited_if(
         &mut self,
         condition: impl Into<Val<I1>>,
         next_ip: &Val<I32>,
     ) -> Result<(), BuildError> {
-        if self.profile() == ExecutionProfile::Real16 {
+        if self.entry_mode() == ExecutionMode::Real {
             self.body.if_(condition, |mut body| {
                 self.state.publish(&mut body, next_ip, self.completed + 1)?;
                 body.return_(crate::ExecutionExitValues::interrupt_inhibited())
@@ -158,7 +157,7 @@ impl ExecutionBuilder<'_, '_> {
         condition: Val<I1>,
         next_ip: &Val<I32>,
     ) -> Result<(), BuildError> {
-        if self.profile() == ExecutionProfile::Real16 {
+        if self.entry_mode() == ExecutionMode::Real {
             self.body.if_(condition, |mut body| {
                 self.state.publish(&mut body, next_ip, self.completed + 1)?;
                 self.state.checkpoint(&mut body)?;

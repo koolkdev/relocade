@@ -10,7 +10,7 @@ where
     I32: AtLeast<T>,
 {
     // Device callbacks can change routing between elements and before the store.
-    if execution.profile() == crate::ExecutionProfile::Real16 {
+    if execution.entry_mode() == crate::ExecutionMode::Real {
         execution.if_can_fallback(|jit| jit.guard(false))?;
     }
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;
@@ -39,7 +39,7 @@ where
     I32: AtLeast<T>,
 {
     // Port writes can change the mapping used by the next source read.
-    if execution.profile() == crate::ExecutionProfile::Real16 {
+    if execution.entry_mode() == crate::ExecutionMode::Real {
         execution.if_can_fallback(|jit| jit.guard(false))?;
     }
     let port = TypedLocation::<I16>::register(Gpr32::Edx).read(execution)?;

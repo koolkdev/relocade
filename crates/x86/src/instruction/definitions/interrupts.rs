@@ -1,7 +1,7 @@
 //! Software interrupt entry through the canonical real-mode vector table.
 
 use super::*;
-use crate::{flags::Flag, ExceptionVector, ExecutionProfile};
+use crate::{flags::Flag, ExceptionVector, ExecutionMode};
 
 instruction_families! {
     INT {
@@ -28,12 +28,12 @@ fn interrupt(
     fallthrough: Val<I32>,
     opcode: u8,
 ) -> Result<Val<I32>, BuildError> {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => {
+    match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => {
             execution.unsupported(u32::from(opcode))?;
             Ok(fallthrough)
         }
-        ExecutionProfile::Real16 => {
+        ExecutionMode::Real => {
             let vector = vector.read(execution)?;
             execution.enter_interrupt(vector, fallthrough)
         }
@@ -45,9 +45,9 @@ fn overflow_interrupt(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => execution.unsupported(0xce)?,
-        ExecutionProfile::Real16 => {
+    match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => execution.unsupported(0xce)?,
+        ExecutionMode::Real => {
             let overflow = execution.read_flag(Flag::OF)?;
             execution.enter_interrupt_if(
                 overflow,

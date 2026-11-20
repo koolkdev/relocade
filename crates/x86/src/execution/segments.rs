@@ -5,7 +5,7 @@ use relocade_compiler::{BuildError, Val, I1, I16, I32};
 use super::{transfer::Transfer, ExecutionBuilder};
 use crate::{
     address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
-    ExecutionProfile, Segment, SegmentDescriptorInfoValues,
+    ExecutionMode, Segment, SegmentDescriptorInfoValues,
 };
 
 /// A resolved segment cache and its destination, not yet installed in CPU state.
@@ -23,8 +23,8 @@ impl ResolvedSegment {
     /// Installs the selector and cache after all instruction guards. Only
     /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-        if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
-            // The new cache may require a different compiled execution profile.
+        if execution.entry_mode() == ExecutionMode::ProtectedUser {
+            // The new cache can invalidate the next block's entry assumptions.
             execution.transfer = Transfer::Dispatch;
         }
         if let Some(needs_completion) = self.needs_completion {
@@ -65,10 +65,9 @@ impl ExecutionBuilder<'_, '_> {
         segment: Segment,
         selector: &Val<I16>,
     ) -> Result<ResolvedSegment, BuildError> {
-        let (values, needs_completion) = match self.profile() {
-            ExecutionProfile::Real16 => {
-                // Real16 admits only canonical caches. Retained descriptor limits
-                // and attributes across mode transitions require a different profile.
+        let (values, needs_completion) = match self.entry_mode() {
+            ExecutionMode::Real => {
+                // The supported real-mode entry requires ordinary selector-based caches.
                 let cache = crate::SegmentRegister::real_mode(segment, 0);
                 (
                     SegmentValues {
@@ -85,7 +84,7 @@ impl ExecutionBuilder<'_, '_> {
                     None,
                 )
             }
-            ExecutionProfile::Protected(_) => {
+            ExecutionMode::ProtectedUser => {
                 let resolved = self.runtime.resolve_segment(
                     &mut self.body,
                     segment,

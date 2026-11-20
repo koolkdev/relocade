@@ -178,7 +178,11 @@ impl Compiler {
     ) -> Result<CompiledModule, BlockError> {
         let mut blocks = self.compile_blocks(&[BlockSnapshot {
             address: CodeAddress::CsRelative(start_eip),
-            code_default_size: SegmentDefaultSize::for_profile(self.target.profile),
+            code_default_size: self
+                .target
+                .assumptions()
+                .code_default_size
+                .expect("legacy profiles fix CS.D"),
             bytes,
             instruction_limit,
         }])?;

@@ -9,7 +9,7 @@
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
 use super::{Flag, FlagChange, StatusFlag};
-use crate::{execution::ExecutionBuilder, ExecutionProfile};
+use crate::{execution::ExecutionBuilder, ExecutionMode};
 
 /// A flag roster and fixed bits shared by image reads and masked writes.
 pub(crate) struct FlagImage<const N: usize> {
@@ -22,7 +22,7 @@ pub(crate) const AH: FlagImage<5> = FlagImage {
     fixed: 0x02,
 };
 
-/// Common writable low flags. IF and IOPL depend on the execution profile.
+/// Common writable low flags. IF and IOPL depend on the execution mode.
 const WORD: FlagImage<9> = FlagImage {
     flags: [
         Flag::CF,
@@ -68,9 +68,9 @@ where
         Type::I32 => DWORD.pack(execution.read_flags(DWORD.flags())?),
         _ => unreachable!("stack flag images use word or dword operands"),
     };
-    let image = match execution.profile() {
-        ExecutionProfile::Protected(_) => image.or(0x0200),
-        ExecutionProfile::Real16 => image
+    let image = match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => image.or(0x0200),
+        ExecutionMode::Real => image
             .or(execution
                 .read_flag(Flag::IF)?
                 .unsigned()
@@ -98,9 +98,9 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     execution.write_flags(change)?;
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => Ok(false.into()),
-        ExecutionProfile::Real16 => {
+    match execution.entry_mode() {
+        ExecutionMode::ProtectedUser => Ok(false.into()),
+        ExecutionMode::Real => {
             let before = execution.read_flag(Flag::IF)?;
             let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
             execution.write_flag(Flag::IF, &enabled)?;

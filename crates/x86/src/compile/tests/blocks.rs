@@ -92,7 +92,10 @@ fn compile_without_code_default(
     compiler: &Compiler,
     snapshot: BlockSnapshot<'_>,
 ) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::for_profile(compiler.target().profile).without_code_default();
+    let guarantees = EntryGuarantees::from_assumptions(crate::EntryAssumptions {
+        code_default_size: None,
+        ..compiler.target().assumptions()
+    });
     BlockModule::with_entry_guarantees(compiler, guarantees)
         .build(&[snapshot])
         .unwrap()
@@ -438,7 +441,9 @@ fn function_count(bytes: &[u8]) -> u32 {
 
 fn shared_memory_helpers() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let code_default_size = SegmentDefaultSize::for_profile(profile);
+        let code_default_size = crate::EntryAssumptions::from(profile)
+            .code_default_size
+            .unwrap();
         let compiler = Compiler::new(profile);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
         let code: &[u8] = if profile == ExecutionProfile::Real16 {

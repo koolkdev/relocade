@@ -36,7 +36,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, State};
-use crate::{exception::ExceptionValues, CpuState, ExecutionProfile};
+use crate::{exception::ExceptionValues, CpuState, ExecutionMode};
 use transfer::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -70,13 +70,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         start: impl Into<Val<I32>>,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
-        let target = module.target;
         let state = module.state();
         Ok(Self {
             body,
             state,
             accesses: module.memory.accesses(),
-            cpu_features: target.cpu_model.bits().into(),
+            cpu_features: module.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_mask: u32::MAX.into(),
             locked: false,
@@ -196,8 +195,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.locked
     }
 
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.state.profile()
+    pub(crate) fn entry_mode(&self) -> ExecutionMode {
+        self.state.entry_mode()
+    }
+
+    pub(crate) fn code_default_is_32_bit(&mut self) -> Result<Val<I1>, BuildError> {
+        self.state.code_default_is_32_bit(&mut self.body)
     }
 
     /// Retired instructions, including this entry's unpublished progress.

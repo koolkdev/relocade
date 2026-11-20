@@ -7,7 +7,10 @@ use std::{
 
 use super::codec::{read_u16, read_u32, write};
 
-use crate::{CpuMode, CpuState, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize};
+use crate::{
+    CpuMode, CpuState, EntryAssumptions, ExecutionMode, PrivilegeLevel, Segment,
+    SegmentAssumptions, SegmentDefaultSize,
+};
 
 /// A visible selector and the cached properties used for address translation.
 /// Descriptor-table edits do not modify this record; a later segment load does.
@@ -42,29 +45,34 @@ impl SegmentRegister {
         }
     }
 
-    /// Checks a proposed cache against the profile's assumptions for this segment.
+    /// Checks a proposed cache against the entry assumptions for this segment.
     /// Real mode requires the canonical cache for the visible selector.
-    pub fn is_compatible_with(
-        &self,
-        profile: impl Into<ExecutionProfile>,
-        segment: Segment,
-    ) -> bool {
-        match profile.into() {
-            ExecutionProfile::Protected(profile) => {
-                (segment != Segment::Cs
-                    || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
-                    && crate::segment::profile::assumptions(profile.into(), segment)
-                        .iter()
-                        .all(|requirement| {
-                            requirement.matches_record(
-                                &self.to_bytes(),
-                                offset_of!(crate::state::ExecutionContext, cpu)
-                                    + Segments::offset(segment),
-                            )
-                        })
-            }
-            ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
+    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>, segment: Segment) -> bool {
+        let entry = entry.into();
+        if segment == Segment::Cs
+            && entry.mode == ExecutionMode::ProtectedUser
+            && CpuMode::Protected.privilege_level(self.selector) != PrivilegeLevel::Ring3
+        {
+            return false;
         }
+        if entry.segments == SegmentAssumptions::RealMode {
+            return *self == Self::real_mode(segment, self.selector)
+                && (segment != Segment::Cs
+                    || entry.code_default_size != Some(SegmentDefaultSize::Bits32));
+        }
+        // The current real-mode execution owner admits ordinary caches even
+        // when code generation leaves their values live.
+        if entry.mode == ExecutionMode::Real && *self != Self::real_mode(segment, self.selector) {
+            return false;
+        }
+        crate::segment::profile::assumptions(entry, segment)
+            .iter()
+            .all(|requirement| {
+                requirement.matches_record(
+                    &self.to_bytes(),
+                    offset_of!(crate::state::ExecutionContext, cpu) + Segments::offset(segment),
+                )
+            })
     }
 
     pub const BYTE_LEN: usize = size_of::<Self>();
@@ -148,13 +156,13 @@ impl Segments {
         offset_of!(CpuState, segments) + segment as usize * size_of::<SegmentRegister>()
     }
 
-    /// Tests the properties assumed by an execution profile. The host must
+    /// Checks the segment guarantees shared by generated entries. The host must
     /// establish the active mode separately; caches alone do not establish it.
-    pub fn is_compatible_with(&self, profile: impl Into<ExecutionProfile>) -> bool {
-        let profile = profile.into();
+    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>) -> bool {
+        let entry = entry.into();
         Segment::ALL
             .into_iter()
-            .all(|segment| self[segment].is_compatible_with(profile, segment))
+            .all(|segment| self[segment].is_compatible_with(entry, segment))
     }
 
     pub const BYTE_LEN: usize = size_of::<Self>();
