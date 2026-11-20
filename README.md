@@ -33,6 +33,7 @@ the crates are not published.
 | [relocade-pc](crates/pc/README.md) | PC hardware wiring, memory map and BIOS-initialized CPU. |
 | [relocade-vga](crates/vga/README.md) | VGA text registers, fixed timing, immutable captures and programmable GPU text decoding. |
 | [relocade-dos](crates/dos/src/lib.rs) | DOS allocator, filesystems, console and process services on a PC. |
+| [relocade-win32](crates/win32/src/lib.rs) | Microsoft x86 calling conventions for PE32 exports and guest callbacks. |
 | [relocade-renderer](crates/renderer/README.md) | Generic RGBA pixel presentation through wgpu. |
 | [relocade-adlib](crates/adlib/README.md) | AdLib OPL2 sound synthesis using the Nuked-OPL3 Rust core. |
 | [relocade-test-support](crates/test-support/src/lib.rs) | Internal Wasmtime test support. |
