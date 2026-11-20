@@ -64,7 +64,8 @@ impl CompiledCode {
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
     /// Returns [`Error::StaleCompilation`] if the live instruction bytes differ
-    /// from the compiled snapshot. If installed bytes change, retire the affected
+    /// from the compiled snapshot or cover a repeatedly invalidated instruction.
+    /// If installed bytes change, retire the affected
     /// module before its next execution.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {

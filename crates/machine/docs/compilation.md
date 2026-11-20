@@ -78,8 +78,13 @@ prefix up to those boundaries or the code segment limit.
 
 `CompiledCode::install` checks the execution target and guest memory identity.
 Before publishing dispatch entries and call links, the stopped CPU compares
-every emitted instruction span with its live backing. A mismatch returns
-`Error::StaleCompilation` and preserves existing entries and hooks. An
+every emitted instruction span with its live backing. After a write changes an
+installed instruction, that instruction can be compiled and installed again.
+If a write changes the replacement, the machine excludes those backing bytes
+from future installations, including through guest aliases. Publication returns
+`Error::StaleCompilation` and preserves existing entries and hooks if bytes
+differ or any span intersects an exclusion. The exclusion still applies if
+the guest restores the original bytes. An
 automatically requested function can become hot again after a stale result.
 Pending or parked host services must finish before installation. A guest store
 to RAM containing compiled instructions runs through the interpreter. If the

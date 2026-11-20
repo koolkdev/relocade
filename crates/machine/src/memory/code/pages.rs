@@ -1,6 +1,6 @@
 //! Installed guest instructions indexed by backing page.
 
-use super::{page_base, CodeSource, Span};
+use super::{page_base, CodeHistory, CodeSource, ExcludedCode, Span};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -13,6 +13,7 @@ use std::{
 /// after the CPU removes the module from dispatch.
 pub struct InstalledCode {
     source: CodeSource,
+    installation: u64,
     spans_by_page: BTreeMap<u32, Vec<usize>>,
     changed: AtomicBool,
 }
@@ -58,6 +59,7 @@ impl InstalledCode {
 #[derive(Default)]
 pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
+    history: CodeHistory,
 }
 
 impl CodePages {
@@ -71,6 +73,7 @@ impl CodePages {
         }
         let code = Arc::new(InstalledCode {
             source: source.clone(),
+            installation: self.history.next_installation(),
             spans_by_page,
             changed: AtomicBool::new(false),
         });
@@ -92,19 +95,28 @@ impl CodePages {
             })
     }
 
+    pub(super) fn excluded(&self) -> &ExcludedCode {
+        &self.history.excluded
+    }
+
     /// Returns true if this write newly marked at least one installation.
-    pub(super) fn mark_modified(&self, backing: u32, bytes: &[u8]) -> bool {
+    pub(super) fn mark_modified(&mut self, backing: u32, bytes: &[u8]) -> bool {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
         let mut changed = false;
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
-                if !code.was_modified()
-                    && code.spans_by_page[&page].iter().any(|&index| {
-                        code.source
-                            .changed_instruction_ranges(index, backing, bytes)
-                            .is_some()
-                    })
-                {
+                let mut differs = false;
+                for &span in &code.spans_by_page[&page] {
+                    if let Some(ranges) =
+                        code.source.changed_instruction_ranges(span, backing, bytes)
+                    {
+                        differs = true;
+                        for range in ranges {
+                            self.history.invalidate(range, code.installation);
+                        }
+                    }
+                }
+                if differs && !code.was_modified() {
                     code.changed.store(true, Ordering::Release);
                     changed = true;
                 }

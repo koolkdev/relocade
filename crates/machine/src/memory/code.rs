@@ -1,5 +1,7 @@
 //! Instruction bytes captured by the compiler and registrations for installed PC code.
 
+mod history;
+use history::{CodeHistory, ExcludedCode};
 mod pages;
 use pages::CodePages;
 pub use pages::InstalledCode;
@@ -158,6 +160,9 @@ impl CodeSource {
         let pages = memory.code.pages.lock().unwrap();
         let mut scratch = [0; PAGE_BYTES as usize];
         for span in self.spans.iter() {
+            if pages.excluded().intersects(span.backing, span.bytes.len()) {
+                return Err(Error::StaleCompilation);
+            }
             let live = &mut scratch[..span.bytes.len()];
             memory.backing.read(span.backing, live);
             if live != span.bytes.as_ref() {
@@ -199,7 +204,7 @@ impl Memory {
         if bytes.is_empty() {
             return;
         }
-        let pages = self.code.pages.lock().unwrap();
+        let mut pages = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
         if pages.mark_modified(backing, bytes) {
             self.code.needs_retirement.store(true, Ordering::Release);
