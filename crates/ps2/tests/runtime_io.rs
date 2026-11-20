@@ -28,7 +28,7 @@ async fn guest_port_io() {
         let (runner, _host, machine) = common::runner(clock.clock()).await;
         let result = runner
             .run(pending::<()>(), async |mut runner| {
-                let pic = Pic::initialize(&runner).await;
+                let pic = Pic::initialize(&runner);
                 let (_inputs, controller) = connect(&runner, &pic).await;
                 let io = runner.io();
                 let code = [

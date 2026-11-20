@@ -1,6 +1,6 @@
 # PC interrupt controllers
 
-`Pic::initialize(runner).await` creates an execution-owned 8259A pair and
+`Pic::initialize(runner)` creates an execution-owned 8259A pair and
 registers master ports 20h–21h and slave ports A0h–A1h on the runner's bus. It
 returns the shared PIC handle. A peripheral creates its `IrqLine` through
 `pic.irq(number, initial_high)`.

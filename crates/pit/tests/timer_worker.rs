@@ -80,7 +80,7 @@ async fn timer_interrupts() -> Result<(), String> {
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = prepared.spawn(clock, async move |mut runner| {
-        let pic = Pic::initialize(&runner).await;
+        let pic = Pic::initialize(&runner);
         let _pit = Pit::initialize(&runner, &pic).await;
         let reports = Rc::new(RefCell::new(Reports {
             clock: runner.clock().clone(),

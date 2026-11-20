@@ -72,11 +72,11 @@ impl Default for Dma {
 }
 
 impl Dma {
-    pub async fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
+    pub fn initialize(runner: &Runner) -> Rc<RefCell<Self>> {
         let dma = Rc::new(RefCell::new(Self::default()));
         runner
-            .connect(dma.clone(), |io| Self::configure_io(io, &dma))
-            .await;
+            .io()
+            .connect(dma.clone(), |io| Self::configure_io(io, &dma));
         dma
     }
 

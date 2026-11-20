@@ -101,7 +101,7 @@ impl SoundCard {
     ) -> Option<Box<dyn crate::sound_card::SoundCard>> {
         match self {
             Self::None => None,
-            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner).await)),
+            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner))),
             Self::SoundBlaster2 => Some(Box::new(
                 relocade_sound_blaster::SoundBlaster::initialize(runner, dma.clone(), pic).await,
             )),

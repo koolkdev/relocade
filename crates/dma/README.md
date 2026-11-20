@@ -1,7 +1,7 @@
 # Primary DMA controller
 
 `relocade-dma` implements the primary 8237A register interface and PC/AT page
-registers for channels 0–3. `Dma::initialize(&runner).await` binds the device on
+registers for channels 0–3. `Dma::initialize(&runner)` binds the device on
 the existing execution owner. All channels start masked.
 
 Address and count registers use one shared low/high byte flip-flop. Each write
