@@ -207,41 +207,63 @@ async fn patched_callee() {
     let compiler = CompilerService::start_with_workers(NonZeroUsize::new(1).unwrap()).unwrap();
     let (mut machine, config) = setup();
     let memory = machine.memory();
-    memory
-        .view()
-        .write(0x100, &[0xe8, 0xfd, 0, 0xeb, 0xfb])
-        .unwrap(); // CALL 0200; JMP 0100
+    let caller = [
+        0xb9, 0, 0x20, // MOV CX,8192
+        0xe8, 0xfa, 0, // CALL 0200
+        0xe2, 0xfb, // LOOP 0103
+        0xe9, 0xf5, 2, // JMP 0400 (return to host)
+    ];
+    memory.view().write(0x100, &caller).unwrap();
     memory.view().write(0x200, &[0x40, 0xc3]).unwrap(); // INC AX; RET
     let cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
     let result = cpu
         .run_until(pending::<()>(), async move |mut runner| {
-            runner.cpu().cpu_state().set_sp(0x800);
-            // A first patch gets a new compiled version. After a second patch
-            // the same hot call gets a permanent interpreter binding.
-            for (opcode, compiled) in [(0x40, true), (0x42, true), (0x40, false)] {
+            let cpu = runner.cpu();
+            cpu.cpu_state().set_sp(0x800);
+            let exit = cpu.exit_handle();
+            cpu.install([Hook::host(0x400, async move || exit.request())])
+                .await
+                .unwrap();
+            // Collect exactly once after each guest loop, independently of host timing.
+            cpu.instance.profiling.next_collection =
+                Some(Instant::now() + Duration::from_secs(3600));
+            for (opcode, expected_calls, compiled) in [
+                (0x40, 8192, true),  // initial compilation
+                (0x40, 0, true),     // bound calls bypass profiling
+                (0x42, 8192, true),  // first patch: unresolved calls get a fresh batch
+                (0x40, 8192, false), // second patch: leave this entry interpreted
+                (0x42, 0, false),    // interpreter binding also bypasses profiling
+            ] {
                 memory.view().write(0x200, &[opcode]).unwrap();
-                let deadline = runner
-                    .clock()
-                    .deadline_after(runner.clock().now(), Duration::from_secs(5));
-                loop {
-                    slice(&mut runner).await;
-                    let live = memory.installed_code_at(0x1200);
-                    if runner.cpu().has_entry(0x200)
-                        && live.iter().all(|code| !code.was_modified())
-                        && live.len() == usize::from(compiled)
-                    {
-                        break;
+                runner.cpu().cpu_state().set_eip(0x100);
+                assert_eq!(
+                    runner.run_cpu().await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+                let cpu = runner.cpu();
+                assert_eq!(
+                    collected_count(cpu, FarPointer::from_packed(0x200)),
+                    expected_calls
+                );
+                assert_eq!(
+                    !cpu.instance.profiling.pending.is_empty(),
+                    expected_calls != 0
+                );
+                std::future::poll_fn(|cx| {
+                    cpu.poll_compilation(cx);
+                    if cpu.instance.profiling.pending.is_empty() {
+                        std::task::Poll::Ready(())
+                    } else {
+                        std::task::Poll::Pending
                     }
-                    assert!(
-                        runner.clock().now() < deadline,
-                        "hot callee did not settle after patch to {opcode:02x}"
-                    );
-                }
+                })
+                .await;
+                assert!(cpu.has_entry(0x200));
+                assert_eq!(
+                    cpu.compiled_modules_at(0x200).count(),
+                    usize::from(compiled)
+                );
             }
-            let entry = FarPointer::from_packed(0x200);
-            let calls = collected_count(runner.cpu(), entry);
-            slice(&mut runner).await;
-            assert_eq!(collected_count(runner.cpu(), entry), calls);
         })
         .await;
     machine.shutdown().await.unwrap();
