@@ -108,6 +108,15 @@ async fn owned_job_cleanup(cancel: bool) {
     let (cleanup, mut cleaned) = oneshot::channel();
     let (release, wait) = blocking_gate();
     let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |runner| {
+        // A busy activity keeps the execution worker runnable while the
+        // browser delivers the calculation worker's startup handshake.
+        runner
+            .start_task(async {
+                loop {
+                    crate::yield_now().await;
+                }
+            })
+            .await;
         let jobs = runner.spawn_job_thread().await;
         let mut work = std::pin::pin!(jobs.execute(move || {
             let _cleanup = Dropped(Some(cleanup));

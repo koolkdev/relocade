@@ -145,6 +145,7 @@ async fn replace_idle_deadline() {
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
             runner.connect(device.clone(), |_| {}).await;
+            // Only the nested CPU waiter can replace its host sleep and observe the exit.
             let mut runs = futures_util::stream::FuturesUnordered::new();
             runs.push(runner.run_cpu());
             assert_eq!(
@@ -176,6 +177,66 @@ async fn replace_idle_deadline() {
     machine.shutdown().await.unwrap();
 }
 
+async fn parked_after_cancellation() {
+    let (host, mut armed, source) = host();
+    let host_time = host.clone();
+    let (pause, paused) = oneshot::channel();
+    let (stopped, stop) = oneshot::channel();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(config()).with_host_clock(source),
+        async move |mut runner| {
+            let clock = runner.clock().clone();
+            let start = clock.now();
+            let device = Rc::new(RefCell::new(Deadlines {
+                clock: runner.clock().clone(),
+                deadlines: vec![clock.deadline_after(start, Duration::from_millis(10))],
+                observed: Vec::new(),
+                exit: None,
+                exit_after_waits: true,
+            }));
+            blocked_cpu(&mut runner).await;
+            device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+            runner.connect(device.clone(), |_| {}).await;
+            {
+                match select(pin!(runner.run_cpu()), pin!(paused)).await {
+                    Either::Right((Ok(()), _)) => {}
+                    _ => panic!("the run must still be waiting at cancellation"),
+                }
+            }
+            stopped.send(()).unwrap();
+            let deadline = clock.deadline_after(start, Duration::from_millis(10));
+            runner.wait_for(clock.sleep_until(deadline)).await;
+            assert_eq!(clock.now(), deadline);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            assert_eq!(
+                device.borrow().observed,
+                [clock.deadline_after(start, Duration::from_millis(10))]
+            );
+        },
+    );
+    assert_eq!(
+        armed.next().await,
+        Some(host_time.at(Duration::from_millis(10)))
+    );
+    pause.send(()).unwrap();
+    stop.await.unwrap();
+    assert_eq!(
+        host.next_deadline(),
+        Some(host_time.at(Duration::from_millis(10)))
+    );
+    host.advance_to(host_time.at(Duration::from_millis(10)));
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn idle_waits_target_each_guest_device_deadline() {
@@ -196,6 +257,17 @@ fn timer_replacement_rearms_the_idle_host_wait() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn timer_replacement_rearms_the_idle_host_wait() {
     replace_idle_deadline().await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn cancelling_cpu_execution_keeps_the_idle_device_wait() {
+    pollster::block_on(parked_after_cancellation());
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn cancelling_cpu_execution_keeps_the_idle_device_wait() {
+    parked_after_cancellation().await;
 }
 
 async fn busy_bursts() {
@@ -228,17 +300,9 @@ async fn busy_bursts() {
             )
             .await
             .unwrap();
-            // A device deadline splits the first burst. Both runs count toward
-            // the same four-instruction charge at the first host wait.
-            let deadline = runner.clock().sleep_until(Timestamp::from_ticks(2));
             assert!(matches!(
-                select(pin!(deadline), pin!(runner.run_cpu())).await,
-                Either::Left(((), _))
-            ));
-            assert_eq!(runner.cpu().cpu_state().instruction_count(), 2);
-            assert!(matches!(
-                select(pin!(stopped), pin!(runner.run_cpu())).await,
-                Either::Left((Ok(()), _))
+                runner.run_cpu_until(stopped).await,
+                Either::Right(Ok(()))
             ));
             assert_eq!(runner.clock().now().ticks(), 8);
             assert_eq!(

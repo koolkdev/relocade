@@ -1,6 +1,6 @@
 mod support;
 
-use futures_util::future::{select, Either};
+use futures_util::future::Either;
 use futures_util::StreamExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{
@@ -120,9 +120,8 @@ async fn successive_deadlines() {
                 samples
             };
 
-            let samples = match select(pin!(observe), pin!(runner.run_cpu())).await {
-                Either::Left((samples, _)) => samples,
-                Either::Right(_) => panic!("busy CPU exited before all three device deadlines"),
+            let Either::Right(samples) = runner.run_cpu_until(observe).await else {
+                panic!("busy CPU exited before all three device deadlines");
             };
             // Only completed two-instruction blocks can cross the 1001-tick deadlines.
             assert_eq!(samples, [1002, 2002, 3004]);
@@ -302,6 +301,70 @@ async fn retained_service() {
     machine.shutdown().await.unwrap();
 }
 
+async fn prompt_between_cpu_runs() {
+    use futures_channel::oneshot;
+
+    let (host, mut armed, source) = host::host();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()))
+            .with_host_clock(source),
+        async |mut runner| {
+            let clock = runner.clock().clone();
+            let state = runner.cpu().cpu_state();
+            let exit = runner.cpu().exit_handle();
+            prepare_cpu(&mut runner, &[0x40, 0xeb, 0]).await; // INC AX; JMP 0103.
+            runner
+                .cpu()
+                .install([Hook::host(0x103, async move || exit.request())])
+                .await
+                .unwrap();
+            for count in [0, 2] {
+                let deadline = clock.deadline_after(clock.now(), Duration::from_millis(7));
+                let (send, prompt) = oneshot::channel();
+                runner
+                    .start_task({
+                        let clock = clock.clone();
+                        async move {
+                            clock.sleep_until(deadline).await;
+                            send.send(clock.now()).unwrap();
+                        }
+                    })
+                    .await;
+                assert_eq!(runner.wait_for(prompt).await.unwrap(), deadline);
+                assert_eq!(state.instruction_count(), count);
+                state.set_eip(0x100);
+                assert_eq!(
+                    runner.run_cpu().await,
+                    ExecutionExit::Host(HostExit::Return)
+                );
+            }
+            assert_eq!(state.instruction_count(), 4);
+            assert_eq!(state.ax(), 2);
+        },
+    );
+    while let Some(deadline) = armed.next().await {
+        host.advance_to(deadline);
+    }
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_prompt_receives_device_wakes_before_and_between_cpu_runs() {
+    pollster::block_on(prompt_between_cpu_runs());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn the_prompt_receives_device_wakes_before_and_between_cpu_runs() {
+    prompt_between_cpu_runs().await;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_compiled_loop_reaches_successive_guest_deadlines() {
@@ -402,6 +465,8 @@ async fn terminal_exit_without_ready_work_adds_no_activity_turn() {
 mod halt;
 #[path = "guest_time_scheduling/host.rs"]
 mod host;
+#[path = "guest_time_scheduling/ordering.rs"]
+mod ordering;
 #[path = "guest_time_scheduling/output.rs"]
 mod output;
 #[path = "guest_time_scheduling/pacing.rs"]

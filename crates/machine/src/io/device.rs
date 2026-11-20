@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-/// An execution-owned device with interrupts and optional async activity.
+/// An execution-owned device with interrupts and an optional asynchronous task.
 /// Port and MMIO operations are installed through [`crate::DeviceConnection::bind`]
 /// and [`crate::DeviceConnection::bind_mmio`]. [`crate::DeviceCallbacks`] can adapt
 /// concrete methods that borrow this device.
@@ -17,10 +17,10 @@ use std::{
 /// Use the supplied [`IoContext`] to forward I/O;
 /// host convenience methods acquire a separate stopped-runtime borrow.
 pub trait Device {
-    /// Optional asynchronous device activity, registered by [`crate::Runner::connect`].
-    /// Connection waits for the first poll, which installs this activity's wake
-    /// path. Device state must already be initialized before connecting the device.
-    /// Release device borrows before awaiting. Continuously ready activities must
+    /// The device task started by [`crate::Runner::connect`].
+    /// Connection waits for the first poll so the task can register for events.
+    /// Initialize the device state before connecting it.
+    /// Release device borrows before awaiting. Continuously ready tasks must
     /// cooperate with other work, for example through [`crate::yield_now`].
     fn run(_device: Rc<RefCell<Self>>) -> impl Future<Output = ()>
     where

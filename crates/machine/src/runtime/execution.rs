@@ -6,16 +6,25 @@ mod requests;
 mod suspended;
 
 use super::{call::Call, Cpu};
+use crate::machine::execution::Active;
+use futures_util::task::AtomicWaker;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     future::poll_fn,
-    rc::Rc,
+    rc::{Rc, Weak},
     task::{ready, Context, Poll},
 };
 pub(super) use suspended::SuspendedCall;
+
+/// What stopped a CPU at a safe boundary. The machine decides which work runs next.
+pub(crate) enum CpuStop {
+    Checkpoint,
+    Blocked,
+    Exit(ExecutionExit),
+}
 
 /// Requests a return to the embedding after the current guest dispatch or host poll.
 /// Capture this with a service's other resources, for example when DOS terminates
@@ -23,31 +32,54 @@ pub(super) use suspended::SuspendedCall;
 /// returning the requested host exit.
 ///
 /// Requests remain pending until observed by a polled run. This handle
-/// does not wake suspended execution; session cancellation belongs to its owner.
-/// It retains only the requested result, independently of the CPU and Wasm runtime.
+/// wakes the machine when bound to a session. Session cancellation belongs
+/// to the worker owner. The handle retains no CPU or Wasm runtime.
 #[derive(Clone)]
-pub struct ExitHandle(Rc<Cell<Option<ExecutionExit>>>);
+pub struct ExitHandle(Rc<ExitRequest>);
+
+#[derive(Default)]
+struct ExitRequest {
+    result: Cell<Option<ExecutionExit>>,
+    waiter: RefCell<Weak<AtomicWaker>>,
+}
 
 impl ExitHandle {
     pub(super) fn new() -> Self {
         Self(Rc::default())
     }
 
+    fn result(&self) -> Option<ExecutionExit> {
+        self.0.result.get()
+    }
+
     pub(super) fn is_requested(&self) -> bool {
-        self.0.get().is_some()
+        self.result().is_some()
+    }
+
+    /// Register the run's waker while it can be stopped from another task.
+    pub(crate) fn listen(&self) -> Rc<AtomicWaker> {
+        let waiter = Rc::new(AtomicWaker::new());
+        *self.0.waiter.borrow_mut() = Rc::downgrade(&waiter);
+        waiter
+    }
+
+    fn set(&self, exit: ExecutionExit) {
+        self.0.result.set(Some(exit));
+        if let Some(waiter) = self.0.waiter.borrow().upgrade() {
+            waiter.wake();
+        }
     }
 
     /// Requests an execution exit. The current host poll completes normally.
     pub fn request(&self) {
-        self.0.set(Some(ExecutionExit::Host(HostExit::Return)));
+        self.set(ExecutionExit::Host(HostExit::Return));
     }
 
     /// Reports an exception from its installed default handler and ends execution.
     /// The saved interrupt frame retains the original fault location. Pending
     /// and suspended Rust handlers are released when the driver observes this exit.
     pub fn request_unhandled_exception(&self, exception: Exception) {
-        self.0
-            .set(Some(ExecutionExit::UnhandledException(exception)));
+        self.set(ExecutionExit::UnhandledException(exception));
     }
 }
 
@@ -87,37 +119,34 @@ impl Cpu {
     /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
+        let exit = self.exit.listen();
         poll_fn(|cx| {
-            let _execution = ready!(self.poll_enter_execution(cx));
-            match self.poll_host_call(cx) {
-                Some(exit) => Poll::Ready(exit),
-                None => self.poll_execution(cx),
-            }
+            exit.register(cx.waker());
+            let _execution = ready!(self.poll_enter(cx));
+            self.poll_host_call(cx)
+                .or_else(|| self.dispatch(cx, |_| false))
+                .map_or(Poll::Pending, Poll::Ready)
         })
         .await
     }
 
-    /// Enters one synchronous CPU turn, including service polling and IRQ entry.
-    /// While paused, registers a wakeup for resumption and returns Pending.
-    /// Runners retain the returned guard through both poll operations.
-    pub(crate) fn poll_enter_execution(
-        &self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<crate::machine::execution::Active>> {
+    /// Holds the machine's pause permit while inspecting or advancing execution.
+    /// A standalone CPU has no machine to pause it.
+    pub(crate) fn poll_enter(&self, cx: &mut Context<'_>) -> Poll<Option<Active>> {
         match &self.execution {
-            Some(execution) => execution.poll_enter(cx).map(Some),
+            Some(member) => member.poll_enter(cx).map(Some),
             None => Poll::Ready(None),
         }
     }
 
     /// Polls the active host service once and observes any requested exit.
     pub(crate) fn poll_host_call(&mut self, cx: &mut Context<'_>) -> Option<ExecutionExit> {
-        if self.exit.0.get().is_none() {
+        if !self.exit.is_requested() {
             if let Some(call) = self.pending.take() {
                 self.pending = call.poll(cx);
             }
         }
-        self.exit.0.get().map(|exit| self.finish_exit(exit))
+        self.exit.result().map(|exit| self.finish_exit(exit))
     }
 
     /// Guest instruction execution is waiting for an eligible IRQ or a host service.
@@ -125,22 +154,37 @@ impl Cpu {
         self.halted || self.pending.is_some()
     }
 
-    /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
-    /// exit or pending service stops execution. New and resumed host calls are
-    /// polled at their entries; the active call is polled by `poll_host_call`.
-    pub(crate) fn poll_execution(&mut self, cx: &mut Context<'_>) -> Poll<ExecutionExit> {
+    /// Runs guest instructions up to the next checkpoint, blocked handler, HLT,
+    /// or exit.
+    pub(crate) fn run_to_boundary(&mut self, cx: &mut Context<'_>) -> CpuStop {
+        match self.dispatch(cx, |cpu| cpu.instance.bindings.interrupt.is_requested()) {
+            None => CpuStop::Blocked,
+            Some(ExecutionExit::Interrupted | ExecutionExit::BudgetExhausted) => {
+                CpuStop::Checkpoint
+            }
+            Some(exit) => CpuStop::Exit(exit),
+        }
+    }
+
+    /// A host boundary has published the guest state. The worker can service
+    /// newly woken tasks there, including on the way into HLT.
+    fn dispatch(
+        &mut self,
+        cx: &mut Context<'_>,
+        yield_at_host_boundary: impl Fn(&Self) -> bool,
+    ) -> Option<ExecutionExit> {
         self.instance.update_compilation();
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,
                 Err(exit) => break exit,
             };
-            if !guest_entered && (self.pending.is_some() || self.halted) {
-                return Poll::Pending;
+            if !guest_entered && self.is_blocked() {
+                return None;
             }
 
             let exit = self.run_guest();
-            if self.exit.0.get().is_some() {
+            if self.exit.is_requested() {
                 continue;
             }
             match exit {
@@ -157,11 +201,14 @@ impl Cpu {
                 | ExecutionExit::InterruptsEnabled
                 | ExecutionExit::InterruptEntered
                 | ExecutionExit::FarCallEntered
-                | ExecutionExit::Halted => continue,
+                | ExecutionExit::Halted => {}
                 exit => break exit,
-            };
+            }
+            if yield_at_host_boundary(self) {
+                break self.exit.result().unwrap_or(ExecutionExit::Interrupted);
+            }
         };
-        Poll::Ready(self.finish_exit(exit))
+        Some(self.finish_exit(exit))
     }
 
     fn finish_exit(&mut self, exit: ExecutionExit) -> ExecutionExit {
@@ -173,7 +220,7 @@ impl Cpu {
             self.abandon_suspended_calls();
             self.halted = false;
             // Coalesce any requests made while destroying the retained work.
-            self.exit.0.set(None);
+            self.exit.0.result.set(None);
         }
         exit
     }

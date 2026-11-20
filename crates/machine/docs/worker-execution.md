@@ -1,55 +1,59 @@
 # Worker execution
 
-Each execution worker runs one CPU session and its registered device activities.
-`Runner::run` drives them together until the main session finishes or is cancelled.
-`run_cpu` yields on execution interrupts and retains pending
-CPU services across device wakeups. Devices keep running while the main activity
-awaits input or the next program.
+The application receives a `Runner` that owns the session’s CPU. It borrows that
+CPU with `runner.run_cpu().await` to execute a program. Between programs it can
+await `runner.wait_for(input)` to keep guest device time advancing while the CPU
+is stopped. The PIT and the compiler reply receiver are ordinary Rust tasks
+retained by the session and polled on the same worker.
 
-`ExecutionWorker::spawn` consumes the prepared CPU and starts the session and
-its host timer service. The returned handle controls completion and cancellation.
-[Worker transport](workers.md)
-
-Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
-or `None` to use the bundled interpreter without background compilation.
+To supply devices with a guest clock, configure the worker with `GuestTimeConfig`. An optional
+CPU limit sets how many instructions may retire per host second.
+[Clock and CPU limit](clock.md#execution-with-guest-time)
 
 ```rust,ignore
 let mut machine = Machine::new(memory_config)?;
 let cpu = machine.create_cpu(cpu_config, None)?;
-let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+let config = SessionConfig::guest(GuestTimeConfig::new(guest_rate));
+let worker = ExecutionWorker::spawn(cpu, config, async move |mut runner| {
     let device = create_device(runner.clock().clone());
     runner.connect(device, |io| {
         io.bind_mmio(memory_range, &memory_read, &memory_write);
         io.bind(ports, &read, &write);
     }).await;
     runner.run_cpu().await;
-    wait_for_next_program().await;
+    runner.wait_for(wait_for_next_program()).await;
     Ok::<(), Error>(())
 });
-let result = worker.join().await;
+let result = worker.run_until(stop).await;
 machine.shutdown().await?;
 let result = result?;
 ```
 
-`connect(...).await` installs the device's mappings and retains the device, then
-starts its ordinary async `Device::run` future. Setup releases its runtime context
-before the activity's first poll; synchronous I/O is available during that poll.
-Connection returns once the activity has installed its wake path. Initialize
-device state before connecting. Passive devices use the default empty activity. Device
-activities retain their own handles, release mutable borrows before awaiting,
-and use the same `Clock::sleep` or `sleep_until` API as CPU services. Ending the
-main activity drops all device futures on their owner.
+Pass `Some(&compiler)` to `machine.create_cpu` to enable background compilation.
+[Compiler service](compilation.md)
 
-`spawn_activity(future).await` starts a service without bus mappings with the
-same first-poll and session lifetime guarantees. `spawn_job_thread().await` returns a
-sendable job executor backed by one reusable calculation thread. Jobs own their
-inputs and return results through Rust memory; awaiting one suspends only its
-calling activity. The thread binds the session's wake peer once, so completion
+Use `runner.io().connect(device, configure)` for a device that only handles
+synchronous bus accesses. For a device with background work, `runner.connect(...).await`
+installs its mappings and starts `Device::run`. When it returns, the task
+has had its first poll and can already receive input or timer notifications.
+PIT waits for its next OUT0 transition or a programming change. The keyboard
+and mouse each await input and their own device deadlines. Each device decides
+the order of events that are ready together.
+
+`runner.start_task(future).await` returns after the scheduler first polls the
+future. A pending task can then sleep until its waker signals. Once queued, it
+belongs to the session even if its caller drops the startup wait. Returning from the application ends
+the session and drops any unfinished tasks.
+
+`spawn_job_thread().await` returns a sendable job executor backed by one
+reusable calculation thread. Jobs own their inputs and return results through
+Rust memory. Awaiting one suspends only its calling task. The thread binds the session's wake peer once, so completion
 can interrupt busy guest execution without a JavaScript message per block.
-Await thread startup during setup, before starting guest execution, so the
-browser can deliver the worker's readiness handshake.
+In the browser, `spawn_job_thread` registers host-turn demand while waiting
+for the worker startup callback. Subsequent job results wake their waiting
+Rust task directly.
 
-Ending or cancelling the session drops local activities, then closes job
+Ending or cancelling the session drops local tasks, then closes job
 admission, drains accepted calculations and joins their threads. Retained job
 handles cannot keep a stopped session alive. Calculations must finish without
 waiting for another job on the same queue.
@@ -67,11 +71,16 @@ handles and already installed modules immediately observe the new mappings. `run
 executes the runner's existing CPU. Construction, connection and launch do not
 execute guest instructions.
 
-The callback receives its `Runner` by value. PC/DOS retain it across programs;
-`runner.cpu()` lends the stopped backend for setup. The outer session keeps
-driving device activities until the callback completes, even if it releases its
-runner earlier. BIOS/DOS services capture their own
-application resources and execute on the same worker. The CPU selects the native
+PC and DOS keep the same runner across programs. `runner.cpu()` lends the
+stopped CPU for setup. Await CPU runs and idle waits inside the session callback so
+the same worker drives their device tasks and wakeups. Dropping a `runner.run_cpu()` future releases its borrow
+immediately. A subsequent run resumes the CPU with any active or parked BIOS
+calls intact. To run until another future completes, use
+`runner.run_cpu_until(work).await`. It returns `Either::Left(exit)` on CPU exit
+or `Either::Right(value)` on completion of the supplied work.
+
+BIOS and DOS services capture their own application resources and execute on
+the same worker. The CPU selects the native
 or browser engine internally and retains its initialized memory resources.
 Hooks run in Rust after Wasm returns. They capture a `CpuStateAccess` handle,
 memory, I/O and application resources when registered, and receive no temporary
@@ -94,11 +103,12 @@ not in destructors that also run when a parked invocation is abandoned. Destruct
 release ordinary resources. Captured CPU handles are not revoked on abandonment.
 
 ```text
-host input and timer tasks --Rust channels--> execution activity + devices
+host input and timers --Rust channels--> tasks on the execution worker
 ```
 
-For a blocking console read, the CPU activity awaits input after the guest
-returns. A local input activity receives bytes through a Rust channel and writes
+For a blocking guest console read, the CPU retains the pending DOS service
+while the scheduler runs other work. An input task can receive bytes through
+a Rust channel and write
 them through the existing stdin handle. Its queue is independent of CPU state access. Browser input and I/O callbacks
 stay on a responsive host and send
 results through shared Rust channels. Local JavaScript message handlers are not
@@ -109,8 +119,8 @@ Services return `()`; their adapters apply guest calling conventions.
 Capture `cpu.exit_handle()` in a service to request `HostExit::Return` after
 its current poll. The driver drops pending work and consumes the request before
 returning to the embedding. Dropping only the run waiter preserves both the call
-and any unobserved request. The exit flag does not wake suspended execution;
-session cancellation uses the worker's existing `stop().await`.
+and any unobserved request. In a session, requesting an exit wakes the machine
+even while guest execution is blocked. To end the whole session, use `stop().await`.
 The runtime owns execution and retained futures; the web and
 Wasmtime backends supply Wasm engine access. Generated guest calls remain
 synchronous; the execution task awaits services after those calls return.
@@ -118,7 +128,7 @@ synchronous; the execution task awaits services after those calls return.
 ## Task lifetime
 
 The worker can outlive individual DOS programs. The Rust console and device
-activities run without driving guest instructions. `Dos::run` requires a launched
+tasks run without driving guest instructions. `Dos::run` requires a launched
 process and returns an already completed process's result without running the CPU.
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
@@ -132,19 +142,17 @@ lifetime.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.
-`ExecutionWorker` owns a stop channel. `Runner::run` polls its receiver before
-the application/device future, so cancellation is registered before any guest
-execution. `stop().await` sends through that channel; dropping the sender also
-requests cancellation. Either wakes the session while a CPU service is pending
-or requests a return from busy guest execution. The executor drops the application
+`ExecutionWorker` owns a stop channel. The scheduler polls its receiver before
+dispatching runnable work. `stop().await` sends through that channel. Dropping
+the sender also requests cancellation. Either wakes the session while a CPU service is pending
+or requests a return from busy guest execution. The scheduler drops the application
 and devices on their execution thread before reporting completion. `stop().await`
 waits for that completion before releasing the thread.
-`join().await` waits for ordinary main-activity completion. As with `Thread`, await
+`join().await` waits for ordinary application completion. As with `Thread`, await
 these operations before dropping the handle; early browser-worker termination
 does not run Rust destructors. Completed guest side effects remain visible.
 
-The CPU owns its machine directly throughout execution. Reaching a host service
-constructs and polls its pinned future. A pending call retains the future and its
+When the CPU reaches a host service, it constructs and polls its pinned future. A pending call retains the future and its
 registered handler owner; a ready call finishes in the same poll. The driver
 resumes guest dispatch or returns the requested exit after completion.
 
@@ -160,7 +168,7 @@ and execution-interrupt requests let host work run but do not resume guest code.
 `STI; HLT` executes HLT as STI's protected successor before accepting a queued IRQ;
 the interrupt return frame therefore names the instruction after HLT.
 
-Device activities and worker cancellation remain runnable while the guest is
+Device tasks and worker cancellation remain runnable while the guest is
 halted. An outer host service stays parked if its ISR halts, even when that
 service's input becomes ready. Terminal `HostExit::Return` and `UnhandledException`
 clear the halt and release retained calls, allowing another program to use the CPU.
@@ -168,9 +176,9 @@ Stopping a worker drops the CPU and its calls through the existing cancellation 
 HLT with IF clear waits indefinitely unless the embedding ends execution;
 NMI, reset and debug wake events are not modeled yet.
 
-An idle DOS environment does not execute HLT: it has no active CPU run. Device
-activities can queue IRQs, but guest delivery starts only when execution is
-explicitly driven. Register edits and `CpuState` snapshot restoration do not
+During `runner.wait_for(input).await`, guest instructions stay stopped while
+devices can advance to their next deadlines. Device
+tasks can queue IRQs. Guest IRQ delivery resumes when the next program runs. Register edits and `CpuState` snapshot restoration do not
 change the driver-owned halt or retained host calls. Public `Cpu::step` reports
 `Halted` and remains halted on later steps; `run` performs IRQ acceptance.
 
@@ -181,13 +189,12 @@ been abandoned. Retained `cpu.cpu_state()`, memory and input/output handles rema
 usable. Dropping the CPU releases active and parked calls innermost first, then
 the backend; independently retained resources can outlive it.
 
-Create a persistent DOS session and its CPU with `Dos::new(runner).await`. This
-registers VGA with the runner and shares its timer. Mount filesystems and retain
+Inside a guest-timed session, `Dos::new(runner).await` connects
+the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current
-process exit code; keeping the main session alive afterwards leaves VGA active
-for final captures and later launches. `dos.frames()` exposes the same
-capacity-one snapshot queue across those launches. One graphics consumer receives
+process exit code. `dos.frames()` exposes
+the same capacity-one snapshot queue across those launches. One graphics consumer receives
 the snapshots; cloned receivers compete for them. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.
 Use `dos.process()` to retain the current program and inspect its `ProcessStatus`.
@@ -199,87 +206,40 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-`run_cpu` polls ready host services before checking CPU pacing or dispatching
-guest instructions. The CPU owns pending services, suspended calls and guest
-interrupt entry. A device wake interrupts running code at a checkpoint.
-Completed instructions advance the guest clock and wake due sleepers.
+`WorkerWake::drive` polls one session future. Each turn checks the stop signal,
+polls ready session tasks and then polls the application. A device or compiler
+reply can wake a parked worker or interrupt busy guest execution so Rust gets
+control at the next completed checkpoint.
+The interpreter and compiled code both honor that request regardless of guest
+IF. A long block or `REP` can delay the checkpoint.
+[Execution checkpoints](../../x86/docs/host-integration.md#execution-interrupts)
 
-`GuestTimeConfig` sets the nominal instruction rate and an optional CPU limit
-in instructions per host second. Without a limit, guest execution proceeds at full
-speed. With a limit, time spent in other work can pay for a burst of instructions.
-Stopping and resuming a CPU run preserves the allowance.
+During `run_cpu_until(work)`, the foreground future gets a turn before each
+guest entry. The run polls the CPU’s active Rust service, checks the optional
+CPU allowance and executes to a checkpoint, blocked state or exit. The CPU
+handles IRQ delivery, HLT and nested guest calls. At each boundary, retirement
+determines which guest timers are due. A device awakened there can run on the
+next worker turn.
 
-When the CPU halts or a service waits, ready activities can replace their deadlines.
-The runner waits on the host clock for the remaining interval to the earliest
-device deadline. An idle guest with no scheduled device wake parks. [Clock and CPU limit](clock.md#execution-with-guest-time)
+If the CPU halts or a service blocks, ready Rust work gets a turn. The runner
+then waits on the host clock for the earliest guest device deadline. For example,
+a PIT expiry can raise IRQ0 and wake a halted CPU whose interrupt flag is set.
+Between runs, `wait_for(work)` applies the same idle rule. An ordinary Rust
+`.await` in the application still lets ready session tasks run, but guest time
+stays at its last tick until the application drives it again.
+[Guest time and CPU pacing](clock.md#execution-with-guest-time)
 
-Yielding gives ready Rust activities a polling opportunity. The host timer
-driver delivers deadline notifications through Rust channels even while the
-execution worker stays runnable. CPU services can sleep without suspending
-devices, and sleeping devices do not suspend the CPU.
+When the worker has no runnable work, it parks immediately. A busy worker can
+execute successive turns inside Wasm. An operation that needs the JavaScript
+event loop registers demand through `runner.host_turns().wait(future).await`.
+Examples include receiving a posted compiler module and awaiting local Wasm
+compilation. While that demand is pending, `WorkerWake` requests checkpoints
+and gives runnable work a 1 ms host-time grace period before yielding to the
+browser. A long guest block can delay that yield. [Compiler reply delivery](compilation.md#compiler-replies)
 
-`ExecutionWorker` connects the prepared CPU's `ExecutionInterrupt` handle to
-the whole session's Rust wakers, including cancellation. Host access exists before
-spawning. The worker captures a Send connection token alongside that same CPU
-transfer, then binds its locally reconstructed interrupt handle. Binding needs no
-registration channel, return acknowledgment or target replacement.
-`runner.connect(...).await` installs the mappings, then starts the device activity
-with its own waker before returning. Initialize device state before connecting, including
-any asynchronous construction. A new `run_cpu` future yields once so siblings in
-CPU-first async composition can register their waits; it performs no device setup.
-The host guard stays alive until worker completion.
-
-`WakeConnection` binds the worker signal. `WorkerWake::drive` supplies the root
-waker, polls the session, and parks when work is blocked. The runner composes
-the application, devices and cancellation into that session.
-
-```rust,ignore
-let runner = Runner::new(clock, cpu, endpoint).await?;
-runner.run(stopped, session).await
-```
-
-The constructor consumes the prepared CPU and binds its wake endpoint on the
-execution owner and returns after backend construction. The worker observes its stop
-signal during that await, then passes it to `run` for session cancellation. Worker
-and backend failures use the machine's `Error` type. `run` installs the required
-executor around the whole session, so callers do
-not separately wrap it. Native fixtures can supply the same resources on their
-test thread; they use the same executor. Browser binding belongs on the receiving
-worker after resource transfer. Direct CPU/device tests do not need a runner.
-
-Each executor turn polls `stopped` first, then the application/device future. A
-ready stop drops that future without polling it again. Runnable work is repolled
-directly in Rust. Idle sessions park, while pending posted-object receipt can
-request one host turn for the whole activity set. Resumption or cancellation
-releases the outer-executor waiter. Cancellation needs no
-startup yield or wrapper around the application.
-
-Participating work belongs inside the application/device future. The runner
-polls registered devices before the main activity. Device setup explicitly awaits
-connection; its activity has started before it can be used for guest execution.
-Neither preparation nor a device wake starts CPU execution; only an explicit CPU
-run future drives it.
-VGA and timers can run while the application waits for a program or after it
-finishes. Guest IRQ delivery still requires an active CPU run and eligible live
-x86 interrupt state.
-
-An ordinary host channel send or timer completion makes its waiter ready, then
-its waker requests an execution interrupt and marks the session ready on the
-sending thread. It wakes the outer executor only when the session is parked.
-Guest checkpoints return independently of IF. The interrupt remains set
-through the whole session poll, so CPU-first composition such as
-`join(run_cpu, input)` yields before its ready sibling runs. Acknowledgement
-follows polling and preserves new wakes, including those racing with the exchange.
-The runner resumes guest execution after polling that work. The ready queues
-retain coalesced notifications. Requests already pending at guest reentry use
-the same block/STEP checkpoints as requests arriving during execution. After
-`Interrupted`, the runner yields to Rust work before resuming the CPU. There is
-no additional pre-entry check or yield for an already-pending notification.
-The runner can repoll the root directly at a cooperative checkpoint. A nested
-CPU waiter wakes its own task so its parent can put it back on the ready queue.
-Input delivered while waking a parked worker can still interrupt execution.
-Pending CPU services keep their original future and IRQ-suspended outer services
-remain parked until guest resumption.
+`ExecutionWorker` creates a wake connection before spawning and binds it to
+the transferred CPU's execution interrupt on the new worker. The host keeps
+the connection alive through worker shutdown.
 
 The browser connection initially covers the spawning host and execution worker.
 Capture `execution.wake_peer()` on the host, or `runner.wake_peer()` on execution,
@@ -313,7 +273,7 @@ resources. The host event loop must remain responsive. This fallback adds host
 scheduling latency; it is not a real-time deadline. Explicit peer bindings still
 signal synchronously and avoid that extra turn.
 
-PC audio runs as a session activity. It waits for block deadlines, collects
+The PC audio task runs on the execution worker. It waits for block deadlines, collects
 recorded device events and submits each PCM block to a reusable session-owned job
 thread. The job synthesizes and mixes owned events while guest execution continues.
 One calculation is in flight; completion returns synthesis state for the next
@@ -323,15 +283,6 @@ consume bounded output without driving guest time.
 Use `cpu.step()` for bounded instruction tests; service/dispatch tests can request
 an execution interrupt to inspect a completed guest boundary while retaining
 suspended work. See the [connection contract](workers.md#browser-build-and-lifetime).
-
-Continuously ready device loops must also cooperate with the other root futures.
-An idle worker parks immediately. If work stays runnable, a pending posted
-reply, browser compilation, or job-thread startup can request a host turn with
-`HostTurns`. The worker gives ready work a shared 1 ms grace interval before
-returning to the event loop. It resumes the session between attempts.
-[Compiler reply delivery](compilation.md#compiler-replies) Execution checkpoints remain at completed
-blocks, with [no fixed notification-latency guarantee](../../x86/docs/host-integration.md#execution-interrupts)
-for long straight-line code or REP.
 
 ## Video and application rendering
 
@@ -343,8 +294,8 @@ runner.connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga)).await;
 
 Map that complete A0000–BFFFF range as MMIO; VGA registers select which aperture
 responds to each CPU access.
-The runner drives its device activity throughout the main session, including CPU
-service waits and gaps between programs. VGA follows fixed text-mode raster
+CPU runs and `wait_for` between programs both advance the deadlines that wake
+the VGA task. VGA follows fixed text-mode raster
 timing and captures immutable text on this owner. Pixel conversion runs on the
 worker receiving those captures, without borrowing the live device. The
 [graphics fixture](../../../tests/browser/src/graphics.rs) assembles this with

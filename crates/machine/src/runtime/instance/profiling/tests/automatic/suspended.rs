@@ -3,10 +3,7 @@ use super::{
 };
 use crate::{real_mode_interrupt::Interrupts, ExecutionWorker, SessionConfig};
 use futures_channel::{mpsc, oneshot};
-use futures_util::{
-    future::{select, Either},
-    FutureExt, StreamExt,
-};
+use futures_util::{future::Either, FutureExt, StreamExt};
 use relocade_x86::{CallCount, CodeAddress};
 use std::{
     cell::Cell,
@@ -67,11 +64,9 @@ async fn installation_during_nested_service() {
             .await
             .unwrap();
 
-        match select(entered, pin!(runner.run_cpu())).await {
-            Either::Left((entered, _run)) => entered.unwrap(),
-            Either::Right((exit, _)) => {
-                panic!("guest exited before nested service: {exit:?}")
-            }
+        match runner.run_cpu_until(entered).await {
+            Either::Right(entered) => entered.unwrap(),
+            Either::Left(exit) => panic!("guest exited before nested service: {exit:?}"),
         }
         let cpu = runner.cpu();
         assert!(cpu.pending.is_some() && !cpu.suspended.is_empty());

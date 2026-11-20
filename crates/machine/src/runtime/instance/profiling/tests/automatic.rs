@@ -3,6 +3,7 @@ use crate::{
     CompilerService, CpuConfig, ExecutionWorker, FarPointer, Hook, Instant, Machine, MachineConfig,
     Runner, SessionConfig,
 };
+use futures_util::future::Either;
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
@@ -35,14 +36,11 @@ fn setup() -> (Machine, CpuConfig) {
 }
 
 async fn slice(runner: &mut Runner) {
-    let clock = runner.clock().clone();
-    let exit = runner.cpu().exit_handle();
-    let (result, ()) = futures_util::future::join(runner.run_cpu(), async move {
-        clock.sleep(Duration::from_millis(20)).await;
-        exit.request();
-    })
-    .await;
-    assert_eq!(result, ExecutionExit::Host(HostExit::Return));
+    let elapsed = runner.clock().sleep(Duration::from_millis(20));
+    assert!(matches!(
+        runner.run_cpu_until(elapsed).await,
+        Either::Right(())
+    ));
 }
 
 async fn automatic() {
