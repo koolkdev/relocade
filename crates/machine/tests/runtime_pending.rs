@@ -1,5 +1,7 @@
 #[path = "runtime_pending/exit.rs"]
 mod exit;
+#[path = "runtime_pending/shared.rs"]
+mod shared;
 mod support;
 use relocade_machine::{real_mode_interrupt, Hook};
 use relocade_x86::{
