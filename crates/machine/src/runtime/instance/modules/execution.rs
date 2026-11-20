@@ -7,29 +7,36 @@ use relocade_x86::abi;
 use std::{
     cell::RefCell,
     ops::{Deref, DerefMut},
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 
 type Installed = Box<Modules<WasmRuntime>>;
 
-fn write_code(
-    guest: &Memory,
-    active: &Weak<RefCell<Option<Installed>>>,
-    mut context: Context<'_>,
-    (backing, bytes, value): (u32, u32, u64),
-) {
-    guest
-        .view()
-        .write_backing(backing, &value.to_le_bytes()[..bytes as usize])
-        .expect("tracked RAM fits backing");
-    if guest.take_retirement_request() {
-        let executing = active.upgrade().expect("live CPU");
-        let mut modules = executing.borrow_mut();
-        modules
-            .as_mut()
-            .expect("active write callback")
-            .retire_modified(&mut context)
-            .expect("retire modified code");
+/// The installed modules are in this slot only while Wasm can call back.
+struct ExecutingModules {
+    memory: Memory,
+    modules: RefCell<Option<Installed>>,
+}
+
+impl ExecutingModules {
+    fn retire_modified(&self, context: &mut Context<'_>) {
+        let modified = self.memory.take_modified_modules();
+        if !modified.is_empty() {
+            self.modules
+                .borrow_mut()
+                .as_mut()
+                .expect("active guest execution")
+                .retire(context, modified)
+                .expect("retire modified code");
+        }
+    }
+
+    fn write_code(&self, mut context: Context<'_>, (backing, bytes, value): (u32, u32, u64)) {
+        self.memory
+            .view()
+            .write_backing(backing, &value.to_le_bytes()[..bytes as usize])
+            .expect("tracked RAM fits backing");
+        self.retire_modified(&mut context);
     }
 }
 
@@ -37,19 +44,22 @@ fn write_code(
 /// while the CPU is executing.
 pub(in crate::runtime::instance) struct CpuModules {
     stopped: Option<Installed>,
-    executing: Rc<RefCell<Option<Installed>>>,
+    executing: Rc<ExecutingModules>,
     pub(in crate::runtime::instance) write_code: FunctionRef<WasmRuntime, abi::CodeWriteSignature>,
 }
 
 impl CpuModules {
     pub(in crate::runtime::instance) fn new(wasm: &mut WasmRuntime, guest: Memory) -> Result<Self> {
-        let executing: Rc<RefCell<Option<Installed>>> = Rc::default();
-        let active = Rc::downgrade(&executing);
+        let executing = Rc::new(ExecutingModules {
+            memory: guest,
+            modules: RefCell::default(),
+        });
+        let active = executing.clone();
         Ok(Self {
             stopped: Some(Box::new(Modules::new(wasm)?)),
             executing,
             write_code: FunctionRef::new(&mut wasm.context(), move |context, store| {
-                write_code(&guest, &active, context, store)
+                active.write_code(context, store)
             }),
         })
     }
@@ -72,8 +82,18 @@ impl CpuModules {
         wasm.instantiate(module, &imports)
     }
 
-    pub(in crate::runtime::instance) fn enable_write_callback(&mut self) -> WriteCallbackScope<'_> {
-        self.executing.replace(self.stopped.take());
+    /// Apply stopped-host writes before any guest entry can follow a cached link.
+    pub(in crate::runtime::instance) fn enter_guest(
+        &mut self,
+        context: &mut Context<'_>,
+    ) -> WriteCallbackScope<'_> {
+        let callback = self.enable_write_callback();
+        callback.executing.retire_modified(context);
+        callback
+    }
+
+    fn enable_write_callback(&mut self) -> WriteCallbackScope<'_> {
+        self.executing.modules.replace(self.stopped.take());
         WriteCallbackScope {
             stopped: &mut self.stopped,
             executing: &self.executing,
@@ -85,12 +105,12 @@ impl CpuModules {
 #[must_use]
 pub(in crate::runtime::instance) struct WriteCallbackScope<'a> {
     stopped: &'a mut Option<Installed>,
-    executing: &'a RefCell<Option<Installed>>,
+    executing: &'a ExecutingModules,
 }
 
 impl Drop for WriteCallbackScope<'_> {
     fn drop(&mut self) {
-        *self.stopped = self.executing.take();
+        *self.stopped = self.executing.modules.take();
     }
 }
 

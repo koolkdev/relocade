@@ -7,6 +7,7 @@ pub(super) use execution::CpuModules;
 mod table;
 
 use super::hooks::Hooks;
+use crate::memory::code::ModuleId;
 use crate::runtime::{
     memory::{HostWritePage, HostWritePages},
     WasmRuntime,
@@ -21,9 +22,6 @@ use std::{
     sync::Arc,
 };
 use table::DispatchTable;
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct ModuleId(usize);
 
 pub(super) struct ModuleInstance<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
@@ -140,7 +138,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         backend: &mut B,
         mut module: ModuleInstance<B>,
         entries: &[DispatchEntry<'_>],
-    ) -> Result<&mut ModuleInstance<B>> {
+    ) -> Result<(ModuleId, &mut ModuleInstance<B>)> {
         let id = ModuleId(self.next_module_id);
         module.entry_keys = self
             .table
@@ -155,7 +153,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .next_module_id
             .checked_add(1)
             .expect("module identity fits usize");
-        Ok(self.modules.entry(id).insert_entry(module).into_mut())
+        Ok((id, self.modules.entry(id).insert_entry(module).into_mut()))
     }
 }
 
@@ -187,22 +185,7 @@ impl Modules<WasmRuntime> {
         self.retire(context, retired_modules)
     }
 
-    pub(super) fn retire_modified(&mut self, context: &mut Context<'_>) -> Result<()> {
-        let modified = self
-            .modules
-            .iter()
-            .filter_map(|(&id, module)| {
-                module
-                    .registered_source
-                    .as_ref()?
-                    .was_modified()
-                    .then_some(id)
-            })
-            .collect();
-        self.retire(context, modified)
-    }
-
-    fn retire(
+    pub(super) fn retire(
         &mut self,
         context: &mut Context<'_>,
         retired_modules: BTreeSet<ModuleId>,

@@ -12,6 +12,7 @@ use super::Memory;
 use crate::{Error, Result};
 use relocade_wasm_runtime::WasmSharedMemory;
 use std::{
+    collections::BTreeSet,
     ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,6 +25,9 @@ const PAGE_BYTES: u32 = relocade_x86::PhysicalMemoryMap::PAGE_BYTES;
 fn page_base(address: u32) -> u32 {
     address & !(PAGE_BYTES - 1)
 }
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ModuleId(pub(crate) usize);
 
 #[derive(Default)]
 pub struct CodeRegistry {
@@ -149,11 +153,14 @@ impl Memory {
         }
     }
 
-    /// A clean guest entry only reads the flag. Consume a pending request before
-    /// scanning installations so a write during retirement can request another scan.
-    pub(crate) fn take_retirement_request(&self) -> bool {
-        let pending = &self.code.needs_retirement;
-        pending.load(Ordering::Relaxed) && pending.swap(false, Ordering::Acquire)
+    /// Takes the installations whose instruction bytes changed since the last drain.
+    pub(crate) fn take_modified_modules(&self) -> BTreeSet<ModuleId> {
+        if !self.code.needs_retirement.load(Ordering::Acquire) {
+            return BTreeSet::new();
+        }
+        let mut pages = self.code.pages.lock().unwrap();
+        self.code.needs_retirement.store(false, Ordering::Release);
+        std::mem::take(&mut pages.modified)
     }
 }
 
