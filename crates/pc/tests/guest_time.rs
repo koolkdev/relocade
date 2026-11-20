@@ -1,7 +1,7 @@
-use relocade_machine::{DispatchEntry, ExecutionWorker, GuestTimeConfig, Hook, SessionConfig};
+use relocade_machine::{DispatchEntry, ExecutionWorker, Hook, SessionConfig};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
-use std::{num::NonZeroU64, time::Duration};
+use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -13,7 +13,7 @@ async fn pit_interrupts() {
         .unwrap();
     let execution = ExecutionWorker::spawn(
         prepared,
-        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
+        SessionConfig::guest(relocade_pc::configuration::guest_time()),
         async |runner| {
             let mut pc = Pc::new(runner).await.unwrap();
             let cpu = pc.cpu();
@@ -115,7 +115,7 @@ async fn keyboard_at_guest_receipt_time() {
         .unwrap();
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
-        GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+        relocade_pc::configuration::guest_time(),
         host.clock(),
         prepared,
         endpoint,

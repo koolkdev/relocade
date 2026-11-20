@@ -9,20 +9,20 @@ use crate::{devices::dos_bytes, stdio::Stdio};
 use relocade_bios::PhysicalKeyboard;
 use relocade_frontend::keyboard::KeyboardEvents;
 use relocade_machine::MemoryBus;
+use std::rc::Rc;
 
 /// A native prompt with its own physical input and the PC's BIOS video state.
 /// Reads consume application events directly. Guest IRQ handlers, DOS drivers
 /// and redirected handles do not participate; guest keyboard RAM is untouched.
-/// The exclusive DOS borrow keeps guest execution separate from this prompt.
-pub struct NativeConsole<'a> {
+pub struct NativeConsole {
     memory: MemoryBus,
-    stdio: &'a Stdio,
+    stdio: Rc<Stdio>,
     events: KeyboardEvents,
     keyboard: PhysicalKeyboard,
 }
 
-impl<'a> NativeConsole<'a> {
-    pub(crate) fn new(memory: MemoryBus, stdio: &'a Stdio, events: KeyboardEvents) -> Self {
+impl NativeConsole {
+    pub(crate) fn new(memory: MemoryBus, stdio: Rc<Stdio>, events: KeyboardEvents) -> Self {
         Self {
             memory,
             stdio,
@@ -34,7 +34,7 @@ impl<'a> NativeConsole<'a> {
     /// Writes guest-encoded text using cooked tab stops and BIOS cursor/scrolling
     /// behavior. Use CRLF for a new line. Output is synchronous and screen-only.
     pub fn write(&self, bytes: &[u8]) {
-        write(self.stdio, &self.memory, bytes);
+        write(&self.stdio, &self.memory, bytes);
     }
 
     /// Reads and echoes an edited line of at most 254 bytes, excluding its final
@@ -59,7 +59,7 @@ impl<'a> NativeConsole<'a> {
             },
             255,
             async |byte| {
-                write(self.stdio, &self.memory, &[byte]);
+                write(&self.stdio, &self.memory, &[byte]);
                 Ok(())
             },
         )

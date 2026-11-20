@@ -163,8 +163,9 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 ## Execution with guest time
 
 `GuestTimeConfig::new(guest_rate)` sets the number of retired instructions per
-guest second. At a rate of one million, each thousand instructions represent one
-millisecond for devices using the guest clock. `with_cpu_limit(max_instructions_per_second)`
+guest second. The DOS launcher sets the rate to one million and supplies this
+clock to the PIT, VGA and PS/2. Each thousand instructions represent one
+millisecond on their timeline. `with_cpu_limit(max_instructions_per_second)`
 optionally caps how many instructions retire per *host* second.
 
 ```rust,ignore

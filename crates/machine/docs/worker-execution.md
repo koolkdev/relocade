@@ -6,7 +6,8 @@ await `runner.wait_for(input)` to keep guest device time advancing while the CPU
 is stopped. The PIT and the compiler reply receiver are ordinary Rust tasks
 retained by the session and polled on the same worker.
 
-To supply devices with a guest clock, configure the worker with `GuestTimeConfig`. An optional
+The PC runtime passes a guest clock to its devices. To configure an execution
+worker directly, set the guest clock rate with `GuestTimeConfig`. An optional
 CPU limit sets how many instructions may retire per host second.
 [Clock and CPU limit](clock.md#execution-with-guest-time)
 
@@ -176,8 +177,8 @@ Stopping a worker drops the CPU and its calls through the existing cancellation 
 HLT with IF clear waits indefinitely unless the embedding ends execution;
 NMI, reset and debug wake events are not modeled yet.
 
-During `runner.wait_for(input).await`, guest instructions stay stopped while
-devices can advance to their next deadlines. Device
+At the DOS prompt, `dos.wait_for(console.read_line()).await` keeps guest
+instructions stopped while devices can advance to their next deadlines. Device
 tasks can queue IRQs. Guest IRQ delivery resumes when the next program runs. Register edits and `CpuState` snapshot restoration do not
 change the driver-owned halt or retained host calls. Public `Cpu::step` reports
 `Halted` and remains halted on later steps; `run` performs IRQ acceptance.
@@ -189,11 +190,14 @@ been abandoned. Retained `cpu.cpu_state()`, memory and input/output handles rema
 usable. Dropping the CPU releases active and parked calls innermost first, then
 the backend; independently retained resources can outlive it.
 
-Inside a guest-timed session, `Dos::new(runner).await` connects
+The DOS launcher obtains its guest rate and CPU limit from
+`relocade_pc::configuration::guest_time()`.
+Inside the session, `Dos::new(runner).await` connects
 the PC hardware to that runner and its guest clock. Mount filesystems and retain
 console handles before `launch_com(...)` or `launch_mz(...)`. These synchronous
 launches reuse the CPU and guest memory. `dos.run().await` returns the current
-process exit code. `dos.frames()` exposes
+process exit code. Between launches, `dos.wait_for(...)` can drive guest time
+through a final VGA capture or a wait for console input. `dos.frames()` exposes
 the same capacity-one snapshot queue across those launches. One graphics consumer receives
 the snapshots; cloned receivers compete for them. Rendering and surface lifetimes
 belong to the embedding and can outlive DOS.

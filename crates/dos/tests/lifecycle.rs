@@ -45,7 +45,7 @@ fn dos_preserves_pc_configuration_errors_without_installing_services() {
 fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
     use relocade_clock_test_support::ManualClock;
     use relocade_machine::{ExecutionWorker, SessionConfig};
-    use std::{num::NonZeroU64, time::Duration};
+    use std::time::Duration;
 
     pollster::block_on(async {
         let mut machine =
@@ -56,10 +56,8 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
         let host = ManualClock::new();
         let worker = ExecutionWorker::spawn(
             prepared,
-            SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
-                NonZeroU64::new(1_000_000).unwrap(),
-            ))
-            .with_host_clock(host.clone()),
+            SessionConfig::guest(relocade_dos::configuration::guest_time())
+                .with_host_clock(host.clone()),
             async move |runner| {
                 let clock = runner.clock().clone();
                 let mut dos = relocade_dos::Dos::with_configuration(

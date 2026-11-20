@@ -51,7 +51,8 @@ pub async fn dos_workers() -> Result<(), String> {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let execution = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
+    let time = SessionConfig::guest(relocade_dos::configuration::guest_time());
+    let execution = ExecutionWorker::spawn(prepared, time, async move |runner| {
         let mut dos = Dos::with_configuration(
             runner,
             Configuration {
@@ -84,11 +85,11 @@ pub async fn dos_workers() -> Result<(), String> {
             b'X'
         );
         first_done.send(result.unwrap()).unwrap();
-        next_launch.await.unwrap();
+        dos.wait_for(next_launch).await.unwrap();
         dos.launch_com(SECOND_PROGRAM, Default::default()).unwrap();
         second_done.send(dos.run().await.unwrap()).unwrap();
-        // Registered VGA stays active between launches and after process exit.
-        pending::<()>().await;
+        // Keep producing frames after process exit until the app closes.
+        dos.wait_for(pending::<()>()).await;
     });
 
     let app = async move {

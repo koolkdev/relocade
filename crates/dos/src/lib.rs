@@ -149,7 +149,8 @@
 //! binding. Numbered LPT bindings and the PRN driver are configured independently.
 //! [`Dos::new`] prepares the DOS session. Start a process with [`Dos::launch_com`]
 //! or [`Dos::launch_mz`], passing startup inputs in [`LoadOptions`].
-//! Construct DOS inside an [`relocade_machine::ExecutionWorker`] session.
+//! Pass [`configuration::guest_time`] through [`relocade_machine::SessionConfig::guest`]
+//! to [`relocade_machine::ExecutionWorker::spawn`], then construct DOS on its runner.
 //! [`Dos::new`] creates a [`relocade_pc::Pc`] and installs DOS on it.
 //! [`Dos::with_configuration`] selects its hardware using the PC's [`Configuration`].
 //! [`Dos::from_pc`] installs DOS onto an existing BIOS-initialized PC.
@@ -214,7 +215,8 @@ pub use load::LoadOptions;
 pub use process::{Process, ProcessStatus};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuContext, Runner};
 pub use relocade_pc::{
-    configuration, video_card, Configuration, InitializationError, ParallelPort, SoundCard, VideoCard,
+    configuration, video_card, Configuration, InitializationError, ParallelPort, SoundCard,
+    VideoCard,
 };
 use relocade_pc::{
     sound_card::{Settings as SoundCardSettings, SoundBlasterModel},
@@ -225,14 +227,16 @@ use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
-/// Devices share the runner's clock; the default uses the host timer service.
+/// The PC's guest clock advances during [`Dos::run`] and while [`Dos::wait_for`]
+/// keeps devices running between programs.
 pub struct Dos {
     state: Rc<DosState>,
     pc: Pc,
 }
 
 impl Dos {
-    /// Creates a BIOS-initialized PC and installs DOS services on it.
+    /// Creates a BIOS-initialized PC on a runner started with [`configuration::guest_time`]
+    /// and installs DOS services on it.
     /// Launch a program before executing DOS services.
     pub async fn new(runner: Runner) -> Result<Self, InitializationError> {
         Self::with_configuration(runner, Configuration::default()).await
@@ -439,10 +443,10 @@ impl Dos {
     /// dos.launch_com(&[0xb4, 7, 0xcd, 0x21, 0xb4, 0x4c, 0xcd, 0x21], Default::default())?;
     /// let process = dos.process().unwrap();
     /// let mut input = dos.stdin();
-    /// // An event handler can retain this writer while the cpu waits.
-    /// let run = dos.cpu().run();
+    /// // An event handler can retain this writer while the program waits.
+    /// let run = dos.run();
     /// input.write_all(b"y")?;
-    /// run.await;
+    /// run.await?;
     /// assert_eq!(process.status(), ProcessStatus::Exited(Ok(b'y')));
     /// # Ok(())
     /// # }
@@ -480,21 +484,19 @@ impl Dos {
         self.pc.mouse_input()
     }
 
-    /// Opens a native prompt over application-owned physical input and BIOS video.
-    /// It shares line editing and cooked output with DOS, but executes no guest
-    /// code and uses neither DOS handles nor the guest keyboard queue. Drop the
-    /// console before launching or resuming a guest program.
-    ///
-    /// # Panics
-    /// Panics if a guest host service is still pending. Open the prompt at startup
-    /// or after guest execution has completed, rather than after cancelling a read.
+    /// Opens a prompt with its own physical input and the PC's BIOS video output.
+    /// The shell can retain it across process launches and use [`Self::wait_for`]
+    /// to service hardware during a pending read.
     pub fn native_console(
-        &mut self,
+        &self,
         events: relocade_frontend::keyboard::KeyboardEvents,
-    ) -> NativeConsole<'_> {
-        let memory = self.pc.cpu().memory();
-        let io = self.pc.cpu().context().io.clone();
-        NativeConsole::new(memory.with_io(io), self.state.stdio(), events)
+    ) -> NativeConsole {
+        let runner = self.pc.runner();
+        NativeConsole::new(
+            runner.memory().with_io(runner.io()),
+            self.state.stdio().clone(),
+            events,
+        )
     }
 
     /// Installs a driver as a named character device at the front of DOS's chain.

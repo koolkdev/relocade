@@ -31,16 +31,20 @@ impl std::error::Error for RunError {
 }
 
 impl Dos {
+    /// Drives the PC's devices while the CPU is parked, for example while a
+    /// shell waits for input between programs.
+    pub async fn wait_for<F: std::future::Future>(&mut self, future: F) -> F::Output {
+        self.pc.wait_for(future).await
+    }
+
     /// Runs the current program and interprets its DOS termination status.
     /// A completed process is not executed again; another launch reuses the same
     /// environment and video output. Unexpected CPU exits leave the process active
     /// for inspection.
     ///
-    /// Process completion leaves the environment alive. Keep the main session
-    /// alive to capture the program's final writes and advance idle video.
-    /// Session shutdown uses the execution worker's separate `stop().await`.
-    /// Await inside the execution session that created this DOS environment;
-    /// that session drives device activities and cancellation.
+    /// While running, the PC services devices and guest deadlines. A shell can
+    /// use [`Self::wait_for`] after process completion to keep the hardware
+    /// running while it waits for its next command.
     pub async fn run(&mut self) -> Result<u8, RunError> {
         let process = self.process().ok_or(RunError::NoProcess)?;
         if let ProcessStatus::Exited(result) = process.status() {
