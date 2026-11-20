@@ -52,7 +52,7 @@ fn a_hot_function_forces_a_small_batch_with_other_eligible_candidates() {
     assert_eq!(hotness.take_batch(|_| false), [1, 2]);
     assert!(hotness.take_batch(|_| false).is_empty());
 
-    hotness.resample(&[
+    hotness.reset_counts(&[
         crate::FarPointer::from_packed(1),
         crate::FarPointer::from_packed(2),
     ]);

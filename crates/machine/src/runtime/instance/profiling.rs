@@ -149,10 +149,10 @@ impl Cpu {
             };
             let result = reply.and_then(|code| code.install_missing(self));
             let pending = std::mem::take(&mut self.instance.profiling.pending);
-            if matches!(result, Err(crate::Error::StaleCompilation)) {
-                // These roots may be hot again once the guest finishes writing.
-                self.instance.profiling.hotness.resample(&pending);
-            } else {
+            // Bound calls bypass profiling. If the binding is later retired, fresh
+            // interpreted calls can cross the threshold again.
+            self.instance.profiling.hotness.reset_counts(&pending);
+            if !matches!(result, Err(crate::Error::StaleCompilation)) {
                 for entry in pending {
                     if self.instance.install_interpreter_fallback(entry).is_err() {
                         self.instance.profiling.disable();

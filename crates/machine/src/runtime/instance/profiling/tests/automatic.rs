@@ -110,7 +110,6 @@ async fn automatic() {
                             .iter()
                             .map(|&entry| collected_count(runner.cpu(), entry))
                             .collect();
-                        assert!(counts.iter().any(|&count| count >= 4096));
                         let retired = runner.cpu().cpu_state().instruction_count();
                         slice(&mut runner).await;
                         assert!(runner.cpu().cpu_state().instruction_count() > retired);
@@ -181,11 +180,11 @@ async fn full_collection(compiler: &CompilerService) {
                 ExecutionExit::Host(HostExit::Return)
             );
             let cpu = runner.cpu();
-            assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
-            assert!(
-                cpu.instance.profiling.pending.contains(&target) || cpu.has_entry(target.packed()),
-                "full-buffer collection must submit before guest execution returns"
-            );
+            if cpu.instance.profiling.pending.contains(&target) {
+                assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
+            } else {
+                assert!(cpu.has_entry(target.packed()), "expected a compiled reply");
+            }
         })
         .await;
     machine.shutdown().await.unwrap();
@@ -202,4 +201,62 @@ fn collection_compiles_hot_functions_with_partially_discovered_branches() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn collection_compiles_hot_functions_with_partially_discovered_branches() {
     automatic().await;
+}
+
+async fn patched_callee() {
+    let compiler = CompilerService::start_with_workers(NonZeroUsize::new(1).unwrap()).unwrap();
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    memory
+        .view()
+        .write(0x100, &[0xe8, 0xfd, 0, 0xeb, 0xfb])
+        .unwrap(); // CALL 0200; JMP 0100
+    memory.view().write(0x200, &[0x40, 0xc3]).unwrap(); // INC AX; RET
+    let cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
+    let result = cpu
+        .run_until(pending::<()>(), async move |mut runner| {
+            runner.cpu().cpu_state().set_sp(0x800);
+            // A first patch gets a new compiled version. After a second patch
+            // the same hot call gets a permanent interpreter binding.
+            for (opcode, compiled) in [(0x40, true), (0x42, true), (0x40, false)] {
+                memory.view().write(0x200, &[opcode]).unwrap();
+                let deadline = runner
+                    .clock()
+                    .deadline_after(runner.clock().now(), Duration::from_secs(5));
+                loop {
+                    slice(&mut runner).await;
+                    let live = memory.installed_code_at(0x1200);
+                    if runner.cpu().has_entry(0x200)
+                        && live.iter().all(|code| !code.was_modified())
+                        && live.len() == usize::from(compiled)
+                    {
+                        break;
+                    }
+                    assert!(
+                        runner.clock().now() < deadline,
+                        "hot callee did not settle after patch to {opcode:02x}"
+                    );
+                }
+            }
+            let entry = FarPointer::from_packed(0x200);
+            let calls = collected_count(runner.cpu(), entry);
+            slice(&mut runner).await;
+            assert_eq!(collected_count(runner.cpu(), entry), calls);
+        })
+        .await;
+    machine.shutdown().await.unwrap();
+    compiler.shutdown().await.unwrap();
+    assert_eq!(result.unwrap(), Some(()));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_hot_patched_callee_is_recompiled_once() {
+    pollster::block_on(patched_callee());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_hot_patched_callee_is_recompiled_once() {
+    patched_callee().await;
 }

@@ -87,8 +87,14 @@ If a write changes the replacement, the machine excludes those backing bytes
 from future installations, including through guest aliases. Publication returns
 `Error::StaleCompilation` and preserves existing entries and hooks if bytes
 differ or any span intersects an exclusion. The exclusion still applies if
-the guest restores the original bytes. An
-automatically requested function can become hot again after a stale result.
+the guest restores the original bytes.
+
+The call resolver records unresolved targets. When an automatic request
+finishes, the profiler clears the submitted roots' counts. Calls to a bound
+entry bypass the recorder. If its module is later retired, new unresolved
+calls can cross the threshold again. An excluded root receives an interpreter
+binding, so calls to that root also bypass the recorder.
+
 Pending or parked host services must finish before installation. A guest store
 to RAM containing compiled instructions runs through the interpreter. If the
 store changes an installed instruction byte, its host callback withdraws the
