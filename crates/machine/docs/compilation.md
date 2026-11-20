@@ -151,12 +151,14 @@ A parked worker can receive browser callbacks immediately. On a busy worker,
 yielding to the browser. Completing or cancelling the last operation ends
 these browser turns. [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
-At the start of a guest dispatch turn, a CPU using automatic Real16 compilation
-checks the local slot for its outstanding request. It fills vacant dispatch
-entries with compiled code and supplies interpreter fallbacks for any requested
-roots still missing. A stale result returns its roots to sampling instead. Existing entries stay in place, including handlers retained
-by a parked BIOS call. An interrupt handler can therefore use newly compiled
-code while the outer call is parked.
+When a complete automatic Real16 compiler reply reaches the local slot, the
+forwarding task wakes the active CPU run. If no run is active, the slot keeps
+the reply for the next run. With the machine's pause permit held, the CPU
+installs the reply even while pacing or waiting for a host service. It fills
+vacant dispatch entries and supplies interpreter fallbacks for requested roots
+still missing. A stale result returns its roots to sampling. Existing entries
+stay in place, including handlers retained by a parked BIOS call. An interrupt
+handler can therefore use newly compiled code while the outer call is parked.
 
 The CPU also collects its call profile when the sampling interval has elapsed
 and it gets an execution turn. Profiling never wakes an idle CPU.

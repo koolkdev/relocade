@@ -9,7 +9,10 @@ use crate::{
 use futures_channel::mpsc;
 use futures_util::{future::LocalBoxFuture, StreamExt};
 use relocade_x86::ExecutionTarget;
-use std::future::poll_fn;
+use std::{
+    future::poll_fn,
+    task::{Context, Poll},
+};
 
 /// One CPU's compilation requests and ordered results.
 /// Connects directly to the shared service. Dropping it closes the request stream.
@@ -103,14 +106,14 @@ impl CompilerClient {
     /// Returns `None` once the compiler has finished and all replies are consumed.
     /// Poll within the Runner session that supplied this connection.
     pub async fn recv(&mut self) -> Option<Result<CompiledCode>> {
-        self.results.next().await
+        poll_fn(|cx| self.poll_reply(cx)).await
     }
 
-    /// Takes a delivered result at an eligible CPU boundary.
-    pub(crate) fn try_recv(
+    pub(crate) fn poll_reply(
         &mut self,
-    ) -> std::result::Result<Result<CompiledCode>, mpsc::TryRecvError> {
-        self.results.try_recv()
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<CompiledCode>>> {
+        self.results.poll_next_unpin(cx)
     }
 }
 
