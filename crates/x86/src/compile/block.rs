@@ -14,6 +14,7 @@ use crate::{
 };
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
+use std::sync::Arc;
 
 /// Captured instruction bytes and a compilation bound for one CS-relative entry.
 /// The bytes must match readable guest memory when the resulting block executes.
@@ -49,12 +50,23 @@ pub struct CompiledBlocks {
     /// Guest address and byte length of every block, including private jump targets.
     /// Their bytes and instruction-fetch mappings must remain valid while the module can run.
     pub spans: Vec<(CodeAddress, usize)>,
+    instruction_lengths: Vec<Arc<[u8]>>,
     /// Unique packed Real16 CS:IP targets, in call-table slot order.
     /// Calls to the same target share a slot throughout the module.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
     /// Shared execution policy. Each entry records its own decode width.
     pub execution_target: ExecutionTarget,
+}
+
+impl CompiledBlocks {
+    /// Encoded instruction lengths for every emitted block, including private jump targets.
+    pub fn block_instructions(&self) -> impl Iterator<Item = (CodeAddress, Arc<[u8]>)> {
+        self.spans
+            .iter()
+            .zip(&self.instruction_lengths)
+            .map(|(&(address, _), lengths)| (address, Arc::clone(lengths)))
+    }
 }
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].

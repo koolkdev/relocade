@@ -35,9 +35,8 @@ async fn call_after_write() {
         let blocks = compiler.compile_decoded_blocks(decoded).unwrap();
         let source = reader.finish(
             blocks
-                .spans
-                .iter()
-                .map(|&(address, len)| (address.eip(), len)),
+                .block_instructions()
+                .map(|(address, lengths)| (address.eip(), lengths)),
         );
         let module = wasm_compiler.compile(&blocks.bytes).await.unwrap();
         CompiledCode::new(module, blocks, source)

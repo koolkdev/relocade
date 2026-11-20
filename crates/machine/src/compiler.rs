@@ -97,9 +97,8 @@ async fn compile(
     };
     let source = reader.finish(
         blocks
-            .spans
-            .iter()
-            .map(|&(address, len)| (code_segment(address).base + address.eip(), len)),
+            .block_instructions()
+            .map(|(address, lengths)| (code_segment(address).base + address.eip(), lengths)),
     );
     Ok(CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,

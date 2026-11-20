@@ -34,9 +34,28 @@ pub struct CodeRegistry {
 pub struct CodeSource {
     memory: Weak<CodeRegistry>,
     spans: Arc<[Span]>,
+    blocks: Arc<[SourceBlock]>,
+}
+
+struct SourceBlock {
+    spans: Range<usize>,
+    instruction_lengths: Arc<[u8]>,
+}
+
+impl SourceBlock {
+    fn instructions(&self, address: u32) -> impl Iterator<Item = Range<u64>> + '_ {
+        self.instruction_lengths
+            .iter()
+            .scan(u64::from(address), |ip, &len| {
+                let start = *ip;
+                *ip += u64::from(len);
+                Some(start..*ip)
+            })
+    }
 }
 
 struct Span {
+    block: usize,
     address: u32,
     /// Physical page after A20, where this backing page's write route lives.
     physical_page: u32,
@@ -49,14 +68,32 @@ impl Span {
         u64::from(self.backing)..u64::from(self.backing) + self.bytes.len() as u64
     }
 
-    fn changed_by(&self, backing: u32, bytes: &[u8]) -> bool {
+    /// Map a linear interval back to the part supplied by this page.
+    fn backing_part(&self, linear: &Range<u64>) -> Option<Range<u64>> {
+        let base = u64::from(self.address);
+        let first = linear.start.max(base);
+        let last = linear.end.min(base + self.bytes.len() as u64);
+        let backing = u64::from(self.backing);
+        (first < last).then(|| backing + (first - base)..backing + (last - base))
+    }
+
+    /// The changed overlap, in linear guest address order.
+    fn changed_slice<'a>(
+        &'a self,
+        backing: u32,
+        bytes: &'a [u8],
+    ) -> Option<(u64, &'a [u8], &'a [u8])> {
         let source = self.backing_range();
         let write = u64::from(backing);
         let start = source.start.max(write);
         let end = source.end.min(write + bytes.len() as u64);
-        start < end
-            && self.bytes[(start - source.start) as usize..(end - source.start) as usize]
-                != bytes[(start - write) as usize..(end - write) as usize]
+        if start >= end {
+            return None;
+        }
+        let offset = (start - source.start) as usize;
+        let before = &self.bytes[offset..(end - source.start) as usize];
+        let after = &bytes[(start - write) as usize..(end - write) as usize];
+        (before != after).then_some((u64::from(self.address) + offset as u64, before, after))
     }
 }
 
@@ -71,6 +108,42 @@ impl CodeSource {
     /// The same dependencies in shared backing storage, including guest aliases.
     pub fn backing_ranges(&self) -> impl Iterator<Item = Range<u64>> + '_ {
         self.spans.iter().map(Span::backing_range)
+    }
+
+    /// If the write changes any byte in this span, return the full backing ranges
+    /// of the affected instructions. A cross-page instruction can have two ranges.
+    fn changed_instruction_ranges<'a>(
+        &'a self,
+        span_index: usize,
+        backing: u32,
+        bytes: &'a [u8],
+    ) -> Option<impl Iterator<Item = Range<u64>> + 'a> {
+        let span = &self.spans[span_index];
+        let (write, before, after) = span.changed_slice(backing, bytes)?;
+        let end = write + before.len() as u64;
+        let block = &self.blocks[span.block];
+        let address = self.spans[block.spans.start].address;
+        let changed = block
+            .instructions(address)
+            .take_while(move |instruction| instruction.start < end)
+            .filter(move |instruction| {
+                if instruction.end <= write {
+                    return false;
+                }
+                let first = (instruction.start.max(write) - write) as usize;
+                let last = (instruction.end.min(end) - write) as usize;
+                before[first..last] != after[first..last]
+            });
+
+        // At most one neighboring page supplies the rest of an x86 instruction.
+        let first = span_index.saturating_sub(1).max(block.spans.start);
+        let past = (span_index + 2).min(block.spans.end);
+        let neighbors = &self.spans[first..past];
+        Some(changed.flat_map(move |instruction| {
+            neighbors
+                .iter()
+                .filter_map(move |span| span.backing_part(&instruction))
+        }))
     }
 
     pub(crate) fn belongs_to(&self, memory: &Memory) -> bool {

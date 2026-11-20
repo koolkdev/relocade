@@ -43,6 +43,11 @@ impl SnapshotInstruction {
         self.next_eip
     }
 
+    /// Number of bytes consumed by the instruction, including its prefixes.
+    pub fn byte_len(&self) -> u8 {
+        self.next_eip.wrapping_sub(self.eip) as u8
+    }
+
     /// The captured CS default size before applying instruction prefixes.
     pub fn code_default_size(&self) -> SegmentDefaultSize {
         self.code_default_size

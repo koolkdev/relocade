@@ -25,7 +25,7 @@ fn aliases_share_speculative_bytes_and_only_installed_sources_are_indexed() {
     assert_eq!(reader.read(0x100, 5).unwrap(), [1, 2, 3, 4, 5]);
     memory.view().write(0x100100, &[9]).unwrap();
     assert_eq!(reader.read(0x100100, 3).unwrap(), [1, 2, 3]);
-    let candidate = reader.finish([(0x100, 2), (0x100101, 2)]);
+    let candidate = reader.finish([(0x100, &[2][..]), (0x100101, &[2][..])]);
     assert!(candidate.ranges().eq([0x100..0x102, 0x100101..0x100103]));
     assert!(candidate
         .backing_ranges()
@@ -67,7 +67,7 @@ fn a_cross_page_write_marks_only_the_installation_with_changed_bytes() {
     let install_span = |address, len| {
         let mut reader = memory.code_reader();
         reader.read(0xffe, 4).unwrap();
-        register(&memory, &reader.finish([(address, len)]))
+        register(&memory, &reader.finish([(address, &[len][..])]))
     };
     let first = install_span(0xffe, 3);
     let second = install_span(0x1000, 2);
@@ -83,4 +83,54 @@ fn a_cross_page_write_marks_only_the_installation_with_changed_bytes() {
     writer.view().write_backing(0x1ffe, &[8]).unwrap();
     assert!(memory.take_retirement_request());
     assert!(first.was_modified());
+}
+
+#[test]
+fn changed_instruction_extends_across_discontiguous_backing_pages() {
+    use relocade_x86::{
+        BlockSnapshot, CodeAddress, Compiler, ExecutionProfile, SegmentDefaultSize,
+    };
+    let map = PhysicalMemoryMap::new([
+        (
+            0..=0xfff,
+            PhysicalMapping::Ram {
+                backing_offset: 0x2000,
+            },
+        ),
+        (0x1000..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 }),
+    ])
+    .unwrap();
+    let memory = Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap();
+    // NOP; MOV AX,7; NOP; RET. Only MOV crosses the page boundary.
+    memory
+        .view()
+        .write(0xffd, &[0x90, 0xb8, 7, 0, 0x90, 0xc3])
+        .unwrap();
+    let mut reader = memory.code_reader();
+    let bytes = reader.read(0xffd, 6).unwrap();
+    let blocks = Compiler::new(ExecutionProfile::Real16)
+        .compile_blocks(&[BlockSnapshot {
+            address: CodeAddress::RealMode {
+                segment: 0,
+                eip: 0xffd,
+            },
+            code_default_size: SegmentDefaultSize::Bits16,
+            bytes: &bytes,
+            instruction_limit: 4,
+        }])
+        .unwrap();
+    let source = reader.finish(
+        blocks
+            .block_instructions()
+            .map(|(address, lengths)| (address.eip(), lengths)),
+    );
+    assert!(source.ranges().eq([0xffd..0x1000, 0x1000..0x1003]));
+    let from_second_page = source
+        .changed_instruction_ranges(1, 0, &[1, 0x90, 0xc3])
+        .unwrap();
+    assert!(from_second_page.eq([0x2ffe..0x3000, 0..1]));
+    let from_first_page = source
+        .changed_instruction_ranges(0, 0x2ffd, &[0x90, 0xb8, 9])
+        .unwrap();
+    assert!(from_first_page.eq([0x2ffe..0x3000, 0..1]));
 }

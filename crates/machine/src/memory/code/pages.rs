@@ -99,9 +99,11 @@ impl CodePages {
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
                 if !code.was_modified()
-                    && code
-                        .spans_on(page)
-                        .any(|span| span.changed_by(backing, bytes))
+                    && code.spans_by_page[&page].iter().any(|&index| {
+                        code.source
+                            .changed_instruction_ranges(index, backing, bytes)
+                            .is_some()
+                    })
                 {
                     code.changed.store(true, Ordering::Release);
                     changed = true;

@@ -85,7 +85,7 @@ impl DecodedBlock {
         if instruction.code_default_size() != self.code_default_size {
             return Err(BlockError::InconsistentCodeSize { address: expected });
         }
-        self.byte_len += instruction.next_eip().wrapping_sub(expected) as usize;
+        self.byte_len += usize::from(instruction.byte_len());
         self.instructions.push(instruction);
         Ok(())
     }

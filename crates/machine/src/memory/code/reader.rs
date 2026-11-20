@@ -1,4 +1,4 @@
-use super::{CodeSource, Memory, Span, PAGE_BYTES};
+use super::{CodeSource, Memory, SourceBlock, Span, PAGE_BYTES};
 use crate::memory::{
     resolve::{linear_address, segment_remaining, Spans},
     MemoryError,
@@ -78,9 +78,19 @@ impl<'a> CodeReader<'a> {
         copied
     }
 
-    pub(crate) fn finish(self, blocks: impl IntoIterator<Item = (u32, usize)>) -> CodeSource {
+    pub(crate) fn finish<L: Into<Arc<[u8]>>>(
+        self,
+        blocks: impl IntoIterator<Item = (u32, L)>,
+    ) -> CodeSource {
         let mut spans = Vec::new();
-        for (address, len) in blocks {
+        let mut layouts = Vec::new();
+        for (address, instruction_lengths) in blocks {
+            let instruction_lengths = instruction_lengths.into();
+            let first_span = spans.len();
+            let len = instruction_lengths
+                .iter()
+                .map(|&len| usize::from(len))
+                .sum();
             let mut linear = address;
             for span in Spans::new(self.memory.config.memory_map(), address, len)
                 .expect("decoded instruction range")
@@ -93,6 +103,7 @@ impl<'a> CodeReader<'a> {
                 let page = super::page_base(backing);
                 let offset = (backing - page) as usize;
                 spans.push(Span {
+                    block: layouts.len(),
                     address: linear,
                     physical_page: super::page_base(span.address),
                     backing,
@@ -100,10 +111,15 @@ impl<'a> CodeReader<'a> {
                 });
                 linear = linear.wrapping_add(span.len as u32);
             }
+            layouts.push(SourceBlock {
+                spans: first_span..spans.len(),
+                instruction_lengths,
+            });
         }
         CodeSource {
             memory: Arc::downgrade(&self.memory.code),
             spans: spans.into(),
+            blocks: layouts.into(),
         }
     }
 }

@@ -7,13 +7,14 @@ use crate::{
     ExecutionProfile, InstructionFlow,
 };
 use relocade_compiler::{CompileExecutor, Func, Program};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub(in crate::compile) struct BlockModule<'a> {
     compiler: &'a Compiler,
     program: Program,
     entries: Vec<BlockEntry>,
     spans: Vec<(CodeAddress, usize)>,
+    instruction_lengths: Vec<Arc<[u8]>>,
     call_targets: Vec<u32>,
     call_slots: BTreeMap<u32, u32>,
     execution: ExecutionModule,
@@ -76,6 +77,7 @@ impl<'a> BlockModule<'a> {
             program,
             entries: Vec::new(),
             spans: Vec::new(),
+            instruction_lengths: Vec::new(),
             call_targets: Vec::new(),
             call_slots: BTreeMap::new(),
             execution,
@@ -128,6 +130,7 @@ impl<'a> BlockModule<'a> {
             bytes: self.program.compile()?,
             entries: self.entries,
             spans: self.spans,
+            instruction_lengths: self.instruction_lengths,
             call_targets: self.call_targets,
             execution_target: self.compiler.target,
         })
@@ -141,6 +144,7 @@ impl<'a> BlockModule<'a> {
             bytes: self.program.compile_with(executor).await?,
             entries: self.entries,
             spans: self.spans,
+            instruction_lengths: self.instruction_lengths,
             call_targets: self.call_targets,
             execution_target: self.compiler.target,
         })
@@ -178,6 +182,13 @@ impl<'a> BlockModule<'a> {
         let byte_len = block.byte_len();
         let code_default_size = block.code_default_size();
         let exported = block.is_exported();
+        self.instruction_lengths.push(
+            block
+                .instructions
+                .iter()
+                .map(crate::SnapshotInstruction::byte_len)
+                .collect(),
+        );
         let observed_cpu = self.compiler.observed_cpu;
         self.program.define(function, move |body| {
             let mut execution = module

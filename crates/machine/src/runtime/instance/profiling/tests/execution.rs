@@ -178,9 +178,8 @@ async fn far_calls() {
             let blocks = compiler.compile_decoded_blocks(decoded).unwrap();
             let source = reader.finish(
                 blocks
-                    .spans
-                    .iter()
-                    .map(|&(address, len)| (address.eip(), len)),
+                    .block_instructions()
+                    .map(|(address, lengths)| (address.eip(), lengths)),
             );
             let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&blocks.bytes).await.unwrap();
