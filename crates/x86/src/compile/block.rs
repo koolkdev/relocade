@@ -61,7 +61,7 @@ pub struct CompiledBlocks {
 
 impl CompiledBlocks {
     /// Encoded instruction lengths for every emitted block, including private jump targets.
-    pub fn block_instructions(&self) -> impl Iterator<Item = (CodeAddress, Arc<[u8]>)> {
+    pub fn block_instructions(&self) -> impl Iterator<Item = (CodeAddress, Arc<[u8]>)> + '_ {
         self.spans
             .iter()
             .zip(&self.instruction_lengths)
