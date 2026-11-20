@@ -1,12 +1,13 @@
 //! Packed width conversion preserves lane effects and guards range boundaries.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile};
+use relocade_x86::Compiler;
 
 fn lane_effects(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (narrow, sources, results, controls, raised) in [
         (
             false,
@@ -147,9 +148,9 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
         &[0x66, 0x0f, 0x5a, 0xc1]
     };
     let initial_cpu = image.cpu;
-    for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
+    for config in [REAL16, FLAT32] {
         image.cpu = initial_cpu;
-        if profile == ExecutionProfile::Real16 {
+        if config.entry == REAL16.entry {
             image.initialize_real_mode();
         }
         let prior = if restart {
@@ -179,7 +180,7 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
             }],
         );
         for observed in [false, true] {
-            let compiler = Compiler::new(profile);
+            let compiler = Compiler::from_config(config);
             let compiler = if observed {
                 compiler.specialize_on_cpu(&image.cpu)
             } else {
@@ -201,7 +202,7 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
                         }]
                     )
                 );
-                let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
+                let linked = block.with_interpreter(TestModule::interpreter_with_config(config));
                 assert_eq!(
                     linked.observe(&image.input(), 1),
                     step_returns(wanted.clone())
@@ -220,7 +221,7 @@ fn check_native(mut image: Image, result: [u32; 2], raised: u32, restart: bool) 
 }
 
 fn widen_encodings(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0x5a, 0xc1];
     for (sources, results, controls, raised) in [
         (
@@ -285,7 +286,7 @@ fn native_widen() {
         }
         let wanted = expected(&image, &[dispatch(cpu)]);
         for observed in [false, true] {
-            let compiler = Compiler::new(SegmentProfile::Flat32);
+            let compiler = Compiler::from_config(FLAT32);
             let compiler = if observed {
                 compiler.specialize_on_cpu(&image.cpu)
             } else {

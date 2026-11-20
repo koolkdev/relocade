@@ -1,21 +1,22 @@
 //! Stack instructions with live mode and segment-cache fields.
 
+use crate::support::config::SEGMENTED16;
 use crate::{
     execution::ExecutionModule,
     state::{cr0, State},
     support::machine::{check, Exit, Image, Step},
     test_step::TestModule,
     Compiler, CpuState, ExecutionExit, ExecutionExitValues, MemoryBackend, SegmentDefaultSize,
-    SegmentProfile, SnapshotInstruction,
+    SnapshotInstruction,
 };
 use relocade_compiler::Program;
 
 fn instruction(bytes: &[u8]) -> TestModule {
     let mut program = Program::new();
-    let target = Compiler::new(SegmentProfile::Segmented16)
+    let config = Compiler::from_config(SEGMENTED16)
         .with_memory_backend(MemoryBackend::PhysicalBus)
-        .target();
-    let module = ExecutionModule::declare(&mut program, target);
+        .config();
+    let module = ExecutionModule::declare(&mut program, config);
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;

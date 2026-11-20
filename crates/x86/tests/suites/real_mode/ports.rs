@@ -1,10 +1,10 @@
 use super::*;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
     step::{Event, TestModule},
 };
-use relocade_x86::SegmentProfile;
 
 fn scalar(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -26,8 +26,8 @@ fn scalar(frontend: Frontend) {
         image.cpu.registers.eax = 0x89ab_cdef;
         image.cpu.registers.edx = 0xabcd_ffff;
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, code, 8, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks.get(&image.cpu, code, 8, REAL16),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16),
         };
         let mut input = image.input();
         let mask = u32::MAX >> (32 - width * 8);
@@ -64,7 +64,7 @@ test_frontends!(scalar_port_transfers, scalar);
 
 #[test]
 fn port_boundaries() {
-    let run = TestModule::interpreter_run_with_profile(ExecutionProfile::Real16);
+    let run = TestModule::interpreter_run_with_config(REAL16);
     let code = [0xe4, 0x92, 0xb8, 0, 0];
     let image = image(&code);
     let mut input = image.input();
@@ -87,7 +87,7 @@ fn port_boundaries() {
         },
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 8, ExecutionProfile::Real16);
+    let block = blocks.get(&image.cpu, &code, 8, REAL16);
     for module in [run, block] {
         assert_eq!(
             module.observe(&input, 1),
@@ -95,21 +95,17 @@ fn port_boundaries() {
             "port read stays observable and ends execution before the overwrite"
         );
     }
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
         for code in [&[0xe4, 0x92][..], &[0xef][..]] {
             let mut image = Image::new(code);
-            if profile == SegmentProfile::Segmented16 {
+            if config.entry == SEGMENTED16.entry {
                 image.cpu.segments.cs.big = 0;
             }
-            let block = blocks.get(&image.cpu, code, 8, profile);
-            for module in [block, TestModule::interpreter_with_profile(profile)] {
+            let block = blocks.get(&image.cpu, code, 8, config);
+            for module in [block, TestModule::interpreter_with_config(config)] {
                 image.check_unchanged_exit(
                     module,
-                    "fixed user profiles deny I/O",
+                    "fixed user configurations deny I/O",
                     Exit::GeneralProtection { error: 0 },
                 );
             }
@@ -118,7 +114,7 @@ fn port_boundaries() {
     for code in [&[0xf0, 0xec][..], &[0xf0, 0xe6, 0x92][..]] {
         let image = super::image(code);
         image.check_unchanged_exit(
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            TestModule::interpreter_with_config(REAL16),
             "LOCK port I/O follows the shared unsupported-encoding path",
             Exit::UnsupportedInstruction {
                 eip: 0x1000,

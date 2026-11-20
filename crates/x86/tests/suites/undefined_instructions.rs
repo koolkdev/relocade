@@ -1,5 +1,6 @@
 //! UD2 raises a guest fault after its encoding is fetched and before any retirement.
 
+use crate::support::config::SEGMENTED32;
 use crate::support::{
     cases::{
         test_cases,
@@ -12,9 +13,7 @@ use crate::support::{
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
     step::TestModule,
 };
-use relocade_x86::{
-    compile_block_from_bytes, ExecutionProfile, Gpr32::*, Segment, SegmentProfile, SegmentRegister,
-};
+use relocade_x86::{compile_block_from_bytes, Gpr32::*, Segment, SegmentRegister};
 
 fn faulting_forms() -> Vec<Case> {
     vec![
@@ -85,9 +84,7 @@ fn interpreter_fetch_checks_precede_the_invalid_opcode_fault() {
     let mut image = Image::new(&[0x0f, 0x0b]);
     image.cpu.segments.cs.limit = 0x1000;
     image.check_unchanged_exit(
-        TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-            SegmentProfile::Segmented32,
-        )),
+        TestModule::interpreter_with_config(SEGMENTED32),
         "the second opcode byte must be inside CS before UD2 can execute",
         Exit::GeneralProtection { error: 0 },
     );

@@ -1,7 +1,8 @@
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16};
 use crate::{
     state::{Cpu, State},
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CompiledModule, CpuState, ExecutionProfile, SegmentProfile,
+    CompiledModule, CpuState,
 };
 use relocade_compiler::{Program, I32};
 
@@ -24,7 +25,7 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "observe".into(),
-        execution_target: None,
+        config: None,
     });
     for (pe, vm, selector, cr4, iopl, expected) in [
         (0, 1, 0xffff, 4, 0xff, [0, 0, 0, 3]),
@@ -62,20 +63,18 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
 
 #[test]
 fn admitted_modes_fold_privilege_and_timestamp_predicates() {
-    for profile in [
-        ExecutionProfile::Real16,
-        SegmentProfile::Flat32.into(),
-        SegmentProfile::Segmented16.into(),
-    ] {
+    for config in [REAL16, FLAT32, SEGMENTED16] {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state =
-                State::for_entry(&cpu, &crate::profile::EntryGuarantees::for_profile(profile));
+            let mut state = State::for_entry(
+                &cpu,
+                &crate::profile::EntryGuarantees::from_assumptions(config.entry),
+            );
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;
-            let is_protected = profile != ExecutionProfile::Real16;
+            let is_protected = config != REAL16;
             assert_eq!(
                 body.constant_bits(&protected)?,
                 Some(u64::from(is_protected))
@@ -99,7 +98,7 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_profile(SegmentProfile::Flat32.into()),
+            &crate::profile::EntryGuarantees::from_assumptions(FLAT32.entry),
         );
         let selector = state
             .segments()

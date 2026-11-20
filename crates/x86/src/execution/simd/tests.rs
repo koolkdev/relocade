@@ -1,16 +1,17 @@
 use super::*;
 use crate::register::RegisterCode;
+use crate::support::config::FLAT32;
 use crate::{
     execution::ExecutionModule,
     test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule},
-    CompiledModule, Compiler, CpuState, SegmentDefaultSize, SegmentProfile,
+    CompiledModule, CpuState, SegmentDefaultSize,
 };
 use relocade_compiler::{Program, Signature, Type};
 
 fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let mut program = Program::new();
-    let target = Compiler::new(SegmentProfile::Flat32).target();
-    let execution = ExecutionModule::declare(&mut program, target);
+    let config = FLAT32;
+    let execution = ExecutionModule::declare(&mut program, config);
     let function = program.raw_function(
         Signature {
             parameters: vec![Type::I32],
@@ -44,7 +45,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     );
     program.export("run", function).unwrap();
     CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

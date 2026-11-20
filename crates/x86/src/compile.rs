@@ -69,7 +69,7 @@ impl Compiler {
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
     /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
-    /// assert_eq!(block.execution_target, Some(compiler.target()));
+    /// assert_eq!(block.config, Some(compiler.target()));
     /// // Executing this CMOVE raises #UD without reading its operand.
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```

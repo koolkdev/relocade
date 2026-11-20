@@ -1,13 +1,14 @@
 //! FXRSTOR reconstructs tags and replaces state only after validation succeeds.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED32};
 use crate::support::machine::step_returns;
 
 fn layouts(frontend: Frontend) {
-    for profile in PROFILES {
-        let restore = instruction(profile, true, 0x4010);
+    for config in CONFIGURATIONS {
+        let restore = instruction(config, true, 0x4010);
         let code = [restore.as_slice(), &[0x9b]].concat();
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         // FXRSTOR must proceed even when the old state has an unmasked exception.
         set_control(&mut image.cpu.x87.control, 0x037e);
         image.cpu.x87.status = status(0xa881);
@@ -31,13 +32,13 @@ fn layouts(frontend: Frontend) {
         loaded.x87.status = status(0xa8a0);
         loaded.x87.tag_word = 0xea85;
         loaded.x87.opcode = 0x0654;
-        loaded.x87.instruction_offset = if sixteen_bit(profile) {
+        loaded.x87.instruction_offset = if sixteen_bit(config) {
             0x5678
         } else {
             0x1234_5678
         };
         loaded.x87.instruction_selector = 0x1357;
-        loaded.x87.data_offset = if sixteen_bit(profile) {
+        loaded.x87.data_offset = if sixteen_bit(config) {
             0xcdef
         } else {
             0x89ab_cdef
@@ -63,8 +64,8 @@ fn layouts(frontend: Frontend) {
         );
         image.data(0x8010, &bytes);
         image.map(4, 0x8000, false);
-        ImageSequences::new(frontend, profile).check(
-            &format!("FXRSTOR {profile:?} restores physical tags, logical payloads and SIMD state"),
+        ImageSequences::new(frontend, config).check(
+            &format!("FXRSTOR {config:?} restores physical tags, logical payloads and SIMD state"),
             &code,
             &image,
             &[
@@ -240,7 +241,7 @@ fn invalid_mxcsr(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    for (profile, address, exit) in [
+    for (config, address, exit) in [
         (FLAT32, 0x4011, Exit::GeneralProtection { error: 0 }),
         (
             FLAT32,
@@ -250,25 +251,17 @@ fn faults(frontend: Frontend) {
                 error: 0,
             },
         ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            0xff00,
-            Exit::GeneralProtection { error: 0 },
-        ),
-        (
-            ExecutionProfile::Real16,
-            0xff00,
-            Exit::GeneralProtection { error: 0 },
-        ),
+        (SEGMENTED32, 0xff00, Exit::GeneralProtection { error: 0 }),
+        (REAL16, 0xff00, Exit::GeneralProtection { error: 0 }),
     ] {
-        let code = instruction(profile, true, address);
-        let mut image = image(&code, profile);
-        if profile != FLAT32 {
+        let code = instruction(config, true, address);
+        let mut image = image(&code, config);
+        if config.entry != FLAT32.entry {
             image.cpu.segments.ds.limit = 0xffff;
         }
         set_control(&mut image.cpu.x87.control, 0x037e);
         image.cpu.x87.status = status(0xa881);
-        ImageSequences::new(frontend, profile).check(
+        ImageSequences::new(frontend, config).check(
             "FXRSTOR checks alignment and the complete span before MXCSR or state writes",
             &code,
             &image,
@@ -299,7 +292,7 @@ fn fxrstor_replaces_observed_mxcsr_before_following_conversion() {
     let mut image = image(&code, FLAT32);
     image.cpu.simd.mxcsr = 0x1f80;
     image.cpu.simd.xmm[0][..4].copy_from_slice(&0x3fa0_0000_u32.to_le_bytes()); // 1.25
-    let compiled = Compiler::new(FLAT32)
+    let compiled = Compiler::from_config(FLAT32)
         .specialize_on_cpu(&image.cpu)
         .compile_block(0x1000, &code, 3)
         .unwrap();

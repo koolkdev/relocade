@@ -7,6 +7,7 @@ mod nop;
 #[path = "x87_control/words.rs"]
 mod words;
 
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
@@ -14,10 +15,7 @@ use crate::support::{
     step::TestModule,
     x87::{set_control, status},
 };
-use relocade_x86::{
-    compile_block_from_bytes, BlockError, CpuState, ExecutionProfile, SegmentProfile, X87Control,
-    X87Status,
-};
+use relocade_x86::{compile_block_from_bytes, BlockError, CpuState, X87Control, X87Status};
 
 fn initial_image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
@@ -64,10 +62,7 @@ fn initialized(mut cpu: CpuState) -> CpuState {
 }
 
 fn reset_and_clear(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, code) in [
         ("FNINIT", &[0xdb, 0xe3, 0x9b][..]),
         ("FNCLEX", &[0xdb, 0xe2, 0x9b][..]),
@@ -100,10 +95,7 @@ fn reset_and_clear(frontend: Frontend) {
 }
 
 fn no_wait_stores(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, store, stored) in [
         (
             "FNSTCW m16",
@@ -151,10 +143,7 @@ fn no_wait_stores(frontend: Frontend) {
 }
 
 fn status_field_packing(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0xdf, 0xe0];
     for (name, fields, word) in [
         (
@@ -210,10 +199,7 @@ fn status_field_packing(frontend: Frontend) {
 }
 
 fn load_control_and_pending(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // FLDCW m16; FNSTSW AX; FWAIT.
     let code = [0xd9, 0x2d, 1, 0x40, 0, 0, 0xdf, 0xe0, 0x9b];
     for flag in [1_u16, 2, 4, 8, 16, 32] {
@@ -348,10 +334,7 @@ fn load_control_and_pending(frontend: Frontend) {
 }
 
 fn waiting_boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x9b, 0xdb, 0xe3];
     let image = initial_image(&code);
     let waited = retire(image.cpu, 1);
@@ -401,10 +384,7 @@ fn repeated_delivery_retains_the_pending_exception() {
 }
 
 fn memory_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, opcode, modrm, error) in [
         ("FLDCW", 0xd9, 0x2d, 0),
         ("FNSTCW", 0xd9, 0x3d, 2),
@@ -438,10 +418,7 @@ fn memory_faults(frontend: Frontend) {
     let code = [0xd9, 0x2d, 0, 0x40, 0, 0];
     let mut image = initial_image(&code);
     image.cpu.segments.ds.limit = 0x4000;
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-    );
+    let mut checks = ImageSequences::new(frontend, SEGMENTED32);
     checks.check(
         "the complete two-byte control operand must fit the segment",
         &code,

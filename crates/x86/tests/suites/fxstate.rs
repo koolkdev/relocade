@@ -9,45 +9,38 @@ mod save;
 #[path = "fxstate/transfers.rs"]
 mod transfers;
 
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16};
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
-use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::{CompilerConfig, CpuState};
 
-const FLAT32: ExecutionProfile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-const PROFILES: [ExecutionProfile; 3] = [
-    FLAT32,
-    ExecutionProfile::Protected(SegmentProfile::Segmented16),
-    ExecutionProfile::Real16,
-];
+const CONFIGURATIONS: [CompilerConfig; 3] = [FLAT32, SEGMENTED16, REAL16];
 
-fn sixteen_bit(profile: ExecutionProfile) -> bool {
-    matches!(
-        profile,
-        ExecutionProfile::Real16 | ExecutionProfile::Protected(SegmentProfile::Segmented16)
-    )
+fn sixteen_bit(config: CompilerConfig) -> bool {
+    config.entry.code_default_size == Some(relocade_x86::SegmentDefaultSize::Bits16)
 }
 
-fn instruction(profile: ExecutionProfile, restore: bool, address: u32) -> Vec<u8> {
+fn instruction(config: CompilerConfig, restore: bool, address: u32) -> Vec<u8> {
     let mut code = vec![0x0f, 0xae];
-    code.push((u8::from(restore) << 3) | if sixteen_bit(profile) { 6 } else { 5 });
+    code.push((u8::from(restore) << 3) | if sixteen_bit(config) { 6 } else { 5 });
     let address = address.to_le_bytes();
-    code.extend_from_slice(&address[..if sixteen_bit(profile) { 2 } else { 4 }]);
+    code.extend_from_slice(&address[..if sixteen_bit(config) { 2 } else { 4 }]);
     code
 }
 
-fn image(code: &[u8], profile: ExecutionProfile) -> Image {
+fn image(code: &[u8], config: CompilerConfig) -> Image {
     let mut image = stack_image(code, 5, 0x3f95);
     image.cpu.x87.status = status(0x2800);
     image.cpu.simd.mxcsr = 0xabcd_9fc5;
     for (index, xmm) in image.cpu.simd.xmm.iter_mut().enumerate() {
         *xmm = std::array::from_fn(|byte| index as u8 * 17 + byte as u8);
     }
-    match profile {
-        ExecutionProfile::Real16 => image.initialize_real_mode(),
-        ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
+    match config.entry {
+        relocade_x86::EntryAssumptions::REAL_MODE => image.initialize_real_mode(),
+        relocade_x86::EntryAssumptions::SEGMENTED16 => {
             image.cpu.segments.cs.big = 0;
         }
         _ => {}

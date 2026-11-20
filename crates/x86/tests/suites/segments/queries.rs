@@ -10,19 +10,20 @@ use super::{
     query_cases::{check_one, completed, image},
     selector_cases::descriptor,
 };
+use crate::support::config::FLAT32;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Step},
     step::{Event, SegmentQuery, TestModule},
 };
 use crate::{
-    DescriptorTables, ExecutionProfile, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentLimit, SegmentProfile,
+    DescriptorTables, Gpr32, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind, SegmentLimit,
 };
 
 #[test]
 fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     let mut tables = DescriptorTables::default();
     let ordinary = descriptor(0x1234_0000, SegmentDefaultSize::Bits16);
     tables.insert(0, ordinary);
@@ -54,7 +55,7 @@ fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors(
     ] {
         for opcode in [0x02, 0x03] {
             let code = [0x0f, opcode, 0xc8];
-            let mut image = image(&code, profile);
+            let mut image = image(&code, config);
             image.cpu.registers.eax = 0xbeef_0000 | u32::from(selector);
             image.cpu.registers.ecx = 0xcafe_1234;
             image.cpu.flags.bytes.zf = u8::from(result.is_none());
@@ -63,7 +64,7 @@ fn lar_and_lsl_report_fields_or_preserve_the_destination_for_rejected_selectors(
                 cpu.registers.ecx = if opcode == 2 { rights } else { limit };
             }
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentQuery::new(&tables, selector)],

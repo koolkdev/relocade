@@ -125,7 +125,7 @@ impl<'a> BlockModule<'a> {
             entries: self.entries,
             spans: self.spans,
             call_targets: self.call_targets,
-            execution_target: self.compiler.config,
+            config: self.compiler.config,
         })
     }
 
@@ -138,7 +138,7 @@ impl<'a> BlockModule<'a> {
             entries: self.entries,
             spans: self.spans,
             call_targets: self.call_targets,
-            execution_target: self.compiler.config,
+            config: self.compiler.config,
         })
     }
 

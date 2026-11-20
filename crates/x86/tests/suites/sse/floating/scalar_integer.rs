@@ -1,11 +1,12 @@
 //! Scalar conversion checks rounding before range, without changing XMM or flags.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile};
+use relocade_x86::Compiler;
 
 fn conversions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let mut cases = vec![
             (ZERO, [0; 4], [0; 4]),
@@ -104,7 +105,7 @@ fn conversions(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = encoding(prefix(wide, false), 0x2c, 0x08); // ECX,[EAX]
         let width = if wide { 8 } else { 4 };
@@ -145,16 +146,16 @@ fn memory(frontend: Frontend) {
 
 #[test]
 fn sse_scalar_integer_precision_stays_compiled() {
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+    for config in [FLAT32, REAL16] {
         let code = [0xf3, 0x0f, 0x2d, 0xc1]; // CVTSS2SI EAX,XMM1
         let module = TestModule::new(
-            &Compiler::new(profile)
+            &Compiler::from_config(config)
                 .compile_block(0x1000, &code, 1)
                 .unwrap(),
         );
         for mxcsr in [0x1f80, 0x0f80] {
             let mut image = floating_image(&code, mxcsr);
-            if profile == ExecutionProfile::Real16 {
+            if config.entry == REAL16.entry {
                 image.initialize_real_mode();
             }
             lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3fc0_0000);

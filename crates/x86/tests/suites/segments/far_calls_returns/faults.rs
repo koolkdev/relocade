@@ -1,6 +1,7 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -45,7 +46,7 @@ fn call_checks_descriptor_then_stack_capacity_then_target_then_stack_paging() {
                 },
             );
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                SEGMENTED32,
                 &code,
                 &image,
                 &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
@@ -133,7 +134,7 @@ fn every_frame_page_is_proved_before_stores_or_selector_resolution_for_return() 
                     vec![SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)]
                 };
                 check_one(
-                    ExecutionProfile::Protected(SegmentProfile::Flat32),
+                    FLAT32,
                     &code,
                     &image,
                     &resolutions,
@@ -262,7 +263,7 @@ fn return_requires_rpl_three_before_reusing_code_descriptor_rules_and_limit_chec
                 vec![]
             };
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                FLAT32,
                 &code,
                 &image,
                 &resolutions,
@@ -333,12 +334,7 @@ fn faults_publish_earlier_register_flag_memory_and_retirement_progress() {
             step_returns(wanted.clone())
         );
         let mut blocks = BlockModules::default();
-        let module = blocks.get(
-            &image.cpu,
-            &code,
-            3,
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-        );
+        let module = blocks.get(&image.cpu, &code, 3, FLAT32);
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
         assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));

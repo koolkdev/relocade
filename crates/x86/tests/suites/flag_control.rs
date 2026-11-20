@@ -1,5 +1,7 @@
-//! Flag controls preserve other state and enforce the execution profile's privileges.
+//! Flag controls preserve other state and enforce privilege checks.
+
 use crate::flags::Flag;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     cases::{
         test_cases,
@@ -9,6 +11,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
+use relocade_x86::Compiler;
 use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Esi};
 
 fn carry_result(value: bool) -> Flags<FlagExpectation> {
@@ -115,20 +118,15 @@ fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
         execution::ImageSequences,
         machine::{Exit, Image, Step},
     };
-    use relocade_x86::SegmentProfile;
 
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        let mut cases = ImageSequences::new(frontend, profile);
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
+        let mut cases = ImageSequences::new(frontend, config);
         for opcode in [0xfa, 0xfb] {
             let code = [0x66, 0x67, 0x64, opcode];
             for fill in [0x80, 0xff] {
                 let mut image = Image::new(&code);
                 image.cpu.flags = crate::support::machine::protected_state(fill).flags;
-                if profile == SegmentProfile::Segmented16 {
+                if config.entry == SEGMENTED16.entry {
                     image.cpu.segments.cs.big = 0;
                 }
                 cases.check(
@@ -152,25 +150,17 @@ crate::support::execution::test_frontends!(
 
 #[test]
 fn protected_interrupt_controls_stop_before_snapshot_successors() {
-    use relocade_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
-
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
         for code in [&[0xfa][..], &[0x66, 0x67, 0x64, 0xfb]] {
-            let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
+            let complete = Compiler::from_config(config)
+                .compile_block(0x1000, code, 1)
+                .unwrap();
             for suffix in [&[][..], &[0x0f], &[0xf1], &[0xb0, 0x7f]] {
                 assert_eq!(
-                    compile_block_from_bytes_with_profile(
-                        0x1000,
-                        &[code, suffix].concat(),
-                        u32::MAX,
-                        profile
-                    )
-                    .unwrap()
-                    .bytes,
+                    Compiler::from_config(config)
+                        .compile_block(0x1000, &[code, suffix].concat(), u32::MAX)
+                        .unwrap()
+                        .bytes,
                     complete.bytes
                 );
             }

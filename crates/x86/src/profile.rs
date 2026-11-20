@@ -63,11 +63,6 @@ impl EntryGuarantees {
     pub(crate) fn patterns(&self) -> &[StatePattern] {
         &self.fields
     }
-
-    #[cfg(test)]
-    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
-        Self::from_assumptions(profile.into())
-    }
 }
 
 /// Existing name for the compiler configuration during the caller migration.

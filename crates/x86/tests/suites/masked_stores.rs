@@ -5,13 +5,14 @@ mod addressing;
 #[path = "masked_stores/mmio.rs"]
 mod mmio;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{stack_image, write_register_bits},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const DATA: [u8; 16] = [
     0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f,
@@ -61,7 +62,7 @@ fn retired(mut cpu: CpuState, length: usize, bytes: usize) -> CpuState {
 }
 
 fn payloads(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for bytes in [8, 16] {
         let code = code(bytes);
         for (mask, result) in [
@@ -114,7 +115,7 @@ fn payloads(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for bytes in [8, 16] {
         let code = code(bytes);
         for mask in [

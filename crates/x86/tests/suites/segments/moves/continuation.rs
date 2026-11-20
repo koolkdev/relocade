@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
@@ -23,7 +23,7 @@ fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
     cpu.eip = 0x1002;
     cpu.instruction_count = 0;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -33,14 +33,14 @@ fn the_next_entry_uses_loaded_ss_base_and_stack_width() {
             exit: Exit::Dispatch(cpu.eip),
         },
     );
-    // Resume the published state under a compatible profile. SS.B controls SP
+    // Resume the published state with compatible entry assumptions. SS.B controls SP
     // wrapping independently of the still-32-bit operand and code defaults.
     image.cpu = cpu;
     cpu.registers.esp = 0xabcd_fffc;
     cpu.eip = 0x1003;
     cpu.instruction_count = 1;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        SEGMENTED32,
         &code[2..],
         &image,
         &[],
@@ -67,7 +67,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
     cpu.segments.ds = SegmentRegister::unusable(3);
     cpu.eip += 2;
     cpu.instruction_count = 0;
-    assert!(!cpu.segments.is_compatible_with(SegmentProfile::Flat32));
+    assert!(!cpu.segments.is_compatible_with(FLAT32.entry));
     let mut wanted = expected(
         &image,
         &[Step {
@@ -85,12 +85,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
     );
     let mut blocks = BlockModules::default();
     for module in [
-        blocks.get(
-            &image.cpu,
-            &code,
-            2,
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ),
+        blocks.get(&image.cpu, &code, 2, FLAT32),
         TestModule::interpreter(),
     ] {
         assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
@@ -106,7 +101,7 @@ fn a_successful_load_can_break_flat_assumptions_only_at_the_dispatch_boundary() 
     cpu.eip += 2;
     cpu.instruction_count = 1;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        SEGMENTED32,
         &read,
         &next,
         &[],

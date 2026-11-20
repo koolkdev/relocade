@@ -1,46 +1,27 @@
+use crate::support::config::{FLAT32, REAL16, SEGMENTED32};
 use crate::support::{
     encoding::{check_length, check_unsupported_at_page_end},
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{ExecutionProfile, Gpr32, Segment, SegmentProfile, SegmentRegister};
+use relocade_x86::{Gpr32, Segment, SegmentRegister};
 
 fn register_results(frontend: Frontend) {
-    for (profile, code, register, value) in [
-        (
-            SegmentProfile::Flat32.into(),
-            &[0x0f, 0x01, 0xe0][..],
-            Gpr32::Eax,
-            0x31,
-        ),
-        (
-            SegmentProfile::Flat32.into(),
-            &[0x66, 0x0f, 0x01, 0xe6],
-            Gpr32::Esi,
-            0x7777_0031,
-        ),
-        (
-            ExecutionProfile::Real16,
-            &[0x0f, 0x01, 0xe3],
-            Gpr32::Ebx,
-            0x4444_0030,
-        ),
-        (
-            ExecutionProfile::Real16,
-            &[0x66, 0x0f, 0x01, 0xe4],
-            Gpr32::Esp,
-            0x30,
-        ),
+    for (config, code, register, value) in [
+        (FLAT32, &[0x0f, 0x01, 0xe0][..], Gpr32::Eax, 0x31),
+        (FLAT32, &[0x66, 0x0f, 0x01, 0xe6], Gpr32::Esi, 0x7777_0031),
+        (REAL16, &[0x0f, 0x01, 0xe3], Gpr32::Ebx, 0x4444_0030),
+        (REAL16, &[0x66, 0x0f, 0x01, 0xe4], Gpr32::Esp, 0x30),
     ] {
         let mut image = Image::new(code);
-        if profile == ExecutionProfile::Real16 {
+        if config.entry == REAL16.entry {
             image.initialize_real_mode();
         }
         let mut cpu = image.cpu;
         cpu.registers[register] = value;
         cpu.eip += code.len() as u32;
         cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-        ImageSequences::new(frontend, profile).check(
+        ImageSequences::new(frontend, config).check(
             "read the mode's CR0 word and preserve flags and other registers",
             code,
             &image,
@@ -55,13 +36,10 @@ fn register_results(frontend: Frontend) {
 test_frontends!(register_widths_and_modes, register_results);
 
 fn memory_results(frontend: Frontend) {
-    for (profile, status) in [
-        (SegmentProfile::Segmented32.into(), 0x31),
-        (ExecutionProfile::Real16, 0x30),
-    ] {
-        let mut checks = ImageSequences::new(frontend, profile);
+    for (config, status) in [(SEGMENTED32, 0x31), (REAL16, 0x30)] {
+        let mut checks = ImageSequences::new(frontend, config);
         for operand_override in [false, true] {
-            let real = profile == ExecutionProfile::Real16;
+            let real = config.entry == REAL16.entry;
             let mut code = if operand_override { vec![0x66] } else { vec![] };
             code.extend_from_slice(if real {
                 &[0x0f, 0x01, 0x66, 0]
@@ -103,7 +81,7 @@ fn destination_faults(frontend: Frontend) {
     image.cpu.registers.ebx = 0x4fff;
     image.map(4, 0x8000, true);
     image.data(0x8fff, &[0xa5]);
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "the second byte faults before any destination or CPU change",
         &code,
         &image,
@@ -123,7 +101,7 @@ fn destination_faults(frontend: Frontend) {
     image.cpu.registers.ebp = 0xaaaa_ffff;
     image.map(15, 0x8000, true);
     image.data(0x8fff, &[0xa5]);
-    ImageSequences::new(frontend, ExecutionProfile::Real16).check(
+    ImageSequences::new(frontend, REAL16).check(
         "the word cannot wrap past the real-mode stack segment limit",
         &code,
         &image,

@@ -1,9 +1,11 @@
 use super::*;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, expected_steps},
     step::{Event, TestModule},
 };
+use relocade_x86::Compiler;
 
 pub(super) fn interrupt_image(code: &[u8], vector: u8) -> Image {
     let mut image = image(code);
@@ -122,14 +124,10 @@ fn stack_bounds(frontend: Frontend) {
         input.observe_mmio = true;
         let module = match frontend {
             Frontend::Block => blocks
-                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .get(&image.cpu, &code, 1, REAL16)
                 .clone()
-                .with_interpreter(TestModule::interpreter_with_profile(
-                    ExecutionProfile::Real16,
-                )),
-            Frontend::Interpreter => {
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-            }
+                .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
         };
         assert_eq!(
             module.observe(&input, 1),
@@ -241,14 +239,10 @@ fn conditional_entry(frontend: Frontend) {
         }
         let module = match frontend {
             Frontend::Block => blocks
-                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .get(&image.cpu, &code, 1, REAL16)
                 .clone()
-                .with_interpreter(TestModule::interpreter_with_profile(
-                    ExecutionProfile::Real16,
-                )),
-            Frontend::Interpreter => {
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-            }
+                .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
         };
         assert_eq!(module.observe( &input, 1), wanted,
             "INTO tests lazy OF, performs word transfers in order, and skips all entry effects when clear");
@@ -268,13 +262,11 @@ fn aliased_vector(frontend: Frontend) {
     cpu.eip = 0x1001;
     let module = match frontend {
         Frontend::Block => TestModule::new(
-            &relocade_x86::Compiler::new(ExecutionProfile::Real16)
+            &Compiler::from_config(REAL16)
                 .compile_block(image.cpu.eip, &code, 1)
                 .unwrap(),
         ),
-        Frontend::Interpreter => {
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-        }
+        Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
     };
     let expect = match frontend {
         Frontend::Block => expected,
@@ -326,7 +318,7 @@ fn interrupt_return_round_trip() {
         *flag = 1;
     }
     assert_eq!(
-        TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&image.input(), 2),
+        TestModule::interpreter_with_config(REAL16).observe(&image.input(), 2),
         expected_steps(
             &image,
             &[
@@ -397,20 +389,15 @@ fn prior_work(frontend: Frontend) {
 test_frontends!(conditional_transfer_publication, prior_work);
 
 fn protected_modes(frontend: Frontend) {
-    use relocade_x86::SegmentProfile;
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        let mut cases = ImageSequences::new(frontend, profile);
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
+        let mut cases = ImageSequences::new(frontend, config);
         for (code, opcode) in [
             (&[0xcd, 0x21][..], 0xcd_u64),
             (&[0xcc][..], 0xcc),
             (&[0xce][..], 0xce),
         ] {
             let mut image = Image::new(code);
-            if profile == SegmentProfile::Segmented16 {
+            if config.entry == SEGMENTED16.entry {
                 image.cpu.segments.cs.big = 0;
             }
             cases.check(
@@ -433,22 +420,25 @@ test_frontends!(protected_delivery_is_unsupported, protected_modes);
 
 #[test]
 fn decoding_requires_the_vector_and_stops_at_the_transfer() {
-    use relocade_x86::{compile_block_from_bytes_with_profile, BlockError, SegmentProfile};
-    for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
+    use relocade_x86::BlockError;
+    for config in [REAL16, FLAT32] {
         assert!(matches!(
-            compile_block_from_bytes_with_profile(0x1000, &[0xcd], 1, profile),
+            Compiler::from_config(config).compile_block(0x1000, &[0xcd], 1),
             Err(BlockError::TruncatedInstruction {
                 address: 0x1000,
                 available: 1
             })
         ));
         for code in [&[0xcd, 0x21][..], &[0xcc], &[0xce]] {
-            let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
+            let complete = Compiler::from_config(config)
+                .compile_block(0x1000, code, 1)
+                .unwrap();
             let mut trailing = code.to_vec();
             trailing.push(0x0f);
             assert_eq!(
                 complete.bytes,
-                compile_block_from_bytes_with_profile(0x1000, &trailing, 2, profile)
+                Compiler::from_config(config)
+                    .compile_block(0x1000, &trailing, 2)
                     .unwrap()
                     .bytes
             );

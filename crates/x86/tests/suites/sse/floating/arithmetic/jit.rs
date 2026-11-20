@@ -1,9 +1,10 @@
 //! Arithmetic specialization restarts before effects in both execution modes.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile};
+use relocade_x86::Compiler;
 
 #[test]
 fn sse_arithmetic_compiled_and_restart() {
@@ -39,18 +40,18 @@ fn sse_arithmetic_compiled_and_restart() {
             ],
         ),
     ] {
-        for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
+        for config in [REAL16, FLAT32] {
             let instruction = [0xf2, 0x0f, opcode, 0xc1];
             let code = [&[0x90][..], &instruction].concat();
-            let compiled = Compiler::new(profile)
+            let compiled = Compiler::from_config(config)
                 .compile_block(0x1000, &code, 2)
                 .unwrap();
             let block = TestModule::new(&compiled);
             let linked = TestModule::new(&compiled)
-                .with_interpreter(TestModule::interpreter_with_profile(profile));
+                .with_interpreter(TestModule::interpreter_with_config(config));
             for (right, controls, raised, result, restart) in cases {
                 let mut image = floating_image(&code, controls);
-                if profile == ExecutionProfile::Real16 {
+                if config.entry == REAL16.entry {
                     image.initialize_real_mode();
                 }
                 lane(&mut image.cpu.simd.xmm[0], true, 0, ONE[1]);

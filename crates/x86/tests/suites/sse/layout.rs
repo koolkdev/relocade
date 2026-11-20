@@ -1,6 +1,7 @@
 //! Floating layout instructions move raw encodings without FP exceptions.
 
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16};
 
 const SINGLE_LEFT: u128 = 0xff800000_00000001_80000000_7f800123;
 const SINGLE_RIGHT: u128 = 0x7fc12345_80000001_00000000_ff800456;
@@ -39,7 +40,7 @@ fn check_layout(
 }
 
 fn shuffle(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (prefix, width, left, right) in [
         (&[][..], 4, SINGLE_LEFT, SINGLE_RIGHT),
         (&[0x66][..], 8, DOUBLE_LEFT, DOUBLE_RIGHT),
@@ -84,7 +85,7 @@ fn shuffle(frontend: Frontend) {
 }
 
 fn unpack(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (prefix, opcode, left, right, result) in [
         (
             &[][..],
@@ -120,8 +121,8 @@ fn unpack(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    let mut flat = ImageSequences::new(frontend, SegmentProfile::Flat32);
-    let mut segmented = ImageSequences::new(frontend, SegmentProfile::Segmented16);
+    let mut flat = ImageSequences::new(frontend, FLAT32);
+    let mut segmented = ImageSequences::new(frontend, SEGMENTED16);
     for prefix in [&[][..], &[0x66][..]] {
         for opcode in [0xc6, 0x14, 0x15] {
             let mut code = encoding(prefix, opcode, 0x30);

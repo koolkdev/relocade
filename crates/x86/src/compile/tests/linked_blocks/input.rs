@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::REAL16;
 use crate::{BlockError, CpuFeature, CpuModel};
 
 #[test]
@@ -31,7 +32,7 @@ fn a_block_requires_matching_offsets_and_one_decode_width() {
 #[test]
 fn an_interior_fault_depends_on_the_selected_cpu_model() {
     let plan = || vec![block(CsRelative(0x1000), true, &[0x0f, 0x44, 0xc1, 0x90])]; // CMOVE AX,CX; NOP
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::from_config(REAL16);
     assert_eq!(
         compiler.compile_decoded_blocks(plan()).unwrap().spans,
         [(CsRelative(0x1000), 4)]
@@ -52,7 +53,7 @@ fn each_view_has_unique_starts_and_each_export_has_one_width() {
         let instruction = SnapshotInstruction::decode(&[0x90], address.eip(), width).unwrap();
         DecodedBlock::new(address, instruction, exported).unwrap()
     };
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::from_config(REAL16);
     for blocks in [
         vec![nop(Bits16, true), nop(Bits16, false)],
         vec![nop(Bits16, true), nop(Bits32, true)],

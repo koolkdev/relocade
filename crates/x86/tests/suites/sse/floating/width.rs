@@ -1,12 +1,12 @@
 //! Floating width conversions round once and preserve precise MXCSR exceptions.
 
 use super::*;
-
 #[path = "width/packed.rs"]
 mod packed;
 #[path = "width/scalar.rs"]
 mod scalar;
 
+use crate::support::config::FLAT32;
 struct ScalarCase {
     source: u64,
     result: u64,
@@ -50,7 +50,7 @@ impl ScalarCase {
 }
 
 fn widen(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, result, raised) in [
         (0, 0, 0),
         (0x8000_0000, 0x8000_0000_0000_0000, 0),
@@ -76,7 +76,7 @@ fn widen(frontend: Frontend) {
 }
 
 fn rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, results, raised) in [
         (0, [0; 4], [0; 4]),
         (0x8000_0000_0000_0000, [0x8000_0000; 4], [0; 4]),
@@ -128,7 +128,7 @@ fn rounding(frontend: Frontend) {
 }
 
 fn range_and_special(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, controls, result, raised) in [
         (0x36a0_0000_0000_0000, 0x1f80, 1, 0), // Exact minimum subnormal.
         (0x36a0_0000_0000_0000, 0x1780, 0, 16),
@@ -166,7 +166,7 @@ fn range_and_special(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for narrow in [false, true] {
         for packed in [false, true] {
             let code = encoding(prefix(narrow, packed), 0x5a, 0x00);

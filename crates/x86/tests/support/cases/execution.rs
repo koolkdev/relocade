@@ -1,4 +1,4 @@
-//! Executes one-instruction cases through the applicable entry profiles.
+//! Executes one-instruction cases through the applicable entry configurations.
 
 use super::{expectations, observation::FlagObservations, InstructionCase};
 use crate::support::{blocks::BlockModules, execution::Frontend, guest::Exit, step::TestModule};
@@ -23,12 +23,12 @@ pub(crate) fn check(cases: &[InstructionCase], frontend: Frontend) {
                 );
             }
         }
-        for profile in case.profiles.for_cpu(&initial.cpu) {
+        for config in case.configurations.for_cpu(&initial.cpu) {
             let module = match frontend {
-                Frontend::Block => blocks.get(&initial.cpu, &case.code, 1, profile),
-                Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
+                Frontend::Block => blocks.get(&initial.cpu, &case.code, 1, config),
+                Frontend::Interpreter => TestModule::interpreter_with_config(config),
             };
-            let context = format!("{} [{profile:?} {frontend:?}]", case.name);
+            let context = format!("{} [{config:?} {frontend:?}]", case.name);
             let execution = machine.run(module);
             if execution.exit == Exit::Interpret {
                 assert!(matches!(frontend, Frontend::Block));

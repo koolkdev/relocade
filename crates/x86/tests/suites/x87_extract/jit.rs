@@ -1,6 +1,7 @@
 //! Both extracted values retain native views; rejected cases restart before the push.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
@@ -14,7 +15,7 @@ fn native_values() {
         image.cpu.x87.status.precision = 0;
         image.map(4, 0x8000, false);
         image.data(0x8000, &input.to_le_bytes());
-        let compiled = Compiler::new(SegmentProfile::Flat32)
+        let compiled = Compiler::from_config(FLAT32)
             .specialize_on_cpu(&image.cpu)
             .compile_block(0x1000, &code, 3)
             .unwrap();
@@ -47,7 +48,7 @@ fn native_values() {
 }
 
 fn restart() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let block = TestModule::new(&compiled);

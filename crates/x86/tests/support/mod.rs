@@ -2,6 +2,7 @@ pub(crate) mod arithmetic;
 pub(crate) mod blocks;
 pub(crate) mod cases;
 pub(crate) mod conditions;
+pub(crate) mod config;
 pub(crate) mod encoding;
 pub(crate) mod execution;
 pub(crate) mod guest;

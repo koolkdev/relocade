@@ -980,7 +980,7 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The runtime must ensure that each entry matches `CompiledModule::execution_target`
+The runtime must ensure that each entry matches `CompiledModule::config`
 before execution, including entries reached through a direct dispatch link. This
 replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
 requires exact target equality and checks the architectural state and segment

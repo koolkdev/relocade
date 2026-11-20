@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
@@ -39,7 +39,7 @@ fn selector_access_faults_preserve_esp_cache_and_both_halves_of_split_stores() {
             }
             // No resolver response: faults must precede the host call and every write.
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                SEGMENTED32,
                 &code,
                 &image,
                 &[],
@@ -101,7 +101,7 @@ fn a_failed_pop_resolution_does_not_commit_the_stack_advance() {
             );
         }
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, selector)],
@@ -172,12 +172,7 @@ fn a_pop_fault_publishes_earlier_register_flags_store_and_retirement_progress() 
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        3,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let block = blocks.get(&image.cpu, &code, 3, FLAT32);
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
     assert_eq!(block.observe(&input, 1), wanted);
@@ -222,7 +217,7 @@ fn extended_segment_opcodes_obey_fetch_fault_and_instruction_length_boundaries()
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[SegmentResolution::new(

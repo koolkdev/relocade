@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::x87::{complete_x87, register_bits, set_control, status};
 
 // EMMS; FLD m64; MOVD eax,mm7; FDECSTP; FADD ST0,ST0; FSTP m64.
@@ -8,7 +9,7 @@ const READ_THROUGH_MMX: [u8; 21] = [
 ];
 
 fn transitions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // FLD ST0; FSTP ST0; MOVQ mm1,mm7; EMMS; FILD dword [0x4000].
     let code = [
         0xd9, 0xc0, 0xdd, 0xd8, 0x0f, 0x6f, 0xcf, 0x0f, 0x77, 0xdb, 0x05, 0, 0x40, 0, 0,
@@ -131,7 +132,7 @@ fn transitions(frontend: Frontend) {
 }
 
 fn suppressed_write(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // A suppressed load must not become visible when FNCLEX allows MMX to continue.
     let code = [
         0xd9, 0xc0, 0xdd, 0xd8, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe2, 0x0f, 0x6f, 0xcf,
@@ -181,7 +182,7 @@ fn mmx_read_preserves_native_x87_arithmetic() {
     use wasmparser::{Operator, Parser, Payload};
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
-    let module = Compiler::new(SegmentProfile::Flat32)
+    let module = Compiler::from_config(FLAT32)
         .specialize_on_cpu(&observed)
         .compile_block(0x1000, &READ_THROUGH_MMX, 6)
         .unwrap();

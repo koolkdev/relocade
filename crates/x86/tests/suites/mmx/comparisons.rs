@@ -1,10 +1,11 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 const LEFT: u64 = 0x557f_8001_00ff_7f80;
 const RIGHT: u64 = 0x547f_8001_ff00_807f;
 
 fn comparisons(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (eq, gt, left, right, equal, greater) in [
         (
             0x74,

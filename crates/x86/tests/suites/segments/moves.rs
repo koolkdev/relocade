@@ -20,6 +20,6 @@ use crate::support::{
     step::{Event, SegmentResolution, TestModule},
 };
 use relocade_x86::{
-    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentRegister,
+    DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind,
+    SegmentRegister,
 };

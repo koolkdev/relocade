@@ -1,16 +1,17 @@
 use super::data;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, SegmentProfile};
+use relocade_x86::compile_block_from_bytes;
 
 #[test]
 fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
-    let target = compiled.execution_target.unwrap();
-    assert_eq!(target.entry, relocade_x86::EntryAssumptions::FLAT32);
+    let config = compiled.config.unwrap();
+    assert_eq!(config, FLAT32);
     let block = TestModule::new(&compiled);
     let mut image = Image::new(&code);
     image.cpu.registers.ebx = 0x20;
@@ -20,7 +21,7 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     image.data(0xa020, &[0x22; 4]);
     for (base, value) in [(0x4000, 0x1111_1111), (0x5000, 0x2222_2222)] {
         image.cpu.segments.fs = data(base, 0xff);
-        assert!(target.is_compatible_with(target, &image.cpu));
+        assert!(config.is_compatible_with(config, &image.cpu));
         let mut cpu = image.cpu;
         cpu.registers.eax = value;
         cpu.eip = 0x1003;
@@ -40,7 +41,7 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
         }
     }
     image.cpu.segments.fs.limit = 0x20;
-    assert!(target.is_compatible_with(target, &image.cpu));
+    assert!(config.is_compatible_with(config, &image.cpu));
     for module in [&block, TestModule::interpreter()] {
         image.check_unchanged_exit(
             module,
@@ -49,9 +50,6 @@ fn compiled_entries_reuse_only_compatible_segment_assumptions() {
         );
     }
     image.cpu.segments.ds.base = 0x6000;
-    assert!(!target.is_compatible_with(target, &image.cpu));
-    assert!(image
-        .cpu
-        .segments
-        .is_compatible_with(SegmentProfile::Segmented32));
+    assert!(!config.is_compatible_with(config, &image.cpu));
+    assert!(image.cpu.segments.is_compatible_with(SEGMENTED32.entry));
 }

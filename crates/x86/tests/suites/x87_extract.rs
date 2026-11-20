@@ -3,13 +3,13 @@
 #[path = "x87_extract/jit.rs"]
 mod jit;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::SegmentProfile;
 
 const LEAD: u64 = 1 << 63;
 const CODE: [u8; 2] = [0xd9, 0xf4];
@@ -20,7 +20,7 @@ fn encoding() {
 }
 
 fn values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, significand, exponent, flags) in [
         ((LEAD + 1, 0x4000), (LEAD + 1, 0x3fff), (LEAD, 0x3fff), 0),
         (
@@ -95,7 +95,7 @@ fn values(frontend: Frontend) {
 }
 
 fn stack_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for empty in [false, true] {
         for full in [false, true] {
             if !empty && !full {
@@ -151,7 +151,7 @@ fn stack_faults(frontend: Frontend) {
 
 fn inverse_scale(frontend: Frontend) {
     let code = [0xd9, 0xf4, 0xd9, 0xfd, 0xdd, 0xd9]; // FXTRACT; FSCALE; FSTP ST1
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, exponent) in [
         ((LEAD + 42, 0x4001), (LEAD, 0x4000)),
         ((u64::MAX, 0xbfff), (0, 0)),

@@ -1,5 +1,6 @@
 //! Observed x87 state specializes current SSA values without replacing guest state.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_observations/changes.rs"]
 mod changes;
@@ -13,7 +14,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState};
 
 const LEADING: u64 = 1 << 63;
 
@@ -26,14 +27,14 @@ fn observed_cpu(pc: u8, rc: u8) -> CpuState {
 }
 
 fn compiler(pc: u8, rc: u8) -> Compiler {
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed_cpu(pc, rc))
+    Compiler::from_config(FLAT32).specialize_on_cpu(&observed_cpu(pc, rc))
 }
 
 fn masked_precision_compiler(pc: u8, rc: u8) -> Compiler {
     let mut observed = observed_cpu(pc, rc);
     observed.x87.control.precision_mask = 0x81;
     observed.x87.status.precision = 0x41;
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::from_config(FLAT32).specialize_on_cpu(&observed)
 }
 
 fn arithmetic_modes() {

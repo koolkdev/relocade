@@ -1,37 +1,21 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 
 #[test]
 fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xffff, descriptor(0, SegmentDefaultSize::Bits16));
-    for (profile, code, source) in [
-        (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            &[0x0f, 0x00, 0xe7][..],
-            Gpr32::Edi,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x66, 0x0f, 0x00, 0xec][..],
-            Gpr32::Esp,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x0f, 0x00, 0xe2][..],
-            Gpr32::Edx,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x66, 0x0f, 0x00, 0xe9][..],
-            Gpr32::Ecx,
-        ),
+    for (config, code, source) in [
+        (FLAT32, &[0x0f, 0x00, 0xe7][..], Gpr32::Edi),
+        (SEGMENTED16, &[0x66, 0x0f, 0x00, 0xec][..], Gpr32::Esp),
+        (SEGMENTED16, &[0x0f, 0x00, 0xe2][..], Gpr32::Edx),
+        (SEGMENTED32, &[0x66, 0x0f, 0x00, 0xe9][..], Gpr32::Ecx),
     ] {
-        let mut image = image(code, profile);
+        let mut image = image(code, config);
         image.cpu.registers[source] = 0xabcd_ffff;
         let cpu = completed(&image, code.len(), true);
         check_one(
-            profile,
+            config,
             code,
             &image,
             &[SegmentQuery::new(&tables, 0xffff)],
@@ -48,12 +32,12 @@ fn register_forms_use_low_words_in_both_code_sizes_with_or_without_overrides() {
 fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrides() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
+    let config = SEGMENTED32;
     for operand_override in [false, true] {
         for extension in [4, 5] {
             let mut code = if operand_override { vec![0x66] } else { vec![] };
             code.extend([0x0f, 0x00, (extension << 3) | 3]); // [EBX].
-            let mut image = image(&code, profile);
+            let mut image = image(&code, config);
             image.cpu.registers.ebx = 0x4ffe;
             image.cpu.segments.ds.limit = 0x4fff;
             image.map(4, 0x8000, false);
@@ -61,7 +45,7 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
             // A widened read would touch the unmapped next page.
             let cpu = completed(&image, code.len(), true);
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentQuery::new(&tables, 0xf327)],
@@ -74,9 +58,9 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
         }
     }
     for extension in [4, 5] {
-        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
+        let config = SEGMENTED32;
         let code = [0x64, 0x67, 0x0f, 0x00, 0x40 | (extension << 3) | 2, 0]; // FS:[BP+SI].
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         image.cpu.registers.ebp = 0xabcd_fffe;
         image.cpu.registers.esi = 0xdead_0001;
         image.cpu.segments.fs = data(0x8000, 0x10000);
@@ -87,7 +71,7 @@ fn selector_reads_are_word_sized_read_only_and_honor_segment_and_address_overrid
         image.data(0xa000, &[0xf3]);
         let cpu = completed(&image, code.len(), true);
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &[SegmentQuery::new(&tables, 0xf327)],
@@ -107,8 +91,8 @@ fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() 
         (vec![0x0f, 0x00, 0x2c, 0x24], true),
     ] {
         for segment_denied in [false, true] {
-            let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-            let mut image = image(&code, profile);
+            let config = SEGMENTED32;
+            let mut image = image(&code, config);
             image.cpu.registers.ebx = 0xfff;
             image.cpu.registers.esp = 0xfff;
             let cache = data(0x4000, if segment_denied { 0xfff } else { 0xffff });
@@ -133,7 +117,7 @@ fn source_segment_and_page_faults_precede_permission_queries_and_flag_changes() 
             };
             // No scripted query proves that neither the host nor ZF was touched.
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[],

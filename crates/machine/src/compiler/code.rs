@@ -61,7 +61,7 @@ impl CompiledCode {
                 ranges: merged_ranges(source.ranges()),
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
-                config: blocks.execution_target,
+                config: blocks.config,
                 source,
                 bindings,
             },

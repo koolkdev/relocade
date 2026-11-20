@@ -19,9 +19,7 @@ use crate::{
         step::{Event, SegmentResolution, TestModule},
     },
 };
-use relocade_x86::{
-    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-};
+use relocade_x86::{DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor};
 
 const FORMS: [(Segment, &[u8]); 5] = [
     (Segment::Es, &[0xc4]),

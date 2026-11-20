@@ -1,12 +1,13 @@
 //! Architectural constants retain extended precision and have distinct load rounding.
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::{Compiler, SegmentProfile};
+use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
 // Literal extended encodings for nearest, down, up and truncate. The five
@@ -67,7 +68,7 @@ const CONSTANTS: &[(u8, [u64; 4], u16)] = &[
 ];
 
 fn rounded_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &(opcode, significands, exponent) in CONSTANTS {
         let code = [0xd9, opcode, 0x9b];
         for pc in [0, 2, 3] {
@@ -98,7 +99,7 @@ fn rounded_values(frontend: Frontend) {
 }
 
 fn stack_and_pending_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for opcode in [0xeb, 0xee] {
         let code = [0xd9, opcode, 0x9b];
         for masked in [false, true] {
@@ -183,7 +184,7 @@ fn changed_rounding_control(frontend: Frontend) {
     let mut up = complete_x87(control_up, 2, 0x01eb);
     up.x87.status.top = 6;
     write_value(&mut up, 6, (0xc90f_daa2_2168_c235, 0x4000));
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "each constant load consumes the current rounding control",
         &code,
         &image,
@@ -207,7 +208,7 @@ fn native_constant_sequence() {
     set_control(&mut image.cpu.x87.control, 0x027f);
     image.map(4, 0x8000, false);
     image.data(0x8000, &3_i32.to_le_bytes());
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .specialize_on_cpu(&image.cpu)
         .compile_block(0x1000, &code, 5)
         .unwrap();

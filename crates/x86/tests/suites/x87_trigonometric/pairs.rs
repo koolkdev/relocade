@@ -1,17 +1,18 @@
 //! Common two-result trigonometric stack and exception responses.
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Step},
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::{Compiler, SegmentProfile};
+use relocade_x86::Compiler;
 const LEAD: u64 = 1 << 63;
 
 fn exceptions_for(frontend: Frontend, opcode: u8) {
     let code = [0xd9, opcode];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, output, invalid) in [
         ((LEAD, 0x7fff), INDEFINITE, true),
         ((42, 0x3fff), INDEFINITE, true),
@@ -109,7 +110,7 @@ fn exceptions_for(frontend: Frontend, opcode: u8) {
 }
 
 fn stack_and_range_for(frontend: Frontend, opcode: u8) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for empty in [false, true] {
         for full in [false, true] {
             for masked in [false, true] {
@@ -162,7 +163,7 @@ fn stack_and_range_for(frontend: Frontend, opcode: u8) {
 
 fn specialization_for(opcode: u8) {
     let code = [0xd9, opcode];
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &code, 1)
         .unwrap();
     for (input, full) in [
@@ -189,7 +190,7 @@ fn specialization_for(opcode: u8) {
         .map(|pc| {
             let mut cpu = relocade_x86::CpuState::default();
             cpu.x87.control.precision_control = pc;
-            Compiler::new(SegmentProfile::Flat32)
+            Compiler::from_config(FLAT32)
                 .specialize_on_cpu(&cpu)
                 .compile_block(0x1000, &code, 1)
                 .unwrap()
@@ -201,7 +202,7 @@ fn specialization_for(opcode: u8) {
     let mut image = stack_image(&code, 0, 0xffff);
     image.cpu.x87.status.precision = 0;
     write_value(&mut image.cpu, 0, (0, 0x8000));
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &code, 2)
         .unwrap();
     let mut result = complete_x87(image.cpu, 2, 0x0100 | u16::from(opcode));

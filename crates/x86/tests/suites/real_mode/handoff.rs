@@ -1,11 +1,13 @@
 //! Physical JIT fallback preserves restart state and supplies interpreter imports.
 
 use super::*;
+use crate::support::config::REAL16;
 use crate::support::{
     machine::{expected, step_returns},
     step::{Event, Input, TestModule},
 };
 use relocade_compiler::Program;
+use relocade_x86::Compiler;
 
 #[test]
 fn handoff_registers_the_real_mode_interpreters_memory_imports() {
@@ -18,11 +20,9 @@ fn handoff_registers_the_real_mode_interpreters_memory_imports() {
     let module = TestModule::new(&relocade_x86::CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "enter".into(),
-        execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
+        config: Some(REAL16),
     })
-    .with_interpreter(TestModule::interpreter_with_profile(
-        ExecutionProfile::Real16,
-    ));
+    .with_interpreter(TestModule::interpreter_with_config(REAL16));
     let code = [0xa1, 0, 0x20]; // MOV AX,[2000]
     let mut image = image(&code);
     image.data(0x8000, &[0x78, 0x56]);
@@ -64,7 +64,7 @@ fn pusha_checks_the_entire_frame_before_its_first_store() {
     input.mmio_pages = vec![(1, 0x9000)];
     input.observe_mmio = true;
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     );
@@ -95,7 +95,7 @@ fn popa_checks_the_entire_frame_before_restoring_registers() {
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     );
@@ -123,7 +123,7 @@ fn interrupt_preflight_checks_the_vector_before_writing_the_stack() {
         input.mmio_pages = vec![(0, 0x7000)];
         input.observe_mmio = true;
         let module = TestModule::new(
-            &crate::Compiler::new(ExecutionProfile::Real16)
+            &crate::Compiler::from_config(REAL16)
                 .compile_block(image.cpu.eip, &code, 1)
                 .unwrap(),
         );
@@ -150,7 +150,7 @@ fn enter_preflight_preserves_overlapping_display_reads() {
     image.map(2, 0x8000, true);
     image.data(0x8000, &[0xee; 16]);
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     );
@@ -178,7 +178,7 @@ fn enter_level_one_needs_no_display_backing() {
     image.cpu.registers.ebp = 0x1234_4000;
     image.map(2, 0x8000, true);
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     );
@@ -210,7 +210,7 @@ fn enter_checks_display_backing_before_the_first_push() {
     input.mmio_pages = vec![(3, 0x9000)];
     input.observe_mmio = true;
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     );
@@ -244,9 +244,9 @@ fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
         map: vec![(3 * 8, vec![1, 0, 0, 0, 0, 0xa0, 0, 0])],
         ..Default::default()
     }];
-    let interpreter = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let interpreter = TestModule::interpreter_with_config(REAL16);
     let module = TestModule::new(
-        &crate::Compiler::new(ExecutionProfile::Real16)
+        &crate::Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, &code, 1)
             .unwrap(),
     )
@@ -279,7 +279,7 @@ fn pusha_interpreter_fallback_observes_remapping_between_pushes() {
 
 fn block(image: &Image, code: &[u8], instructions: u32) -> TestModule {
     TestModule::new(
-        &relocade_x86::Compiler::new(ExecutionProfile::Real16)
+        &Compiler::from_config(REAL16)
             .compile_block(image.cpu.eip, code, instructions)
             .unwrap(),
     )
@@ -328,7 +328,7 @@ fn tracked_stack_write_hands_off_before_effects_and_completes_in_the_interpreter
             value: vec![0x34, 0x12],
         },
     );
-    let interpreter = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let interpreter = TestModule::interpreter_with_config(REAL16);
     let module = module.with_interpreter(interpreter);
     for module in [interpreter, &module] {
         assert_eq!(module.observe(&input, 1), step_returns(wanted.clone()));

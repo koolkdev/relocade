@@ -1,10 +1,11 @@
 use super::data;
+use crate::support::config::SEGMENTED32;
 use crate::support::machine::step_returns;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
+use relocade_x86::compile_block_from_bytes;
 
 #[test]
 fn segment_fault_publishes_prior_arithmetic_store_and_count() {
@@ -72,9 +73,7 @@ fn segment_fault_publishes_prior_arithmetic_store_and_count() {
 
 #[test]
 fn cs_faults_preserve_the_correct_instruction_boundary() {
-    let module = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-        SegmentProfile::Segmented32,
-    ));
+    let module = TestModule::interpreter_with_config(SEGMENTED32);
     for bytes in [&[0x90][..], &[0x74, 0x7f]] {
         let mut image = Image::empty();
         image.cpu.flags.status_source.kind = 0;

@@ -1,18 +1,16 @@
 //! Entry capture, exact fetch and decoder continuations share the live CS default.
 
-use super::{interpreter, step};
+use super::{interpreter, step, LIVE_CODE_WIDTH};
 use crate::{
     support::machine::{check, Exit, Image, Step},
     test_step::{returned, CallPatches, Event, TestModule},
     CpuState,
     SegmentDefaultSize::{Bits16, Bits32},
 };
-use std::{mem::offset_of, sync::LazyLock};
+use std::mem::offset_of;
 
 fn run() -> &'static TestModule {
-    static MODULE: LazyLock<TestModule> =
-        LazyLock::new(|| TestModule::from_bytes(interpreter().bytes(), crate::abi::RUN.name, None));
-    &MODULE
+    TestModule::interpreter_run_with_config(LIVE_CODE_WIDTH)
 }
 
 #[test]

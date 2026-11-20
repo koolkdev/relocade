@@ -1,6 +1,7 @@
 //! Sign changes retain native PC53 arithmetic and exact binary load/store paths.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::{machine::expected, step::TestModule, x87::write_register_bits};
 use relocade_x86::{CompiledModule, Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -8,7 +9,7 @@ use wasmparser::{Operator, Parser, Payload};
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::from_config(FLAT32).specialize_on_cpu(&observed)
 }
 
 fn native_operations(module: &CompiledModule) -> Vec<&'static str> {
@@ -187,7 +188,7 @@ fn pc53_extended_range() {
 }
 
 fn binary_load_store(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (load, input, extended) in [
         (0xd9, 0xbf80_0000_u64, (0x8000_0000_0000_0000, 0x3fff)),
         (0xdd, 0x8000_0000_0000_0000, (0, 0)),

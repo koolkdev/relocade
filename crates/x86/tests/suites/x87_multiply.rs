@@ -9,6 +9,7 @@ mod rounding;
 #[path = "x87_multiply/specialization.rs"]
 mod specialization;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
@@ -18,7 +19,6 @@ use crate::support::{
         INDEFINITE,
     },
 };
-use relocade_x86::SegmentProfile;
 
 const LEADING: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -26,7 +26,7 @@ const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
 
 fn register_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (code, top, other, destination, pop, result) in [
         (
             [0xd8, 0xca],
@@ -70,7 +70,7 @@ fn register_forms(frontend: Frontend) {
 }
 
 fn live_products(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Loading exact binary32 values, multiplying in registers, then storing a
     // binary64 result exercises the same value across representation boundaries.
     let code = [
@@ -115,7 +115,7 @@ fn live_products(frontend: Frontend) {
 }
 
 fn freed_product_stack_fault(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // FMUL establishes a normal value. FFREE changes occupancy without changing
     // its payload; FST must replace both its value and classification on fault.
     let code = [

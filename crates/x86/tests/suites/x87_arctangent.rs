@@ -1,5 +1,6 @@
 //! FPATAN covers quadrants without performing an architectural division.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_arctangent/values.rs"]
 mod values;
@@ -14,7 +15,7 @@ use crate::support::{
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
     },
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState};
 
 const CODE: [u8; 2] = [0xd9, 0xf3];
 const LEAD: u64 = 1 << 63;
@@ -25,7 +26,7 @@ fn encoding() {
 }
 
 fn values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &values::Reference {
         y,
         x,
@@ -64,7 +65,7 @@ fn values(frontend: Frontend) {
 }
 
 fn axes(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let pi = (0xc90f_daa2_2168_c235, 0x4000);
     let half_pi = (pi.0, 0x3fff);
     let quarter_pi = (pi.0, 0x3ffe);
@@ -170,7 +171,7 @@ fn axes(frontend: Frontend) {
 
 #[test]
 fn jit_specialization() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let module = TestModule::new(&compiled);
@@ -202,7 +203,7 @@ fn jit_specialization() {
         let mut cpu = CpuState::default();
         cpu.x87.control.precision_control = pc;
         bytes.push(
-            Compiler::new(SegmentProfile::Flat32)
+            Compiler::from_config(FLAT32)
                 .specialize_on_cpu(&cpu)
                 .compile_block(0x1000, &CODE, 1)
                 .unwrap()

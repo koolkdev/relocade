@@ -176,7 +176,7 @@ fn all_masks_reader() -> CompiledModule {
     });
     program.export("run", function).unwrap();
     CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

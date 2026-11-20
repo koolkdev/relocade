@@ -1,5 +1,6 @@
 //! FILD converts signed integers exactly and shares the x87 push response.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_integer_load/arithmetic.rs"]
 mod arithmetic;
@@ -13,7 +14,7 @@ use crate::support::{
         INDEFINITE,
     },
 };
-use relocade_x86::{compile_block_from_bytes, CpuState, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, CpuState};
 
 #[derive(Clone, Copy, Debug)]
 enum Source {
@@ -95,7 +96,7 @@ fn check_conversion(checks: &mut ImageSequences, source: Source, value: (u64, u1
 
 fn exact_conversions(frontend: Frontend) {
     use Source::{Dword, Qword, Word};
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, value) in [
         (Word(0), (0, 0)),
         (Word(1), (0x8000_0000_0000_0000, 0x3fff)),
@@ -141,7 +142,7 @@ fn exact_conversions(frontend: Frontend) {
 }
 
 fn source_width_and_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, value) in [
         (Source::Word(i16::MIN), (0x8000_0000_0000_0000, 0xc00e)),
         (Source::Dword(i32::MIN), (0x8000_0000_0000_0000, 0xc01e)),
@@ -203,7 +204,7 @@ fn stack_overflow(frontend: Frontend) {
 }
 
 fn check_stack_overflow(frontend: Frontend, source: Source) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let instruction = source.instruction(0x4000);
     let code = [instruction.clone(), vec![0x9b]].concat();
     let linked = TestModule::new(&compile_block_from_bytes(0x1000, &instruction, 1).unwrap())

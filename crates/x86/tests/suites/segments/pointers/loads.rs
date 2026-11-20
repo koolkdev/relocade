@@ -1,26 +1,18 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
 fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
     for (segment, opcode) in FORMS {
-        for (profile, word, destination) in [
-            (
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-                false,
-                Gpr32::Ebx,
-            ),
-            (
-                ExecutionProfile::Protected(SegmentProfile::Segmented16),
-                true,
-                Gpr32::Edi,
-            ),
-        ] {
+        for (config, word, destination) in
+            [(FLAT32, false, Gpr32::Ebx), (SEGMENTED16, true, Gpr32::Edi)]
+        {
             let mut code = opcode.to_vec();
             code.push(((destination as u8) << 3) | if word { 0 } else { 3 });
             let mut image = Image::new(&code);
-            code_defaults(&mut image, profile);
+            code_defaults(&mut image, config);
             image.cpu.registers.ebx = 0x4000;
             image.cpu.registers.esi = 0;
             image.map(4, 0x8000, false);
@@ -55,7 +47,7 @@ fn every_pointer_load_supports_both_offset_widths_and_uses_entry_addresses() {
             cpu.eip += code.len() as u32;
             cpu.instruction_count = 0;
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -114,7 +106,7 @@ fn pointer_sources_read_exactly_four_or_six_bytes_with_split_offset_or_selector_
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Fs, 0xf327)],
@@ -165,7 +157,7 @@ fn both_fields_use_entry_address_registers_and_the_old_overridden_segment_cache(
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             code,
             &image,
             &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -206,7 +198,7 @@ fn fields_continue_past_a_16_bit_starting_offset_and_wrap_only_at_linear_32_bits
         cpu.eip += 4;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Gs, 0xf327)],

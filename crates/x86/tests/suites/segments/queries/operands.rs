@@ -1,5 +1,5 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 
 #[test]
 fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
@@ -12,30 +12,30 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
             ..descriptor(0, SegmentDefaultSize::Bits32)
         },
     );
-    for (profile, code, destination, source, value) in [
+    for (config, code, destination, source, value) in [
         (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &[0x0f, 0x02, 0xc8][..],
             Gpr32::Ecx,
             Gpr32::Eax,
             0x00d0_f300,
         ),
         (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            SEGMENTED16,
             &[0x0f, 0x02, 0xff][..],
             Gpr32::Edi,
             Gpr32::Edi,
             0xabcd_f300,
         ),
         (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            SEGMENTED16,
             &[0x66, 0x0f, 0x03, 0xf6][..],
             Gpr32::Esi,
             Gpr32::Esi,
             0x1234_5fff,
         ),
         (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &[0x66, 0x0f, 0x03, 0xd9][..],
             Gpr32::Ebx,
             Gpr32::Ecx,
@@ -43,7 +43,7 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
         ),
     ] {
         for selector in [0x27, 0x33] {
-            let mut image = image(code, profile);
+            let mut image = image(code, config);
             image.cpu.registers[destination] = 0xcafe_4321;
             image.cpu.registers[source] = 0xabcd_0000 | u32::from(selector);
             let success = selector == 0x27;
@@ -53,7 +53,7 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
                 cpu.registers[destination] = value;
             }
             check_one(
-                profile,
+                config,
                 code,
                 &image,
                 &[SegmentQuery::new(&tables, selector)],
@@ -71,13 +71,13 @@ fn register_queries_honor_destination_width_and_preserve_aliases_on_failure() {
 fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
     let mut tables = DescriptorTables::default();
     tables.insert(0xf327, descriptor(0, SegmentDefaultSize::Bits32));
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
+    let config = SEGMENTED32;
     for operand_override in [false, true] {
         let word = operand_override;
         for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
             let mut code = if operand_override { vec![0x66] } else { vec![] };
             code.extend([0x0f, opcode, 3]); // LAR/LSL (E)AX,[EBX].
-            let mut image = image(&code, profile);
+            let mut image = image(&code, config);
             image.cpu.registers.ebx = 0x4ffe;
             image.cpu.segments.ds.limit = 0x4fff;
             image.map(4, 0x8000, false);
@@ -90,7 +90,7 @@ fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
                 value
             };
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentQuery::new(&tables, 0xf327)],
@@ -103,9 +103,9 @@ fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
         }
     }
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
-        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
+        let config = SEGMENTED32;
         let code = [0x64, 0x67, 0x0f, opcode, 0x42, 0]; // (E)AX,FS:[BP+SI].
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         image.cpu.registers.ebp = 0xabcd_fffe;
         image.cpu.registers.esi = 0xdead_0001;
         image.cpu.segments.fs = data(0x8000, 0x10000);
@@ -117,7 +117,7 @@ fn memory_selectors_are_words_and_honor_overrides_and_split_pages() {
         let mut cpu = completed(&image, code.len(), true);
         cpu.registers.eax = value;
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &[SegmentQuery::new(&tables, 0xf327)],
@@ -140,8 +140,8 @@ fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
                 vec![0x0f, opcode, 3]
             };
             for segment_denied in [false, true] {
-                let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-                let mut image = image(&code, profile);
+                let config = SEGMENTED32;
+                let mut image = image(&code, config);
                 image.cpu.registers.ebx = 0xfff;
                 image.cpu.registers.esp = 0xfff;
                 image.cpu.flags.status_source.kind = 10;
@@ -168,7 +168,7 @@ fn source_faults_leave_destination_and_pending_flags_intact_before_any_query() {
                     }
                 };
                 check_one(
-                    profile,
+                    config,
                     &code,
                     &image,
                     &[],

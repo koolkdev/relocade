@@ -1,12 +1,13 @@
 //! FXSAVE preserves live state, including pending exceptions and MMX aliases.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED32};
 
 fn layouts(frontend: Frontend) {
-    for profile in PROFILES {
-        let save = instruction(profile, false, 0x4010);
+    for config in CONFIGURATIONS {
+        let save = instruction(config, false, 0x4010);
         let code = [save.as_slice(), &[0x9b]].concat();
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         set_control(&mut image.cpu.x87.control, 0x035f);
         image.cpu.x87.status = status(0xa8a0);
         let bytes = saved_bytes(
@@ -14,13 +15,13 @@ fn layouts(frontend: Frontend) {
             [
                 0xa8a0_035f,
                 0x0654_008f, // Occupied physical registers R0..R3 and R7.
-                if sixteen_bit(profile) {
+                if sixteen_bit(config) {
                     0x5678
                 } else {
                     0x1234_5678
                 },
                 0x0017,
-                if sixteen_bit(profile) {
+                if sixteen_bit(config) {
                     0xcdef
                 } else {
                     0x89ab_cdef
@@ -32,8 +33,8 @@ fn layouts(frontend: Frontend) {
             [5, 6, 7, 0, 1, 2, 3, 4],
         );
         let saved = retire(image.cpu, save.len());
-        ImageSequences::new(frontend, profile).check(
-            &format!("FXSAVE {profile:?}: one layout and no reset or wait"),
+        ImageSequences::new(frontend, config).check(
+            &format!("FXSAVE {config:?}: one layout and no reset or wait"),
             &code,
             &image,
             &[
@@ -187,14 +188,11 @@ fn faults(frontend: Frontend) {
             }],
         );
     }
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-        ExecutionProfile::Real16,
-    ] {
-        let code = instruction(profile, false, 0xff00);
-        let mut image = image(&code, profile);
+    for config in [SEGMENTED32, REAL16] {
+        let code = instruction(config, false, 0xff00);
+        let mut image = image(&code, config);
         image.cpu.segments.ds.limit = 0xffff;
-        ImageSequences::new(frontend, profile).check(
+        ImageSequences::new(frontend, config).check(
             "FXSAVE rejects an image spanning the segment limit",
             &code,
             &image,

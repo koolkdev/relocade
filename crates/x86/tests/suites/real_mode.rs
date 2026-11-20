@@ -21,11 +21,12 @@ mod segments;
 #[path = "real_mode/string_io.rs"]
 mod string_io;
 
+use crate::support::config::REAL16;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister};
+use relocade_x86::{CpuState, Segment, SegmentRegister};
 
 fn image(code: &[u8]) -> Image {
     let mut image = Image::new(code);
@@ -50,5 +51,5 @@ fn retired(image: &Image, bytes: usize) -> CpuState {
 }
 
 fn sequences(frontend: Frontend) -> ImageSequences {
-    ImageSequences::new(frontend, ExecutionProfile::Real16)
+    ImageSequences::new(frontend, REAL16)
 }

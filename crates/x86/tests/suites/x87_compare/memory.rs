@@ -1,6 +1,7 @@
 //! Real-memory comparisons retain source exception evidence and access boundaries.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn instruction(opcode: u8, pop: bool, address: u32) -> Vec<u8> {
     [
@@ -11,7 +12,7 @@ fn instruction(opcode: u8, pop: bool, address: u32) -> Vec<u8> {
 }
 
 fn memory_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (opcode, bytes) in [
         (0xd8, 0x4000_0000_u32.to_le_bytes().to_vec()),
         (0xdc, 0x4000_0000_0000_0000_u64.to_le_bytes().to_vec()),
@@ -49,7 +50,7 @@ struct MemoryCase {
 }
 
 fn memory_operands(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for MemoryCase {
         opcode,
         bytes,
@@ -205,7 +206,7 @@ fn memory_operands(frontend: Frontend) {
 }
 
 fn fault_ordering(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = instruction(0xdc, true, 0x4ffc);
     let mut image = initial_image(&code);
     image.cpu.x87.tag_word |= 0xc000;

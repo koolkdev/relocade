@@ -1,11 +1,12 @@
 //! Half transfers select the correct lane and preserve every untouched byte.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::step::TestModule;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
 fn registers(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (opcode, destination_bytes, source_bytes) in [(0x12, 0..8, 8..16), (0x16, 8..16, 0..8)] {
         for source in [1, 6] {
             let code = [0x0f, opcode, 0xf0 | source]; // xmm6, xmm1 or xmm6
@@ -26,7 +27,7 @@ fn registers(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for prefix in [&[][..], &[0x66][..]] {
         for (load_opcode, store_opcode, half) in [(0x12, 0x13, 0..8), (0x16, 0x17, 8..16)] {
             let load = encoding(prefix, load_opcode, 0x30); // xmm6, [eax]
@@ -64,7 +65,7 @@ fn memory(frontend: Frontend) {
 }
 
 fn split_memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0x16, 0x30, 0x66, 0x0f, 0x17, 0x31]; // movhps; movhpd
     let mut image = image(&code);
     image.cpu.registers.eax = 0x4ffd;
@@ -96,7 +97,7 @@ fn split_memory(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for prefix in [&[][..], &[0x66][..]] {
         for opcode in [0x12, 0x13, 0x16, 0x17] {
             let transfer = encoding(prefix, opcode, 0x30);

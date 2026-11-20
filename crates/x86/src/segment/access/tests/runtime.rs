@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
+
 use crate::{
     test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule},
     CpuState, SegmentRegister,
@@ -95,7 +96,7 @@ fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
     cpu.segments.gs = SegmentRegister::unusable(0x63);
     for intent in [Intent::Read, Intent::Write] {
         let module = TestModule::new(&translation(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             intent,
             Some(SegmentSelection::indexed),
         ));
@@ -121,14 +122,14 @@ fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
         }
     }
     let read = TestModule::new(&translation(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         Intent::Read,
         Some(SegmentSelection::indexed),
     ));
     cpu.segments.cs.big = 1;
     cpu.segments.cs.readable = 0;
     let segmented_read = TestModule::new(&translation(
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        SEGMENTED32,
         Intent::Read,
         Some(SegmentSelection::indexed),
     ));
@@ -148,7 +149,7 @@ fn runtime_overrides_and_defaults_preserve_translation_and_faults() {
     );
 
     let address_default = TestModule::new(&translation(
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
+        SEGMENTED32,
         Intent::Read,
         Some(default_segment),
     ));

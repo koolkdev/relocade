@@ -1,13 +1,14 @@
 //! Value selection survives subsequent stack reads and consumes live flag sources.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
 fn stack_continuation(frontend: Frontend) {
     let code = [0xda, 0xc1, 0xdd, 0xd2]; // FCMOVB ST1; FST ST2
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for taken in [false, true] {
         let mut image = initial_image(&code);
         image.cpu.flags.bytes.cf = u8::from(taken);
@@ -28,7 +29,7 @@ fn stack_continuation(frontend: Frontend) {
 
 fn live_integer_flags(frontend: Frontend) {
     let code = [0x39, 0xc8, 0xda, 0xd1]; // CMP EAX, ECX; FCMOVBE ST1
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, taken) in [(0, 1, true), (1, 1, true), (2, 1, false)] {
         let mut image = initial_image(&code);
         image.cpu.registers.eax = left;

@@ -9,6 +9,7 @@ mod rounding;
 #[path = "x87_add/specialization.rs"]
 mod specialization;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
@@ -17,7 +18,6 @@ use crate::support::{
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
     },
 };
-use relocade_x86::SegmentProfile;
 
 const LEADING: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -25,7 +25,7 @@ const C1: u16 = 0x200;
 const PENDING: u16 = 0x8080;
 
 fn register_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // ST0=-2 and ST2=3 expose both subtraction directions. TOP=7 also checks
     // that the destination uses the old logical index across a wrapping pop.
     for (prefix, base, destination, pop, result) in [
@@ -72,7 +72,7 @@ fn register_forms(frontend: Frontend) {
 }
 
 fn signed_zeros(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (instruction, negate_left, negate_right) in [
         ([0xde, 0xc1], false, false),
         ([0xde, 0xe9], false, true),

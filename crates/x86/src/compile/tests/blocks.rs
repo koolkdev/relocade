@@ -1,11 +1,11 @@
 use crate::{
     support::{
+        config::{FLAT32, REAL16, SEGMENTED32},
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
     BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CodeAddress, CompiledBlocks,
-    Compiler, CpuFeature, CpuModel, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile,
-    SegmentDefaultSize, SegmentProfile,
+    Compiler, CpuFeature, CpuModel, CpuState, ExecutionContext, ExecutionExit, SegmentDefaultSize,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -38,7 +38,7 @@ fn entries_report_consumed_spans_in_input_order() {
             instruction_limit: 10,
         },
     ];
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::from_config(FLAT32);
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(
         blocks.entries,
@@ -83,7 +83,7 @@ fn entries_report_consumed_spans_in_input_order() {
     }));
     assert_eq!(parallel.bytes, blocks.bytes);
     assert_eq!(parallel.entries, blocks.entries);
-    assert_eq!(parallel.execution_target, blocks.execution_target);
+    assert_eq!(parallel.config, blocks.config);
 }
 
 fn compile_without_code_default(
@@ -124,7 +124,7 @@ fn byte_snapshots_require_a_guaranteed_or_observed_code_width() {
         .specialize_on_cpu(&cpu)
         .compile_block(0, &bytes, 1)
         .unwrap();
-    assert_eq!(compiled.execution_target, Some(config));
+    assert_eq!(compiled.config, Some(config));
 }
 
 fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
@@ -157,15 +157,15 @@ fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
 }
 
 #[test]
-fn the_target_code_width_folds_the_destination_guard() {
+fn guaranteed_code_width_folds_the_destination_guard() {
     use SegmentDefaultSize::{Bits16, Bits32};
     let bytes = [0xb8, 0x34, 0x12, 0x78, 0x56]; // MOV AX/EAX, immediate
-    for (profile, size, needs_guard_without_width) in [
+    for (config, size, needs_guard_without_width) in [
         // The canonical real-mode segment cache itself establishes CS.D=0.
-        (ExecutionProfile::Real16, Bits16, false),
-        (SegmentProfile::Flat32.into(), Bits32, true),
+        (REAL16, Bits16, false),
+        (FLAT32, Bits32, true),
     ] {
-        let compiler = Compiler::new(profile);
+        let compiler = Compiler::from_config(config);
         let snapshot = BlockSnapshot {
             address: CodeAddress::CsRelative(0x1000),
             code_default_size: size,
@@ -187,7 +187,7 @@ fn the_target_code_width_folds_the_destination_guard() {
 fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
     use SegmentDefaultSize::{Bits16, Bits32};
     let code = [0xb8, 0x34, 0x12, 0x78, 0x56]; // MOV AX/EAX, immediate
-    let compiler = Compiler::new(SegmentProfile::Segmented32);
+    let compiler = Compiler::from_config(SEGMENTED32);
     for (required, result, next_eip) in
         [(Bits16, 0xaaaa_1234, 0x1003), (Bits32, 0x5678_1234, 0x1005)]
     {
@@ -240,7 +240,7 @@ fn real_mode_entries_split_only_at_boundaries_in_their_own_segment() {
         bytes: &[0x90, 0x90],
         instruction_limit: 2,
     });
-    let blocks = Compiler::new(ExecutionProfile::Real16)
+    let blocks = Compiler::from_config(REAL16)
         .compile_blocks(&snapshots)
         .unwrap();
     let entries: Vec<_> = blocks
@@ -261,7 +261,7 @@ fn real_mode_entries_split_only_at_boundaries_in_their_own_segment() {
 #[test]
 fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
     let code_default_size = SegmentDefaultSize::Bits32;
-    let blocks = Compiler::new(SegmentProfile::Flat32)
+    let blocks = Compiler::from_config(FLAT32)
         .compile_blocks(&[
             BlockSnapshot {
                 address: CodeAddress::CsRelative(0x1000),
@@ -284,11 +284,11 @@ fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
 #[test]
 fn empty_input_is_valid_and_compilation_errors_are_reported() {
     let code_default_size = SegmentDefaultSize::Bits32;
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::from_config(FLAT32);
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
     assert!(super::memory::imports(&empty.bytes).is_empty());
-    assert_eq!(empty.execution_target, compiler.target());
+    assert_eq!(empty.config, compiler.config());
     Validator::new().validate_all(&empty.bytes).unwrap();
 
     let first = BlockSnapshot {
@@ -349,7 +349,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
 }
 
 fn entry_boundaries() {
-    let compiler = Compiler::new(ExecutionProfile::Real16)
+    let compiler = Compiler::from_config(REAL16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
     let code_default_size = SegmentDefaultSize::Bits16;
     let snapshots = [
@@ -379,11 +379,11 @@ fn entry_boundaries() {
         },
     ];
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
-    assert_eq!(blocks.execution_target, compiler.target());
+    assert_eq!(blocks.config, compiler.config());
     let mut module = TestModule::from_bytes(
         &blocks.bytes,
         &blocks.entries[0].export,
-        Some(blocks.execution_target),
+        Some(blocks.config),
     );
     for (index, (snapshot, entry)) in snapshots.iter().zip(&blocks.entries).enumerate() {
         module.entry.clone_from(&entry.export);
@@ -473,13 +473,11 @@ fn function_count(bytes: &[u8]) -> u32 {
 }
 
 fn shared_memory_helpers() {
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let code_default_size = crate::EntryAssumptions::from(profile)
-            .code_default_size
-            .unwrap();
-        let compiler = Compiler::new(profile);
+    for config in [FLAT32, REAL16] {
+        let code_default_size = config.entry.code_default_size.unwrap();
+        let compiler = Compiler::from_config(config);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
-        let code: &[u8] = if profile == ExecutionProfile::Real16 {
+        let code: &[u8] = if config.entry.mode == crate::ExecutionMode::Real {
             &[0x66, 0x67, 0x8b, 0x01, 0x66, 0x67, 0x89, 0x03]
         } else {
             &[0x8b, 0x01, 0x89, 0x03]
@@ -501,7 +499,7 @@ fn shared_memory_helpers() {
             ])
             .unwrap();
         let single = compiler.compile_block(0x1000, code, 2).unwrap();
-        let mapping = if profile == ExecutionProfile::Real16 {
+        let mapping = if config.entry.mode == crate::ExecutionMode::Real {
             "physicalMap"
         } else {
             "machine"
@@ -522,19 +520,19 @@ fn shared_memory_helpers() {
         let mut module = TestModule::from_bytes(
             &blocks.bytes,
             &blocks.entries[0].export,
-            Some(blocks.execution_target),
+            Some(blocks.config),
         );
         for entry in &blocks.entries {
             module.entry.clone_from(&entry.export);
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
             image.cpu.eip = entry.address.eip();
-            let physical = profile == ExecutionProfile::Real16;
+            let physical = config.entry.mode == crate::ExecutionMode::Real;
             // Physical JIT operands fit one page; virtual accesses also exercise
             // the shared helpers for scattered backing across a page boundary.
             image.cpu.registers.ecx = if physical { 0x2ff0 } else { 0x2fff };
             image.cpu.registers.ebx = if physical { 0x4ff0 } else { 0x4fff };
-            if profile == ExecutionProfile::Real16 {
+            if config.entry.mode == crate::ExecutionMode::Real {
                 image.initialize_real_mode();
             }
             image.map(1, 0x1000, false);
@@ -565,7 +563,7 @@ fn shared_memory_helpers() {
                         exit: Exit::Dispatch(after.eip),
                     }]
                 ),
-                "{profile:?}, {}",
+                "{config:?}, {}",
                 entry.export,
             );
         }
