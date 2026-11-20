@@ -1,5 +1,5 @@
 use relocade_frontend::audio::Config;
-use relocade_machine::{timer_service, Device};
+use relocade_machine::{Device, ExecutionWorker, SessionConfig};
 use relocade_pc::{Configuration, Pc, SoundCard};
 use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
@@ -32,12 +32,11 @@ async fn timeout<T>(future: impl Future<Output = T>) -> T {
 async fn exercise_audio_device(sound_card: SoundCard) {
     let (samples, buffers) = async_channel::bounded(1);
     let (started, ready) = async_channel::bounded(1);
-    let (clock, timers) = timer_service();
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn(clock, async move |runner| {
+    let worker = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
         let started = Rc::new(RefCell::new(Started(Some(started))));
         runner
             .connect(started.clone(), |io| {
@@ -112,7 +111,6 @@ async fn exercise_audio_device(sound_card: SoundCard) {
         assert!(pc.attach_audio(config, samples).await.is_err());
         panic!("busy guest unexpectedly returned: {:?}", pc.run().await);
     });
-    let timers = timers.spawn_with_peer(worker.wake_peer());
     timeout(ready.recv()).await.unwrap();
     // Worker startup can leave queued silence before the guest's writes.
     // Discard the first audible block, which may contain only part of the tone.
@@ -153,7 +151,6 @@ async fn exercise_audio_device(sound_card: SoundCard) {
         buffers.is_closed(),
         "session shutdown drops the audio worker's sender"
     );
-    timeout(timers.join()).await.unwrap();
     machine.shutdown().await.unwrap();
 }
 

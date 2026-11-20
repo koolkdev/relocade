@@ -1,7 +1,10 @@
 use super::{timeout, Audio};
 use futures_channel::oneshot;
 use futures_lite::future::poll_once;
-use relocade_machine::{timer_service, CpuConfig, Device, ExecutionInterrupt, MachineConfig};
+use relocade_machine::{
+    timer_service, CpuConfig, Device, ExecutionInterrupt, ExecutionWorker, MachineConfig,
+    SessionConfig,
+};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
 };
@@ -56,47 +59,51 @@ async fn callback_wakes_execution() {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let worker = prepared.spawn(clock, async move |mut runner| {
-        let memory = runner.memory();
-        // OUT confirms actual guest entry before the host starts playback.
-        memory
-            .view()
-            .write(0x100, &[0xe6, 0x80, 0xeb, 0xfe])
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(clock),
+        async move |mut runner| {
+            let memory = runner.memory();
+            // OUT confirms actual guest entry before the host starts playback.
+            memory
+                .view()
+                .write(0x100, &[0xe6, 0x80, 0xeb, 0xfe])
+                .unwrap();
+            let started = Rc::new(RefCell::new(Started {
+                ready: Some(ready),
+                interrupt: None,
+            }));
+            runner
+                .connect(started.clone(), |io| {
+                    Started::configure_io(io, &started);
+                })
+                .await;
+            let compiler = Compiler::new(ExecutionProfile::Real16);
+
+            let cpu = runner.cpu();
+            started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
+            let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
+            cpu.install_module(
+                &module.bytes,
+                &[relocade_machine::DispatchEntry {
+                    key: 0x102,
+                    export: &module.entry,
+                }],
+            )
+            .await
             .unwrap();
-        let started = Rc::new(RefCell::new(Started {
-            ready: Some(ready),
-            interrupt: None,
-        }));
-        runner
-            .connect(started.clone(), |io| {
-                Started::configure_io(io, &started);
-            })
-            .await;
-        let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner.cpu();
-        started.borrow_mut().interrupt = Some(cpu.interrupt_handle());
-        let module = compiler.compile_block(0x102, &[0xeb, 0xfe], 1).unwrap();
-        cpu.install_module(
-            &module.bytes,
-            &[relocade_machine::DispatchEntry {
-                key: 0x102,
-                export: &module.entry,
-            }],
-        )
-        .await
-        .unwrap();
-
-        let mut submission = pin!(samples.send(vec![0.25; 128 * channels]));
-        assert!(
-            poll_once(submission.as_mut()).await.is_none(),
-            "full output must register backpressure"
-        );
-        // No timer, input or cooperative yield can supply this request. The
-        // real CPAL callback must free channel capacity while Wasm stays busy.
-        assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
-        submission.await.unwrap();
-    });
+            let mut submission = pin!(samples.send(vec![0.25; 128 * channels]));
+            assert!(
+                poll_once(submission.as_mut()).await.is_none(),
+                "full output must register backpressure"
+            );
+            // No timer, input or cooperative yield can supply this request. The
+            // real CPAL callback must free channel capacity while Wasm stays busy.
+            assert_eq!(cpu.run().await, ExecutionExit::Interrupted);
+            submission.await.unwrap();
+        },
+    );
     timeout(registered).await.unwrap();
     audio.play().unwrap();
     assert_eq!(timeout(worker.join()).await.unwrap(), Some(()));

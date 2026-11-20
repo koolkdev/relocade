@@ -1,7 +1,7 @@
 use crate::common;
 use relocade_clock_test_support::ManualClock;
 use relocade_dos::ProcessStatus;
-use relocade_machine::Instant;
+use relocade_machine::{ExecutionWorker, Instant, SessionConfig};
 use relocade_x86::ExecutionExit;
 
 use std::{
@@ -110,8 +110,9 @@ fn timer_advances_the_clock_during_guest_execution() {
             let prepared = machine
                 .create_cpu(relocade_dos::configuration::cpu(), None)
                 .unwrap();
-            let worker = prepared.spawn_with_clock(
-                move || worker_clock.clock(),
+            let worker = ExecutionWorker::spawn(
+                prepared,
+                SessionConfig::host().with_host_clock(worker_clock),
                 async move |runner| {
                     let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
                     let mut program = prefix.to_vec();

@@ -2,7 +2,8 @@ mod support;
 
 use futures_util::future::join;
 use relocade_machine::{
-    timer_service, Clock, Device, DispatchEntry, ExitHandle, Hook, Runner, Timestamp,
+    timer_service, Clock, Device, DispatchEntry, ExecutionWorker, ExitHandle, GuestTimeConfig,
+    Hook, Runner, SessionConfig, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -43,8 +44,9 @@ async fn reject_guest_time_without_budgets() {
     let config = relocade_machine::CpuConfig::new(target, *setup.cpu.cpu()).unwrap();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let cpu = machine.create_cpu(config, None).unwrap();
-    let worker = cpu.spawn_with_guest_time::<()>(
-        move || relocade_machine::GuestTimeConfig::new(rate),
+    let worker = ExecutionWorker::<()>::spawn(
+        cpu,
+        SessionConfig::guest(GuestTimeConfig::new(rate)),
         async |_| panic!("a rejected CPU configuration must not start the session"),
     );
     assert!(matches!(
@@ -89,11 +91,11 @@ async fn unpaced_slice_overshoot() {
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-        let worker = prepared.spawn_with_guest_time(
-            move || {
-                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(rate).unwrap())
-                    .with_slice_duration(slice)
-            },
+        let worker = ExecutionWorker::spawn(
+            prepared,
+            SessionConfig::guest(
+                GuestTimeConfig::new(NonZeroU64::new(rate).unwrap()).with_slice_duration(slice),
+            ),
             async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
@@ -184,11 +186,12 @@ async fn deadlines_and_final_exit() {
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-        let worker = prepared.spawn_with_guest_time(
-            || {
-                relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                    .with_slice_duration(Duration::from_millis(10))
-            },
+        let worker = ExecutionWorker::spawn(
+            prepared,
+            SessionConfig::guest(
+                GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                    .with_slice_duration(Duration::from_millis(10)),
+            ),
             async move |mut runner| {
                 let clock = runner.clock().clone();
                 let start = clock.now();
@@ -257,11 +260,12 @@ async fn retained_service() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(10))
-        },
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(
+            GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_slice_duration(Duration::from_millis(10)),
+        ),
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -314,11 +318,12 @@ async fn unpaced_idle_service() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(1))
-        },
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(
+            GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_slice_duration(Duration::from_millis(1)),
+        ),
         async |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -430,8 +435,9 @@ async fn terminal_exit_without_notifications() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())),
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));
@@ -439,8 +445,9 @@ async fn terminal_exit_without_notifications() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_clock(
-        || relocade_clock_test_support::ManualClock::new().clock(),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(relocade_clock_test_support::ManualClock::new()),
         async |runner| immediate_exit(runner).await,
     );
     assert_eq!(worker.join().await.unwrap(), Some(()));

@@ -41,6 +41,6 @@ pub(super) fn host() -> (
     (time.clone(), requests, ObservedHost { time, armed })
 }
 
-pub(super) fn config(host: ObservedHost) -> GuestTimeConfig {
-    GuestTimeConfig::new(NonZeroU64::new(1000).unwrap()).with_host_clock(Clock::new(host))
+pub(super) fn config() -> GuestTimeConfig {
+    GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
 }

@@ -65,7 +65,7 @@ impl Runner {
     ) -> Result<Self> {
         let (activities, pending) = mpsc::unbounded();
         let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
-        let (cpu, compiler) = cpu.into_session(IoBus::default()).await?;
+        let (cpu, compiler) = cpu.into_cpu_and_compiler(IoBus::default()).await?;
         let compiler = compiler
             .map(|endpoint| {
                 let (client, replies) = endpoint.connect(&wake)?;
@@ -250,10 +250,16 @@ impl Runner {
     /// the host/guest offset survive those pauses.
     pub async fn with_guest_time(
         config: GuestTimeConfig,
+        host: Option<Clock>,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
         crate::GuestTimeDriver::validate_target(cpu.configuration().execution_target())?;
-        Self::with_schedule(ExecutionSchedule::with_guest_time(config), cpu, endpoint).await
+        Self::with_schedule(
+            ExecutionSchedule::with_guest_time(config, host),
+            cpu,
+            endpoint,
+        )
+        .await
     }
 }

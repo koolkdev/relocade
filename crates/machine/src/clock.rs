@@ -53,7 +53,12 @@ impl Clock {
         Self::from_source(Rc::new(source))
     }
 
-    pub(crate) fn from_source(source: Rc<dyn ClockSource>) -> Self {
+    pub(crate) fn from_boxed_source(source: Box<dyn ClockSource + Send>) -> Self {
+        let source: Box<dyn ClockSource> = source;
+        Self::from_source(source.into())
+    }
+
+    fn from_source(source: Rc<dyn ClockSource>) -> Self {
         Self {
             tick_rate: TickRate::new(source.ticks_per_second()),
             source,

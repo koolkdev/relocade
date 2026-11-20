@@ -4,7 +4,8 @@ mod support;
 mod driver;
 
 use relocade_machine::{
-    Clock, Cpu, Device, DispatchEntry, GuestTimeDriver, IoBus, Memory, Timestamp,
+    Clock, Cpu, Device, DispatchEntry, ExecutionWorker, GuestTimeDriver, IoBus, Memory,
+    SessionConfig, Timestamp,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -32,7 +33,7 @@ async fn progress() {
     let setup = configuration(u64::MAX - 1);
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let execution = prepared.run_until(std::future::pending::<()>(), async |mut runner| {
+    let execution = ExecutionWorker::spawn(prepared, SessionConfig::host(), async |mut runner| {
         let driver = GuestTimeDriver::new(NonZeroU64::new(3).unwrap());
         let clock = driver.clock();
         let clone = clock.clone();
@@ -96,7 +97,8 @@ async fn progress() {
             clock.duration_between(start, clock.now()),
             Duration::from_nanos(3_333_333_333)
         );
-    });
+    })
+    .join();
     let execution = execution.await;
     assert_eq!(execution.unwrap(), Some(()));
     machine.shutdown().await.unwrap();

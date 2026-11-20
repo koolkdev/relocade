@@ -10,8 +10,8 @@ use futures_util::{
 };
 use relocade_dos::{Configuration, Dos, VideoCard};
 use relocade_machine::{
-    timer_service,
     worker::{Receiver, Thread},
+    ExecutionWorker, SessionConfig,
 };
 use std::{
     future::pending,
@@ -46,13 +46,12 @@ pub async fn dos_workers() -> Result<(), String> {
     let (first_done, first_exit) = oneshot::channel();
     let (launch_next, next_launch) = oneshot::channel();
     let (second_done, second_exit) = oneshot::channel();
-    let (clock, timers) = timer_service();
     let mut machine =
         relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let execution = prepared.spawn(clock, async move |runner| {
+    let execution = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
         let mut dos = Dos::with_configuration(
             runner,
             Configuration {
@@ -229,7 +228,7 @@ pub async fn dos_workers() -> Result<(), String> {
         assert_eq!(&*exited.pixels, final_pixels);
         Ok(())
     };
-    let ((), result) = join(timers.run(), app).await;
+    let result = app.await;
     machine.shutdown().await.unwrap();
     result
 }

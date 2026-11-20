@@ -32,7 +32,7 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         .write(0x400, &[0xa2, 0x21, 0x03, 0xeb, 0x00])
         .unwrap();
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let state = runner.cpu().cpu_state();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
@@ -112,6 +112,7 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
             assert_eq!(state.ax(), expected);
         }
     })
+    .join()
     .await
     .unwrap()
     .unwrap();
@@ -138,7 +139,7 @@ async fn reject_host_page_table(service: &relocade_machine::CompilerService) {
     let mut target = config.execution_target();
     target.memory_backend = MemoryBackend::HostPageTable;
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let mut compiler = runner.take_compiler().unwrap();
         let block = request();
         let function = FunctionRequest {
@@ -156,6 +157,7 @@ async fn reject_host_page_table(service: &relocade_machine::CompilerService) {
             ));
         }
     })
+    .join()
     .await
     .unwrap()
     .unwrap();

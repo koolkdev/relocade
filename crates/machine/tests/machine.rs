@@ -1,6 +1,6 @@
 use relocade_machine::{
     worker::{Receiver, Thread},
-    CpuConfig, CpuHandle, Machine, MachineConfig,
+    CpuConfig, CpuHandle, ExecutionWorker, Machine, MachineConfig, SessionConfig,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -97,31 +97,31 @@ async fn session_shutdown() {
         .view()
         .write(0x100, &[0x40, 0xeb, 0])
         .unwrap();
-    let completed = prepared
-        .run_until(std::future::pending::<()>(), async |mut runner| {
-            assert!(runner.take_compiler().is_none());
-            let clock = runner.clock().clone();
-            let cpu = runner.cpu();
-            assert_eq!(cpu.cpu_state().ax(), 41);
-            let exit = cpu.exit_handle();
-            cpu.install([relocade_machine::Hook::host(0x103, async move || {
-                exit.request()
-            })])
-            .await
-            .unwrap();
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(relocade_x86::HostExit::Return)
-            );
-            let ax = runner.cpu().cpu_state().ax();
-            drop(runner);
-            // The callback and device task set remain alive after releasing Runner.
-            clock.sleep(Duration::from_millis(1)).await;
-            ax
-        })
+    let completed = ExecutionWorker::spawn(prepared, SessionConfig::host(), async |mut runner| {
+        assert!(runner.take_compiler().is_none());
+        let clock = runner.clock().clone();
+        let cpu = runner.cpu();
+        assert_eq!(cpu.cpu_state().ax(), 41);
+        let exit = cpu.exit_handle();
+        cpu.install([relocade_machine::Hook::host(0x103, async move || {
+            exit.request()
+        })])
         .await
-        .unwrap()
         .unwrap();
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(relocade_x86::HostExit::Return)
+        );
+        let ax = runner.cpu().cpu_state().ax();
+        drop(runner);
+        // The callback and device task set remain alive after releasing Runner.
+        clock.sleep(Duration::from_millis(1)).await;
+        ax
+    })
+    .join()
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(completed, 42);
     assert_eq!(machine.cpus()[0].ax(), 42);
     machine.shutdown().await.unwrap();
@@ -129,17 +129,17 @@ async fn session_shutdown() {
     let (mut machine, config) = setup();
     let (armed, stop) = futures_channel::oneshot::channel();
     let prepared = machine.create_cpu(config, None).unwrap();
-    let result = prepared
-        .run_until(stop, async move |runner| {
-            let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
-            assert!(futures_lite::future::poll_once(wait.as_mut())
-                .await
-                .is_none());
-            armed.send(()).unwrap();
-            wait.await;
-        })
-        .await
-        .unwrap();
+    let result = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
+        let mut wait = pin!(runner.clock().sleep(Duration::from_secs(3600)));
+        assert!(futures_lite::future::poll_once(wait.as_mut())
+            .await
+            .is_none());
+        armed.send(()).unwrap();
+        wait.await;
+    })
+    .run_until(stop)
+    .await
+    .unwrap();
     assert_eq!(result, None);
     machine.shutdown().await.unwrap();
 }

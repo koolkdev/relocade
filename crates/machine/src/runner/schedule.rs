@@ -23,12 +23,17 @@ impl ExecutionSchedule {
         Self { clock, guest: None }
     }
 
-    pub(super) fn with_guest_time(config: GuestTimeConfig) -> Self {
+    pub(super) fn with_guest_time(mut config: GuestTimeConfig, host: Option<Clock>) -> Self {
+        if host.is_some() {
+            config
+                .slice_duration
+                .get_or_insert(std::time::Duration::from_millis(4));
+        }
         let mut driver = GuestTimeDriver::new(config.instructions_per_second);
-        let slice = config.slice_duration.map(|duration| {
-            ExecutionSlice::new(&driver.clock(), duration, config.host_clock.is_some())
-        });
-        if let Some(host) = config.host_clock {
+        let slice = config
+            .slice_duration
+            .map(|duration| ExecutionSlice::new(&driver.clock(), duration, host.is_some()));
+        if let Some(host) = host {
             driver = driver.with_host_clock(host);
         }
         Self {

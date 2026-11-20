@@ -1,4 +1,4 @@
-use relocade_machine::{DispatchEntry, Hook};
+use relocade_machine::{DispatchEntry, ExecutionWorker, GuestTimeConfig, Hook, SessionConfig};
 use relocade_pc::Pc;
 use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
 use std::{num::NonZeroU64, time::Duration};
@@ -11,8 +11,9 @@ async fn pit_interrupts() {
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        || relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
         async |runner| {
             let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
@@ -93,7 +94,7 @@ async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
 async fn keyboard_at_guest_receipt_time() {
     use relocade_clock_test_support::ManualClock;
     use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent};
-    use relocade_machine::{worker::wake_connection, GuestTimeConfig, Runner};
+    use relocade_machine::{worker::wake_connection, Runner};
     use std::{
         future::{poll_fn, Future},
         pin::pin,
@@ -107,7 +108,8 @@ async fn keyboard_at_guest_receipt_time() {
         .unwrap();
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
-        GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()).with_host_clock(host.clock()),
+        GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+        Some(host.clock()),
         prepared,
         endpoint,
     )

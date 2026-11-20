@@ -6,7 +6,7 @@ use relocade_frontend::{
     keyboard::{ElementState, Key, KeyCode, KeyLocation, KeyboardEvent},
     mouse::{MouseButton, MouseEvent},
 };
-use relocade_machine::Hook;
+use relocade_machine::{ExecutionWorker, Hook, SessionConfig};
 use std::{
     cell::RefCell,
     future::{poll_fn, Future},
@@ -32,8 +32,9 @@ fn guest_configures_auxiliary_mouse_and_receives_irq12_from_host_input() {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn_with_clock(
-        || relocade_clock_test_support::ManualClock::new().clock(),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(relocade_clock_test_support::ManualClock::new()),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             let mut code = vec![0xfa]; // Configure while IF is clear.

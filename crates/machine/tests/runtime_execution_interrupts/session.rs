@@ -4,7 +4,9 @@ use futures_util::{
     future::{join, LocalBoxFuture},
     StreamExt,
 };
-use relocade_machine::{timer_service, Device, ExecutionInterrupt, ExitHandle};
+use relocade_machine::{
+    timer_service, Device, ExecutionInterrupt, ExecutionWorker, ExitHandle, SessionConfig,
+};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -88,43 +90,47 @@ async fn connected_input() {
             let setup = configuration();
             let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
             let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-            let worker = prepared.spawn(clock, async move |mut runner| {
-                let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
-                    let clock = runner.clock().clone();
-                    Box::pin(async move {
-                        clock.sleep(Duration::ZERO).await;
-                        vec![7]
-                    })
-                } else {
-                    Box::pin(async move {
-                        vec![input.next().await.unwrap(), input.next().await.unwrap()]
-                    })
-                };
-                let device = Rc::new(RefCell::new(InputDevice {
-                    entered: Some(entered),
-                    sent: worker_sent,
-                    input: Some(input),
-                    values: Vec::new(),
-                    exit: None,
-                    interrupt: None,
-                }));
-                runner
-                    .connect(device.clone(), |io| {
-                        InputDevice::configure_io(io, &device);
-                    })
-                    .await;
-                // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
-                prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], compiled).await;
-                device.borrow_mut().exit = Some(runner.cpu().exit_handle());
-                device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
-                started.await.unwrap();
-                assert_eq!(
-                    runner.run_cpu().await,
-                    ExecutionExit::Host(relocade_x86::HostExit::Return)
-                );
-                let values = device.borrow().values.clone();
-                (runner.cpu().cpu_state().instruction_count(), values)
-            });
+            let worker = ExecutionWorker::spawn(
+                prepared,
+                SessionConfig::host().with_host_clock(clock),
+                async move |mut runner| {
+                    let input: LocalBoxFuture<'static, Vec<u8>> = if timed {
+                        let clock = runner.clock().clone();
+                        Box::pin(async move {
+                            clock.sleep(Duration::ZERO).await;
+                            vec![7]
+                        })
+                    } else {
+                        Box::pin(async move {
+                            vec![input.next().await.unwrap(), input.next().await.unwrap()]
+                        })
+                    };
+                    let device = Rc::new(RefCell::new(InputDevice {
+                        entered: Some(entered),
+                        sent: worker_sent,
+                        input: Some(input),
+                        values: Vec::new(),
+                        exit: None,
+                        interrupt: None,
+                    }));
+                    runner
+                        .connect(device.clone(), |io| {
+                            InputDevice::configure_io(io, &device);
+                        })
+                        .await;
+                    // OUT; JMP 0100. I/O returns through interpreter STEP after OUT.
+                    prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], compiled).await;
+                    device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+                    device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
+                    started.await.unwrap();
+                    assert_eq!(
+                        runner.run_cpu().await,
+                        ExecutionExit::Host(relocade_x86::HostExit::Return)
+                    );
+                    let values = device.borrow().values.clone();
+                    (runner.cpu().cpu_state().instruction_count(), values)
+                },
+            );
             use relocade_machine::worker::{Receiver, Thread, WakePeer};
             let peer_thread = matches!(source, InputSource::Peer).then(Thread::new);
             let peer_task = if let Some(thread) = &peer_thread {
@@ -199,7 +205,6 @@ async fn session_channels_and_timers_interrupt_guest_execution() {
 }
 
 async fn connected_stop() {
-    let (clock, _timers) = timer_service();
     let (entered, running) = oneshot::channel();
     let sent = Arc::new(AtomicBool::new(false));
     let worker_sent = sent.clone();
@@ -207,29 +212,30 @@ async fn connected_stop() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn::<()>(clock, async move |mut runner| {
-        let device = Rc::new(RefCell::new(InputDevice {
-            entered: Some(entered),
-            sent: worker_sent,
-            input: Some(Box::pin(std::future::pending())),
-            values: Vec::new(),
-            exit: None,
-            interrupt: None,
-        }));
-        runner
-            .connect(device.clone(), |io| {
-                InputDevice::configure_io(io, &device);
-            })
-            .await;
-        prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
-        device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
-        let _stopped = Stopped {
-            state: runner.cpu().cpu_state(),
-            report: Some(report),
-        };
-        runner.run_cpu().await;
-        panic!("cancellation must drop the running session");
-    });
+    let worker =
+        ExecutionWorker::<()>::spawn(prepared, SessionConfig::host(), async move |mut runner| {
+            let device = Rc::new(RefCell::new(InputDevice {
+                entered: Some(entered),
+                sent: worker_sent,
+                input: Some(Box::pin(std::future::pending())),
+                values: Vec::new(),
+                exit: None,
+                interrupt: None,
+            }));
+            runner
+                .connect(device.clone(), |io| {
+                    InputDevice::configure_io(io, &device);
+                })
+                .await;
+            prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
+            device.borrow_mut().interrupt = Some(runner.cpu().interrupt_handle());
+            let _stopped = Stopped {
+                state: runner.cpu().cpu_state(),
+                report: Some(report),
+            };
+            runner.run_cpu().await;
+            panic!("cancellation must drop the running session");
+        });
     running.await.unwrap();
     let mut stop = std::pin::pin!(worker.stop());
     assert!(futures_lite::future::poll_once(stop.as_mut())
@@ -258,7 +264,6 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 }
 
 async fn saturated_count() {
-    let (clock, _timers) = timer_service();
     let config = support::configuration(
         Compiler::new(ExecutionProfile::Real16).target(),
         CpuState {
@@ -272,7 +277,7 @@ async fn saturated_count() {
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
     let prepared = machine.create_cpu(config.cpu, None).unwrap();
-    let worker = prepared.spawn(clock, async |mut runner| {
+    let worker = ExecutionWorker::spawn(prepared, SessionConfig::host(), async |mut runner| {
         let exit = runner.cpu().exit_handle();
         runner
             .cpu()
@@ -324,46 +329,51 @@ impl Device for PublishInput {}
 
 async fn notified_reentry() {
     for nested in [false, true] {
-        let (clock, _timers) = timer_service();
         let setup = configuration();
         let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
         let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-        let worker = prepared.spawn(clock, async move |mut runner| {
-            let (send, receive) = oneshot::channel();
-            let publisher = Rc::new(RefCell::new(PublishInput(Some(send))));
-            runner
-                .connect(publisher.clone(), |io| PublishInput::configure_io(io, &publisher))
-                .await;
-            // OUT publishes input and exits through STEP. The following JMP
-            // supplies the next guest checkpoint if input needs another poll.
-            prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
-            let state = runner.cpu().cpu_state();
-            let exit = runner.cpu().exit_handle();
-            let input = async {
-                receive.await.unwrap();
-                // Ordinary async composition can need another poll after input
-                // arrives. Its wake is known before the next guest entry.
-                relocade_machine::yield_now().await;
-                let count = state.instruction_count();
-                exit.request();
-                count
-            };
-            let execution = async {
-                if nested {
-                    let mut tasks = futures_util::stream::FuturesUnordered::new();
-                    tasks.push(runner.run_cpu());
-                    tasks.next().await.unwrap()
-                } else {
-                    runner.run_cpu().await
-                }
-            };
-            let (exit, count) = join(execution, input).await;
-            assert_eq!(exit, ExecutionExit::Host(relocade_x86::HostExit::Return));
-            assert!(
+        let worker = ExecutionWorker::spawn(
+            prepared,
+            SessionConfig::host(),
+            async move |mut runner| {
+                let (send, receive) = oneshot::channel();
+                let publisher = Rc::new(RefCell::new(PublishInput(Some(send))));
+                runner
+                    .connect(publisher.clone(), |io| {
+                        PublishInput::configure_io(io, &publisher)
+                    })
+                    .await;
+                // OUT publishes input and exits through STEP. The following JMP
+                // supplies the next guest checkpoint if input needs another poll.
+                prepare_cpu(&mut runner, &[0xe6, 0x80, 0xeb, 0xfc], true).await;
+                let state = runner.cpu().cpu_state();
+                let exit = runner.cpu().exit_handle();
+                let input = async {
+                    receive.await.unwrap();
+                    // Ordinary async composition can need another poll after input
+                    // arrives. Its wake is known before the next guest entry.
+                    relocade_machine::yield_now().await;
+                    let count = state.instruction_count();
+                    exit.request();
+                    count
+                };
+                let execution = async {
+                    if nested {
+                        let mut tasks = futures_util::stream::FuturesUnordered::new();
+                        tasks.push(runner.run_cpu());
+                        tasks.next().await.unwrap()
+                    } else {
+                        runner.run_cpu().await
+                    }
+                };
+                let (exit, count) = join(execution, input).await;
+                assert_eq!(exit, ExecutionExit::Host(relocade_x86::HostExit::Return));
+                assert!(
                 (1..=2).contains(&count),
                 "ready Rust work must run by the next guest checkpoint; retired {count} instructions"
             );
-        });
+            },
+        );
         assert_eq!(worker.join().await.unwrap(), Some(()));
         machine.shutdown().await.unwrap();
     }

@@ -3,6 +3,7 @@
 use relocade_clock_test_support::ManualClock;
 mod common;
 use relocade_dos::Dos;
+use relocade_machine::{ExecutionWorker, SessionConfig};
 use relocade_x86::{ExecutionExit, Segment, SegmentRegister};
 use std::time::Duration;
 
@@ -16,8 +17,9 @@ fn with_mouse(check: impl AsyncFnOnce(&ManualClock, Dos) + Send + 'static) {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn_with_clock(
-        move || worker_clock.clock(),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(worker_clock),
         async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -82,8 +84,9 @@ fn com_and_mz_discover_the_resident_driver_and_preserve_the_interrupt_abi() {
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
-        let worker = prepared.spawn_with_clock(
-            || ManualClock::new().clock(),
+        let worker = ExecutionWorker::spawn(
+            prepared,
+            SessionConfig::host().with_host_clock(ManualClock::new()),
             async move |runner| {
                 let mut dos = Dos::new(runner).await.unwrap();
                 if mz {

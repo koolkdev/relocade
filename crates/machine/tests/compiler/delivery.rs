@@ -23,69 +23,66 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
     memory.view().write(0x100, &[0x40, 0xeb, 0xfd]).unwrap(); // INC AX; JMP 0100
     memory.view().write(0x200, &[0xbb, 42, 0, 0xeb, 0]).unwrap(); // MOV BX,42; JMP 0205
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    let execution = cpu
-        .run_until(
-            futures_timer::Delay::new(Duration::from_secs(20)),
-            async |mut runner| {
-                let target = runner.cpu().cpu_state().execution_target();
-                let mut compiler = runner.take_compiler().unwrap();
-                let exit = runner.cpu().exit_handle();
-                runner
-                    .cpu()
-                    .install([
-                        Hook::host(0x200, async || {
-                            panic!("compiled entry must replace this hook")
-                        }),
-                        Hook::host(0x205, async move || exit.request()),
-                    ])
-                    .await
-                    .unwrap();
-                let busy = Rc::new(RefCell::new(BusyDevice::default()));
-                runner.connect(busy.clone(), |_| {}).await;
+    let execution = ExecutionWorker::spawn(cpu, SessionConfig::host(), async |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([
+                Hook::host(0x200, async || {
+                    panic!("compiled entry must replace this hook")
+                }),
+                Hook::host(0x205, async move || exit.request()),
+            ])
+            .await
+            .unwrap();
+        let busy = Rc::new(RefCell::new(BusyDevice::default()));
+        runner.connect(busy.clone(), |_| {}).await;
 
-                let state = runner.cpu().cpu_state();
-                let code = {
-                    let receive = pin!(async {
-                        while state.instruction_count() == 0 {
-                            relocade_machine::yield_now().await;
-                        }
-                        compiler
-                            .request(
-                                target,
-                                vec![BlockRequest {
-                                    entry: FarPointer {
-                                        segment: 0,
-                                        offset: 0x200,
-                                    },
-                                    ..request()
-                                }],
-                            )
-                            .unwrap();
-                        compiler.recv().await.expect("compiler running")
-                    });
-                    let running = pin!(runner.run_cpu());
-                    match select(receive, running).await {
-                        Either::Left((code, _)) => code.unwrap(),
-                        Either::Right((exit, _)) => {
-                            panic!("guest loop exited before receipt: {exit:?}")
-                        }
-                    }
-                };
-                assert!(
-                    runner.cpu().cpu_state().instruction_count() > 0,
-                    "the interpreter continues during compilation and receipt"
-                );
-                assert!(busy.borrow().turns > 1, "device work remains runnable too");
-                code.install(runner.cpu()).unwrap();
-                runner.cpu().cpu_state().set_eip(0x200);
-                assert_eq!(
-                    runner.run_cpu().await,
-                    ExecutionExit::Host(HostExit::Return)
-                );
-                assert_eq!(runner.cpu().cpu_state().bx(), 42);
-            },
-        )
-        .await;
+        let state = runner.cpu().cpu_state();
+        let code = {
+            let receive = pin!(async {
+                while state.instruction_count() == 0 {
+                    relocade_machine::yield_now().await;
+                }
+                compiler
+                    .request(
+                        target,
+                        vec![BlockRequest {
+                            entry: FarPointer {
+                                segment: 0,
+                                offset: 0x200,
+                            },
+                            ..request()
+                        }],
+                    )
+                    .unwrap();
+                compiler.recv().await.expect("compiler running")
+            });
+            let running = pin!(runner.run_cpu());
+            match select(receive, running).await {
+                Either::Left((code, _)) => code.unwrap(),
+                Either::Right((exit, _)) => {
+                    panic!("guest loop exited before receipt: {exit:?}")
+                }
+            }
+        };
+        assert!(
+            runner.cpu().cpu_state().instruction_count() > 0,
+            "the interpreter continues during compilation and receipt"
+        );
+        assert!(busy.borrow().turns > 1, "device work remains runnable too");
+        code.install(runner.cpu()).unwrap();
+        runner.cpu().cpu_state().set_eip(0x200);
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(runner.cpu().cpu_state().bx(), 42);
+    })
+    .run_until(futures_timer::Delay::new(Duration::from_secs(20)))
+    .await;
     let shutdown = machine.shutdown().await;
     assert_eq!(
         execution.unwrap(),

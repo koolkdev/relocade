@@ -4,7 +4,7 @@ mod connection;
 mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{Clock, Device, Hook};
+use relocade_machine::{Clock, Device, ExecutionWorker, Hook, SessionConfig};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
 };
@@ -77,11 +77,9 @@ async fn check_devices() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_clock(
-        {
-            let controller = clock.clone();
-            move || controller.clock()
-        },
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(clock.clone()),
         async move |mut runner| {
             let device = Rc::new(RefCell::new(Ticker {
                 clock: runner.clock().clone(),
@@ -161,8 +159,9 @@ async fn check_devices() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_clock::<()>(
-        move || clock.clock(),
+    let worker = ExecutionWorker::<()>::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(clock),
         async move |runner| {
             let device = Rc::new(RefCell::new(Ticker {
                 clock: runner.clock().clone(),

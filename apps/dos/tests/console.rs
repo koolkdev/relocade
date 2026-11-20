@@ -2,6 +2,7 @@
 
 use futures_lite::future::or;
 use relocade_dos::Dos;
+use relocade_machine::{ExecutionWorker, SessionConfig};
 use std::{io::Read, time::Duration};
 
 #[test]
@@ -12,7 +13,7 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let console = prepared.run_until(std::future::pending::<()>(), async move |runner| {
+    let console = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
         let clock = runner.clock().clone();
         let mut dos = Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
@@ -122,6 +123,6 @@ fn echo_edits_input_and_returns_to_a_prompt_in_the_same_display() {
             "echo executes in Rust without launching guest code"
         );
     });
-    assert_eq!(pollster::block_on(console).unwrap(), Some(()));
+    assert_eq!(pollster::block_on(console.join()).unwrap(), Some(()));
     pollster::block_on(machine.shutdown()).unwrap();
 }
