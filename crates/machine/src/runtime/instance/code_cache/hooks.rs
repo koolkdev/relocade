@@ -1,9 +1,8 @@
 //! Builds hook modules and owns their Rust service IDs and handler captures.
 
-use super::DispatchEntry;
 use crate::runtime::{
     hooks::{Handler, Implementation},
-    Hook, Result,
+    DispatchEntry, Hook, Result,
 };
 use relocade_compiler::{abi::Function, Program};
 use relocade_x86::{abi, ExecutionExitValues, HostExitValues};

@@ -1,43 +1,35 @@
 //! CPU-local module instances, callable exports and decoded guest-code coverage.
 
-mod calls;
-pub(super) use calls::Calls;
-mod execution;
-pub(super) use execution::CpuModules;
-mod table;
-
-use super::hooks::Hooks;
+use super::{calls::Calls, dispatch::DispatchTable};
 use crate::memory::code::ModuleId;
 use crate::runtime::{
     memory::{HostWritePage, HostWritePages},
     WasmRuntime,
 };
-use crate::{CompiledCode, DispatchEntry, FarPointer, InstalledCode, Result};
-use relocade_wasm_runtime::{Context, ExportFunction, Import, Memory, WasmMemoryAccess};
-use relocade_x86::abi;
+use crate::{CompiledCode, DispatchEntry, InstalledCode, Result};
+use relocade_wasm_runtime::{Context, WasmBackend};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
     rc::Rc,
     sync::Arc,
 };
-use table::DispatchTable;
 
-pub(super) struct ModuleInstance<B: ExportFunction<abi::ExecutionSignature>> {
-    instance: B::Instance,
+pub(super) struct ModuleInstance {
+    instance: <WasmRuntime as WasmBackend>::Instance,
     entry_keys: Vec<u32>,
     code: Option<CompiledCode>,
     registered_source: Option<Arc<InstalledCode>>,
     host_write_pages: Vec<Rc<HostWritePage>>,
-    calls: Option<Calls<B>>,
+    pub(super) calls: Option<Calls>,
     linear_pages: BTreeSet<u32>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
+impl ModuleInstance {
     pub(super) fn new(
-        instance: B::Instance,
+        instance: <WasmRuntime as WasmBackend>::Instance,
         code: Option<CompiledCode>,
-        calls: Option<Calls<B>>,
+        calls: Option<Calls>,
     ) -> Self {
         let linear_pages = code
             .iter()
@@ -72,14 +64,14 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
         self.registered_source = Some(source);
     }
 
-    fn release_host_write_pages(&mut self, wasm: &mut impl WasmMemoryAccess<Memory = Memory>) {
+    fn release_host_write_pages(&mut self, context: &mut Context<'_>) {
         for page in self.host_write_pages.drain(..) {
-            page.release(wasm);
+            page.release(context);
         }
     }
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Drop for ModuleInstance<B> {
+impl Drop for ModuleInstance {
     fn drop(&mut self) {
         if let Some(code) = &self.registered_source {
             code.unregister();
@@ -87,64 +79,35 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Drop for ModuleInstance<B> {
     }
 }
 
-pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
-    table: DispatchTable<B>,
-    modules: BTreeMap<ModuleId, ModuleInstance<B>>,
+pub(super) struct InstalledModules {
+    pub(super) dispatch: DispatchTable,
+    modules: BTreeMap<ModuleId, ModuleInstance>,
     next_module_id: usize,
     by_linear_page: BTreeMap<u32, BTreeSet<ModuleId>>,
-    pub(super) hooks: Hooks,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
-    pub(super) fn new(backend: &mut B) -> Result<Self> {
-        Ok(Self {
-            table: DispatchTable::new(backend)?,
+impl InstalledModules {
+    pub(super) fn new(dispatch: DispatchTable) -> Self {
+        Self {
+            dispatch,
             modules: BTreeMap::new(),
             next_module_id: 0,
             by_linear_page: BTreeMap::new(),
-            hooks: Hooks::default(),
-        })
-    }
-
-    pub(super) fn imports<'a>(&'a self, backend: &B) -> [Import<'a, B>; 2]
-    where
-        B: 'a,
-    {
-        self.table.imports(backend)
-    }
-
-    pub(super) fn has_entry(&self, key: u32) -> bool {
-        self.table.contains(key)
-    }
-
-    pub(super) fn install_interpreter(
-        &mut self,
-        backend: &mut B,
-        instance: &B::Instance,
-    ) -> Result<()> {
-        self.table.install_interpreter(backend, instance)
-    }
-
-    pub(super) fn bind_interpreter_if_vacant(
-        &mut self,
-        backend: &mut B,
-        entries: impl IntoIterator<Item = FarPointer>,
-    ) -> Result<()> {
-        self.table.bind_interpreter_if_vacant(backend, entries)
+        }
     }
 
     pub(super) fn register_exports(
         &mut self,
-        backend: &mut B,
-        mut module: ModuleInstance<B>,
+        wasm: &mut WasmRuntime,
+        mut module: ModuleInstance,
         entries: &[DispatchEntry<'_>],
-    ) -> Result<(ModuleId, &mut ModuleInstance<B>)> {
+    ) -> Result<(ModuleId, &mut ModuleInstance)> {
         let id = ModuleId(self.next_module_id);
         module.entry_keys = self
-            .table
-            .register_exports(backend, id, &module.instance, entries)?;
+            .dispatch
+            .register_exports(wasm, id, &module.instance, entries)?;
         if let Some(calls) = &module.calls {
-            self.table.register_calls(backend, id, calls)?;
+            self.dispatch.register_calls(wasm, id, calls)?;
         }
         for &page in &module.linear_pages {
             self.by_linear_page.entry(page).or_default().insert(id);
@@ -155,9 +118,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .expect("module identity fits usize");
         Ok((id, self.modules.entry(id).insert_entry(module).into_mut()))
     }
-}
 
-impl Modules<WasmRuntime> {
     /// Retire each complete linked version that covers a changed byte.
     pub(super) fn invalidate(
         &mut self,
@@ -192,7 +153,7 @@ impl Modules<WasmRuntime> {
     ) -> Result<()> {
         for id in &retired_modules {
             if let Some(calls) = &self.modules[id].calls {
-                self.table.unregister_calls(*id, calls);
+                self.dispatch.unregister_calls(*id, calls);
             }
         }
         let exports = retired_modules.iter().flat_map(|&id| {
@@ -201,7 +162,7 @@ impl Modules<WasmRuntime> {
                 .iter()
                 .map(move |&key| (id, key))
         });
-        self.table.remove(context, exports)?;
+        self.dispatch.remove(context, exports)?;
         for id in retired_modules {
             let mut module = self.modules.remove(&id).expect("installed module");
             module.release_host_write_pages(context);
@@ -219,10 +180,7 @@ impl Modules<WasmRuntime> {
         Ok(())
     }
 
-    pub(super) fn covering(
-        &self,
-        address: u32,
-    ) -> impl Iterator<Item = &ModuleInstance<WasmRuntime>> {
+    pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &ModuleInstance> {
         self.by_linear_page
             .get(&(address >> 12))
             .into_iter()

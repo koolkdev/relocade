@@ -96,7 +96,7 @@ async fn installation_during_nested_service() {
         assert!(pin!(cpu.run())
             .poll(&mut Context::from_waker(&previous))
             .is_pending());
-        assert!(!cpu.instance.code.modules.has_entry(0x500));
+        assert!(!cpu.instance.code.installed().dispatch.contains(0x500));
         {
             let (current, mut wakes) = CpuWake::channel();
             let mut run = pin!(cpu.run());
@@ -110,7 +110,7 @@ async fn installation_during_nested_service() {
             assert!(run.as_mut().poll(&mut cx).is_pending());
         }
         assert!(cpu.pending.is_some() && !cpu.suspended.is_empty());
-        assert!(cpu.instance.code.modules.has_entry(0x500));
+        assert!(cpu.instance.code.installed().dispatch.contains(0x500));
         let module = cpu.compiled_modules_at(0x500).next().unwrap();
         assert!(module.blocks().iter().any(|block| matches!(
             block.address,

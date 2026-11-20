@@ -9,7 +9,7 @@ const MIN_FUNCTIONS: usize = 64;
 const MAX_FUNCTIONS: usize = 128;
 
 #[derive(Default)]
-pub(super) struct Hotness {
+pub(in super::super) struct Hotness {
     counts: HashMap<u32, u64>,
     candidates: Vec<u32>,
 }
@@ -26,7 +26,7 @@ impl Hotness {
         }
     }
 
-    pub(super) fn reset_counts(&mut self, submitted: &[crate::FarPointer]) {
+    pub(in super::super) fn reset_counts(&mut self, submitted: &[crate::FarPointer]) {
         for entry in submitted {
             self.counts.remove(&entry.packed());
         }
@@ -37,7 +37,10 @@ impl Hotness {
         self.counts.get(&key).copied().unwrap_or(0)
     }
 
-    pub(super) fn take_batch(&mut self, mut is_resolved: impl FnMut(u32) -> bool) -> Vec<u32> {
+    pub(in super::super) fn take_batch(
+        &mut self,
+        mut is_resolved: impl FnMut(u32) -> bool,
+    ) -> Vec<u32> {
         self.candidates.retain(|&key| !is_resolved(key));
         if self.candidates.len() < MIN_FUNCTIONS
             && !self

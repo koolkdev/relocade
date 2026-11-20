@@ -4,7 +4,8 @@ mod execution;
 use super::*;
 use crate::{Cpu, FarPointer};
 use relocade_compiler::{abi::Function as FunctionDeclaration, Program};
-use relocade_wasm_runtime::{Function, WasmCompiler};
+use relocade_wasm_runtime::{Function, WasmBackend, WasmCompiler};
+use relocade_x86::abi;
 
 fn merged_count(profiling: &Profiling, target: u32) -> u64 {
     profiling.hotness.count(target)
@@ -25,7 +26,7 @@ struct Recorder {
 impl Recorder {
     async fn new() -> Self {
         let mut wasm = WasmRuntime::new().unwrap();
-        let profiling = Profiling::new(&mut wasm).unwrap();
+        let profiling = Profiling::new(wasm.create_memory(abi::CALL_PROFILE).unwrap());
         let mut program = Program::new();
         let record = CallProfile::declare_recorder(&mut program);
         let declaration = FunctionDeclaration::<fn(u32) -> bool>::new("", "record");

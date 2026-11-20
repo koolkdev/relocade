@@ -1,29 +1,27 @@
 //! Each installation owns its call table, including unresolved destinations.
 
-use crate::{CompiledCode, Result};
-use relocade_wasm_runtime::{
-    ExportFunction, Function, FunctionRef, Import, Table, WasmTableAccess,
-};
+use crate::{runtime::WasmRuntime, CompiledCode, Result};
+use relocade_wasm_runtime::{Function, FunctionRef, Import, Table, WasmBackend, WasmTableAccess};
 use relocade_x86::abi;
 
-pub(in super::super) struct Calls<B: ExportFunction<abi::ExecutionSignature>> {
-    table: Table<B, abi::ExecutionSignature>,
+pub(super) struct Calls {
+    table: Table<WasmRuntime, abi::ExecutionSignature>,
     pub(super) targets: Vec<u32>,
-    unresolved: FunctionRef<B, abi::ExecutionSignature>,
+    unresolved: FunctionRef<WasmRuntime, abi::ExecutionSignature>,
 }
 
 /// A registered caller retains the exact slot to update when its target changes.
-pub(super) struct CallSite<B: ExportFunction<abi::ExecutionSignature>> {
-    table: Table<B, abi::ExecutionSignature>,
+pub(super) struct CallSite {
+    table: Table<WasmRuntime, abi::ExecutionSignature>,
     index: u32,
-    unresolved: FunctionRef<B, abi::ExecutionSignature>,
+    unresolved: FunctionRef<WasmRuntime, abi::ExecutionSignature>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> CallSite<B> {
+impl CallSite {
     pub(super) fn bind(
         &self,
-        context: &mut impl WasmTableAccess<Backend = B>,
-        target: Option<&FunctionRef<B, abi::ExecutionSignature>>,
+        context: &mut impl WasmTableAccess<Backend = WasmRuntime>,
+        target: Option<&FunctionRef<WasmRuntime, abi::ExecutionSignature>>,
     ) -> Result<()> {
         self.table
             .set(context, self.index, target.unwrap_or(&self.unresolved))?;
@@ -31,21 +29,21 @@ impl<B: ExportFunction<abi::ExecutionSignature>> CallSite<B> {
     }
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
-    pub(in super::super) fn new(
-        backend: &mut B,
+impl Calls {
+    pub(super) fn new(
+        wasm: &mut WasmRuntime,
         code: Option<&CompiledCode>,
-        resolver: &Function<B, abi::ExecutionSignature>,
+        resolver: &Function<WasmRuntime, abi::ExecutionSignature>,
     ) -> Result<Option<Self>> {
         let Some(code) = code else { return Ok(None) };
         let targets = code.call_targets();
         if targets.is_empty() {
             return Ok(None);
         }
-        let unresolved = backend.import_function(resolver);
-        let table = backend.create_table(abi::CALL_TARGETS, None)?;
+        let unresolved = wasm.import_function(resolver);
+        let table = wasm.create_table(abi::CALL_TARGETS, None)?;
         table.ensure_size(
-            backend,
+            wasm,
             u32::try_from(targets.len()).expect("call table fits u32"),
             Some(&unresolved),
         )?;
@@ -56,14 +54,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
         }))
     }
 
-    pub(in super::super) fn import<'a>(&'a self, backend: &B) -> Import<'a, B>
-    where
-        B: 'a,
-    {
-        backend.bind(abi::CALL_TARGETS, &self.table)
+    pub(super) fn import<'a>(&'a self, wasm: &WasmRuntime) -> Import<'a, WasmRuntime> {
+        wasm.bind(abi::CALL_TARGETS, &self.table)
     }
 
-    pub(super) fn sites(&self) -> impl Iterator<Item = (u32, CallSite<B>)> + '_ {
+    pub(super) fn sites(&self) -> impl Iterator<Item = (u32, CallSite)> + '_ {
         self.targets.iter().enumerate().map(|(index, &target)| {
             (
                 target,
