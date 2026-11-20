@@ -1,49 +1,72 @@
 use super::Runner;
 use crate::worker::{wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
-use crate::{CpuHandle, ExecutionInterrupt, Result};
+use crate::{timer_service, Clock, ClockSource, CpuHandle, ExecutionInterrupt, Result};
 use futures_lite::future::or;
 use futures_util::future::{select, Either};
-use std::{future::Future, pin::pin};
+use std::{
+    future::{pending, Future},
+    pin::pin,
+};
 
 #[cfg(test)]
 mod tests;
 
-/// Owns a worker for one CPU session and its registered devices.
-/// Created by consuming a [`CpuHandle`]. Use `runner.cpu().io().connect` or `Dos::new`
-/// inside the callback to attach local devices. The CPU backend is ready before
-/// the callback starts; construction failures are returned by `join` or `stop`.
-///
-/// Await `stop` or `join` before releasing the worker, just as with `Thread`.
-/// Dropping the handle or its completion future early can terminate the underlying
-/// browser worker before Rust destructors run.
+/// Configures the host clock used by an execution session.
+pub struct SessionConfig {
+    host: Option<Box<dyn ClockSource + Send>>,
+}
+
+impl SessionConfig {
+    /// Use the host clock directly.
+    pub fn host() -> Self {
+        Self { host: None }
+    }
+
+    /// Use a clock supplied by the caller. The caller drives this source for the
+    /// lifetime of the session. By default the worker starts its own timer service.
+    pub fn with_host_clock(mut self, host: impl ClockSource + Send + 'static) -> Self {
+        self.host = Some(Box::new(host));
+        self
+    }
+}
+
+/// Owns one CPU session and any host timer worker started for it.
+/// Await `join`, `stop` or `run_until` through cleanup. Dropping a browser
+/// worker before it finishes can skip Rust destructors on that worker.
 pub struct ExecutionWorker<T: Send + 'static> {
     worker: Worker<Result<Option<T>>>,
+    timers: Option<Worker<()>>,
     wake_host: WakeHost<ExecutionInterrupt>,
 }
 
 impl<T: Send + 'static> ExecutionWorker<T> {
-    /// Captures the signal resource for another worker's startup. Bind the posted
-    /// peer there before using senders that can wake this session.
-    pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
-        self.wake_host.peer()
-    }
-
-    pub(crate) async fn run_until(mut self, stop: impl Future) -> Result<Option<T>> {
-        let completed = or(
-            async {
-                stop.await;
-                None
+    /// Starts execution on a new worker. The backend and device bindings are
+    /// local to that worker and ready before the session callback runs.
+    pub fn spawn(
+        cpu: CpuHandle,
+        config: SessionConfig,
+        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
+    ) -> Self {
+        let (host, timers): (Box<dyn ClockSource + Send>, _) = match config.host {
+            Some(host) => (host, None),
+            None => {
+                let (host, timers) = timer_service();
+                (Box::new(host), Some(timers))
+            }
+        };
+        let mut execution = Self::spawn_with(
+            cpu,
+            async move |cpu, endpoint| {
+                let host: Box<dyn ClockSource> = host;
+                Runner::new(Clock::from_source(host.into()), cpu, endpoint).await
             },
-            async { Some(self.worker.finished().await) },
-        )
-        .await;
-        match completed {
-            Some(result) => result?.transpose().map(Option::flatten),
-            None => self.stop().await.map(|_| None),
-        }
+            session,
+        );
+        execution.timers = timers.map(|driver| driver.spawn_with_peer(execution.wake_peer()));
+        execution
     }
 
-    pub(crate) fn spawn(
+    pub(crate) fn spawn_with(
         cpu: CpuHandle,
         make_runner: impl AsyncFnOnce(CpuHandle, WakeEndpoint<ExecutionInterrupt>) -> Result<Runner>
             + Send
@@ -61,17 +84,49 @@ impl<T: Send + 'static> ExecutionWorker<T> {
             };
             Ok(runner.run(stopped, session).await)
         });
-        Self { worker, wake_host }
+        Self {
+            worker,
+            timers: None,
+            wake_host,
+        }
     }
 
-    /// Stops even while a service is pending, drops the session on its owner,
-    /// then waits for task completion before releasing the thread.
-    pub async fn stop(self) -> Result<Option<T>> {
-        self.worker.stop().await?.transpose().map(Option::flatten)
+    /// Captures the wake peer for another worker that can notify this session.
+    pub fn wake_peer(&self) -> WakePeer<ExecutionInterrupt> {
+        self.wake_host.peer()
     }
 
-    /// Waits for ordinary completion. `None` denotes an explicit stop.
+    /// Returns the session result on completion or `None` if `stop` wins.
+    /// In either case, joins the execution worker and stops its owned timers.
+    pub async fn run_until(mut self, stop: impl Future) -> Result<Option<T>> {
+        let completed = or(
+            async {
+                stop.await;
+                None
+            },
+            async { Some(self.worker.finished().await) },
+        )
+        .await;
+        let cancelled = completed.is_none();
+        let result = match completed {
+            Some(result) => result,
+            None => self.worker.stop().await,
+        };
+        if let Some(timers) = self.timers {
+            timers.stop().await?;
+        }
+        let value = result?.transpose()?.flatten();
+        Ok(if cancelled { None } else { value })
+    }
+
+    /// Requests cancellation, then waits for the session and its workers to finish.
+    pub async fn stop(mut self) -> Result<Option<T>> {
+        self.worker.request_stop();
+        self.join().await
+    }
+
+    /// Waits for completion, including worker cleanup.
     pub async fn join(self) -> Result<Option<T>> {
-        self.worker.join().await?.transpose().map(Option::flatten)
+        self.run_until(pending::<()>()).await
     }
 }

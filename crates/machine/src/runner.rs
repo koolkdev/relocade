@@ -6,7 +6,7 @@ pub use guest_time::GuestTimeConfig;
 mod worker;
 
 use schedule::ExecutionSchedule;
-pub use worker::ExecutionWorker;
+pub use worker::{ExecutionWorker, SessionConfig};
 
 use crate::worker::{HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker, WorkerWake};
 use crate::{

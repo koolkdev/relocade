@@ -6,9 +6,9 @@ Each execution worker runs one CPU session and its registered device activities.
 CPU services across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
-Create the [shared timer service](clock.md) on the host, and pass its transferable handle into
-the execution worker. `ExecutionWorker` uses the existing
-[worker transport](workers.md) and owns runner completion and cancellation:
+`ExecutionWorker::spawn` consumes the prepared CPU. For `SessionConfig::host()`, it starts
+the session and its host timer service. The returned handle controls completion and cancellation.
+[Worker transport](workers.md)
 
 Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
 or `None` to use the bundled interpreter without background compilation.
@@ -16,8 +16,7 @@ or `None` to use the bundled interpreter without background compilation.
 ```rust,ignore
 let mut machine = Machine::new(memory_config)?;
 let cpu = machine.create_cpu(cpu_config, None)?;
-let (handle, timers) = relocade_machine::timer_service();
-let execution = cpu.spawn(handle, async move |mut runner| {
+let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
     let device = create_device(runner.clock().clone());
     runner.connect(device, |io| {
         io.bind_mmio(memory_range, &memory_read, &memory_write);
@@ -27,11 +26,9 @@ let execution = cpu.spawn(handle, async move |mut runner| {
     wait_for_next_program().await;
     Ok::<(), Error>(())
 });
-let timers = timers.spawn_with_peer(execution.wake_peer());
-let result = execution.join().await;
-let timers = timers.stop().await;
+let result = worker.join().await;
 machine.shutdown().await?;
-timers?;
+let result = result?;
 ```
 
 `connect(...).await` installs the device's mappings and retains the device, then
@@ -126,13 +123,12 @@ process and returns an already completed process's result without running the CP
 DOS termination records that result and requests an execution exit before the
 driver resumes guest code. The environment remains alive for another launch.
 
-For a session tied to a host lifetime, `cpu.run_until(stop, session)` consumes the CPU
-handle, creates the timer service and drives it on a timer worker while the
-session runs on execution. It returns the session result on completion, or `None` after the stop
-signal and worker cleanup. The stop signal's value is ignored. Await the whole
-operation; dropping it early is not orderly shutdown. The timer service ends with
-the session. Use `spawn` with an externally driven clock when clock handles must
-remain usable afterward or the embedding needs separate control.
+Call `worker.run_until(stop).await` to tie execution to a host lifetime such as
+an open window. It returns `Some(result)` when the session completes and
+`None` when the stop signal wins. `join`, `stop` and `run_until` all wait for
+execution cleanup and shut down the worker's own timer service. When the
+embedding supplies a host clock with `with_host_clock`, it owns that clock's
+lifetime.
 
 The execution task has a lifetime independent of any individual UI request.
 Dropping a UI waiter must not implicitly cancel the guest or its pending service.

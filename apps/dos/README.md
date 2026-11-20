@@ -76,8 +76,9 @@ driver uses to draw its cursor and restore the pixels underneath it.
 The application entrypoint connects existing owners. One execution worker owns
 DOS, keyboard, VGA, speaker, the selected sound card and the Rust command loop.
 It sends the native console's input sender, `dos.mouse_input()` and `dos.frames()` through a startup
-channel. Main attaches those endpoints to its `AppHost` while driving the
-application and timer service; the graphics worker constructs `VgaDisplay` and owns the surface. Window closure can cancel startup or
+channel. Main attaches those endpoints to its `AppHost` and drives the application.
+The execution worker manages its timer service. The graphics worker constructs
+`VgaDisplay` and owns the surface. Window closure can cancel startup or
 a pending console read, and waits for execution and graphics cleanup. Execution
 errors remain visible even when startup ends before the endpoints arrive.
 

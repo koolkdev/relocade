@@ -1,5 +1,5 @@
 use super::*;
-use crate::{CpuConfig, Error, Machine, MachineConfig};
+use crate::{ClockSource, CpuConfig, Machine, MachineConfig, SessionConfig, Sleep, Timestamp};
 use futures_channel::oneshot;
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
 
@@ -23,20 +23,6 @@ fn cpu() -> (Machine, CpuHandle) {
     (machine, cpu)
 }
 
-async fn failed_startup() {
-    let (machine, cpu) = cpu();
-    let worker = ExecutionWorker::<()>::spawn(
-        cpu,
-        async |_, _| Err(relocade_wasm_runtime::Error::new("construct CPU", "failed").into()),
-        async |_| panic!("failed construction must not start the session"),
-    );
-    match worker.join().await.unwrap_err() {
-        Error::Wasm(error) => assert_eq!(error.to_string(), "construct CPU: failed"),
-        error => panic!("unexpected startup error: {error}"),
-    }
-    machine.shutdown().await.unwrap();
-}
-
 struct Dropped(Option<oneshot::Sender<()>>);
 
 impl Drop for Dropped {
@@ -45,35 +31,72 @@ impl Drop for Dropped {
     }
 }
 
+// The execution worker reads its supplied clock's tick rate during initialization.
+struct StartupClock<F> {
+    on_first_read: std::cell::Cell<Option<F>>,
+    _cleanup: Dropped,
+}
+
+impl<F: FnOnce()> ClockSource for StartupClock<F> {
+    fn ticks_per_second(&self) -> std::num::NonZeroU64 {
+        if let Some(start) = self.on_first_read.take() {
+            start();
+        }
+        crate::TickRate::NANOSECONDS.ticks_per_second()
+    }
+
+    fn now(&self) -> Timestamp {
+        Timestamp::from_ticks(0)
+    }
+
+    fn sleep_until(&self, deadline: Timestamp) -> Sleep {
+        Sleep::new(async move {
+            if deadline > Timestamp::from_ticks(0) {
+                std::future::pending::<()>().await;
+            }
+        })
+    }
+}
+
 async fn stopped_startup() {
     let (machine, cpu) = cpu();
     let (entered, started) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
+    let (release, wait) = blocking_gate();
+    let clock = StartupClock {
+        on_first_read: std::cell::Cell::new(Some(move || {
+            entered.send(()).unwrap();
+            wait();
+        })),
+        _cleanup: Dropped(Some(cleanup)),
+    };
     let worker = ExecutionWorker::<()>::spawn(
         cpu,
-        async move |_, _| {
-            let _cleanup = Dropped(Some(cleanup));
-            entered.send(()).unwrap();
-            std::future::pending().await
-        },
+        SessionConfig::host().with_host_clock(clock),
         async |_| panic!("cancelled construction must not start the session"),
     );
+
     started.await.unwrap();
-    assert_eq!(worker.stop().await.unwrap(), None);
+    let mut stop = std::pin::pin!(worker.stop());
+    assert!(futures_lite::future::poll_once(stop.as_mut())
+        .await
+        .is_none());
+    assert_eq!(cleaned.try_recv().unwrap(), None);
+    drop(release);
+    assert_eq!(stop.await.unwrap(), None);
     assert_eq!(cleaned.try_recv().unwrap(), Some(()));
     machine.shutdown().await.unwrap();
 }
 
 async fn cancelled_job_thread_startup() {
     let (machine, cpu) = cpu();
-    let worker = cpu.spawn_with_guest_time(
-        || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
-        async move |runner| {
-            // End the session even if the browser's startup handshake is pending.
-            let _ = futures_lite::future::poll_once(runner.spawn_job_thread()).await;
-        },
-    );
-    worker.join().await.unwrap();
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |runner| {
+        // End the session even if the browser's startup handshake is pending.
+        let _ = futures_lite::future::poll_once(runner.spawn_job_thread()).await;
+    })
+    .join()
+    .await
+    .unwrap();
     machine.shutdown().await.unwrap();
 }
 
@@ -84,24 +107,21 @@ async fn owned_job_cleanup(cancel: bool) {
     let (finish, finished) = oneshot::channel();
     let (cleanup, mut cleaned) = oneshot::channel();
     let (release, wait) = blocking_gate();
-    let worker = cpu.spawn_with_guest_time(
-        || crate::GuestTimeConfig::new(std::num::NonZeroU64::new(1000).unwrap()),
-        async move |runner| {
-            let jobs = runner.spawn_job_thread().await;
-            let mut work = std::pin::pin!(jobs.execute(move || {
-                let _cleanup = Dropped(Some(cleanup));
-                started.send(()).unwrap();
-                wait();
-            }));
-            assert!(futures_lite::future::poll_once(work.as_mut())
-                .await
-                .is_none());
-            export
-                .send(jobs.clone())
-                .unwrap_or_else(|_| panic!("job owner"));
-            let _ = finished.await;
-        },
-    );
+    let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |runner| {
+        let jobs = runner.spawn_job_thread().await;
+        let mut work = std::pin::pin!(jobs.execute(move || {
+            let _cleanup = Dropped(Some(cleanup));
+            started.send(()).unwrap();
+            wait();
+        }));
+        assert!(futures_lite::future::poll_once(work.as_mut())
+            .await
+            .is_none());
+        export
+            .send(jobs.clone())
+            .unwrap_or_else(|_| panic!("job owner"));
+        let _ = finished.await;
+    });
     let jobs = exported.await.unwrap();
     ready.await.unwrap();
     if !cancel {
@@ -126,18 +146,6 @@ async fn owned_job_cleanup(cancel: bool) {
         Err(crate::worker::PoolError::Closed)
     ));
     machine.shutdown().await.unwrap();
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn construction_errors_reach_the_worker_owner() {
-    pollster::block_on(failed_startup());
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn construction_errors_reach_the_worker_owner() {
-    failed_startup().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
