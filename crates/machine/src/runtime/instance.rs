@@ -277,10 +277,6 @@ impl CpuInstance {
         })
     }
 
-    pub(super) fn has_entry(&self, key: u32) -> bool {
-        self.modules.has_entry(key)
-    }
-
     pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
         self.runtime
             .with_runtime(|wasm| self.modules.invalidate(&mut wasm.context(), range))

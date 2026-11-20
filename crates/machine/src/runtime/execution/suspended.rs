@@ -2,8 +2,6 @@
 
 use super::{Call, Cpu};
 use futures_channel::oneshot;
-use relocade_x86::{ExecutionExit, HostExit};
-use std::task::Context;
 
 pub(in crate::runtime) struct SuspendedCall {
     // Drop the future before its completion sender when abandoning a callback.
@@ -12,18 +10,12 @@ pub(in crate::runtime) struct SuspendedCall {
 }
 
 impl Cpu {
-    pub(super) fn resume_call(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Result<Option<Call>, ExecutionExit> {
-        let call = self
-            .suspended
-            .pop()
-            .ok_or(ExecutionExit::Host(HostExit::Resume))?;
+    pub(super) fn take_suspended_call(&mut self) -> Option<Call> {
+        let call = self.suspended.pop()?;
         if let Some(returned) = call.returned {
             let _ = returned.send(());
         }
-        Ok(call.call.poll(cx))
+        Some(call.call)
     }
 
     /// Drops parked calls innermost first after guest code redirects execution

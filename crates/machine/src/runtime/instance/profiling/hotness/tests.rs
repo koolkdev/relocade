@@ -146,7 +146,7 @@ async fn replace_fallback() {
         })
         .unwrap();
     assert!(
-        !cpu.has_entry(
+        !cpu.instance.modules.has_entry(
             crate::FarPointer {
                 segment: 1,
                 offset: 0x1f0

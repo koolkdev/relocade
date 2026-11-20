@@ -81,7 +81,7 @@ Before publishing dispatch entries and call links, the stopped CPU compares
 every emitted instruction span with its live backing. A mismatch returns
 `Error::StaleCompilation` and preserves existing entries and hooks. An
 automatically requested function can become hot again after a stale result.
-Pending or parked host services must finish before installation. A guest store
+Explicit installation requires pending or parked host services to finish. A guest store
 to RAM containing compiled instructions runs through the interpreter. If the
 store changes an installed instruction byte, its host callback withdraws the
 affected module's exports and repairs incoming call slots before returning.
@@ -105,18 +105,32 @@ early can terminate browser workers before Rust destructors run.
 
 ## Compiler replies
 
-Compiler clients bind receipt to the worker with `Receiver::with_worker`. Poll their
-receive futures inside the session, independently of `runner.run_cpu()`. After
-the compiler posts a reply, the channel receives its Rust state and awaits any
-remaining browser payload. This wait registers host-turn demand until the
-payload arrives or receipt is cancelled.
+A session task forwards posted compiler replies into a single local slot.
+Transport can finish while the CPU is stopped or the application drops a
+manual receive future. Once the slot is full, the task waits for the client
+to consume it before receiving the next module.
 
-An idle worker parks immediately. While guest or device work remains runnable,
-all pending deliveries share a 1 ms wall-clock grace period. If delivery is
-still pending after that interval, the worker returns to its event loop, then
-resumes its session. Long guest blocks and host scheduling can extend the
-interval. Host turns work with both independent and guest clocks.
+Sending a reply posts the module first and then publishes its Rust state, which
+wakes the task. On a busy CPU this wake also requests a checkpoint in interpreted or compiled code.
+In the browser, the Rust notification can arrive before the receiving worker's
+`MessagePort` callback has delivered the module.
 
-Receiving code does not install it or stop the guest automatically. Drop or finish
-the current run waiter at an allowed CPU boundary, install explicitly, and resume
-execution. Local module instantiation is synchronous on both current backends.
+The receiver polls for the payload immediately. A pending poll registers demand
+for a browser turn. The execution worker also registers demand while local
+WebAssembly compilation is pending, for example when installing BIOS hooks
+after the PIT and VGA have started.
+
+A parked worker can receive browser callbacks immediately. On a busy worker,
+`WorkerWake` gives runnable Rust work a 1 ms host-time grace period before
+yielding to the browser. Completing or cancelling the last operation ends
+these browser turns. [Worker scheduling](worker-execution.md#event-loop-scheduling)
+
+At the start of a guest dispatch turn, a CPU using automatic Real16 compilation
+checks the local slot for its outstanding request. It fills vacant dispatch
+entries with compiled code and supplies interpreter fallbacks for any requested
+roots still missing. A stale result returns its roots to sampling instead. Existing entries stay in place, including handlers retained
+by a parked BIOS call. An interrupt handler can therefore use newly compiled
+code while the outer call is parked.
+
+The CPU also collects its call profile when the sampling interval has elapsed
+and it gets an execution turn. Profiling never wakes an idle CPU.

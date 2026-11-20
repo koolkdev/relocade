@@ -207,7 +207,7 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 execution interrupt. Host-timed runners leave the instruction target unarmed.
 The same runner loop handles guest time. Runner delegates each CPU turn to
 `ExecutionSchedule::poll_cpu` and gives ready activities a turn afterward. The
-scheduler polls host work before waiting for pacing, then prepares instruction
+scheduler polls the active host service before waiting for pacing, then prepares instruction
 targets and drives guest execution. Pending services, suspended calls, guest entry
 and terminal-exit cleanup remain owned by the CPU. The schedule also owns clock
 selection, execution slices and idle decisions; the `GuestTimeDriver` owns

@@ -8,6 +8,8 @@ use relocade_x86::{
 };
 use std::{future::pending, num::NonZeroUsize, time::Duration};
 
+mod suspended;
+
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16).target(),
@@ -87,7 +89,7 @@ async fn automatic() {
                     assert!(runner.cpu().cpu_state().instruction_count() > retired);
                     if targets
                         .iter()
-                        .all(|entry| runner.cpu().has_entry(entry.packed()))
+                        .all(|entry| runner.cpu().instance.modules.has_entry(entry.packed()))
                     {
                         for entry in &targets {
                             assert_eq!(
@@ -100,7 +102,7 @@ async fn automatic() {
                         }
                         if partial {
                             // The RET after JNZ is an internal fallthrough.
-                            assert!(!runner.cpu().has_entry(0x205));
+                            assert!(!runner.cpu().instance.modules.has_entry(0x205));
                             assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
                         }
                         assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
@@ -183,7 +185,8 @@ async fn full_collection(compiler: &CompilerService) {
             let cpu = runner.cpu();
             assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
             assert!(
-                cpu.instance.profiling.pending.contains(&target) || cpu.has_entry(target.packed()),
+                cpu.instance.profiling.pending.contains(&target)
+                    || cpu.instance.modules.has_entry(target.packed()),
                 "full-buffer collection must submit before guest execution returns"
             );
         })

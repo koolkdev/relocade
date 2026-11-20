@@ -1,6 +1,8 @@
 //! Compiled guest code and the byte ranges retained by each installation.
 
-use crate::{CodeSource, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Result};
+use crate::{
+    CodeSource, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Memory, Result,
+};
 use relocade_wasm_runtime::Module;
 use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, ExecutionTarget, SegmentDefaultSize};
 use std::ops::Range;
@@ -68,20 +70,23 @@ impl CompiledCode {
     /// module before its next execution.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
-        self.install_entries(cpu, false)
+        let entries = self.dispatch_entries(cpu.cpu_state().execution_target(), &cpu.memory())?;
+        if entries.is_empty() {
+            return Ok(());
+        }
+        cpu.install_guest_code(self, &entries)
     }
 
-    /// Automatic admission preserves entries installed while the batch was pending.
-    pub(crate) fn install_missing(&self, cpu: &mut Cpu) -> Result<()> {
-        self.install_entries(cpu, true)
-    }
-
-    fn install_entries(&self, cpu: &mut Cpu, missing_only: bool) -> Result<()> {
-        if cpu.cpu_state().execution_target() != self.description.target {
+    pub(crate) fn dispatch_entries(
+        &self,
+        target: ExecutionTarget,
+        memory: &Memory,
+    ) -> Result<Vec<DispatchEntry<'_>>> {
+        if target != self.description.target {
             return Err(Error::CompilationTarget);
         }
-        if !self.source().belongs_to(&cpu.memory()) {
-            return Err(crate::Error::CompilationMemory);
+        if !self.source().belongs_to(memory) {
+            return Err(Error::CompilationMemory);
         }
         let mut entries = Vec::new();
         for block in self.blocks() {
@@ -96,17 +101,12 @@ impl CompiledCode {
                 continue;
             };
             let key = FarPointer { segment, offset }.packed();
-            if !missing_only || !cpu.has_entry(key) {
-                entries.push(DispatchEntry {
-                    key,
-                    export: &block.export,
-                });
-            }
+            entries.push(DispatchEntry {
+                key,
+                export: &block.export,
+            });
         }
-        if entries.is_empty() {
-            return Ok(());
-        }
-        cpu.install_guest_code(self, &entries)
+        Ok(entries)
     }
 }
 
