@@ -72,8 +72,16 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
             .view()
             .write(0x400, &[0xc6, 0x06, 0x12, 0x02, 2])
             .unwrap();
-        runner.cpu().cpu_state().set_eip(0x400);
-        assert_eq!(runner.cpu().step(), ExecutionExit::StepComplete);
+        let state = runner.cpu().cpu_state();
+        state.set_eip(0x400);
+        let before = state.instruction_count();
+        // A scheduler wake can report Interrupted at the completed instruction boundary.
+        assert!(matches!(
+            runner.cpu().step(),
+            ExecutionExit::StepComplete | ExecutionExit::Interrupted
+        ));
+        assert_eq!(state.instruction_count(), before + 1);
+        assert_eq!(state.eip(), 0x405);
         assert!(callee.was_modified());
         assert!(!caller.was_modified());
         assert_eq!(sources.view().read_u8(0x212).unwrap(), 2);

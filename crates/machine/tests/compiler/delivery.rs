@@ -1,5 +1,7 @@
 use super::*;
-use futures_util::future::{select, Either};
+#[cfg(target_arch = "wasm32")]
+use futures_util::future::select;
+use futures_util::future::Either;
 use relocade_machine::Device;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -41,32 +43,27 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
         runner.connect(busy.clone(), |_| {}).await;
 
         let state = runner.cpu().cpu_state();
-        let code = {
-            let receive = pin!(async {
-                while state.instruction_count() == 0 {
-                    relocade_machine::yield_now().await;
-                }
-                compiler
-                    .request(
-                        target,
-                        vec![BlockRequest {
-                            entry: FarPointer {
-                                segment: 0,
-                                offset: 0x200,
-                            },
-                            ..request()
-                        }],
-                    )
-                    .unwrap();
-                compiler.recv().await.expect("compiler running")
-            });
-            let running = pin!(runner.run_cpu());
-            match select(receive, running).await {
-                Either::Left((code, _)) => code.unwrap(),
-                Either::Right((exit, _)) => {
-                    panic!("guest loop exited before receipt: {exit:?}")
-                }
+        let receive = async {
+            while state.instruction_count() == 0 {
+                relocade_machine::yield_now().await;
             }
+            compiler
+                .request(
+                    target,
+                    vec![BlockRequest {
+                        entry: FarPointer {
+                            segment: 0,
+                            offset: 0x200,
+                        },
+                        ..request()
+                    }],
+                )
+                .unwrap();
+            compiler.recv().await.expect("compiler running")
+        };
+        let code = match runner.run_cpu_until(receive).await {
+            Either::Right(code) => code.unwrap(),
+            Either::Left(exit) => panic!("guest loop exited before receipt: {exit:?}"),
         };
         assert!(
             runner.cpu().cpu_state().instruction_count() > 0,
@@ -101,4 +98,39 @@ fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn compiled_code_arrives_while_guest_and_device_work_remain_runnable() {
     compilation::run(receive_while_running).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn worker_local_compilation_completes_while_a_device_stays_ready() {
+    let (mut machine, config) = setup();
+    let cpu = machine.create_cpu(config, None).unwrap();
+    let (installed, result) = futures_channel::oneshot::channel();
+    let worker = ExecutionWorker::spawn(
+        cpu,
+        SessionConfig::host().with_host_clock(relocade_clock_test_support::ManualClock::new()),
+        async move |mut runner| {
+            // The clock stays fixed while the worker needs a browser turn
+            // to finish compilation alongside runnable device work.
+            runner
+                .connect(Rc::new(RefCell::new(BusyDevice::default())), |_| {})
+                .await;
+            runner
+                .cpu()
+                .install([Hook::host(0x100, async || {})])
+                .await
+                .unwrap();
+            let _ = installed.send(());
+        },
+    );
+    let completed = matches!(
+        select(result, futures_timer::Delay::new(Duration::from_secs(20))).await,
+        Either::Left((Ok(()), _))
+    );
+    worker.stop().await.unwrap();
+    machine.shutdown().await.unwrap();
+    assert!(
+        completed,
+        "worker-local compilation must get a browser turn"
+    );
 }

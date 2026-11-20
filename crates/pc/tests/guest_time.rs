@@ -127,7 +127,7 @@ async fn keyboard_at_guest_receipt_time() {
     let mut session = pin!(
         runner.run(std::future::pending::<()>(), async move |runner| {
             let mut pc = Pc::new(runner).await.unwrap();
-            ready.try_send(pc.keyboard_input()).unwrap();
+            let keyboard = pc.keyboard_input();
             let cpu = pc.cpu();
             let memory = cpu.memory();
             // Bumpy's PIT divisor, IRQ0/IRQ1 enabled, then a blocking BIOS key read.
@@ -143,22 +143,30 @@ async fn keyboard_at_guest_receipt_time() {
             cpu.install([Hook::host(0x1016, async move || exit.request())])
                 .await
                 .unwrap();
+            ready.try_send((keyboard, state.clone())).unwrap();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             (state.ax(), pc.clock().now())
         })
     );
-    // Poll the real session until its first idle host wait is registered.
+    let (keyboard, state) = poll_fn(|cx| {
+        assert!(session.as_mut().poll(cx).is_pending());
+        input.try_recv().map_or(Poll::Pending, Poll::Ready)
+    })
+    .await;
+    // PC setup may already have requested a device deadline. Wait until the
+    // guest has run and is waiting on its own input before delivering the key.
     poll_fn(|cx| {
         assert!(session.as_mut().poll(cx).is_pending());
-        if host.next_deadline().is_some() {
-            Poll::Ready(())
-        } else {
-            Poll::Pending
+        if let Some(at) = host.next_deadline() {
+            if state.instruction_count() != 0 {
+                return Poll::Ready(());
+            }
+            host.advance_to(at);
         }
+        Poll::Pending
     })
     .await;
     host.advance_by(Duration::from_millis(7));
-    let keyboard = input.try_recv().unwrap();
     let boundary = clock.now();
     keyboard
         .unbounded_send(KeyboardEvent::Key {
@@ -185,11 +193,11 @@ async fn keyboard_at_guest_receipt_time() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+fn queued_keyboard_input_uses_guest_receipt_time_while_the_cpu_waits() {
     pollster::block_on(keyboard_at_guest_receipt_time());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn queued_keyboard_input_uses_guest_receipt_time_during_pacing() {
+async fn queued_keyboard_input_uses_guest_receipt_time_while_the_cpu_waits() {
     keyboard_at_guest_receipt_time().await;
 }

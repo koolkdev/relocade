@@ -134,3 +134,22 @@ code while the outer call is parked.
 
 The CPU also collects its call profile when the sampling interval has elapsed
 and it gets an execution turn. Profiling never wakes an idle CPU.
+
+An application can take the client during setup and wait for a reply while
+the guest runs. If the reply arrives first, the CPU borrow ends and the
+application can install it once all active and parked host calls have finished.
+If the guest exits first, the client keeps the reply for the next receive.
+
+This example runs a guest loop that makes no host calls.
+
+```rust,ignore
+use futures_util::future::Either;
+
+let mut client = runner.take_compiler().expect("configured compiler");
+client.request(target, blocks)?;
+match runner.run_cpu_until(client.recv()).await {
+    Either::Right(Some(result)) => result?.install(runner.cpu())?,
+    Either::Right(None) => handle_compiler_shutdown(),
+    Either::Left(exit) => handle_guest_exit(exit),
+}
+```

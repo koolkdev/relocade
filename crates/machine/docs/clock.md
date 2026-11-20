@@ -103,7 +103,7 @@ fixture deadline.
 
 ## Emulated guest time
 
-The machine scheduler binds guest time while the CPU runs. Each device receives a
+The machine scheduler owns guest time for the session. Each device receives a
 `Clock` for reading the current tick and waiting for a deadline. The scheduler's
 `GuestTimeDriver` records those waits, arms the CPU's instruction target and
 wakes sleepers when deadlines expire. The scheduler decides when to run ready
@@ -164,7 +164,7 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 `GuestTimeConfig::new(guest_rate)` sets the number of retired instructions per
 guest second. At a rate of one million, each thousand instructions represent one
-millisecond on the clock supplied to devices. `with_cpu_limit(max_instructions_per_second)`
+millisecond for devices using the guest clock. `with_cpu_limit(max_instructions_per_second)`
 optionally caps how many instructions retire per *host* second.
 
 ```rust,ignore
@@ -202,7 +202,8 @@ When guest execution halts or blocks on a Rust service, ready tasks can replace
 their device deadlines. The scheduler waits on the host clock for the remaining
 interval to the earliest deadline. A late wake advances guest time to that
 deadline. The next idle interval starts at the current host time.
-Guest time pauses when `run_cpu` returns. Idle advancement retires zero CPU instructions. An idle machine with no guest
+`runner.wait_for(work).await` drives these waits between programs while
+the CPU is stopped. Idle advancement retires zero CPU instructions. An idle machine with no guest
 deadline parks until an external wake.
 
 ### Live input and output

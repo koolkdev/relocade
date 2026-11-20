@@ -390,3 +390,59 @@ fn notifications_before_guest_reentry_use_the_next_checkpoint() {
 async fn notifications_before_guest_reentry_use_the_next_checkpoint() {
     notified_reentry().await;
 }
+
+async fn self_waking_activity_during_execution() {
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let cpu = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async |mut runner| {
+        // LOOP 0100; the loop always terminates even if the CPU runs uninterrupted.
+        prepare_cpu(&mut runner, &[0xe2, 0xfe], true).await;
+        let cpu = runner.cpu();
+        let state = cpu.cpu_state();
+        state.set_cx(8);
+        let exit = cpu.exit_handle();
+        cpu.install([relocade_machine::Hook::host(0x102, async move || {
+            exit.request()
+        })])
+        .await
+        .unwrap();
+
+        let (send, observed) = oneshot::channel();
+        runner
+            .start_task(async move {
+                let mut saw_running_guest = false;
+                // A bounded backlog also terminates if the activity starves the CPU.
+                for _ in 0..64 {
+                    saw_running_guest |= (1..8).contains(&state.instruction_count());
+                    relocade_machine::yield_now().await;
+                }
+                send.send(saw_running_guest).unwrap();
+            })
+            .await;
+
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(relocade_x86::HostExit::Return)
+        );
+        assert_eq!(runner.cpu().cpu_state().instruction_count(), 8);
+        assert!(
+            observed.await.unwrap(),
+            "the activity must run while the guest loop is executing"
+        );
+    });
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn self_waking_activity_and_busy_cpu_both_make_progress() {
+    pollster::block_on(self_waking_activity_during_execution());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn self_waking_activity_and_busy_cpu_both_make_progress() {
+    self_waking_activity_during_execution().await;
+}

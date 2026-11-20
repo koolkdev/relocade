@@ -32,9 +32,9 @@ impl Pc {
         }
         self.speaker.borrow().add_audio_sources(&mut audio.sources);
         let jobs = self.runner.spawn_job_thread().await;
-        // The activity and job thread belong to the session before this await.
+        // Once queued, the audio task survives cancellation of this startup wait.
         self.audio_attached = true;
-        self.runner.spawn_activity(audio.run(jobs)).await;
+        self.runner.start_task(audio.run(jobs)).await;
         Ok(())
     }
 }
