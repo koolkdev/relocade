@@ -87,7 +87,7 @@ impl CpuInstance {
                 wasm,
                 &io.downgrade().0,
                 &bindings.mapping,
-                bindings.guest.configuration().memory_map(),
+                bindings.guest.configuration(),
             )?;
             imports.extend(io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(&interpreter, &imports)?;

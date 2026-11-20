@@ -56,5 +56,5 @@ pub const TEXT_MEMORY_RANGE: RangeInclusive<u32> =
     TEXT_MEMORY_START..=TEXT_MEMORY_START + TEXT_MEMORY_BYTES - 1;
 
 /// CPU addresses decoded by VGA's programmable memory-map selector.
-/// Register this entire range on both the physical memory map and the device bus.
+/// Connecting a VGA card binds these addresses on the physical bus.
 pub const MEMORY_RANGE: RangeInclusive<u32> = 0xa0000..=0xbffff;

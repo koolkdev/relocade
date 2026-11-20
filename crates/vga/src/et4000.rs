@@ -38,7 +38,7 @@ pub struct Et4000Ax {
     display_start_high: u8,
     memory: VideoMemory,
     output: Output,
-    io: Option<crate::io::Io>,
+    io: Option<crate::io::Io<Self>>,
 }
 
 impl Et4000Ax {

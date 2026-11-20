@@ -106,9 +106,11 @@ impl<'a> DeviceConnection<'a> {
         );
     }
 
-    /// Claims a fixed physical window and installs its prepared operations.
-    /// The physical map must mark these addresses as [`relocade_x86::PhysicalMapping::MMIO`].
-    /// Transfers split at window boundaries; complete pages call the installed operations directly.
+    /// Claims a physical address range and installs its read and write operations.
+    /// Guest execution and host views attached to this bus see the binding in
+    /// unbacked physical pages. Configured RAM and ROM take precedence.
+    /// Complete pages call the operations directly. Transfers within partial
+    /// pages split at device boundaries and read FF bytes in gaps.
     /// Retain the binding only to replace reads or writes later.
     pub fn bind_mmio(
         &mut self,

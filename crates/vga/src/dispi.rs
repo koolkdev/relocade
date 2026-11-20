@@ -59,7 +59,7 @@ pub struct DispiAdapter {
     vga: VgaCore,
     memory: VideoMemory,
     dispi: Dispi,
-    io: Option<crate::io::Io>,
+    io: Option<crate::io::Io<Self>>,
     output: Output,
 }
 

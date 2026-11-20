@@ -122,11 +122,7 @@ impl RecordingDevice {
 impl Device for RecordingDevice {}
 
 fn map() -> PhysicalMemoryMap {
-    PhysicalMemoryMap::new([
-        (0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 }),
-        (0x3000..=0x4fff, PhysicalMapping::MMIO),
-    ])
-    .unwrap()
+    PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap()
 }
 
 async fn check_device_access() {

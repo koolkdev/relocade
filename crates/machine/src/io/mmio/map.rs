@@ -1,12 +1,11 @@
 use super::{MmioRead, MmioWrite};
-use crate::{io::State, IoContext, Result};
+use crate::{io::State, IoContext, MachineConfig, Result};
 use relocade_wasm_runtime::{
     FunctionRef, Import, Memory, Table, WasmBackend, WasmMemoryAccess, WasmRuntime,
 };
 use relocade_x86::{abi, MmioHandlerId, PhysicalMemoryMap};
 use std::{
     cell::{OnceCell, RefCell},
-    collections::BTreeMap,
     ops::RangeInclusive,
     rc::Weak,
 };
@@ -20,12 +19,47 @@ struct Mapping {
 struct Tables {
     reads: Table<WasmRuntime, abi::MmioReadSignature>,
     writes: Table<WasmRuntime, abi::MmioWriteSignature>,
+    physical: PhysicalPages,
 }
 
 struct PhysicalPages {
     memory: Memory,
-    /// Byte offsets of MMIO handler indices in `memory`, keyed by physical page address.
-    mmio_handler_offsets: BTreeMap<u32, u32>,
+    config: MachineConfig,
+}
+
+impl PhysicalPages {
+    fn publish(
+        &self,
+        context: &mut IoContext<'_>,
+        addresses: &RangeInclusive<u32>,
+        slot: MmioHandlerId,
+    ) {
+        let page_bytes = PhysicalMemoryMap::PAGE_BYTES;
+        let pages = *addresses.start() / page_bytes..=*addresses.end() / page_bytes;
+        let mut memory = context.runtime.memory(&self.memory);
+        for page in pages {
+            let first = page * page_bytes;
+            let handler = handler_for_page(addresses, first, slot);
+            if let Some((offset, entry)) = self.config.memory_map().mmio_page_entry(first, handler)
+            {
+                memory.write(offset, &entry);
+            }
+        }
+    }
+}
+
+/// A binding that covers only part of a page shares the generic range resolver.
+fn handler_for_page(
+    addresses: &RangeInclusive<u32>,
+    first: u32,
+    slot: MmioHandlerId,
+) -> MmioHandlerId {
+    let last = first | (PhysicalMemoryMap::PAGE_BYTES - 1);
+    if addresses.contains(&first) && addresses.contains(&last) {
+        slot
+    } else {
+        MmioHandlerId::GENERIC
+    }
 }
 
 /// Slot zero resolves mixed pages. Every registered range owns one further slot;
@@ -34,7 +68,6 @@ struct PhysicalPages {
 pub(crate) struct Mmio {
     mappings: RefCell<Vec<Mapping>>,
     tables: OnceCell<Tables>,
-    physical: OnceCell<PhysicalPages>,
 }
 
 impl Mmio {
@@ -43,7 +76,7 @@ impl Mmio {
         wasm: &mut WasmRuntime,
         bus: &Weak<State>,
         memory: &Memory,
-        map: &PhysicalMemoryMap,
+        config: &MachineConfig,
     ) -> Result<()> {
         let read_bus = bus.clone();
         let read = FunctionRef::new(&mut wasm.context(), move |runtime, (address, bytes)| {
@@ -70,25 +103,34 @@ impl Mmio {
         let tables = Tables {
             reads: wasm.create_table(abi::MMIO_READS, Some(&read))?,
             writes: wasm.create_table(abi::MMIO_WRITES, Some(&write))?,
+            physical: PhysicalPages {
+                memory: memory.clone(),
+                config: config.clone(),
+            },
         };
         let mut context = IoContext::new(wasm.context(), bus);
+        // Handler indices belong to this bus. Explicit reservations start at
+        // the generic handler until a connected device supplies its operations.
+        for (_, offset) in config.memory_map().mmio_handler_offsets() {
+            context
+                .runtime
+                .memory(memory)
+                .write(offset, &MmioHandlerId::GENERIC.index().to_le_bytes());
+        }
         for (index, mapping) in self.mappings.borrow().iter().enumerate() {
+            let slot = MmioHandlerId::new(index as u32 + 1);
             Self::install(
                 &tables,
                 &mut context,
-                index as u32 + 1,
+                slot.index(),
                 &mapping.read,
                 &mapping.write,
             );
+            tables
+                .physical
+                .publish(&mut context, &mapping.addresses, slot);
         }
         self.tables.set(tables).unwrap_or_else(|_| unreachable!());
-        self.physical
-            .set(PhysicalPages {
-                memory: memory.clone(),
-                mmio_handler_offsets: map.mmio_handler_offsets().collect(),
-            })
-            .unwrap_or_else(|_| unreachable!());
-        self.publish_pages(&mut context, 0..=u32::MAX);
         Ok(())
     }
 
@@ -118,12 +160,13 @@ impl Mmio {
             });
             u32::try_from(mappings.len()).expect("MMIO handler index")
         };
+        let slot = MmioHandlerId::new(index);
         if let Some(tables) = self.tables.get() {
             Self::install(tables, &mut context, index, read, write);
+            // Publish the mapping only after both operations are callable.
+            tables.physical.publish(&mut context, &addresses, slot);
         }
-        // Publish indices only after both operations are callable.
-        self.publish_pages(&mut context, addresses);
-        MmioHandlerId::new(index)
+        slot
     }
 
     fn install(
@@ -193,34 +236,23 @@ impl Mmio {
         drop(replaced);
     }
 
-    pub(crate) fn page_handler(&self, address: u32) -> MmioHandlerId {
+    pub(crate) fn page_handler(&self, address: u32) -> Option<MmioHandlerId> {
         let first = address & !(PhysicalMemoryMap::PAGE_BYTES - 1);
         let last = first | (PhysicalMemoryMap::PAGE_BYTES - 1);
         self.mappings
             .borrow()
             .iter()
             .enumerate()
-            .find_map(|(index, mapping)| {
-                (mapping.addresses.contains(&first) && mapping.addresses.contains(&last))
-                    .then_some(MmioHandlerId::new(index as u32 + 1))
+            .find(|(_, mapping)| {
+                *mapping.addresses.start() <= last && first <= *mapping.addresses.end()
             })
-            .unwrap_or(MmioHandlerId::GENERIC)
-    }
-
-    fn publish_pages(&self, context: &mut IoContext<'_>, addresses: RangeInclusive<u32>) {
-        let Some(physical) = self.physical.get() else {
-            return;
-        };
-        let mask = !(PhysicalMemoryMap::PAGE_BYTES - 1);
-        let first = *addresses.start() & mask;
-        let last = *addresses.end() & mask;
-        for (&address, &offset) in physical.mmio_handler_offsets.range(first..=last) {
-            let handler = self.page_handler(address);
-            context
-                .runtime
-                .memory(&physical.memory)
-                .write(offset, &handler.index().to_le_bytes());
-        }
+            .map(|(index, mapping)| {
+                handler_for_page(
+                    &mapping.addresses,
+                    first,
+                    MmioHandlerId::new(index as u32 + 1),
+                )
+            })
     }
 
     fn span(&self, address: u32, bytes: u8) -> (Option<usize>, u8) {

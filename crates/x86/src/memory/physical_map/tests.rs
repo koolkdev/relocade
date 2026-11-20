@@ -114,6 +114,21 @@ fn mmio_handler_indices_use_the_existing_payload_word() {
 }
 
 #[test]
+fn device_bindings_respect_backed_pages_before_a20_translation() {
+    let map = PhysicalMemoryMap::new([
+        (0..=0xfff, Ram { backing_offset: 0 }),
+        (0x101000..=0x101fff, Rom { backing_offset: 0 }),
+    ])
+    .unwrap();
+    let slot = MmioHandlerId::new(7);
+    let entry = [3, 0, 0, 0, 7, 0, 0, 0];
+    assert_eq!(map.mmio_page_entry(0, slot), None);
+    assert_eq!(map.mmio_page_entry(0x101000, slot), None);
+    assert_eq!(map.mmio_page_entry(0x100000, slot), Some((0x800, entry)));
+    assert_eq!(map.mmio_page_entry(u32::MAX, slot), Some((0x7ffff8, entry)));
+}
+
+#[test]
 fn empty_regions_produce_a_complete_unmapped_table() {
     let map = PhysicalMemoryMap::new([]).unwrap();
     for address in [0, 0xa0000, 0x10ffef, 0x110000, u32::MAX] {

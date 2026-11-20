@@ -59,9 +59,15 @@ impl<'a> Spans<'a> {
 
     fn mapping(&self, address: u32) -> PhysicalMapping {
         match (self.map.get(address), self.io) {
-            (PhysicalMapping::Mmio { .. }, Some(io)) => PhysicalMapping::Mmio {
-                handler: io.mmio_map().page_handler(self.map.bus_address(address)),
-            },
+            (mapping @ (PhysicalMapping::Unmapped | PhysicalMapping::Mmio { .. }), Some(io)) => {
+                match io.mmio_map().page_handler(self.map.bus_address(address)) {
+                    Some(handler) => PhysicalMapping::Mmio { handler },
+                    None if matches!(mapping, PhysicalMapping::Mmio { .. }) => {
+                        PhysicalMapping::MMIO
+                    }
+                    None => PhysicalMapping::Unmapped,
+                }
+            }
             (mapping, _) => mapping,
         }
     }

@@ -1,19 +1,28 @@
 //! Device connection and asynchronous activity.
 
 use super::DispiAdapter;
-use crate::{io::Io, mmio::MemoryMapping};
+use crate::{
+    io::Io,
+    mmio::{MmioWindow, VGA_REGIONS},
+};
 use relocade_machine::{Device, DeviceConnection};
 use std::{cell::RefCell, rc::Rc};
 
 impl DispiAdapter {
-    /// Connects the memory aperture and individual VGA/DISPI port operations.
+    /// Connects the VGA memory window and the VGA/DISPI ports.
     pub fn configure_io(io: &mut DeviceConnection<'_>, device: &Rc<RefCell<Self>>) {
         assert!(device.borrow().io.is_none(), "VGA is already connected");
-        let memory = MemoryMapping::new(io, device);
+        let memory_windows = vec![MmioWindow::bind(
+            io,
+            device,
+            VGA_REGIONS,
+            Self::vga_window_decoding,
+        )];
         let ports = Self::bind_ports(io, device);
-        let mut card = device.borrow_mut();
-        memory.update_decoding(io.context(), None, card.memory_decoding());
-        card.io = Some(Io { ports, memory });
+        device.borrow_mut().io = Some(Io {
+            ports,
+            memory_windows,
+        });
     }
 }
 
