@@ -2,15 +2,36 @@
 
 use super::Modules;
 use crate::{runtime::WasmRuntime, Memory, Result};
-use relocade_wasm_runtime::{FunctionRef, Import, Module, WasmBackend};
+use relocade_wasm_runtime::{Context, FunctionRef, Import, Module, WasmBackend};
 use relocade_x86::abi;
 use std::{
     cell::RefCell,
     ops::{Deref, DerefMut},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
 type Installed = Box<Modules<WasmRuntime>>;
+
+fn write_code(
+    guest: &Memory,
+    active: &Weak<RefCell<Option<Installed>>>,
+    mut context: Context<'_>,
+    (backing, bytes, value): (u32, u32, u64),
+) {
+    guest
+        .view()
+        .write_backing(backing, &value.to_le_bytes()[..bytes as usize])
+        .expect("tracked RAM fits backing");
+    if guest.take_retirement_request() {
+        let executing = active.upgrade().expect("live CPU");
+        let mut modules = executing.borrow_mut();
+        modules
+            .as_mut()
+            .expect("active write callback")
+            .retire_modified(&mut context)
+            .expect("retire modified code");
+    }
+}
 
 /// Stopped callers can borrow installed code. Wasm callbacks can withdraw it
 /// while the CPU is executing.
@@ -24,28 +45,12 @@ impl CpuModules {
     pub(in crate::runtime::instance) fn new(wasm: &mut WasmRuntime, guest: Memory) -> Result<Self> {
         let executing: Rc<RefCell<Option<Installed>>> = Rc::default();
         let active = Rc::downgrade(&executing);
-        let write_code = FunctionRef::new(
-            &mut wasm.context(),
-            move |mut context, (backing, bytes, value): (u32, u32, u64)| {
-                guest
-                    .view()
-                    .write_backing(backing, &value.to_le_bytes()[..bytes as usize])
-                    .expect("tracked RAM fits backing");
-                if guest.take_retirement_request() {
-                    let executing = active.upgrade().expect("live CPU");
-                    let mut modules = executing.borrow_mut();
-                    modules
-                        .as_mut()
-                        .expect("active write callback")
-                        .retire_modified(&mut context)
-                        .expect("retire modified code");
-                }
-            },
-        );
         Ok(Self {
             stopped: Some(Box::new(Modules::new(wasm)?)),
             executing,
-            write_code,
+            write_code: FunctionRef::new(&mut wasm.context(), move |context, store| {
+                write_code(&guest, &active, context, store)
+            }),
         })
     }
 
