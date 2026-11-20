@@ -67,9 +67,10 @@ impl Memory {
         &self.config
     }
 
-    /// Raw Wasm storage. Writers using this handle must pause while the CPU
-    /// installs compiled code. Writes through [`MemoryView`] synchronize with
-    /// installation automatically.
+    /// Raw Wasm storage. Serialize direct writes with code installation. When
+    /// changing executable bytes, stop the PC and retire affected installations
+    /// before resuming it. Writes through [`MemoryView`] synchronize with
+    /// installation and record modified instructions.
     pub fn backing(&self) -> &SharedMemory {
         &self.backing
     }

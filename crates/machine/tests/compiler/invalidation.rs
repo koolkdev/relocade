@@ -77,11 +77,11 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         assert!(callee.was_modified());
         assert!(!caller.was_modified());
         assert_eq!(sources.view().read_u8(0x212).unwrap(), 2);
-        run_caller(&mut runner, 9).await;
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
         assert!(sources.installed_code_at(0x1212).is_empty());
+        run_caller(&mut runner, 9).await;
 
         // Incoming calls must also reconnect when a replacement arrives.
         compiler

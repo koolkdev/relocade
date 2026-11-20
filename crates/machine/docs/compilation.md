@@ -81,10 +81,15 @@ Before publishing dispatch entries and call links, the stopped CPU compares
 every emitted instruction span with its live backing. A mismatch returns
 `Error::StaleCompilation` and preserves existing entries and hooks. An
 automatically requested function can become hot again after a stale result.
-Pending or parked host services must finish before installation. A managed write
-to an instruction while the CPU is stopped retires the affected installation
-when the host next enters the guest. Other installations retain their entries
-and call links.
+Pending or parked host services must finish before installation. A guest store
+to RAM containing compiled instructions runs through the interpreter. If the
+store changes an installed instruction byte, its host callback withdraws the
+affected module's exports and repairs incoming call slots before returning.
+The interpreter then continues the instruction and fetches subsequent bytes
+from guest memory. A host that patches code while the PC is stopped can write
+through a memory handle. The CPU retires those modules when control next passes
+from the host to the guest. This also covers a host hook that patches a callee
+and resumes guest execution within the same `Cpu::run`.
 
 Dropping a CPU's `CompilerClient` closes its request stream. The worker drains
 that stream and releases its reply sender and wake binding. Unused CPU handles
