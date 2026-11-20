@@ -3,8 +3,8 @@
 use relocade_compiler::{BuildError, Program};
 
 use crate::{
-    decode::RuntimeDecoder, execution::ExecutionModule, profile::EntryGuarantees, state::State,
-    CpuModel, EntryAssumptions, ExecutionMode, MemoryBackend,
+    decode::RuntimeDecoder, execution::ExecutionModule, state::State, CompilerConfig,
+    EntryAssumptions, ExecutionMode, MemoryBackend,
 };
 
 /// Builds one interpreter program exporting both `run` and `step`.
@@ -79,13 +79,8 @@ pub fn build_interpreter_with_memory(
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
     // live allowance zero; snapshot compilation alone omits the checks.
-    let execution = ExecutionModule::declare_with_guarantees(
-        &mut program,
-        memory_backend,
-        CpuModel::default(),
-        true,
-        EntryGuarantees::from_assumptions(entry),
-    );
+    let execution =
+        ExecutionModule::declare(&mut program, CompilerConfig::new(entry, memory_backend));
     if entry.mode == ExecutionMode::Real {
         execution.export_real_mode_entries(&mut program)?;
     }

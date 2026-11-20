@@ -1,4 +1,4 @@
-//! Collects Real16 call counts and selects unbound hot functions for compilation.
+//! Collects real-mode call counts and selects unbound hot functions for compilation.
 
 mod hotness;
 
@@ -6,7 +6,7 @@ use self::hotness::Hotness;
 use super::{CodeCache, DispatchTable};
 use crate::{runtime::WasmRuntime, FarPointer, Instant};
 use relocade_wasm_runtime::{Memory, WasmMemoryAccess};
-use relocade_x86::{CallProfile, ExecutionProfile};
+use relocade_x86::{CallProfile, ExecutionMode};
 use std::time::Duration;
 
 const COLLECTION_INTERVAL: Duration = Duration::from_millis(50);
@@ -64,7 +64,7 @@ impl Profiling {
 impl CodeCache {
     pub(in crate::runtime) fn collect_call_profile_if_due(&mut self) {
         if self.compiler.is_some()
-            && self.guest.bindings.cpu.execution_target().profile == ExecutionProfile::Real16
+            && self.guest.bindings.cpu.compiler_config().entry.mode == ExecutionMode::Real
             && self.profiling.collection_due(Instant::now())
         {
             self.collect_call_profile();

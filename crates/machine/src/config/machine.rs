@@ -1,5 +1,5 @@
 use super::ConfigurationError;
-use relocade_x86::{ExecutionProfile, ExecutionTarget, MemoryBackend, PhysicalMemoryMap};
+use relocade_x86::{CompilerConfig, EntryAssumptions, MemoryBackend, PhysicalMemoryMap};
 use std::sync::Arc;
 
 /// Initial backing capacity and mappings, independent of a CPU's state.
@@ -25,14 +25,14 @@ impl MachineConfig {
     }
 
     /// Checks the CPU entry contract and the mapping ABI supplied by this machine.
-    pub(crate) fn validate_target(
+    pub(crate) fn validate_compiler_config(
         &self,
-        target: ExecutionTarget,
+        config: CompilerConfig,
     ) -> Result<(), ConfigurationError> {
-        if target.profile != ExecutionProfile::Real16 {
+        if config.entry != EntryAssumptions::REAL_MODE {
             return Err(ConfigurationError::UnsupportedMode);
         }
-        if target.memory_backend != MemoryBackend::PhysicalBus {
+        if config.memory_backend != MemoryBackend::PhysicalBus {
             return Err(ConfigurationError::UnsupportedMemoryBackend);
         }
         Ok(())

@@ -1,24 +1,24 @@
 use super::ConfigurationError;
 use relocade_x86::{
-    CpuMode, CpuState, DescriptorTableRegister, ExecutionTarget, SystemSegmentRegister,
+    CompilerConfig, CpuMode, CpuState, DescriptorTableRegister, SystemSegmentRegister,
 };
 
 /// Validated initial state and execution policy for one CPU.
 #[derive(Clone, Copy)]
 pub struct CpuConfig {
-    target: ExecutionTarget,
+    config: CompilerConfig,
     cpu: CpuState,
 }
 
 impl CpuConfig {
-    /// Validates the supplied CPU state for execution with `target`.
-    pub fn new(target: ExecutionTarget, cpu: CpuState) -> Result<Self, ConfigurationError> {
-        validate_cpu(target, &cpu)?;
-        Ok(Self { target, cpu })
+    /// Validates the supplied CPU state for execution with `config`.
+    pub fn new(config: CompilerConfig, cpu: CpuState) -> Result<Self, ConfigurationError> {
+        validate_cpu(config, &cpu)?;
+        Ok(Self { config, cpu })
     }
 
-    pub fn execution_target(&self) -> ExecutionTarget {
-        self.target
+    pub fn compiler_config(&self) -> CompilerConfig {
+        self.config
     }
 
     pub fn cpu(&self) -> &CpuState {
@@ -40,10 +40,10 @@ impl crate::worker::Transfer for CpuConfig {
 }
 
 pub(crate) fn validate_cpu(
-    target: ExecutionTarget,
+    config: CompilerConfig,
     cpu: &CpuState,
 ) -> Result<(), ConfigurationError> {
-    if !cpu.is_compatible_with(target.profile) {
+    if !cpu.is_compatible_with(config.entry) {
         return Err(ConfigurationError::IncompatibleCpu);
     }
     validate_idtr(cpu.mode(), cpu.idtr)?;

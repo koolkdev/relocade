@@ -12,7 +12,7 @@ fn exports(blocks: &[DecodedBlock]) -> Vec<u32> {
 fn straight_line_splits_continue_discovery_and_stay_private() {
     let code = [0xb8, 1, 0, 0, 0, 0x90, 0x90, 0x90, 0xc3];
     let blocks = discover(
-        SegmentProfile::Flat32.into(),
+        EntryAssumptions::FLAT32,
         Bits32,
         &code,
         DiscoveryLimits {
@@ -35,8 +35,8 @@ fn branches_stay_private_and_near_calls_export_their_continuations() {
         0xc3, 0x90, // RET; unused NOP
     ];
     let mut read = mapped_code([(root, code.as_slice()), (address(0x2000), &[0xc3])]);
-    let target = Compiler::new(SegmentProfile::Flat32).target();
-    let mut discovery = BlockDiscovery::new(target, |address: CodeAddress, bytes: &mut [u8]| {
+    let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    let mut discovery = BlockDiscovery::new(config, |address: CodeAddress, bytes: &mut [u8]| {
         assert_ne!(address.eip(), 0x2000, "the callee is a separate function");
         read(address, bytes)
     });
@@ -63,7 +63,7 @@ fn unreadable_and_unsupported_call_continuations_have_no_export() {
         let mut code = vec![0xff, 0xd0]; // CALL EAX
         code.extend_from_slice(suffix);
         let blocks = discover(
-            SegmentProfile::Flat32.into(),
+            EntryAssumptions::FLAT32,
             Bits32,
             &code,
             DiscoveryLimits::default(),
@@ -76,20 +76,17 @@ fn unreadable_and_unsupported_call_continuations_have_no_export() {
 
 #[test]
 fn real_mode_far_calls_export_their_continuations_protected_far_calls_stop() {
-    for (profile, call) in [
-        (ExecutionProfile::Real16, &[0x9a, 0, 0x20, 0, 0x30][..]),
-        (ExecutionProfile::Real16, &[0xff, 0x1e, 0, 0x20]),
-        (
-            SegmentProfile::Segmented16.into(),
-            &[0x9a, 0, 0x20, 0, 0x30],
-        ),
-        (SegmentProfile::Segmented16.into(), &[0xff, 0x1e, 0, 0x20]),
+    for (entry, call) in [
+        (EntryAssumptions::REAL_MODE, &[0x9a, 0, 0x20, 0, 0x30][..]),
+        (EntryAssumptions::REAL_MODE, &[0xff, 0x1e, 0, 0x20]),
+        (EntryAssumptions::SEGMENTED16, &[0x9a, 0, 0x20, 0, 0x30]),
+        (EntryAssumptions::SEGMENTED16, &[0xff, 0x1e, 0, 0x20]),
     ] {
         let mut code = call.to_vec();
         code.extend([0x40, 0xcb, 0x90]); // INC AX; RETF; unused NOP
-        let blocks = discover(profile, Bits16, &code, DiscoveryLimits::default()).unwrap();
+        let blocks = discover(entry, Bits16, &code, DiscoveryLimits::default()).unwrap();
         let next = START + call.len() as u32;
-        if profile == ExecutionProfile::Real16 {
+        if entry == EntryAssumptions::REAL_MODE {
             assert_eq!(spans(&blocks), [(START, call.len()), (next, 2)]);
             assert_eq!(exports(&blocks), [START, next]);
         } else {
@@ -105,7 +102,7 @@ fn requesting_an_internal_instruction_promotes_it_to_a_cpu_entry() {
     let second = address(0x110);
     let tail = address(0x120);
     let mut discovery = BlockDiscovery::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         mapped_code([
             (root, &[0xeb, 0x1e][..]), // JMP 0120
             (second, &[0xeb, 0x0e]),   // JMP 0120

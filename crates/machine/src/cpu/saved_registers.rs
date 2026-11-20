@@ -58,7 +58,7 @@ impl CpuStateAccess {
 
 impl<const N: usize> SavedRegisters<N> {
     /// Restores the captured views on their original CPU. Segment caches remain
-    /// valid because the CPU's execution target cannot change.
+    /// valid because the CPU's compiler configuration cannot change.
     pub fn restore(&self) {
         for saved in &self.values {
             self.cpu.write(

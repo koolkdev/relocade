@@ -8,8 +8,7 @@ use relocade_machine::{
     Hook, Runner, SessionConfig, Timestamp,
 };
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    Compiler, CompilerConfig, CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -26,7 +25,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn configuration() -> support::Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -39,10 +38,11 @@ fn configuration() -> support::Configuration {
 
 async fn reject_guest_time_without_budgets() {
     let setup = configuration();
-    let target = Compiler::new(ExecutionProfile::Real16)
-        .with_instruction_budgets(false)
-        .target();
-    let config = relocade_machine::CpuConfig::new(target, *setup.cpu.cpu()).unwrap();
+    let compiler_config = CompilerConfig {
+        instruction_budgets: false,
+        ..support::pc_compiler_config()
+    };
+    let config = relocade_machine::CpuConfig::new(compiler_config, *setup.cpu.cpu()).unwrap();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let cpu = machine.create_cpu(config, None).unwrap();
     let worker = ExecutionWorker::<()>::spawn(
@@ -92,7 +92,7 @@ async fn successive_deadlines() {
             let code = [0x40, 0xeb, 0xfd]; // INC AX; JMP 0100.
             prepare_cpu(&mut runner, &code).await;
             let cpu = runner.cpu();
-            let block = Compiler::new(ExecutionProfile::Real16)
+            let block = Compiler::from_config(support::pc_compiler_config())
                 .compile_block(0x100, &code, 2)
                 .unwrap();
             cpu.install_module(

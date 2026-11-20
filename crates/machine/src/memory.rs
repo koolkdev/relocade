@@ -50,7 +50,7 @@ impl Memory {
 
     pub(crate) fn attach_cpu(&self, config: CpuConfig) -> Result<CpuBinding> {
         self.configuration()
-            .validate_target(config.execution_target())?;
+            .validate_compiler_config(config.compiler_config())?;
         let mut cpu = self.cpu.lock().unwrap();
         if cpu.strong_count() != 0 {
             return Err(ConfigurationError::CpuAlreadyAttached.into());

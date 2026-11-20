@@ -1,5 +1,5 @@
 use relocade_x86::{
-    CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState,
+    CompilerConfig, CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, FlagsState,
     PrivilegeLevel, Segment, SegmentDefaultSize, SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::{marker::PhantomData, mem::offset_of, rc::Rc};
@@ -26,7 +26,7 @@ use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMe
 /// ```
 #[derive(Clone)]
 pub struct CpuStateAccess {
-    target: ExecutionTarget,
+    config: CompilerConfig,
     storage: SharedMemory,
     execution_thread: PhantomData<Rc<()>>,
     #[cfg(test)]
@@ -52,15 +52,15 @@ impl CpuStateAccess {
 
     /// Compatibility requirements of the installed generated code. Architectural
     /// mode and widths are read from live state through the queries below.
-    pub fn execution_target(&self) -> ExecutionTarget {
-        self.target
+    pub fn compiler_config(&self) -> CompilerConfig {
+        self.config
     }
 
-    /// Retains an initialized image compatible with the execution target.
+    /// Retains an initialized image compatible with the compiler configuration.
     #[inline]
     pub(crate) fn new(config: &CpuConfig, storage: SharedMemory) -> Self {
         Self {
-            target: config.execution_target(),
+            config: config.compiler_config(),
             storage,
             execution_thread: PhantomData,
             #[cfg(test)]
@@ -162,13 +162,13 @@ impl CpuStateAccess {
     /// Replaces a visible selector and its loaded cache without descriptor loading.
     ///
     /// # Panics
-    /// Panics before writing if the cache violates this CPU's execution profile.
+    /// Panics before writing if the cache violates this CPU's entry assumptions.
     #[track_caller]
     pub fn set_segment(&self, segment: Segment, value: SegmentRegister) {
-        let profile = self.target.profile;
+        let entry = self.config.entry;
         assert!(
-            value.is_compatible_with(profile, segment),
-            "segment {segment:?} violates execution profile {profile:?}"
+            value.is_compatible_with(entry, segment),
+            "segment {segment:?} violates entry assumptions {entry:?}"
         );
         self.write(segment_offset(segment) as u32, &value.to_bytes());
     }
@@ -227,9 +227,9 @@ impl CpuStateAccess {
     ///
     /// # Errors
     /// Returns an error without writing if the snapshot violates this CPU's
-    /// execution target.
+    /// guaranteed entry assumptions.
     pub fn restore(&self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        crate::config::validate_cpu(self.target, snapshot)?;
+        crate::config::validate_cpu(self.config, snapshot)?;
         let mut restored = *snapshot;
         restored.instruction_count = self.instruction_count();
         self.write(0, &restored.to_bytes());

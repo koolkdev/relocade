@@ -4,6 +4,7 @@ use super::*;
 use futures_util::StreamExt;
 use relocade_clock_test_support::ManualClock;
 use relocade_machine::{GuestTimeConfig, PortRead, PortWrite};
+use relocade_x86::Compiler;
 use std::task::{Context, Waker};
 
 async fn due_device_before_next_block() {
@@ -20,7 +21,7 @@ async fn due_device_before_next_block() {
             // OUT is one block. The subsequent JMP supplies a second, observable turn.
             let code = [0xe6, 0x80, 0xeb, 0xfe];
             prepare_cpu(&mut runner, &code).await;
-            let block = Compiler::new(ExecutionProfile::Real16)
+            let block = Compiler::from_config(crate::support::pc_compiler_config())
                 .compile_block(0x100, &code, 1)
                 .unwrap();
             runner

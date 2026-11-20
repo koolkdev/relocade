@@ -7,7 +7,7 @@ mod wait;
 use wait::{Source, Wait};
 
 use crate::{Clock, ConfigurationError, Cpu, CpuStateAccess, TickRate, Timestamp};
-use relocade_x86::ExecutionTarget;
+use relocade_x86::CompilerConfig;
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
 /// Owns emulated guest time, pending sleeps and the CPU instruction target.
@@ -53,8 +53,10 @@ impl GuestTimeDriver {
         self
     }
 
-    pub(crate) fn validate_target(target: ExecutionTarget) -> Result<(), ConfigurationError> {
-        if target.instruction_budgets {
+    pub(crate) fn validate_compiler_config(
+        config: CompilerConfig,
+    ) -> Result<(), ConfigurationError> {
+        if config.instruction_budgets {
             Ok(())
         } else {
             Err(ConfigurationError::GuestTimeRequiresInstructionBudgets)
@@ -78,7 +80,7 @@ impl GuestTimeDriver {
         let mut state = self.0.borrow_mut();
         assert!(state.cpu.is_none(), "guest time driver is already bound");
         let cpu_state = cpu.cpu_state();
-        Self::validate_target(cpu_state.execution_target()).unwrap();
+        Self::validate_compiler_config(cpu_state.compiler_config()).unwrap();
         let now = state.now();
         state.offset = now.ticks().wrapping_sub(cpu_state.instruction_count());
         state.cpu = Some(Binding {

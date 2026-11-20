@@ -21,10 +21,8 @@ pub enum ConfigurationError {
 impl fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::InvalidTableRegister => {
-                "CPU table registers do not satisfy the execution profile"
-            }
-            Self::UnsupportedMode => "physical machine configuration requires real mode",
+            Self::InvalidTableRegister => "invalid CPU table register",
+            Self::UnsupportedMode => "PC execution requires ordinary real-mode entry assumptions",
             Self::UnsupportedMemoryBackend => {
                 "physical machine configuration requires the physical memory bus"
             }
@@ -32,7 +30,7 @@ impl fmt::Display for ConfigurationError {
             Self::GuestTimeRequiresInstructionBudgets => {
                 "guest time requires CPU instruction budgets"
             }
-            Self::IncompatibleCpu => "CPU state does not satisfy the execution target",
+            Self::IncompatibleCpu => "CPU state does not satisfy the entry assumptions",
             Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",
             Self::InsufficientMemory => "physical mappings exceed memory_size",
         })

@@ -5,8 +5,8 @@ use relocade_machine::{
 };
 use relocade_vga::{DispiAdapter, MEMORY_RANGE};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -28,7 +28,7 @@ pub async fn vga_workers() -> Result<(), String> {
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();
     let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

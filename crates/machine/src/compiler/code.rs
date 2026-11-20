@@ -2,7 +2,7 @@
 
 use crate::{CodeSource, ConfigurationError, Cpu, Error, FarPointer, Memory, Result};
 use relocade_wasm_runtime::Module;
-use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, ExecutionTarget, SegmentDefaultSize};
+use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, CompilerConfig, SegmentDefaultSize};
 use std::ops::Range;
 
 /// The destination selected for one public guest entry.
@@ -25,7 +25,7 @@ pub struct Description {
     pub(super) ranges: Vec<Range<u64>>,
     pub(super) blocks: Vec<BlockEntry>,
     pub(super) call_targets: Vec<u32>,
-    pub(super) target: ExecutionTarget,
+    pub(super) config: CompilerConfig,
     source: CodeSource,
     // Export bindings index the block metadata so replies store each export name once.
     bindings: Vec<CompilationBinding<usize>>,
@@ -61,7 +61,7 @@ impl CompiledCode {
                 ranges: merged_ranges(source.ranges()),
                 blocks: blocks.entries,
                 call_targets: blocks.call_targets,
-                target: blocks.execution_target,
+                config: blocks.execution_target,
                 source,
                 bindings,
             },
@@ -113,16 +113,16 @@ impl CompiledCode {
     /// or includes a backing byte excluded after it changed in two installations.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
-        self.check_destination(cpu.cpu_state().execution_target(), &cpu.memory())?;
+        self.check_destination(cpu.cpu_state().compiler_config(), &cpu.memory())?;
         if self.description.bindings.is_empty() {
             return Ok(());
         }
         cpu.install_guest_code(self)
     }
 
-    pub(crate) fn check_destination(&self, target: ExecutionTarget, memory: &Memory) -> Result<()> {
-        if target != self.description.target {
-            return Err(Error::CompilationTarget);
+    pub(crate) fn check_destination(&self, config: CompilerConfig, memory: &Memory) -> Result<()> {
+        if config != self.description.config {
+            return Err(Error::CompilationConfig);
         }
         if !self.source().belongs_to(memory) {
             return Err(Error::CompilationMemory);

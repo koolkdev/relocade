@@ -6,7 +6,10 @@ use relocade_machine::{
 };
 use relocade_pic::Pic;
 use relocade_pit::{Pit, CHANNEL_0_PORT, CONTROL_PORT};
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{
+    Compiler, CompilerConfig, CpuState, EntryAssumptions, MemoryBackend, PhysicalMapping,
+    PhysicalMemoryMap,
+};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -65,7 +68,7 @@ fn machine_and_cpu() -> (Machine, CpuHandle) {
     )
     .unwrap();
     let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -140,7 +143,10 @@ async fn timer_interrupts() -> Result<(), String> {
                     ],
                 )
                 .unwrap();
-            let compiler = Compiler::new(ExecutionProfile::Real16);
+            let compiler = Compiler::from_config(CompilerConfig::new(
+                EntryAssumptions::REAL_MODE,
+                MemoryBackend::PhysicalBus,
+            ));
 
             let cpu = runner.cpu();
             cpu.context().cpu.set_sp(0xf00);

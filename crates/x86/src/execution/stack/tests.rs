@@ -2,7 +2,6 @@
 
 use crate::{
     execution::ExecutionModule,
-    profile::EntryGuarantees,
     state::{cr0, State},
     support::machine::{check, Exit, Image, Step},
     test_step::TestModule,
@@ -16,11 +15,7 @@ fn instruction(bytes: &[u8]) -> TestModule {
     let target = Compiler::new(SegmentProfile::Segmented16)
         .with_memory_backend(MemoryBackend::PhysicalBus)
         .target();
-    let module = ExecutionModule::declare(
-        &mut program,
-        target,
-        EntryGuarantees::for_profile(target.profile),
-    );
+    let module = ExecutionModule::declare(&mut program, target);
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;

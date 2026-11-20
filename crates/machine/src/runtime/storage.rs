@@ -42,7 +42,7 @@ impl CpuStorage {
     pub(crate) fn initialize(&self, config: &CpuConfig) -> SharedMemory {
         let initial = ExecutionContext {
             cpu: *config.cpu(),
-            cpu_model: config.execution_target().cpu_model,
+            cpu_model: config.compiler_config().cpu_model,
             ..ExecutionContext::default()
         }
         .to_bytes();

@@ -4,6 +4,7 @@ use futures_util::{
     future::{select, Either},
     StreamExt,
 };
+use relocade_x86::Compiler;
 
 async fn blocked_cpu(runner: &mut Runner) {
     prepare_cpu(runner, &[0x90]).await;
@@ -287,7 +288,7 @@ async fn busy_bursts() {
         async move |mut runner| {
             let code = [0x40, 0xeb, 0xfd]; // Two-instruction loop, with checkpoint overshoot.
             prepare_cpu(&mut runner, &code).await;
-            let block = Compiler::new(ExecutionProfile::Real16)
+            let block = Compiler::from_config(crate::support::pc_compiler_config())
                 .compile_block(0x100, &code, 2)
                 .unwrap();
             let cpu = runner.cpu();

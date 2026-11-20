@@ -5,8 +5,8 @@ use crate::{
 };
 use futures_util::future::Either;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{
     future::poll_fn,
@@ -19,7 +19,7 @@ mod suspended;
 
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -311,11 +311,11 @@ async fn patched_callee() {
             .installed()
             .dispatch
             .contains(alias.packed()));
-        let target = runner.cpu().cpu_state().execution_target();
+        let config = runner.cpu().cpu_state().compiler_config();
         let mut client = runner.take_compiler().unwrap();
         client
             .request(
-                target,
+                config,
                 vec![crate::BlockRequest {
                     entry: alias,
                     byte_len: 2,

@@ -2,24 +2,25 @@
 mod support;
 
 use relocade_x86::{
-    Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap,
+    CompilerConfig, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, PhysicalMapping,
+    PhysicalMemoryMap,
 };
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn runtime_executes_with_live_cpu_and_memory() {
-    let target = Compiler::new(ExecutionProfile::Real16)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Tsc, false))
-        .target();
+    let compiler_config = CompilerConfig {
+        cpu_model: CpuModel::default().with_feature(CpuFeature::Tsc, false),
+        ..support::pc_compiler_config()
+    };
     let cpu = CpuState {
         eip: 0x100,
         ..CpuState::real_mode()
     };
     let map =
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
-    let config = support::configuration(target, cpu, 0x10000, map).unwrap();
+    let config = support::configuration(compiler_config, cpu, 0x10000, map).unwrap();
     let mut runtime = support::create_cpu(config).await.unwrap();
     runtime
         .context()

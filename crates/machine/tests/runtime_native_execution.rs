@@ -5,8 +5,8 @@ use support::Configuration;
 use relocade_machine::Cpu;
 use relocade_machine::MemoryError;
 use relocade_x86::{
-    Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segment,
+    CompilerConfig, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, PhysicalMapping,
+    PhysicalMemoryMap, Segment,
 };
 
 fn create(config: Configuration) -> Cpu {
@@ -15,7 +15,7 @@ fn create(config: Configuration) -> Cpu {
 
 fn configuration() -> Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -54,7 +54,7 @@ fn steps_publish_each_instruction_and_retirement_wraps() {
     let mut config = configuration();
     let mut initial = *config.cpu.cpu();
     initial.instruction_count = u64::MAX - 1;
-    config.cpu = relocade_machine::CpuConfig::new(config.cpu.execution_target(), initial).unwrap();
+    config.cpu = relocade_machine::CpuConfig::new(config.cpu.compiler_config(), initial).unwrap();
     let mut wrapping = create(config);
     wrapping
         .memory()
@@ -168,7 +168,7 @@ fn guest_access_uses_the_map_and_open_bus() {
     .unwrap();
     let initial = configuration();
     let config = support::configuration(
-        initial.cpu.execution_target(),
+        initial.cpu.compiler_config(),
         *initial.cpu.cpu(),
         0x3000,
         map,
@@ -238,11 +238,12 @@ fn real_interrupt_executes_handler_and_returns_through_saved_frame() {
 #[test]
 fn prepared_code_uses_configured_cpu_features() {
     let initial = configuration();
-    let target = Compiler::new(ExecutionProfile::Real16)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
-        .target();
+    let compiler_config = CompilerConfig {
+        cpu_model: CpuModel::default().with_feature(CpuFeature::Cmov, false),
+        ..support::pc_compiler_config()
+    };
     let disabled = support::configuration(
-        target,
+        compiler_config,
         *initial.cpu.cpu(),
         initial.machine.memory_size(),
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

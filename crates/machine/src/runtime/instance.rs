@@ -48,11 +48,11 @@ impl CpuInstance {
     pub(super) async fn new(binding: CpuBinding, io: IoBus, storage: SharedMemory) -> Result<Self> {
         let runtime = io.attach_cpu()?;
         let bindings = runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, binding, storage))?;
-        let target = bindings.configuration().execution_target();
+        let config = bindings.configuration().compiler_config();
         let (compiler, cache) =
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
-        let dispatcher = code::dispatcher(&compiler, target).await?;
-        let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
+        let dispatcher = code::dispatcher(&compiler, config).await?;
+        let interpreter = code::interpreter(&compiler, cache.as_ref(), config).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let mut table = code_cache::DispatchTable::new(wasm)?;

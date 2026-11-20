@@ -9,15 +9,21 @@ mod palette;
 mod state;
 use relocade_bios::Keyboard;
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, CpuConfig, FarPointer};
-use relocade_x86::{Compiler, CpuState, ExecutionExit, ExecutionProfile, Segment, SegmentRegister};
+use relocade_x86::{
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, MemoryBackend, Segment,
+    SegmentRegister,
+};
 
 impl Firmware {
     async fn cpu(&self) -> Cpu {
         let mut state = CpuState::real_mode();
         state.registers.esp = 0x8000;
         state.flags.set_eflags(2);
-        let config =
-            CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
+        let config = CpuConfig::new(
+            CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
+            state,
+        )
+        .unwrap();
         let mut cpu = Cpu::new(self.memory.clone(), config, self.io.clone())
             .await
             .unwrap();

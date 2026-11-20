@@ -6,8 +6,8 @@ use relocade_machine::{
     MemoryError, SessionConfig,
 };
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 use std::pin::pin;
 
@@ -34,7 +34,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -70,11 +70,11 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
     let (mut first_machine, config) = setup();
     let (mut second_machine, _) = setup();
     let first = first_machine.create_cpu(config, Some(compiler)).unwrap();
-    let mut other_target = config.execution_target();
-    other_target.instruction_budgets = !other_target.instruction_budgets;
+    let mut other_config = config.compiler_config();
+    other_config.instruction_budgets = !other_config.instruction_budgets;
     let second = second_machine
         .create_cpu(
-            CpuConfig::new(other_target, *config.cpu()).unwrap(),
+            CpuConfig::new(other_config, *config.cpu()).unwrap(),
             Some(compiler),
         )
         .unwrap();
@@ -86,13 +86,13 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
             .unwrap();
         let observed =
             ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-                let target = runner.cpu().cpu_state().execution_target();
+                let compiler_config = runner.cpu().cpu_state().compiler_config();
                 let mut compiler = runner.take_compiler().unwrap();
                 assert!(runner.take_compiler().is_none());
                 for offset in [0x1000, 0x2000] {
                     compiler
                         .request(
-                            target,
+                            compiler_config,
                             vec![BlockRequest {
                                 entry: FarPointer { segment: 0, offset },
                                 ..request()
@@ -107,7 +107,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 }
                 compiler
                     .request(
-                        target,
+                        compiler_config,
                         vec![BlockRequest {
                             byte_len: u32::MAX as usize,
                             ..request()
@@ -121,7 +121,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 ));
                 compiler
                     .request(
-                        target,
+                        compiler_config,
                         vec![BlockRequest {
                             instruction_limit: 0,
                             ..request()
@@ -130,11 +130,11 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                     .unwrap();
                 let invalid = compiler.recv().await.unwrap();
                 assert!(matches!(invalid, Err(relocade_machine::Error::Compile(_))));
-                let mut other_target = target;
-                other_target.instruction_budgets = !target.instruction_budgets;
+                let mut other_config = compiler_config;
+                other_config.instruction_budgets = !compiler_config.instruction_budgets;
                 compiler
                     .request(
-                        other_target,
+                        other_config,
                         vec![BlockRequest {
                             instruction_limit: 1,
                             ..request()
@@ -146,7 +146,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                     let mut receive = pin!(compiler.recv());
                     futures_lite::future::poll_once(receive.as_mut()).await
                 };
-                compiler.request(target, vec![request()]).unwrap();
+                compiler.request(compiler_config, vec![request()]).unwrap();
                 let first = match early {
                     Some(result) => result,
                     None => compiler.recv().await,
@@ -156,7 +156,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 assert_eq!(first.blocks()[0].byte_len, 3);
                 assert!(matches!(
                     first.install(runner.cpu()),
-                    Err(relocade_machine::Error::CompilationTarget)
+                    Err(relocade_machine::Error::CompilationConfig)
                 ));
                 let code = compiler.recv().await.unwrap().unwrap();
                 assert_eq!(code.blocks()[0].byte_len, 5);
@@ -206,18 +206,18 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
     let (submitted, ready) = futures_channel::oneshot::channel();
     let (other_submitted, other_ready) = futures_channel::oneshot::channel();
     let execution = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request(
-                target,
+                compiler_config,
                 vec![BlockRequest {
                     instruction_limit: 1,
                     ..request()
                 }],
             )
             .unwrap();
-        compiler.request(target, vec![request()]).unwrap();
+        compiler.request(compiler_config, vec![request()]).unwrap();
         submitted.send(()).unwrap();
         assert_eq!(
             compiler.recv().await.unwrap().unwrap().blocks()[0].byte_len,
@@ -232,23 +232,23 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
             compiler.recv().await.is_none(),
             "closed compiler stays exhausted"
         );
-        assert!(compiler.request(target, vec![request()]).is_err());
+        assert!(compiler.request(compiler_config, vec![request()]).is_err());
     })
     .join();
     let other_execution =
         ExecutionWorker::spawn(other_cpu, SessionConfig::host(), async move |mut runner| {
-            let target = runner.cpu().cpu_state().execution_target();
+            let compiler_config = runner.cpu().cpu_state().compiler_config();
             let mut compiler = runner.take_compiler().unwrap();
             compiler
                 .request(
-                    target,
+                    compiler_config,
                     vec![BlockRequest {
                         instruction_limit: 0,
                         ..request()
                     }],
                 )
                 .unwrap();
-            compiler.request(target, vec![request()]).unwrap();
+            compiler.request(compiler_config, vec![request()]).unwrap();
             other_submitted.send(()).unwrap();
             assert!(matches!(
                 compiler.recv().await.unwrap(),
@@ -300,9 +300,9 @@ async fn independent_machines(compiler: &relocade_machine::CompilerService) {
     first.shutdown().await.unwrap();
 
     let value = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
-        compiler.request(target, vec![request()]).unwrap();
+        compiler.request(compiler_config, vec![request()]).unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
         let exit = runner.cpu().exit_handle();
         runner

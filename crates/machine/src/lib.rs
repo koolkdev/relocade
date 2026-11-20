@@ -13,12 +13,14 @@
 //!
 //! ```
 //! use relocade_machine::{CpuConfig, MachineConfig};
-//! use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+//! use relocade_x86::{
+//!     CompilerConfig, CpuState, EntryAssumptions, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
+//! };
 //!
-//! let target = Compiler::new(ExecutionProfile::Real16).target();
+//! let config = CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus);
 //! let cpu = CpuState { eip: 0x100, ..CpuState::real_mode() };
 //! let map = PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })])?;
-//! let cpu = CpuConfig::new(target, cpu)?;
+//! let cpu = CpuConfig::new(config, cpu)?;
 //! let config = MachineConfig::new(2 * 1024 * 1024, map)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```

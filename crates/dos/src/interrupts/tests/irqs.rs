@@ -4,7 +4,8 @@ use relocade_bios::{video::VideoFirmware, KeyMode};
 use relocade_machine::{Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig, Memory};
 use relocade_vga::DispiAdapter;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
+    CompilerConfig, CpuState, EntryAssumptions, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
+    Segment,
 };
 use std::{cell::RefCell, rc::Rc, task::Poll};
 
@@ -59,7 +60,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     .unwrap();
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState::real_mode(),
     )
     .unwrap();

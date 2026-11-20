@@ -6,7 +6,9 @@ use relocade_clock_test_support::ManualClock;
 use relocade_machine::{DispatchEntry, IoBus};
 use relocade_pic::Pic;
 use relocade_ps2::{connect, DATA_PORT, OUTPUT_BUFFER_FULL, STATUS_COMMAND_PORT};
-use relocade_x86::{BlockSnapshot, Compiler, ExecutionExit, ExecutionProfile};
+use relocade_x86::{
+    BlockSnapshot, Compiler, CompilerConfig, EntryAssumptions, ExecutionExit, MemoryBackend,
+};
 use std::future::pending;
 
 #[cfg(target_arch = "wasm32")]
@@ -45,7 +47,10 @@ async fn guest_port_io() {
                 ];
                 runner.memory().view().write(0x100, &code).unwrap();
                 if compiled {
-                    let compiler = Compiler::new(ExecutionProfile::Real16);
+                    let compiler = Compiler::from_config(CompilerConfig::new(
+                        EntryAssumptions::REAL_MODE,
+                        MemoryBackend::PhysicalBus,
+                    ));
                     let code_default_size = runner.cpu().cpu_state().code_default_size();
                     let snapshots =
                         [0, 2, 4, 6, 8, 12, 14, 18, 20, 24].map(|offset| BlockSnapshot {

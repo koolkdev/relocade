@@ -87,11 +87,11 @@ fn code_width_and_segment_guarantees_are_admitted_independently() {
 
 #[test]
 fn entry_compatibility_requires_the_complete_target_and_current_segment_assumptions() {
-    use crate::{Compiler, CpuFeature, CpuModel, ExecutionTarget, MemoryBackend, SegmentProfile};
+    use crate::{Compiler, CompilerConfig, CpuFeature, CpuModel, MemoryBackend, SegmentProfile};
     let target = Compiler::new(SegmentProfile::Flat32).target();
     let flat = CpuState::default();
     assert!(target.is_compatible_with(target, &flat));
-    let physical = ExecutionTarget {
+    let physical = CompilerConfig {
         memory_backend: MemoryBackend::PhysicalBus,
         ..target
     };

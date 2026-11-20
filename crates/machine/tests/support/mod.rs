@@ -1,5 +1,10 @@
 #![allow(dead_code)]
 use relocade_machine::{CpuConfig, MachineConfig};
+use relocade_x86::{CompilerConfig, EntryAssumptions, MemoryBackend};
+
+pub fn pc_compiler_config() -> CompilerConfig {
+    CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus)
+}
 
 /// Initial state for a test's machine and its first CPU.
 pub struct Configuration {
@@ -8,13 +13,13 @@ pub struct Configuration {
 }
 
 pub fn configuration(
-    target: relocade_x86::ExecutionTarget,
+    config: CompilerConfig,
     cpu: relocade_x86::CpuState,
     size: u64,
     map: relocade_x86::PhysicalMemoryMap,
 ) -> Result<Configuration, relocade_machine::ConfigurationError> {
     Ok(Configuration {
-        cpu: CpuConfig::new(target, cpu)?,
+        cpu: CpuConfig::new(config, cpu)?,
         machine: MachineConfig::new(size, map)?,
     })
 }

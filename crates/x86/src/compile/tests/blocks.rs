@@ -1,6 +1,4 @@
 use crate::{
-    compile::block::module::BlockModule,
-    profile::EntryGuarantees,
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
@@ -92,15 +90,41 @@ fn compile_without_code_default(
     compiler: &Compiler,
     snapshot: BlockSnapshot<'_>,
 ) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::from_assumptions(crate::EntryAssumptions {
-        code_default_size: None,
-        ..compiler.target().assumptions()
-    });
-    BlockModule::with_entry_guarantees(compiler, guarantees)
-        .build(&[snapshot])
+    let mut config = compiler.config();
+    config.entry.code_default_size = None;
+    Compiler::from_config(config)
+        .compile_blocks(&[snapshot])
         .unwrap()
-        .compile()
-        .unwrap()
+}
+
+#[test]
+fn byte_snapshots_require_a_guaranteed_or_observed_code_width() {
+    let mut config = crate::CompilerConfig::new(
+        crate::EntryAssumptions::SEGMENTED32,
+        crate::MemoryBackend::HostPageTable,
+    );
+    config.entry.code_default_size = None;
+    let bytes = [0xb8, 0x34, 0x12]; // MOV AX,1234 under CS.D=0
+    assert_eq!(
+        Compiler::from_config(config)
+            .compile_block(0, &bytes, 1)
+            .err(),
+        Some(BlockError::MissingCodeDefaultSize)
+    );
+
+    let mut cpu = CpuState::default();
+    assert!(matches!(
+        Compiler::from_config(config)
+            .specialize_on_cpu(&cpu)
+            .compile_block(0, &bytes, 1),
+        Err(BlockError::TruncatedInstruction { .. })
+    ));
+    cpu.segments.cs.big = 0;
+    let compiled = Compiler::from_config(config)
+        .specialize_on_cpu(&cpu)
+        .compile_block(0, &bytes, 1)
+        .unwrap();
+    assert_eq!(compiled.execution_target, Some(config));
 }
 
 fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {

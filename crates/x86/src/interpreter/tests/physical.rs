@@ -1,7 +1,7 @@
 use crate::{
     support::machine::{expected, Exit, Image, Step},
     test_step::{Event, TestModule},
-    Compiler, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend, Segment,
+    Compiler, CompilerConfig, CpuState, ExecutionProfile, MemoryBackend, Segment,
     SegmentDefaultSize::Bits16,
     SegmentProfile, SegmentRegister,
 };
@@ -22,7 +22,7 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
         (ExecutionProfile::Real16, real, 0x11),
         (SegmentProfile::Segmented16.into(), protected, 0xd0011),
     ] {
-        let target = ExecutionTarget {
+        let target = CompilerConfig {
             memory_backend: MemoryBackend::PhysicalBus,
             ..Compiler::new(profile).target()
         };

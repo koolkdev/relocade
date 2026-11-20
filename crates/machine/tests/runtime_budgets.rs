@@ -2,8 +2,7 @@ mod support;
 
 use relocade_machine::{Cpu, DispatchEntry, GuestTimeDriver, Hook};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    Compiler, CompilerConfig, CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{num::NonZeroU64, task::Waker};
 
@@ -12,7 +11,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cpu {
     let config = support::configuration(
-        compiler.target(),
+        compiler.config(),
         CpuState {
             eip: 0x100,
             instruction_count: count,
@@ -41,7 +40,7 @@ async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cp
 
 async fn checkpoints() {
     for compiled in [false, true] {
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::from_config(support::pc_compiler_config());
         // INC AX; INC BX; JMP 0100. Each completed block retires three instructions.
         let mut cpu = cpu(&compiler, &[0x40, 0x43, 0xeb, 0xfc], compiled, u64::MAX - 1).await;
         let state = cpu.cpu_state();
@@ -69,7 +68,10 @@ async fn checkpoints() {
 
 async fn unlimited_runs() {
     for budgets in [false, true] {
-        let compiler = Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(budgets);
+        let compiler = Compiler::from_config(CompilerConfig {
+            instruction_budgets: budgets,
+            ..support::pc_compiler_config()
+        });
         for compiled in [false, true] {
             // INC AX; JMP 0103; the registered host entry ends execution.
             let mut cpu = cpu(&compiler, &[0x40, 0xeb, 0], compiled, 0).await;
@@ -91,7 +93,7 @@ async fn unlimited_runs() {
 
 async fn wrapped_zero_target() {
     for compiled in [false, true] {
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::from_config(support::pc_compiler_config());
         // Three JMP-next checkpoints, then a finite host exit if budgeting is disabled.
         let mut cpu = cpu(
             &compiler,

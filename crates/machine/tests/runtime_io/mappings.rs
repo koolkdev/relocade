@@ -1,6 +1,6 @@
 use super::*;
 use relocade_machine::{Hook, PortBinding, PortRead, PortWrite};
-use relocade_x86::HostExit;
+use relocade_x86::{Compiler, HostExit};
 
 macro_rules! test_backends {
     ($name:ident, $check:ident) => {
@@ -25,9 +25,9 @@ mod mmio;
 mod transfers;
 
 async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::from_config(support::pc_compiler_config());
     let config = support::configuration(
-        compiler.target(),
+        compiler.config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

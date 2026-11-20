@@ -3,7 +3,7 @@ use relocade_dma::Dma;
 use relocade_machine::{CpuConfig, GuestTimeConfig, MachineConfig, Runner};
 use relocade_pic::Pic;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
+    CompilerConfig, CpuState, EntryAssumptions, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{
     cell::RefCell,
@@ -135,9 +135,7 @@ pub fn memory() -> MachineConfig {
 
 pub fn cpu() -> CpuConfig {
     CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16)
-            .with_memory_backend(MemoryBackend::PhysicalBus)
-            .target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState::real_mode(),
     )
     .expect("fixed real-mode PC CPU")

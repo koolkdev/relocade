@@ -7,7 +7,7 @@ use crate::{
     profile::EntryGuarantees,
     runtime::Runtime,
     state::{Cpu, State},
-    CpuModel, ExecutionTarget, MemoryBackend,
+    CompilerConfig, CpuModel,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
@@ -26,36 +26,16 @@ pub(crate) struct ExecutionModule {
 }
 
 impl ExecutionModule {
-    pub(crate) fn declare(
-        program: &mut Program,
-        target: ExecutionTarget,
-        entry_guarantees: EntryGuarantees,
-    ) -> Self {
-        Self::declare_with_guarantees(
-            program,
-            target.memory_backend,
-            target.cpu_model,
-            target.instruction_budgets,
-            entry_guarantees,
-        )
-    }
-
-    pub(crate) fn declare_with_guarantees(
-        program: &mut Program,
-        memory_backend: MemoryBackend,
-        cpu_model: CpuModel,
-        instruction_budgets: bool,
-        entry_guarantees: EntryGuarantees,
-    ) -> Self {
+    pub(crate) fn declare(program: &mut Program, config: CompilerConfig) -> Self {
         let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
-            memory: Arc::new(Memory::declare(program, memory_backend)),
+            memory: Arc::new(Memory::declare(program, config.memory_backend)),
             entries: Arc::default(),
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
-            cpu_model,
-            instruction_budgets,
-            entry_guarantees,
+            cpu_model: config.cpu_model,
+            instruction_budgets: config.instruction_budgets,
+            entry_guarantees: EntryGuarantees::from_assumptions(config.entry),
             interrupt: None,
         };
         // Entry failures return directly, without another attempt at delivery.
