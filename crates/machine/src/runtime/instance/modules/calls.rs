@@ -1,7 +1,9 @@
 //! Each installation owns its call table, including unresolved destinations.
 
 use crate::{CompiledCode, Result};
-use relocade_wasm_runtime::{ExportFunction, Function, FunctionRef, Import, Table};
+use relocade_wasm_runtime::{
+    ExportFunction, Function, FunctionRef, Import, Table, WasmTableAccess,
+};
 use relocade_x86::abi;
 
 pub(in super::super) struct Calls<B: ExportFunction<abi::ExecutionSignature>> {
@@ -20,11 +22,11 @@ pub(super) struct CallSite<B: ExportFunction<abi::ExecutionSignature>> {
 impl<B: ExportFunction<abi::ExecutionSignature>> CallSite<B> {
     pub(super) fn bind(
         &self,
-        backend: &mut B,
+        context: &mut impl WasmTableAccess<Backend = B>,
         target: Option<&FunctionRef<B, abi::ExecutionSignature>>,
     ) -> Result<()> {
         self.table
-            .set(backend, self.index, target.unwrap_or(&self.unresolved))?;
+            .set(context, self.index, target.unwrap_or(&self.unresolved))?;
         Ok(())
     }
 }

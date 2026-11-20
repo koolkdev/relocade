@@ -67,7 +67,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         runner.cpu().invalidate_code(0x206..0x210).unwrap();
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
 
-        // Single-step MOV byte [0212],2, then retire before entering the changed code.
+        // Single-step MOV byte [0212],2. The interpreter completes the store once.
         sources
             .view()
             .write(0x400, &[0xc6, 0x06, 0x12, 0x02, 2])
@@ -77,12 +77,11 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         assert!(callee.was_modified());
         assert!(!caller.was_modified());
         assert_eq!(sources.view().read_u8(0x212).unwrap(), 2);
-        runner.cpu().invalidate_code(0x212..0x213).unwrap();
+        run_caller(&mut runner, 9).await;
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
         assert!(sources.installed_code_at(0x1212).is_empty());
-        run_caller(&mut runner, 9).await;
 
         // Incoming calls must also reconnect when a replacement arrives.
         compiler
@@ -98,7 +97,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         run_caller(&mut runner, 9).await;
 
         // Replace only the root with a smaller compilation that does not depend
-        // on the tail. Invalidating the old tail must preserve this newer root.
+        // on the tail. A stopped host write through A20 changes only the old tail.
         compiler
             .request(
                 target,
@@ -120,11 +119,10 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
             .install(runner.cpu())
             .unwrap();
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 2);
-        runner.cpu().invalidate_code(0x210..0x214).unwrap();
+        sources.view().write_u8(0x10_0212, 3).unwrap();
+        run_caller(&mut runner, 10).await;
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
-        runner.cpu().memory().view().write(0x212, &[3]).unwrap();
-        run_caller(&mut runner, 10).await;
 
         compiler
             .request_functions(target, vec![request(0x200)])
@@ -185,6 +183,80 @@ fn retirement_repairs_links_and_preserves_newer_entries() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn retirement_repairs_links_and_preserves_newer_entries() {
     compilation::run(retire_linked_compilations).await;
+}
+
+async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
+    let map =
+        PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let mut machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
+    let target = Compiler::new(ExecutionProfile::Real16).target();
+    let config = CpuConfig::new(target, CpuState::real_mode()).unwrap();
+    let memory = machine.memory();
+    memory.view().write(0x100, &[0xe8, 0xfd, 0, 0xc3]).unwrap(); // CALL 0200; RET
+    memory.view().write(0x200, &[0xb8, 7, 0, 0xc3]).unwrap(); // MOV AX,7; RET
+    let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
+    cpu.run_until(pending::<()>(), async move |mut runner| {
+        let mut compiler = runner.take_compiler().unwrap();
+        for offset in [0x100, 0x200] {
+            compiler
+                .request_functions(
+                    target,
+                    vec![FunctionRequest {
+                        entry: FarPointer { segment: 0, offset },
+                        limits: Default::default(),
+                    }],
+                )
+                .unwrap();
+            compiler
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .install(runner.cpu())
+                .unwrap();
+        }
+
+        let cpu = runner.cpu();
+        let memory = cpu.memory();
+        let state = cpu.cpu_state();
+        // An untracked stack lets the compiled CALL take its bound callee directly.
+        state.set_sp(0x1800);
+        state.set_eip(0x300);
+        let exit = cpu.exit_handle();
+        cpu.install([
+            Hook::host(0x300, {
+                let state = state.clone();
+                async move || {
+                    memory.view().write_u8(0x201, 9).unwrap();
+                    state.set_eip(0x100);
+                }
+            }),
+            Hook::host(0x103, async move || exit.request()),
+        ])
+        .await
+        .unwrap();
+        cpu.interrupt_handle().take();
+        assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+        assert_eq!(state.ax(), 9);
+        assert_eq!(cpu.compiled_modules_at(0x100).count(), 1);
+        assert_eq!(cpu.compiled_modules_at(0x200).count(), 0);
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn ready_host_hook_can_patch_a_linked_callee_before_resuming() {
+    pollster::block_on(compilation::run(patch_from_ready_hook));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn ready_host_hook_can_patch_a_linked_callee_before_resuming() {
+    compilation::run(patch_from_ready_hook).await;
 }
 
 async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {

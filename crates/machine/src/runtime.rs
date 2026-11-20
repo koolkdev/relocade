@@ -138,8 +138,7 @@ impl Cpu {
 
     /// Installed compilations whose decoded bytes cover this linear address.
     /// Several modules can cover the same bytes; coverage does not make an
-    /// interior address a callable entry. Replaced compilations remain owned until
-    /// [`Self::invalidate_code`] retires them.
+    /// interior address a callable entry. Each installation stays here until retirement.
     pub fn compiled_modules_at(&self, address: u32) -> impl Iterator<Item = &crate::CompiledCode> {
         self.instance.compiled_modules_at(address)
     }
@@ -151,8 +150,8 @@ impl Cpu {
     /// Incoming call links return to resolution. Entries owned by unaffected
     /// replacements or hooks survive.
     ///
-    /// Call at a stopped boundary before executing modified code. This does not
-    /// observe writes, invalidate aliases or other CPUs, or queue recompilation.
+    /// Use this at a stopped boundary to withdraw code explicitly. Managed writes
+    /// to stopped guest memory trigger retirement before the next dispatch.
     ///
     /// # Panics
     /// Panics if a service is pending or parked. Complete or abandon it first.

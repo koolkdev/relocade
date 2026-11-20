@@ -27,6 +27,14 @@ enum ModuleSource<'a> {
     Guest(&'a CompiledCode),
 }
 
+/// Wasm exports through which the host can enter the guest.
+struct GuestEntryPoints {
+    dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
+    step: Function<WasmRuntime, abi::ExecutionSignature>,
+    interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
+    far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
+}
+
 /// Binds guest execution and installed modules to one runtime and its memory.
 /// Runtime borrows stay inside synchronous operations; compilation and host
 /// service polling do not hold the runtime.
@@ -38,13 +46,10 @@ pub(super) struct CpuInstance {
     modules: Modules<WasmRuntime>,
     pub(super) bindings: RuntimeMemory,
     pub(super) io: IoBus,
-    dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
+    entry_points: GuestEntryPoints,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
     resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
     resolve_and_jump: Function<WasmRuntime, abi::ExecutionSignature>,
-    step: Function<WasmRuntime, abi::ExecutionSignature>,
-    interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
-    far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
     pub(super) profiling: Profiling,
 }
 
@@ -102,13 +107,15 @@ impl CpuInstance {
                 host_writes: HostWritePages::new(&runtime, &bindings),
                 bindings,
                 io,
-                dispatch,
+                entry_points: GuestEntryPoints {
+                    dispatch,
+                    step,
+                    interrupt,
+                    far_call,
+                },
                 interpret,
                 resolve_call,
                 resolve_and_jump,
-                step,
-                interrupt,
-                far_call,
                 modules,
                 profiling,
             })
@@ -124,19 +131,36 @@ impl CpuInstance {
         }
     }
 
-    pub(super) fn run(&mut self) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| loop {
-            let exit = self.dispatch.call(wasm, ());
-            if exit != ExecutionExit::CallProfileFull {
-                return exit;
+    /// Retire code patched by a stopped host before the guest can follow a cached link.
+    fn enter_guest(
+        &mut self,
+        enter: impl FnOnce(&GuestEntryPoints, &mut WasmRuntime) -> ExecutionExit,
+    ) -> ExecutionExit {
+        self.runtime.with_runtime(|wasm| {
+            if self.bindings.guest.take_retirement_request() {
+                self.modules
+                    .retire_modified(&mut wasm.context())
+                    .expect("retire modified code");
             }
-            self.profiling.collect(wasm, &self.modules);
+            enter(&self.entry_points, wasm)
         })
     }
 
+    pub(super) fn run(&mut self) -> ExecutionExit {
+        loop {
+            let exit = self.enter_guest(|entries, wasm| entries.dispatch.call(wasm, ()));
+            if exit != ExecutionExit::CallProfileFull {
+                return exit;
+            }
+            self.runtime
+                .with_runtime(|wasm| self.profiling.collect(wasm, &self.modules));
+        }
+    }
+
     pub(super) fn enter_interrupt(&mut self, vector: u8) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| {
-            self.interrupt
+        self.enter_guest(|entries, wasm| {
+            entries
+                .interrupt
                 .as_ref()
                 .expect("real-mode interrupt entry")
                 .call(wasm, (vector,))
@@ -144,8 +168,9 @@ impl CpuInstance {
     }
 
     pub(super) fn enter_far_call(&mut self, target: FarPointer, stack_bytes: u16) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| {
-            self.far_call
+        self.enter_guest(|entries, wasm| {
+            entries
+                .far_call
                 .as_ref()
                 .expect("real-mode far-call entry")
                 .call(wasm, (target.segment, target.offset, stack_bytes))
@@ -154,7 +179,7 @@ impl CpuInstance {
 
     #[cold]
     pub(super) fn step(&mut self) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| self.step.call(wasm, ()))
+        self.enter_guest(|entries, wasm| entries.step.call(wasm, ()))
     }
 
     pub(super) async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
@@ -230,7 +255,7 @@ impl CpuInstance {
             imports.extend(self.modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
-                wasm.bind(abi::DISPATCH, &self.dispatch),
+                wasm.bind(abi::DISPATCH, &self.entry_points.dispatch),
                 wasm.bind(abi::INTERPRET, &self.interpret),
                 wasm.bind(abi::RESOLVE_CALL, &self.resolve_call),
             ]);
@@ -250,7 +275,7 @@ impl CpuInstance {
 
     pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
         self.runtime
-            .with_runtime(|wasm| self.modules.invalidate(wasm, range))
+            .with_runtime(|wasm| self.modules.invalidate(&mut wasm.context(), range))
     }
 
     pub(super) fn compiled_modules_at(

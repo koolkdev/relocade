@@ -44,7 +44,7 @@ impl InstalledCode {
         let Some(memory) = self.source.memory.upgrade() else {
             return;
         };
-        let mut registry = memory.lock().unwrap();
+        let mut registry = memory.pages.lock().unwrap();
         for page in self.spans_by_page.keys() {
             let codes = registry.by_backing.get_mut(page).expect("installed page");
             codes.retain(|code| !Arc::ptr_eq(code, self));
@@ -56,11 +56,11 @@ impl InstalledCode {
 }
 
 #[derive(Default)]
-pub struct CodeRegistry {
+pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
 }
 
-impl CodeRegistry {
+impl CodePages {
     pub(crate) fn register(&mut self, source: &CodeSource) -> Arc<InstalledCode> {
         let mut spans_by_page = BTreeMap::<_, Vec<_>>::new();
         for (index, span) in source.spans.iter().enumerate() {
@@ -92,17 +92,22 @@ impl CodeRegistry {
             })
     }
 
-    pub(super) fn record_write(&self, backing: u32, bytes: &[u8]) {
+    /// Returns true if this write newly marked at least one installation.
+    pub(super) fn mark_modified(&self, backing: u32, bytes: &[u8]) -> bool {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
+        let mut changed = false;
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
-                if code
-                    .spans_on(page)
-                    .any(|span| span.changed_by(backing, bytes))
+                if !code.was_modified()
+                    && code
+                        .spans_on(page)
+                        .any(|span| span.changed_by(backing, bytes))
                 {
                     code.changed.store(true, Ordering::Release);
+                    changed = true;
                 }
             }
         }
+        changed
     }
 }

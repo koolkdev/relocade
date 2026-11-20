@@ -20,7 +20,7 @@ use std::{
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
-    code: Arc<Mutex<code::CodeRegistry>>,
+    code: Arc<code::CodeRegistry>,
     cpu: Arc<Mutex<Weak<CpuConfig>>>,
 }
 
