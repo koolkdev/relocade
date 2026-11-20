@@ -10,8 +10,14 @@ VGA, speaker and AdLib behavior.
 The fixed map contains 640 KiB of conventional RAM, the VGA MMIO aperture and
 identity-backed ROM at F0000–FFFFF. Initialization installs BIOS video, keyboard
 and clock services and enables IRQ0/IRQ1 through the master PIC. The same PIT
-drives timer interrupts and the speaker. Devices run on the supplied runner and
-share its clock.
+drives timer interrupts and the speaker. Launch the execution worker with
+`ExecutionWorker::spawn(cpu, SessionConfig::guest(configuration::guest_time()), session)`.
+The PC's clock advances one microsecond per retired instruction. PIT, VGA, PS/2
+and firmware use this guest time. The host clock supplies elapsed time for idle
+devices and presentation. Active CPU execution is uncapped by default.
+Use `pc.run().await` to execute the CPU alongside its devices. When the CPU is
+parked between programs, `pc.wait_for(input).await` lets the next device deadline
+advance the clock while the application waits for input.
 
 The [primary DMA controller](../dma/README.md) supplies channels 0–3 and their
 PC/AT page registers. `pc.dma()` gives peripherals access to single-transfer
@@ -170,7 +176,7 @@ execution to capture the complete note timeline. See the
 the dependency's distribution requirements.
 
 `mouse_input()` accepts relative motion, three-button transitions and focus/capture
-loss through the same execution-owned PS/2 activity. `Dos::mouse_input()` forwards
+loss through the PS/2 input receiver on the execution worker. `Dos::mouse_input()` forwards
 the handle from its PC. BIOS INT 15h/C2h configures the device, installs a guest
 far callback and enables reporting through INT 74h and IRQ2/IRQ12. A raw driver
 can instead own the controller and interrupt programming. A resident INT 33h

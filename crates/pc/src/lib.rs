@@ -5,6 +5,8 @@
 //! data and interrupt services. The caller supplies guest code and its entry state; this does not
 //! execute a reset ROM, POST or a disk bootstrap.
 //! [`Pc::with_configuration`] selects sound, video and optional parallel hardware.
+//! Pass [`configuration::guest_time`] through [`relocade_machine::SessionConfig::guest`]
+//! to [`relocade_machine::ExecutionWorker::spawn`] for PC device timing.
 //!
 //! Devices retain their own emulation and async activities. The PC owns their
 //! wiring and exposes display, audio and input handles to the embedding.
@@ -50,7 +52,8 @@ pub struct Pc {
 
 impl Pc {
     /// Initializes PC hardware and BIOS on the prepared runner. Create its
-    /// machine and CPU using [`configuration::memory`] and [`configuration::cpu`].
+    /// machine and CPU using [`configuration::memory`] and [`configuration::cpu`],
+    /// and start their guest-time session with [`configuration::guest_time`].
     /// The CPU starts in real mode, ready for the caller to supply guest code.
     /// Display capture and sound hardware emulation require no platform output.
     pub async fn new(runner: Runner) -> Result<Self, InitializationError> {
@@ -96,7 +99,11 @@ impl Pc {
                     conventional_memory_kib: (CONVENTIONAL_MEMORY_SIZE / 1024) as u16,
                     math_coprocessor: cpu_model.supports(CpuFeature::Fpu),
                     pointing_device: true,
-                    parallel_ports: [configuration.parallel_port.map_or(0, |port| port.base), 0, 0],
+                    parallel_ports: [
+                        configuration.parallel_port.map_or(0, |port| port.base),
+                        0,
+                        0,
+                    ],
                 },
                 &video_firmware,
             );
@@ -142,11 +149,14 @@ impl Pc {
         self.runner.cpu()
     }
 
-    /// Executes this PC's CPU with its scheduling and device activities.
-    /// Await inside the execution session that supplied the runner; its outer
-    /// [`Runner::run`] drives device activities and cancellation.
+    /// Executes guest code alongside hardware until the CPU exits.
     pub async fn run(&mut self) -> relocade_x86::ExecutionExit {
         self.runner.run_cpu().await
+    }
+
+    /// Keeps the hardware running with the CPU parked until the future completes.
+    pub async fn wait_for<F: std::future::Future>(&mut self, future: F) -> F::Output {
+        self.runner.wait_for(future).await
     }
 
     /// The BIOS keyboard shared with INT 16h and console services.
