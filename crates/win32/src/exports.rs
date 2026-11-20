@@ -62,7 +62,16 @@ impl<'cpu> Exports<'cpu> {
         address: u32,
         context: impl Borrow<E::Context> + 'static,
     ) -> Result<(), Exception> {
-        self.memory.write(address, &E::SIGNATURE.stub())?;
+        self.memory.write(address, E::SIGNATURE.stub_bytes())?;
+        self.hook::<E>(address, context);
+        Ok(())
+    }
+
+    pub(crate) fn hook<E: Export>(
+        &mut self,
+        address: u32,
+        context: impl Borrow<E::Context> + 'static,
+    ) {
         let state = self.cpu.cpu_state();
         let memory = self.memory.clone();
         let deliver_exception = self.deliver_exception.clone();
@@ -87,7 +96,6 @@ impl<'cpu> Exports<'cpu> {
                 }
             },
         ));
-        Ok(())
     }
 
     /// Publishes all prepared hooks through the CPU's ordinary batch installer.

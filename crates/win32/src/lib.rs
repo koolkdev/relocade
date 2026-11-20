@@ -32,6 +32,11 @@
 //! `#[varargs] tail: VaList` and read promoted arguments through guest memory.
 //! The guest's import slot and dynamically obtained function pointer can both
 //! point to the same guest address once [`Exports::install`] publishes the hooks.
+//! [`DllLoader::load`] installs all functions declared by a [`BuiltinDll`].
+//! A PE image loader gets the module once per import descriptor, resolves
+//! each symbol with [`LoadedDll::resolve`], and writes the importing image's
+//! address table. Dynamic lookups use the same guest addresses. Guest code
+//! that walks the PE headers also needs a mapped export directory.
 //!
 //! ```compile_fail
 //! use relocade_win32::{win32_export, VaList};
@@ -63,14 +68,21 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+extern crate self as relocade_win32;
+
+mod dll;
 mod export;
 mod exports;
+mod loader;
 mod signature;
 mod stack;
 mod value;
 
+pub use dll::{BuiltinDll, DllExport, DllSymbol};
 pub use export::{Export, ExportResult};
 pub use exports::Exports;
+pub use loader::{DllLoadError, DllLoader, LoadedDll};
 pub use relocade_derive::{win32_export, Win32Args};
 pub use relocade_x86::Exception;
 pub use signature::{Callback, CallingConvention, Signature};
