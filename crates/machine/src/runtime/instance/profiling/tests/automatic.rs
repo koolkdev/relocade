@@ -221,6 +221,7 @@ async fn patched_callee() {
     memory.view().write(0x200, &[0x40, 0xc3]).unwrap(); // INC AX; RET
     let cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let memory = runner.memory();
         let cpu = runner.cpu();
         cpu.cpu_state().set_sp(0x800);
         let exit = cpu.exit_handle();

@@ -108,6 +108,7 @@ async fn patch_jump_target(service: &relocade_machine::CompilerService) {
 
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let memory = runner.memory();
         let mut compiler = runner.take_compiler().unwrap();
         let state = runner.cpu().cpu_state();
         let target = state.execution_target();
