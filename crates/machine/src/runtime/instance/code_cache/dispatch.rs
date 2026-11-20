@@ -1,18 +1,21 @@
 //! Real-mode entries own their current binding and incoming call-table slots.
 
-use super::{calls::CallSite, Calls, ModuleId};
-use crate::{DispatchEntry, FarPointer, Result};
+use super::calls::{CallSite, Calls};
+use crate::memory::code::ModuleId;
+use crate::{runtime::WasmRuntime, DispatchEntry, FarPointer, Result};
 use relocade_compiler::abi::Function;
-use relocade_wasm_runtime::{ExportFunction, FunctionRef, Import, Table, WasmMemoryAccess};
+use relocade_wasm_runtime::{
+    Context, FunctionRef, Import, Memory, Table, WasmBackend, WasmMemoryAccess,
+};
 use relocade_x86::{abi, EntryTable};
 use std::collections::BTreeMap;
 
-struct Entry<B: ExportFunction<abi::ExecutionSignature>> {
-    target: Target<B>,
-    callers: BTreeMap<ModuleId, CallSite<B>>,
+struct Entry {
+    target: Target,
+    callers: BTreeMap<ModuleId, CallSite>,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Entry<B> {
+impl Entry {
     fn unresolved() -> Self {
         Self {
             target: Target::Unresolved,
@@ -21,17 +24,17 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Entry<B> {
     }
 }
 
-enum Target<B: ExportFunction<abi::ExecutionSignature>> {
+enum Target {
     Unresolved,
     Interpreter,
     Export {
         module: ModuleId,
         slot: u32,
-        function: FunctionRef<B, abi::ExecutionSignature>,
+        function: FunctionRef<WasmRuntime, abi::ExecutionSignature>,
     },
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> Target<B> {
+impl Target {
     fn slot(&self) -> Option<u32> {
         match self {
             Self::Unresolved => None,
@@ -42,8 +45,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Target<B> {
 
     fn function<'a>(
         &'a self,
-        interpreter: Option<&'a FunctionRef<B, abi::ExecutionSignature>>,
-    ) -> Option<&'a FunctionRef<B, abi::ExecutionSignature>> {
+        interpreter: Option<&'a FunctionRef<WasmRuntime, abi::ExecutionSignature>>,
+    ) -> Option<&'a FunctionRef<WasmRuntime, abi::ExecutionSignature>> {
         match self {
             Self::Unresolved => None,
             Self::Interpreter => Some(interpreter.expect("installed interpreter")),
@@ -52,25 +55,24 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Target<B> {
     }
 }
 
-pub(super) struct DispatchTable<B: ExportFunction<abi::ExecutionSignature>> {
-    memory: B::Memory,
-    functions: Table<B, abi::ExecutionSignature>,
-    entries: BTreeMap<u32, Entry<B>>,
-    interpreter: Option<FunctionRef<B, abi::ExecutionSignature>>,
+pub(in crate::runtime::instance) struct DispatchTable {
+    memory: Memory,
+    functions: Table<WasmRuntime, abi::ExecutionSignature>,
+    entries: BTreeMap<u32, Entry>,
+    interpreter: Option<FunctionRef<WasmRuntime, abi::ExecutionSignature>>,
     next_slot: u32,
     free_slots: Vec<u32>,
     capacity: u32,
 }
 
-impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
-    pub(super) fn new(backend: &mut B) -> Result<Self> {
-        let memory = backend.create_memory(abi::EXECUTION_ENTRIES)?;
-        backend
-            .memory(&memory)
+impl DispatchTable {
+    pub(in crate::runtime::instance) fn new(wasm: &mut WasmRuntime) -> Result<Self> {
+        let memory = wasm.create_memory(abi::EXECUTION_ENTRIES)?;
+        wasm.memory(&memory)
             .write(0, &EntryTable::default().to_bytes());
         Ok(Self {
             memory,
-            functions: backend.create_table(abi::EXECUTION_FUNCTIONS, None)?,
+            functions: wasm.create_table(abi::EXECUTION_FUNCTIONS, None)?,
             entries: BTreeMap::new(),
             interpreter: None,
             next_slot: EntryTable::FIRST_DYNAMIC_SLOT,
@@ -79,17 +81,17 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         })
     }
 
-    pub(super) fn imports<'a>(&'a self, backend: &B) -> [Import<'a, B>; 2]
-    where
-        B: 'a,
-    {
+    pub(in crate::runtime::instance) fn imports<'a>(
+        &'a self,
+        wasm: &WasmRuntime,
+    ) -> [Import<'a, WasmRuntime>; 2] {
         [
-            backend.bind(abi::EXECUTION_ENTRIES, &self.memory),
-            backend.bind(abi::EXECUTION_FUNCTIONS, &self.functions),
+            wasm.bind(abi::EXECUTION_ENTRIES, &self.memory),
+            wasm.bind(abi::EXECUTION_FUNCTIONS, &self.functions),
         ]
     }
 
-    pub(super) fn resources(&self) -> (B::Memory, Table<B, abi::ExecutionSignature>) {
+    pub(super) fn resources(&self) -> (Memory, Table<WasmRuntime, abi::ExecutionSignature>) {
         (self.memory.clone(), self.functions.clone())
     }
 
@@ -108,20 +110,20 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
 
     pub(super) fn register_calls(
         &mut self,
-        backend: &mut B,
+        wasm: &mut WasmRuntime,
         module: ModuleId,
-        calls: &Calls<B>,
+        calls: &Calls,
     ) -> Result<()> {
         // Each module uses one call-table slot per distinct target.
         for (key, site) in calls.sites() {
             let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
-            site.bind(backend, entry.target.function(self.interpreter.as_ref()))?;
+            site.bind(wasm, entry.target.function(self.interpreter.as_ref()))?;
             entry.callers.insert(module, site);
         }
         Ok(())
     }
 
-    pub(super) fn unregister_calls(&mut self, module: ModuleId, calls: &Calls<B>) {
+    pub(super) fn unregister_calls(&mut self, module: ModuleId, calls: &Calls) {
         for key in &calls.targets {
             let entry = self.entries.get_mut(key).expect("registered call target");
             entry.callers.remove(&module);
@@ -134,7 +136,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     /// An interpreter binding suppresses profiling for its own CS:IP. Preserve newer bindings.
     pub(super) fn bind_interpreter_if_vacant(
         &mut self,
-        backend: &mut B,
+        wasm: &mut WasmRuntime,
         entries: impl IntoIterator<Item = FarPointer>,
     ) -> Result<()> {
         let updates = entries
@@ -143,27 +145,27 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             .filter(|&key| !self.contains(key))
             .map(|key| (key, Target::Interpreter))
             .collect();
-        self.publish(backend, updates)
+        self.publish(wasm, updates)
     }
 
-    pub(super) fn install_interpreter(
+    pub(in crate::runtime::instance) fn install_interpreter(
         &mut self,
-        backend: &mut B,
-        instance: &B::Instance,
+        wasm: &mut WasmRuntime,
+        instance: &<WasmRuntime as WasmBackend>::Instance,
     ) -> Result<()> {
-        let function = backend.function(instance, abi::RUN)?;
-        let function = backend.import_function(&function);
+        let function = wasm.function(instance, abi::RUN)?;
+        let function = wasm.import_function(&function);
         self.functions
-            .set(backend, EntryTable::INTERPRETER_SLOT, &function)?;
+            .set(wasm, EntryTable::INTERPRETER_SLOT, &function)?;
         self.interpreter = Some(function);
         Ok(())
     }
 
     pub(super) fn register_exports(
         &mut self,
-        backend: &mut B,
+        wasm: &mut WasmRuntime,
         module: ModuleId,
-        instance: &B::Instance,
+        instance: &<WasmRuntime as WasmBackend>::Instance,
         entries: &[DispatchEntry<'_>],
     ) -> Result<Vec<u32>> {
         // Only the last export at each key needs to exist in the Wasm instance.
@@ -175,7 +177,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         let mut next_slot = self.next_slot;
         let mut free_slots = self.free_slots.clone();
         for (&key, &export) in &exports {
-            let function = backend.function(
+            let function = wasm.function(
                 instance,
                 Function::<abi::ExecutionSignature>::new("", export),
             )?;
@@ -197,11 +199,11 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
                 Target::Export {
                     module,
                     slot,
-                    function: backend.import_function(&function),
+                    function: wasm.import_function(&function),
                 },
             );
         }
-        self.publish(backend, updates)?;
+        self.publish(wasm, updates)?;
         self.free_slots = free_slots;
         Ok(exports.into_keys().collect())
     }
@@ -209,7 +211,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     /// Only withdraw exports still owned by the retiring installation.
     pub(super) fn remove(
         &mut self,
-        context: &mut B::Context<'_>,
+        context: &mut Context<'_>,
         exports: impl IntoIterator<Item = (ModuleId, u32)>,
     ) -> Result<()> {
         let updates: BTreeMap<_, _> = exports
@@ -233,21 +235,21 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
 
     /// Publish binding changes and update their callers in the same operation.
     /// Unresolved entries remain registered while they have incoming calls.
-    fn publish(&mut self, backend: &mut B, updates: BTreeMap<u32, Target<B>>) -> Result<()> {
+    fn publish(&mut self, wasm: &mut WasmRuntime, updates: BTreeMap<u32, Target>) -> Result<()> {
         if updates.is_empty() {
             return Ok(());
         }
         let bytes = self.lookup_after(&updates).to_bytes();
-        let next_slot = self.reserve(backend, &updates, bytes.len())?;
-        self.apply(&mut backend.context(), updates, &bytes)?;
+        let next_slot = self.reserve(wasm, &updates, bytes.len())?;
+        self.apply(&mut wasm.context(), updates, &bytes)?;
         self.next_slot = next_slot;
         Ok(())
     }
 
     fn apply(
         &mut self,
-        context: &mut B::Context<'_>,
-        updates: BTreeMap<u32, Target<B>>,
+        context: &mut Context<'_>,
+        updates: BTreeMap<u32, Target>,
         lookup: &[u8],
     ) -> Result<()> {
         for (key, target) in updates {
@@ -257,7 +259,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         Ok(())
     }
 
-    fn lookup_after(&self, updates: &BTreeMap<u32, Target<B>>) -> EntryTable {
+    fn lookup_after(&self, updates: &BTreeMap<u32, Target>) -> EntryTable {
         let mut slots = EntryTable::default();
         for (&key, entry) in &self.entries {
             if updates.contains_key(&key) {
@@ -278,8 +280,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
     /// Grow both tables before replacing any live binding.
     fn reserve(
         &mut self,
-        backend: &mut B,
-        updates: &BTreeMap<u32, Target<B>>,
+        wasm: &mut WasmRuntime,
+        updates: &BTreeMap<u32, Target>,
         lookup_bytes: usize,
     ) -> Result<u32> {
         let next_slot = updates
@@ -288,15 +290,15 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
             .fold(self.next_slot, |next, slot| next.max(slot + 1));
         if next_slot > self.capacity {
             let capacity = next_slot.max(self.capacity.saturating_mul(2));
-            self.functions.ensure_size(backend, capacity, None)?;
+            self.functions.ensure_size(wasm, capacity, None)?;
             self.capacity = capacity;
         }
-        backend.ensure_memory_size(&self.memory, lookup_bytes as u64)?;
+        wasm.ensure_memory_size(&self.memory, lookup_bytes as u64)?;
         Ok(next_slot)
     }
 
     /// Update the function-table slot and registered callers for one entry.
-    fn bind(&mut self, context: &mut B::Context<'_>, key: u32, target: Target<B>) -> Result<()> {
+    fn bind(&mut self, context: &mut Context<'_>, key: u32, target: Target) -> Result<()> {
         let entry = self.entries.entry(key).or_insert_with(Entry::unresolved);
         if let Target::Export { slot, function, .. } = &target {
             self.functions.set(context, *slot, function)?;

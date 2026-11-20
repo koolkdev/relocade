@@ -7,14 +7,14 @@ use std::{sync::Arc, task::Waker};
 const RETIRE: u8 = 1 << 0;
 const COMPILER_REPLY: u8 = 1 << 1;
 
-pub(crate) struct CodeWork(u8);
+pub(in crate::runtime) struct CodeWork(u8);
 
 impl CodeWork {
-    pub(crate) fn retirements(&self) -> bool {
+    pub(super) fn retirements(&self) -> bool {
         self.0 & RETIRE != 0
     }
 
-    pub(crate) fn compiler_reply(&self) -> bool {
+    pub(super) fn compiler_reply(&self) -> bool {
         self.0 & COMPILER_REPLY != 0
     }
 }
@@ -32,11 +32,11 @@ impl CodeWake {
         self.reasons.clone()
     }
 
-    pub(super) fn register(&self, task: &Waker) {
+    pub(in crate::runtime) fn register(&self, task: &Waker) {
         self.run.register(task);
     }
 
-    pub(super) fn unregister(&self) {
+    pub(in crate::runtime) fn unregister(&self) {
         self.run.take();
     }
 
@@ -57,11 +57,11 @@ impl CodeWake {
         self.reasons.take(RETIRE) != 0
     }
 
-    pub(super) fn pending(&self) -> bool {
+    pub(in crate::runtime) fn pending(&self) -> bool {
         self.reasons.pending(RETIRE | COMPILER_REPLY)
     }
 
-    pub(super) fn take_ready(&self) -> Option<CodeWork> {
+    pub(in crate::runtime) fn take_ready(&self) -> Option<CodeWork> {
         let ready = self.reasons.take(RETIRE | COMPILER_REPLY);
         (ready != 0).then_some(CodeWork(ready))
     }

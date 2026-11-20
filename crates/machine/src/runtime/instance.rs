@@ -1,12 +1,10 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
 mod code_cache;
-mod hooks;
-mod modules;
-mod profiling;
 
 use super::{code, CpuContext, RuntimeMemory, WasmRuntime, WasmRuntimeHandle};
-use crate::{memory::CpuBinding, worker::HostTurns, FarPointer, IoBus, Result};
+use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
+pub(crate) use code_cache::CodeWake;
 pub(super) use code_cache::{CodeCache, Installation};
 use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
@@ -57,12 +55,13 @@ impl CpuInstance {
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
-            let mut modules = modules::CpuModules::new(wasm, bindings.guest.clone())?;
-            let profiling = profiling::Profiling::new(wasm)?;
+            let mut table = code_cache::DispatchTable::new(wasm)?;
+            let write_code = code_cache::WriteCode::new(wasm, bindings.guest.clone());
+            let call_profile = wasm.create_memory(abi::CALL_PROFILE)?;
             let mut imports = bindings.imports(wasm).to_vec();
-            imports.push(modules.write_code.import(abi::WRITE_CODE));
-            imports.extend(modules.imports(wasm));
-            imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
+            imports.push(write_code.import());
+            imports.extend(table.imports(wasm));
+            imports.push(wasm.bind(abi::CALL_PROFILE, &call_profile));
             let instance = wasm.instantiate(&dispatcher, &imports)?;
             let dispatch = wasm.function(&instance, abi::DISPATCH)?;
             let interpret = wasm.function(&instance, abi::INTERPRET)?;
@@ -84,7 +83,7 @@ impl CpuInstance {
             )?;
             imports.extend(io.mmio_map().imports(wasm));
             let instance = wasm.instantiate(&interpreter, &imports)?;
-            modules.install_interpreter(wasm, &instance)?;
+            table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
             let interrupt = if bindings.cpu.mode() == CpuMode::Real {
                 Some(wasm.function(&instance, abi::INTERRUPT)?)
@@ -111,7 +110,7 @@ impl CpuInstance {
                 resolve_and_jump,
             });
             Ok(Self {
-                code: CodeCache::new(guest.clone(), modules, profiling),
+                code: CodeCache::new(guest.clone(), table, write_code, call_profile),
                 guest,
             })
         })
@@ -131,10 +130,11 @@ impl CpuInstance {
         &mut self,
         enter: impl FnOnce(&GuestEntryPoints, &mut WasmRuntime) -> ExecutionExit,
     ) -> ExecutionExit {
-        self.guest.runtime.with_runtime(|wasm| {
-            let _callback = self.code.enter_guest(&mut wasm.context());
-            enter(&self.guest.entry_points, wasm)
-        })
+        self.code.retire_pending().expect("retire modified code");
+        let _write_callback = self.code.bind_write_callback();
+        self.guest
+            .runtime
+            .with_runtime(|wasm| enter(&self.guest.entry_points, wasm))
     }
 
     pub(super) fn run(&mut self) -> ExecutionExit {
@@ -170,12 +170,5 @@ impl CpuInstance {
     #[cold]
     pub(super) fn step(&mut self) -> ExecutionExit {
         self.enter_guest(|entries, wasm| entries.step.call(wasm, ()))
-    }
-}
-
-impl super::Cpu {
-    pub(crate) fn with_host_turns(mut self, host: HostTurns) -> Self {
-        self.instance.code.host_turns = host;
-        self
     }
 }

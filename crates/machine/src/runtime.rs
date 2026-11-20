@@ -40,7 +40,6 @@
 #[allow(unsafe_code)]
 mod call;
 mod code;
-mod code_wake;
 mod context;
 mod error;
 mod execution;
@@ -55,7 +54,6 @@ mod wasm;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
-pub(crate) use code_wake::{CodeWake, CodeWork};
 pub use context::CpuContext;
 pub use error::{Error, Result};
 pub(crate) use execution::CpuStop;
@@ -63,8 +61,9 @@ pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
-use instance::CpuInstance;
+pub(crate) use instance::CodeWake;
 pub use instance::DispatchEntry;
+use instance::{CpuInstance, Installation};
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
@@ -162,7 +161,7 @@ impl Cpu {
 
     pub(crate) fn install_guest_code(&mut self, code: &crate::CompiledCode) -> Result<()> {
         self.stopped_code()
-            .install_guest_code(code, instance::Installation::Explicit)
+            .install_guest_code(code, Installation::Explicit)
     }
 
     /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.

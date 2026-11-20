@@ -8,7 +8,12 @@ use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
 };
-use std::{num::NonZeroUsize, time::Duration};
+use std::{
+    future::poll_fn,
+    num::NonZeroUsize,
+    task::{ready, Poll},
+    time::Duration,
+};
 
 mod suspended;
 
@@ -85,10 +90,15 @@ async fn automatic() {
                 let retired = runner.cpu().cpu_state().instruction_count();
                 slice(&mut runner).await;
                 assert!(runner.cpu().cpu_state().instruction_count() > retired);
-                if targets
-                    .iter()
-                    .all(|entry| runner.cpu().instance.code.modules.has_entry(entry.packed()))
-                {
+                if targets.iter().all(|entry| {
+                    runner
+                        .cpu()
+                        .instance
+                        .code
+                        .installed()
+                        .dispatch
+                        .contains(entry.packed())
+                }) {
                     for entry in &targets {
                         assert_eq!(
                             runner
@@ -100,7 +110,13 @@ async fn automatic() {
                     }
                     if partial {
                         // The RET after JNZ is an internal fallthrough.
-                        assert!(!runner.cpu().instance.code.modules.has_entry(0x205));
+                        assert!(!runner
+                            .cpu()
+                            .instance
+                            .code
+                            .installed()
+                            .dispatch
+                            .contains(0x205));
                         assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
                     }
                     assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
@@ -184,7 +200,11 @@ async fn full_collection(compiler: &CompilerService) {
             assert!(cpu.instance.code.profiling.hotness.count(target.packed()) >= 4096);
         } else {
             assert!(
-                cpu.instance.code.modules.has_entry(target.packed()),
+                cpu.instance
+                    .code
+                    .installed()
+                    .dispatch
+                    .contains(target.packed()),
                 "expected a compiled reply"
             );
         }
@@ -260,12 +280,19 @@ async fn patched_callee() {
             );
             assert_eq!(!cpu.instance.code.pending.is_empty(), expect_request);
             if expect_request {
-                let compiler = cpu.instance.code.compiler.as_mut().unwrap();
-                let code = compiler.recv().await.unwrap().unwrap();
-                assert_eq!(!code.blocks().is_empty(), compiled);
-                cpu.instance.code.install_compiler_reply(Ok(code));
+                // Keep the guest stopped while the execution worker delivers the reply.
+                let run = cpu.listen_for_run();
+                poll_fn(|cx| {
+                    let _active = ready!(run.poll_enter(cpu, cx));
+                    if cpu.instance.code.pending.is_empty() {
+                        Poll::Ready(())
+                    } else {
+                        run.park(cx)
+                    }
+                })
+                .await;
             }
-            assert!(cpu.instance.code.modules.has_entry(0x200));
+            assert!(cpu.instance.code.installed().dispatch.contains(0x200));
             assert_eq!(
                 cpu.compiled_modules_at(0x200).count(),
                 usize::from(compiled)
@@ -277,7 +304,13 @@ async fn patched_callee() {
             segment: 0x10,
             offset: 0x100,
         };
-        assert!(!runner.cpu().instance.code.modules.has_entry(alias.packed()));
+        assert!(!runner
+            .cpu()
+            .instance
+            .code
+            .installed()
+            .dispatch
+            .contains(alias.packed()));
         let target = runner.cpu().cpu_state().execution_target();
         let mut client = runner.take_compiler().unwrap();
         client
@@ -293,7 +326,13 @@ async fn patched_callee() {
         let code = client.recv().await.unwrap().unwrap();
         assert!(code.blocks().is_empty());
         code.install(runner.cpu()).unwrap();
-        assert!(runner.cpu().instance.code.modules.has_entry(alias.packed()));
+        assert!(runner
+            .cpu()
+            .instance
+            .code
+            .installed()
+            .dispatch
+            .contains(alias.packed()));
     })
     .join()
     .await;
