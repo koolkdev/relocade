@@ -27,14 +27,14 @@ pub(crate) fn assumptions(entry: EntryAssumptions, segment: Segment) -> Vec<Stat
         };
     }
     match entry.segments {
-        SegmentAssumptions::RealMode => {
+        Some(SegmentAssumptions::RealMode) => {
             field!(limit, u32::from(u16::MAX));
             // A canonical real-mode cache has D/B clear.
             if segment != Segment::Cs || entry.code_default_size.is_none() {
                 attribute!(big, false);
             }
         }
-        SegmentAssumptions::Flat
+        Some(SegmentAssumptions::Flat)
             if matches!(
                 segment,
                 Segment::Cs | Segment::Ds | Segment::Es | Segment::Ss
@@ -51,7 +51,7 @@ pub(crate) fn assumptions(entry: EntryAssumptions, segment: Segment) -> Vec<Stat
                 attribute!(big, true);
             }
         }
-        SegmentAssumptions::Flat | SegmentAssumptions::Runtime => {}
+        Some(SegmentAssumptions::Flat) | None => {}
     }
     if let (Segment::Cs, Some(size)) = (segment, entry.code_default_size) {
         attribute!(big, size == SegmentDefaultSize::Bits32);

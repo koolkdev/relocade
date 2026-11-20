@@ -55,7 +55,7 @@ impl SegmentRegister {
         {
             return false;
         }
-        if entry.segments == SegmentAssumptions::RealMode {
+        if entry.segments == Some(SegmentAssumptions::RealMode) {
             return *self == Self::real_mode(segment, self.selector)
                 && (segment != Segment::Cs
                     || entry.code_default_size != Some(SegmentDefaultSize::Bits32));

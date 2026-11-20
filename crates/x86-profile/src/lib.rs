@@ -18,8 +18,6 @@ pub enum SegmentAssumptions {
     RealMode,
     /// Flat CS, DS, ES and SS with a 32-bit stack. FS and GS remain live.
     Flat,
-    /// Read segment bases, limits, permissions and stack width from the CPU.
-    Runtime,
 }
 
 /// The D/B attribute of CS or SS, or the upper bound of an expand-down data segment.
@@ -34,7 +32,9 @@ pub enum SegmentDefaultSize {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct EntryAssumptions {
     pub mode: ExecutionMode,
-    pub segments: SegmentAssumptions,
+    /// Guaranteed segment cache layout. With `None`, cache fields stay live
+    /// except for CS.D when [`Self::code_default_size`] fixes it.
+    pub segments: Option<SegmentAssumptions>,
     /// CS.D when fixed by the caller. Otherwise decoding reads the live cache,
     /// and a compiled snapshot guards the width used to decode its bytes.
     pub code_default_size: Option<SegmentDefaultSize>,
@@ -43,16 +43,16 @@ pub struct EntryAssumptions {
 impl EntryAssumptions {
     pub const REAL_MODE: Self = Self {
         mode: ExecutionMode::Real,
-        segments: SegmentAssumptions::RealMode,
+        segments: Some(SegmentAssumptions::RealMode),
         code_default_size: Some(SegmentDefaultSize::Bits16),
     };
     pub const FLAT32: Self = Self {
         mode: ExecutionMode::ProtectedUser,
-        segments: SegmentAssumptions::Flat,
+        segments: Some(SegmentAssumptions::Flat),
         code_default_size: Some(SegmentDefaultSize::Bits32),
     };
     pub const SEGMENTED32: Self = Self {
-        segments: SegmentAssumptions::Runtime,
+        segments: None,
         ..Self::FLAT32
     };
     pub const SEGMENTED16: Self = Self {
