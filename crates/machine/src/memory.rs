@@ -21,11 +21,13 @@ pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
     code: Arc<code::CodeRegistry>,
-    cpu: Arc<Mutex<Weak<CpuConfig>>>,
+    // Only a PC address space has exclusive CPU ownership. Its device routing
+    // and generated-code write barriers belong to the attached CPU.
+    pc_cpu: Option<Arc<Mutex<Weak<CpuConfig>>>>,
 }
 
-/// One CPU configuration bound to this PC's memory. Keeping this binding on a
-/// prepared handle or its runtime prevents another CPU from attaching.
+/// Binds one CPU configuration to its memory. On a PC, a prepared handle or
+/// live runtime keeps the sole CPU attachment reserved.
 #[derive(Clone, crate::worker::Transfer)]
 pub struct CpuBinding {
     pub(crate) memory: Memory,
@@ -33,30 +35,33 @@ pub struct CpuBinding {
 }
 
 impl Memory {
-    /// Allocates zeroed guest backing with the supplied physical address policy.
+    /// Allocates zeroed guest backing with the supplied address policy.
     pub fn new(config: MachineConfig) -> Result<Self> {
         let minimum = config.memory_size().div_ceil(65536).max(1) as u32;
         let maximum = relocade_x86::abi::GUEST
             .maximum
             .expect("guest memory has a maximum");
         let backing = SharedMemory::new(minimum, maximum)?;
+        let pc_cpu = config.physical_map().map(|_| Arc::default());
         Ok(Self {
             config: Arc::new(config),
             backing,
             code: Arc::default(),
-            cpu: Arc::default(),
+            pc_cpu,
         })
     }
 
     pub(crate) fn attach_cpu(&self, config: CpuConfig) -> Result<CpuBinding> {
         self.configuration()
             .validate_target(config.execution_target())?;
-        let mut cpu = self.cpu.lock().unwrap();
-        if cpu.strong_count() != 0 {
-            return Err(ConfigurationError::CpuAlreadyAttached.into());
-        }
         let config = Arc::new(config);
-        *cpu = Arc::downgrade(&config);
+        if let Some(pc_cpu) = &self.pc_cpu {
+            let mut cpu = pc_cpu.lock().unwrap();
+            if cpu.strong_count() != 0 {
+                return Err(ConfigurationError::CpuAlreadyAttached.into());
+            }
+            *cpu = Arc::downgrade(&config);
+        }
         Ok(CpuBinding {
             memory: self.clone(),
             config,

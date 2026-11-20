@@ -160,6 +160,11 @@ registers and `cpu.memory().view()` for guest bytes. Host hooks and Wasm module
 entries use the full EIP as their dispatch key. The initial CPU image supplies
 the loaded segment caches. Descriptor queries and reloads see empty tables.
 
+Pass clones of the same flat `Memory` to create multiple CPUs. Give each CPU
+its own initial registers and stack range. Each `Cpu::run` future waits on its
+own host calls, so the same worker can drive a peer while a call is pending.
+A PC physical map still admits one CPU at a time.
+
 ## Devices
 
 `Device` owns interrupts and optional asynchronous activity. Prepare register
