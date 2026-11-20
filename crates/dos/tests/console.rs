@@ -10,8 +10,8 @@ use std::io::{Read, Write};
 
 #[test]
 fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
-    pollster::block_on(async {
-        let mut dos = common::dos().await;
+    let session = async |runner| {
+        let mut dos = relocade_dos::Dos::new(runner).await.unwrap();
         use relocade_frontend::keyboard::{
             self, ElementState, Key, KeyCode, KeyLocation, KeyboardEvent, NativeKey,
         };
@@ -37,13 +37,9 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
                 .unwrap();
         }
         dos.stdin().write_all(b"G").unwrap();
-        {
-            let mut console = dos.native_console(events);
-            console.write(b"> ");
-            assert_eq!(console.read_line().await.unwrap(), b"abc");
-            drop(input);
-            assert_eq!(console.read_line().await, None);
-        }
+        let mut console = dos.native_console(events);
+        console.write(b"> ");
+        assert_eq!(console.read_line().await.unwrap(), b"abc");
         assert!(dos.process().is_none());
         assert_eq!(
             dos.keyboard()
@@ -53,16 +49,20 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
             b'G'
         );
         assert_eq!(dos.keyboard().peek_key(KeyMode::Enhanced), None);
-        let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
-        dos.launch_com(&com, Default::default()).unwrap();
-        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
-        let mut exe = com;
-        exe[3] = b'E';
-        dos.launch_mz(&common::mz_image(&exe), Default::default())
-            .unwrap();
-        assert_eq!(dos.cpu().run().await, ExecutionExit::Host(HostExit::Return));
-        dos.native_console(relocade_frontend::keyboard::channel().1)
-            .write(b"> ");
+        let programs = async {
+            let com = [0xb4, 2, 0xb2, b'C', 0xcd, 0x21, 0xb8, 7, 0x4c, 0xcd, 0x21];
+            dos.launch_com(&com, Default::default()).unwrap();
+            assert_eq!(dos.run().await, Ok(7));
+            let mut exe = com;
+            exe[3] = b'E';
+            dos.launch_mz(&common::mz_image(&exe), Default::default())
+                .unwrap();
+            assert_eq!(dos.run().await, Ok(7));
+            drop(input);
+        };
+        let (line, ()) = futures_util::future::join(console.read_line(), programs).await;
+        assert_eq!(line, None);
+        console.write(b"> ");
         let screen = common::screen(&dos);
         assert_eq!(
             screen.cells[..5]
@@ -84,7 +84,18 @@ fn rust_console_shares_editing_and_video_with_com_and_mz_programs() {
             b"CE",
             "guest streams retain their existing semantics"
         );
-    });
+    };
+    let mut machine =
+        relocade_machine::Machine::new(relocade_dos::configuration::memory()).unwrap();
+    let cpu = machine
+        .create_cpu(relocade_dos::configuration::cpu(), None)
+        .unwrap();
+    let finished = cpu.run_until(
+        futures_timer::Delay::new(std::time::Duration::from_secs(30)),
+        session,
+    );
+    assert_eq!(pollster::block_on(finished).unwrap(), Some(()));
+    pollster::block_on(machine.shutdown()).unwrap();
 }
 
 #[test]

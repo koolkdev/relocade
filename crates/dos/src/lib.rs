@@ -224,7 +224,7 @@ use state::DosState;
 use std::{cell::RefCell, rc::Rc};
 
 /// A DOS session with persistent CPU, memory, filesystems and console resources.
-/// Devices share the runner's clock; the default uses the host timer service.
+/// Devices share the PC's guest clock across process launches.
 pub struct Dos {
     state: Rc<DosState>,
     pc: Pc,
@@ -479,21 +479,19 @@ impl Dos {
         self.pc.mouse_input()
     }
 
-    /// Opens a native prompt over application-owned physical input and BIOS video.
-    /// It shares line editing and cooked output with DOS, but executes no guest
-    /// code and uses neither DOS handles nor the guest keyboard queue. Drop the
-    /// console before launching or resuming a guest program.
-    ///
-    /// # Panics
-    /// Panics if a guest host service is still pending. Open the prompt at startup
-    /// or after guest execution has completed, rather than after cancelling a read.
+    /// Opens prompt I/O over application-owned physical input and BIOS video.
+    /// The prompt shares cooked output and line editing with DOS. The application
+    /// can keep this handle across guest programs and resume reading after exit.
     pub fn native_console(
-        &mut self,
+        &self,
         events: relocade_frontend::keyboard::KeyboardEvents,
-    ) -> NativeConsole<'_> {
-        let memory = self.pc.cpu().memory();
-        let io = self.pc.cpu().context().io.clone();
-        NativeConsole::new(memory.with_io(io), self.state.stdio(), events)
+    ) -> NativeConsole {
+        let runner = self.pc.runner();
+        NativeConsole::new(
+            runner.memory().with_io(runner.io()),
+            self.state.stdio().clone(),
+            events,
+        )
     }
 
     /// Installs a driver as a named character device at the front of DOS's chain.

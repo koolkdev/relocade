@@ -36,8 +36,8 @@ impl Dos {
     /// environment and video output. Unexpected CPU exits leave the process active
     /// for inspection.
     ///
-    /// Process completion leaves the environment alive. Keep the main session
-    /// alive to capture the program's final writes and advance idle video.
+    /// Devices keep running after process completion. VGA retrace can capture
+    /// the program's final writes while the session waits for its next launch.
     /// Session shutdown uses the execution worker's separate `stop().await`.
     /// Await inside the execution session that created this DOS environment;
     /// that session drives device activities and cancellation.

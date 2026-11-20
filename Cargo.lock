@@ -2542,6 +2542,7 @@ dependencies = [
  "futures-channel",
  "futures-lite",
  "futures-timer",
+ "futures-util",
  "pollster 1.0.1",
  "relocade-app",
  "relocade-clock-test-support",
