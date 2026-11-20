@@ -2823,8 +2823,14 @@ dependencies = [
 name = "relocade-win32"
 version = "0.0.0"
 dependencies = [
+ "pollster 1.0.1",
  "relocade-derive",
+ "relocade-interpreter",
+ "relocade-machine",
+ "relocade-test-support",
+ "relocade-wasm-bindings",
  "relocade-x86",
+ "wasmtime",
 ]
 
 [[package]]

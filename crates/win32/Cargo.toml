@@ -7,4 +7,12 @@ publish.workspace = true
 
 [dependencies]
 relocade-derive = { path = "../derive" }
+relocade-machine = { path = "../machine" }
 relocade-x86 = { path = "../x86" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "=1.0.1"
+relocade-interpreter = { path = "../interpreter" }
+relocade-test-support.workspace = true
+relocade-wasm-bindings = { path = "../wasm-bindings" }
+wasmtime.workspace = true
