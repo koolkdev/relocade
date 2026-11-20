@@ -26,7 +26,7 @@ async fn patch_running_code(compiler: &relocade_machine::CompilerService) {
     view.write(0x500, &[0x34, 0x12]).unwrap();
 
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let mut compiler = runner.take_compiler().unwrap();
         let state = runner.cpu().cpu_state();
         for offset in [0x100, 0xffb, 0x200, 0x300] {
@@ -77,6 +77,7 @@ async fn patch_running_code(compiler: &relocade_machine::CompilerService) {
         assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
     })
+    .join()
     .await
     .unwrap()
     .unwrap();

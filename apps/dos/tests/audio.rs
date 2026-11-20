@@ -1,9 +1,9 @@
 #[path = "audio/output.rs"]
 mod output;
 
-use futures_lite::future::{or, zip};
+use futures_lite::future::or;
 use relocade_dos::Dos;
-use relocade_machine::timer_service;
+use relocade_machine::{ExecutionWorker, SessionConfig};
 use std::{
     future::{pending, poll_fn, Future},
     io::Write,
@@ -25,7 +25,6 @@ const PROGRAM: &[u8] = &[
 ];
 
 async fn exercise() {
-    let (clock, timers) = timer_service();
     let main = async move {
         let (output, config, samples) = output::Output::open();
         let (stage_changed, stages) = async_channel::bounded(2);
@@ -35,7 +34,7 @@ async fn exercise() {
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
-        let worker = prepared.spawn(clock, async move |runner| {
+        let worker = ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |runner| {
             let mut dos = Dos::new(runner).await.unwrap();
             dos.attach_audio(config, samples).await.unwrap();
             dos.launch_com(PROGRAM, Default::default()).unwrap();
@@ -78,20 +77,14 @@ async fn exercise() {
             output.check(config.sample_rate, 0).await
         }
         .await;
-        // Keep timers alive until execution stops, including a failed audio check.
         assert_eq!(worker.stop().await.unwrap(), None);
         result.unwrap();
         machine.shutdown().await.unwrap();
     };
-    or(
-        async {
-            zip(timers.run(), main).await;
-        },
-        async {
-            futures_timer::Delay::new(Duration::from_secs(120)).await;
-            panic!("DOS audio integration timed out");
-        },
-    )
+    or(main, async {
+        futures_timer::Delay::new(Duration::from_secs(120)).await;
+        panic!("DOS audio integration timed out");
+    })
     .await;
 }
 

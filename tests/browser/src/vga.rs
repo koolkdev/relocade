@@ -1,7 +1,8 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
-use futures_util::future::join;
-use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig};
+use relocade_machine::{
+    worker::Thread, CpuConfig, ExecutionWorker, Hook, MachineConfig, SessionConfig,
+};
 use relocade_vga::{DispiAdapter, MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
@@ -15,7 +16,6 @@ pub async fn vga_workers() -> Result<(), String> {
     let (source, display_source) = oneshot::channel();
     let (input, incoming) = oneshot::channel();
     let (rendered, presented) = oneshot::channel();
-    let (clock, timers) = timer_service();
     let display = Thread::new();
     let config = MachineConfig::new(
         0x1000,
@@ -36,85 +36,86 @@ pub async fn vga_workers() -> Result<(), String> {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let cpu_task = prepared.spawn(clock, async move |mut runner| {
-        let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
-            runner.clock().clone(),
-        )));
-        assert!(source.send(vga.borrow().frames()).is_ok());
+    let cpu_task =
+        ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |mut runner| {
+            let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
+                runner.clock().clone(),
+            )));
+            assert!(source.send(vga.borrow().frames()).is_ok());
 
-        runner
-            .connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga))
-            .await;
-        crate::vga_fixture::initialize_font(&runner.io());
-        let io = runner.io();
-        let memory = runner.memory();
-        memory
-            .view()
-            .write(
-                0x100,
-                &[
-                    0xba, 0xda, 0x03, // DX = Input Status 1.
-                    0xec, 0xa8, 8, 0x75, 0xfb, // Wait until vertical retrace ends.
-                    0xec, 0xa8, 8, 0x74, 0xfb, // Wait for the next vertical retrace.
-                    0xb8, 0x00, 0xb8, 0x8e, 0xc0, // ES = B800.
-                    0x26, 0x66, 0xc7, 0x06, 0x20, 0, b'A', 0x1e, b'B', 0x2f,
-                    // MOV dword ES:[0020],2F421E41 writes two cells together.
-                    0xba, 0xd4, 0x03, // DX = CRTC index port.
-                    0xb8, 0x0d, 0x10, 0xef, // Display starts at cell 0010.
-                    0xb8, 0x0f, 0x11, 0xef, // Cursor at cell 0011.
-                    0xb8, 0x0a, 0x20, 0xef, // Hide cursor.
-                    0xea, 0x00, 0x02, 0, 0, // JMP 0000:0200, the input hook.
-                ],
-            )
+            runner
+                .connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga))
+                .await;
+            crate::vga_fixture::initialize_font(&runner.io());
+            let io = runner.io();
+            let memory = runner.memory();
+            memory
+                .view()
+                .write(
+                    0x100,
+                    &[
+                        0xba, 0xda, 0x03, // DX = Input Status 1.
+                        0xec, 0xa8, 8, 0x75, 0xfb, // Wait until vertical retrace ends.
+                        0xec, 0xa8, 8, 0x74, 0xfb, // Wait for the next vertical retrace.
+                        0xb8, 0x00, 0xb8, 0x8e, 0xc0, // ES = B800.
+                        0x26, 0x66, 0xc7, 0x06, 0x20, 0, b'A', 0x1e, b'B', 0x2f,
+                        // MOV dword ES:[0020],2F421E41 writes two cells together.
+                        0xba, 0xd4, 0x03, // DX = CRTC index port.
+                        0xb8, 0x0d, 0x10, 0xef, // Display starts at cell 0010.
+                        0xb8, 0x0f, 0x11, 0xef, // Cursor at cell 0011.
+                        0xb8, 0x0a, 0x20, 0xef, // Hide cursor.
+                        0xea, 0x00, 0x02, 0, 0, // JMP 0000:0200, the input hook.
+                    ],
+                )
+                .unwrap();
+            memory
+                .view()
+                .write(
+                    0x300,
+                    &[
+                        0x26, 0xa2, 0x20, 0, // MOV ES:[0020],AL after input arrives.
+                        0xea, 0x00, 0x04, 0, 0, // JMP 0000:0400, the exit hook.
+                    ],
+                )
+                .unwrap();
+
+            let input = RefCell::new(Some((incoming, waiting)));
+            let cpu = runner.cpu();
+            cpu.install([
+                Hook::host(0x200, {
+                    let resources = cpu.memory().with_io(io.clone());
+                    let cpu = cpu.cpu_state();
+                    async move || {
+                        let mut memory = resources.view();
+
+                        // The local bus and mapped view remain usable across a service await.
+                        let io = resources.io();
+                        io.write_port(0x3d4, 2, 0x060b);
+                        assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
+                        let (input, waiting) = input.borrow_mut().take().unwrap();
+                        waiting.send(()).unwrap();
+                        let value = input.await.unwrap();
+                        assert_eq!(io.read_port(0x3d4, 2), 0x060b);
+                        memory.write_u8(0xb8022, b'C').unwrap();
+                        cpu.set_al(value);
+                        cpu.set_eip(0x300);
+                    }
+                }),
+                Hook::host(0x400, {
+                    let exit = cpu.exit_handle();
+                    async move || exit.request()
+                }),
+            ])
+            .await
             .unwrap();
-        memory
-            .view()
-            .write(
-                0x300,
-                &[
-                    0x26, 0xa2, 0x20, 0, // MOV ES:[0020],AL after input arrives.
-                    0xea, 0x00, 0x04, 0, 0, // JMP 0000:0400, the exit hook.
-                ],
-            )
-            .unwrap();
-
-        let input = RefCell::new(Some((incoming, waiting)));
-        let cpu = runner.cpu();
-        cpu.install([
-            Hook::host(0x200, {
-                let resources = cpu.memory().with_io(io.clone());
-                let cpu = cpu.cpu_state();
-                async move || {
-                    let mut memory = resources.view();
-
-                    // The local bus and mapped view remain usable across a service await.
-                    let io = resources.io();
-                    io.write_port(0x3d4, 2, 0x060b);
-                    assert_eq!(memory.read_u16(0xb8020).unwrap(), 0x1e41);
-                    let (input, waiting) = input.borrow_mut().take().unwrap();
-                    waiting.send(()).unwrap();
-                    let value = input.await.unwrap();
-                    assert_eq!(io.read_port(0x3d4, 2), 0x060b);
-                    memory.write_u8(0xb8022, b'C').unwrap();
-                    cpu.set_al(value);
-                    cpu.set_eip(0x300);
-                }
-            }),
-            Hook::host(0x400, {
-                let exit = cpu.exit_handle();
-                async move || exit.request()
-            }),
-        ])
-        .await
-        .unwrap();
-        assert_eq!(
-            runner.run_cpu().await,
-            ExecutionExit::Host(HostExit::Return)
-        );
-        presented.await.unwrap();
-        drop(runner);
-        drop(vga);
-    });
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            presented.await.unwrap();
+            drop(runner);
+            drop(vga);
+        });
     let display_task = display.run(move || async move {
         let display = display_source.await.unwrap();
         input_waiting.await.unwrap();
@@ -153,7 +154,7 @@ pub async fn vga_workers() -> Result<(), String> {
             [254, 198, 140, 24, 50]
         );
     });
-    let ((), result) = join(timers.run(), cpu_task.join()).await;
+    let result = cpu_task.join().await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(()));
     display_task.await.map_err(|error| error.to_string())?;
     machine.shutdown().await.unwrap();

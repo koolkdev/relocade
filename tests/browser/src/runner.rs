@@ -1,5 +1,7 @@
 use futures_channel::oneshot;
-use relocade_machine::{Clock, CpuConfig, Device, Hook, MachineConfig, Memory};
+use relocade_machine::{
+    Clock, CpuConfig, Device, ExecutionWorker, Hook, MachineConfig, Memory, SessionConfig,
+};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
@@ -87,51 +89,58 @@ pub async fn runner_workers() -> Result<(), String> {
         };
         let (mut machine, cpu_config) = machine();
         let prepared = machine.create_cpu(cpu_config, None).unwrap();
-        let worker = prepared.run_until(stop, async move |mut runner| {
-            EXECUTION_OWNER.set(true);
-            let memory = runner.memory();
-            // Write a marker, then consume CPU quanta indefinitely.
-            memory
-                .view()
-                .write(0x100, &[0xc7, 0x06, 0, 3, 1, 0, 0xeb, 0xfe])
-                .unwrap();
+        let worker =
+            ExecutionWorker::spawn(prepared, SessionConfig::host(), async move |mut runner| {
+                EXECUTION_OWNER.set(true);
+                let memory = runner.memory();
+                // Write a marker, then consume CPU quanta indefinitely.
+                memory
+                    .view()
+                    .write(0x100, &[0xc7, 0x06, 0, 3, 1, 0, 0xeb, 0xfe])
+                    .unwrap();
 
-            runner
-                .connect(
-                    Rc::new(RefCell::new(ProgressDevice {
-                        clock: runner.clock().clone(),
-                        memory: memory.clone(),
-                        progressed: Some(progressed),
-                        dropped: Some(device_dropped),
-                    })),
-                    |_| {},
-                )
-                .await;
-            let probe = Rc::new(DropProbe {
-                local: Rc::new(()),
-                dropped: Some(dropped),
+                runner
+                    .connect(
+                        Rc::new(RefCell::new(ProgressDevice {
+                            clock: runner.clock().clone(),
+                            memory: memory.clone(),
+                            progressed: Some(progressed),
+                            dropped: Some(device_dropped),
+                        })),
+                        |_| {},
+                    )
+                    .await;
+                let probe = Rc::new(DropProbe {
+                    local: Rc::new(()),
+                    dropped: Some(dropped),
+                });
+                let cpu = runner.cpu();
+                if pending_service {
+                    let probe = probe.clone();
+                    cpu.install([Hook::host(0x100, {
+                        let resources = cpu.memory();
+                        async move || {
+                            let mut memory = resources.view();
+
+                            let _keep_alive = &probe;
+                            memory.write_u16(0x300, 2).unwrap();
+                            pending::<()>().await;
+                            memory.write_u16(0x300, 3).unwrap();
+                        }
+                    })])
+                    .await
+                    .unwrap();
+                }
+                runner.run_cpu().await;
+                panic!("busy or suspended execution must stop only through cancellation");
             });
-            let cpu = runner.cpu();
-            if pending_service {
-                let probe = probe.clone();
-                cpu.install([Hook::host(0x100, {
-                    let resources = cpu.memory();
-                    async move || {
-                        let mut memory = resources.view();
-
-                        let _keep_alive = &probe;
-                        memory.write_u16(0x300, 2).unwrap();
-                        pending::<()>().await;
-                        memory.write_u16(0x300, 3).unwrap();
-                    }
-                })])
+        assert_eq!(
+            worker
+                .run_until(stop)
                 .await
-                .unwrap();
-            }
-            runner.run_cpu().await;
-            panic!("busy or suspended execution must stop only through cancellation");
-        });
-        assert_eq!(worker.await.map_err(|error| error.to_string())?, None::<()>);
+                .map_err(|error| error.to_string())?,
+            None::<()>
+        );
         // Completion includes destruction of the CPU's suspended service state.
         assert_eq!(destroyed.try_recv().unwrap(), Some(()));
         assert_eq!(device_destroyed.try_recv().unwrap(), Some(()));
@@ -142,12 +151,12 @@ pub async fn runner_workers() -> Result<(), String> {
     }
     let (mut machine, cpu_config) = machine();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let result = prepared
-        .run_until(pending::<()>(), async |runner| {
-            runner.clock().sleep(Duration::from_millis(1)).await;
-            42
-        })
-        .await;
+    let result = ExecutionWorker::spawn(prepared, SessionConfig::host(), async |runner| {
+        runner.clock().sleep(Duration::from_millis(1)).await;
+        42
+    })
+    .join()
+    .await;
     assert_eq!(result.map_err(|error| error.to_string())?, Some(42));
     machine
         .shutdown()

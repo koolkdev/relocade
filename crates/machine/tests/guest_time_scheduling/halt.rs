@@ -36,8 +36,9 @@ async fn paced_halt() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || config(source),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(config()).with_host_clock(source),
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();

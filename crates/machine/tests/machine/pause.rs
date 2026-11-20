@@ -14,8 +14,9 @@ async fn pause_worker() {
     let paused = machine.pause_cpus().await;
     let (polled, first_poll) = oneshot::channel();
     let (entered, mut started) = oneshot::channel();
-    let worker = cpu.spawn_with_guest_time::<()>(
-        || GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
+    let worker = ExecutionWorker::<()>::spawn(
+        cpu,
+        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
         async move |mut runner| {
             let state = runner.cpu().cpu_state();
             let entered = Mutex::new(Some(entered));

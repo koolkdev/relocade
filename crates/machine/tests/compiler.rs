@@ -2,13 +2,14 @@
 mod compilation;
 
 use relocade_machine::{
-    BlockRequest, CpuConfig, FarPointer, Hook, Machine, MachineConfig, MemoryError,
+    BlockRequest, CpuConfig, ExecutionWorker, FarPointer, Hook, Machine, MachineConfig,
+    MemoryError, SessionConfig,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
 };
-use std::{future::pending, pin::pin};
+use std::pin::pin;
 
 #[path = "compiler/blocks.rs"]
 mod blocks;
@@ -83,8 +84,8 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
             .view()
             .write(0x100, &[0xb8, value as u8, 0, 0xeb, 0])
             .unwrap();
-        let observed = cpu
-            .run_until(pending::<()>(), async move |mut runner| {
+        let observed =
+            ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
                 let target = runner.cpu().cpu_state().execution_target();
                 let mut compiler = runner.take_compiler().unwrap();
                 assert!(runner.take_compiler().is_none());
@@ -176,6 +177,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 );
                 runner.cpu().cpu_state().ax()
             })
+            .join()
             .await
             .unwrap()
             .unwrap();
@@ -203,7 +205,7 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     let (submitted, ready) = futures_channel::oneshot::channel();
     let (other_submitted, other_ready) = futures_channel::oneshot::channel();
-    let execution = cpu.run_until(pending::<()>(), async move |mut runner| {
+    let execution = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
@@ -231,31 +233,34 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
             "closed compiler stays exhausted"
         );
         assert!(compiler.request(target, vec![request()]).is_err());
-    });
-    let other_execution = other_cpu.run_until(pending::<()>(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
-        let mut compiler = runner.take_compiler().unwrap();
-        compiler
-            .request(
-                target,
-                vec![BlockRequest {
-                    instruction_limit: 0,
-                    ..request()
-                }],
-            )
-            .unwrap();
-        compiler.request(target, vec![request()]).unwrap();
-        other_submitted.send(()).unwrap();
-        assert!(matches!(
-            compiler.recv().await.unwrap(),
-            Err(relocade_machine::Error::Compile(_))
-        ));
-        assert_eq!(
-            compiler.recv().await.unwrap().unwrap().blocks()[0].byte_len,
-            5
-        );
-        assert!(compiler.recv().await.is_none());
-    });
+    })
+    .join();
+    let other_execution =
+        ExecutionWorker::spawn(other_cpu, SessionConfig::host(), async move |mut runner| {
+            let target = runner.cpu().cpu_state().execution_target();
+            let mut compiler = runner.take_compiler().unwrap();
+            compiler
+                .request(
+                    target,
+                    vec![BlockRequest {
+                        instruction_limit: 0,
+                        ..request()
+                    }],
+                )
+                .unwrap();
+            compiler.request(target, vec![request()]).unwrap();
+            other_submitted.send(()).unwrap();
+            assert!(matches!(
+                compiler.recv().await.unwrap(),
+                Err(relocade_machine::Error::Compile(_))
+            ));
+            assert_eq!(
+                compiler.recv().await.unwrap().unwrap().blocks()[0].byte_len,
+                5
+            );
+            assert!(compiler.recv().await.is_none());
+        })
+        .join();
     let closing = async move {
         ready.await.unwrap();
         other_ready.await.unwrap();
@@ -294,28 +299,28 @@ async fn independent_machines(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     first.shutdown().await.unwrap();
 
-    let value = cpu
-        .run_until(pending::<()>(), async move |mut runner| {
-            let target = runner.cpu().cpu_state().execution_target();
-            let mut compiler = runner.take_compiler().unwrap();
-            compiler.request(target, vec![request()]).unwrap();
-            let code = compiler.recv().await.unwrap().unwrap();
-            let exit = runner.cpu().exit_handle();
-            runner
-                .cpu()
-                .install([Hook::host(0x105, async move || exit.request())])
-                .await
-                .unwrap();
-            code.install(runner.cpu()).unwrap();
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
-            );
-            runner.cpu().cpu_state().ax()
-        })
-        .await
-        .unwrap()
-        .unwrap();
+    let value = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        compiler.request(target, vec![request()]).unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x105, async move || exit.request())])
+            .await
+            .unwrap();
+        code.install(runner.cpu()).unwrap();
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        runner.cpu().cpu_state().ax()
+    })
+    .join()
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(value, 73);
     second.shutdown().await.unwrap();
 }

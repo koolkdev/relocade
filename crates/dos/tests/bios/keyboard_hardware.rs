@@ -1,7 +1,7 @@
 use crate::common;
 use relocade_bios::KeyMode;
 use relocade_dos::Dos;
-use relocade_machine::IoBus;
+use relocade_machine::{ExecutionWorker, IoBus, SessionConfig};
 use relocade_x86::ExecutionExit;
 
 #[path = "keyboard_hardware/control_break.rs"]
@@ -17,8 +17,9 @@ fn with_hardware(check: impl AsyncFnOnce(KeyboardDos) + Send + 'static) {
     let prepared = machine
         .create_cpu(relocade_dos::configuration::cpu(), None)
         .unwrap();
-    let worker = prepared.spawn_with_clock(
-        || relocade_clock_test_support::ManualClock::new().clock(),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(relocade_clock_test_support::ManualClock::new()),
         async move |runner| {
             let dos = Dos::new(runner).await.unwrap();
             check(dos).await;

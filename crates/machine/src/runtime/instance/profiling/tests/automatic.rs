@@ -1,12 +1,13 @@
 use super::collected_count;
 use crate::{
-    CompilerService, CpuConfig, FarPointer, Hook, Instant, Machine, MachineConfig, Runner,
+    CompilerService, CpuConfig, ExecutionWorker, FarPointer, Hook, Instant, Machine, MachineConfig,
+    Runner, SessionConfig,
 };
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
 };
-use std::{future::pending, num::NonZeroUsize, time::Duration};
+use std::{num::NonZeroUsize, time::Duration};
 
 mod suspended;
 
@@ -72,66 +73,66 @@ async fn automatic() {
         machine.memory().view().write(0x220, &[0xf1]).unwrap();
         machine.memory().view().write(0x300, &[0x42, 0xc3]).unwrap(); // INC DX; RET
         let cpu = machine.create_cpu(config, Some(&compiler)).unwrap();
-        let result = cpu
-            .run_until(pending::<()>(), async move |mut runner| {
-                runner.cpu().cpu_state().set_sp(0x800);
-                let targets: Vec<_> = [0x200, 0x300]
-                    .into_iter()
-                    .take(if partial { 2 } else { 1 })
-                    .map(|offset| FarPointer { segment: 0, offset })
-                    .collect();
-                let deadline = runner
-                    .clock()
-                    .deadline_after(runner.clock().now(), Duration::from_secs(5));
-                loop {
+        let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+            runner.cpu().cpu_state().set_sp(0x800);
+            let targets: Vec<_> = [0x200, 0x300]
+                .into_iter()
+                .take(if partial { 2 } else { 1 })
+                .map(|offset| FarPointer { segment: 0, offset })
+                .collect();
+            let deadline = runner
+                .clock()
+                .deadline_after(runner.clock().now(), Duration::from_secs(5));
+            loop {
+                let retired = runner.cpu().cpu_state().instruction_count();
+                slice(&mut runner).await;
+                assert!(runner.cpu().cpu_state().instruction_count() > retired);
+                if targets
+                    .iter()
+                    .all(|entry| runner.cpu().instance.modules.has_entry(entry.packed()))
+                {
+                    for entry in &targets {
+                        assert_eq!(
+                            runner
+                                .cpu()
+                                .compiled_modules_at(u32::from(entry.offset))
+                                .count(),
+                            1,
+                        );
+                    }
+                    if partial {
+                        // The RET after JNZ is an internal fallthrough.
+                        assert!(!runner.cpu().instance.modules.has_entry(0x205));
+                        assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
+                    }
+                    assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
+                    // Wait for installation before inspecting counts, so this test
+                    // cannot drive hotness by collecting the buffer itself.
+                    let counts: Vec<_> = targets
+                        .iter()
+                        .map(|&entry| collected_count(runner.cpu(), entry))
+                        .collect();
+                    assert!(counts.iter().any(|&count| count >= 4096));
                     let retired = runner.cpu().cpu_state().instruction_count();
                     slice(&mut runner).await;
                     assert!(runner.cpu().cpu_state().instruction_count() > retired);
-                    if targets
-                        .iter()
-                        .all(|entry| runner.cpu().instance.modules.has_entry(entry.packed()))
-                    {
-                        for entry in &targets {
-                            assert_eq!(
-                                runner
-                                    .cpu()
-                                    .compiled_modules_at(u32::from(entry.offset))
-                                    .count(),
-                                1,
-                            );
-                        }
-                        if partial {
-                            // The RET after JNZ is an internal fallthrough.
-                            assert!(!runner.cpu().instance.modules.has_entry(0x205));
-                            assert_eq!(runner.cpu().compiled_modules_at(0x205).count(), 1);
-                        }
-                        assert_eq!(runner.cpu().compiled_modules_at(0x220).count(), 0);
-                        // Wait for installation before inspecting counts, so this test
-                        // cannot drive hotness by collecting the buffer itself.
-                        let counts: Vec<_> = targets
+                    assert_eq!(
+                        targets
                             .iter()
                             .map(|&entry| collected_count(runner.cpu(), entry))
-                            .collect();
-                        assert!(counts.iter().any(|&count| count >= 4096));
-                        let retired = runner.cpu().cpu_state().instruction_count();
-                        slice(&mut runner).await;
-                        assert!(runner.cpu().cpu_state().instruction_count() > retired);
-                        assert_eq!(
-                            targets
-                                .iter()
-                                .map(|&entry| collected_count(runner.cpu(), entry))
-                                .collect::<Vec<_>>(),
-                            counts
-                        );
-                        break;
-                    }
-                    assert!(
-                        runner.clock().now() < deadline,
-                        "automatic installation did not complete"
+                            .collect::<Vec<_>>(),
+                        counts
                     );
+                    break;
                 }
-            })
-            .await;
+                assert!(
+                    runner.clock().now() < deadline,
+                    "automatic installation did not complete"
+                );
+            }
+        })
+        .join()
+        .await;
         machine.shutdown().await.unwrap();
         assert_eq!(result.unwrap(), Some(()));
     }
@@ -162,35 +163,35 @@ async fn full_collection(compiler: &CompilerService) {
     caller.extend(displacement.to_le_bytes());
     machine.memory().view().write(0x100, &caller).unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    let result = cpu
-        .run_until(pending::<()>(), async move |mut runner| {
-            let target = FarPointer {
-                segment: 0,
-                offset: 0x900,
-            };
-            runner.cpu().cpu_state().set_sp(0xe00);
-            // No opportunistic collection can submit during this run.
-            runner.cpu().instance.profiling.next_collection =
-                Some(Instant::now() + Duration::from_secs(3600));
-            let exit = runner.cpu().exit_handle();
-            runner
-                .cpu()
-                .install([Hook::host(0xf00, async move || exit.request())])
-                .await
-                .unwrap();
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
-            );
-            let cpu = runner.cpu();
-            assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
-            assert!(
-                cpu.instance.profiling.pending.contains(&target)
-                    || cpu.instance.modules.has_entry(target.packed()),
-                "full-buffer collection must submit before guest execution returns"
-            );
-        })
-        .await;
+    let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let target = FarPointer {
+            segment: 0,
+            offset: 0x900,
+        };
+        runner.cpu().cpu_state().set_sp(0xe00);
+        // No opportunistic collection can submit during this run.
+        runner.cpu().instance.profiling.next_collection =
+            Some(Instant::now() + Duration::from_secs(3600));
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0xf00, async move || exit.request())])
+            .await
+            .unwrap();
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        let cpu = runner.cpu();
+        assert!(cpu.instance.profiling.hotness.count(target.packed()) >= 4096);
+        assert!(
+            cpu.instance.profiling.pending.contains(&target)
+                || cpu.instance.modules.has_entry(target.packed()),
+            "full-buffer collection must submit before guest execution returns"
+        );
+    })
+    .join()
+    .await;
     machine.shutdown().await.unwrap();
     assert_eq!(result.unwrap(), Some(()));
 }

@@ -28,7 +28,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         .unwrap();
     memory.write(0x210, &[0x83, 0xc0, 1, 0xc3]).unwrap(); // ADD AX,1; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |offset| FunctionRequest {
@@ -167,6 +167,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
             .unwrap();
         run_caller(&mut runner, 10).await;
     })
+    .join()
     .await
     .unwrap()
     .unwrap();
@@ -195,7 +196,7 @@ async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
     memory.view().write(0x100, &[0xe8, 0xfd, 0, 0xc3]).unwrap(); // CALL 0200; RET
     memory.view().write(0x200, &[0xb8, 7, 0, 0xc3]).unwrap(); // MOV AX,7; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let mut compiler = runner.take_compiler().unwrap();
         for offset in [0x100, 0x200] {
             compiler
@@ -241,6 +242,7 @@ async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
         assert_eq!(cpu.compiled_modules_at(0x100).count(), 1);
         assert_eq!(cpu.compiled_modules_at(0x200).count(), 0);
     })
+    .join()
     .await
     .unwrap()
     .unwrap();
@@ -267,7 +269,7 @@ async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
         .write(0x100, &[0xb8, 0x34, 0x12, 0x90, 0x90])
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    cpu.run_until(pending::<()>(), async move |mut runner| {
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let memory = runner.memory();
         let target = runner.cpu().cpu_state().execution_target();
         let mut compiler = runner.take_compiler().unwrap();
@@ -321,6 +323,7 @@ async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
         assert!(!last.was_modified());
         assert!(last.source().ranges().eq(pending_clone.source().ranges()));
     })
+    .join()
     .await
     .unwrap()
     .unwrap();

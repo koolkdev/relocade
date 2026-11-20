@@ -1,6 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{
-    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExitHandle, MachineConfig, Timestamp,
+    timer_service, Clock, CpuConfig, Device, DispatchEntry, ExecutionWorker, ExitHandle,
+    MachineConfig, SessionConfig, Timestamp,
 };
 use relocade_pic::Pic;
 use relocade_pit::Pit;
@@ -79,77 +80,81 @@ async fn timer_interrupts() -> Result<(), String> {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let worker = prepared.spawn(clock, async move |mut runner| {
-        let pic = Pic::initialize(&runner);
-        let _pit = Pit::initialize(&runner, &pic).await;
-        let reports = Rc::new(RefCell::new(Reports {
-            clock: runner.clock().clone(),
-            ready: Some(ready),
-            host_busy: worker_host_busy,
-            count: worker_count,
-            samples: Vec::with_capacity(INTERRUPTS),
-            exit: None,
-        }));
-        runner
-            .connect(reports.clone(), |io| {
-                let callbacks = relocade_machine::DeviceCallbacks::new(&reports);
-                let read = relocade_machine::PortRead::new(|_, _, _| u32::MAX);
-                io.bind(
-                    0x80,
-                    &read,
-                    &relocade_machine::PortWrite::low_byte(
-                        callbacks.write(|_, reports, _| reports.record()),
-                    ),
-                );
-                io.bind(
-                    0x81,
-                    &read,
-                    &relocade_machine::PortWrite::low_byte(
-                        callbacks.write(|_, reports, _| reports.ready()),
-                    ),
-                );
-            })
-            .await;
-        let memory = runner.memory();
-        // Program mode 3, divisor 2386 (approximately 500 Hz); unmask IRQ0.
-        // Announce readiness, enable interrupts, then stay in a compiled busy loop.
-        let program = [
-            0xb0, 0x36, 0xe6, 0x43, 0xb0, 0x52, 0xe6, 0x40, 0xb0, 0x09, 0xe6, 0x40, 0xb0, 0xfe,
-            0xe6, 0x21, 0xe6, 0x81, 0xfb, 0x90, 0xeb, 0xfd,
-        ];
-        memory.view().write(0x100, &program).unwrap();
-        memory.view().write(8 * 4, &[0, 2, 0, 0]).unwrap();
-        // IRQ0: preserve AX, count/report entry, acknowledge the PIC, IRET.
-        memory
-            .view()
-            .write(
-                0x200,
-                &[
-                    0x50, 0xff, 0x06, 0, 3, 0xe6, 0x80, 0xb0, 0x20, 0xe6, 0x20, 0x58, 0xcf,
-                ],
-            )
-            .unwrap();
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(clock),
+        async move |mut runner| {
+            let pic = Pic::initialize(&runner);
+            let _pit = Pit::initialize(&runner, &pic).await;
+            let reports = Rc::new(RefCell::new(Reports {
+                clock: runner.clock().clone(),
+                ready: Some(ready),
+                host_busy: worker_host_busy,
+                count: worker_count,
+                samples: Vec::with_capacity(INTERRUPTS),
+                exit: None,
+            }));
+            runner
+                .connect(reports.clone(), |io| {
+                    let callbacks = relocade_machine::DeviceCallbacks::new(&reports);
+                    let read = relocade_machine::PortRead::new(|_, _, _| u32::MAX);
+                    io.bind(
+                        0x80,
+                        &read,
+                        &relocade_machine::PortWrite::low_byte(
+                            callbacks.write(|_, reports, _| reports.record()),
+                        ),
+                    );
+                    io.bind(
+                        0x81,
+                        &read,
+                        &relocade_machine::PortWrite::low_byte(
+                            callbacks.write(|_, reports, _| reports.ready()),
+                        ),
+                    );
+                })
+                .await;
+            let memory = runner.memory();
+            // Program mode 3, divisor 2386 (approximately 500 Hz); unmask IRQ0.
+            // Announce readiness, enable interrupts, then stay in a compiled busy loop.
+            let program = [
+                0xb0, 0x36, 0xe6, 0x43, 0xb0, 0x52, 0xe6, 0x40, 0xb0, 0x09, 0xe6, 0x40, 0xb0, 0xfe,
+                0xe6, 0x21, 0xe6, 0x81, 0xfb, 0x90, 0xeb, 0xfd,
+            ];
+            memory.view().write(0x100, &program).unwrap();
+            memory.view().write(8 * 4, &[0, 2, 0, 0]).unwrap();
+            // IRQ0: preserve AX, count/report entry, acknowledge the PIC, IRET.
+            memory
+                .view()
+                .write(
+                    0x200,
+                    &[
+                        0x50, 0xff, 0x06, 0, 3, 0xe6, 0x80, 0xb0, 0x20, 0xe6, 0x20, 0x58, 0xcf,
+                    ],
+                )
+                .unwrap();
+            let compiler = Compiler::new(ExecutionProfile::Real16);
 
-        let cpu = runner.cpu();
-        cpu.context().cpu.set_sp(0xf00);
-        let busy = compiler.compile_block(0x113, &program[19..], 32).unwrap();
-        cpu.install_module(
-            &busy.bytes,
-            &[DispatchEntry {
-                key: 0x113,
-                export: &busy.entry,
-            }],
-        )
-        .await
-        .unwrap();
-        reports.borrow_mut().exit = Some(cpu.exit_handle());
-        started.await.unwrap();
-        runner.run_cpu().await;
-        assert_eq!(memory.view().read_u16(0x300).unwrap(), INTERRUPTS as u16);
-        let samples = reports.borrow().samples.clone();
-        samples
-    });
+            let cpu = runner.cpu();
+            cpu.context().cpu.set_sp(0xf00);
+            let busy = compiler.compile_block(0x113, &program[19..], 32).unwrap();
+            cpu.install_module(
+                &busy.bytes,
+                &[DispatchEntry {
+                    key: 0x113,
+                    export: &busy.entry,
+                }],
+            )
+            .await
+            .unwrap();
+            reports.borrow_mut().exit = Some(cpu.exit_handle());
+            started.await.unwrap();
+            runner.run_cpu().await;
+            assert_eq!(memory.view().read_u16(0x300).unwrap(), INTERRUPTS as u16);
+            let samples = reports.borrow().samples.clone();
+            samples
+        },
+    );
     let timers = timers.spawn_with_peer(worker.wake_peer());
     // Finish timer-worker startup and resource binding before blocking the host.
     warmup.sleep(Duration::ZERO).await;

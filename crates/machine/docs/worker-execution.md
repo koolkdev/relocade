@@ -212,11 +212,12 @@ polling activities, including after a terminal CPU exit.
 A terminal result returns immediately when no execution notification is pending;
 otherwise ready activities receive a turn before the result returns.
 
-Guest-time workers receive a configuration factory, following the same owner-local
-construction rule as `spawn_with_clock`. `GuestTimeConfig` selects the instruction
-rate, optional slice duration and optional host pacing. `with_slice_duration`
-sets the guest-time boundary shared by cooperative yields and pacing.
-`with_host_clock(clock)` defaults to 4 ms slices if no duration was supplied.
+Guest-time workers receive `SessionConfig::guest(config)` at startup.
+`GuestTimeConfig` selects the instruction rate and optional slice duration.
+`with_slice_duration` sets the guest-time boundary shared by cooperative yields
+and pacing.
+Supplying a pacing source with `SessionConfig::guest(config).with_host_clock(source)`
+defaults to 4 ms slices if no duration was supplied.
 Device deadlines subdivide each slice. The embedding retains and drives the host
 timer service. Scheduling notifications preserve the
 allowance, and ready host services remain pollable during a pacing wait. Run

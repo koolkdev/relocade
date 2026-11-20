@@ -1,6 +1,8 @@
 use super::Runner;
 use crate::worker::{wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
-use crate::{timer_service, Clock, ClockSource, CpuHandle, ExecutionInterrupt, Result};
+use crate::{
+    timer_service, Clock, ClockSource, CpuHandle, ExecutionInterrupt, GuestTimeConfig, Result,
+};
 use futures_lite::future::or;
 use futures_util::future::{select, Either};
 use std::{
@@ -11,19 +13,31 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-/// Configures the host clock used by an execution session.
+/// Selects session timing and, optionally, supplies the host clock.
 pub struct SessionConfig {
+    guest: Option<GuestTimeConfig>,
     host: Option<Box<dyn ClockSource + Send>>,
 }
 
 impl SessionConfig {
     /// Use the host clock directly.
     pub fn host() -> Self {
-        Self { host: None }
+        Self {
+            guest: None,
+            host: None,
+        }
     }
 
-    /// Use a clock supplied by the caller. The caller drives this source for the
-    /// lifetime of the session. By default the worker starts its own timer service.
+    /// Use an emulated guest clock. Without a host clock, guest time is unpaced.
+    pub fn guest(config: GuestTimeConfig) -> Self {
+        Self {
+            guest: Some(config),
+            host: None,
+        }
+    }
+
+    /// Use a caller-driven host clock. For a guest session this enables pacing.
+    /// A host session starts its own timer service if no clock is supplied.
     pub fn with_host_clock(mut self, host: impl ClockSource + Send + 'static) -> Self {
         self.host = Some(Box::new(host));
         self
@@ -47,6 +61,16 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         config: SessionConfig,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
+        if let Some(guest) = config.guest {
+            return Self::spawn_with(
+                cpu,
+                async move |cpu, endpoint| {
+                    let host = config.host.map(Clock::from_boxed_source);
+                    Runner::with_guest_time(guest, host, cpu, endpoint).await
+                },
+                session,
+            );
+        }
         let (host, timers): (Box<dyn ClockSource + Send>, _) = match config.host {
             Some(host) => (host, None),
             None => {
@@ -57,8 +81,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         let mut execution = Self::spawn_with(
             cpu,
             async move |cpu, endpoint| {
-                let host: Box<dyn ClockSource> = host;
-                Runner::new(Clock::from_source(host.into()), cpu, endpoint).await
+                Runner::new(Clock::from_boxed_source(host), cpu, endpoint).await
             },
             session,
         );
@@ -66,7 +89,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         execution
     }
 
-    pub(crate) fn spawn_with(
+    fn spawn_with(
         cpu: CpuHandle,
         make_runner: impl AsyncFnOnce(CpuHandle, WakeEndpoint<ExecutionInterrupt>) -> Result<Runner>
             + Send

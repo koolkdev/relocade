@@ -1,7 +1,7 @@
 use super::*;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_machine::{timer_service, CpuStateAccess, Device};
+use relocade_machine::{CpuStateAccess, Device, ExecutionWorker, SessionConfig};
 use std::{cell::RefCell, rc::Rc};
 
 struct IdleDevice {
@@ -21,11 +21,10 @@ impl Device for IdleDevice {
 }
 
 async fn idle_devices() {
-    let (clock, _timers) = timer_service();
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn(clock, async |mut runner| {
+    let worker = ExecutionWorker::spawn(prepared, SessionConfig::host(), async |mut runner| {
         // INC AX; JMP 0200, where the host service completes this guest run.
         prepare_cpu(&mut runner, &[0x40, 0xe9, 0xfc, 0], true).await;
         let state = runner.cpu().cpu_state();

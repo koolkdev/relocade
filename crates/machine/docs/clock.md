@@ -167,27 +167,27 @@ registers, including across program loads. Initial counts belong in `CpuConfig`.
 
 ## Execution with guest time
 
-`cpu.spawn_with_guest_time(make_time, session)` constructs a
-`GuestTimeConfig` on the execution owner. `GuestTimeConfig::new(rate)` selects
+`ExecutionWorker::spawn(cpu, SessionConfig::guest(config), session)` starts
+a guest-time session. `GuestTimeConfig::new(rate)` selects
 unpaced guest time and device deadlines only. `with_slice_duration(duration)`
 adds execution slices measured in guest time. At a slice boundary, ready activities
-get a turn before execution continues. `with_host_clock(clock)` also waits for the
-corresponding host time and defaults to 4 ms slices unless a duration was supplied.
-The slice duration must be positive; either builder-call order uses the supplied
-duration. The host clock is constructed in the factory.
-The lower-level `Runner::with_guest_time` takes the same configuration directly.
+get a turn before execution continues. `SessionConfig::guest(config).with_host_clock(source)`
+paces those boundaries against the supplied host source. Paced sessions default
+to 4 ms slices. Any explicit slice duration must be positive. The worker
+constructs its local pacing clock from the source.
+For in-place execution, `Runner::with_guest_time(config, host, cpu, endpoint)`
+accepts `None` for unpaced time or `Some(clock)` for pacing.
 
 ```rust
 let cpu = machine.create_cpu(cpu_config, None)?;
-let worker = cpu.spawn_with_guest_time(
-    move || GuestTimeConfig::new(instructions_per_second)
-        .with_slice_duration(Duration::from_millis(4))
-        .with_host_clock(host_timers.clock()),
-    async |runner| {
-        // Devices receive runner.clock(); the host timer service runs alongside
-        // this worker and binds its wake peer.
-    },
-);
+let guest = GuestTimeConfig::new(instructions_per_second)
+    .with_slice_duration(Duration::from_millis(4));
+let config = SessionConfig::guest(guest).with_host_clock(host_timers);
+let worker = ExecutionWorker::spawn(cpu, config, async |mut runner| {
+    // Connect devices to runner.clock().
+    runner.run_cpu().await
+});
+let result = worker.join().await?;
 ```
 
 `Runner::run_cpu` uses one execution loop for both host and guest clocks. Its

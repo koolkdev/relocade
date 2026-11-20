@@ -1,15 +1,12 @@
 //! Configuration for the execution owner's emulated time.
 
-use crate::Clock;
 use std::{num::NonZeroU64, time::Duration};
 
 /// Selects retirement conversion, execution slices and optional host pacing.
-/// Construct this on the execution owner when it contains a host clock.
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct GuestTimeConfig {
     pub(super) instructions_per_second: NonZeroU64,
     pub(super) slice_duration: Option<Duration>,
-    pub(super) host_clock: Option<Clock>,
 }
 
 impl GuestTimeConfig {
@@ -18,7 +15,6 @@ impl GuestTimeConfig {
         Self {
             instructions_per_second,
             slice_duration: None,
-            host_clock: None,
         }
     }
 
@@ -31,19 +27,6 @@ impl GuestTimeConfig {
             "guest time scheduling needs a positive slice duration"
         );
         self.slice_duration = Some(duration);
-        self
-    }
-
-    /// Paces active execution and idle advancement at the slice boundary.
-    /// Defaults to 4 ms slices unless a duration was explicitly configured.
-    /// Device deadlines subdivide each slice without requiring a host wait.
-    /// Lag over 20 ms resets the host correspondence at a stopped boundary,
-    /// independently of the slice duration. Guest time and device deadlines
-    /// stay fixed.
-    /// The embedding must retain and drive this clock's timer service.
-    pub fn with_host_clock(mut self, clock: Clock) -> Self {
-        self.slice_duration.get_or_insert(Duration::from_millis(4));
-        self.host_clock = Some(clock);
         self
     }
 }

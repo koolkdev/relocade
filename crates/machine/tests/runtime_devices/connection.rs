@@ -27,8 +27,9 @@ async fn connected_before_startup() {
     let config = configuration();
     let mut machine = relocade_machine::Machine::new(config.machine).unwrap();
     let prepared = machine.create_cpu(config.cpu, None).unwrap();
-    let worker = prepared.spawn_with_clock(
-        move || clock.clock(),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::host().with_host_clock(clock),
         async |runner| {
             let io = Rc::new(runner.io());
             let device = Rc::new(RefCell::new(Startup {

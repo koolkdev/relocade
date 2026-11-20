@@ -36,81 +36,81 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
         .write(0x200, &[0x83, 0xc0, 7, 0xc3]) // ADD AX,7; RET
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
-    let result = cpu
-        .run_until(pending::<()>(), async move |mut runner| {
-            let target = runner.cpu().cpu_state().execution_target();
-            let mut compiler = runner.take_compiler().unwrap();
-            let request = |offset| FunctionRequest {
-                entry: FarPointer { segment: 0, offset },
-                limits: DiscoveryLimits::default(),
-            };
-            compiler
-                .request_functions(target, vec![request(0x100), request(0x180)])
-                .unwrap();
-            let caller = compiler.recv().await.unwrap().unwrap();
-            let exit = runner.cpu().exit_handle();
-            runner
-                .cpu()
-                .install([Hook::host(0x1000, async move || exit.request())])
-                .await
-                .unwrap();
-            caller.install(runner.cpu()).unwrap();
-            for stage in 0..4 {
-                if stage == 1 || stage == 3 {
-                    if stage == 3 {
-                        // Replace a callee at the same address while this CPU is stopped.
-                        runner
-                            .cpu()
-                            .memory()
-                            .view()
-                            .write(0x200, &[0x83, 0xc0, 9, 0xc3]) // ADD AX,9; RET
-                            .unwrap();
-                    }
-                    compiler
-                        .request_functions(target, vec![request(0x200)])
-                        .unwrap();
-                    compiler
-                        .recv()
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .install(runner.cpu())
+    let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let target = runner.cpu().cpu_state().execution_target();
+        let mut compiler = runner.take_compiler().unwrap();
+        let request = |offset| FunctionRequest {
+            entry: FarPointer { segment: 0, offset },
+            limits: DiscoveryLimits::default(),
+        };
+        compiler
+            .request_functions(target, vec![request(0x100), request(0x180)])
+            .unwrap();
+        let caller = compiler.recv().await.unwrap().unwrap();
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x1000, async move || exit.request())])
+            .await
+            .unwrap();
+        caller.install(runner.cpu()).unwrap();
+        for stage in 0..4 {
+            if stage == 1 || stage == 3 {
+                if stage == 3 {
+                    // Replace a callee at the same address while this CPU is stopped.
+                    runner
+                        .cpu()
+                        .memory()
+                        .view()
+                        .write(0x200, &[0x83, 0xc0, 9, 0xc3]) // ADD AX,9; RET
                         .unwrap();
                 }
-                for entry in [0x100, 0x180] {
-                    let state = runner.cpu().cpu_state();
-                    state.set_eip(entry);
-                    state.set_ax(0);
-                    assert_eq!(
-                        runner.run_cpu().await,
-                        ExecutionExit::Host(HostExit::Return)
-                    );
-                    let state = runner.cpu().cpu_state();
-                    assert_eq!(state.ax(), if stage == 3 { 18 } else { 14 });
-                    assert_eq!(state.sp(), 0x800);
-                }
+                compiler
+                    .request_functions(target, vec![request(0x200)])
+                    .unwrap();
+                compiler
+                    .recv()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .install(runner.cpu())
+                    .unwrap();
             }
-            // Installing a hook also updates existing callers.
-            let exit = runner.cpu().exit_handle();
-            runner
-                .cpu()
-                .install([Hook::host(0x200, async move || exit.request())])
-                .await
-                .unwrap();
             for entry in [0x100, 0x180] {
                 let state = runner.cpu().cpu_state();
                 state.set_eip(entry);
-                state.set_sp(0x800);
+                state.set_ax(0);
                 assert_eq!(
                     runner.run_cpu().await,
                     ExecutionExit::Host(HostExit::Return)
                 );
                 let state = runner.cpu().cpu_state();
-                assert_eq!(state.eip(), 0x200);
-                assert_eq!(state.sp(), 0x7fe);
+                assert_eq!(state.ax(), if stage == 3 { 18 } else { 14 });
+                assert_eq!(state.sp(), 0x800);
             }
-        })
-        .await;
+        }
+        // Installing a hook also updates existing callers.
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([Hook::host(0x200, async move || exit.request())])
+            .await
+            .unwrap();
+        for entry in [0x100, 0x180] {
+            let state = runner.cpu().cpu_state();
+            state.set_eip(entry);
+            state.set_sp(0x800);
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            let state = runner.cpu().cpu_state();
+            assert_eq!(state.eip(), 0x200);
+            assert_eq!(state.sp(), 0x7fe);
+        }
+    })
+    .join()
+    .await;
     machine.shutdown().await.unwrap();
     assert_eq!(result.unwrap(), Some(()));
 }

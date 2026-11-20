@@ -21,12 +21,13 @@ async fn late_host_wake() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(5))
-                .with_host_clock(Clock::new(source))
-        },
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(
+            GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+                .with_slice_duration(Duration::from_millis(5)),
+        )
+        .with_host_clock(source),
         async |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -130,8 +131,9 @@ async fn replace_idle_deadline() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || config(source),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(config()).with_host_clock(source),
         async move |mut runner| {
             let device = Rc::new(RefCell::new(ReplacedDeadline {
                 clock: runner.clock().clone(),
@@ -185,8 +187,9 @@ async fn cancelled_run_rebinds() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || config(source),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(config()).with_host_clock(source),
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
@@ -286,11 +289,10 @@ async fn busy_bursts() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || {
-            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(750).unwrap())
-                .with_host_clock(Clock::new(source))
-        },
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(750).unwrap()))
+            .with_host_clock(source),
         async move |mut runner| {
             let code = [0x40, 0xeb, 0xfd]; // Two-instruction loop, with checkpoint overshoot.
             prepare_cpu(&mut runner, &code).await;
@@ -346,8 +348,9 @@ async fn ready_service_during_pacing() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = prepared.spawn_with_guest_time(
-        move || config(source),
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(config()).with_host_clock(source),
         async move |mut runner| {
             let clock = runner.clock().clone();
             let start = clock.now();
