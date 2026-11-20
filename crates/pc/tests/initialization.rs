@@ -3,14 +3,17 @@ use relocade_frontend::keyboard::{ElementState, Key, KeyCode, KeyLocation, Keybo
 use relocade_machine::{
     real_mode_interrupt::{read_frame, read_vector},
     worker::wake_connection,
-    FarPointer, Hook, Runner,
+    Device, FarPointer, Hook, MmioRead, MmioWrite, Runner,
 };
 use relocade_pc::{Configuration, ParallelPort, Pc, VideoCard};
 use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister};
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+struct MmioProbe;
+impl Device for MmioProbe {}
 
 async fn bios_without_dos() {
     assert_eq!(VideoCard::default(), VideoCard::Dispi);
@@ -142,6 +145,33 @@ async fn bios_for_video_card(video_card: VideoCard) {
                     u32::from_le_bytes(*b"VESA")
                 );
                 assert_eq!(memory.view().read_u32(0x21 * 4).unwrap(), 0);
+                // Access the linear framebuffer through the host bus while the CPU is in real mode.
+                let mut view = memory.view().with_io(&io);
+                assert_eq!(view.read_u32(0xe0001234).unwrap(), u32::MAX);
+                for (index, value) in [(1, 640), (2, 480), (3, 8), (4, 0x41)] {
+                    io.write_port(0x1ce, 2, index);
+                    io.write_port(0x1cf, 2, value);
+                }
+                view.write_u32(0xe0001234, 0x44332211).unwrap();
+                match video_card {
+                    VideoCard::Dispi => {
+                        assert_eq!(view.read_u32(0xa1234).unwrap(), 0x44332211);
+                        view.write_u8(0xa1235, 0x55).unwrap();
+                        assert_eq!(view.read_u32(0xe0001234).unwrap(), 0x44335511);
+                    }
+                    VideoCard::Et4000Ax => {
+                        assert_eq!(view.read_u32(0xe0001234).unwrap(), u32::MAX);
+                        // Another device can claim the address on an ET4000 PC.
+                        io.connect(Rc::new(RefCell::new(MmioProbe)), |io| {
+                            io.bind_mmio(
+                                0xe0001234..=0xe0001237,
+                                &MmioRead::new(|_, _, _| 0x12345678),
+                                &MmioWrite::new(|_, _, _, _| {}),
+                            );
+                        });
+                        assert_eq!(view.read_u32(0xe0001234).unwrap(), 0x12345678);
+                    }
+                }
             },
         )
         .await

@@ -968,13 +968,13 @@ pass, and submits decoding and drawing together. Resize-only requests reuse the
 last decoded image. The software fixture separately verifies the CPU-image upload
 path.
 
-## Banked SVGA device
+## DISPI SVGA device
 
-The device implements a restricted banked subset of the
+The device implements a restricted subset of the
 [Bochs DISPI display interface](https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt).
 The ID3 register subset uses the 01CEh index and 01CFh data ports. The ID defaults
 to B0C3h and accepts ID0–ID3 negotiation; later IDs are ignored. The supported
-geometry and banked aperture remain a restricted Bochs profile.
+geometry remains a restricted Bochs profile.
 Both ports require word transfers: a word at 01CEh selects one complete register
 index, rather than writing two adjacent byte registers. Byte/dword reads return
 all ones and writes are ignored. Unknown register reads return FFFFh; unknown
@@ -984,7 +984,7 @@ register writes and unsupported requests leave the state unchanged.
 | --- | --- |
 | 0: ID | B0C3h initially; accepts B0C0h–B0C3h |
 | 1–3: X, Y, bits per pixel | Stage a mode while disabled; GETCAPS reads 1024, 768 and 32 |
-| 4: Enable | Bit 0 enables packed output; bit 1 queries capabilities; bit 5 selects eight-bit DAC; bit 7 preserves VRAM on entry |
+| 4: Enable | Bit 0 enables packed output; bit 1 queries capabilities; bit 5 selects eight-bit DAC; bit 6 indicates linear access; bit 7 preserves VRAM on entry |
 | 5: Bank | 0–63 selects a 64-KiB bank in 4 MiB; out-of-range writes are ignored |
 | 6–7: Virtual width and height | Active logical width in pixels; read-only full-row count in VRAM |
 | 8–9: X and Y offsets | Active viewport origin in pixels; out-of-bounds writes are ignored |
@@ -992,10 +992,21 @@ register writes and unsupported requests leave the state unchanged.
 Entering a valid mode selects bank zero and clears all VRAM unless enable bit 7
 requests memory preservation. Readback retains the accepted enable word. Repeating enable
 while active preserves VRAM and the current bank. Disabling preserves VRAM,
-legacy registers and VGA read latches. Unsupported enable flags, including LFB
-combined with no-clear, are ignored as a whole. The restricted ID3 profile
+legacy registers and VGA read latches. Unsupported enable flags are ignored as
+a whole. The restricted ID3 profile
 supports 8-, 15-, 16-, 24- and 32-bit pixels and no-clear mode entry.
-The linear aperture remains unsupported.
+
+In packed modes the 64-KiB banked window at A0000h and the linear framebuffer
+at E0000000h–E03FFFFFh give the CPU access to the same 4 MiB of VRAM. DISPI
+binds both ranges when it connects. The LFB flag records the requested access
+convention. Bank changes move the banked window. The linear framebuffer keeps
+a fixed address for each byte of VRAM, and viewport changes affect only scanout.
+Both mappings preserve snapshot ownership and bypass VGA plane logic and read latches.
+
+Legacy VGA mode disables the linear framebuffer. Adapter setup and the VGA CPU
+RAM gate can disable access to both mappings while preserving VRAM. Restoring
+SVGA state restores the accepted LFB flag and both mappings without clearing VRAM.
+The PC's A20 gate applies before device routing, including at high addresses.
 
 GETCAPS and eight-bit DAC flags can change while packed output is active without
 resetting the bank, viewport, VRAM or raster phase. GETCAPS substitutes the maximum
@@ -1279,7 +1290,8 @@ the previous display layout and port decoding, runs the mutation, applies
 configuration and mapping changes, then notifies affected waiters before
 returning. Each card binds a physical memory window to the register decoding
 that controls it. Each window updates its VRAM views and handlers when that
-decoding changes. CPU-only controls avoid clock work. VGA's
+decoding changes. Switching DISPI banks leaves the linear framebuffer in place.
+CPU-only controls avoid clock work. VGA's
 I/O companion retains fixed bindings and active/disabled operations, replacing
 only the address groups whose enable or mono/color selection actually changes.
 `PortDecoding` represents the effective address routing as `Disabled`,

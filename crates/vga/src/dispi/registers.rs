@@ -1,11 +1,11 @@
-//! Banked subset of the Bochs DISPI display interface.
+//! Registers for the Bochs DISPI display interface.
 //!
 //! Register numbers and word transfers follow the Bochs VBE Display API:
 //! https://github.com/bochs-emu/VGABIOS/blob/master/vgabios/vbe_display_api.txt
-//! This adapter exposes a banked ID3 subset at the 01CE/01CF ports: three resolutions
+//! This adapter exposes an ID3 subset at the 01CE/01CF ports: three resolutions
 //! in indexed eight-bit, RGB555, RGB565, BGR888 and BGRX8888 formats, with no-clear entry.
 //! ID0–ID3 negotiation, capability queries and eight-bit DAC control are supported.
-//! Linear access and newer flags are unsupported.
+//! The banked window and linear framebuffer share video memory in packed modes.
 //! Invalid requests are ignored.
 
 use super::DispiMode;
@@ -35,11 +35,17 @@ pub const DISABLED: u16 = 0;
 pub const ENABLED: u16 = 1;
 pub const GET_CAPABILITIES: u16 = 2;
 pub const EIGHT_BIT_DAC: u16 = 0x20;
+/// Requests linear framebuffer access. The banked window remains available.
+pub const LFB_ENABLED: u16 = 0x40;
 pub const NO_CLEAR_MEMORY: u16 = 0x80;
 pub const BANK_BYTES: u32 = 65536;
 /// Physical start of the banked window (VBE Window A).
 pub const BANK_START: u32 = 0xa0000;
 pub const BANK_RANGE: RangeInclusive<u32> = BANK_START..=BANK_START + BANK_BYTES - 1;
+/// Physical start of the linear framebuffer.
+pub const LINEAR_FRAMEBUFFER_START: u32 = 0xe0000000;
+pub const LINEAR_FRAMEBUFFER_RANGE: RangeInclusive<u32> =
+    LINEAR_FRAMEBUFFER_START..=LINEAR_FRAMEBUFFER_START + VIDEO_MEMORY_BYTES - 1;
 
 /// An action the device must apply after the register write.
 #[must_use = "DISPI write actions must be applied by the device"]
@@ -129,7 +135,7 @@ impl Dispi {
             }
             None
         } else {
-            if flags & !NO_CLEAR_MEMORY != ENABLED {
+            if flags & !(NO_CLEAR_MEMORY | LFB_ENABLED) != ENABLED {
                 return None;
             }
             let layout = DispiMode::from_registers(width, height, bits_per_pixel)?
@@ -258,7 +264,7 @@ impl Dispi {
 
     fn write_enable(&mut self, value: u16, memory_bytes: u32) -> WriteAction {
         let mode_flags = value & !(GET_CAPABILITIES | EIGHT_BIT_DAC);
-        if mode_flags != DISABLED && mode_flags & !NO_CLEAR_MEMORY != ENABLED {
+        if mode_flags != DISABLED && mode_flags & !(NO_CLEAR_MEMORY | LFB_ENABLED) != ENABLED {
             return WriteAction::None;
         }
         let mut clear_memory = false;
