@@ -1,7 +1,9 @@
 //! Instruction bytes captured by the compiler and registrations for installed PC code.
 
+mod blacklist;
 mod pages;
 use pages::CodePages;
+pub(super) use pages::CodeWrite;
 pub use pages::InstalledCode;
 mod reader;
 pub(crate) use reader::CodeReader;
@@ -49,14 +51,25 @@ impl Span {
         u64::from(self.backing)..u64::from(self.backing) + self.bytes.len() as u64
     }
 
-    fn changed_by(&self, backing: u32, bytes: &[u8]) -> bool {
+    fn record_changes(&self, backing: u32, bytes: &[u8], mut record: impl FnMut(u32)) -> bool {
         let source = self.backing_range();
         let write = u64::from(backing);
         let start = source.start.max(write);
         let end = source.end.min(write + bytes.len() as u64);
-        start < end
-            && self.bytes[(start - source.start) as usize..(end - source.start) as usize]
-                != bytes[(start - write) as usize..(end - write) as usize]
+        if start >= end {
+            return false;
+        }
+        let compiled = &self.bytes[(start - source.start) as usize..(end - source.start) as usize];
+        let written = &bytes[(start - write) as usize..(end - write) as usize];
+        if compiled == written {
+            return false;
+        }
+        for (index, (old, new)) in compiled.iter().zip(written).enumerate() {
+            if old != new {
+                record(start as u32 + index as u32);
+            }
+        }
+        true
     }
 }
 
@@ -85,6 +98,9 @@ impl CodeSource {
         let pages = memory.code.pages.lock().unwrap();
         let mut scratch = [0; PAGE_BYTES as usize];
         for span in self.spans.iter() {
+            if pages.excluded().intersects(span.backing, span.bytes.len()) {
+                return Err(Error::StaleCompilation);
+            }
             let live = &mut scratch[..span.bytes.len()];
             memory.backing.read(span.backing, live);
             if live != span.bytes.as_ref() {
@@ -122,13 +138,13 @@ impl Memory {
             .collect()
     }
 
-    pub(super) fn write_storage(&self, backing: u32, bytes: &[u8]) {
+    pub(super) fn write_storage(&self, backing: u32, bytes: &[u8], write: &mut CodeWrite) {
         if bytes.is_empty() {
             return;
         }
-        let pages = self.code.pages.lock().unwrap();
+        let mut pages = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
-        if pages.mark_modified(backing, bytes) {
+        if pages.mark_modified(backing, bytes, write) {
             self.code.needs_retirement.store(true, Ordering::Release);
         }
     }

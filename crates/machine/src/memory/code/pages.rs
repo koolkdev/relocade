@@ -1,8 +1,11 @@
 //! Installed guest instructions indexed by backing page.
 
-use super::{page_base, CodeSource, Span};
+use super::{
+    blacklist::{CodeBlacklist, ExcludedCode},
+    page_base, CodeSource, Span,
+};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -14,7 +17,7 @@ use std::{
 pub struct InstalledCode {
     source: CodeSource,
     spans_by_page: BTreeMap<u32, Vec<usize>>,
-    changed: AtomicBool,
+    modified: AtomicBool,
 }
 
 impl InstalledCode {
@@ -24,7 +27,7 @@ impl InstalledCode {
 
     /// Whether a managed write changed an instruction byte while this module was installed.
     pub fn was_modified(&self) -> bool {
-        self.changed.load(Ordering::Acquire)
+        self.modified.load(Ordering::Acquire)
     }
 
     /// Each backing page belongs to one physical RAM or ROM page, including across A20 aliases.
@@ -55,12 +58,33 @@ impl InstalledCode {
     }
 }
 
+/// Shared by all backing spans of one memory write, including page and segment crossings.
+#[derive(Default)]
+pub(in crate::memory) struct CodeWrite {
+    invalidated: Vec<Arc<InstalledCode>>,
+    // Aliases and overlapping installations can report the same backing byte.
+    counted_bytes: BTreeSet<u32>,
+}
+
+impl CodeWrite {
+    fn invalidated_here(&self, code: &Arc<InstalledCode>) -> bool {
+        self.invalidated
+            .iter()
+            .any(|other| Arc::ptr_eq(other, code))
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
+    blacklist: CodeBlacklist,
 }
 
 impl CodePages {
+    pub(super) fn excluded(&self) -> &ExcludedCode {
+        &self.blacklist.excluded
+    }
+
     pub(crate) fn register(&mut self, source: &CodeSource) -> Arc<InstalledCode> {
         let mut spans_by_page = BTreeMap::<_, Vec<_>>::new();
         for (index, span) in source.spans.iter().enumerate() {
@@ -72,7 +96,7 @@ impl CodePages {
         let code = Arc::new(InstalledCode {
             source: source.clone(),
             spans_by_page,
-            changed: AtomicBool::new(false),
+            modified: AtomicBool::new(false),
         });
         for &page in code.spans_by_page.keys() {
             self.by_backing.entry(page).or_default().push(code.clone());
@@ -93,17 +117,33 @@ impl CodePages {
     }
 
     /// Returns true if this write newly marked at least one installation.
-    pub(super) fn mark_modified(&self, backing: u32, bytes: &[u8]) -> bool {
+    pub(super) fn mark_modified(
+        &mut self,
+        backing: u32,
+        bytes: &[u8],
+        write: &mut CodeWrite,
+    ) -> bool {
         let last = (u64::from(backing) + bytes.len() as u64 - 1) as u32;
         let mut changed = false;
         for (&page, codes) in self.by_backing.range(page_base(backing)..=page_base(last)) {
             for code in codes {
-                if !code.was_modified()
-                    && code
-                        .spans_on(page)
-                        .any(|span| span.changed_by(backing, bytes))
-                {
-                    code.changed.store(true, Ordering::Release);
+                let was_modified = code.was_modified();
+                // An unpacker can keep writing after invalidation. Only count the write
+                // that made this installation stale, including any later spans of that write.
+                if was_modified && !write.invalidated_here(code) {
+                    continue;
+                }
+                let mut modified = false;
+                for span in code.spans_on(page) {
+                    modified |= span.record_changes(backing, bytes, |byte| {
+                        if write.counted_bytes.insert(byte) {
+                            self.blacklist.record_invalidation(byte);
+                        }
+                    });
+                }
+                if modified && !was_modified {
+                    code.modified.store(true, Ordering::Release);
+                    write.invalidated.push(code.clone());
                     changed = true;
                 }
             }

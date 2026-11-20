@@ -29,7 +29,9 @@ impl fmt::Display for Error {
             Self::Wasm(error) => error.fmt(f),
             Self::Worker(error) => error.fmt(f),
             Self::Pool(error) => error.fmt(f),
-            Self::StaleCompilation => f.write_str("compiled instruction bytes have changed"),
+            Self::StaleCompilation => f.write_str(
+                "compiled instruction bytes have changed or were repeatedly invalidated",
+            ),
             Self::CompilationMemory => {
                 f.write_str("compiled code belongs to different guest memory")
             }

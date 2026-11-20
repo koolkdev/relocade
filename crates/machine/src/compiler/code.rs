@@ -65,9 +65,8 @@ impl CompiledCode {
     }
 
     /// Publishes these entries through the CPU's existing dispatch and hook path.
-    /// Returns [`Error::StaleCompilation`] if the live instruction bytes differ
-    /// from the compiled snapshot. If installed bytes change, retire the affected
-    /// module before its next execution.
+    /// Returns [`Error::StaleCompilation`] if the snapshot differs from live memory
+    /// or includes a backing byte excluded after it changed in two installations.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
         let entries = self.dispatch_entries(cpu.cpu_state().execution_target(), &cpu.memory())?;

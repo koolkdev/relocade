@@ -52,10 +52,19 @@ fn aliases_share_speculative_bytes_and_only_installed_sources_are_indexed() {
     installed.unregister();
     assert!(memory.installed_code_at(0x1101).is_empty());
 
-    // A restored snapshot can be installed again with an independent write history.
+    // After the first retirement, restoring the bytes permits another installation.
     memory.view().write(0x102, &[3]).unwrap();
-    let replacement = register(&memory, &candidate);
-    assert!(!replacement.was_modified());
+    let retry = register(&memory, &candidate);
+    memory.view().write_backing(0x1102, &[8]).unwrap();
+    assert!(retry.was_modified());
+    retry.unregister();
+
+    // Restoring them again cannot publish a reply covering the twice-patched byte.
+    memory.view().write(0x102, &[3]).unwrap();
+    assert!(matches!(
+        candidate.lock_current_bytes(&memory),
+        Err(Error::StaleCompilation)
+    ));
     assert!(observers[0].was_modified());
     assert!(!candidate.belongs_to(&setup()));
 }
@@ -83,4 +92,43 @@ fn a_cross_page_write_marks_only_the_installation_with_changed_bytes() {
     writer.view().write_backing(0x1ffe, &[8]).unwrap();
     assert!(memory.take_retirement_request());
     assert!(first.was_modified());
+}
+
+#[test]
+fn blacklist_keeps_bytes_that_invalidated_two_successive_installations() {
+    let memory = setup();
+    let mut reader = memory.code_reader();
+    reader.read(0xffe, 5).unwrap();
+    let source = reader.finish([(0xffe, 5), (0x100fff, 3)]);
+    let first = register(&memory, &source);
+    let overlapping = register(&memory, &source);
+
+    // One A20 write changes bytes on both pages, covered by both installations and their aliases.
+    memory.view().write(0x100fff, &[1, 0, 2]).unwrap();
+    assert!(first.was_modified());
+    assert!(overlapping.was_modified());
+    // Further writes see only dirty sources, including a byte the first write never touched.
+    memory.view().write_backing(0x1fff, &[2]).unwrap();
+    memory.view().write_backing(0x2002, &[3]).unwrap();
+    first.unregister();
+    overlapping.unregister();
+    memory.view().write_backing(0x1ffe, &[4]).unwrap();
+
+    let before_retry = memory.code.pages.lock().unwrap().excluded().clone();
+    let mut reader = memory.code_reader();
+    assert_eq!(reader.read(0x100ffe, 5).unwrap(), [4, 2, 0, 2, 3]);
+    let retry = register(&memory, &reader.finish([(0x100ffe, 5)]));
+    memory.view().write_backing(0x1ffe, &[0; 5]).unwrap();
+    assert!(retry.was_modified());
+
+    assert!(before_retry.is_empty());
+    assert!(matches!(
+        source.lock_current_bytes(&memory),
+        Err(Error::StaleCompilation)
+    ));
+    let pages = memory.code.pages.lock().unwrap();
+    let patched = pages.excluded();
+    for byte in 0x1ffe..=0x2003 {
+        assert_eq!(patched.intersects(byte, 1), matches!(byte, 0x1fff | 0x2001));
+    }
 }
