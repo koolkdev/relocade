@@ -67,7 +67,7 @@ impl<'a> CodeReader<'a> {
             let page = super::page_base(backing);
             let snapshot = self.pages.entry(page).or_insert_with(|| {
                 let mut bytes = vec![0; PAGE_BYTES as usize];
-                let _pages = self.memory.code.lock().unwrap();
+                let _pages = self.memory.code.pages.lock().unwrap();
                 self.memory.backing.read(page, &mut bytes);
                 bytes.into_boxed_slice()
             });

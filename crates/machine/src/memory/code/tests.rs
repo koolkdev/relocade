@@ -71,7 +71,16 @@ fn a_cross_page_write_marks_only_the_installation_with_changed_bytes() {
     };
     let first = install_span(0xffe, 3);
     let second = install_span(0x1000, 2);
-    memory.view().write_backing(0x1fff, &[2, 3, 7]).unwrap();
+    let writer = memory.clone();
+    writer.view().write_backing(0x1fff, &[2, 3, 4]).unwrap();
+    assert!(!memory.take_retirement_request());
+    writer.view().write_backing(0x1fff, &[2, 3, 7]).unwrap();
+    assert!(memory.take_retirement_request());
+    assert!(!memory.take_retirement_request());
     assert!(!first.was_modified());
     assert!(second.was_modified());
+
+    writer.view().write_backing(0x1ffe, &[8]).unwrap();
+    assert!(memory.take_retirement_request());
+    assert!(first.was_modified());
 }
