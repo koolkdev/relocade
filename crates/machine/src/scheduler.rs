@@ -119,7 +119,10 @@ impl Runner {
             }
             None => Timing::from_clock(host),
         };
-        let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
+        let wake = Rc::new(WorkerWake::with_reasons(
+            endpoint.bind(cpu.interrupt_handle()),
+            cpu.memory().code_wake().reasons(),
+        ));
         let (cpu, compiler) = cpu.into_cpu_and_compiler(IoBus::default()).await?;
         let (new_tasks, incoming_tasks) = mpsc::unbounded();
         let compiler = compiler

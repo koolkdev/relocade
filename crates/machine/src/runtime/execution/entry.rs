@@ -45,11 +45,14 @@ impl Cpu {
     }
 
     fn poll_irq(&self, cx: &mut Context<'_>) -> Result<Poll<u8>, ExecutionExit> {
-        let cpu = &self.instance.bindings.cpu;
-        if self.instance.io.is_empty() || cpu.mode() != CpuMode::Real || !cpu.interrupts_enabled() {
+        let cpu = &self.instance.guest.bindings.cpu;
+        if self.instance.guest.io.is_empty()
+            || cpu.mode() != CpuMode::Real
+            || !cpu.interrupts_enabled()
+        {
             return Ok(Poll::Pending);
         }
-        let vector = self.instance.io.poll_interrupt(cx);
+        let vector = self.instance.guest.io.poll_interrupt(cx);
         // Device callbacks may request an exit even without an eligible IRQ.
         if let Some(exit) = self.exit.result() {
             return Err(exit);

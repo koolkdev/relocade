@@ -40,6 +40,7 @@
 #[allow(unsafe_code)]
 mod call;
 mod code;
+mod code_wake;
 mod context;
 mod error;
 mod execution;
@@ -54,6 +55,7 @@ mod wasm;
 
 use crate::{CpuConfig, CpuStateAccess, IoBus, Memory};
 use call::Call;
+pub(crate) use code_wake::{CodeWake, CodeWork};
 pub use context::CpuContext;
 pub use error::{Error, Result};
 pub(crate) use execution::CpuStop;
@@ -61,8 +63,8 @@ pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
+use instance::CpuInstance;
 pub use instance::DispatchEntry;
-use instance::{CpuInstance, Installation};
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
@@ -129,14 +131,14 @@ impl Cpu {
     /// }
     /// ```
     pub fn io(&self) -> IoBus {
-        self.instance.io.clone()
+        self.instance.guest.io.clone()
     }
 
     /// Installed compilations whose decoded bytes cover this linear address.
     /// Several modules can cover the same bytes; coverage does not make an
     /// interior address a callable entry. Each installation stays here until retirement.
     pub fn compiled_modules_at(&self, address: u32) -> impl Iterator<Item = &crate::CompiledCode> {
-        self.instance.compiled_modules_at(address)
+        self.instance.code.compiled_modules_at(address)
     }
 
     /// Retires this CPU's compiled modules whose decoded source overlaps `range`.
@@ -152,23 +154,15 @@ impl Cpu {
     /// # Panics
     /// Panics if a service is pending or parked. Complete or abandon it first.
     pub fn invalidate_code(&mut self, range: std::ops::Range<u64>) -> Result<()> {
-        assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before invalidating"
-        );
         if range.end > 1_u64 << 32 {
             return Err(crate::MemoryError::AddressRange.into());
         }
-        self.instance_mut().invalidate_code(range)
+        self.stopped_code().invalidate_code(range)
     }
 
     pub(crate) fn install_guest_code(&mut self, code: &crate::CompiledCode) -> Result<()> {
-        assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
-        );
-        self.instance_mut()
-            .install_guest_code(code, Installation::Explicit)
+        self.stopped_code()
+            .install_guest_code(code, instance::Installation::Explicit)
     }
 
     /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.
@@ -190,11 +184,7 @@ impl Cpu {
         bytes: &[u8],
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
-        );
-        self.instance_mut().install_wasm_bytes(bytes, entries).await
+        self.stopped_code().install_wasm_bytes(bytes, entries).await
     }
 
     /// Instantiates a caller-supplied Wasm module against this CPU's imports and
@@ -212,11 +202,7 @@ impl Cpu {
         module: &Module,
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
-        assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
-        );
-        self.instance_mut().install_wasm_module(module, entries)
+        self.stopped_code().install_wasm_module(module, entries)
     }
 
     /// Installs host and Wasm hooks in one batch. Each CS:IP entry is independently
@@ -234,11 +220,7 @@ impl Cpu {
     /// # Panics
     /// Panics if a host call is pending or parked. Complete or abandon it first.
     pub async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
-        assert!(
-            self.suspended.is_empty(),
-            "host calls are parked; complete or abandon them before installing"
-        );
-        self.instance_mut().install(hooks).await
+        self.stopped_code().install(hooks).await
     }
 
     /// Borrows the stopped CPU and its mapped resources. The context and its views must end before
@@ -249,6 +231,14 @@ impl Cpu {
     /// Panics if a host call is pending. Complete it to regain access.
     pub fn context(&mut self) -> CpuContext<'_> {
         self.instance_mut().context()
+    }
+
+    fn stopped_code(&mut self) -> &mut instance::CodeCache {
+        assert!(
+            self.suspended.is_empty(),
+            "complete or abandon parked host calls before changing installed code"
+        );
+        &mut self.instance_mut().code
     }
 
     fn instance_mut(&mut self) -> &mut CpuInstance {
@@ -262,19 +252,19 @@ impl Cpu {
     /// Retains live CPU state independently of the runner and its Wasm runtime.
     /// Capture this once when registering a service, like memory and I/O handles.
     pub fn cpu_state(&self) -> CpuStateAccess {
-        self.instance.bindings.cpu.clone()
+        self.instance.guest.bindings.cpu.clone()
     }
 
     /// Retains the execution interrupt signal, independently of CPU access.
     /// Requests cause `ExecutionExit::Interrupted` at a guest checkpoint; they do
     /// not wake a pending service. The embedding owns acknowledgement and work.
     pub fn interrupt_handle(&self) -> ExecutionInterrupt {
-        self.instance.bindings.interrupt.clone()
+        self.instance.guest.bindings.interrupt.clone()
     }
 
     /// Retains guest memory independently of this CPU and its execution borrow.
     /// Clones share guest bytes; dispatch storage remains private.
     pub fn memory(&self) -> Memory {
-        self.instance.bindings.guest.clone()
+        self.instance.guest.bindings.guest.clone()
     }
 }

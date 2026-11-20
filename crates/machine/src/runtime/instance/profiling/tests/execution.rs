@@ -92,7 +92,7 @@ async fn calls() {
         assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
         // Ordinary execution returns leave small batches buffered.
         assert_eq!(
-            merged_count(&cpu.instance.profiling, target(0x210).packed()),
+            merged_count(&cpu.instance.code.profiling, target(0x210).packed()),
             0
         );
         assert_eq!(
@@ -182,7 +182,11 @@ async fn far_calls() {
                     .iter()
                     .map(|&(address, len)| (address.eip(), len)),
             );
-            let wasm = cpu.instance.runtime.with_runtime(|wasm| wasm.compiler());
+            let wasm = cpu
+                .instance
+                .guest
+                .runtime
+                .with_runtime(|wasm| wasm.compiler());
             let module = wasm.compile(&blocks.bytes).await.unwrap();
             crate::CompiledCode::new(module, blocks, source, Vec::new())
                 .unwrap()
@@ -249,7 +253,7 @@ async fn overflow() {
     );
     for callee in targets {
         assert_eq!(
-            merged_count(&cpu.instance.profiling, target(callee).packed()),
+            merged_count(&cpu.instance.code.profiling, target(callee).packed()),
             1
         );
     }

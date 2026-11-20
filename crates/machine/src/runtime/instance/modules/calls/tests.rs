@@ -14,7 +14,7 @@ async fn call_after_write() {
     let mut cpu = Cpu::new(memory.clone(), config, Default::default())
         .await
         .unwrap();
-    let runtime = cpu.instance.runtime.clone();
+    let runtime = cpu.instance.guest.runtime.clone();
     let wasm_compiler = runtime.with_runtime(|wasm| wasm.compiler());
     memory
         .view()
@@ -62,11 +62,11 @@ async fn call_after_write() {
         .await
         .unwrap();
     let run = runtime.with_runtime(|wasm| {
-        let caller = cpu.instance.modules.covering(0x100).next().unwrap();
+        let caller = cpu.instance.code.modules.covering(0x100).next().unwrap();
         let calls = caller.calls.as_ref().unwrap();
         assert_eq!(calls.targets, [0x1000]);
-        let mut imports = cpu.instance.bindings.imports(wasm).to_vec();
-        imports.push(cpu.instance.modules.write_code.import(abi::WRITE_CODE));
+        let mut imports = cpu.instance.guest.bindings.imports(wasm).to_vec();
+        imports.push(cpu.instance.code.modules.write_code.import(abi::WRITE_CODE));
         imports.push(calls.import(wasm));
         let instance = wasm.instantiate(&probe, &imports).unwrap();
         wasm.function(&instance, abi::RUN).unwrap()
@@ -80,7 +80,7 @@ async fn call_after_write() {
     );
     assert_eq!(memory.view().read_u8(0x1001).unwrap(), 9);
     assert!(memory.installed_code_at(0x1001).is_empty());
-    assert!(cpu.instance.modules.has_entry(0x100));
+    assert!(cpu.instance.code.modules.has_entry(0x100));
     assert_eq!(cpu.cpu_state().ax(), 9);
 }
 

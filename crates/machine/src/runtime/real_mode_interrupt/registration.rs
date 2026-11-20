@@ -112,7 +112,7 @@ impl<'cpu> Interrupts<'cpu> {
         }
 
         let cpu = self.cpu.cpu_state();
-        let memory = memory.with_io(self.cpu.instance.io.clone());
+        let memory = memory.with_io(self.cpu.instance.guest.io.clone());
         let guest_calls = self.cpu.guest_calls.clone();
         self.hooks
             .extend(hook(entry.packed(), cpu.clone(), async move || {

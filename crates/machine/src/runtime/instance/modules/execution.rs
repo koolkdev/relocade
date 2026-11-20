@@ -82,6 +82,15 @@ impl CpuModules {
         wasm.instantiate(module, &imports)
     }
 
+    /// The CPU has already claimed the retirement notification at a stopped boundary.
+    pub(in crate::runtime::instance) fn retire_queued(
+        &mut self,
+        wasm: &mut WasmRuntime,
+    ) -> Result<()> {
+        let modified = self.executing.memory.drain_modified_modules();
+        self.retire(&mut wasm.context(), modified)
+    }
+
     /// Apply stopped-host writes before any guest entry can follow a cached link.
     pub(in crate::runtime::instance) fn enter_guest(
         &mut self,

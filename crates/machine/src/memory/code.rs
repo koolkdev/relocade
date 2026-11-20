@@ -9,15 +9,12 @@ mod reader;
 pub(crate) use reader::CodeReader;
 
 use super::Memory;
-use crate::{Error, Result};
+use crate::{runtime::CodeWake, Error, Result};
 use relocade_wasm_runtime::WasmSharedMemory;
 use std::{
     collections::BTreeSet,
     ops::Range,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, MutexGuard, Weak,
-    },
+    sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
 const PAGE_BYTES: u32 = relocade_x86::PhysicalMemoryMap::PAGE_BYTES;
@@ -32,7 +29,7 @@ pub(crate) struct ModuleId(pub(crate) usize);
 #[derive(Default)]
 pub struct CodeRegistry {
     pages: Mutex<CodePages>,
-    needs_retirement: AtomicBool,
+    wake: Arc<CodeWake>,
 }
 
 /// The exact instruction bytes used by a compilation, in the memory where they were read.
@@ -116,6 +113,10 @@ impl CodeSource {
 }
 
 impl Memory {
+    pub(crate) fn code_wake(&self) -> &Arc<CodeWake> {
+        &self.code.wake
+    }
+
     pub(crate) fn code_reader(&self) -> CodeReader<'_> {
         CodeReader::new(self)
     }
@@ -149,18 +150,23 @@ impl Memory {
         let mut pages = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
         if pages.mark_modified(backing, bytes, write) {
-            self.code.needs_retirement.store(true, Ordering::Release);
+            self.code.wake.record_retirements();
+            drop(pages);
+            // Waking the executor may run caller code. Publish and release the registry first.
+            self.code.wake.wake_run();
         }
     }
 
     /// Takes the installations whose instruction bytes changed since the last drain.
     pub(crate) fn take_modified_modules(&self) -> BTreeSet<ModuleId> {
-        if !self.code.needs_retirement.load(Ordering::Acquire) {
+        if !self.code.wake.take_retirements() {
             return BTreeSet::new();
         }
-        let mut pages = self.code.pages.lock().unwrap();
-        self.code.needs_retirement.store(false, Ordering::Release);
-        std::mem::take(&mut pages.modified)
+        self.drain_modified_modules()
+    }
+
+    pub(crate) fn drain_modified_modules(&self) -> BTreeSet<ModuleId> {
+        std::mem::take(&mut self.code.pages.lock().unwrap().modified)
     }
 }
 

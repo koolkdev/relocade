@@ -1,39 +1,21 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
+mod code_cache;
 mod hooks;
 mod modules;
 mod profiling;
 
-use super::{
-    code, hooks::Handler, memory::HostWritePages, CpuContext, Hook, RuntimeMemory, WasmRuntime,
-    WasmRuntimeHandle,
-};
-use crate::{
-    memory::CpuBinding, worker::HostTurns, CompilationBinding, CompiledCode, FarPointer, IoBus,
-    Result,
-};
-use hooks::PreparedHandler;
-use modules::{Calls, CpuModules, ModuleInstance};
-use profiling::Profiling;
-use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
+use super::{code, CpuContext, RuntimeMemory, WasmRuntime, WasmRuntimeHandle};
+use crate::{memory::CpuBinding, worker::HostTurns, FarPointer, IoBus, Result};
+pub(super) use code_cache::{CodeCache, Installation};
+use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
-use std::{ops::Range, rc::Rc};
+use std::rc::Rc;
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
 pub struct DispatchEntry<'a> {
     pub key: u32,
     pub export: &'a str,
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum Installation<'a> {
-    Explicit,
-    Profiled(&'a [FarPointer]),
-}
-
-enum ModuleSource<'a> {
-    Wasm(&'a Module),
-    Guest(&'a CompiledCode),
 }
 
 /// Wasm exports through which the host can enter the guest.
@@ -48,19 +30,20 @@ struct GuestEntryPoints {
 /// Runtime borrows stay inside synchronous operations; compilation and host
 /// service polling do not hold the runtime.
 pub(super) struct CpuInstance {
+    // Retire registrations before releasing the guest memory attachment.
+    pub(super) code: CodeCache,
+    pub(super) guest: Rc<GuestRuntime>,
+}
+
+/// Runtime resources imported by modules and used to enter this guest.
+pub(super) struct GuestRuntime {
     runtime: WasmRuntimeHandle,
-    host_turns: HostTurns,
-    // Discard the private routes before dropping the modules that hold them.
-    host_writes: Rc<HostWritePages>,
-    // Retire source registrations before a standalone CPU releases its memory attachment.
-    modules: CpuModules,
     pub(super) bindings: RuntimeMemory,
     pub(super) io: IoBus,
     entry_points: GuestEntryPoints,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
     resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
     resolve_and_jump: Function<WasmRuntime, abi::ExecutionSignature>,
-    pub(super) profiling: Profiling,
 }
 
 impl CpuInstance {
@@ -74,8 +57,8 @@ impl CpuInstance {
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
-            let mut modules = CpuModules::new(wasm, bindings.guest.clone())?;
-            let profiling = Profiling::new(wasm, target)?;
+            let mut modules = modules::CpuModules::new(wasm, bindings.guest.clone())?;
+            let profiling = profiling::Profiling::new(wasm)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.push(modules.write_code.import(abi::WRITE_CODE));
             imports.extend(modules.imports(wasm));
@@ -113,10 +96,8 @@ impl CpuInstance {
             } else {
                 None
             };
-            Ok(Self {
+            let guest = Rc::new(GuestRuntime {
                 runtime: runtime.clone(),
-                host_turns: HostTurns::default(),
-                host_writes: HostWritePages::new(&runtime, &bindings),
                 bindings,
                 io,
                 entry_points: GuestEntryPoints {
@@ -128,17 +109,19 @@ impl CpuInstance {
                 interpret,
                 resolve_call,
                 resolve_and_jump,
-                modules,
-                profiling,
+            });
+            Ok(Self {
+                code: CodeCache::new(guest.clone(), modules, profiling),
+                guest,
             })
         })
     }
 
     pub(super) fn context(&mut self) -> CpuContext<'_> {
         CpuContext {
-            cpu: &self.bindings.cpu,
-            memory: self.bindings.guest.view().with_io(&self.io),
-            io: &self.io,
+            cpu: &self.guest.bindings.cpu,
+            memory: self.guest.bindings.guest.view().with_io(&self.guest.io),
+            io: &self.guest.io,
             guest_calls: None,
         }
     }
@@ -148,9 +131,9 @@ impl CpuInstance {
         &mut self,
         enter: impl FnOnce(&GuestEntryPoints, &mut WasmRuntime) -> ExecutionExit,
     ) -> ExecutionExit {
-        self.runtime.with_runtime(|wasm| {
-            let _callback = self.modules.enter_guest(&mut wasm.context());
-            enter(&self.entry_points, wasm)
+        self.guest.runtime.with_runtime(|wasm| {
+            let _callback = self.code.enter_guest(&mut wasm.context());
+            enter(&self.guest.entry_points, wasm)
         })
     }
 
@@ -160,8 +143,7 @@ impl CpuInstance {
             if exit != ExecutionExit::CallProfileFull {
                 return exit;
             }
-            self.runtime
-                .with_runtime(|wasm| self.profiling.collect(wasm, &self.modules));
+            self.code.collect_calls();
         }
     }
 
@@ -189,161 +171,11 @@ impl CpuInstance {
     pub(super) fn step(&mut self) -> ExecutionExit {
         self.enter_guest(|entries, wasm| entries.step.call(wasm, ()))
     }
-
-    pub(super) async fn install(&mut self, hooks: impl IntoIterator<Item = Hook>) -> Result<()> {
-        let mut hooks = self.modules.hooks.compile(hooks)?;
-        let module = self.compile_wasm(&hooks.bytes).await?;
-        let handlers = hooks.take_handlers();
-        self.install_module(ModuleSource::Wasm(&module), &hooks.entries(), handlers)
-    }
-
-    pub(super) async fn install_wasm_bytes(
-        &mut self,
-        bytes: &[u8],
-        entries: &[DispatchEntry<'_>],
-    ) -> Result<()> {
-        let module = self.compile_wasm(bytes).await?;
-        self.install_wasm_module(&module, entries)
-    }
-
-    async fn compile_wasm(&self, bytes: &[u8]) -> Result<Module> {
-        let compiler = self.runtime.with_runtime(|wasm| wasm.compiler());
-        // Browser compilation completes on this worker's event loop.
-        Ok(self.host_turns.wait(compiler.compile(bytes)).await?)
-    }
-
-    pub(super) fn install_wasm_module(
-        &mut self,
-        module: &Module,
-        entries: &[DispatchEntry<'_>],
-    ) -> Result<()> {
-        self.install_module(ModuleSource::Wasm(module), entries, Vec::new())
-    }
-
-    pub(super) fn install_guest_code(
-        &mut self,
-        code: &CompiledCode,
-        installation: Installation<'_>,
-    ) -> Result<()> {
-        // A host write may have invalidated a binding before the worker replied.
-        let modified = self.bindings.guest.take_modified_modules();
-        if !modified.is_empty() {
-            self.runtime
-                .with_runtime(|wasm| self.modules.retire(&mut wasm.context(), modified))?;
-        }
-        let mut exports = Vec::new();
-        let mut fallbacks = Vec::new();
-        for binding in code.bindings() {
-            match binding {
-                CompilationBinding::Export { entry, export } => {
-                    let key = entry.packed();
-                    if matches!(installation, Installation::Explicit)
-                        || !self.modules.has_entry(key)
-                    {
-                        exports.push(DispatchEntry { key, export });
-                    }
-                }
-                CompilationBinding::Interpreter(entry) => fallbacks.push(entry),
-            }
-        }
-        // A stale module must fail before any of this reply's entries are bound.
-        if !exports.is_empty() {
-            self.install_module(ModuleSource::Guest(code), &exports, Vec::new())?;
-        }
-        // A partially decoded profiling batch can also leave a requested root unbound.
-        let remaining_roots = match installation {
-            Installation::Explicit => &[][..],
-            Installation::Profiled(roots) => roots,
-        };
-        self.bind_interpreter_if_vacant(
-            fallbacks.into_iter().chain(remaining_roots.iter().copied()),
-        )
-    }
-
-    fn install_module(
-        &mut self,
-        source: ModuleSource<'_>,
-        entries: &[DispatchEntry<'_>],
-        handlers: Vec<PreparedHandler>,
-    ) -> Result<()> {
-        let guest = self.bindings.guest.clone();
-        let checked_source = match source {
-            ModuleSource::Wasm(_) => None,
-            ModuleSource::Guest(code) => {
-                let source = code.source();
-                Some((source, source.lock_current_bytes(&guest)?))
-            }
-        };
-        let instance = self.instantiate_module(source)?;
-        let (id, installed) = self
-            .runtime
-            .with_runtime(|wasm| self.modules.register_exports(wasm, instance, entries))?;
-        if let Some((source, mut registry)) = checked_source {
-            installed.track_source(registry.register(id, source), &self.host_writes);
-        }
-        // Releasing a host callback can reenter the runtime or write guest memory.
-        self.modules.hooks.replace_bindings(entries, handlers);
-        Ok(())
-    }
-
-    fn instantiate_module(
-        &mut self,
-        source: ModuleSource<'_>,
-    ) -> Result<ModuleInstance<WasmRuntime>> {
-        self.runtime.with_runtime(|wasm| {
-            let (module, guest_code) = match source {
-                ModuleSource::Wasm(module) => (module, None),
-                ModuleSource::Guest(code) => (code.module(), Some(code)),
-            };
-            let calls = Calls::new(wasm, guest_code, &self.resolve_and_jump)?;
-            let mut imports = self.bindings.imports(wasm).to_vec();
-            imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
-            imports.extend([
-                wasm.bind(abi::DISPATCH, &self.entry_points.dispatch),
-                wasm.bind(abi::INTERPRET, &self.interpret),
-                wasm.bind(abi::RESOLVE_CALL, &self.resolve_call),
-            ]);
-            imports.extend(self.io.port_map().imports(wasm));
-            imports.extend(self.io.mmio_map().imports(wasm));
-            if let Some(calls) = &calls {
-                imports.push(calls.import(wasm));
-            }
-            let instance = self.modules.instantiate(wasm, module, imports)?;
-            Ok(ModuleInstance::new(instance, guest_code.cloned(), calls))
-        })
-    }
-
-    pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
-        self.runtime
-            .with_runtime(|wasm| self.modules.invalidate(&mut wasm.context(), range))
-    }
-
-    pub(super) fn compiled_modules_at(
-        &self,
-        address: u32,
-    ) -> impl Iterator<Item = &crate::CompiledCode> {
-        self.modules
-            .covering(address)
-            .filter_map(|module| module.code())
-    }
-
-    fn bind_interpreter_if_vacant(
-        &mut self,
-        entries: impl IntoIterator<Item = FarPointer>,
-    ) -> Result<()> {
-        self.runtime
-            .with_runtime(|wasm| self.modules.bind_interpreter_if_vacant(wasm, entries))
-    }
-
-    #[inline]
-    pub(super) fn handler(&self, id: u32) -> &Rc<dyn Handler> {
-        self.modules.hooks.handler(id)
-    }
 }
 
 impl super::Cpu {
     pub(crate) fn with_host_turns(mut self, host: HostTurns) -> Self {
-        self.instance.host_turns = host;
+        self.instance.code.host_turns = host;
         self
     }
 }

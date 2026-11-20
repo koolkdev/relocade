@@ -52,9 +52,10 @@ compilation capacity. CPU creation stays synchronous; connections and requests c
 queue during startup. Every request supplies its execution target. All connected
 PCs use the same pool.
 
-The service owns compilation and delivery. Hotness, candidate selection, code
-validity, installation, and future module caching or sharing between CPUs belong
-to the Machine runtime and its execution owners.
+Each CPU has one `CodeCache`. It chooses hot functions, requests compilation,
+validates and installs the replies, and retires installed code when its source
+changes. The shared service executes the requested compiler jobs and sends
+their results back to the requesting CPU.
 
 `CompilerClient` is a single-owner request/result stream. Each `BlockRequest`
 supplies a real-mode `FarPointer` and compilation bounds. The worker reads the
@@ -151,14 +152,18 @@ A parked worker can receive browser callbacks immediately. On a busy worker,
 yielding to the browser. Completing or cancelling the last operation ends
 these browser turns. [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
-When a complete automatic Real16 compiler reply reaches the local slot, the
-forwarding task wakes the active CPU run. If no run is active, the slot keeps
-the reply for the next run. With the machine's pause permit held, the CPU
-installs the reply even while pacing or waiting for a host service. It fills
-vacant dispatch entries and supplies interpreter fallbacks for requested roots
-still missing. A stale result returns its roots to sampling. Existing entries
-stay in place, including handlers retained by a parked BIOS call. An interrupt
-handler can therefore use newly compiled code while the outer call is parked.
+The interruptible worker waker records separate bits for a locally delivered
+compiler reply and for writes that changed installed code. Once a CPU run
+holds the machine's pause permit, it claims the pending code bits together.
+The code cache retires changed installations first, then publishes any ready
+reply into vacant dispatch entries. A run waiting on pacing or a host service
+can do both in one turn. With no active run, the reply and changed installation
+IDs stay queued. A replacement run can claim the work.
+
+The cache supplies interpreter fallbacks for requested roots still missing.
+A stale result returns its roots to sampling. Existing entries stay in place,
+including handlers retained by a parked BIOS call. An interrupt handler can
+therefore use newly compiled code while the outer call is parked.
 
 The CPU also collects its call profile when the sampling interval has elapsed
 and it gets an execution turn. Profiling never wakes an idle CPU.
