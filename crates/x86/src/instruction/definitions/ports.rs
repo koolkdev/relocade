@@ -39,6 +39,7 @@ where
     I32: AtLeast<T> + AtLeast<P>,
     I16: AtLeast<P>,
 {
+    execution.begin_port_io()?;
     let port = port.read(execution)?.unsigned().extend::<I16>();
     let value = execution.read_port::<T>(&port)?;
     destination.write(execution, value)
@@ -53,6 +54,7 @@ where
     I32: AtLeast<T> + AtLeast<P>,
     I16: AtLeast<P>,
 {
+    execution.begin_port_io()?;
     let port = port.read(execution)?.unsigned().extend::<I16>();
     let value = source.read(execution)?;
     execution.write_port(&port, &value)

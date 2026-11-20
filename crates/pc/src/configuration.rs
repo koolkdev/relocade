@@ -143,9 +143,8 @@ pub fn cpu() -> CpuConfig {
     .expect("fixed real-mode PC CPU")
 }
 
-/// The PC advances by one guest microsecond per retired instruction. The host
-/// clock drives idle time and presentation. A MIPS limit caps active retirement
-/// per host second independently of the device clock rate.
+/// PC hardware tracks elapsed host time in microsecond ticks. A MIPS limit
+/// independently caps how many instructions the CPU can retire per host second.
 pub fn guest_time() -> GuestTimeConfig {
     const MAX_MIPS: Option<NonZeroU32> = None;
     let time = GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap());

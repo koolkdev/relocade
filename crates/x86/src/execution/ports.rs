@@ -4,6 +4,13 @@ use super::*;
 use relocade_compiler::{AtLeast, MemoryInt};
 
 impl ExecutionBuilder<'_, '_> {
+    /// A device can read guest time inside a block. Publish preceding instructions
+    /// once, before the port operation or its repetition loop starts.
+    pub(crate) fn begin_port_io(&mut self) -> Result<(), BuildError> {
+        self.state
+            .publish_retirement(&mut self.body, std::mem::take(&mut self.completed))
+    }
+
     pub(crate) fn read_port<T: MemoryInt>(&mut self, port: &Val<I16>) -> Result<Val<T>, BuildError>
     where
         I32: AtLeast<T>,

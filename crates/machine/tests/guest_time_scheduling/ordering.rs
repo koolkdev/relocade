@@ -6,6 +6,170 @@ use relocade_clock_test_support::ManualClock;
 use relocade_machine::{GuestTimeConfig, PortRead, PortWrite};
 use std::task::{Context, Waker};
 
+async fn polling_a_live_clock_register() {
+    struct TimerPort;
+    impl Device for TimerPort {}
+
+    use std::sync::atomic::Ordering;
+
+    let (host, _armed, source) = host::host();
+    let host_reads = source.reads.clone();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
+            NonZeroU64::new(1_000_000_000).unwrap(),
+        ))
+        .with_host_clock(source),
+        async move |mut runner| {
+            let clock = runner.clock().clone();
+            let state = runner.cpu().cpu_state();
+            let observed = Rc::new(RefCell::new(Vec::new()));
+            let samples = observed.clone();
+            runner.io().connect(Rc::new(RefCell::new(TimerPort)), |io| {
+                io.bind(
+                    0x80,
+                    &PortRead::new(move |_, _, _| {
+                        let before = host_reads.load(Ordering::Relaxed);
+                        let time = clock.now();
+                        assert_eq!(host_reads.load(Ordering::Relaxed), before);
+                        samples.borrow_mut().push((state.instruction_count(), time));
+                        0
+                    }),
+                    &PortWrite::new(|_, _, _, _| {}),
+                );
+            });
+            // Both reads are in the same compiled block with the host clock frozen.
+            let code = [0xe4, 0x80, 0x90, 0x90, 0xe4, 0x80];
+            prepare_cpu(&mut runner, &code).await;
+            let block = Compiler::new(ExecutionProfile::Real16)
+                .compile_block(0x100, &code, 4)
+                .unwrap();
+            let cpu = runner.cpu();
+            cpu.install_module(
+                &block.bytes,
+                &[DispatchEntry {
+                    key: 0x100,
+                    export: &block.entry,
+                }],
+            )
+            .await
+            .unwrap();
+            let exit = cpu.exit_handle();
+            cpu.install([Hook::host(0x106, async move || exit.request())])
+                .await
+                .unwrap();
+            assert_eq!(
+                runner.run_cpu().await,
+                ExecutionExit::Host(HostExit::Return)
+            );
+            let samples = observed.borrow();
+            assert_eq!(samples.len(), 2);
+            assert_eq!([samples[0].0, samples[1].0], [0, 3]);
+            assert!(samples[1].1 > samples[0].1);
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 4);
+            assert_eq!(host.clock().now(), host.at(Duration::ZERO));
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn port_reads_in_one_compiled_block_observe_retirement_without_reading_host_time() {
+    pollster::block_on(polling_a_live_clock_register());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn port_reads_in_one_compiled_block_observe_retirement_without_reading_host_time() {
+    polling_a_live_clock_register().await;
+}
+
+async fn pending_deadline_across_calibration() {
+    struct TimerPort;
+    impl Device for TimerPort {}
+
+    let (host, _armed, source) = host::host();
+    let setup = configuration();
+    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
+    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
+    let worker = ExecutionWorker::spawn(
+        prepared,
+        SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
+            NonZeroU64::new(1_000_000).unwrap(),
+        ))
+        .with_host_clock(source),
+        async move |mut runner| {
+            let state = runner.cpu().cpu_state();
+            let progress = state.clone();
+            runner.io().connect(Rc::new(RefCell::new(TimerPort)), |io| {
+                io.bind(
+                    0x80,
+                    &PortRead::new(move |_, _, _| {
+                        if progress.instruction_count() == 500 {
+                            let sample = host.at(Duration::from_millis(4));
+                            assert_eq!(host.next_deadline(), Some(sample));
+                            host.advance_to(sample);
+                        }
+                        0
+                    }),
+                    &PortWrite::new(|_, _, _, _| {}),
+                );
+            });
+            state.set_cx(1_000);
+            let code = [0xe4, 0x80, 0xe2, 0xfc]; // IN AL,80h; LOOP 0100h.
+            prepare_cpu(&mut runner, &code).await;
+            let block = Compiler::new(ExecutionProfile::Real16)
+                .compile_block(0x100, &code, 2)
+                .unwrap();
+            runner
+                .cpu()
+                .install_module(
+                    &block.bytes,
+                    &[DispatchEntry {
+                        key: 0x100,
+                        export: &block.entry,
+                    }],
+                )
+                .await
+                .unwrap();
+            let cpu = runner.cpu();
+            let exit = cpu.exit_handle();
+            cpu.install([Hook::host(0x104, async move || exit.request())])
+                .await
+                .unwrap();
+            let clock = runner.clock().clone();
+            let deadline = clock.deadline_after(clock.now(), Duration::from_millis(3));
+            assert!(matches!(
+                runner.run_cpu_until(clock.sleep_until(deadline)).await,
+                Either::Right(())
+            ));
+            // The wake occurs after the sample, within the newly projected window.
+            // Snapping to wall time would fire at 500; the old target is 150,000.
+            assert!((600..800).contains(&state.instruction_count()));
+            assert!(clock.now() >= deadline);
+        },
+    );
+    assert_eq!(worker.join().await.unwrap(), Some(()));
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_pending_device_sleep_uses_the_new_cpu_rate_after_a_sample() {
+    pollster::block_on(pending_deadline_across_calibration());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn a_pending_device_sleep_uses_the_new_cpu_rate_after_a_sample() {
+    pending_deadline_across_calibration().await;
+}
+
 async fn due_device_before_next_block() {
     let setup = configuration();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();

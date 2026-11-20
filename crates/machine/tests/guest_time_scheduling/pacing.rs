@@ -56,8 +56,9 @@ async fn idle_deadlines() {
             observed
         },
     );
-    // A late host wake services the due deadline and starts the next idle wait.
-    for (scheduled, wake) in [(2, 11), (13, 13), (15, 15), (17, 17), (19, 19), (21, 21)] {
+    // The first wake is nine milliseconds late. All elapsed deadlines share
+    // the current guest reading, and the final timer keeps its original phase.
+    for (scheduled, wake) in [(2, 11), (12, 12)] {
         assert_eq!(
             armed.next().await,
             Some(host_time.at(Duration::from_millis(scheduled)))
@@ -66,14 +67,7 @@ async fn idle_deadlines() {
     }
     assert_eq!(
         worker.join().await.unwrap(),
-        Some(vec![
-            Duration::from_millis(2),
-            Duration::from_millis(4),
-            Duration::from_millis(6),
-            Duration::from_millis(8),
-            Duration::from_millis(10),
-            Duration::from_millis(12)
-        ])
+        Some([11, 11, 11, 11, 11, 12].map(Duration::from_millis).to_vec())
     );
     assert_eq!(host.next_deadline(), None);
     assert_eq!(armed.next().await, None);
@@ -171,7 +165,7 @@ async fn replace_idle_deadline() {
     host.advance_to(host_time.at(Duration::from_millis(5)));
     assert_eq!(
         worker.join().await.unwrap(),
-        Some(vec![Duration::ZERO, Duration::from_millis(5)])
+        Some(vec![Duration::from_millis(2), Duration::from_millis(5)])
     );
     assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
@@ -304,29 +298,33 @@ async fn busy_bursts() {
                 runner.run_cpu_until(stopped).await,
                 Either::Right(Ok(()))
             ));
-            assert_eq!(runner.clock().now().ticks(), 8);
+            assert_eq!(runner.clock().now().ticks(), 90);
             assert_eq!(
                 runner
                     .clock()
                     .duration_between(Timestamp::from_ticks(0), runner.clock().now()),
-                Duration::from_micros(800)
+                Duration::from_millis(9)
             );
             runner.cpu().cpu_state().instruction_count()
         },
     );
     // At 750 instructions/s, four retired instructions cross the first 4 ms
     // boundary. The host wait includes that overshoot.
-    assert_eq!(
-        armed.next().await,
-        Some(host_time.at(Duration::from_nanos(5_333_334)))
-    );
+    expect_parked_timer(
+        &mut armed,
+        &host_time,
+        host_time.at(Duration::from_nanos(5_333_334)),
+    )
+    .await;
     host.advance_by(Duration::from_millis(9));
     // A late wake starts a fresh burst; each four-instruction block pair is charged
     // at the host limit, independently of the nominal 10,000 Hz guest clock.
-    assert_eq!(
-        armed.next().await,
-        Some(host_time.at(Duration::from_nanos(14_333_334)))
-    );
+    expect_parked_timer(
+        &mut armed,
+        &host_time,
+        host_time.at(Duration::from_nanos(14_333_334)),
+    )
+    .await;
     stop.send(()).unwrap();
     assert_eq!(worker.join().await.unwrap(), Some(8));
     assert_eq!(host.next_deadline(), None);

@@ -145,3 +145,36 @@ fn periodic_scheduling_rounds_deadlines_without_accumulating_error() {
         Duration::from_secs(1)
     );
 }
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn recalibration_preserves_fractional_time_and_reprojects_the_earliest_wait() {
+    let host = GuestTimeDriver::new(NonZeroU64::new(1_000_000).unwrap());
+    let rate = TickRate::new(NonZeroU64::new(1_000_000).unwrap());
+    let mut live = Realtime::new(host.clock(), rate);
+    let origin = Timestamp::from_ticks(u64::MAX - 999);
+    let start = u64::MAX - 10_000;
+    live.start(origin, start);
+    live.running = true;
+    let deadline = rate.deadline_after(origin, Duration::from_millis(3));
+    let old = live.estimate.target(deadline, start).unwrap();
+    let count = start.wrapping_add(50_003);
+    let phase = live.estimate.phase(count);
+    assert_ne!(phase % super::interpolation::ONE_TICK, 0);
+    host.advance_to(Timestamp::from_ticks(4_000));
+    live.sample(count, true);
+    assert_eq!(live.estimate.phase(count), phase);
+    let earlier = live.estimate.target(deadline, count).unwrap();
+    assert!(earlier.wrapping_sub(count) < old.wrapping_sub(count));
+    assert!(live.estimate.now(earlier - 1) < deadline);
+    assert_eq!(live.estimate.now(earlier), deadline);
+    assert_eq!(
+        live.estimate.now(count.wrapping_add(50_003)),
+        rate.deadline_after(origin, Duration::from_millis(8))
+    );
+    // Faster retirement cannot project past the end of this observation window.
+    assert_eq!(
+        live.estimate.now(count.wrapping_add(100_006)),
+        rate.deadline_after(origin, Duration::from_millis(8))
+    );
+}

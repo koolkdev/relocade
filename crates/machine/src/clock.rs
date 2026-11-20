@@ -106,8 +106,8 @@ impl Clock {
     /// Device output uses the configured host timer on this owner.
     /// Output tasks await this before publishing to another worker.
     ///
-    /// A host clock uses the timestamp unchanged. A live guest clock maps the
-    /// interval remaining until the timestamp onto its host clock at the call.
+    /// A host clock uses the timestamp unchanged. A live guest clock maps a
+    /// timestamp to the corresponding instant from the session's host origin.
     /// Due frames, detached clocks and clocks without a host complete immediately.
     /// A captured wait retains its deadline and registers on first poll.
     pub fn sync_to_host(&self, time: Timestamp) -> Sleep {
