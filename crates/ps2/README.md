@@ -59,7 +59,9 @@ The emulated clock supplies typematic at the programmed rate and delay; host
 repeat events are ignored. Delayed or inhibited transmission coalesces missed
 repeats. The keyboard buffers up to sixteen scan bytes, admits complete
 sequences, and reports overrun when full. Command replies take priority over queued
-scan data and wait for controller output space. Closing host input releases held
+scan data and wait for controller output space. When a physical release and a
+typematic deadline are both ready, the keyboard consumes the release first.
+Closing host input releases held
 keys while the firmware continues serving guest commands.
 
 The frontend event channel transports host input independently of the emulated

@@ -223,9 +223,48 @@ async fn queued_mouse_input() {
                 for byte in [8, 5, 0] {
                     assert_eq!(next(&io).await, (true, byte));
                 }
-                drop(input.mouse);
+                // A previously due sample freezes its header before new motion
+                // is added, whichever notification wakes the worker first.
+                input
+                    .mouse
+                    .unbounded_send(MouseEvent::Motion {
+                        delta_x: 1.0,
+                        delta_y: 0.0,
+                    })
+                    .unwrap();
                 for _ in 0..4 {
                     relocade_machine::yield_now().await;
+                }
+                input
+                    .mouse
+                    .unbounded_send(MouseEvent::Motion {
+                        delta_x: 2.0,
+                        delta_y: 0.0,
+                    })
+                    .unwrap();
+                clock.advance_to(clock.at(Duration::from_millis(30)));
+                for byte in [8, 1, 0] {
+                    assert_eq!(next(&io).await, (true, byte));
+                }
+                clock.advance_to(clock.at(Duration::from_millis(40)));
+                for byte in [8, 2, 0] {
+                    assert_eq!(next(&io).await, (true, byte));
+                }
+                input
+                    .mouse
+                    .unbounded_send(MouseEvent::Button {
+                        button: MouseButton::Left,
+                        state: ElementState::Pressed,
+                    })
+                    .unwrap();
+                clock.advance_to(clock.at(Duration::from_millis(50)));
+                for byte in [9, 0, 0] {
+                    assert_eq!(next(&io).await, (true, byte));
+                }
+                drop(input.mouse);
+                clock.advance_to(clock.at(Duration::from_millis(60)));
+                for byte in [8, 0, 0] {
+                    assert_eq!(next(&io).await, (true, byte));
                 }
                 assert_eq!(
                     clock.next_deadline(),

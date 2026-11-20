@@ -9,13 +9,14 @@ mod scancodes;
 
 pub use controller::Controller;
 use controller::Port;
+use futures_util::{future::Fuse, FutureExt};
 use relocade_frontend::{
     keyboard::{self as frontend, KeyboardEvents, KeyboardInput},
     mouse::{MouseEvents, MouseInput},
 };
 use relocade_machine::{Clock, Device, IoBus, Runner};
 use relocade_pic::Pic;
-use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
+use std::{cell::RefCell, future::Future, ops::RangeInclusive, rc::Rc};
 
 pub const DATA_PORT: u16 = 0x60;
 pub const STATUS_COMMAND_PORT: u16 = 0x64;
@@ -42,6 +43,11 @@ pub fn read_auxiliary_byte(io: &IoBus) -> Option<u8> {
     let status = io.read_port(STATUS_COMMAND_PORT, 1) as u8;
     (status & (OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT) == OUTPUT_BUFFER_FULL | AUXILIARY_OUTPUT)
         .then(|| io.read_port(DATA_PORT, 1) as u8)
+}
+
+/// A missing byte, input channel or deadline disables that firmware select branch.
+fn optional_wait<F: Future>(wait: Option<F>) -> Fuse<F> {
+    wait.map_or_else(Fuse::terminated, FutureExt::fuse)
 }
 
 /// Host senders for the two PS/2 devices. Clones can cross execution workers.

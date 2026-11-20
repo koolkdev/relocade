@@ -29,7 +29,7 @@ the shared PC/AT frequency. Deadlines round up, and repeated periods retain
 their fractional remainder.
 
 `Pit::initialize(runner, &pic).await` creates the execution-owned
-device on the runner's clock, connects its registers and starts its activity.
+device on the runner's clock, connects its registers and starts its task.
 It returns the shared PIT. It owns byte transfers at
 channel 0 (0x40), channel 2 (0x42) and control/read-back (0x43). Channel 1 (0x41)
 and wider transfers are unsupported: writes are ignored and reads return open bus.
@@ -40,12 +40,15 @@ connects IRQ0 at OUT0's starting level without creating an edge. The first
 IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
 configuration; pending divisor loads follow the same mode-specific rules as channel 2.
 
-The device waits for channel-0 transitions or reprogramming. It drives the PIC's
-IRQ0 level and preserves one pending rising edge when a delayed wake spans many
-periods. Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
-because an obsolete wait completed. BIOS keeps its handler, tick data, midnight
-rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing the
-timer frequency also changes BIOS time unless guest software compensates.
+Channel-0 port writes advance the counter to the current clock reading before
+changing its configuration. The PIT task waits for the next output transition
+or a programming change. Reprogramming cancels the previous wait. After either
+wake, the task updates the PIC and arms the next transition in the same poll.
+The PC's guest clock advances between task polls. With a custom clock,
+successive transition waits must eventually suspend so other work can run. If
+a late wake spans multiple periods, the PIC retains one pending rising edge. The BIOS handler counts delivered IRQ0 interrupts for
+its tick data, midnight rollover and INT 1Ah service. Changing the timer
+frequency changes BIOS time unless guest software compensates.
 
 The speaker retains the same PIT through `Speaker::initialize(runner, pit)` and owns
 port 0x61. Its gate changes and OUT2 reads use the PIT's channel 2.
