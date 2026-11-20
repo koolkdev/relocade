@@ -76,3 +76,6 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Calls<B> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

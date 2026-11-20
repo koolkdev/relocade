@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{memory::CpuBinding, CompiledCode, FarPointer, IoBus, Result};
 use hooks::PreparedHandler;
-use modules::{Calls, ModuleInstance, Modules};
+use modules::{Calls, CpuModules, ModuleInstance};
 use profiling::Profiling;
 use relocade_wasm_runtime::{Function, Module, SharedMemory, WasmBackend, WasmCompiler};
 use relocade_x86::{abi, CpuMode, ExecutionExit};
@@ -43,7 +43,7 @@ pub(super) struct CpuInstance {
     // Discard the private routes before dropping the modules that hold them.
     host_writes: Rc<HostWritePages>,
     // Retire source registrations before a standalone CPU releases its memory attachment.
-    modules: Modules<WasmRuntime>,
+    modules: CpuModules,
     pub(super) bindings: RuntimeMemory,
     pub(super) io: IoBus,
     entry_points: GuestEntryPoints,
@@ -64,9 +64,10 @@ impl CpuInstance {
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
-            let mut modules = Modules::new(wasm)?;
+            let mut modules = CpuModules::new(wasm, bindings.guest.clone())?;
             let profiling = Profiling::new(wasm, target)?;
             let mut imports = bindings.imports(wasm).to_vec();
+            imports.push(modules.write_code.import(abi::WRITE_CODE));
             imports.extend(modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &profiling.memory));
             let instance = wasm.instantiate(&dispatcher, &imports)?;
@@ -142,6 +143,7 @@ impl CpuInstance {
                     .retire_modified(&mut wasm.context())
                     .expect("retire modified code");
             }
+            let _callback = self.modules.enable_write_callback();
             enter(&self.entry_points, wasm)
         })
     }
@@ -225,11 +227,12 @@ impl CpuInstance {
         entries: &[DispatchEntry<'_>],
         handlers: Vec<PreparedHandler>,
     ) -> Result<()> {
+        let guest = self.bindings.guest.clone();
         let checked_source = match source {
             ModuleSource::Wasm(_) => None,
             ModuleSource::Guest(code) => {
                 let source = code.source();
-                Some((source, source.lock_current_bytes(&self.bindings.guest)?))
+                Some((source, source.lock_current_bytes(&guest)?))
             }
         };
         let instance = self.instantiate_module(source)?;
@@ -244,7 +247,10 @@ impl CpuInstance {
         Ok(())
     }
 
-    fn instantiate_module(&self, source: ModuleSource<'_>) -> Result<ModuleInstance<WasmRuntime>> {
+    fn instantiate_module(
+        &mut self,
+        source: ModuleSource<'_>,
+    ) -> Result<ModuleInstance<WasmRuntime>> {
         self.runtime.with_runtime(|wasm| {
             let (module, guest_code) = match source {
                 ModuleSource::Wasm(module) => (module, None),
@@ -252,7 +258,6 @@ impl CpuInstance {
             };
             let calls = Calls::new(wasm, guest_code, &self.resolve_and_jump)?;
             let mut imports = self.bindings.imports(wasm).to_vec();
-            imports.extend(self.modules.imports(wasm));
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
                 wasm.bind(abi::DISPATCH, &self.entry_points.dispatch),
@@ -264,7 +269,7 @@ impl CpuInstance {
             if let Some(calls) = &calls {
                 imports.push(calls.import(wasm));
             }
-            let instance = wasm.instantiate(module, &imports)?;
+            let instance = self.modules.instantiate(wasm, module, imports)?;
             Ok(ModuleInstance::new(instance, guest_code.cloned(), calls))
         })
     }

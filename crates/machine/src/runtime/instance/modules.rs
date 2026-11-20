@@ -2,6 +2,8 @@
 
 mod calls;
 pub(super) use calls::Calls;
+mod execution;
+pub(super) use execution::CpuModules;
 mod table;
 
 use super::hooks::Hooks;

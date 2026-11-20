@@ -551,7 +551,8 @@ have a maximum no larger than that and enough initial capacity for all backing.
 
 Interpreters import `executionContext`, `guest` and `dispatch`. The host page
 table backend imports `machine`. The physical bus backend imports `physicalMap`
-and the MMIO callbacks. Protected segment operations use `resolveSegment`,
+and the MMIO callbacks. Stores to tracked RAM call `writeCode`. The host repairs
+affected compiled bindings before this callback returns. Protected segment operations use `resolveSegment`,
 `completeSegmentLoad` and `querySegmentDescriptor`. Real16 uses the port callbacks.
 Snapshot modules retain the imports their instructions need. Protected segment loads require
 `resolveSegment` and `completeSegmentLoad`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks

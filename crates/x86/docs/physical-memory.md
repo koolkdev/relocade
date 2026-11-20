@@ -112,7 +112,7 @@ DMA or another processor.
 
 After the segment check and A20 translation, every 32-bit address has a
 physical page entry. The JIT guards complete operand spans: reads must fit
-one RAM/ROM page and writes must fit one RAM page. Successful guards retain the
+one RAM/ROM page and writes must fit one directly writable RAM page. Successful guards retain the
 backing address for direct loads and stores. A failed guard publishes completed
 instructions and restarts the current instruction in the interpreter, before
 consuming device input or changing its destination.
@@ -127,8 +127,9 @@ architectural fault ordering and live routing.
 
 An inline check handles interpreter accesses within one RAM/ROM page. Routing,
 splitting and partial transfer assembly share one reader and one writer per
-module, created only when used. Helpers are Wasm functions; host calls occur only
-in their MMIO branches. Separate snapshot modules each contain their own helpers.
+module, created only when used. The helpers call the host for MMIO and for writes
+to tracked RAM. The `writeCode` callback updates the backing bytes and withdraws
+affected compiled bindings before returning to the interpreter.
 
 The interpreter checks CS and probes RAM/ROM for a direct fetch window without
 calling a device. Windows stop at page boundaries; unavailable windows use exact

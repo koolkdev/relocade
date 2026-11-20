@@ -89,6 +89,10 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         ]
     }
 
+    pub(super) fn resources(&self) -> (B::Memory, Table<B, abi::ExecutionSignature>) {
+        (self.memory.clone(), self.functions.clone())
+    }
+
     pub(super) fn contains(&self, key: u32) -> bool {
         self.entries
             .get(&key)
