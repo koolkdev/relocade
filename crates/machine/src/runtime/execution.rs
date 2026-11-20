@@ -3,18 +3,20 @@
 mod entry;
 mod guest_call;
 mod requests;
+mod run;
 mod suspended;
 
 use super::{call::Call, Cpu};
 use crate::machine::execution::Active;
-use futures_util::task::AtomicWaker;
 pub(super) use guest_call::GuestCall;
 use relocade_x86::{Exception, ExecutionExit, HostExit};
 pub(super) use requests::GuestCalls;
+use run::RunWake;
 use std::{
     cell::{Cell, RefCell},
     future::poll_fn,
-    rc::{Rc, Weak},
+    rc::Rc,
+    sync::Weak,
     task::{ready, Context, Poll},
 };
 pub(super) use suspended::SuspendedCall;
@@ -40,7 +42,7 @@ pub struct ExitHandle(Rc<ExitRequest>);
 #[derive(Default)]
 struct ExitRequest {
     result: Cell<Option<ExecutionExit>>,
-    waiter: RefCell<Weak<AtomicWaker>>,
+    waiter: RefCell<Weak<RunWake>>,
 }
 
 impl ExitHandle {
@@ -56,17 +58,10 @@ impl ExitHandle {
         self.result().is_some()
     }
 
-    /// Register the run's waker while it can be stopped from another task.
-    pub(crate) fn listen(&self) -> Rc<AtomicWaker> {
-        let waiter = Rc::new(AtomicWaker::new());
-        *self.0.waiter.borrow_mut() = Rc::downgrade(&waiter);
-        waiter
-    }
-
     fn set(&self, exit: ExecutionExit) {
         self.0.result.set(Some(exit));
         if let Some(waiter) = self.0.waiter.borrow().upgrade() {
-            waiter.wake();
+            waiter.task.wake();
         }
     }
 
@@ -119,10 +114,9 @@ impl Cpu {
     /// device IRQ is accepted. Unrelated wakes and replacement run waiters retain
     /// the halt. Devices and session cancellation remain independently pollable.
     pub async fn run(&mut self) -> ExecutionExit {
-        let exit = self.exit.listen();
+        let run = self.listen_for_run();
         poll_fn(|cx| {
-            exit.register(cx.waker());
-            let _execution = ready!(self.poll_enter(cx));
+            let _execution = ready!(run.poll_enter(self, cx));
             self.poll_host_call(cx)
                 .or_else(|| self.dispatch(cx, |_| false))
                 .map_or(Poll::Pending, Poll::Ready)
@@ -173,7 +167,7 @@ impl Cpu {
         cx: &mut Context<'_>,
         yield_at_host_boundary: impl Fn(&Self) -> bool,
     ) -> Option<ExecutionExit> {
-        self.instance.update_compilation();
+        self.instance.sample_calls();
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,

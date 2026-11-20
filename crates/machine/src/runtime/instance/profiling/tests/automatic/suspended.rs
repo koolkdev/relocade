@@ -17,9 +17,16 @@ fn pointer(offset: u16) -> FarPointer {
     FarPointer { segment: 0, offset }
 }
 
-struct ReplyReady(mpsc::UnboundedSender<()>);
+struct CpuWake(mpsc::UnboundedSender<()>);
 
-impl Wake for ReplyReady {
+impl CpuWake {
+    fn channel() -> (Waker, mpsc::UnboundedReceiver<()>) {
+        let (signal, wakes) = mpsc::unbounded();
+        (Waker::from(Arc::new(Self(signal))), wakes)
+    }
+}
+
+impl Wake for CpuWake {
     fn wake(self: Arc<Self>) {
         let _ = self.0.unbounded_send(());
     }
@@ -70,23 +77,32 @@ async fn installation_during_nested_service() {
         }
         let cpu = runner.cpu();
         assert!(cpu.pending.is_some() && !cpu.suspended.is_empty());
-        // Submit with no foreground run. The consumer's first wake
-        // must mean it can take the complete, local Wasm module.
-        // The consumer does not poll during posted-object delivery.
-        let (signal, mut delivered) = mpsc::unbounded();
-        let ready = Waker::from(Arc::new(ReplyReady(signal)));
         let instance = &mut cpu.instance;
-        assert!(pin!(instance.profiling.compiler.as_mut().unwrap().recv())
-            .poll(&mut Context::from_waker(&ready))
-            .is_pending());
         instance.profiling.hotness.record(CallCount {
             target: 0x500,
             count: 4096,
         });
         instance.profiling.submit(&instance.modules);
-        delivered.next().await.unwrap();
+
+        // Both runs register before yielding to the local reply transport.
+        // Drop the first run while the request is still outstanding.
+        let (previous, mut previous_wakes) = CpuWake::channel();
+        assert!(pin!(cpu.run())
+            .poll(&mut Context::from_waker(&previous))
+            .is_pending());
         assert!(!cpu.instance.modules.has_entry(0x500));
-        assert!(futures_lite::future::poll_once(cpu.run()).await.is_none());
+        {
+            let (current, mut wakes) = CpuWake::channel();
+            let mut run = pin!(cpu.run());
+            let mut cx = Context::from_waker(&current);
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+            wakes.next().await.unwrap();
+            assert!(matches!(
+                previous_wakes.try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ));
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+        }
         assert!(cpu.pending.is_some() && !cpu.suspended.is_empty());
         assert!(cpu.instance.modules.has_entry(0x500));
         let module = cpu.compiled_modules_at(0x500).next().unwrap();
@@ -121,12 +137,12 @@ async fn installation_during_nested_service() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn cpu_turn_installs_vacant_entries_while_nested_services_wait() {
+fn compiler_reply_wakes_the_replacement_cpu_run_while_nested_services_wait() {
     pollster::block_on(installation_during_nested_service());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn cpu_turn_installs_vacant_entries_while_nested_services_wait() {
+async fn compiler_reply_wakes_the_replacement_cpu_run_while_nested_services_wait() {
     installation_during_nested_service().await;
 }

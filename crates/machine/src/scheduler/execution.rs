@@ -52,10 +52,9 @@ impl Runner {
     /// Run through checkpoints until exit. The caller gives any devices due at
     /// the final instruction a turn before returning the committed exit.
     async fn execute(&mut self) -> (ExecutionExit, bool) {
-        let exit_waker = self.cpu.exit_handle().listen();
+        let run = self.cpu.listen_for_run();
         poll_fn(|cx| {
-            exit_waker.register(cx.waker());
-            let _permit = ready!(self.cpu.poll_enter(cx));
+            let _permit = ready!(run.poll_enter(&mut self.cpu, cx));
             let boundary = if let Some(exit) = self.cpu.poll_host_call(cx) {
                 CpuStop::Exit(exit)
             } else if self.time.poll_pacing(&self.cpu, cx).is_ready() {

@@ -6,10 +6,12 @@ use crate::{
     CompiledCode, CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant,
     Result,
 };
-use futures_channel::mpsc::TryRecvError;
 use relocade_wasm_runtime::{Memory, WasmBackend, WasmMemoryAccess};
 use relocade_x86::{abi, CallProfile, ExecutionProfile, ExecutionTarget};
-use std::time::Duration;
+use std::{
+    task::{Context, Poll},
+    time::Duration,
+};
 mod hotness;
 use hotness::Hotness;
 
@@ -116,8 +118,7 @@ impl Cpu {
 }
 
 impl CpuInstance {
-    /// Sample calls and accept a completed batch once per CPU dispatch turn.
-    pub(in crate::runtime) fn update_compilation(&mut self) {
+    pub(in crate::runtime) fn sample_calls(&mut self) {
         if self.profiling.compiler.is_none()
             || self.profiling.target.profile != ExecutionProfile::Real16
         {
@@ -127,21 +128,17 @@ impl CpuInstance {
             self.profiling
                 .collect_if_due(wasm, &self.modules, Instant::now());
         });
-        if self.profiling.pending.is_empty() {
-            return;
-        }
-        let Some(compiler) = &mut self.profiling.compiler else {
-            return;
-        };
-        let reply = match compiler.try_recv() {
-            Ok(reply) => reply,
-            Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Closed) => {
-                self.profiling.disable();
-                return;
+    }
+
+    /// Drain the local slot and register the run's waker for the next delivery.
+    pub(in crate::runtime) fn poll_compiler_replies(&mut self, cx: &mut Context<'_>) {
+        while let Some(compiler) = &mut self.profiling.compiler {
+            match compiler.poll_reply(cx) {
+                Poll::Pending => return,
+                Poll::Ready(None) => self.profiling.disable(),
+                Poll::Ready(Some(reply)) => self.finish_compilation(reply),
             }
-        };
-        self.finish_compilation(reply);
+        }
     }
 
     fn finish_compilation(&mut self, reply: Result<CompiledCode>) {
