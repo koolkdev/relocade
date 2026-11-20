@@ -5,7 +5,8 @@ mod modules;
 mod profiling;
 
 use super::{
-    code, hooks::Handler, CpuContext, Hook, RuntimeMemory, WasmRuntime, WasmRuntimeHandle,
+    code, hooks::Handler, memory::HostWritePages, CpuContext, Hook, RuntimeMemory, WasmRuntime,
+    WasmRuntimeHandle,
 };
 use crate::{memory::CpuBinding, CompiledCode, FarPointer, IoBus, Result};
 use hooks::PreparedHandler;
@@ -31,6 +32,8 @@ enum ModuleSource<'a> {
 /// service polling do not hold the runtime.
 pub(super) struct CpuInstance {
     runtime: WasmRuntimeHandle,
+    // Discard the private routes before dropping the modules that hold them.
+    host_writes: Rc<HostWritePages>,
     // Retire source registrations before a standalone CPU releases its memory attachment.
     modules: Modules<WasmRuntime>,
     pub(super) bindings: RuntimeMemory,
@@ -96,6 +99,7 @@ impl CpuInstance {
             };
             Ok(Self {
                 runtime: runtime.clone(),
+                host_writes: HostWritePages::new(&runtime, &bindings),
                 bindings,
                 io,
                 dispatch,
@@ -208,10 +212,7 @@ impl CpuInstance {
             .runtime
             .with_runtime(|wasm| self.modules.register_exports(wasm, instance, entries))?;
         if let Some((source, mut registry)) = checked_source {
-            let (registered, added) = registry.register(source);
-            installed.registered_source = Some(registered);
-            self.runtime
-                .with_runtime(|wasm| self.bindings.set_host_writes(wasm, added, true));
+            installed.track_source(registry.register(source), &self.host_writes);
         }
         // Releasing a host callback can reenter the runtime or write guest memory.
         self.modules.hooks.replace_bindings(entries, handlers);
@@ -248,11 +249,7 @@ impl CpuInstance {
     }
 
     pub(super) fn invalidate_code(&mut self, range: Range<u64>) -> Result<()> {
-        self.runtime.with_runtime(|wasm| {
-            let removed = self.modules.invalidate(wasm, range)?;
-            self.bindings.set_host_writes(wasm, removed, false);
-            Ok(())
-        })
+        self.modules.invalidate(&self.runtime, range)
     }
 
     pub(super) fn compiled_modules_at(

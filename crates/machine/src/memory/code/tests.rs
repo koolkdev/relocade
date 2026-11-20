@@ -13,7 +13,7 @@ fn setup() -> Memory {
     Memory::new(MachineConfig::new(0x3000, map).unwrap()).unwrap()
 }
 
-fn register(memory: &Memory, source: &CodeSource) -> (Arc<InstalledCode>, Vec<u32>) {
+fn register(memory: &Memory, source: &CodeSource) -> Arc<InstalledCode> {
     source.lock_current_bytes(memory).unwrap().register(source)
 }
 
@@ -37,7 +37,8 @@ fn aliases_share_speculative_bytes_and_only_installed_sources_are_indexed() {
     ));
     memory.view().write(0x100, &[1]).unwrap();
     memory.view().write(0x103, &[9]).unwrap(); // read-ahead
-    let (installed, _) = register(&memory, &candidate);
+    let installed = register(&memory, &candidate);
+    assert!(installed.physical_pages().eq([0]));
     let observers = memory.installed_code_at(0x1101);
     assert_eq!(observers.len(), 1);
     assert!(Arc::ptr_eq(&installed, &observers[0]));
@@ -48,12 +49,12 @@ fn aliases_share_speculative_bytes_and_only_installed_sources_are_indexed() {
 
     memory.view().write(0x100102, &[8]).unwrap();
     assert!(installed.was_modified());
-    installed.unregister(|_| {});
+    installed.unregister();
     assert!(memory.installed_code_at(0x1101).is_empty());
 
     // A restored snapshot can be installed again with an independent write history.
     memory.view().write(0x102, &[3]).unwrap();
-    let (replacement, _) = register(&memory, &candidate);
+    let replacement = register(&memory, &candidate);
     assert!(!replacement.was_modified());
     assert!(observers[0].was_modified());
     assert!(!candidate.belongs_to(&setup()));
@@ -68,29 +69,9 @@ fn a_cross_page_write_marks_only_the_installation_with_changed_bytes() {
         reader.read(0xffe, 4).unwrap();
         register(&memory, &reader.finish([(address, len)]))
     };
-    let (first, _) = install_span(0xffe, 3);
-    let (second, _) = install_span(0x1000, 2);
+    let first = install_span(0xffe, 3);
+    let second = install_span(0x1000, 2);
     memory.view().write_backing(0x1fff, &[2, 3, 7]).unwrap();
     assert!(!first.was_modified());
     assert!(second.was_modified());
-}
-
-#[test]
-fn tracking_changes_only_on_the_first_and_last_installation() {
-    let memory = setup();
-    let mut reader = memory.code_reader();
-    reader.read(0x100, 1).unwrap();
-    reader.read(0x100100, 1).unwrap();
-    let source = reader.finish([(0x100100, 1), (0x100, 1)]);
-    assert!(source.backing_ranges().all(|span| span == (0x1100..0x1101)));
-
-    let (first, added) = register(&memory, &source);
-    assert_eq!(added, [0]);
-    let (second, added) = register(&memory, &source);
-    assert!(added.is_empty());
-    let mut removed = Vec::new();
-    first.unregister(|page| removed.push(page));
-    assert!(removed.is_empty());
-    second.unregister(|page| removed.push(page));
-    assert_eq!(removed, [0]);
 }

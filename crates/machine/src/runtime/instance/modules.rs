@@ -5,12 +5,17 @@ pub(super) use calls::Calls;
 mod table;
 
 use super::hooks::Hooks;
+use crate::runtime::{
+    memory::{HostWritePage, HostWritePages},
+    WasmRuntime, WasmRuntimeHandle,
+};
 use crate::{CompiledCode, DispatchEntry, FarPointer, InstalledCode, Result};
 use relocade_wasm_runtime::{ExportFunction, Import};
 use relocade_x86::abi;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
+    rc::Rc,
     sync::Arc,
 };
 use table::DispatchTable;
@@ -22,9 +27,10 @@ pub(super) struct ModuleInstance<B: ExportFunction<abi::ExecutionSignature>> {
     instance: B::Instance,
     entry_keys: Vec<u32>,
     code: Option<CompiledCode>,
-    pub(super) registered_source: Option<Arc<InstalledCode>>,
+    registered_source: Option<Arc<InstalledCode>>,
+    host_write_pages: Vec<Rc<HostWritePage>>,
     calls: Option<Calls<B>>,
-    pages: BTreeSet<u32>,
+    linear_pages: BTreeSet<u32>,
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
@@ -33,7 +39,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
         code: Option<CompiledCode>,
         calls: Option<Calls<B>>,
     ) -> Self {
-        let pages = code
+        let linear_pages = code
             .iter()
             .flat_map(|code| code.ranges())
             .flat_map(|range| (range.start >> 12)..=((range.end - 1) >> 12))
@@ -44,20 +50,33 @@ impl<B: ExportFunction<abi::ExecutionSignature>> ModuleInstance<B> {
             entry_keys: Vec::new(),
             code,
             registered_source: None,
+            host_write_pages: Vec::new(),
             calls,
-            pages,
+            linear_pages,
         }
     }
 
     pub(super) fn code(&self) -> Option<&CompiledCode> {
         self.code.as_ref()
     }
+
+    pub(super) fn track_source(
+        &mut self,
+        source: Arc<InstalledCode>,
+        host_writes: &Rc<HostWritePages>,
+    ) {
+        self.host_write_pages = source
+            .physical_pages()
+            .map(|page| host_writes.hold(page))
+            .collect();
+        self.registered_source = Some(source);
+    }
 }
 
 impl<B: ExportFunction<abi::ExecutionSignature>> Drop for ModuleInstance<B> {
     fn drop(&mut self) {
         if let Some(code) = &self.registered_source {
-            code.unregister(|_| {});
+            code.unregister();
         }
     }
 }
@@ -66,7 +85,7 @@ pub(super) struct Modules<B: ExportFunction<abi::ExecutionSignature>> {
     table: DispatchTable<B>,
     modules: BTreeMap<ModuleId, ModuleInstance<B>>,
     next_module_id: usize,
-    pages: BTreeMap<u32, BTreeSet<ModuleId>>,
+    by_linear_page: BTreeMap<u32, BTreeSet<ModuleId>>,
     pub(super) hooks: Hooks,
 }
 
@@ -76,7 +95,7 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             table: DispatchTable::new(backend)?,
             modules: BTreeMap::new(),
             next_module_id: 0,
-            pages: BTreeMap::new(),
+            by_linear_page: BTreeMap::new(),
             hooks: Hooks::default(),
         })
     }
@@ -121,8 +140,8 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         if let Some(calls) = &module.calls {
             self.table.register_calls(backend, id, calls)?;
         }
-        for &page in &module.pages {
-            self.pages.entry(page).or_default().insert(id);
+        for &page in &module.linear_pages {
+            self.by_linear_page.entry(page).or_default().insert(id);
         }
         self.next_module_id = self
             .next_module_id
@@ -130,15 +149,20 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
             .expect("module identity fits usize");
         Ok(self.modules.entry(id).insert_entry(module).into_mut())
     }
+}
 
-    /// Retires complete linked versions: their direct internal calls cannot be
-    /// changed by updating only the entry for the modified block.
-    pub(super) fn invalidate(&mut self, backend: &mut B, range: Range<u64>) -> Result<Vec<u32>> {
+impl Modules<WasmRuntime> {
+    /// Retire each complete linked version that covers a changed byte.
+    pub(super) fn invalidate(
+        &mut self,
+        runtime: &WasmRuntimeHandle,
+        range: Range<u64>,
+    ) -> Result<()> {
         if range.is_empty() {
-            return Ok(Vec::new());
+            return Ok(());
         }
         let mut retired_modules: BTreeSet<_> = self
-            .pages
+            .by_linear_page
             .range((range.start >> 12) as u32..=((range.end - 1) >> 12) as u32)
             .flat_map(|(_, modules)| modules.iter().copied())
             .collect();
@@ -152,10 +176,14 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .get(index)
                 .is_some_and(|source| source.start < range.end)
         });
-        self.retire(backend, retired_modules)
+        self.retire(runtime, retired_modules)
     }
 
-    fn retire(&mut self, backend: &mut B, retired_modules: BTreeSet<ModuleId>) -> Result<Vec<u32>> {
+    fn retire(
+        &mut self,
+        runtime: &WasmRuntimeHandle,
+        retired_modules: BTreeSet<ModuleId>,
+    ) -> Result<()> {
         for id in &retired_modules {
             if let Some(calls) = &self.modules[id].calls {
                 self.table.unregister_calls(*id, calls);
@@ -167,26 +195,29 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
                 .iter()
                 .map(move |&key| (id, key))
         });
-        self.table.remove(backend, exports)?;
-        let mut removed = Vec::new();
+        // Release the runtime borrow before dropping the modules' host-write pages.
+        runtime.with_runtime(|wasm| self.table.remove(wasm, exports))?;
         for id in retired_modules {
-            let mut module = self.modules.remove(&id).expect("installed module");
-            if let Some(code) = module.registered_source.take() {
-                code.unregister(|page| removed.push(page));
-            }
-            for &page in &module.pages {
-                let modules = self.pages.get_mut(&page).expect("registered source page");
+            let module = self.modules.remove(&id).expect("installed module");
+            for &page in &module.linear_pages {
+                let modules = self
+                    .by_linear_page
+                    .get_mut(&page)
+                    .expect("registered source page");
                 modules.remove(&id);
                 if modules.is_empty() {
-                    self.pages.remove(&page);
+                    self.by_linear_page.remove(&page);
                 }
             }
         }
-        Ok(removed)
+        Ok(())
     }
 
-    pub(super) fn covering(&self, address: u32) -> impl Iterator<Item = &ModuleInstance<B>> {
-        self.pages
+    pub(super) fn covering(
+        &self,
+        address: u32,
+    ) -> impl Iterator<Item = &ModuleInstance<WasmRuntime>> {
+        self.by_linear_page
             .get(&(address >> 12))
             .into_iter()
             .flatten()

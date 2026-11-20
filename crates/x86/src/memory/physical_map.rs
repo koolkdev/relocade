@@ -241,14 +241,14 @@ impl PhysicalMemoryMap {
         }
     }
 
-    /// Kind word for a page containing installed instructions, addressed after A20.
-    /// Releasing the last installation restores the configured write route.
-    pub fn host_write_entry(&self, physical: u32, installed: bool) -> Option<(u32, u32)> {
+    /// Kind word for routing writes on a RAM or ROM page, addressed after A20.
+    /// Clearing the override restores the configured route.
+    pub fn host_write_entry(&self, physical: u32, via_host: bool) -> Option<(u32, u32)> {
         let page = (physical >> PAGE_SHIFT) as usize;
         let entry = &self.entries()[page];
         PhysicalMapping::from_entry(entry).backing_offset()?;
         let mut kind = u32::from(entry[0]);
-        if installed {
+        if via_host {
             kind |= CODE_PAGE;
         }
         Some(((page * Self::ENTRY_BYTES) as u32, kind))

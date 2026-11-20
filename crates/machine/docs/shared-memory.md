@@ -129,14 +129,14 @@ backing byte. `InstalledCode::was_modified` records whether a managed write
 changed any instruction byte during that installation. A neighboring write or
 a write of identical bytes leaves its history unchanged.
 
-The first installation on a physical page sets its host-write bit in the CPU's
-routing table. Compiled stores to marked RAM hand off to the interpreter, whose
-write callback updates the affected installations. Retiring the last module on a
-page restores its configured write route.
+Each installed module holds a `HostWritePage` for every physical page containing
+its instruction bytes. Modules on the same page share one handle. The first hold
+routes RAM stores through the interpreter's host callback. Dropping the last
+hold restores the page's configured route.
 
 Retiring the module or dropping the CPU removes its registration. An outstanding
-compiler result can be installed again after validation, and an inspection
-handle retains the history of its original installation. Callers coordinate
+compiler result can be installed again after validation. Its previous
+installation's write history remains available to observers. Callers coordinate
 guest writes and explicitly retire affected modules before executing changed
 code. Writers using `Memory::backing` bypass managed-write tracking and must
 remain quiescent during publication.

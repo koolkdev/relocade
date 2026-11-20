@@ -1,5 +1,8 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
+mod host_writes;
+pub(super) use host_writes::{HostWritePage, HostWritePages};
+
 use super::{ExecutionInterrupt, Result};
 use crate::{memory::CpuBinding, CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
@@ -70,24 +73,6 @@ impl RuntimeMemory {
     pub fn configuration(&self) -> &CpuConfig {
         &self.config
     }
-
-    /// Set the write route on each affected physical page.
-    pub(super) fn set_host_writes(
-        &self,
-        wasm: &mut super::WasmRuntime,
-        pages: Vec<u32>,
-        enabled: bool,
-    ) {
-        let map = self.guest.configuration().memory_map();
-        let mut routing = wasm.memory(&self.mapping);
-        for page in pages {
-            let (offset, kind) = map
-                .host_write_entry(page, enabled)
-                .expect("installed instructions came from RAM or ROM");
-            routing.store(offset, kind);
-        }
-    }
-
     /// Binds CPU storage, guest memory, physical routing and tracked writes.
     pub fn imports<'a>(&'a self, wasm: &super::WasmRuntime) -> [Import<'a, super::WasmRuntime>; 4] {
         [

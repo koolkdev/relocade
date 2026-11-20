@@ -27,23 +27,29 @@ impl InstalledCode {
         self.changed.load(Ordering::Acquire)
     }
 
+    /// Each backing page belongs to one physical RAM or ROM page, including across A20 aliases.
+    pub(crate) fn physical_pages(&self) -> impl Iterator<Item = u32> + '_ {
+        self.spans_by_page
+            .values()
+            .map(|spans| self.source.spans[spans[0]].physical_page)
+    }
+
     fn spans_on(&self, page: u32) -> impl Iterator<Item = &Span> {
         self.spans_by_page[&page]
             .iter()
             .map(|&index| &self.source.spans[index])
     }
 
-    pub(crate) fn unregister(self: &Arc<Self>, mut on_last: impl FnMut(u32)) {
+    pub(crate) fn unregister(self: &Arc<Self>) {
         let Some(memory) = self.source.memory.upgrade() else {
             return;
         };
         let mut registry = memory.lock().unwrap();
-        for (page, spans) in &self.spans_by_page {
+        for page in self.spans_by_page.keys() {
             let codes = registry.by_backing.get_mut(page).expect("installed page");
             codes.retain(|code| !Arc::ptr_eq(code, self));
             if codes.is_empty() {
                 registry.by_backing.remove(page);
-                on_last(self.source.spans[spans[0]].physical_page);
             }
         }
     }
@@ -55,7 +61,7 @@ pub struct CodeRegistry {
 }
 
 impl CodeRegistry {
-    pub(crate) fn register(&mut self, source: &CodeSource) -> (Arc<InstalledCode>, Vec<u32>) {
+    pub(crate) fn register(&mut self, source: &CodeSource) -> Arc<InstalledCode> {
         let mut spans_by_page = BTreeMap::<_, Vec<_>>::new();
         for (index, span) in source.spans.iter().enumerate() {
             spans_by_page
@@ -68,15 +74,10 @@ impl CodeRegistry {
             spans_by_page,
             changed: AtomicBool::new(false),
         });
-        let mut added = Vec::new();
-        for (&page, spans) in &code.spans_by_page {
-            let installed = self.by_backing.entry(page).or_default();
-            if installed.is_empty() {
-                added.push(source.spans[spans[0]].physical_page);
-            }
-            installed.push(code.clone());
+        for &page in code.spans_by_page.keys() {
+            self.by_backing.entry(page).or_default().push(code.clone());
         }
-        (code, added)
+        code
     }
 
     pub(super) fn covering(&self, backing: u32) -> impl Iterator<Item = &Arc<InstalledCode>> {
