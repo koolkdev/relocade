@@ -13,9 +13,9 @@ use relocade_wasm_runtime::{MemoryAccess, WasmSharedMemory};
 use relocade_x86::SegmentRegister;
 use std::cell::RefCell;
 
-/// Guest physical memory through the configured map, including A20 aliases.
-/// RAM/ROM use backing storage. MMIO requires a local I/O bus. Holes and
-/// unconnected device ranges return FF; writes to them and ROM are ignored.
+/// Guest memory through its configured address policy. Flat memory uses checked
+/// linear addresses. On the PC, physical mappings and A20 select RAM, ROM or
+/// MMIO. Holes and unconnected devices read as FF and ignore writes.
 /// The view borrows one storage handle; other shared handles remain usable.
 /// Accessing MMIO without a local bus is a programming error and panics.
 pub struct MemoryView<'a> {

@@ -24,7 +24,7 @@ fn the_last_page_holder_restores_the_configured_write_route() {
     )
     .unwrap();
     let binding = guest.attach_cpu(cpu).unwrap();
-    let runtime = WasmRuntimeHandle::default();
+    let runtime = WasmRuntimeHandle::new().unwrap();
     let memory = runtime
         .with_runtime(|wasm| RuntimeMemory::new(wasm, binding, SharedMemory::new(1, 1).unwrap()))
         .unwrap();

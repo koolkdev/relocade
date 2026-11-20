@@ -94,9 +94,17 @@ impl Cpu {
         CpuStorage::new()?.into_cpu(memory, cpu, io).await
     }
 
+    /// Creates a protected Flat32 interpreter over flat guest memory.
+    /// Inspect its registers and memory through [`Self::cpu_state`] and [`Self::memory`].
+    /// Dispatch and host hook keys are linear EIP addresses. Instructions use the
+    /// loaded segment caches in `cpu`. Descriptor queries and reloads see empty tables.
+    pub async fn new_without_io(memory: Memory, cpu: CpuConfig) -> Result<Self> {
+        CpuStorage::new()?.attach(memory, cpu, None).await
+    }
+
     async fn with_storage(
         binding: crate::memory::CpuBinding,
-        io: IoBus,
+        io: Option<IoBus>,
         storage: relocade_wasm_runtime::SharedMemory,
     ) -> Result<Self> {
         let instance = CpuInstance::new(binding, io, storage).await?;
@@ -111,7 +119,8 @@ impl Cpu {
         })
     }
 
-    /// Returns an owned handle to this CPU's fixed device bus.
+    /// Returns an owned handle to a PC CPU's device bus.
+    ///
     /// The handle retains its devices and runtime independently of this CPU and
     /// supports synchronous port and MMIO access at stopped host boundaries.
     /// Connect devices during setup; all host views and installed modules observe
@@ -129,8 +138,11 @@ impl Cpu {
     ///     })
     /// }
     /// ```
+    ///
+    /// # Panics
+    /// Panics for a CPU constructed with [`Self::new_without_io`].
     pub fn io(&self) -> IoBus {
-        self.instance.guest.io.clone()
+        self.instance.guest.environment.pc_bus().clone()
     }
 
     /// Installed compilations whose decoded bytes cover this linear address.
@@ -166,7 +178,7 @@ impl Cpu {
 
     /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.
     /// Each export has signature `() -> ExecutionExit` and owns its entry checks, CPU
-    /// publication and continuation. Keys are packed real-mode CS:IP. Installing an
+    /// publication and continuation. Keys are packed real-mode CS:IP or flat EIP. Installing an
     /// existing key replaces its function.
     /// Exports are independently replaceable; a batch does not tie their lifetimes.
     /// The last export supplied at a repeated key wins.
@@ -222,12 +234,12 @@ impl Cpu {
         self.stopped_code().install(hooks).await
     }
 
-    /// Borrows the stopped CPU and its mapped resources. The context and its views must end before
+    /// Borrows the stopped PC CPU, its device bus and mapped memory. The context and its views must end before
     /// running or installing modules. Available while guest ISR execution is
     /// stopped with outer calls parked, but not while a host call is pending.
     ///
     /// # Panics
-    /// Panics if a host call is pending. Complete it to regain access.
+    /// Panics if a host call is pending or the CPU has no PC bus.
     pub fn context(&mut self) -> CpuContext<'_> {
         self.instance_mut().context()
     }

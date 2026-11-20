@@ -1,16 +1,19 @@
 //! Owns bound Wasm execution, module installation and resources for one CPU.
 
 mod code_cache;
+mod environment;
+mod segments;
 
 use super::{code, CpuContext, RuntimeMemory, WasmRuntime, WasmRuntimeHandle};
 use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
 pub(crate) use code_cache::CodeWake;
 pub(super) use code_cache::{CodeCache, Installation};
+pub(super) use environment::Environment;
 use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
-use relocade_x86::{abi, CpuMode, ExecutionExit};
+use relocade_x86::{abi, CpuMode, ExecutionExit, ExecutionProfile};
 use std::rc::Rc;
 
-/// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
+/// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP or Flat32 EIP key.
 pub struct DispatchEntry<'a> {
     pub key: u32,
     pub export: &'a str,
@@ -37,7 +40,7 @@ pub(super) struct CpuInstance {
 pub(super) struct GuestRuntime {
     runtime: WasmRuntimeHandle,
     pub(super) bindings: RuntimeMemory,
-    pub(super) io: IoBus,
+    pub(super) environment: Environment,
     entry_points: GuestEntryPoints,
     interpret: Function<WasmRuntime, abi::ExecutionSignature>,
     resolve_call: Function<WasmRuntime, fn() -> (u32, bool)>,
@@ -45,10 +48,20 @@ pub(super) struct GuestRuntime {
 }
 
 impl CpuInstance {
-    pub(super) async fn new(binding: CpuBinding, io: IoBus, storage: SharedMemory) -> Result<Self> {
-        let runtime = io.attach_cpu()?;
+    pub(super) async fn new(
+        binding: CpuBinding,
+        io: Option<IoBus>,
+        storage: SharedMemory,
+    ) -> Result<Self> {
+        let target = binding.config.execution_target();
+        if io.is_some() != (target.profile == ExecutionProfile::Real16) {
+            return Err(crate::ConfigurationError::IncompatibleIoBus.into());
+        }
+        let runtime = WasmRuntimeHandle::new()?;
+        if let Some(io) = &io {
+            io.bind_runtime(&runtime);
+        }
         let bindings = runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, binding, storage))?;
-        let target = bindings.configuration().execution_target();
         let (compiler, cache) =
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
         let dispatcher = code::dispatcher(&compiler, target).await?;
@@ -73,15 +86,8 @@ impl CpuInstance {
                 wasm.bind(abi::INTERPRET, &interpret),
                 wasm.bind(abi::RESOLVE_CALL, &resolve_call),
             ]);
-            io.port_map().initialize(wasm, &io.downgrade().0)?;
-            imports.extend(io.port_map().imports(wasm));
-            io.mmio_map().initialize(
-                wasm,
-                &io.downgrade().0,
-                &bindings.mapping,
-                bindings.guest.configuration().memory_map(),
-            )?;
-            imports.extend(io.mmio_map().imports(wasm));
+            let environment = Environment::new(wasm, io, &bindings)?;
+            environment.extend_imports(wasm, &mut imports);
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
@@ -98,7 +104,7 @@ impl CpuInstance {
             let guest = Rc::new(GuestRuntime {
                 runtime: runtime.clone(),
                 bindings,
-                io,
+                environment,
                 entry_points: GuestEntryPoints {
                     dispatch,
                     step,
@@ -117,10 +123,11 @@ impl CpuInstance {
     }
 
     pub(super) fn context(&mut self) -> CpuContext<'_> {
+        let io = self.guest.environment.pc_bus();
         CpuContext {
             cpu: &self.guest.bindings.cpu,
-            memory: self.guest.bindings.guest.view().with_io(&self.guest.io),
-            io: &self.guest.io,
+            memory: self.guest.bindings.guest.view().with_io(io),
+            io,
             guest_calls: None,
         }
     }

@@ -23,10 +23,11 @@ impl MmioRead {
             bind: Box::new(move |context| {
                 let read = captured.clone();
                 let bus = context.bus.clone();
-                FunctionRef::new(&mut context.runtime, move |runtime, (address, bytes)| {
+                FunctionRef::new(context.runtime(), move |runtime, (address, bytes)| {
                     read(IoContext::new(runtime, &bus), address as u32, bytes as u8) as i64
                 })
             }),
+            owner: OnceCell::new(),
             function: OnceCell::new(),
         }))
     }
@@ -47,7 +48,7 @@ impl MmioWrite {
                 let write = captured.clone();
                 let bus = context.bus.clone();
                 FunctionRef::new(
-                    &mut context.runtime,
+                    context.runtime(),
                     move |runtime, (address, bytes, value)| {
                         write(
                             IoContext::new(runtime, &bus),
@@ -58,6 +59,7 @@ impl MmioWrite {
                     },
                 )
             }),
+            owner: OnceCell::new(),
             function: OnceCell::new(),
         }))
     }

@@ -77,14 +77,14 @@ impl Ports {
             let function = read.0.function(&mut context);
             tables
                 .reads
-                .set(&mut context.runtime, port.into(), function)
+                .set(context.runtime(), port.into(), function)
                 .expect("port table slot");
         });
         self.writes.populate(|port, write| {
             let function = write.0.function(&mut context);
             tables
                 .writes
-                .set(&mut context.runtime, port.into(), function)
+                .set(context.runtime(), port.into(), function)
                 .expect("port table slot");
         });
         self.tables.set(tables).unwrap_or_else(|_| unreachable!());
@@ -105,12 +105,15 @@ impl Ports {
         ports: RangeInclusive<u16>,
         read: &PortRead,
     ) {
-        let function = read.0.function(&mut context);
+        read.0.bind_to(context.bus);
+        let binding = self
+            .tables
+            .get()
+            .map(|tables| (&tables.reads, read.0.function(&mut context)));
         self.reads.set(ports, read, |port| {
-            if let Some(tables) = self.tables.get() {
-                tables
-                    .reads
-                    .set(&mut context.runtime, port.into(), function)
+            if let Some((table, function)) = binding {
+                table
+                    .set(context.runtime(), port.into(), function)
                     .expect("port table slot");
             }
         });
@@ -122,12 +125,15 @@ impl Ports {
         ports: RangeInclusive<u16>,
         write: &PortWrite,
     ) {
-        let function = write.0.function(&mut context);
+        write.0.bind_to(context.bus);
+        let binding = self
+            .tables
+            .get()
+            .map(|tables| (&tables.writes, write.0.function(&mut context)));
         self.writes.set(ports, write, |port| {
-            if let Some(tables) = self.tables.get() {
-                tables
-                    .writes
-                    .set(&mut context.runtime, port.into(), function)
+            if let Some((table, function)) = binding {
+                table
+                    .set(context.runtime(), port.into(), function)
                     .expect("port table slot");
             }
         });

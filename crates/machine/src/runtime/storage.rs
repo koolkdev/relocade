@@ -30,12 +30,25 @@ impl CpuStorage {
     /// Constructs the Wasm runtime over this storage and existing guest RAM.
     /// CPU initialization preserves any concurrent execution-interrupt request.
     pub async fn into_cpu(self, memory: Memory, config: CpuConfig, io: IoBus) -> Result<Cpu> {
+        self.attach(memory, config, Some(io)).await
+    }
+
+    pub(super) async fn attach(
+        self,
+        memory: Memory,
+        config: CpuConfig,
+        io: Option<IoBus>,
+    ) -> Result<Cpu> {
         let binding = memory.attach_cpu(config)?;
         self.initialize(&binding.config);
         self.into_initialized_cpu(binding, io).await
     }
 
-    pub(crate) async fn into_initialized_cpu(self, binding: CpuBinding, io: IoBus) -> Result<Cpu> {
+    pub(crate) async fn into_initialized_cpu(
+        self,
+        binding: CpuBinding,
+        io: Option<IoBus>,
+    ) -> Result<Cpu> {
         Cpu::with_storage(binding, io, self.0).await
     }
 

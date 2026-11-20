@@ -25,7 +25,7 @@ where
     }
 }
 
-/// Behavior installed at a packed real-mode CS:IP key. Each hook is independently
+/// Behavior installed at a packed Real16 CS:IP or a Flat32 instruction address. Each hook is independently
 /// replaceable. [`Hook::host`] supplies an ordinary async Rust handler;
 /// [`Hook::block`] builds or imports a Wasm execution block.
 ///

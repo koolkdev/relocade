@@ -29,10 +29,11 @@ impl PortRead {
             bind: Box::new(move |context| {
                 let read = captured.clone();
                 let bus = context.bus.clone();
-                FunctionRef::new(&mut context.runtime, move |runtime, (port, bytes)| {
+                FunctionRef::new(context.runtime(), move |runtime, (port, bytes)| {
                     read(IoContext::new(runtime, &bus), port as u16, bytes as u8) as i32
                 })
             }),
+            owner: OnceCell::new(),
             function: OnceCell::new(),
         }))
     }
@@ -65,18 +66,16 @@ impl PortWrite {
             bind: Box::new(move |context| {
                 let write = captured.clone();
                 let bus = context.bus.clone();
-                FunctionRef::new(
-                    &mut context.runtime,
-                    move |runtime, (port, bytes, value)| {
-                        write(
-                            IoContext::new(runtime, &bus),
-                            port as u16,
-                            bytes as u8,
-                            value as u32,
-                        )
-                    },
-                )
+                FunctionRef::new(context.runtime(), move |runtime, (port, bytes, value)| {
+                    write(
+                        IoContext::new(runtime, &bus),
+                        port as u16,
+                        bytes as u8,
+                        value as u32,
+                    )
+                })
             }),
+            owner: OnceCell::new(),
             function: OnceCell::new(),
         }))
     }

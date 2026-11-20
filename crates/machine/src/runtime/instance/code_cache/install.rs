@@ -141,8 +141,7 @@ impl CodeCache {
                 wasm.bind(abi::INTERPRET, &guest.interpret),
                 wasm.bind(abi::RESOLVE_CALL, &guest.resolve_call),
             ]);
-            imports.extend(guest.io.port_map().imports(wasm));
-            imports.extend(guest.io.mmio_map().imports(wasm));
+            guest.environment.extend_imports(wasm, &mut imports);
             if let Some(calls) = &calls {
                 imports.push(calls.import(wasm));
             }

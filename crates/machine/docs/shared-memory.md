@@ -144,6 +144,22 @@ the guest.
 Writers using `Memory::backing` bypass this tracking. They must remain quiescent
 during publication and arrange explicit retirement before executing changed code.
 
+## Flat protected-mode execution
+
+Allocate flat RAM in 4-KiB pages and run a Flat32 interpreter directly:
+
+```rust
+let memory = Memory::new(MachineConfig::flat(0x20_000)?)?;
+let config = CpuConfig::new(Compiler::new(SegmentProfile::Flat32).target(), initial_cpu)?;
+let mut cpu = Cpu::new_without_io(memory, config).await?;
+```
+
+Guest linear addresses in that range map to the same backing offset. Access
+beyond the mapped pages raises a guest page fault. Use `cpu.cpu_state()` for
+registers and `cpu.memory().view()` for guest bytes. Host hooks and Wasm module
+entries use the full EIP as their dispatch key. The initial CPU image supplies
+the loaded segment caches. Descriptor queries and reloads see empty tables.
+
 ## Devices
 
 `Device` owns interrupts and optional asynchronous activity. Prepare register
@@ -199,7 +215,9 @@ ready; reads and writes can subsequently be replaced independently.
 Port callbacks retain a complete one-, two- or four-byte operation; the device
 interprets it. Device callbacks borrow state only for the synchronous call. The
 bus can be cloned within a worker, but cannot cross threads.
-The CPU and `IoBus` retain the same `WasmRuntimeHandle`. It keeps the Wasm runtime
+The CPU creates its Wasm runtime on the execution worker. A PC CPU binds its supplied
+bus to that runtime and installs the port and MMIO operations already registered
+on the bus. The CPU and attached bus retain the same `WasmRuntimeHandle`. It keeps the Wasm runtime
 alive and scopes exclusive access to synchronous operations. Native `WasmRuntime`
 directly owns its Wasmtime store. Wasm callbacks capture weak bus routing references,
 so retaining the runtime does not create a cycle through the devices. They use
