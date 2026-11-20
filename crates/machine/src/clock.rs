@@ -50,9 +50,13 @@ pub trait ClockSource {
 impl Clock {
     /// Wraps a source behind the common consumer API.
     pub fn new(source: impl ClockSource + 'static) -> Self {
+        Self::from_source(Rc::new(source))
+    }
+
+    pub(crate) fn from_source(source: Rc<dyn ClockSource>) -> Self {
         Self {
             tick_rate: TickRate::new(source.ticks_per_second()),
-            source: Rc::new(source),
+            source,
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::memory::CpuBinding;
-use crate::{timer_service, Clock, ExecutionWorker, GuestTimeConfig, Runner, TimerHandle};
+use crate::{Clock, ExecutionWorker, GuestTimeConfig, Runner, SessionConfig, TimerHandle};
 use crate::{
     Cpu, CpuConfig, CpuStateAccess, CpuStorage, ExecutionInterrupt, IoBus, Memory, Result,
 };
@@ -72,12 +72,9 @@ impl CpuHandle {
         stop: impl Future,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Result<Option<T>> {
-        let (handle, timers) = timer_service();
-        let execution = self.spawn(handle, session);
-        let timers = timers.spawn_with_peer(execution.wake_peer());
-        let result = execution.run_until(stop).await;
-        timers.stop().await?;
-        result
+        ExecutionWorker::spawn(self, SessionConfig::host(), session)
+            .run_until(stop)
+            .await
     }
 
     /// Transfers this CPU to an execution worker using the supplied host timers.
@@ -87,7 +84,11 @@ impl CpuHandle {
         host_timers: TimerHandle,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> ExecutionWorker<T> {
-        self.spawn_with_clock(move || host_timers.into(), session)
+        ExecutionWorker::spawn(
+            self,
+            SessionConfig::host().with_host_clock(host_timers),
+            session,
+        )
     }
 
     /// Transfers this CPU and constructs its clock on the execution worker.
@@ -96,7 +97,7 @@ impl CpuHandle {
         make_clock: impl FnOnce() -> Clock + Send + 'static,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> ExecutionWorker<T> {
-        ExecutionWorker::spawn(
+        ExecutionWorker::spawn_with(
             self,
             async move |cpu, endpoint| Runner::new(make_clock(), cpu, endpoint).await,
             session,
@@ -109,7 +110,7 @@ impl CpuHandle {
         make_time: impl FnOnce() -> GuestTimeConfig + Send + 'static,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> ExecutionWorker<T> {
-        ExecutionWorker::spawn(
+        ExecutionWorker::spawn_with(
             self,
             async move |cpu, endpoint| Runner::with_guest_time(make_time(), cpu, endpoint).await,
             session,

@@ -92,8 +92,8 @@ published CPU retirement or controlled idle advancement. Host pacing uses
 
 `Runner`, `Pc`, `Dos`, and devices accept `Clock` without an implementation type
 parameter. Controllers expose the separate capabilities to drive timers or
-advance time. `CpuHandle::spawn_with_clock` constructs a clock on the
-execution owner from a transferable factory.
+advance time. `SessionConfig::host().with_host_clock(source)` supplies a
+transferable source for a host-time session. The worker constructs its local clock.
 
 ## Controlled time in tests
 
@@ -299,8 +299,7 @@ Timer scheduling stays in `clock/driver.rs`.
 
 `TimerHandle` is the transferable host-timer transport. Its `clock()` creates a
 local consumer; `Clock::from(handle)` consumes the transport when it is no longer
-needed for setup. `cpu.spawn(handle, session)` performs this conversion
-on the execution owner. Clones access the same host monotonic timebase across workers.
+needed for setup. Clones access the same host monotonic timebase across workers.
 
 The host clock reads `Instant::now()` locally. Sleeps send absolute deadlines to the
 driver and await Rust channel notifications. Request delivery time therefore counts
@@ -344,22 +343,15 @@ Every wake rechecks that clock; requested sleep duration is never treated as
 elapsed time. All backends remain subject to host scheduling and browser throttling;
 none guarantees millisecond deadlines or replays missed interrupts.
 
-For a busy execution worker, bind its notification resource on the timer worker:
+With `SessionConfig::host()`, the execution worker starts the timer service
+and binds its wake peer before processing timers. Timer deliveries reach a
+busy session directly. Joining or stopping execution also shuts down that
+timer worker.
 
-```rust,ignore
-let (handle, driver) = relocade_machine::timer_service();
-let cpu = machine.create_cpu(cpu_config, None)?;
-let execution = cpu.spawn(handle, session);
-let timers = driver.spawn_with_peer(execution.wake_peer());
-let result = execution.join().await;
-timers.stop().await?;
-```
-
-`spawn_with_peer` uses the existing worker resource transport to bind direct
-notifications before processing timers. This avoids relaying browser timer wakes
-through the spawning host's event loop. `CpuHandle::run_until` owns this
-setup and stops execution before stopping its timer worker. Clocks used by other
-independent sessions need their own service lifetime and notification bindings.
+An embedding with its own host timer service can supply its handle using
+`SessionConfig::host().with_host_clock(handle)` and start the driver with
+`driver.spawn_with_peer(worker.wake_peer())`. The embedding manages that
+service's lifetime.
 
 Timers are deadlines, not fixed-rate ticks. Host scheduling can still delay a
 wake, and CPU checkpoints determine when an interrupt is serviced. Devices retain

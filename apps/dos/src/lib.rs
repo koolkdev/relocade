@@ -3,6 +3,7 @@
 
 use futures_channel::oneshot;
 use futures_lite::future::or;
+use relocade_machine::{ExecutionWorker, SessionConfig};
 
 mod console;
 pub use console::run_console;
@@ -50,8 +51,30 @@ async fn run_machine(
             return Err(error.to_string());
         }
     };
-    let execution = cpu.run_until(
-        async {
+    let worker = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |runner| {
+        let startup = async {
+            let mut dos = relocade_dos::Dos::with_configuration(runner, configuration)
+                .await
+                .map_err(|error| error.to_string())?;
+            if let Some((config, samples)) = output {
+                dos.attach_audio(config, samples).await?;
+            }
+            Ok::<_, String>(dos)
+        }
+        .await;
+        let (keyboard, events) = relocade_frontend::keyboard::channel();
+        let _ = endpoints.send(
+            startup
+                .as_ref()
+                .map(|dos| (keyboard, dos.mouse_input(), dos.frames()))
+                .map_err(Clone::clone),
+        );
+        let mut dos = startup?;
+        run_console(dos.native_console(events)).await;
+        Ok(())
+    });
+    let execution = worker
+        .run_until(async {
             app_result = or(closing, async {
                 let (keyboard, mouse, frames) = ready
                     .await
@@ -64,31 +87,8 @@ async fn run_machine(
                 app.closing().await
             })
             .await;
-        },
-        async move |runner| {
-            let startup = async {
-                let mut dos = relocade_dos::Dos::with_configuration(runner, configuration)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                if let Some((config, samples)) = output {
-                    dos.attach_audio(config, samples).await?;
-                }
-                Ok::<_, String>(dos)
-            }
-            .await;
-            let (keyboard, events) = relocade_frontend::keyboard::channel();
-            let _ = endpoints.send(
-                startup
-                    .as_ref()
-                    .map(|dos| (keyboard, dos.mouse_input(), dos.frames()))
-                    .map_err(Clone::clone),
-            );
-            let mut dos = startup?;
-            run_console(dos.native_console(events)).await;
-            Ok(())
-        },
-    );
-    let execution = execution.await;
+        })
+        .await;
     let shutdown = machine.shutdown().await;
     let execution = execution.map_err(|error| error.to_string())?;
     shutdown.map_err(|error| error.to_string())?;

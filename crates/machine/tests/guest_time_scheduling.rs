@@ -43,9 +43,9 @@ async fn reject_guest_time_without_budgets() {
     let config = relocade_machine::CpuConfig::new(target, *setup.cpu.cpu()).unwrap();
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let cpu = machine.create_cpu(config, None).unwrap();
-    let worker = cpu.spawn_with_guest_time(
+    let worker = cpu.spawn_with_guest_time::<()>(
         move || relocade_machine::GuestTimeConfig::new(rate),
-        async |_| {},
+        async |_| panic!("a rejected CPU configuration must not start the session"),
     );
     assert!(matches!(
         worker.join().await,

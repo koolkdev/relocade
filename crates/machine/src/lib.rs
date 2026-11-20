@@ -1,8 +1,8 @@
 //! Machine configuration, live state access and asynchronous guest execution.
 //!
 //! [`Machine`] creates shared memory and CPU state before execution starts.
-//! Each [`CpuHandle`] starts one execution session. Worker startup constructs the
-//! [`Cpu`] backend over existing state before handing its [`Runner`] to the session.
+//! [`ExecutionWorker::spawn`] consumes a prepared [`CpuHandle`] and builds the
+//! [`Cpu`] backend over that state before handing its [`Runner`] to the session.
 //! The session attaches local devices; the machine retains state after the worker joins.
 //!
 //! [`CpuConfig`] describes initial CPU state. [`MachineConfig`] describes backing
@@ -74,7 +74,7 @@ pub use memory::{
     CodeSource, FarPointer, InstalledCode, Memory, MemoryBus, MemoryError, MemoryView,
 };
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
-pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner};
+pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner, SessionConfig};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, Result,
