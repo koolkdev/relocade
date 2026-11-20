@@ -82,12 +82,16 @@ impl ClockSource for Source {
     }
 
     fn sync_to_host(&self, time: Timestamp) -> Sleep {
-        self.0
-            .borrow()
-            .host
-            .as_ref()
-            .map(|host| host.sync_to_host(time))
-            .unwrap_or_else(|| Sleep::new(async {}))
+        let state = self.0.borrow();
+        if state.cpu.is_some() {
+            if let Some(host) = &state.host {
+                let remaining = state.tick_rate.duration_between_ceil(state.now(), time);
+                if let Some(at) = host.checked_deadline_after(host.now(), remaining) {
+                    return host.sleep_until_if_needed(at);
+                }
+            }
+        }
+        Sleep::new(async {})
     }
 
     fn sleep_until(&self, deadline: Timestamp) -> Sleep {

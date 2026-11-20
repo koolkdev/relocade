@@ -42,5 +42,6 @@ pub(super) fn host() -> (
 }
 
 pub(super) fn config() -> GuestTimeConfig {
-    GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
+    let rate = NonZeroU64::new(1000).unwrap();
+    GuestTimeConfig::new(rate).with_cpu_limit(rate)
 }

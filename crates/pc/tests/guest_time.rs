@@ -11,11 +11,10 @@ async fn pit_interrupts() {
     let prepared = machine
         .create_cpu(relocade_pc::configuration::cpu(), None)
         .unwrap();
-    let worker = ExecutionWorker::spawn(
+    let execution = ExecutionWorker::spawn(
         prepared,
         SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
         async |runner| {
-            let start = runner.clock().now();
             let mut pc = Pc::new(runner).await.unwrap();
             let cpu = pc.cpu();
             let memory = cpu.memory();
@@ -61,6 +60,15 @@ async fn pit_interrupts() {
             cpu.install([Hook::host(0x101d, async move || stop.request())])
                 .await
                 .unwrap();
+            // Start the measurement with OUT0 high and any setup-time IRQ0
+            // acknowledged. The program loads the divisor for all eight samples.
+            let io = cpu.io();
+            io.write_port(relocade_pit::CONTROL_PORT, 1, 0x36);
+            io.write_port(relocade_pic::COMMAND_PORT, 1, 0x0c); // PIC poll command.
+            if io.read_port(relocade_pic::COMMAND_PORT, 1) == 0x80 {
+                relocade_pic::end_of_interrupt(&io, relocade_pic::TIMER_IRQ);
+            }
+            let start = pc.clock().now();
             assert_eq!(pc.run().await, ExecutionExit::Host(HostExit::Return));
             assert_eq!(memory.view().read_u16(0x702).unwrap(), 8);
             let samples = (0..8)
@@ -68,26 +76,25 @@ async fn pit_interrupts() {
                 .collect::<Vec<_>>();
             assert!(samples[0] > 0);
             assert!(samples.windows(2).all(|pair| pair[0] < pair[1]));
-            // PIT deadlines must drive eight approximately 2 ms periods
-            // without an execution slice duration.
+            // The PIT divisor sets a period of approximately 2 ms.
             assert!(
                 pc.clock().now() >= pc.clock().deadline_after(start, Duration::from_millis(14))
             );
             assert!(pc.clock().now() < pc.clock().deadline_after(start, Duration::from_millis(20)));
         },
     );
-    assert_eq!(worker.join().await.unwrap(), Some(()));
+    assert_eq!(execution.join().await.unwrap(), Some(()));
     machine.shutdown().await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
+fn pit_deadlines_interrupt_a_busy_pc() {
     pollster::block_on(pit_interrupts());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn pit_deadlines_interrupt_a_busy_pc_without_execution_slices() {
+async fn pit_deadlines_interrupt_a_busy_pc() {
     pit_interrupts().await;
 }
 
@@ -109,7 +116,7 @@ async fn keyboard_at_guest_receipt_time() {
     let (_wake_host, endpoint) = wake_connection(prepared.interrupt_handle());
     let runner = Runner::with_guest_time(
         GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap()),
-        Some(host.clock()),
+        host.clock(),
         prepared,
         endpoint,
     )

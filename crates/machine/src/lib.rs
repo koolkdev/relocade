@@ -74,9 +74,9 @@ pub use memory::{
     CodeSource, FarPointer, InstalledCode, Memory, MemoryBus, MemoryError, MemoryView,
 };
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
-pub use runner::{yield_now, ExecutionWorker, GuestTimeConfig, Runner, SessionConfig};
+pub use runner::{yield_now, ExecutionWorker, Runner, SessionConfig};
 pub use runtime::{
     real_mode_interrupt, Cpu, CpuContext, CpuStorage, DispatchEntry, Error, ExecutionInterrupt,
     ExitHandle, Hook, Result,
 };
-pub use scheduler::GuestTimeDriver;
+pub use scheduler::{GuestTimeConfig, GuestTimeDriver};

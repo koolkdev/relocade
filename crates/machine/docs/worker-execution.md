@@ -6,8 +6,8 @@ Each execution worker runs one CPU session and its registered device activities.
 CPU services across device wakeups. Devices keep running while the main activity
 awaits input or the next program.
 
-`ExecutionWorker::spawn` consumes the prepared CPU. For `SessionConfig::host()`, it starts
-the session and its host timer service. The returned handle controls completion and cancellation.
+`ExecutionWorker::spawn` consumes the prepared CPU and starts the session and
+its host timer service. The returned handle controls completion and cancellation.
 [Worker transport](workers.md)
 
 Pass `Some(&compiler)` to connect a CPU to a shared [compiler service](compilation.md),
@@ -199,30 +199,19 @@ not cancel a program. Guest break handling and nested EXEC are separate DOS work
 
 ## Event-loop scheduling
 
-`run_cpu` cooperates with the main/device task set when a wake requests an
-execution interrupt. Host-timed runners leave the instruction target unarmed.
-The same runner loop handles guest time. Runner delegates each CPU turn to
-`ExecutionSchedule::poll_cpu` and gives ready activities a turn afterward. The
-scheduler polls the active host service before waiting for pacing, then prepares instruction
-targets and drives guest execution. Pending services, suspended calls, guest entry
-and terminal-exit cleanup remain owned by the CPU. The schedule also owns clock
-selection, execution slices and idle decisions; the `GuestTimeDriver` owns
-registered sleeps and instruction-target updates. Time is published before
-polling activities, including after a terminal CPU exit.
-A terminal result returns immediately when no execution notification is pending;
-otherwise ready activities receive a turn before the result returns.
+`run_cpu` polls ready host services before checking CPU pacing or dispatching
+guest instructions. The CPU owns pending services, suspended calls and guest
+interrupt entry. A device wake interrupts running code at a checkpoint.
+Completed instructions advance the guest clock and wake due sleepers.
 
-Guest-time workers receive `SessionConfig::guest(config)` at startup.
-`GuestTimeConfig` selects the instruction rate and optional slice duration.
-`with_slice_duration` sets the guest-time boundary shared by cooperative yields
-and pacing.
-Supplying a pacing source with `SessionConfig::guest(config).with_host_clock(source)`
-defaults to 4 ms slices if no duration was supplied.
-Device deadlines subdivide each slice. The embedding retains and drives the host
-timer service. Scheduling notifications preserve the
-allowance, and ready host services remain pollable during a pacing wait. Run
-cancellation drops that wait while preserving guest progress and remaining credit;
-time between runs is excluded from the host/guest correspondence.
+`GuestTimeConfig` sets the nominal instruction rate and an optional CPU limit
+in instructions per host second. Without a limit, guest execution proceeds at full
+speed. With a limit, time spent in other work can pay for a burst of instructions.
+Stopping and resuming a CPU run preserves the allowance.
+
+When the CPU halts or a service waits, ready activities can replace their deadlines.
+The runner waits on the host clock for the remaining interval to the earliest
+device deadline. An idle guest with no scheduled device wake parks. [Clock and CPU limit](clock.md#execution-with-guest-time)
 
 Yielding gives ready Rust activities a polling opportunity. The host timer
 driver delivers deadline notifications through Rust channels even while the
