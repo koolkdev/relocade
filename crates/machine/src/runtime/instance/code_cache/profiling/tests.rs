@@ -13,7 +13,7 @@ fn merged_count(profiling: &Profiling, target: u32) -> u64 {
 
 fn collected_count(cpu: &mut Cpu, target: FarPointer) -> u64 {
     let instance = &mut cpu.instance;
-    instance.code.collect_calls();
+    instance.code.collect_call_profile();
     merged_count(&instance.code.profiling, target.packed())
 }
 
