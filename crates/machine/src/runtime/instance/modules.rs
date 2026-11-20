@@ -127,12 +127,12 @@ impl<B: ExportFunction<abi::ExecutionSignature>> Modules<B> {
         self.table.install_interpreter(backend, instance)
     }
 
-    pub(super) fn install_interpreter_fallback(
+    pub(super) fn bind_interpreter_if_vacant(
         &mut self,
         backend: &mut B,
-        entry: FarPointer,
+        entries: impl IntoIterator<Item = FarPointer>,
     ) -> Result<()> {
-        self.table.install_interpreter_fallback(backend, entry)
+        self.table.bind_interpreter_if_vacant(backend, entries)
     }
 
     pub(super) fn register_exports(

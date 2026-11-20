@@ -61,8 +61,8 @@ pub use execution::ExitHandle;
 use execution::{GuestCalls, SuspendedCall};
 pub use execution_interrupt::ExecutionInterrupt;
 pub use hooks::Hook;
-use instance::CpuInstance;
 pub use instance::DispatchEntry;
+use instance::{CpuInstance, Installation};
 use memory::RuntimeMemory;
 use relocade_wasm_runtime::{Module, WasmRuntime};
 pub use storage::CpuStorage;
@@ -162,16 +162,13 @@ impl Cpu {
         self.instance_mut().invalidate_code(range)
     }
 
-    pub(crate) fn install_guest_code(
-        &mut self,
-        code: &crate::CompiledCode,
-        entries: &[DispatchEntry<'_>],
-    ) -> Result<()> {
+    pub(crate) fn install_guest_code(&mut self, code: &crate::CompiledCode) -> Result<()> {
         assert!(
             self.suspended.is_empty(),
             "host calls are parked; complete or abandon them before installing"
         );
-        self.instance_mut().install_guest_code(code, entries)
+        self.instance_mut()
+            .install_guest_code(code, Installation::Explicit)
     }
 
     /// Compiles a caller-supplied Wasm module and publishes its callable exports on this CPU.

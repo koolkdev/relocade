@@ -26,7 +26,7 @@ impl Hotness {
         }
     }
 
-    pub(super) fn resample(&mut self, submitted: &[crate::FarPointer]) {
+    pub(super) fn reset_counts(&mut self, submitted: &[crate::FarPointer]) {
         for entry in submitted {
             self.counts.remove(&entry.packed());
         }

@@ -2,7 +2,7 @@
 
 mod client;
 mod code;
-pub use code::{CompiledCode, Description};
+pub use code::{CompilationBinding, CompiledCode, Description};
 mod connection;
 mod discovery;
 mod service;
@@ -12,7 +12,7 @@ pub(crate) use connection::Connection;
 pub use discovery::{DiscoveryError, DiscoveryLimits};
 pub use service::CompilerService;
 
-use crate::{worker::Transfer, FarPointer, Memory, Result};
+use crate::{memory::code::CodeReader, worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
     BlockSnapshot, CodeAddress, DecodedBlock, ExecutionTarget, Segment, SegmentDefaultSize,
@@ -72,40 +72,64 @@ async fn compile(
     memory.configuration().validate_target(target)?;
     let mut reader = memory.code_reader();
     let x86 = relocade_x86::Compiler::from_target(target);
-    let blocks = match request {
-        connection::Compilation::Blocks(requests) => {
-            let captured: Vec<_> = requests
-                .iter()
-                .map(|block| reader.read(block.entry.address(), block.byte_len))
-                .collect::<std::result::Result<_, _>>()?;
-            let snapshots: Vec<_> = requests
-                .iter()
-                .zip(&captured)
-                .map(|(block, bytes)| BlockSnapshot {
-                    address: block.entry.into(),
-                    code_default_size: SegmentDefaultSize::Bits16,
-                    bytes,
-                    instruction_limit: block.instruction_limit,
-                })
-                .collect();
-            x86.compile_blocks_with(&snapshots, jobs).await?
-        }
+    let decoded = match request {
+        connection::Compilation::Blocks(requests) => capture_blocks(&x86, &requests, &mut reader)?,
         connection::Compilation::Functions(requests) => {
-            let blocks = discover_functions(target, requests, &mut reader)?;
-            x86.compile_decoded_blocks_with(blocks, jobs).await?
+            discover_functions(target, requests, &mut reader)?
         }
     };
+
+    let mut compiled = Vec::with_capacity(decoded.len());
+    let mut interpreted = Vec::new();
+    for block in decoded {
+        let address = block.address();
+        let cs = code_segment(address);
+        if !reader.is_excluded(cs.base + address.eip(), block.byte_len()) {
+            compiled.push(block);
+        } else if block.is_exported() {
+            if let Ok(offset) = u16::try_from(address.eip()) {
+                interpreted.push(FarPointer {
+                    segment: cs.selector,
+                    offset,
+                });
+            }
+        }
+    }
+    let blocks = x86.compile_decoded_blocks_with(compiled, jobs).await?;
     let source = reader.finish(
         blocks
             .spans
             .iter()
             .map(|&(address, len)| (code_segment(address).base + address.eip(), len)),
     );
-    Ok(CompiledCode::new(
+    CompiledCode::new(
         compiler.compile(&blocks.bytes).await?,
         blocks,
         source,
-    ))
+        interpreted,
+    )
+}
+
+fn capture_blocks(
+    x86: &relocade_x86::Compiler,
+    requests: &[BlockRequest],
+    reader: &mut CodeReader<'_>,
+) -> Result<Vec<DecodedBlock>> {
+    let captured: Vec<_> = requests
+        .iter()
+        .map(|block| reader.read(block.entry.address(), block.byte_len))
+        .collect::<std::result::Result<_, _>>()?;
+    let snapshots: Vec<_> = requests
+        .iter()
+        .zip(&captured)
+        .map(|(block, bytes)| BlockSnapshot {
+            address: block.entry.into(),
+            code_default_size: SegmentDefaultSize::Bits16,
+            bytes,
+            instruction_limit: block.instruction_limit,
+        })
+        .collect();
+    Ok(x86.decode_blocks(&snapshots)?)
 }
 
 /// Plan a batch over the worker's retained snapshots. A rejected candidate
@@ -113,7 +137,7 @@ async fn compile(
 pub(crate) fn discover_functions(
     target: ExecutionTarget,
     requests: impl IntoIterator<Item = FunctionRequest>,
-    reader: &mut crate::memory::code::CodeReader<'_>,
+    reader: &mut CodeReader<'_>,
 ) -> Result<Vec<DecodedBlock>> {
     let mut discovery = discovery::BlockDiscovery::new(target, |address, bytes| {
         reader.read_segment_prefix(&code_segment(address), address.eip(), bytes)

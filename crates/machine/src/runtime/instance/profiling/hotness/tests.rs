@@ -52,7 +52,7 @@ fn a_hot_function_forces_a_small_batch_with_other_eligible_candidates() {
     assert_eq!(hotness.take_batch(|_| false), [1, 2]);
     assert!(hotness.take_batch(|_| false).is_empty());
 
-    hotness.resample(&[
+    hotness.reset_counts(&[
         crate::FarPointer::from_packed(1),
         crate::FarPointer::from_packed(2),
     ]);
@@ -134,16 +134,7 @@ async fn replace_fallback() {
         .await
         .unwrap();
     cpu.instance
-        .install_interpreter_fallback(crate::FarPointer {
-            segment: 0,
-            offset: 0x200,
-        })
-        .unwrap();
-    cpu.instance
-        .install_interpreter_fallback(crate::FarPointer {
-            segment: 0,
-            offset: 0x300,
-        })
+        .bind_interpreter_if_vacant([0x200, 0x300].map(crate::FarPointer::from_packed))
         .unwrap();
     assert!(
         !cpu.instance.modules.has_entry(

@@ -1,5 +1,6 @@
 use super::*;
-use relocade_machine::{DiscoveryLimits, FunctionRequest};
+use relocade_machine::{CompilationBinding, DiscoveryLimits, FunctionRequest};
+use relocade_x86::{Segment, SegmentRegister};
 
 async fn patch_running_code(compiler: &relocade_machine::CompilerService) {
     let map =
@@ -94,4 +95,156 @@ fn guest_writes_retire_linked_and_executing_code() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn guest_writes_retire_linked_and_executing_code() {
     compilation::run(patch_running_code).await;
+}
+
+async fn patch_jump_target(service: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    let mut view = memory.view();
+    view.write(0x100, &[0xeb, 6]).unwrap(); // JMP 0108
+    view.write(0x104, &[0xb0, 42, 0xff, 0xe3]).unwrap(); // MOV AL,42; JMP BX
+    view.write(0x108, &[0x40, 0x05, 0x40, 0, 0xff, 0xe3])
+        .unwrap(); // INC AX; ADD AX,0040; JMP BX
+
+    let cpu = machine.create_cpu(config, Some(service)).unwrap();
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let memory = runner.memory();
+        let mut compiler = runner.take_compiler().unwrap();
+        let state = runner.cpu().cpu_state();
+        let target = state.execution_target();
+        let alias = FarPointer {
+            segment: 0x10,
+            offset: 8,
+        };
+        let roots = [0x100, 0x104, alias.packed()].map(|key| FunctionRequest {
+            entry: FarPointer::from_packed(key),
+            limits: DiscoveryLimits::default(),
+        });
+        let mut functions = async || {
+            compiler.request_functions(target, roots.to_vec()).unwrap();
+            compiler.recv().await.unwrap().unwrap()
+        };
+        let original = functions().await;
+        assert_eq!(original.ranges(), [0x100..0x102, 0x104..0x10e]);
+        original.install(runner.cpu()).unwrap();
+
+        // The first change through A20 retires the original module. The new ADD can compile.
+        memory
+            .view()
+            .write(0x10_0108, &[0x40, 0x05, 0x40, 1, 0xff, 0xe3])
+            .unwrap();
+        let replacement = functions().await;
+        assert_eq!(replacement.ranges(), original.ranges());
+        assert!(replacement.bindings().any(|binding| matches!(
+            binding, CompilationBinding::Export { entry, .. } if entry == alias
+        )));
+        replacement.install(runner.cpu()).unwrap();
+        assert_eq!(runner.cpu().compiled_modules_at(0x108).count(), 1);
+
+        let exit = runner.cpu().exit_handle();
+        // Either code segment reaches its stop at offset 1000 by executing JMP BX.
+        runner
+            .cpu()
+            .install([0x1000, 0x0010_1000].map(|key| {
+                let exit = exit.clone();
+                Hook::host(key, async move || exit.request())
+            }))
+            .await
+            .unwrap();
+        state.set_bx(0x1000);
+        state.set_ax(0);
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(state.ax(), 0x141);
+
+        // Change the same byte in the installed replacement, then restore the late reply's bytes.
+        let late = functions().await;
+        memory.view().write_u8(0x10b, 2).unwrap();
+        memory.view().write_u8(0x10b, 1).unwrap();
+        assert!(matches!(
+            late.install(runner.cpu()),
+            Err(relocade_machine::Error::StaleCompilation)
+        ));
+
+        let stable = functions().await;
+        assert_eq!(stable.ranges(), [0x100..0x102, 0x104..0x108]);
+        let mut exports = Vec::new();
+        let mut interpreted = Vec::new();
+        for binding in stable.bindings() {
+            match binding {
+                CompilationBinding::Export { entry, .. } => exports.push(entry.packed()),
+                CompilationBinding::Interpreter(entry) => interpreted.push(entry),
+            }
+        }
+        exports.sort_unstable();
+        assert_eq!(exports, [0x100, 0x104]);
+        // The private JMP target at 0000:0108 covers the same bytes as the requested alias.
+        assert_eq!(interpreted, [alias]);
+
+        runner
+            .cpu()
+            .install([Hook::host(alias.packed(), async move || exit.request())])
+            .await
+            .unwrap();
+        stable.install(runner.cpu()).unwrap();
+
+        // All three aliases read the patched byte. Only the ADD uses it.
+        // At 010A the unchanged low immediate itself decodes as a one-byte INC AX.
+        let block = |offset, byte_len| BlockRequest {
+            entry: FarPointer {
+                segment: 0x10,
+                offset,
+            },
+            byte_len,
+            instruction_limit: 1,
+        };
+        compiler
+            .request(target, vec![block(8, 6), block(9, 5), block(10, 4)])
+            .unwrap();
+        let split = compiler.recv().await.unwrap().unwrap();
+        assert_eq!(split.ranges(), [0x108..0x109, 0x10a..0x10b]);
+
+        // The compiled JMP must dispatch to the interpreter for the current target bytes.
+        memory.view().write_u8(0x10b, 3).unwrap();
+        state.set_eip(0x100);
+        state.set_ax(0);
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(state.ax(), 0x341);
+        assert_eq!(runner.cpu().compiled_modules_at(0x100).count(), 1);
+        assert_eq!(runner.cpu().compiled_modules_at(0x108).count(), 0);
+
+        // The delayed interpreter binding must preserve the newer hook at the public alias.
+        state.set_segment(
+            Segment::Cs,
+            SegmentRegister::real_mode(Segment::Cs, alias.segment),
+        );
+        state.set_eip(u32::from(alias.offset));
+        assert_eq!(
+            runner.run_cpu().await,
+            ExecutionExit::Host(HostExit::Return)
+        );
+        assert_eq!(state.eip(), u32::from(alias.offset));
+    })
+    .join()
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn repeated_patch_excludes_blocks_covering_the_changed_byte() {
+    pollster::block_on(compilation::run(patch_jump_target));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn repeated_patch_excludes_blocks_covering_the_changed_byte() {
+    compilation::run(patch_jump_target).await;
 }

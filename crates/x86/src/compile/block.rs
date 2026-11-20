@@ -127,6 +127,15 @@ pub fn compile_block_from_bytes_with_profile(
 }
 
 impl Compiler {
+    /// Decodes explicit snapshots up to the boundaries documented by [`Self::compile_blocks`].
+    /// Every supplied address bounds decoding, including entries the caller later omits.
+    pub fn decode_blocks(
+        &self,
+        snapshots: &[BlockSnapshot<'_>],
+    ) -> Result<Vec<DecodedBlock>, BlockError> {
+        decode::blocks(snapshots, self.target)
+    }
+
     /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
     ///
     /// Known jumps and fallthroughs link to supplied blocks in the same code segment

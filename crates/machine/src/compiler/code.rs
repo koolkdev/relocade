@@ -1,13 +1,18 @@
 //! Compiled guest code and the byte ranges retained by each installation.
 
-use crate::{
-    CodeSource, ConfigurationError, Cpu, DispatchEntry, Error, FarPointer, Memory, Result,
-};
+use crate::{CodeSource, ConfigurationError, Cpu, Error, FarPointer, Memory, Result};
 use relocade_wasm_runtime::Module;
 use relocade_x86::{BlockEntry, CodeAddress, CompiledBlocks, ExecutionTarget, SegmentDefaultSize};
 use std::ops::Range;
 
-/// Compiled entries awaiting explicit installation on a compatible, stopped CPU.
+/// The destination selected for one public guest entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompilationBinding<Export> {
+    Export { entry: FarPointer, export: Export },
+    Interpreter(FarPointer),
+}
+
+/// A completed compilation and the bindings to install on a compatible, stopped CPU.
 /// Clones share the engine module. Each installation creates CPU-local bindings.
 #[derive(Clone)]
 pub struct CompiledCode {
@@ -22,11 +27,35 @@ pub struct Description {
     pub(super) call_targets: Vec<u32>,
     pub(super) target: ExecutionTarget,
     source: CodeSource,
+    // Export bindings index the block metadata so replies store each export name once.
+    bindings: Vec<CompilationBinding<usize>>,
 }
 
 impl CompiledCode {
-    pub(crate) fn new(module: Module, blocks: CompiledBlocks, source: CodeSource) -> Self {
-        Self {
+    pub(crate) fn new(
+        module: Module,
+        blocks: CompiledBlocks,
+        source: CodeSource,
+        interpreted: Vec<FarPointer>,
+    ) -> Result<Self> {
+        let mut bindings = Vec::with_capacity(blocks.entries.len() + interpreted.len());
+        for (index, block) in blocks.entries.iter().enumerate() {
+            let CodeAddress::RealMode { segment, eip } = block.address else {
+                return Err(ConfigurationError::IncompatibleCpu.into());
+            };
+            if block.code_default_size != SegmentDefaultSize::Bits16 {
+                return Err(ConfigurationError::IncompatibleCpu.into());
+            }
+            // A continuation beyond IP=FFFF has no real-mode dispatch key.
+            if let Ok(offset) = u16::try_from(eip) {
+                bindings.push(CompilationBinding::Export {
+                    entry: FarPointer { segment, offset },
+                    export: index,
+                });
+            }
+        }
+        bindings.extend(interpreted.into_iter().map(CompilationBinding::Interpreter));
+        Ok(Self {
             module,
             description: Description {
                 ranges: merged_ranges(source.ranges()),
@@ -34,8 +63,9 @@ impl CompiledCode {
                 call_targets: blocks.call_targets,
                 target: blocks.execution_target,
                 source,
+                bindings,
             },
-        }
+        })
     }
 
     /// All decoded guest-byte ranges used by this module, excluding read-ahead
@@ -64,48 +94,40 @@ impl CompiledCode {
         &self.module
     }
 
+    /// The binding for each addressable public entry, including interpreted blocks.
+    pub fn bindings(&self) -> impl ExactSizeIterator<Item = CompilationBinding<&str>> {
+        self.description
+            .bindings
+            .iter()
+            .map(|&binding| match binding {
+                CompilationBinding::Export { entry, export } => CompilationBinding::Export {
+                    entry,
+                    export: self.blocks()[export].export.as_str(),
+                },
+                CompilationBinding::Interpreter(entry) => CompilationBinding::Interpreter(entry),
+            })
+    }
+
     /// Publishes these entries through the CPU's existing dispatch and hook path.
     /// Returns [`Error::StaleCompilation`] if the snapshot differs from live memory
     /// or includes a backing byte excluded after it changed in two installations.
     /// Pending or parked host calls must finish before installation.
     pub fn install(&self, cpu: &mut Cpu) -> Result<()> {
-        let entries = self.dispatch_entries(cpu.cpu_state().execution_target(), &cpu.memory())?;
-        if entries.is_empty() {
+        self.check_destination(cpu.cpu_state().execution_target(), &cpu.memory())?;
+        if self.description.bindings.is_empty() {
             return Ok(());
         }
-        cpu.install_guest_code(self, &entries)
+        cpu.install_guest_code(self)
     }
 
-    pub(crate) fn dispatch_entries(
-        &self,
-        target: ExecutionTarget,
-        memory: &Memory,
-    ) -> Result<Vec<DispatchEntry<'_>>> {
+    pub(crate) fn check_destination(&self, target: ExecutionTarget, memory: &Memory) -> Result<()> {
         if target != self.description.target {
             return Err(Error::CompilationTarget);
         }
         if !self.source().belongs_to(memory) {
             return Err(Error::CompilationMemory);
         }
-        let mut entries = Vec::new();
-        for block in self.blocks() {
-            let CodeAddress::RealMode { segment, eip } = block.address else {
-                return Err(ConfigurationError::IncompatibleCpu.into());
-            };
-            if block.code_default_size != SegmentDefaultSize::Bits16 {
-                return Err(ConfigurationError::IncompatibleCpu.into());
-            }
-            // A discovered continuation beyond IP=FFFF has no real-mode dispatch key.
-            let Ok(offset) = u16::try_from(eip) else {
-                continue;
-            };
-            let key = FarPointer { segment, offset }.packed();
-            entries.push(DispatchEntry {
-                key,
-                export: &block.export,
-            });
-        }
-        Ok(entries)
+        Ok(())
     }
 }
 

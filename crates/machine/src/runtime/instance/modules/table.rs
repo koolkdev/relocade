@@ -131,17 +131,19 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         }
     }
 
-    /// Failed Real16 candidates suppress profiling only for their own CS:IP.
-    pub(super) fn install_interpreter_fallback(
+    /// An interpreter binding suppresses profiling for its own CS:IP. Preserve newer bindings.
+    pub(super) fn bind_interpreter_if_vacant(
         &mut self,
         backend: &mut B,
-        entry: FarPointer,
+        entries: impl IntoIterator<Item = FarPointer>,
     ) -> Result<()> {
-        let key = entry.packed();
-        if self.contains(key) {
-            return Ok(());
-        }
-        self.publish(backend, BTreeMap::from([(key, Target::Interpreter)]))
+        let updates = entries
+            .into_iter()
+            .map(FarPointer::packed)
+            .filter(|&key| !self.contains(key))
+            .map(|key| (key, Target::Interpreter))
+            .collect();
+        self.publish(backend, updates)
     }
 
     pub(super) fn install_interpreter(

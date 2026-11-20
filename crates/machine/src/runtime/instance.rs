@@ -8,7 +8,10 @@ use super::{
     code, hooks::Handler, memory::HostWritePages, CpuContext, Hook, RuntimeMemory, WasmRuntime,
     WasmRuntimeHandle,
 };
-use crate::{memory::CpuBinding, worker::HostTurns, CompiledCode, FarPointer, IoBus, Result};
+use crate::{
+    memory::CpuBinding, worker::HostTurns, CompilationBinding, CompiledCode, FarPointer, IoBus,
+    Result,
+};
 use hooks::PreparedHandler;
 use modules::{Calls, CpuModules, ModuleInstance};
 use profiling::Profiling;
@@ -20,6 +23,12 @@ use std::{ops::Range, rc::Rc};
 pub struct DispatchEntry<'a> {
     pub key: u32,
     pub export: &'a str,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Installation<'a> {
+    Explicit,
+    Profiled(&'a [FarPointer]),
 }
 
 enum ModuleSource<'a> {
@@ -219,9 +228,40 @@ impl CpuInstance {
     pub(super) fn install_guest_code(
         &mut self,
         code: &CompiledCode,
-        entries: &[DispatchEntry<'_>],
+        installation: Installation<'_>,
     ) -> Result<()> {
-        self.install_module(ModuleSource::Guest(code), entries, Vec::new())
+        // A host write may have invalidated a binding before the worker replied.
+        if self.bindings.guest.take_retirement_request() {
+            self.runtime
+                .with_runtime(|wasm| self.modules.retire_modified(&mut wasm.context()))?;
+        }
+        let mut exports = Vec::new();
+        let mut fallbacks = Vec::new();
+        for binding in code.bindings() {
+            match binding {
+                CompilationBinding::Export { entry, export } => {
+                    let key = entry.packed();
+                    if matches!(installation, Installation::Explicit)
+                        || !self.modules.has_entry(key)
+                    {
+                        exports.push(DispatchEntry { key, export });
+                    }
+                }
+                CompilationBinding::Interpreter(entry) => fallbacks.push(entry),
+            }
+        }
+        // A stale module must fail before any of this reply's entries are bound.
+        if !exports.is_empty() {
+            self.install_module(ModuleSource::Guest(code), &exports, Vec::new())?;
+        }
+        // A partially decoded profiling batch can also leave a requested root unbound.
+        let remaining_roots = match installation {
+            Installation::Explicit => &[][..],
+            Installation::Profiled(roots) => roots,
+        };
+        self.bind_interpreter_if_vacant(
+            fallbacks.into_iter().chain(remaining_roots.iter().copied()),
+        )
     }
 
     fn install_module(
@@ -291,9 +331,12 @@ impl CpuInstance {
             .filter_map(|module| module.code())
     }
 
-    pub(super) fn install_interpreter_fallback(&mut self, entry: FarPointer) -> Result<()> {
+    fn bind_interpreter_if_vacant(
+        &mut self,
+        entries: impl IntoIterator<Item = FarPointer>,
+    ) -> Result<()> {
         self.runtime
-            .with_runtime(|wasm| self.modules.install_interpreter_fallback(wasm, entry))
+            .with_runtime(|wasm| self.modules.bind_interpreter_if_vacant(wasm, entries))
     }
 
     #[inline]

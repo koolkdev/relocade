@@ -16,7 +16,7 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         offset: 0x10,
     };
     assert_eq!(first.address(), alias.address());
-    let entries = [first, alias, other];
+    let entries = [other, first, alias];
     for (entry, immediate) in [(first, 42), (other, 73)] {
         machine
             .memory()
@@ -129,6 +129,64 @@ fn block_requests_keep_their_own_code_segments() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn block_requests_keep_their_own_code_segments() {
     compilation::run(requested_segments).await;
+}
+
+async fn jump_to_requested_block(service: &relocade_machine::CompilerService) {
+    let (mut machine, config) = setup();
+    let memory = machine.memory();
+    memory.view().write(0x100, &[0xeb, 2]).unwrap(); // JMP 0104
+    memory.view().write_u8(0x104, 0x40).unwrap(); // INC AX
+    let cpu = machine.create_cpu(config, Some(service)).unwrap();
+    ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
+        let state = runner.cpu().cpu_state();
+        let mut compiler = runner.take_compiler().unwrap();
+        let blocks = [(0x104, 1), (0x100, 2)].map(|(offset, byte_len)| BlockRequest {
+            entry: FarPointer { segment: 0, offset },
+            byte_len,
+            instruction_limit: 1,
+        });
+        compiler
+            .request(state.execution_target(), blocks.to_vec())
+            .unwrap();
+        let code = compiler.recv().await.unwrap().unwrap();
+        code.install(runner.cpu()).unwrap();
+
+        let exit = runner.cpu().exit_handle();
+        runner
+            .cpu()
+            .install([0x104, 0x105].map(|key| {
+                let exit = exit.clone();
+                Hook::host(key, async move || exit.request())
+            }))
+            .await
+            .unwrap();
+        for (entry, stop, ax) in [(0x100, 0x105, 1), (0x104, 0x104, 0)] {
+            state.set_eip(entry);
+            state.set_ax(0);
+            // Clear the worker wake so the jump can reach its local target without a checkpoint exit.
+            let cpu = runner.cpu();
+            cpu.interrupt_handle().take();
+            assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+            assert_eq!((state.eip(), state.ax()), (stop, ax));
+        }
+    })
+    .join()
+    .await
+    .unwrap()
+    .unwrap();
+    machine.shutdown().await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn explicit_public_blocks_are_local_jump_targets() {
+    pollster::block_on(compilation::run(jump_to_requested_block));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn explicit_public_blocks_are_local_jump_targets() {
+    compilation::run(jump_to_requested_block).await;
 }
 
 async fn reject_host_page_table(service: &relocade_machine::CompilerService) {

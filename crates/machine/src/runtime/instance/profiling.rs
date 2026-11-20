@@ -1,7 +1,7 @@
 //! Collects Real16 call observations and submits hot batches on this CPU's client.
 //! Keys are packed 16:16 CS:IP values. Protected-mode dispatch does not record.
 
-use super::{modules::Modules, CpuInstance, WasmRuntime};
+use super::{modules::Modules, CpuInstance, Installation, WasmRuntime};
 use crate::{
     CompiledCode, CompilerClient, Cpu, DiscoveryLimits, FarPointer, FunctionRequest, Instant,
     Result,
@@ -141,30 +141,27 @@ impl CpuInstance {
                 return;
             }
         };
-        let result = reply.and_then(|code| self.install_missing(&code));
+        self.finish_compilation(reply);
+    }
+
+    fn finish_compilation(&mut self, reply: Result<CompiledCode>) {
         let pending = std::mem::take(&mut self.profiling.pending);
-        if matches!(result, Err(crate::Error::StaleCompilation)) {
-            // These roots may be hot again once the guest finishes writing.
-            self.profiling.hotness.resample(&pending);
-        } else {
-            for entry in pending {
-                if self.install_interpreter_fallback(entry).is_err() {
+        // Bound calls bypass the recorder. Retirement makes fresh calls eligible again.
+        self.profiling.hotness.reset_counts(&pending);
+        let result = reply.and_then(|code| {
+            code.check_destination(self.bindings.cpu.execution_target(), &self.bindings.guest)?;
+            self.install_guest_code(&code, Installation::Profiled(&pending))
+        });
+        match result {
+            Ok(()) | Err(crate::Error::StaleCompilation) => {}
+            Err(_) => {
+                if self.bind_interpreter_if_vacant(pending).is_err() {
                     self.profiling.disable();
                     return;
                 }
             }
         }
         self.profiling.submit(&self.modules);
-    }
-
-    fn install_missing(&mut self, code: &CompiledCode) -> Result<()> {
-        let mut entries =
-            code.dispatch_entries(self.bindings.cpu.execution_target(), &self.bindings.guest)?;
-        entries.retain(|entry| !self.modules.has_entry(entry.key));
-        if entries.is_empty() {
-            return Ok(());
-        }
-        self.install_guest_code(code, &entries)
     }
 }
 

@@ -24,7 +24,7 @@ impl<'a> BlockModule<'a> {
         mut self,
         snapshots: &[super::BlockSnapshot<'_>],
     ) -> Result<Self, BlockError> {
-        let blocks = super::decode::blocks(snapshots, self.compiler.target)?;
+        let blocks = self.compiler.decode_blocks(snapshots)?;
         let blocks = self.declare_blocks(blocks);
         self.define_blocks(blocks, self.execution.clone())?;
         Ok(self)
@@ -34,8 +34,9 @@ impl<'a> BlockModule<'a> {
         mut self,
         blocks: Vec<DecodedBlock>,
     ) -> Result<Self, BlockError> {
-        let mut views = BTreeMap::<_, Vec<_>>::new();
-        for block in blocks {
+        let blocks = self.declare_blocks(blocks);
+        let mut blocks_by_view = BTreeMap::<_, Vec<_>>::new();
+        for (block, function) in &blocks {
             let (_, interior) = block
                 .instructions
                 .split_last()
@@ -47,13 +48,21 @@ impl<'a> BlockModule<'a> {
                     address: boundary.eip(),
                 });
             }
-            views
+            blocks_by_view
                 .entry((block.address().segment(), block.code_default_size()))
                 .or_default()
-                .push(block);
+                .push((block, *function));
         }
-        for ((segment, _), blocks) in views {
-            self.define_view(segment, blocks)?;
+        let mut linked_views = BTreeMap::new();
+        for ((segment, width), members) in blocks_by_view {
+            linked_views.insert((segment, width), self.link_view(segment, &members)?);
+        }
+        // Links use the segment and decode width. Public entries and source spans
+        // follow the caller's order even when blocks from different views alternate.
+        self.spans.reserve(blocks.len());
+        for (block, function) in blocks {
+            let view = (block.address().segment(), block.code_default_size());
+            self.define_block(block, function, linked_views[&view].clone())?;
         }
         Ok(self)
     }
@@ -82,14 +91,13 @@ impl<'a> BlockModule<'a> {
         }
     }
 
-    fn define_view(
+    fn link_view(
         &mut self,
         segment: Option<u16>,
-        blocks: Vec<DecodedBlock>,
-    ) -> Result<(), BlockError> {
-        let blocks = self.declare_blocks(blocks);
+        blocks: &[(&DecodedBlock, Func)],
+    ) -> Result<ExecutionModule, BlockError> {
         let mut entries = BTreeMap::new();
-        for (block, function) in &blocks {
+        for (block, function) in blocks {
             let address = block.address();
             if entries.insert(address.eip(), *function).is_some() {
                 return Err(BlockError::DuplicateBlock { address });
@@ -119,8 +127,7 @@ impl<'a> BlockModule<'a> {
                 call_sites.insert(instruction.eip(), index);
             }
         }
-        let module = self.execution.with_blocks(entries, call_sites);
-        self.define_blocks(blocks, module)
+        Ok(self.execution.with_blocks(entries, call_sites))
     }
 
     pub(in crate::compile) fn compile(self) -> Result<CompiledBlocks, BlockError> {
