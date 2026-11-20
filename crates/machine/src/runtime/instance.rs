@@ -149,12 +149,7 @@ impl CpuInstance {
         enter: impl FnOnce(&GuestEntryPoints, &mut WasmRuntime) -> ExecutionExit,
     ) -> ExecutionExit {
         self.runtime.with_runtime(|wasm| {
-            if self.bindings.guest.take_retirement_request() {
-                self.modules
-                    .retire_modified(&mut wasm.context())
-                    .expect("retire modified code");
-            }
-            let _callback = self.modules.enable_write_callback();
+            let _callback = self.modules.enter_guest(&mut wasm.context());
             enter(&self.entry_points, wasm)
         })
     }
@@ -231,9 +226,10 @@ impl CpuInstance {
         installation: Installation<'_>,
     ) -> Result<()> {
         // A host write may have invalidated a binding before the worker replied.
-        if self.bindings.guest.take_retirement_request() {
+        let modified = self.bindings.guest.take_modified_modules();
+        if !modified.is_empty() {
             self.runtime
-                .with_runtime(|wasm| self.modules.retire_modified(&mut wasm.context()))?;
+                .with_runtime(|wasm| self.modules.retire(&mut wasm.context(), modified))?;
         }
         let mut exports = Vec::new();
         let mut fallbacks = Vec::new();
@@ -279,11 +275,11 @@ impl CpuInstance {
             }
         };
         let instance = self.instantiate_module(source)?;
-        let installed = self
+        let (id, installed) = self
             .runtime
             .with_runtime(|wasm| self.modules.register_exports(wasm, instance, entries))?;
         if let Some((source, mut registry)) = checked_source {
-            installed.track_source(registry.register(source), &self.host_writes);
+            installed.track_source(registry.register(id, source), &self.host_writes);
         }
         // Releasing a host callback can reenter the runtime or write guest memory.
         self.modules.hooks.replace_bindings(entries, handlers);

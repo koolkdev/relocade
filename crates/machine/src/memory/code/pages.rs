@@ -2,7 +2,7 @@
 
 use super::{
     blacklist::{CodeBlacklist, ExcludedCode},
-    page_base, CodeSource, Span,
+    page_base, CodeSource, ModuleId, Span,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -15,6 +15,7 @@ use std::{
 /// One installation of compiled guest code. Observers can retain its write history
 /// after the CPU removes the module from dispatch.
 pub struct InstalledCode {
+    id: ModuleId,
     source: CodeSource,
     spans_by_page: BTreeMap<u32, Vec<usize>>,
     modified: AtomicBool,
@@ -48,6 +49,9 @@ impl InstalledCode {
             return;
         };
         let mut registry = memory.pages.lock().unwrap();
+        if registry.modified.remove(&self.id) && registry.modified.is_empty() {
+            memory.needs_retirement.store(false, Ordering::Release);
+        }
         for page in self.spans_by_page.keys() {
             let codes = registry.by_backing.get_mut(page).expect("installed page");
             codes.retain(|code| !Arc::ptr_eq(code, self));
@@ -78,6 +82,7 @@ impl CodeWrite {
 pub(crate) struct CodePages {
     by_backing: BTreeMap<u32, Vec<Arc<InstalledCode>>>,
     blacklist: CodeBlacklist,
+    pub(super) modified: BTreeSet<ModuleId>,
 }
 
 impl CodePages {
@@ -85,7 +90,7 @@ impl CodePages {
         &self.blacklist.excluded
     }
 
-    pub(crate) fn register(&mut self, source: &CodeSource) -> Arc<InstalledCode> {
+    pub(crate) fn register(&mut self, id: ModuleId, source: &CodeSource) -> Arc<InstalledCode> {
         let mut spans_by_page = BTreeMap::<_, Vec<_>>::new();
         for (index, span) in source.spans.iter().enumerate() {
             spans_by_page
@@ -94,6 +99,7 @@ impl CodePages {
                 .push(index);
         }
         let code = Arc::new(InstalledCode {
+            id,
             source: source.clone(),
             spans_by_page,
             modified: AtomicBool::new(false),
@@ -144,6 +150,7 @@ impl CodePages {
                 if modified && !was_modified {
                     code.modified.store(true, Ordering::Release);
                     write.invalidated.push(code.clone());
+                    self.modified.insert(code.id);
                     changed = true;
                 }
             }
