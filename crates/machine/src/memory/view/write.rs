@@ -8,14 +8,25 @@ impl<'a> MemoryView<'a> {
     ///
     /// # Panics
     /// Panics if the access reaches MMIO without an attached local I/O bus.
-    pub fn write(&mut self, address: u32, mut bytes: &[u8]) -> Result<(), MemoryError> {
+    pub fn write(&mut self, address: u32, bytes: &[u8]) -> Result<(), MemoryError> {
+        self.write_spans(address, bytes, &mut 0)
+    }
+
+    /// A write can invalidate code in its first backing span and change more bytes
+    /// of that same installation in later spans. All spans share its write ID.
+    fn write_spans(
+        &mut self,
+        address: u32,
+        mut bytes: &[u8],
+        write_id: &mut u64,
+    ) -> Result<(), MemoryError> {
         for span in Spans::new(self.config.memory_map(), address, bytes.len())?
             .with_io(self.io.as_ref().map(Routing::bus))
         {
             let (part, rest) = bytes.split_at(span.len);
             match span.mapping {
                 PhysicalMapping::Ram { backing_offset } => {
-                    self.memory.write_storage(backing_offset, part)
+                    self.memory.write_storage(backing_offset, part, write_id)
                 }
                 PhysicalMapping::Mmio { .. } => {
                     let io = self
@@ -73,7 +84,7 @@ impl<'a> MemoryView<'a> {
     }
 
     /// Writes a real-mode buffer, wrapping its 16-bit offset within the same segment.
-    /// Each contiguous part uses [`Self::write_segment`], including mappings and A20.
+    /// Each contiguous part follows the same segment, mapping and A20 rules as [`Self::write_segment`].
     pub fn write_wrapping(
         &mut self,
         pointer: FarPointer,
@@ -81,9 +92,11 @@ impl<'a> MemoryView<'a> {
     ) -> Result<(), MemoryError> {
         let segment = SegmentRegister::real_mode(Segment::Ds, pointer.segment);
         let mut offset = pointer.offset;
+        let mut write_id = 0;
         while !bytes.is_empty() {
             let count = bytes.len().min(0x10000 - usize::from(offset));
-            self.write_segment(&segment, u32::from(offset), &bytes[..count])?;
+            let address = segment_address(&segment, u32::from(offset), count)?;
+            self.write_spans(address, &bytes[..count], &mut write_id)?;
             bytes = &bytes[count..];
             offset = 0;
         }
@@ -95,7 +108,7 @@ impl<'a> MemoryView<'a> {
         if !range_fits(offset, bytes.len(), self.backing_size()) {
             return Err(MemoryError::BackingRange);
         }
-        self.memory.write_storage(offset, bytes);
+        self.memory.write_storage(offset, bytes, &mut 0);
         Ok(())
     }
 

@@ -132,6 +132,9 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         assert_eq!(runner.cpu().compiled_modules_at(0x200).count(), 1);
         assert_eq!(runner.cpu().compiled_modules_at(0x210).count(), 0);
 
+        // After a second patch to the same backing byte, the guest chooses a fresh tail.
+        sources.view().write_u8(0x204, 0x2a).unwrap(); // JMP 0230
+        sources.view().write(0x230, &[0x83, 0xc0, 3, 0xc3]).unwrap();
         compiler
             .request_functions(target, vec![request(0x200)])
             .unwrap();
@@ -301,34 +304,36 @@ async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
             .backing_ranges()
             .eq(std::iter::once(0x1100..0x1103)));
         assert!(memory.installed_code_at(0x1103).is_empty());
-        // Change only the read-ahead byte, then change and restore an instruction byte.
+        // A same-value instruction write and a changed read-ahead byte leave the
+        // first installation eligible. Explicit invalidation releases its registration.
         memory.view().write(0x102, &[0x12, 0xcc]).unwrap();
         assert!(!first.was_modified());
-        memory.view().write_u8(0x101, 0x35).unwrap();
-        memory.view().write_u8(0x101, 0x34).unwrap();
-        assert!(first.was_modified());
-
-        pending_clone.install(runner.cpu()).unwrap();
-        let active = memory.installed_code_at(0x1101);
-        assert_eq!(active.len(), 2);
-        assert!(active.iter().any(|item| Arc::ptr_eq(item, &first)));
-        let second = active
-            .iter()
-            .find(|item| !Arc::ptr_eq(item, &first))
-            .unwrap();
-        assert!(!second.was_modified());
-
         runner.cpu().invalidate_code(0x101..0x102).unwrap();
         assert!(memory.installed_code_at(0x1101).is_empty());
+
+        pending_clone.install(runner.cpu()).unwrap();
+        let second = memory.installed_code_at(0x1101).pop().unwrap();
         code.install(runner.cpu()).unwrap();
-        let last = memory.installed_code_at(0x1101).pop().unwrap();
+        let active = memory.installed_code_at(0x1101);
+        assert_eq!(active.len(), 2);
+        let last = active
+            .iter()
+            .find(|item| !Arc::ptr_eq(item, &second))
+            .unwrap();
+
+        memory.view().write_u8(0x101, 0x35).unwrap();
+        memory.view().write_u8(0x101, 0x34).unwrap();
+        pending_clone.install(runner.cpu()).unwrap();
+        memory.view().write_u8(0x101, 0x36).unwrap();
+        memory.view().write_u8(0x101, 0x34).unwrap();
+        assert!(matches!(
+            pending_clone.install(runner.cpu()),
+            Err(relocade_machine::Error::StaleCompilation)
+        ));
         drop(runner);
         assert!(memory.installed_code_at(0x1101).is_empty());
-
-        memory.view().write_u8(0x101, 0xff).unwrap();
-        assert!(first.was_modified());
-        assert!(!second.was_modified());
-        assert!(!last.was_modified());
+        assert!(!first.was_modified());
+        assert!(second.was_modified() && last.was_modified());
         assert!(last.source().ranges().eq(pending_clone.source().ranges()));
     })
     .join()
