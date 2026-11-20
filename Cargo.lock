@@ -2602,7 +2602,7 @@ dependencies = [
  "relocade-compiler",
  "relocade-workers",
  "relocade-x86",
- "relocade-x86-profile",
+ "relocade-x86-config",
 ]
 
 [[package]]
@@ -2850,13 +2850,13 @@ dependencies = [
  "relocade-test-support",
  "relocade-wasm-bindings",
  "relocade-workers",
- "relocade-x86-profile",
+ "relocade-x86-config",
  "wasmparser 0.224.1",
  "wasmtime",
 ]
 
 [[package]]
-name = "relocade-x86-profile"
+name = "relocade-x86-config"
 version = "0.0.0"
 
 [[package]]

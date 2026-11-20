@@ -29,7 +29,7 @@ use relocade_compiler::{Val, I16, I32};
 pub const MAX_INSTRUCTION_BYTES: u32 = 15;
 pub(super) const EXTENDED_OPCODE_ESCAPE: u8 = 0x0f;
 
-/// Control flow of a decoded instruction under the supplied execution target.
+/// Control flow of a decoded instruction under the supplied compiler configuration.
 /// Offsets are relative to the current CS. Execution can fault before a transfer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InstructionFlow {

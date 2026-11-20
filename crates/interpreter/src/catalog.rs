@@ -1,4 +1,4 @@
-// The build uses the filenames; the runtime embeds the Wasm at those paths.
+// The build writes these files and the runtime embeds their Wasm.
 macro_rules! interpreter_catalog {
     ($file:ident) => {
         [

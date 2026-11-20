@@ -2,7 +2,7 @@
 //! Each module exports both `step` and `run`. CPU features remain runtime inputs.
 
 mod catalog;
-pub use relocade_x86_profile::{EntryAssumptions, ExecutionProfile, MemoryBackend, SegmentProfile};
+pub use relocade_x86_config::{EntryAssumptions, MemoryBackend};
 
 macro_rules! wasm {
     ($file:literal) => {
@@ -14,21 +14,11 @@ const MODULES: &[(EntryAssumptions, MemoryBackend, &[u8])] = &catalog::interpret
 
 /// Returns the packaged interpreter for an exact set of entry guarantees and memory routes.
 /// The host must establish those guarantees before calling either interpreter entry.
-pub fn module_with_memory(
-    entry: impl Into<EntryAssumptions>,
-    backend: MemoryBackend,
-) -> Option<&'static [u8]> {
-    let entry = entry.into();
+pub fn module(entry: EntryAssumptions, backend: MemoryBackend) -> Option<&'static [u8]> {
     MODULES
         .iter()
         .find(|(assumptions, memory, _)| *assumptions == entry && *memory == backend)
         .map(|(_, _, bytes)| *bytes)
-}
-
-/// Returns the interpreter packaged for this execution profile.
-pub fn module(profile: ExecutionProfile) -> &'static [u8] {
-    module_with_memory(profile, MemoryBackend::default_for(profile))
-        .expect("each execution profile has a packaged interpreter")
 }
 
 #[cfg(test)]
@@ -37,14 +27,12 @@ mod tests {
 
     #[test]
     fn an_unavailable_entry_or_memory_backend_has_no_embedded_interpreter() {
-        assert!(
-            module_with_memory(EntryAssumptions::REAL_MODE, MemoryBackend::HostPageTable).is_none()
-        );
-        assert!(module_with_memory(EntryAssumptions::FLAT32, MemoryBackend::PhysicalBus).is_none());
+        assert!(module(EntryAssumptions::REAL_MODE, MemoryBackend::HostPageTable).is_none());
+        assert!(module(EntryAssumptions::FLAT32, MemoryBackend::PhysicalBus).is_none());
         let runtime_width = EntryAssumptions {
             code_default_size: None,
             ..EntryAssumptions::SEGMENTED32
         };
-        assert!(module_with_memory(runtime_width, MemoryBackend::HostPageTable).is_none());
+        assert!(module(runtime_width, MemoryBackend::HostPageTable).is_none());
     }
 }

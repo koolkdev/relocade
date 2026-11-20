@@ -8,28 +8,26 @@ shared memories and the threads extension's atomic instructions.
 ## Entries and dispatch
 
 Snapshot and dispatcher compilation return `CompiledModule`, containing the Wasm
-bytes, exported entry name and required execution target. Snapshot entries are
-named `block_<hex start_eip>`; the callable dispatcher exports `dispatch`.
-`build_interpreter(profile)` constructs a `Program` exporting both `run` and `step`.
-Compile it once with `Program::compile()` or `Program::compile_with(&executor).await`,
-then choose either export when invoking the module. All execution entries have
-the shared Rust signature `fn() -> ExecutionExit`.
+bytes, exported entry name and required `CompilerConfig`. Snapshot entries are
+named `block_<hex start_eip>`. The callable dispatcher exports `dispatch`.
+`build_interpreter(entry, backend)` constructs a `Program` exporting
+both `run` and `step`. Compile it once with `Program::compile()` or
+`Program::compile_with(&executor).await`, then choose the export to invoke.
+All execution entries have the shared Rust signature `fn() -> ExecutionExit`.
 
-`build_interpreter(profile)` uses the physical bus for Real16 and the host page
-table for protected profiles. To generate a protected-mode interpreter for a PC
-with guest paging disabled, use
-`build_interpreter_with_memory(profile, MemoryBackend::PhysicalBus)`.
-The profile still governs segmentation and privilege checks.
+`CompilerConfig::new(entry, backend)` takes the CPU state the owner guarantees
+at entry and the memory interface the generated module will import. Use
+`MemoryBackend::PhysicalBus` for PC physical routing and
+`MemoryBackend::HostPageTable` for host-managed page translations. Selecting a
+backend is independent of segmentation. For example, an embedding can generate
+a protected-mode interpreter that accesses the PC physical bus.
 
-`Compiler::new(profile)` uses one execution profile and the default `CpuModel`
-for `compile_block`, `compile_blocks` and `compile_dispatcher`.
-`with_cpu_model(model)` selects the same capabilities for every entry; `target()`
-returns the resulting `ExecutionTarget { profile, memory_backend, cpu_model, instruction_budgets }`.
-Instruction budgets are supported by default. `with_instruction_budgets(false)`
-declares that the owner will keep the live allowance zero, removing budget-specific
-code from snapshot blocks. This setting belongs in cache and direct-link keys
-alongside the profile, memory backend and model. Free compilation functions use the default model
-and budget support without CPU observations.
+`Compiler::from_config(config)` uses this configuration for blocks and dispatch.
+The configuration also includes the guest CPU model and instruction-budget support.
+The default model enables all implemented features, and instruction budgets are
+enabled by default. Disabling budgets requires the owner to keep the live
+allowance zero and removes budget-specific code from snapshot blocks.
+`compiler.config()` returns the complete configuration for cache and link keys.
 
 Each module owns memory handles and generates access helpers on demand. The
 compiler decides which imports and helpers to retain from the generated bodies.
@@ -41,7 +39,8 @@ and instruction limit. Entries in the result retain the address, decode width,
 consumed byte length and Wasm export name in request order. A real-mode address
 uses its segment and offset, so `0010:0000` and `0020:0000` have distinct exports
 whether compiled separately or together. Repeated addresses in a batch are rejected.
-The fixed-profile helpers for raw bytes use their profile's decode width.
+The convenience function `compile_block_from_bytes` uses flat 32-bit guarantees and
+a 32-bit code default.
 
 A caller that already decoded the instructions can group them into `DecodedBlock`s
 and pass them to `compile_decoded_blocks`. The caller chooses the block boundaries
@@ -55,14 +54,15 @@ the bytes of every block, including private targets, for invalidation.
 Capture the loaded CS.D with the address when observing a destination, after any
 CS reload that led there. At a stopped machine boundary,
 `cpu.cpu_state().code_default_size()` reads that width from the loaded CS cache.
-An asynchronous compiler uses the width from the observation. The canonical Real16
-worker can supply `Bits16` for every request because its execution target fixes CS.D.
+An asynchronous compiler uses the width from the observation. A worker whose
+owner guarantees canonical real mode can supply `Bits16` for every request
+because the owner fixes CS.D=0.
 
 Every compiled destination checks its captured width before checking the fetch
 span or executing a guest instruction, including when reached by a local jump.
-The check reads the same CS.D as the interpreter. The target's entry assumptions
-fold it to a constant wherever they establish CS.D. A mismatch hands the
-destination EIP to the interpreter so it can decode the bytes at the live width.
+The check reads the same CS.D as the interpreter. An owner guarantee for CS.D
+folds the check to a constant. On a mismatch the interpreter resumes at the
+destination EIP and decodes the bytes at the live width.
 The host supplies a fallback compatible with the live state and keeps each entry's
 code bytes, fetch permissions and mappings valid. An empty batch produces no exports.
 Offsets advance with 32-bit wrapping. A supplied entry ends another block only
@@ -73,8 +73,8 @@ successor is another supplied snapshot.
 `compiler.compile_blocks_with(&snapshots, &executor).await` uses the host's
 `CompileExecutor` for independent compilation jobs. It returns the same
 `CompiledBlocks` as serial `compile_blocks`, keeping Wasm bytes, entry metadata
-and execution target together. `BlockCompileError` distinguishes block construction
-errors from executor failures. Program construction stays inside x86.
+and compiler configuration together. `BlockCompileError` distinguishes block
+construction errors from executor failures. Program construction stays inside x86.
 
 Every `CpuFeature` is implemented and enabled by default. For example,
 `CpuModel::default().with_feature(CpuFeature::Cmov, false)` disables integer and
@@ -83,10 +83,10 @@ requiring a disabled capability raise #UD after complete instruction fetch and
 before operand access, without retiring. They terminate snapshot compilation before
 the next instruction. Snapshot blocks specialize these checks when Wasm is generated.
 Interpreters read the configured model from `ExecutionContext`, so their Wasm bytes are
-independent of feature choices. Snapshot module metadata records the intended target;
-the host must initialize backing and link specialized blocks for that target.
-The interpreter builder accepts only the profile; it does not capture a CPU model,
-instruction-budget policy or observed CPU state.
+independent of feature choices. Snapshot module metadata records the compiler
+configuration used to generate the code. The host checks that configuration before linking blocks. The
+interpreter builder takes only entry assumptions and a memory backend. Its
+feature and budget checks read the live execution context.
 
 `CpuModel::supports(feature)` reports whether the model enables that capability.
 `with_feature` returns the updated model directly. CPUID reports the same enabled
@@ -117,7 +117,7 @@ REP instruction. After publishing state and checking execution controls, it norm
 returns `ExecutionExit::StepComplete` without dispatching or fetching the successor.
 Interrupt inhibition, IF-enabling flag restores and HLT have the dedicated outcomes
 described below. Taken and untaken branches and port operations also complete a step.
-Supported Real16 faults instead enter their IVT handler and return
+Supported real-mode faults instead enter their IVT handler and return
 `ExecutionExit::InterruptEntered`, without retiring or executing the handler.
 
 ## Execution controls
@@ -210,9 +210,9 @@ Completed work is available through `cpu.cpu_state().instruction_count()` using
 wrapping subtraction. `CpuStateAccess::restore` preserves this cumulative count;
 initial counts are configured when creating a CPU. Callback observations can lag
 unpublished retirement.
-Guest-time startup requires a target compiled with instruction budgets enabled. Shared
-interpreter modules keep dynamic checks for either target policy; disabled
-profiles require their live target to remain zero.
+Guest-time startup requires instruction budgets enabled in the compiler
+configuration. Shared interpreters check the live instruction target. When
+budgets are disabled, the owner must keep it zero.
 
 ### Explicit stepping and IRQ eligibility
 
@@ -220,7 +220,7 @@ Interpreter STEP publishes one completed instruction and returns `StepComplete`
 without dispatching its successor. A pending execution interrupt or exhausted
 allowance takes precedence at that completed boundary, in that order, except for
 `InterruptInhibited` and `Halted`: the driver must handle those transitions first.
-Real16 #DE/#BR/#UD enter their IVT handler before returning `InterruptEntered`.
+Real-mode #DE/#BR/#UD enter their IVT handler before returning `InterruptEntered`.
 Other faults retain their direct exit reasons.
 `relocade-machine::Cpu::step()` also completes any interrupt-inhibited successor
 chain before returning. It bypasses registered hooks and device IRQ polling and
@@ -232,7 +232,7 @@ clear to set publish their completed effects and return `InterruptsEnabled`.
 The driver consumes this exit at the same IRQ polling site. A queued one-shot IRQ
 therefore needs no second notification after guest code enables IF. STEP returns
 the same eligibility outcome after completing the instruction. POPF ends a
-compiled/interpreted block, including in protected profiles, so its restored flags
+compiled/interpreted block, including in protected mode, so its restored flags
 are published before continuation.
 
 ## Callable dispatch
@@ -250,18 +250,17 @@ publishes the guest return address and tail-calls the same dispatcher. `interpre
 directly enters the fallback when a snapshot fails an entry guard or optimization
 assumption. These transfers stay inside Wasm, and callee results pass through unchanged.
 
-The embedding scopes lookup to one guest address space and execution target (profile,
-CPU model and budget support). The Real16 dispatcher uses packed CS:IP keys, so
-two segment aliases of the same bytes can have independent entries. The embedding must keep the execution profile valid while calling these
-entries. A miss tail-calls the interpreter. Each destination owns its entry checks:
-snapshot blocks guard their compiled CS span, and the interpreter checks instruction
-fetches. Lookup itself does not validate CS permissions or limits. Registering an export
-does not establish its snapshot validity: the embedding must uphold its original EIP,
-profile, code-byte and mapping requirements. Every registered entry must be an execution
-boundary; larger blocks must not run across another entry. Registration changes
-therefore require updating any affected compiled blocks or links. Use the step
-interpreter when every interpreted instruction boundary must consult this table; these
-transfers remain inside Wasm.
+The embedding scopes lookup to one guest address space and compiler configuration.
+The real-mode dispatcher uses packed CS:IP keys so two segment aliases of the
+same bytes can have independent entries. A miss tail-calls the interpreter.
+Snapshot blocks check their decode width and fetch span. The interpreter checks
+instruction fetches. In either case, the owner must keep its entry guarantees
+true. For a snapshot, it must also supply the original EIP and keep the code
+bytes and mappings valid. Changes to a public binding take effect on the next
+table lookup. Local jumps already linked inside a module keep their compiled
+destination. An embedding that must observe a new hook on those paths must also invalidate the affected
+code. Use the step interpreter when every interpreted instruction boundary must
+consult the table.
 
 Copy `EntryTable::to_bytes()` at offset zero in `executionEntries`, growing memory
 first. The serialized data is a u32 mask followed by eight-byte address/slot rows, with
@@ -289,20 +288,22 @@ An embedding can bind this import directly to an instance's `step` or `run` expo
 `step` returns `StepComplete` after one instruction; `run` continues to its own
 branch, segment-load, POPF/POPFD, port-I/O or serialization boundary. Neither is
 constrained by the abandoned snapshot's instruction limit. The host chooses this
-policy and admits interpreter entries
-against their execution target. Interpreter execution uses the shared instruction
-semantics without speculative guards and does not import `interpret` itself.
+policy, establishes the interpreter’s entry guarantees and binds its memory
+imports. The interpreter executes the shared instruction semantics without
+speculative guards.
 
 ## Entry guarantees and guarded specialization
 
-The x86 builder takes `EntryGuarantees` from the execution profile. The runtime
-establishes these facts for every way into the module, including direct links.
-The compiler can use them from the first instruction.
+The execution owner supplies `CompilerConfig::entry` and establishes its
+`EntryAssumptions` on every way into the module, including a direct link. The
+compiler can fold loads of guaranteed fields before the first instruction.
+A snapshot also carries the CS.D used for decoding. Optional CPU observations
+can specialize instructions that depend on other fields.
 
 | Input | Where it applies | What the JIT emits |
 | --- | --- | --- |
-| Profile guarantees canonical Real16, including CS.D=0 | Every entry | A 16-bit capture needs no CS.D load or width branch. A 32-bit capture hands off unconditionally. |
-| Captured CS.D when the profile leaves width open | The block decoded at that width | Check the executing CPU's CS.D before the fetch-span check and hand off on mismatch. |
+| Owner guarantees CS.D=0 | Every destination | A 16-bit capture needs no CS.D load or branch. A 32-bit capture hands off unconditionally. |
+| Snapshot decoded at 16 or 32 bits when the owner leaves CS.D open | That block, including entry by a linked jump | Read the executing CPU’s CS.D before the fetch-span check and hand off on mismatch. |
 | Observed x87 rounding mode | An instruction that consumes rounding mode | Check the required control bits before the instruction uses them. A successful check lets later consumers reuse the fact until those bits change. |
 
 Operand- and address-size prefixes still override the default during decoding.
@@ -312,16 +313,14 @@ guarantee or a successful guard.
 
 ## Observed CPU state
 
-`Compiler::new(profile).specialize_on_cpu(&cpu)` copies a CPU snapshot as
+`Compiler::from_config(config).specialize_on_cpu(&cpu)` copies a CPU snapshot as
 optional input for guarded specialization. Instruction semantics choose which
 observed fields to use; currently these are x87 precision and rounding controls,
 plus the precision exception mask and flag when both are set, and MXCSR control
 settings for SSE numerical operations.
-Its `compile_block` method accepts the same EIP, byte snapshot and instruction limit
-as the free snapshot functions. Those functions compile with dynamic modes.
-The `run` and `step` entries built by `build_interpreter` read live CPU state and
-do not use observations. Later changes to the supplied `CpuState` do not change
-the captured snapshot.
+The `run` and `step` entries built by `build_interpreter` read live
+CPU state for these fields. Later changes to the supplied `CpuState` do not
+change the captured snapshot.
 
 The generated block checks a mode only where an instruction consumes it:
 x87 arithmetic checks PC and RC, while rounded stores check RC alone. A block without
@@ -405,7 +404,7 @@ and segment assumptions. The identity does not claim a physical Intel processor.
 The full EAX selects the leaf. Both leaves ignore input ECX. Unsupported basic and
 extended queries return leaf 1, following Intel's highest-basic-leaf rule. There
 are no cache, topology, frequency or extended leaves. Results replace the full
-EAX, EBX, ECX and EDX in every execution profile; size and segment prefixes do not
+EAX, EBX, ECX and EDX in all supported modes. Size and segment prefixes do not
 narrow the registers. Other registers and all flags are preserved. Clearing
 EFLAGS.ID does not disable CPUID. LOCK uses the shared unsupported-encoding exit.
 
@@ -444,8 +443,8 @@ entries, using all eight bytes. JavaScript hosts should use little-endian
 With TSC enabled, RDTSC is not serializing and does not end a block or interpreter
 run. Its result reflects guest instruction order. A later fault retains its register effects and
 retirement; an earlier fault or incomplete encoding prevents its effects.
-All execution profiles support the enabled capability. Protected profiles assume
-CR4.TSD=0; changing CR4 or denying timestamp reads with TSD remains unsupported. Real mode
+Protected-mode execution currently requires CR4.TSD=0. Changing CR4 or
+denying timestamp reads with TSD remains unsupported. Real mode
 permits the instruction independently of TSD. Operand/address/segment prefixes
 do not narrow its full-width registers. LOCK uses the shared unsupported exit.
 
@@ -471,12 +470,12 @@ zero-extends the result, choosing zero for the upper bits left undefined by the
 A memory destination always receives two bytes, independently of operand size.
 The initialized real-mode and protected-mode status words are 0030h and 0031h,
 respectively. Both instructions read CPU backing state during execution and use
-the current profile's ordinary memory checks; neither requires ring 0. LOCK uses
+ordinary memory checks for the active mode. Both are available outside ring 0. LOCK uses
 the shared unsupported encoding exit.
 
 ## Port I/O
 
-Real16 IN/OUT and INS/OUTS call entries in two synchronous `relocade` function tables:
+Real-mode IN/OUT and INS/OUTS call entries in two synchronous `relocade` function tables:
 
 | Table import | Entry's Wasm signature |
 | --- | --- |
@@ -508,7 +507,7 @@ retry result. Both snapshot blocks and interpreter runs publish completed state
 and dispatch after a port instruction, so the host can validate the next code
 entry against device changes. Devices and any pending interrupts belong to the host.
 
-Protected profiles fix CPL3/IOPL0 and expose no TSS I/O permission bitmap grants;
+Protected user-mode execution uses CPL3/IOPL0 and exposes no TSS I/O permission bitmap grants;
 port instructions raise #GP(0) after decoding and before device effects. LOCK
 uses the shared unsupported-encoding exit. Operand-size overrides choose
 word/dword transfers independently of the port address. Segment and address-size
@@ -548,14 +547,14 @@ Interpreters import `executionContext`, `guest` and `dispatch`. The host page
 table backend imports `machine`. The physical bus backend imports `physicalMap`
 and the MMIO callbacks. Stores to tracked RAM call `writeCode`. The host repairs
 affected compiled bindings before this callback returns. Protected segment operations use `resolveSegment`,
-`completeSegmentLoad` and `querySegmentDescriptor`. Real16 uses the port callbacks.
+`completeSegmentLoad` and `querySegmentDescriptor`. Real mode uses the port callbacks.
 Snapshot modules retain the imports their instructions need. Protected segment loads require
 `resolveSegment` and `completeSegmentLoad`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
 module's import list when instantiating it.
 Callable dispatch imports `executionEntries` and the `executionFunctions`
 function table, plus `callProfile` for unresolved calls. Interpreters import
-`resolveCall` and `executionFunctions` to resolve a completed near call or Real16
+`resolveCall` and `executionFunctions` to resolve a completed near call or real-mode
 far call once, record a miss, and enter its destination. Calls publish their
 destination CS:IP and check execution controls before lookup and recording.
 Single-step, interrupt and budget stops skip profiling that call; counts are
@@ -618,7 +617,7 @@ admission and the transition of x87 TOP and tags.
 MASKMOVQ and MASKMOVDQU check the complete 8- or 16-byte destination span even
 when every mask sign bit is clear, a fault policy permitted by Intel. A successful
 store writes only bytes whose mask sign bits are set; it never reads destination
-data or rewrites untouched bytes. Real16 MMIO therefore sees individual selected
+data or rewrites untouched bytes. Real-mode MMIO therefore sees individual selected
 byte writes in increasing address order. MASKMOVQ enters MMX state even when the
 mask selects no bytes, provided the destination checks succeed.
 
@@ -669,7 +668,7 @@ payloads, raw segment fields, x87 and XMM encodings. The image is
 EFLAGS.VM. `privilege_level()` derives CPL from the loaded CS selector in protected
 mode, and returns ring 0 in real mode or ring 3 in virtual-8086 mode. Representing
 control bits and privilege levels does not implement their execution semantics:
-generated entries still require their declared execution profile.
+the execution owner must establish the CPU state required by each generated entry.
 
 Default CPU state is protected ring 3, with CS=0x1b, data selectors=0x23 and IF=1.
 CR0 starts at 0x31 (PE, ET, NE), and CR4 at 0x600 (OSFXSR, OSXMMEXCPT).
@@ -716,7 +715,7 @@ same upper-descriptor bit positions as LAR. Editing a table entry does not reloa
 LDTR, TR or ordinary segment caches. No privileged table-load instructions,
 protected interrupt delivery or task switching are implemented.
 
-Real16 requires IDTR base zero and limit `03FF`; the host CPU view rejects edits
+Real mode requires IDTR base zero and limit `03FF`; the host CPU view rejects edits
 or restores that violate this contract.
 
 The flag image is storage, not architectural EFLAGS. Status-source kind zero reads
@@ -732,7 +731,7 @@ select kind zero.
 Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
 VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
 dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
-unrepresented here along with debug delivery. Real16 transfers also read and write
+unrepresented here along with debug delivery. Real-mode transfers also read and write
 IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
 delivery or alignment checks.
 
@@ -980,75 +979,67 @@ unused bits and ES/B. Changing a field may normalize that field's unused bits.
 
 ## Entry validity
 
-The runtime must ensure that each entry matches `CompiledModule::config`
-before execution, including entries reached through a direct dispatch link. This
-replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
-requires exact target equality and checks the architectural state and segment
-caches. `CpuState::is_compatible_with(profile)` validates the legacy profile
-contract against CR0, CR4, VM, CPL and loaded caches. Mode comes from CPU state;
-the installed target retains the requirements of existing generated code.
+The runtime checks the compiler configuration recorded on the module, including
+for entries reached by direct dispatch. `CompilerConfig::is_compatible_with(active, cpu)`
+requires an exact configuration match and checks the CPU against the entry
+guarantees. `CpuState::is_compatible_with(entry)` validates the live mode,
+control registers, privilege and segment caches. The current runtime admits
+CR0=0x30 in real mode or 0x31 in protected mode, CR4=0x600 and VM=0.
+Safe mode transitions require further runtime support.
 
-Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
-CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
-but cannot be installed or restored for execution. Other control-state behavior
-and safe mode transitions require further runtime support.
+Use the full configuration in snapshot cache and direct-link keys. Even a CPU
+model with additional enabled features changes which instructions can run.
+Interpreter fallback must use matching entry guarantees and memory imports.
+Interpreters read the CPU model and instruction target from the execution context.
 
-Use the complete target in cache and direct-link keys, and require the same target
-for interpreter fallback. A model with additional enabled capabilities is not an
-interchangeable target: instruction availability is part of the guest contract.
-Changing the target requires rebuilding or selecting matching entries and links.
+`EntryAssumptions::segments` names the segment cache layout the host guarantees.
+With `segments: None`, generated code reads the segment fields it needs from the
+CPU. The host can still guarantee CS.D separately through `code_default_size`.
+For example, `SEGMENTED32` fixes 32-bit instruction defaults while leaving the
+stack width (SS.B) live. The four embedded interpreters use these combinations.
 
-`ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
-time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
+| Entry assumptions | Guarantees used by the interpreter | Embedded memory backend |
+| --- | --- | --- |
+| `REAL_MODE` | Canonical real-mode caches, bases equal to selector × 16, 0xffff limits and 16-bit CS/SS defaults. | Physical bus |
+| `FLAT32` | Protected user mode. CS/DS/ES/SS have zero bases, full limits and ordinary read or write permissions. CS.D=1 and SS.B=1. FS/GS remain runtime inputs. | Host page table |
+| `SEGMENTED16` | Protected user mode and CS.D=0. Segment access and SS.B use live caches. | Host page table |
+| `SEGMENTED32` | Protected user mode and CS.D=1. Segment access and SS.B use live caches. | Host page table |
 
-| Profile | Compilation assumptions |
-| --- | --- |
-| `Protected(Flat32)` | Usable, flat readable CS and writable expand-up DS/ES/SS; zero bases, full u32 limits, CS.D=1 and SS.B=1. FS/GS are runtime inputs. |
-| `Protected(Segmented32)` | CS.D=1; segment access and SS.B are checked or read at runtime. |
-| `Protected(Segmented16)` | CS.D=0; segment access and SS.B are checked or read at runtime. |
-| `Real16` | Ordinary real mode with canonical caches: selector × 16 bases, FFFF limits, 16-bit CS/SS defaults; the physical map controls A20. |
+`Segments::is_compatible_with(entry)` tests the loaded-cache guarantees.
+Protected user mode requires CS.RPL=3. Ordinary DS/ES D/B bits do not determine
+flat compatibility. Runtime-checked segments can have unusable caches or
+restrictive limits so execution can report their guest faults. CR0.PE and
+EFLAGS.VM establish the execution mode.
 
-`Segments::is_compatible_with(profile)` tests the loaded-cache assumptions, including
-CS.RPL=3 for protected execution. Other selectors and ordinary DS/ES D/B bits do
-not determine flat compatibility.
-Segmented profiles can admit unusable caches or restrictive limits so execution
-can report their guest faults. All `Protected` entries execute at CPL3, including
-those with 16-bit code defaults. CR0.PE and EFLAGS.VM establish the execution mode;
-cache compatibility alone cannot distinguish it. The profile is part of the complete
-execution target described above.
+Segment fields stay fixed until the terminal segment load. Generated code reads
+fields as needed and reuses them within a compilation path. Guaranteed fields
+become constants. Known permissions and full limits eliminate range checks for
+ordinary flat accesses. A DS/SS address-default hint permits this folding even
+when the base register is decoded at runtime.
 
-Segment fields stay fixed until the terminal segment load. Each field is read
-lazily and reused within its compilation path; profile defaults become constants
-when a segment is first requested. Address defaults retain a DS/SS hint so common
-constants can be reused when the base register is decoded at runtime. Other
-dynamic indices load the selected backing field. Known permissions and full limits
-skip range-check construction, including ordinary Flat32 accesses.
-The runtime owns profile compatibility and must preserve it when changing segment
-caches. `SegmentRegister::is_compatible_with(profile, segment)` checks a proposed
-cache without reading the other segments. Host edits through
-`CpuStateAccess::set_segment` panic if the new cache violates the configured profile.
-`CpuStateAccess::restore` validates the complete
-snapshot and returns a `ConfigurationError` without writing if it is incompatible.
+The owner preserves the same guarantees when changing a segment cache.
+`SegmentRegister::is_compatible_with(entry, segment)` checks a proposed cache.
+`CpuStateAccess::set_segment` rejects incompatible host edits, and
+`CpuStateAccess::restore` validates the complete snapshot before writing.
 Live mode, privilege and width queries read the CPU backing fields.
-`CpuStateAccess::set_eflags` rejects VM before writing; host edits cannot enable
-unsupported virtual-8086 execution through a flags update.
-Descriptor callbacks must likewise enforce the profile before returning a cache
-for a guest segment load. The dispatcher and interpreter gateway rely on this
-invariant and do not recheck it on entry. Any future profile transition, including
-replacing compiled entries and links, belongs to the runtime.
+`CpuStateAccess::set_eflags` rejects an attempt to enable virtual-8086 mode.
+Descriptor callbacks must check the same requirements before returning a cache
+for a guest segment load. The dispatcher and interpreter gateway rely on the
+owner to preserve these invariants.
 
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final
 compiled instruction; bytes after the compilation boundary are irrelevant. A failed
 check tail-calls `relocade.interpret` at the block's starting EIP without retiring any
 instructions. The interpreter executes any valid prefix and reports the first
-architectural fault, which may precede the invalid CS fetch. Checks proved by the
-profile fold away. This guard needs no observed CPU snapshot and accepts any CS
-permissions and limit that allow the span.
+architectural fault, which may precede the invalid CS fetch. Checks proved by entry
+guarantees fold away. This guard needs no observed CPU snapshot and accepts any
+CS permissions and limit that allow the span.
 
 The host must still ensure that snapshot bytes match readable guest memory at
 CS.base + each instruction's EIP, with 32-bit offset and linear wrapping. The guard
-does not check code bytes or mappings, nor establish profile compatibility.
+only checks the fetch span. The owner separately validates bytes, mappings and
+entry guarantees.
 
 The host must preserve validity during execution and revalidate or invalidate
 affected entries and links when relevant CS state, code bytes or mappings change.
@@ -1077,24 +1068,24 @@ transferring instruction.
 
 ## Ordinary real mode
 
-Select `ExecutionProfile::Real16` and initialize CPU state with `CpuState::real_mode()`.
+For an ordinary real-mode PC, use `EntryAssumptions::REAL_MODE`, the physical bus
+and `CpuState::real_mode()`.
 Use `SegmentRegister::real_mode(segment, value)` for a nonzero segment register.
 This configuration is host-selected execution, not a processor reset or an emulated
 CR0 transition. The CPU backing layout is unchanged.
 
 ```rust
-use relocade_x86::{CpuState, ExecutionProfile, Segment, SegmentRegister};
+use relocade_x86::{CpuState, EntryAssumptions, Segment, SegmentRegister};
 
 let mut cpu = CpuState::real_mode();
 cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1234);
-assert!(cpu.segments.is_compatible_with(ExecutionProfile::Real16));
+assert!(cpu.is_compatible_with(EntryAssumptions::REAL_MODE));
 ```
 
 All sixteen segment-value bits participate in `value << 4`; zero is valid and
 there are no selector privilege checks or descriptor callbacks. Loads install
-canonical caches. This is valid because the profile already requires canonical
-limits and attributes; it does not model retained hidden state after switching
-from protected mode. Mode transitions and unreal-mode caches remain unsupported.
+canonical caches. The owner guarantees canonical limits and attributes on entry.
+Mode transitions and unreal-mode caches remain unsupported.
 
 Operand/address overrides select 32-bit operands/addresses while SS still uses SP.
 Every transferred span must fit the 64 KiB segment: SS failures report #SS(0),
@@ -1106,22 +1097,22 @@ commit CS and dispatch, with target fetch belonging to the next entry. Real CALL
 checks the transferred offset plus selector; a dword selector slot reserves four
 bytes but transfers only its low word. RET checks both complete stack slots.
 
-PUSHF/POPF transfer word or dword images through SS:SP. Real16 POPF restores IF
+PUSHF/POPF transfer word or dword images through SS:SP. Real-mode POPF restores IF
 and IOPL regardless of their entry values; only dword transfers change AC and ID.
 Reserved and unrepresented image bits are ignored.
 
-HLT retires in Real16 without changing flags and returns `ExecutionExit::Halted`
+HLT retires in real mode without changing flags and returns `ExecutionExit::Halted`
 with IP pointing to its successor. It neither fetches that successor nor checks
 execution interrupts or instruction targets first: the embedding must retain the halt
-before processing host notifications. HLT raises #GP(0) in the supported protected
-profiles, which execute at CPL3; IOPL does not grant permission to halt.
+before processing host notifications. In protected user mode at CPL3, HLT raises
+#GP(0). IOPL does not grant permission to halt.
 The machine driver waits for an accepted device IRQ before resuming dispatch.
 IRQ entry saves the post-HLT IP, and recognition ends the halt even if frame
 construction faults. A queued maskable IRQ cannot wake HLT with IF clear.
 These rules follow Intel SDM [Volume 2, HLT](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
-CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
+CLI/STI clear or set IF in real mode and raise #GP(0) during protected user-mode execution
+at CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
 MOV/POP SS publish their effects, retire and return
 `ExecutionExit::InterruptInhibited`. The embedding immediately executes the
 protected successor through the interpreter's existing `step` export before
@@ -1152,7 +1143,7 @@ the embedding for event delivery. Unsupported-instruction exits also end the
 current execution attempt; transparent protected retry after such an exit is
 not promised. No inhibition state survives a returned exit.
 
-The Real16 interpreter exports `abi::INTERRUPT`, `fn(u8) -> ExecutionExit`, for an
+The real-mode interpreter exports `abi::INTERRUPT`, `fn(u8) -> ExecutionExit`, for an
 acknowledged external vector. The embedding handles `InterruptInhibited` exits
 and checks live IF before calling it. This entry shares software INT's stack,
 IVT, flag and segment rules, but saves the current IP and retires no instruction. It returns
@@ -1160,7 +1151,7 @@ IVT, flag and segment rules, but saves the current IP and retires no instruction
 retain their ordinary architectural exit. The embedding then calls dispatch.
 Protected-mode delivery, NMIs and debug delivery remain unsupported.
 
-The Real16 interpreter also exports `abi::FAR_CALL`,
+The real-mode interpreter also exports `abi::FAR_CALL`,
 `fn(segment: u16, offset: u16, stack_bytes: u16) -> ExecutionExit`. Entry shares
 ordinary far CALL's checked-frame and destination machinery. It reserves the
 requested bytes above the saved CS:IP, leaves flags unchanged and retires no
@@ -1179,7 +1170,7 @@ These rules follow Intel SDM [Volume 2B, STI/MOV/POP](https://cdrdv2.intel.com/v
 and [Volume 3A, section 7.8](https://cdrdv2.intel.com/v1/dl/getContent/671190).
 
 The machine runtime polls device IRQs at stopped guest boundaries, before guest
-dispatch, when the Real16 CPU has live IF set. Polling acknowledges a ready vector;
+dispatch, when the real-mode CPU has live IF set. Polling acknowledges a ready vector;
 entry faults do not put it back in the device. Pending host calls also permit IRQ
 delivery according to live IF and must establish a guest resume continuation before
 suspending with IF enabled. Ready calls complete in their current poll. Device
@@ -1312,14 +1303,14 @@ query rules for its code/data construction entries through the common packed
 ## Fault and host exits
 
 A guest fault publishes earlier completed instructions without retiring the
-faulting instruction. Real16 #DE, #BR and #UD then enter the live IVT handler,
+faulting instruction. Real-mode #DE, #BR and #UD then enter the live IVT handler,
 regardless of IF, using the same frame and flag operations as interrupt entry.
 Snapshot blocks, interpreter `run` and interpreter `step` all return
 `InterruptEntered` with the handler CS:IP published. The original faulting CS:IP
 and FLAGS are in the saved frame. Other faults return `Exception` directly,
 with EIP at the faulting instruction and the partial progress described below.
 
-Each Real16 module has one local interrupt-entry helper shared by its fault
+Each real-mode module has one local interrupt-entry helper shared by its fault
 sites. The interpreter also exports that helper as `abi::INTERRUPT` for external
 IRQ entry. Fault delivery needs no additional execution entry point or host import.
 Entry failures return directly; nested-fault escalation is not implemented.
@@ -1329,7 +1320,7 @@ through the CPU's exit handle. This terminal result releases pending and suspend
 Rust handlers. It does not cause another attempt at architectural entry.
 
 Architectural checks for a complete operand precede its writes. In protected mode
-this includes every page's write permission; Real16 transfers follow the physical
+this includes every page's write permission; real-mode transfers follow the physical
 map's RAM/ROM/MMIO/unmapped routing. Instructions with ordered
 multiple writes, such as ENTER and PUSHA, retain completed writes if a later access
 faults. REP faults retain completed elements, current indices and the remaining
@@ -1457,8 +1448,8 @@ raised sticky exception flags; the instruction's XMM or EFLAGS destination is
 preserved. Existing sticky flags do not themselves trigger an exception.
 
 UD2 raises invalid opcode (#UD, architectural vector 6) after its complete encoding
-has been fetched, without retiring. Real16 saves its first prefix or opcode address
-in the interrupt frame and enters vector 6. Protected profiles return the fault
+has been fetched, without retiring. Real mode saves its first prefix or opcode address
+in the interrupt frame and enters vector 6. Protected-mode entries return the fault
 with CPU state and memory unchanged. Snapshot compilation ends at UD2 without
 decoding subsequent bytes.
 
@@ -1476,7 +1467,7 @@ construction reports `BlockError` for unsupported encodings; state-dependent
 unsupported paths remain
 runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
 
-Faults outside Real16 #DE/#BR/#UD are reported to the host. Protected interrupt
+Faults outside real-mode #DE/#BR/#UD are reported to the host. Protected interrupt
 gates, privilege transitions, protected-mode external interrupts, debug delivery
 and mode transitions are not modeled. Native Wasm traps from broken
 backing or internal arithmetic invariants are implementation errors, outside this
@@ -1486,8 +1477,8 @@ guest-fault protocol.
 
 MM0–MM7 alias the significands of physical x87 slots R0–R7, independent of TOP
 and the tag word. There is no separate MMX register array or mode flag in the
-CPU image. The execution profiles fix CR0.EM/TS clear; the CPU model separately
-selects the available MMX, SSE and SSE2 instruction extensions.
+CPU image. CPU admission requires CR0.EM/TS clear. The CPU model separately selects the
+available MMX, SSE and SSE2 instruction extensions.
 
 MOVD and MOVQ transfer raw integer bits. MOVD uses a 32-bit GPR or four memory
 bytes even in 16-bit code; loads into MMX clear the upper 32 bits. MOVQ uses eight
@@ -1525,7 +1516,7 @@ MXCSR `0x1f80` and zero XMM registers. Literal snapshots retain every bit, inclu
 reserved MXCSR bits and padding; these bytes are not an FXSAVE image. These
 fields belong to the CPU snapshot within `ExecutionContext`.
 
-The execution profiles fix CR0.EM/TS clear and CR4.OSFXSR/OSXMMEXCPT set, enabling
+CPU admission requires CR0.EM/TS clear and CR4.OSFXSR/OSXMMEXCPT set, enabling
 SIMD state access and exception delivery. These control-register assumptions are
 independent of the CPU model's instruction admission. MOVUPS, MOVUPD,
 MOVAPS, MOVAPD, MOVDQA, MOVDQU, MOVSS, MOVSD, XORPS and XORPD preserve raw bits

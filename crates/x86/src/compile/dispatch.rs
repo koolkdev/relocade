@@ -41,7 +41,7 @@ impl Compiler {
     /// calls also contribute to profiling. Destinations own their entry checks.
     ///
     /// # Panics
-    /// Panics for a target other than Real16. Protected-mode dispatch is not yet supported.
+    /// Panics unless the configuration guarantees real mode.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
         assert_eq!(self.config.entry, EntryAssumptions::REAL_MODE);
         let mut program = Program::new();

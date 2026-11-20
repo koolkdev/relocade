@@ -1,12 +1,10 @@
 //! x86 execution entries generated as WebAssembly.
 //!
-//! [`compile_block_from_bytes`] decodes a supplied snapshot under flat 32-bit
-//! assumptions. [`compile_block_from_bytes_with_profile`] selects explicit execution
-//! assumptions. [`build_interpreter`] constructs one program with runtime instruction
-//! decoding for both block execution (`run`) and single-instruction execution (`step`).
-//! Both frontends share instruction semantics. [`Compiler`] configures snapshot
-//! compilation with an [`ExecutionTarget`], combining a profile and a [`CpuModel`].
-//! Interpreter modules depend only on the profile and read CPU features at runtime.
+//! [`Compiler`] compiles captured instruction bytes under a [`CompilerConfig`].
+//! [`compile_block_from_bytes`] uses flat 32-bit entry guarantees and host page tables.
+//! [`build_interpreter`] takes entry guarantees and a memory backend, generates both
+//! `run` and `step`, and reads CPU features at runtime. Both frontends share
+//! instruction semantics.
 //!
 //! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
 //! integer execution, x87 floating point, MMX, SSE and SSE2. [`CpuFeature`] lists
@@ -14,8 +12,8 @@
 //! Real16 supports external interrupt entry; protected-mode interrupt delivery
 //! and privilege transitions remain outside the current scope.
 //!
-//! [`CpuState`] exchanges backing state with the host. [`ExecutionProfile`] describes
-//! entry assumptions, and [`DescriptorTables`] resolves host-managed selectors into
+//! [`CpuState`] exchanges backing state with the host. [`EntryAssumptions`] describes
+//! the facts a host must guarantee before entry, and [`DescriptorTables`] resolves host-managed selectors into
 //! loaded caches. The shared contract for instantiating and entering generated
 //! modules follows below.
 //!
@@ -28,6 +26,7 @@ mod address;
 mod alu;
 mod compile;
 mod decode;
+mod entry;
 mod exception;
 mod execution;
 mod flags;
@@ -36,7 +35,6 @@ mod instruction;
 mod interpreter;
 mod memory;
 mod processor;
-mod profile;
 mod profiling;
 pub mod real_mode;
 mod register;
@@ -64,25 +62,21 @@ mod instruction_tests;
 use std::fmt;
 
 pub use compile::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, CompilerConfig, DecodedBlock, EntryTable,
+    compile_block_from_bytes, BlockCompileError, BlockEntry, BlockSnapshot, CodeAddress,
+    CompiledBlocks, Compiler, CompilerConfig, DecodedBlock, EntryTable,
 };
 pub use decode::SnapshotInstruction;
+pub use entry::{EntryAssumptions, ExecutionMode, MemoryBackend, SegmentAssumptions};
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use instruction::{CallTarget, InstructionFlow, MAX_INSTRUCTION_BYTES};
-pub use interpreter::{build_interpreter, build_interpreter_with_memory};
+pub use interpreter::build_interpreter;
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
-pub use profile::{
-    EntryAssumptions, ExecutionMode, ExecutionProfile, ExecutionTarget, MemoryBackend,
-    SegmentAssumptions,
-};
 pub use profiling::{CallCount, CallProfile};
 pub use register::Gpr32;
 pub use segment::{
     Descriptor, DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
     SegmentDescriptorInfo, SegmentDescriptorInfoValues, SegmentDescriptorKind, SegmentLimit,
-    SegmentProfile,
 };
 pub use state::{
     CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionExit, ExecutionExitCase,
@@ -95,12 +89,9 @@ pub use state::{
 pub struct CompiledModule {
     pub bytes: Vec<u8>,
     pub entry: String,
-    /// Required processor model and execution assumptions for x86 entries.
-    /// The host must establish target compatibility before entry and use matching
-    /// targets for cached blocks, direct links and interpreter fallback. A terminal
-    /// segment load may change compatibility before publication and dispatch.
-    /// Snapshot instruction-fetch validity is separate. Modules that do not
-    /// execute x86 instructions have no execution target.
+    /// Configuration used to compile this x86 entry. The execution owner checks
+    /// it against the active configuration and CPU state before dispatch or linking.
+    /// Instruction-fetch validity is checked separately. Host-only modules use `None`.
     pub config: Option<CompilerConfig>,
 }
 
@@ -119,7 +110,7 @@ pub enum BlockError {
     InconsistentCodeSize {
         address: u32,
     },
-    /// An instruction that ends a block for this target precedes another instruction.
+    /// An instruction that ends a block under this configuration precedes another instruction.
     InteriorBlockBoundary {
         address: u32,
     },

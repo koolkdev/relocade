@@ -1,10 +1,10 @@
 //! Segment identities, access checks, and host descriptor-table resolution.
 
 mod access;
+pub(crate) mod assumptions;
 mod descriptor;
 mod limit;
 mod packed;
-pub(crate) mod profile;
 mod query;
 mod selection;
 mod tables;
@@ -15,7 +15,6 @@ pub(crate) use access::SegmentAccess;
 pub use descriptor::{PrivilegeLevel, SegmentDescriptor, SegmentDescriptorKind};
 pub use limit::SegmentLimit;
 pub use packed::Descriptor;
-pub use profile::SegmentProfile;
 pub use query::{SegmentDescriptorInfo, SegmentDescriptorInfoValues};
 pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
@@ -50,4 +49,4 @@ impl Segment {
     pub const ALL: [Self; 6] = [Self::Es, Self::Cs, Self::Ss, Self::Ds, Self::Fs, Self::Gs];
 }
 
-pub use relocade_x86_profile::SegmentDefaultSize;
+pub use relocade_x86_config::SegmentDefaultSize;

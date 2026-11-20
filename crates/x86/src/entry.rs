@@ -1,8 +1,6 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-pub use relocade_x86_profile::{
-    EntryAssumptions, ExecutionMode, ExecutionProfile, MemoryBackend, SegmentAssumptions,
-};
+pub use relocade_x86_config::{EntryAssumptions, ExecutionMode, MemoryBackend, SegmentAssumptions};
 use std::sync::Arc;
 
 use crate::{
@@ -42,7 +40,7 @@ pub(crate) fn control_assumptions(mode: ExecutionMode) -> Vec<StatePattern> {
     requirements
 }
 
-/// CPU field values the execution owner establishes on every entry.
+/// CPU field values the execution owner guarantees before entering the module.
 /// Builders may fold reads from these facts before emitting any guard.
 #[derive(Clone)]
 pub(crate) struct EntryGuarantees {
@@ -53,7 +51,7 @@ impl EntryGuarantees {
     pub(crate) fn from_assumptions(entry: EntryAssumptions) -> Self {
         let mut fields = control_assumptions(entry.mode);
         for segment in crate::Segment::ALL {
-            fields.extend(crate::segment::profile::assumptions(entry, segment));
+            fields.extend(crate::segment::assumptions::field_patterns(entry, segment));
         }
         Self {
             fields: fields.into(),
@@ -65,15 +63,11 @@ impl EntryGuarantees {
     }
 }
 
-/// Existing name for the compiler configuration during the caller migration.
-pub type ExecutionTarget = crate::CompilerConfig;
-
 impl CpuState {
-    /// Checks the entry guarantees and the supported control state. Control bits
-    /// outside the initialized baseline can be stored but cannot execute yet.
+    /// Checks the guaranteed entry facts and supported control bits. Values
+    /// outside the supported baseline can be stored but cannot execute yet.
     /// This check does not reload segments or authorize mode transitions.
-    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>) -> bool {
-        let entry = entry.into();
+    pub fn is_compatible_with(&self, entry: EntryAssumptions) -> bool {
         let mode = match entry.mode {
             ExecutionMode::Real => CpuMode::Real,
             ExecutionMode::ProtectedUser => CpuMode::Protected,

@@ -78,7 +78,7 @@ impl FlagsState {
     }
 
     /// Reads represented EFLAGS bits without changing backing state. This is a
-    /// host observation; it does not apply PUSHF's profile-specific IF/IOPL rules.
+    /// host observation. PUSHF applies its own mode-dependent IF and IOPL rules.
     /// An unknown status-source kind is an invalid execution-state invariant.
     pub fn eflags(&self) -> u32 {
         let mut flags = self.bytes;
