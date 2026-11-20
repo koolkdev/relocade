@@ -96,6 +96,10 @@ impl Clock {
         self.emulated.then(|| GuestClock(self.clone()))
     }
 
+    pub(crate) fn shares_source(&self, other: &Clock) -> bool {
+        Rc::ptr_eq(&self.source, &other.source)
+    }
+
     /// Reads native progress on this clock's timeline.
     #[inline]
     pub fn now(&self) -> Timestamp {

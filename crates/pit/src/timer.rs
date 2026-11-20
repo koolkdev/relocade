@@ -1,11 +1,9 @@
 //! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
 
 use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
-use event_listener::Event;
-use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, GuestClock, PortRead, PortWrite,
-    Runner, Timestamp,
+    Clock, Device, DeviceCallbacks, DeviceConnection, DeviceDeadline, GuestClock, PortRead,
+    PortWrite, Runner, Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
@@ -23,19 +21,23 @@ pub struct Channel2State {
 /// Execution-owned PIT registers and programmable channel-0 interrupt.
 /// Channel 2 shares its gate and output with the PC speaker.
 pub struct Pit {
-    clock: Clock,
+    clock: GuestClock,
     updated: Timestamp,
     fraction: u64,
     channel0: Counter,
     channel2: Counter,
     channel2_observer: Option<Box<dyn FnMut(Channel2State)>>,
     irq: IrqLine,
-    changed: Event,
+    deadline: Option<DeviceDeadline>,
 }
 
 impl Pit {
-    /// Creates the timer on the guest clock, connects IRQ0 and starts its activity.
-    pub async fn initialize(runner: &Runner, clock: GuestClock, pic: &Pic) -> Rc<RefCell<Self>> {
+    /// Connects IRQ0 and schedules channel 0 on the runner's guest clock.
+    pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
+        let clock = runner
+            .clock()
+            .as_guest()
+            .expect("initialize PIT on the prepared guest clock");
         let pit = Rc::new(RefCell::new(Self::with_clock(clock, pic)));
         runner
             .connect(pit.clone(), |io| Self::configure_io(io, &pit))
@@ -74,7 +76,6 @@ impl Pit {
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
     pub fn with_clock(clock: GuestClock, pic: &Pic) -> Self {
-        let clock: Clock = clock.into();
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
         channel0.control(0x36);
@@ -91,7 +92,7 @@ impl Pit {
             channel2: Counter::default(),
             channel2_observer: None,
             irq,
-            changed: Event::new(),
+            deadline: None,
         }
     }
 
@@ -161,7 +162,9 @@ impl Pit {
 
     fn notify_channel0(&self) {
         self.irq.set_level(self.channel0.output());
-        self.changed.notify(1);
+        if let Some(deadline) = &self.deadline {
+            deadline.set(self.next_deadline());
+        }
     }
 
     fn write_control(&mut self, value: u8) {
@@ -231,24 +234,15 @@ impl Pit {
 }
 
 impl Device for Pit {
-    async fn run(device: Rc<RefCell<Self>>) {
-        let clock = device.borrow().clock.clone();
-        device.borrow_mut().sync_to_clock();
-        loop {
-            let (deadline, changed) = {
-                let device = device.borrow();
-                (device.next_deadline(), device.changed.listen())
-            };
-            if let Some(deadline) = deadline {
-                or(clock.sleep_until(deadline), changed).await;
-            } else {
-                changed.await;
-            }
-            device.borrow_mut().sync_to_clock();
-            // Divisor 2 can leave every deadline overdue. Give the CPU a turn
-            // even then; elapsed edges still coalesce at the next synchronization.
-            yield_now().await;
-        }
+    fn register_deadlines(pit: &Rc<RefCell<Self>>, runner: &Runner) {
+        let timer = pit.clone();
+        let mut pit = pit.borrow_mut();
+        let deadline = runner.schedule_device(&pit.clock, pit.next_deadline(), move |now| {
+            let mut timer = timer.borrow_mut();
+            timer.advance_to(now);
+            timer.next_deadline()
+        });
+        pit.deadline = Some(deadline);
     }
 }
 

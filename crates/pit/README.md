@@ -40,9 +40,10 @@ connects IRQ0 at OUT0's starting level without creating an edge. The first
 IRQ arrives after a full period (about 54.9254 ms). Guest writes replace that
 configuration; pending divisor loads follow the same mode-specific rules as channel 2.
 
-The device waits for channel-0 transitions or reprogramming. It drives the PIC's
-IRQ0 level and preserves one pending rising edge when a delayed wake spans many
-periods. Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
+The PIT registers the next channel-0 transition with the machine. Programming
+channel 0 replaces that deadline. At a due transition the PIT advances to the
+current guest time and drives the PIC's IRQ0 level, preserving one pending
+rising edge when a late checkpoint spans several periods. Unacknowledged edges coalesce in the PIC. No IRQ is generated merely
 because an obsolete wait completed. BIOS keeps its handler, tick data, midnight
 rollover and INT 1Ah service: it counts delivered IRQ0 interrupts, so changing the
 timer frequency also changes BIOS time unless guest software compensates.

@@ -1,5 +1,9 @@
 //! CPU execution and registered device activities on one owner.
 
+mod deadlines;
+pub use deadlines::DeviceDeadline;
+use deadlines::DeviceDeadlines;
+
 mod guest_time;
 mod schedule;
 mod session;
@@ -43,6 +47,7 @@ use std::{
 pub struct Runner {
     schedule: Rc<ExecutionSchedule>,
     session: Rc<RefCell<Option<Session>>>,
+    deadlines: std::rc::Weak<RefCell<DeviceDeadlines>>,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     executor: Rc<Executor<ExecutionInterrupt>>,
@@ -91,6 +96,7 @@ impl Runner {
         Ok(Self {
             schedule: Rc::new(schedule),
             session: Rc::default(),
+            deadlines: std::rc::Weak::new(),
             activities,
             pending: Some(pending),
             executor,
@@ -202,7 +208,28 @@ impl Runner {
         configure: impl FnOnce(&mut DeviceConnection<'_>),
     ) {
         self.io().connect(device.clone(), configure);
+        D::register_deadlines(&device, self);
         self.spawn_activity(D::run(device)).await;
+    }
+
+    /// Schedules hardware on this session's clock. Each due transition receives
+    /// the current time and returns its next deadline. Use the returned handle
+    /// to change that deadline when a guest register write reprograms the device.
+    pub fn schedule_device(
+        &self,
+        clock: &GuestClock,
+        initial: Option<crate::Timestamp>,
+        advance: impl FnMut(crate::Timestamp) -> Option<crate::Timestamp> + 'static,
+    ) -> DeviceDeadline {
+        assert!(
+            self.clock().shares_source(clock),
+            "scheduled devices must use the runner's guest clock"
+        );
+        self.deadlines
+            .upgrade()
+            .expect("schedule devices inside Runner::run")
+            .borrow_mut()
+            .register(&self.schedule, initial, advance)
     }
 
     /// Starts a local activity with the same lifetime and first-poll guarantee
@@ -240,6 +267,8 @@ impl Runner {
         let _activities = self.activities.clone();
         let workers = self.workers.clone();
         let session = SessionScope(self.session.clone());
+        let deadlines = Rc::new(RefCell::new(DeviceDeadlines::default()));
+        self.deadlines = Rc::downgrade(&deadlines);
         let result = executor
             .run_until(stop, async {
                 let mut devices = pin!(devices);
@@ -249,6 +278,7 @@ impl Runner {
                     if let Poll::Ready(result) = application.as_mut().poll(cx) {
                         return Poll::Ready(result);
                     }
+                    deadlines.borrow_mut().poll(cx);
                     if let Some(session) = session.0.borrow_mut().as_mut() {
                         session.poll(cx);
                     }
@@ -257,6 +287,7 @@ impl Runner {
                 .await
             })
             .await;
+        drop(deadlines);
         drop(session);
         let cleanup = std::mem::take(&mut *workers.borrow_mut());
         join_all(cleanup).await;

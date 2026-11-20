@@ -86,7 +86,7 @@ impl Pc {
         let video_card = configuration.video_card.initialize(&runner, &clock).await;
         let video_firmware = video_card.firmware();
         let pic = Pic::initialize(&runner).await;
-        let pit = Pit::initialize(&runner, clock.clone(), &pic).await;
+        let pit = Pit::initialize(&runner, &pic).await;
         let speaker = Speaker::initialize(&runner, pit).await;
         let sound_card = configuration
             .sound_card

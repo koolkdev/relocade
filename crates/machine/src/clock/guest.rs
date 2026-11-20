@@ -31,6 +31,7 @@ struct State {
     offset: u64,
     cpu: Option<Binding>,
     waits: Vec<Wait>,
+    hardware_deadline: Option<Timestamp>,
     host: Option<HostTime>,
 }
 
@@ -48,6 +49,7 @@ impl GuestTimeDriver {
             offset: 0,
             cpu: None,
             waits: Vec::new(),
+            hardware_deadline: None,
             host: None,
         })))
     }
@@ -117,8 +119,8 @@ impl GuestTimeDriver {
         self.notify_due();
     }
 
-    /// Advances guest time to the earliest registered sleep and completes due sleeps.
-    /// Returns false when no sleep exists. Call only after ready activities have
+    /// Advances guest time to the earliest hardware transition or registered sleep.
+    /// Completes due sleeps and returns false when there is no deadline. Call only after ready activities have
     /// been polled and execution is still idle. The yield deadline does not cause
     /// this operation to advance time.
     pub fn advance_to_next_deadline(&self) -> bool {
@@ -129,10 +131,17 @@ impl GuestTimeDriver {
         true
     }
 
-    /// Earliest registered sleep in guest time. Query at a stopped boundary
+    /// Earliest hardware or sleep deadline in guest time. Query at a stopped boundary
     /// after ready activities have had an opportunity to replace their waits.
     pub fn next_deadline(&self) -> Option<Timestamp> {
-        self.0.borrow().waits.iter().map(|wait| wait.deadline).min()
+        self.0.borrow().next_deadline()
+    }
+
+    /// The session dispatches due hardware directly at the next stopped boundary.
+    pub(crate) fn set_hardware_deadline(&self, next: Option<Timestamp>) {
+        let mut state = self.0.borrow_mut();
+        state.hardware_deadline = next;
+        state.refresh_target();
     }
 
     fn notify_due(&self) {
@@ -194,13 +203,20 @@ impl State {
         Timestamp::from_ticks(count.wrapping_add(self.offset))
     }
 
+    fn next_deadline(&self) -> Option<Timestamp> {
+        self.waits
+            .iter()
+            .map(|wait| wait.deadline)
+            .chain(self.hardware_deadline)
+            .min()
+    }
+
     fn refresh_target(&mut self) {
         let now = self.now();
         let Some(cpu) = &self.cpu else { return };
         let deadline = self
-            .waits
-            .iter()
-            .map(|wait| wait.deadline)
+            .next_deadline()
+            .into_iter()
             .chain(cpu.yield_deadline)
             .min();
         let target = deadline.map(|deadline| deadline.max(now).ticks().wrapping_sub(self.offset));

@@ -31,14 +31,13 @@ returns native progress without any duration conversion. `duration_between(start
 end)` measures a single interval in whole nanoseconds, returning zero for reversed
 readings; its checked form returns `None` instead.
 
-Devices that count their own cycles take native observations directly:
-
-```rust,ignore
-pit.advance_to(clock.now());
-if let Some(deadline) = pit.next_deadline() {
-    clock.sleep_until(deadline).await;
-}
-```
+The PIT registers its next channel-0 transition with the runner. When the
+deadline is due, the runner calls `pit.advance_to(now)` before the CPU's next
+turn and takes the next deadline from `pit.next_deadline()`. A guest write that
+reprograms channel 0 replaces the registered deadline immediately. The managed
+guest clock uses this deadline to bound CPU execution and to advance a parked
+machine. With an independently driven guest clock, the runner arms a clock wait
+so that a due transition wakes the session.
 
 PIT and VGA multiply elapsed native ticks by their oscillator rate, divide by the
 native tick rate, and retain the division remainder in device state. They convert
@@ -148,12 +147,14 @@ deadline. With neither device waits nor a yield deadline, the target is unarmed.
 Changed waits wake the embedding so it can reconsider idle scheduling while a
 CPU service is pending.
 
-`advance_to_next_deadline()` advances guest time to the earliest registered sleep
-and completes all due sleeps. The embedding calls it only after polling ready
-activities and finding execution still idle. It returns false if there is no
-registered sleep. The yield deadline does not cause this advance. Completing
-sleeps wakes device activities; those activities deliver IRQs through the existing
-interrupt path. Advancing guest time does not add retired CPU instructions.
+`advance_to_next_deadline()` advances idle guest time to the earliest registered
+hardware transition or sleep and completes all due sleeps. It returns false if
+there is no deadline. The session dispatches hardware transitions at the next
+stopped boundary. Each due source observes the same current time and supplies
+its next transition. The guest driver includes the earliest transition directly
+in the CPU instruction target and idle advancement. An externally driven clock
+uses a single sleep for the earliest hardware transition to wake the session.
+Idle advancement preserves the retired instruction count.
 
 Reads preserve fractional nanoseconds and counter wrap. Synchronous callbacks
 can observe a count that lags execution; targets use that same published count
@@ -218,8 +219,8 @@ to advance when there are no registered sleeps.
 
 `Runner::initialize_guest_devices` supplies the hardware's shared guest clock.
 The first successful setup installs one driver in the live session. Each worker
-turn polls ready device activities and the application before giving the machine
-one turn. Between foreground runs the CPU stays parked. Device deadlines advance
+turn polls ready Rust activities and the application, dispatches due hardware
+transitions, and then gives the machine one turn. Between foreground runs the CPU stays parked. Device deadlines advance
 guest time under the same host pacing and machine pause gate as CPU execution.
 A foreground call to `run_cpu()` lends the stopped CPU to the session and awaits
 its exit. Cancelling the wait returns the CPU with its pending services intact.
