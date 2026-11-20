@@ -75,7 +75,7 @@ impl CodeCache {
 impl Cpu {
     pub(crate) fn with_compiler(mut self, compiler: Option<CompilerClient>) -> Self {
         if compiler.is_some() {
-            self.memory().code_wake().compiler_connected();
+            self.code_wake().compiler_connected();
         }
         self.instance.code.compiler = compiler;
         self

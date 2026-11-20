@@ -9,10 +9,9 @@ mod reader;
 pub(crate) use reader::CodeReader;
 
 use super::Memory;
-use crate::{runtime::CodeWake, Error, Result};
+use crate::{Error, Result};
 use relocade_wasm_runtime::WasmSharedMemory;
 use std::{
-    collections::BTreeSet,
     ops::Range,
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
@@ -29,7 +28,6 @@ pub(crate) struct ModuleId(pub(crate) usize);
 #[derive(Default)]
 pub struct CodeRegistry {
     pages: Mutex<CodePages>,
-    wake: Arc<CodeWake>,
 }
 
 /// The exact instruction bytes used by a compilation, in the memory where they were read.
@@ -113,10 +111,6 @@ impl CodeSource {
 }
 
 impl Memory {
-    pub(crate) fn code_wake(&self) -> &Arc<CodeWake> {
-        &self.code.wake
-    }
-
     pub(crate) fn code_reader(&self) -> CodeReader<'_> {
         CodeReader::new(self)
     }
@@ -149,24 +143,12 @@ impl Memory {
         }
         let mut pages = self.code.pages.lock().unwrap();
         self.backing.write(backing, bytes);
-        if pages.mark_modified(backing, bytes, write) {
-            self.code.wake.record_retirements();
-            drop(pages);
-            // Waking the executor may run caller code. Publish and release the registry first.
-            self.code.wake.wake_run();
+        let waiters = pages.mark_modified(backing, bytes, write);
+        drop(pages);
+        // A wake can run caller code. Release the shared registry before notifying any CPU.
+        for waiter in waiters {
+            waiter.wake();
         }
-    }
-
-    /// Takes the installations whose instruction bytes changed since the last drain.
-    pub(crate) fn take_modified_modules(&self) -> BTreeSet<ModuleId> {
-        if !self.code.wake.take_retirements() {
-            return BTreeSet::new();
-        }
-        self.drain_modified_modules()
-    }
-
-    pub(crate) fn drain_modified_modules(&self) -> BTreeSet<ModuleId> {
-        std::mem::take(&mut self.code.pages.lock().unwrap().modified)
     }
 }
 

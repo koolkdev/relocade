@@ -118,7 +118,7 @@ impl CodeCache {
             .runtime
             .with_runtime(|wasm| modules.register_exports(wasm, instance, entries))?;
         if let Some((source, mut registry)) = checked_source {
-            installed.track_source(registry.register(id, source), &self.host_writes);
+            installed.track_source(registry.register(&self.wake, id, source), &self.host_writes);
         }
         // Releasing a host callback can reenter the runtime or write guest memory.
         self.hooks.replace_bindings(entries, handlers);

@@ -1,20 +1,21 @@
 //! Routes writes to compiled instruction bytes while Wasm holds the CPU.
 
-use super::installed::InstalledModules;
+use super::{installed::InstalledModules, CodeWake};
 use crate::{runtime::WasmRuntime, Memory};
 use relocade_wasm_runtime::{Context, FunctionRef, Import, WasmBackend};
 use relocade_x86::abi;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// Wasm can access installed modules only while the code cache lends them to this callback.
 struct ActiveModules {
     memory: Memory,
+    wake: Arc<CodeWake>,
     installed: RefCell<Option<Box<InstalledModules>>>,
 }
 
 impl ActiveModules {
     fn retire_modified(&self, context: &mut Context<'_>) {
-        let modified = self.memory.take_modified_modules();
+        let modified = self.wake.take_modified_modules();
         if !modified.is_empty() {
             self.installed
                 .borrow_mut()
@@ -32,9 +33,14 @@ pub(in crate::runtime::instance) struct WriteCode {
 }
 
 impl WriteCode {
-    pub(in crate::runtime::instance) fn new(wasm: &mut WasmRuntime, memory: Memory) -> Self {
+    pub(in crate::runtime::instance) fn new(
+        wasm: &mut WasmRuntime,
+        memory: Memory,
+        wake: Arc<CodeWake>,
+    ) -> Self {
         let active = Rc::new(ActiveModules {
             memory,
+            wake,
             installed: RefCell::default(),
         });
         let executing = Rc::downgrade(&active);

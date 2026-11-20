@@ -11,7 +11,7 @@ pub(super) use code_cache::{CodeCache, Installation};
 pub(super) use environment::Environment;
 use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
 use relocade_x86::{abi, CpuMode, ExecutionExit, ExecutionProfile};
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP or Flat32 EIP key.
 pub struct DispatchEntry<'a> {
@@ -69,7 +69,8 @@ impl CpuInstance {
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let mut table = code_cache::DispatchTable::new(wasm)?;
-            let write_code = code_cache::WriteCode::new(wasm, bindings.guest.clone());
+            let wake = Arc::<CodeWake>::default();
+            let write_code = code_cache::WriteCode::new(wasm, bindings.guest.clone(), wake.clone());
             let call_profile = wasm.create_memory(abi::CALL_PROFILE)?;
             let mut imports = bindings.imports(wasm).to_vec();
             imports.push(write_code.import());
@@ -116,7 +117,7 @@ impl CpuInstance {
                 resolve_and_jump,
             });
             Ok(Self {
-                code: CodeCache::new(guest.clone(), table, write_code, call_profile),
+                code: CodeCache::new(guest.clone(), table, write_code, wake, call_profile),
                 guest,
             })
         })

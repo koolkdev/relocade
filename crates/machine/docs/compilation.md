@@ -152,9 +152,12 @@ A parked worker can receive browser callbacks immediately. On a busy worker,
 yielding to the browser. Completing or cancelling the last operation ends
 these browser turns. [Worker scheduling](worker-execution.md#event-loop-scheduling)
 
-The interruptible worker waker records separate bits for a locally delivered
-compiler reply and for writes that changed installed code. Once a CPU run
-holds the machine's pause permit, it claims the pending code bits together.
+Each CPU's code cache owns its wake reasons and retirement queue. A compiler
+reply signals its requesting CPU. Each registration in the shared backing-page
+index pairs a module ID with the cache that installed it. When a write changes
+those bytes, it queues the ID for that cache and wakes its active run after
+releasing the index lock. Once a CPU run holds the machine's pause permit, it
+claims the compiler and retirement wake bits together.
 The code cache retires changed installations first, then publishes any ready
 reply into vacant dispatch entries. A run waiting on pacing or a host service
 can do both in one turn. With no active run, the reply and changed installation

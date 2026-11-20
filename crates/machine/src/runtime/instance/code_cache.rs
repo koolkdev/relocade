@@ -23,7 +23,7 @@ pub(in crate::runtime) use install::Installation;
 use installed::InstalledModules;
 use profiling::Profiling;
 use relocade_wasm_runtime::{Memory, WasmBackend};
-use std::{ops::Range, rc::Rc, task::Context};
+use std::{ops::Range, rc::Rc, sync::Arc, task::Context};
 pub(crate) use wake::CodeWake;
 use wake::CodeWork;
 pub(super) use write_code::WriteCode;
@@ -34,6 +34,7 @@ pub(in crate::runtime) struct CodeCache {
     // The writeCode callback holds these modules while Wasm can run.
     stopped: Option<Box<InstalledModules>>,
     write_code: WriteCode,
+    wake: Arc<CodeWake>,
     hooks: Hooks,
     profiling: Profiling,
     compiler: Option<CompilerClient>,
@@ -48,12 +49,14 @@ impl CodeCache {
         guest: Rc<GuestRuntime>,
         dispatch: DispatchTable,
         write_code: WriteCode,
+        wake: Arc<CodeWake>,
         call_profile: Memory,
     ) -> Self {
         Self {
             host_writes: HostWritePages::new(&guest.runtime, &guest.bindings),
             stopped: Some(Box::new(InstalledModules::new(dispatch))),
             write_code,
+            wake,
             hooks: Hooks::default(),
             profiling: Profiling::new(call_profile),
             compiler: None,
@@ -75,14 +78,14 @@ impl CodeCache {
 
     /// A host can patch code between guest entries or while a compiler reply is in flight.
     pub(super) fn retire_pending(&mut self) -> Result<()> {
-        if self.guest.bindings.guest.code_wake().take_retirements() {
+        if self.wake.take_retirements() {
             self.retire_queued()?;
         }
         Ok(())
     }
 
     fn retire_queued(&mut self) -> Result<()> {
-        let modified = self.guest.bindings.guest.drain_modified_modules();
+        let modified = self.wake.drain_modified_modules();
         let installed = self.stopped.as_deref_mut().expect("stopped code cache");
         self.guest
             .runtime
