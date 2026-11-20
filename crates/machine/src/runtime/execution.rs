@@ -170,7 +170,7 @@ impl Cpu {
         cx: &mut Context<'_>,
         yield_at_host_boundary: impl Fn(&Self) -> bool,
     ) -> Option<ExecutionExit> {
-        self.instance.code.sample_calls();
+        self.instance.code.collect_call_profile_if_due();
         let exit = loop {
             let guest_entered = match self.try_enter_guest(cx) {
                 Ok(delivered) => delivered,

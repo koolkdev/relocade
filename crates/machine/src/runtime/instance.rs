@@ -143,7 +143,7 @@ impl CpuInstance {
             if exit != ExecutionExit::CallProfileFull {
                 return exit;
             }
-            self.code.collect_calls();
+            self.code.collect_call_profile();
         }
     }
 
