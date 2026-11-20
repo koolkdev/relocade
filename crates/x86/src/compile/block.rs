@@ -139,6 +139,29 @@ pub fn compile_block_from_bytes_with_profile(
 }
 
 impl Compiler {
+    /// Decodes independent snapshots through the boundaries documented by
+    /// [`Self::compile_blocks`], preserving their supplied order.
+    pub fn decode_blocks(
+        &self,
+        snapshots: &[BlockSnapshot<'_>],
+    ) -> Result<Vec<DecodedBlock>, BlockError> {
+        decode::blocks(snapshots, self.target)
+    }
+
+    /// Exports every supplied block in order, with the same dispatch behavior as
+    /// [`Self::compile_blocks`]. Each block must have a unique guest address
+    /// and end at or before its first execution boundary.
+    pub async fn compile_independent_blocks_with<E: CompileExecutor>(
+        &self,
+        blocks: Vec<DecodedBlock>,
+        executor: &E,
+    ) -> Result<CompiledBlocks, BlockCompileError<E::Error>> {
+        BlockModule::new(self)
+            .build_independent(blocks)?
+            .compile_with(executor)
+            .await
+    }
+
     /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
     ///
     /// Known jumps and fallthroughs link to supplied blocks in the same code segment

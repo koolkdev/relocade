@@ -1,10 +1,10 @@
 //! Reachable instructions, block boundaries and public entries within one decode view.
 
-use super::{DiscoveryError, DiscoveryLimits};
+use super::{successors, DiscoveryError, DiscoveryLimits};
 use crate::Result;
 use relocade_x86::{
-    BlockError, CodeAddress, DecodedBlock, ExecutionProfile, ExecutionTarget, InstructionFlow,
-    SegmentDefaultSize, SnapshotInstruction, MAX_INSTRUCTION_BYTES,
+    BlockError, CodeAddress, DecodedBlock, ExecutionTarget, InstructionFlow, SegmentDefaultSize,
+    SnapshotInstruction, MAX_INSTRUCTION_BYTES,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -102,21 +102,15 @@ impl CodeView {
                 }
                 let flow = instruction.flow(self.target);
                 let ends_block = !matches!(flow, InstructionFlow::Continue);
-                match flow {
-                    InstructionFlow::Continue | InstructionFlow::Stop => {}
-                    InstructionFlow::Fallthrough => enqueue(next, &mut entries, &mut pending),
-                    InstructionFlow::Jump { target } => enqueue(target, &mut entries, &mut pending),
-                    InstructionFlow::Branch { taken } => {
-                        enqueue(taken, &mut entries, &mut pending);
-                        enqueue(next, &mut entries, &mut pending);
-                    }
-                    InstructionFlow::FarCall { .. }
-                        if self.target.profile != ExecutionProfile::Real16 => {}
-                    InstructionFlow::NearCall { return_eip }
-                    | InstructionFlow::FarCall { return_eip } => {
-                        // RET dispatches using the offset actually popped from the guest stack.
-                        exports.push(return_eip);
-                        enqueue(return_eip, &mut entries, &mut pending);
+                if ends_block {
+                    for successor in successors(flow, next, self.target).into_iter().flatten() {
+                        if matches!(
+                            flow,
+                            InstructionFlow::NearCall { .. } | InstructionFlow::FarCall { .. }
+                        ) {
+                            exports.push(successor);
+                        }
+                        enqueue(successor, &mut entries, &mut pending);
                     }
                 }
                 decoded.insert(eip, instruction);

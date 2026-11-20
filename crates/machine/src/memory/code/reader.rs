@@ -1,4 +1,4 @@
-use super::{CodeSource, Memory, SourceBlock, Span, PAGE_BYTES};
+use super::{CodeSource, ExcludedCode, Memory, SourceBlock, Span, PAGE_BYTES};
 use crate::memory::{
     resolve::{linear_address, segment_remaining, Spans},
     MemoryError,
@@ -12,6 +12,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) struct CodeReader<'a> {
     memory: &'a Memory,
     pages: BTreeMap<u32, Box<[u8]>>,
+    excluded: ExcludedCode,
 }
 
 impl<'a> CodeReader<'a> {
@@ -19,7 +20,26 @@ impl<'a> CodeReader<'a> {
         Self {
             memory,
             pages: BTreeMap::new(),
+            excluded: memory.code.pages.lock().unwrap().excluded().clone(),
         }
+    }
+
+    /// A single excluded backing byte keeps the decoded instruction interpreted.
+    /// Publication checks the live history again in case it changed during compilation.
+    pub(crate) fn is_excluded(&self, address: u32, len: usize) -> bool {
+        if self.excluded.is_empty() {
+            return false;
+        }
+        Spans::new(self.memory.config.memory_map(), address, len)
+            .expect("decoded instruction range")
+            .any(|span| {
+                let backing = match span.mapping {
+                    PhysicalMapping::Ram { backing_offset }
+                    | PhysicalMapping::Rom { backing_offset } => backing_offset,
+                    _ => unreachable!("decoded instructions came from backing"),
+                };
+                self.excluded.intersects(backing, span.len)
+            })
     }
 
     pub(crate) fn read(&mut self, address: u32, len: usize) -> Result<Vec<u8>, MemoryError> {

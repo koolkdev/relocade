@@ -6,6 +6,7 @@ pub use code::{CompiledCode, Description};
 mod connection;
 mod discovery;
 mod service;
+mod stable;
 pub use client::CompilerClient;
 pub(crate) use client::Endpoint;
 pub(crate) use connection::Connection;
@@ -74,21 +75,8 @@ async fn compile(
     let x86 = relocade_x86::Compiler::from_target(target);
     let blocks = match request {
         connection::Compilation::Blocks(requests) => {
-            let captured: Vec<_> = requests
-                .iter()
-                .map(|block| reader.read(block.entry.address(), block.byte_len))
-                .collect::<std::result::Result<_, _>>()?;
-            let snapshots: Vec<_> = requests
-                .iter()
-                .zip(&captured)
-                .map(|(block, bytes)| BlockSnapshot {
-                    address: block.entry.into(),
-                    code_default_size: SegmentDefaultSize::Bits16,
-                    bytes,
-                    instruction_limit: block.instruction_limit,
-                })
-                .collect();
-            x86.compile_blocks_with(&snapshots, jobs).await?
+            let blocks = capture_blocks(&x86, &requests, &mut reader)?;
+            x86.compile_independent_blocks_with(blocks, jobs).await?
         }
         connection::Compilation::Functions(requests) => {
             let blocks = discover_functions(target, requests, &mut reader)?;
@@ -105,6 +93,31 @@ async fn compile(
         blocks,
         source,
     ))
+}
+
+fn capture_blocks(
+    compiler: &relocade_x86::Compiler,
+    requests: &[BlockRequest],
+    reader: &mut crate::memory::code::CodeReader<'_>,
+) -> Result<Vec<DecodedBlock>> {
+    let captured: Vec<_> = requests
+        .iter()
+        .map(|block| reader.read(block.entry.address(), block.byte_len))
+        .collect::<std::result::Result<_, _>>()?;
+    let snapshots: Vec<_> = requests
+        .iter()
+        .zip(&captured)
+        .map(|(block, bytes)| BlockSnapshot {
+            address: block.entry.into(),
+            code_default_size: SegmentDefaultSize::Bits16,
+            bytes,
+            instruction_limit: block.instruction_limit,
+        })
+        .collect();
+    let decoded = compiler.decode_blocks(&snapshots)?;
+    stable::stable_blocks(compiler.target(), decoded, |address, len| {
+        reader.is_excluded(code_segment(address).base + address.eip(), len)
+    })
 }
 
 /// Plan a batch over the worker's retained snapshots. A rejected candidate
@@ -133,7 +146,9 @@ pub(crate) fn discover_functions(
             return Err(error);
         }
     }
-    Ok(blocks)
+    stable::stable_blocks(target, blocks, |address, len| {
+        reader.is_excluded(code_segment(address).base + address.eip(), len)
+    })
 }
 
 fn code_segment(address: CodeAddress) -> SegmentRegister {

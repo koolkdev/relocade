@@ -124,3 +124,31 @@ fn requesting_an_internal_instruction_promotes_it_to_a_cpu_entry() {
     );
     assert_eq!(exports(&blocks), [0x100, 0x110, 0x121]);
 }
+
+#[test]
+fn interpreted_straight_line_code_can_dispatch_to_either_branch_destination() {
+    let profile = ExecutionProfile::Real16;
+    let code = [
+        0xb0, 0x42, // MOV AL,42h; patched immediate
+        0x90, 0x90, // NOP; NOP
+        0x75, 0x01, // JNZ 1007
+        0xc3, 0xc3, // RET on each path
+    ];
+    let blocks = discover(
+        profile,
+        Bits16,
+        &code,
+        DiscoveryLimits {
+            block_instructions: 1,
+            ..DiscoveryLimits::default()
+        },
+    )
+    .unwrap();
+    let blocks = crate::compiler::stable::stable_blocks(
+        Compiler::new(profile).target(),
+        blocks,
+        |address, len| (address.eip()..address.eip() + len as u32).contains(&(START + 1)),
+    )
+    .unwrap();
+    assert_eq!(exports(&blocks), [0x1002, 0x1006, 0x1007]);
+}

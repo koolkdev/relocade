@@ -22,10 +22,25 @@ pub(in crate::compile) struct BlockModule<'a> {
 
 impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn build(
-        mut self,
+        self,
         snapshots: &[super::BlockSnapshot<'_>],
     ) -> Result<Self, BlockError> {
-        let blocks = super::decode::blocks(snapshots, self.compiler.target)?;
+        let blocks = self.compiler.decode_blocks(snapshots)?;
+        self.define_independent(blocks)
+    }
+
+    pub(in crate::compile) fn build_independent(
+        self,
+        mut blocks: Vec<DecodedBlock>,
+    ) -> Result<Self, BlockError> {
+        for block in &mut blocks {
+            self.check_boundaries(block)?;
+            block.export();
+        }
+        self.define_independent(blocks)
+    }
+
+    fn define_independent(mut self, blocks: Vec<DecodedBlock>) -> Result<Self, BlockError> {
         let blocks = self.declare_blocks(blocks);
         self.define_blocks(blocks, self.execution.clone())?;
         Ok(self)
@@ -37,17 +52,7 @@ impl<'a> BlockModule<'a> {
     ) -> Result<Self, BlockError> {
         let mut views = BTreeMap::<_, Vec<_>>::new();
         for block in blocks {
-            let (_, interior) = block
-                .instructions
-                .split_last()
-                .expect("a decoded block has a first instruction");
-            if let Some(boundary) = interior.iter().find(|instruction| {
-                instruction.flow(self.compiler.target) != InstructionFlow::Continue
-            }) {
-                return Err(BlockError::InteriorBlockBoundary {
-                    address: boundary.eip(),
-                });
-            }
+            self.check_boundaries(&block)?;
             views
                 .entry((block.address().segment(), block.code_default_size()))
                 .or_default()
@@ -57,6 +62,22 @@ impl<'a> BlockModule<'a> {
             self.define_view(segment, blocks)?;
         }
         Ok(self)
+    }
+
+    fn check_boundaries(&self, block: &DecodedBlock) -> Result<(), BlockError> {
+        let (_, interior) = block
+            .instructions
+            .split_last()
+            .expect("a decoded block has a first instruction");
+        if let Some(boundary) = interior
+            .iter()
+            .find(|instruction| instruction.flow(self.compiler.target) != InstructionFlow::Continue)
+        {
+            return Err(BlockError::InteriorBlockBoundary {
+                address: boundary.eip(),
+            });
+        }
+        Ok(())
     }
 
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {

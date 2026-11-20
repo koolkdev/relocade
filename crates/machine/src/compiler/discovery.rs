@@ -6,7 +6,10 @@ mod walk;
 mod tests;
 
 use crate::Result;
-use relocade_x86::{CodeAddress, DecodedBlock, ExecutionTarget, SegmentDefaultSize};
+use relocade_x86::{
+    CodeAddress, DecodedBlock, ExecutionProfile, ExecutionTarget, InstructionFlow,
+    SegmentDefaultSize,
+};
 use std::{collections::BTreeMap, fmt};
 
 /// Per-root budgets for discovering blocks. A root pays only for new instructions.
@@ -86,5 +89,26 @@ impl<R: FnMut(CodeAddress, &mut [u8]) -> usize> BlockDiscovery<R> {
             view.finish(&mut blocks)?;
         }
         Ok(blocks)
+    }
+}
+
+/// Statically reachable offsets in the same decode view. Callees are separate
+/// function requests. A return to the caller can enter at its saved return EIP.
+pub(super) fn successors(
+    flow: InstructionFlow,
+    next: u32,
+    target: ExecutionTarget,
+) -> [Option<u32>; 2] {
+    match flow {
+        InstructionFlow::Continue | InstructionFlow::Fallthrough => [Some(next), None],
+        InstructionFlow::Jump { target } => [Some(target), None],
+        InstructionFlow::Branch { taken } => [Some(taken), Some(next)],
+        InstructionFlow::FarCall { .. } if target.profile != ExecutionProfile::Real16 => {
+            [None, None]
+        }
+        InstructionFlow::NearCall { return_eip } | InstructionFlow::FarCall { return_eip } => {
+            [Some(return_eip), None]
+        }
+        InstructionFlow::Stop => [None, None],
     }
 }

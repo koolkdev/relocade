@@ -62,6 +62,23 @@ impl DecodedBlock {
         self.exported
     }
 
+    /// Makes the block callable through CPU dispatch as well as in-module jumps.
+    pub fn export(&mut self) {
+        self.exported = true;
+    }
+
+    /// Final captured instruction, which determines how this block hands off execution.
+    pub fn last_instruction(&self) -> &SnapshotInstruction {
+        self.instructions
+            .last()
+            .expect("a decoded block has a first instruction")
+    }
+
+    /// Takes the captured instructions in execution order.
+    pub fn into_instructions(self) -> Vec<SnapshotInstruction> {
+        self.instructions
+    }
+
     fn empty(address: CodeAddress, code_default_size: SegmentDefaultSize, exported: bool) -> Self {
         Self {
             address,
