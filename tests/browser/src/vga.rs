@@ -1,13 +1,30 @@
 use crate::software::{self, SoftwareFrame};
 use futures_channel::oneshot;
 use futures_util::future::join;
-use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig};
-use relocade_vga::{DispiAdapter, MEMORY_RANGE};
+use relocade_machine::{timer_service, worker::Thread, CpuConfig, Hook, MachineConfig, Runner};
+use relocade_vga::{DispiAdapter, DisplaySnapshot, MEMORY_RANGE};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+
+pub(super) async fn initialize(
+    runner: Runner,
+) -> (Runner, async_channel::Receiver<DisplaySnapshot>) {
+    runner
+        .initialize_guest_devices(
+            relocade_dos::configuration::DEFAULT_INSTRUCTIONS_PER_SECOND,
+            async |runner, clock| {
+                let vga = DispiAdapter::initialize(&runner, clock).await;
+                crate::vga_fixture::initialize_font(&runner.io());
+                let frames = vga.borrow().frames();
+                Ok::<_, std::convert::Infallible>((runner, frames))
+            },
+        )
+        .await
+        .unwrap()
+}
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn vga_workers() -> Result<(), String> {
@@ -36,16 +53,9 @@ pub async fn vga_workers() -> Result<(), String> {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let cpu_task = prepared.spawn(clock, async move |mut runner| {
-        let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
-            runner.clock().clone(),
-        )));
-        assert!(source.send(vga.borrow().frames()).is_ok());
-
-        runner
-            .connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga))
-            .await;
-        crate::vga_fixture::initialize_font(&runner.io());
+    let cpu_task = prepared.spawn(clock, async move |runner| {
+        let (mut runner, frames) = initialize(runner).await;
+        assert!(source.send(frames).is_ok());
         let io = runner.io();
         let memory = runner.memory();
         memory
@@ -113,7 +123,6 @@ pub async fn vga_workers() -> Result<(), String> {
         );
         presented.await.unwrap();
         drop(runner);
-        drop(vga);
     });
     let display_task = display.run(move || async move {
         let display = display_source.await.unwrap();

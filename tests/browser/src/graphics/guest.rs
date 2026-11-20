@@ -1,10 +1,9 @@
 use futures_channel::oneshot;
 use relocade_machine::{CpuConfig, ExecutionWorker, Hook, MachineConfig, TimerHandle};
-use relocade_vga::{DispiAdapter, DisplaySnapshot, MEMORY_RANGE};
+use relocade_vga::{DisplaySnapshot, MEMORY_RANGE};
 use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
 use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
+    cell::Cell,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -44,11 +43,9 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
     )
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
-    let execution = prepared.spawn(clock, async move |mut runner| {
-        let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(
-            runner.clock().clone(),
-        )));
-        send_source.send(vga.borrow().frames()).ok().unwrap();
+    let execution = prepared.spawn(clock, async move |runner| {
+        let (mut runner, frames) = crate::vga::initialize(runner).await;
+        send_source.send(frames).ok().unwrap();
 
         let memory = runner.memory();
         memory
@@ -65,10 +62,6 @@ pub(super) async fn spawn(clock: TimerHandle) -> Guest {
             )
             .unwrap();
 
-        runner
-            .connect(vga.clone(), |io| DispiAdapter::configure_io(io, &vga))
-            .await;
-        crate::vga_fixture::initialize_font(&runner.io());
         let cpu = runner.cpu();
         cpu.install([Hook::host(0x200, {
             let cpu = cpu.cpu_state();

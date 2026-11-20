@@ -12,7 +12,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn conventional_detection_needs_no_audio_output() {
     let clock = ManualClock::new();
-    let (io, _) = common::hardware(clock.clock());
+    let (io, _) = common::hardware(clock.guest_clock());
     write(&io, 4, 0x60); // Mask and stop both timers.
     write(&io, 4, 0x80); // Clear flags.
     assert_eq!(io.read_port(ADDRESS_STATUS_PORT, 1), 0x06);
@@ -37,7 +37,7 @@ fn conventional_detection_needs_no_audio_output() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn reset_and_mask_leave_running_timer_phase_intact() {
     let clock = ManualClock::new();
-    let (io, _) = common::hardware(clock.clock());
+    let (io, _) = common::hardware(clock.guest_clock());
     write(&io, 3, 0xff);
     write(&io, 4, 2);
     clock.advance_by(Duration::from_micros(319));
@@ -64,7 +64,7 @@ fn reset_and_mask_leave_running_timer_phase_intact() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn running_reload_changes_apply_after_the_current_count() {
     let clock = ManualClock::new();
-    let (io, _) = common::hardware(clock.clock());
+    let (io, _) = common::hardware(clock.guest_clock());
     write(&io, 2, 0xfe); // First overflow at 160 us.
     write(&io, 4, 1);
     clock.advance_by(Duration::from_micros(80));

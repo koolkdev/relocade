@@ -2,14 +2,14 @@ use super::{common, service};
 use common::{error, success, SERVICE_PROGRAM};
 use relocade_dos::Dos;
 
-async fn arena() -> Dos {
+async fn arena() -> common::DosFixture {
     let mut dos = common::dos().await;
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     success(&service(&mut dos, 0x4a, 0x1000, 0x1000));
     dos
 }
 
-async fn fragmented_arena() -> Dos {
+async fn fragmented_arena() -> common::DosFixture {
     let mut dos = arena().await;
     // Three holes separated by live blocks. The first is larger; the two
     // smaller holes distinguish best-fit's low-address tie from last fit.

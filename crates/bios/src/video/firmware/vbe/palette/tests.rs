@@ -1,6 +1,6 @@
 use super::*;
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{Clock, Device, MachineConfig, Memory};
+use relocade_machine::{Device, GuestClock, MachineConfig, Memory};
 use relocade_vga::{DispiAdapter, DispiMode, DispiResolution};
 use relocade_x86::{PhysicalMapping, PhysicalMemoryMap};
 use std::{
@@ -23,7 +23,7 @@ const BUFFER: FarPointer = FarPointer {
 #[test]
 fn et4000_keeps_six_bit_precision_for_larger_requests() {
     let card = Rc::new(RefCell::new(relocade_vga::Et4000Ax::with_clock(
-        ManualClock::default().clock(),
+        ManualClock::default().guest_clock(),
     )));
     let io = IoBus::new(card.clone(), |io| {
         relocade_vga::Et4000Ax::configure_io(io, &card)
@@ -42,7 +42,7 @@ struct Palette {
 }
 
 impl Palette {
-    fn new(clock: Clock) -> Self {
+    fn new(clock: GuestClock) -> Self {
         let map =
             PhysicalMemoryMap::new([(0..=0x9ffff, PhysicalMapping::Ram { backing_offset: 0 })])
                 .unwrap();
@@ -84,7 +84,7 @@ impl Wake for Wakes {
 #[test]
 fn retrace_update_owns_the_input_and_preserves_completed_colors() {
     let clock = ManualClock::default();
-    let Palette { card, io, memory } = Palette::new(clock.clock());
+    let Palette { card, io, memory } = Palette::new(clock.guest_clock());
     let mut view = memory.view();
     let mut cx = Context::from_waker(Waker::noop());
     let frames = card.borrow().frames();
@@ -114,7 +114,7 @@ fn retrace_update_owns_the_input_and_preserves_completed_colors() {
 #[test]
 fn precision_change_cancels_a_waiting_palette_transfer() {
     let clock = ManualClock::default();
-    let Palette { card, io, memory } = Palette::new(clock.clock());
+    let Palette { card, io, memory } = Palette::new(clock.guest_clock());
     let mut view = memory.view();
     let mut cx = Context::from_waker(Waker::noop());
     let mut request = pin!(set_at_retrace(&mut view, &io, card.as_ref(), 1, 17, BUFFER));
@@ -143,7 +143,7 @@ fn mode_changes_and_disabled_decoding_cancel_without_programming_the_palette() {
         None,
     ] {
         let clock = ManualClock::default();
-        let Palette { card, io, memory } = Palette::new(clock.clock());
+        let Palette { card, io, memory } = Palette::new(clock.guest_clock());
         let mut view = memory.view();
         let wakes = Arc::new(Wakes::default());
         let waker = Waker::from(wakes.clone());
@@ -171,7 +171,7 @@ fn mode_changes_and_disabled_decoding_cancel_without_programming_the_palette() {
 #[test]
 fn pitch_origin_and_status_routing_changes_rearm_a_valid_palette_request() {
     let clock = ManualClock::default();
-    let Palette { card, io, memory } = Palette::new(clock.clock());
+    let Palette { card, io, memory } = Palette::new(clock.guest_clock());
     let mut view = memory.view();
     let mut cx = Context::from_waker(Waker::noop());
     let mut request = pin!(set_at_retrace(&mut view, &io, card.as_ref(), 1, 17, BUFFER));
@@ -195,7 +195,7 @@ fn pitch_origin_and_status_routing_changes_rearm_a_valid_palette_request() {
 #[test]
 fn empty_invalid_and_already_in_retrace_requests_do_not_wait() {
     let clock = ManualClock::default();
-    let Palette { card, io, memory } = Palette::new(clock.clock());
+    let Palette { card, io, memory } = Palette::new(clock.guest_clock());
     let mut view = memory.view();
     let mut cx = Context::from_waker(Waker::noop());
     let dac = card.borrow().dac_state();

@@ -16,7 +16,7 @@ fn clocks(count: u64) -> Duration {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn ports_expose_raw_output_and_direct_speaker_drive() {
     let clock = ManualClock::default();
-    let (io, speaker) = common::hardware(clock.clock());
+    let (io, speaker) = common::hardware(clock.guest_clock());
     io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
     io.write_port(CHANNEL_2_PORT, 1, 4);
     io.write_port(CHANNEL_2_PORT, 1, 0);
@@ -42,7 +42,7 @@ fn ports_expose_raw_output_and_direct_speaker_drive() {
 fn channel_selection_readback_and_transfer_widths() {
     for command in [0x30, 0x70, 0xc2, 0xc4, 0xc9] {
         let clock = ManualClock::default();
-        let (io, _speaker) = common::hardware(clock.clock());
+        let (io, _speaker) = common::hardware(clock.guest_clock());
         io.write_port(PIT_CONTROL_PORT, 1, 0xb6);
         io.write_port(CHANNEL_2_PORT, 1, 5);
         io.write_port(CHANNEL_2_PORT, 1, 0);
@@ -70,7 +70,7 @@ fn channel_selection_readback_and_transfer_widths() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn frequent_reads_do_not_discard_fractional_clocks() {
     let clock = ManualClock::default();
-    let (io, _speaker) = common::hardware(clock.clock());
+    let (io, _speaker) = common::hardware(clock.guest_clock());
     io.write_port(PIT_CONTROL_PORT, 1, 0xb4);
     io.write_port(CHANNEL_2_PORT, 1, 100);
     io.write_port(CHANNEL_2_PORT, 1, 0);

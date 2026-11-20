@@ -3,11 +3,11 @@ mod restore;
 #[path = "state/save.rs"]
 mod save;
 
+use crate::common::DosFixture;
 use super::video::video;
-use relocade_dos::Dos;
 use relocade_x86::{CpuState, Segment, SegmentRegister};
 
-fn state(dos: &mut Dos, operation: u8, components: u16, segment: u16, offset: u16) -> CpuState {
+fn state(dos: &mut DosFixture, operation: u8, components: u16, segment: u16, offset: u16) -> CpuState {
     {
         let context = dos.cpu().context();
         context.cpu.set_segment(
@@ -37,7 +37,7 @@ fn state(dos: &mut Dos, operation: u8, components: u16, segment: u16, offset: u1
     result
 }
 
-fn buffer<const N: usize>(dos: &mut Dos, segment: u16, offset: u16) -> [u8; N] {
+fn buffer<const N: usize>(dos: &mut DosFixture, segment: u16, offset: u16) -> [u8; N] {
     let context = dos.cpu().context();
     std::array::from_fn(|index| {
         let address = (u32::from(segment) << 4) + u32::from(offset.wrapping_add(index as u16));

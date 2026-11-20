@@ -1,11 +1,14 @@
 use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_dma::Dma;
-use relocade_machine::{CpuConfig, MachineConfig, Runner};
+use relocade_machine::{CpuConfig, GuestClock, MachineConfig, Runner};
 use relocade_pic::Pic;
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, num::NonZeroU64, rc::Rc};
+
+/// Nominal PC instruction rate when the embedding has not supplied an emulated clock.
+pub const DEFAULT_INSTRUCTIONS_PER_SECOND: NonZeroU64 = NonZeroU64::new(1_000_000).unwrap();
 
 /// Hardware installed before guest execution, independently of host playback.
 #[derive(Clone, Copy, Debug, Default)]
@@ -71,13 +74,17 @@ pub enum VideoCard {
 }
 
 impl VideoCard {
-    pub(crate) async fn initialize(self, runner: &Runner) -> crate::video_card::VideoCard {
+    pub(crate) async fn initialize(
+        self,
+        runner: &Runner,
+        clock: &GuestClock,
+    ) -> crate::video_card::VideoCard {
         match self {
             Self::Dispi => crate::video_card::VideoCard::Dispi(
-                relocade_vga::DispiAdapter::initialize(runner).await,
+                relocade_vga::DispiAdapter::initialize(runner, clock.clone()).await,
             ),
             Self::Et4000Ax => crate::video_card::VideoCard::Et4000Ax(
-                relocade_vga::Et4000Ax::initialize(runner).await,
+                relocade_vga::Et4000Ax::initialize(runner, clock.clone()).await,
             ),
         }
     }
@@ -96,14 +103,23 @@ impl SoundCard {
     pub(crate) async fn initialize(
         self,
         runner: &Runner,
+        clock: &GuestClock,
         dma: &Rc<RefCell<Dma>>,
         pic: &Pic,
     ) -> Option<Box<dyn crate::sound_card::SoundCard>> {
         match self {
             Self::None => None,
-            Self::AdLib => Some(Box::new(relocade_adlib::Adlib::initialize(runner).await)),
+            Self::AdLib => Some(Box::new(
+                relocade_adlib::Adlib::initialize(runner, clock.clone()).await,
+            )),
             Self::SoundBlaster2 => Some(Box::new(
-                relocade_sound_blaster::SoundBlaster::initialize(runner, dma.clone(), pic).await,
+                relocade_sound_blaster::SoundBlaster::initialize(
+                    runner,
+                    clock.clone(),
+                    dma.clone(),
+                    pic,
+                )
+                .await,
             )),
         }
     }

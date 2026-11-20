@@ -16,7 +16,7 @@ use std::{
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn connect(clock: &ManualClock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
-    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));
+    let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.guest_clock())));
     let io = IoBus::new(vga.clone(), |io| DispiAdapter::configure_io(io, &vga));
     (vga, io)
 }

@@ -1,12 +1,12 @@
+use crate::common::DosFixture;
 use super::{information, video, PROGRAM};
 use crate::common;
-use relocade_dos::Dos;
 use relocade_x86::CpuState;
 
 #[path = "layout/legacy.rs"]
 mod legacy;
 
-fn request(dos: &mut Dos, function: u8, bx: u16, cx: u16, dx: u16) -> CpuState {
+fn request(dos: &mut DosFixture, function: u8, bx: u16, cx: u16, dx: u16) -> CpuState {
     {
         let context = dos.cpu().context();
         context.cpu.set_si(0x1234);
@@ -20,7 +20,7 @@ fn request(dos: &mut Dos, function: u8, bx: u16, cx: u16, dx: u16) -> CpuState {
     result
 }
 
-fn scanline(dos: &mut Dos, operation: u16, width: u16, expected: [u16; 4]) {
+fn scanline(dos: &mut DosFixture, operation: u16, width: u16, expected: [u16; 4]) {
     let result = request(dos, 6, operation, width, 0xabcd).registers;
     assert_eq!(
         [result.eax, result.ebx, result.ecx, result.edx].map(|value| value as u16),

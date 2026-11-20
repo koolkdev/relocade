@@ -6,7 +6,7 @@ use relocade_machine::{real_mode_interrupt::Interrupts, registers as reg, FarPoi
 use relocade_x86::{ExecutionExit, HostExit, Segment};
 use std::io::Write;
 
-async fn session() -> Dos {
+async fn session() -> common::DosFixture {
     let mut dos = common::dos().await;
     dos.launch_com(SERVICE_PROGRAM, Default::default()).unwrap();
     dos

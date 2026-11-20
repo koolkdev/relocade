@@ -1,10 +1,9 @@
 use super::video::{PROGRAM, video};
-use crate::common::{self, VideoInspection};
+use crate::common::{self, DosFixture, VideoInspection};
 use crate::common::vga_support::planes::SnapshotPlanes;
-use relocade_dos::Dos;
 use relocade_x86::{Segment, SegmentRegister};
 
-pub(super) fn information(dos: &mut Dos, segment: u16, offset: u16, selector: u16) -> [u8; 64] {
+pub(super) fn information(dos: &mut DosFixture, segment: u16, offset: u16, selector: u16) -> [u8; 64] {
     {
         let context = dos.cpu().context();
         context.cpu.set_segment(

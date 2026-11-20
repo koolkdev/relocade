@@ -105,10 +105,7 @@ fn guest_draws_pans_and_restores_direct_color_formats() {
                 (changed_eip + 2, restored_eip, format, [384, 32]),
             ] {
                 dos.cpu().context().cpu.set_eip(entry);
-                assert_eq!(
-                    common::run_until(dos.cpu(), stop).await,
-                    ExecutionExit::Interrupted
-                );
+                assert_eq!(dos.run_until(stop).await, ExecutionExit::Interrupted);
                 let current = dos.frames().try_recv().ok().filter(|capture| {
                     matches!(capture.scanout(), Scanout::Packed(layout)
                         if layout.format() == expected_format && layout.origin() == origin)

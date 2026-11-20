@@ -3,7 +3,7 @@ use crate::common::support::inspection::assert_vga_memory_eq;
 use crate::common::support::planes::SnapshotPlanes;
 use futures_util::task::{ArcWake, waker};
 use relocade_clock_test_support::ManualClock;
-use relocade_machine::{Clock, ClockSource, Device, Sleep, Timestamp};
+use relocade_machine::{ClockSource, Device, GuestClock, GuestClockSource, Sleep, Timestamp};
 mod common;
 use common::support::software;
 use common::{boundary, crtc, poll_video};
@@ -39,6 +39,8 @@ impl ArcWake for WakeCount {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 fn status_polling_captures_overdue_output_before_the_guest_timer_notifies() {
     struct DelayedTimer(ManualClock);
+    impl GuestClockSource for DelayedTimer {}
+
     impl ClockSource for DelayedTimer {
         fn now(&self) -> Timestamp {
             self.0.now()
@@ -51,8 +53,9 @@ fn status_polling_captures_overdue_output_before_the_guest_timer_notifies() {
     }
 
     let clock = ManualClock::default();
-    let (vga, mut video) =
-        common::start_video(ConnectedVga::new(Clock::new(DelayedTimer(clock.clone()))));
+    let (vga, mut video) = common::start_video(ConnectedVga::new(
+        GuestClock::new(DelayedTimer(clock.clone())).into(),
+    ));
     let source = vga.device.borrow().frames();
     let wakes = Arc::new(WakeCount::default());
     let waker = waker(wakes.clone());
