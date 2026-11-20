@@ -38,6 +38,7 @@ fn aliases_share_speculative_bytes_and_only_installed_sources_are_indexed() {
     memory.view().write(0x100, &[1]).unwrap();
     memory.view().write(0x103, &[9]).unwrap(); // read-ahead
     let installed = register(&memory, &candidate);
+    assert!(installed.physical_pages().eq([0]));
     let observers = memory.installed_code_at(0x1101);
     assert_eq!(observers.len(), 1);
     assert!(Arc::ptr_eq(&installed, &observers[0]));

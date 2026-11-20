@@ -27,6 +27,13 @@ impl InstalledCode {
         self.changed.load(Ordering::Acquire)
     }
 
+    /// Each backing page belongs to one physical RAM or ROM page, including across A20 aliases.
+    pub(crate) fn physical_pages(&self) -> impl Iterator<Item = u32> + '_ {
+        self.spans_by_page
+            .values()
+            .map(|spans| self.source.spans[spans[0]].physical_page)
+    }
+
     fn spans_on(&self, page: u32) -> impl Iterator<Item = &Span> {
         self.spans_by_page[&page]
             .iter()

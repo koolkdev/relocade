@@ -94,6 +94,7 @@ impl<'a> CodeReader<'a> {
                 let offset = (backing - page) as usize;
                 spans.push(Span {
                     address: linear,
+                    physical_page: super::page_base(span.address),
                     backing,
                     bytes: self.pages[&page][offset..offset + span.len].into(),
                 });

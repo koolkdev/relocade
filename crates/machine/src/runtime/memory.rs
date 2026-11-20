@@ -1,5 +1,8 @@
 //! Wasm memory resources and scoped access for runtime execution.
 
+mod host_writes;
+pub(super) use host_writes::{HostWritePage, HostWritePages};
+
 use super::{ExecutionInterrupt, Result};
 use crate::{memory::CpuBinding, CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;

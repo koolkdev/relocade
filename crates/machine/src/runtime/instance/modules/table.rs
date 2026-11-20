@@ -205,20 +205,19 @@ impl<B: ExportFunction<abi::ExecutionSignature>> DispatchTable<B> {
         &mut self,
         backend: &mut B,
         exports: impl IntoIterator<Item = (ModuleId, u32)>,
-    ) -> Result<Vec<u32>> {
+    ) -> Result<()> {
         let updates: BTreeMap<_, _> = exports
             .into_iter()
             .filter(|&(module, key)| self.owner(key) == Some(module))
             .map(|(_, key)| (key, Target::Unresolved))
             .collect();
-        let keys: Vec<_> = updates.keys().copied().collect();
-        let slots: Vec<_> = keys
-            .iter()
+        let slots: Vec<_> = updates
+            .keys()
             .map(|key| self.entries[key].target.slot().expect("published export"))
             .collect();
         self.publish(backend, updates)?;
         self.free_slots.extend(slots);
-        Ok(keys)
+        Ok(())
     }
 
     /// Publish binding changes and update their callers in the same operation.
