@@ -2,17 +2,17 @@
 
 use crate::{
     controller::{Controller, Port},
+    optional_wait,
     protocol::{ACK, RESEND, SELF_TEST_PASSED},
     scancodes,
 };
-use futures_util::{pin_mut, select_biased, FutureExt, StreamExt};
+use futures_util::{select_biased, FutureExt, StreamExt};
 use relocade_frontend::keyboard::{
     ElementState, KeyCode, KeyboardEvent, KeyboardEvents, PhysicalKey,
 };
 use relocade_machine::{yield_now, Clock, Timestamp};
 use std::{
     collections::{BTreeSet, VecDeque},
-    future::pending,
     time::Duration,
 };
 
@@ -172,36 +172,16 @@ impl Keyboard<'_> {
                 None => None,
             };
             let wake = {
-                let command = self.controller.receive_device(Port::Keyboard).fuse();
-                let output = async {
-                    if let Some(byte) = outgoing {
-                        self.controller.send(Port::Keyboard, byte).await;
-                    } else {
-                        pending::<()>().await;
-                    }
-                }
-                .fuse();
-                let event = async {
-                    match self.events.as_mut() {
-                        Some(events) => events.next().await,
-                        None => pending().await,
-                    }
-                }
-                .fuse();
-                let timer = async {
-                    if let Some(repeat) = self.repeat {
-                        self.clock.sleep_until(repeat.deadline).await;
-                    } else {
-                        pending::<()>().await;
-                    }
-                }
-                .fuse();
-                pin_mut!(command, output, event, timer);
+                let output = outgoing.map(|byte| self.controller.send(Port::Keyboard, byte));
+                let input = self.events.as_mut().map(StreamExt::next);
+                let repeat = self
+                    .repeat
+                    .map(|repeat| self.clock.sleep_until(repeat.deadline));
                 select_biased! {
-                    value = command => Wake::Command(value),
-                    () = output => Wake::Sent,
-                    event = event => Wake::Event(event),
-                    () = timer => Wake::Repeat,
+                    value = self.controller.receive_device(Port::Keyboard).fuse() => Wake::Command(value),
+                    () = optional_wait(output) => Wake::Sent,
+                    event = optional_wait(input) => Wake::Event(event),
+                    () = optional_wait(repeat) => Wake::Repeat,
                 }
             };
             match wake {

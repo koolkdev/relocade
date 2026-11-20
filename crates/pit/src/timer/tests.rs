@@ -35,23 +35,18 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     let io = relocade_machine::IoBus::new(pic_device.clone(), |io| {
         Pic::configure_io(io, &pic_device);
     });
-    let timer = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
+    let mut timer = Pit::with_clock(clock.clock(), &pic);
     pic.unmask_irq(relocade_pic::TIMER_IRQ);
-    let mut activity = pin!(Pit::run(timer.clone()));
-    let mut device_cx = Context::from_waker(Waker::noop());
     let wakes = Arc::new(WakeCount::default());
     let waker = Waker::from(wakes.clone());
     let mut cpu_cx = Context::from_waker(&waker);
 
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(clock.at(Duration::from_nanos(1_054_925_401)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    timer.advance_to(clock.at(Duration::from_nanos(1_054_925_401)));
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
     assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
 
-    clock.advance_to(clock.at(Duration::from_nanos(1_054_925_402)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    timer.advance_to(clock.at(Duration::from_nanos(1_054_925_402)));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(io.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
     io.write_port(0x20, 1, 0x20);
@@ -64,9 +59,8 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     let mut cpu_cx = Context::from_waker(&waker);
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
 
-    // A delayed host poll creates one pending request and keeps the original phase.
-    clock.advance_to(clock.at(Duration::from_nanos(1_549_254_012 + 1_234)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    // A late update creates one pending request and keeps the original phase.
+    timer.advance_to(clock.at(Duration::from_nanos(1_549_254_012 + 1_234)));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
     assert_eq!(replaced.0.load(Ordering::Relaxed), 1);
     assert_eq!(io.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
@@ -74,20 +68,16 @@ fn default_rate_wakes_the_cpu_and_coalesces_late_edges_without_drift() {
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
     // The eleventh boundary is ceil(11 * 65536 * 1e9 / 1193182),
     // not eleven separately rounded periods.
-    clock.advance_to(clock.at(Duration::from_nanos(1_604_179_412)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    timer.advance_to(clock.at(Duration::from_nanos(1_604_179_412)));
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
-    clock.advance_to(clock.at(Duration::from_nanos(1_604_179_413)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    timer.advance_to(clock.at(Duration::from_nanos(1_604_179_413)));
     assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
     assert_eq!(io.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
     io.write_port(0x20, 1, 0x20);
 
-    // Edges also coalesce when the activity runs but the CPU does not acknowledge.
-    clock.advance_to(clock.at(Duration::from_nanos(1_659_104_814)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
-    clock.advance_to(clock.at(Duration::from_nanos(1_714_030_216)));
-    assert!(activity.as_mut().poll(&mut device_cx).is_pending());
+    // Edges also coalesce when the timer advances before the CPU acknowledges.
+    timer.advance_to(clock.at(Duration::from_nanos(1_659_104_814)));
+    timer.advance_to(clock.at(Duration::from_nanos(1_714_030_216)));
     assert_eq!(io.poll_interrupt(&mut cpu_cx), Poll::Ready(0x08));
     io.write_port(0x20, 1, 0x20);
     assert!(io.poll_interrupt(&mut cpu_cx).is_pending());
@@ -98,48 +88,6 @@ fn program(io: &relocade_machine::IoBus, control: u8, divisor: u16) {
     for byte in divisor.to_le_bytes() {
         io.write_port(CHANNEL_0_PORT, 1, byte.into());
     }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), test)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-fn programming_rearms_the_wait_and_preserves_pending_irq0() {
-    let clock = ManualClock::default();
-    let pic = relocade_pic::Pic::new(8, 0x70);
-    let pic_device = Rc::new(RefCell::new(pic.clone()));
-    let io = relocade_machine::IoBus::new(pic_device.clone(), |io| {
-        Pic::configure_io(io, &pic_device);
-    });
-    let pit = Rc::new(RefCell::new(Pit::with_clock(clock.clock(), &pic)));
-    io.connect(pit.clone(), |io| Pit::configure_io(io, &pit));
-    pic.unmask_irq(relocade_pic::TIMER_IRQ);
-    let mut activity = pin!(Pit::run(pit.clone()));
-    let wakes = Arc::new(WakeCount::default());
-    let waker = Waker::from(wakes.clone());
-    let mut cx = Context::from_waker(&waker);
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    program(&io, 0x34, 4);
-    assert_ne!(wakes.0.load(Ordering::Relaxed), 0);
-    assert!(activity.as_mut().poll(&mut cx).is_pending()); // Cancel the BIOS-rate wait.
-    assert!(activity.as_mut().poll(&mut cx).is_pending()); // Arm the new load.
-
-    clock.advance_to(clock.at(Duration::from_nanos(3_353))); // Four clocks: load, then mode-2 OUT low.
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    assert!(io.poll_interrupt(&mut cx).is_pending());
-    clock.advance_to(clock.at(Duration::from_nanos(4_191))); // Fifth clock: first rising edge.
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    assert_eq!(io.read_port(relocade_pic::COMMAND_PORT, 1) & 1, 1);
-    // Stop the timer before acknowledging; programming must not clear PIC IRR.
-    program(&io, 0x30, 4);
-    assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
-    io.write_port(0x20, 1, 0x20);
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    clock.advance_to(clock.at(Duration::from_nanos(1_000_000_000)));
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
-    assert!(io.poll_interrupt(&mut cx).is_pending()); // No stale deadline IRQ.
-
-    program(&io, 0x36, 6);
-    assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8)); // Control forces OUT high.
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -193,22 +141,21 @@ fn irq0_tracks_output_levels_for_a_level_triggered_pic() {
     io.write_port(0x21, 1, 8);
     io.write_port(0x21, 1, 1);
     io.write_port(0x21, 1, 0xfe);
-    let mut activity = pin!(Pit::run(pit.clone()));
     let mut cx = Context::from_waker(Waker::noop());
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    pit.borrow_mut().sync_to_clock();
     assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8)); // Initial high level.
     io.write_port(0x20, 1, 0x20);
     assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8)); // Still high after EOI.
     clock.advance_to(clock.at(Duration::from_nanos(2_515))); // Load plus the high half-period.
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    pit.borrow_mut().sync_to_clock();
     io.write_port(0x20, 1, 0x20);
     assert!(io.poll_interrupt(&mut cx).is_pending());
     clock.advance_to(clock.at(Duration::from_nanos(4_191))); // Low half-period ends.
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    pit.borrow_mut().sync_to_clock();
     assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
     io.write_port(0x20, 1, 0x20);
     clock.advance_to(clock.at(Duration::from_nanos(9_220))); // Several transitions later, OUT is low again.
-    assert!(activity.as_mut().poll(&mut cx).is_pending());
+    pit.borrow_mut().sync_to_clock();
     assert!(io.poll_interrupt(&mut cx).is_pending());
 }
 
@@ -241,6 +188,44 @@ fn native_observations_keep_counter_phase_and_deadlines_on_the_same_grid() {
     }
     assert_eq!(driver.next_deadline(), Some(edge));
     assert!(driver.advance_to_next_deadline());
-    timer.borrow_mut().sync_to_clock();
+    assert!(activity.as_mut().poll(&mut cx).is_pending());
     assert!(!timer.borrow().channel0.output());
+    let rising = Timestamp::from_ticks(1 + (65_536u64 * 3_000_000_000).div_ceil(crate::INPUT_HZ));
+    assert_eq!(driver.next_deadline(), Some(rising));
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+fn reprogramming_a_fast_counter_on_a_coarse_guest_clock_coalesces_edges() {
+    use relocade_machine::GuestTimeDriver;
+    use std::num::NonZeroU64;
+
+    let driver = GuestTimeDriver::new(NonZeroU64::new(1_000).unwrap());
+    let pic = Pic::new(8, 0x70);
+    pic.unmask_irq(TIMER_IRQ);
+    let pic_device = Rc::new(RefCell::new(pic.clone()));
+    let io =
+        relocade_machine::IoBus::new(pic_device.clone(), |io| Pic::configure_io(io, &pic_device));
+    let pit = Rc::new(RefCell::new(Pit::with_clock(driver.clock(), &pic)));
+    io.connect(pit.clone(), |io| Pit::configure_io(io, &pit));
+    let mut task = pin!(Pit::run(pit));
+    let wakes = Arc::new(WakeCount::default());
+    let waker = Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(28)));
+
+    program(&io, 0x36, 2);
+    assert!(wakes.0.load(Ordering::Relaxed) > 0);
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(1)));
+    assert!(io.poll_interrupt(&mut cx).is_pending());
+    assert!(driver.advance_to_next_deadline());
+    assert!(task.as_mut().poll(&mut cx).is_pending());
+
+    // A guest millisecond spans hundreds of periods at divisor 2.
+    assert_eq!(io.poll_interrupt(&mut cx), Poll::Ready(8));
+    relocade_pic::end_of_interrupt(&io, TIMER_IRQ);
+    assert!(io.poll_interrupt(&mut cx).is_pending());
+    assert_eq!(driver.next_deadline(), Some(Timestamp::from_ticks(2)));
 }

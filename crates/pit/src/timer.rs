@@ -1,11 +1,10 @@
-//! PC timer registers and IRQ0 activity. BIOS owns the handler and clock data.
+//! PC timer registers and IRQ0 delivery. BIOS owns the handler and clock data.
 
 use crate::{Counter, CHANNEL_0_PORT, CHANNEL_2_PORT, CONTROL_PORT, INPUT_HZ};
 use event_listener::Event;
 use futures_lite::future::or;
 use relocade_machine::{
-    yield_now, Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner,
-    Timestamp,
+    Clock, Device, DeviceCallbacks, DeviceConnection, PortRead, PortWrite, Runner, Timestamp,
 };
 use relocade_pic::{IrqLine, Pic, TIMER_IRQ};
 use std::{cell::RefCell, rc::Rc};
@@ -34,7 +33,7 @@ pub struct Pit {
 }
 
 impl Pit {
-    /// Creates the timer on the runner's clock, connects IRQ0 and starts its activity.
+    /// Creates the timer on the runner's clock, connects IRQ0 and starts its task.
     pub async fn initialize(runner: &Runner, pic: &Pic) -> Rc<RefCell<Self>> {
         let pit = Rc::new(RefCell::new(Self::with_clock(runner.clock().clone(), pic)));
         runner
@@ -73,6 +72,8 @@ impl Pit {
     }
 
     /// Starts channel 0 in BIOS mode 3 with divisor 65,536, with OUT0 high.
+    /// The PC supplies its guest clock. When running the PIT task with another
+    /// clock, successive waits for future transitions must eventually suspend.
     pub fn with_clock(clock: Clock, pic: &Pic) -> Self {
         let mut channel0 = Counter::default();
         channel0.set_gate(true);
@@ -232,21 +233,16 @@ impl Pit {
 impl Device for Pit {
     async fn run(device: Rc<RefCell<Self>>) {
         let clock = device.borrow().clock.clone();
-        device.borrow_mut().sync_to_clock();
         loop {
             let (deadline, changed) = {
-                let device = device.borrow();
-                (device.next_deadline(), device.changed.listen())
+                let mut pit = device.borrow_mut();
+                pit.sync_to_clock();
+                (pit.next_deadline(), pit.changed.listen())
             };
-            if let Some(deadline) = deadline {
-                or(clock.sleep_until(deadline), changed).await;
-            } else {
-                changed.await;
+            match deadline {
+                Some(at) => or(clock.sleep_until(at), changed).await,
+                None => changed.await,
             }
-            device.borrow_mut().sync_to_clock();
-            // Divisor 2 can leave every deadline overdue. Give the CPU a turn
-            // even then; elapsed edges still coalesce at the next synchronization.
-            yield_now().await;
         }
     }
 }
