@@ -43,8 +43,9 @@ fn dos_preserves_pc_configuration_errors_without_installing_services() {
 
 #[test]
 fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
-    use relocade_machine::{ExecutionWorker, GuestTimeConfig, SessionConfig};
-    use std::num::NonZeroU64;
+    use relocade_clock_test_support::ManualClock;
+    use relocade_machine::{ExecutionWorker, SessionConfig};
+    use std::{num::NonZeroU64, time::Duration};
 
     pollster::block_on(async {
         let mut machine =
@@ -52,10 +53,14 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
         let prepared = machine
             .create_cpu(relocade_dos::configuration::cpu(), None)
             .unwrap();
+        let host = ManualClock::new();
         let worker = ExecutionWorker::spawn(
             prepared,
-            SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
-            async |runner| {
+            SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
+                NonZeroU64::new(1_000_000).unwrap(),
+            ))
+            .with_host_clock(host.clone()),
+            async move |runner| {
                 let clock = runner.clock().clone();
                 let mut dos = relocade_dos::Dos::with_configuration(
                     runner,
@@ -80,6 +85,7 @@ fn successive_com_and_mz_launches_preserve_hardware_retirement_and_time() {
                     }
                     assert_eq!(dos.cpu().cpu_state().instruction_count(), count);
                     assert_eq!(clock.now(), time);
+                    host.advance_by(Duration::from_millis(1));
                     assert_eq!(dos.run().await, Ok(0xff));
                     assert!(dos.cpu().cpu_state().instruction_count() > count);
                     assert!(clock.now() > time);

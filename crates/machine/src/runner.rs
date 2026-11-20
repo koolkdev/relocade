@@ -1,11 +1,8 @@
 //! CPU execution and registered device activities on one owner.
 
-mod guest_time;
-mod schedule;
-pub use guest_time::GuestTimeConfig;
 mod worker;
 
-use schedule::ExecutionSchedule;
+use crate::scheduler::{GuestTimeConfig, Timing};
 pub use worker::{ExecutionWorker, SessionConfig};
 
 use crate::worker::{HostTurns, JobExecutor, JobQueue, WakeEndpoint, WakePeer, Worker, WorkerWake};
@@ -36,7 +33,7 @@ use std::{
 /// An optional compiler connection automatically compiles hot Real16 functions.
 /// Protected-mode execution does not collect call profiles or request compilation.
 pub struct Runner {
-    schedule: ExecutionSchedule,
+    time: Timing,
     activities: mpsc::UnboundedSender<LocalBoxFuture<'static, ()>>,
     pending: Option<mpsc::UnboundedReceiver<LocalBoxFuture<'static, ()>>>,
     wake: Rc<WorkerWake<ExecutionInterrupt>>,
@@ -48,21 +45,29 @@ impl Runner {
     /// Constructs the local CPU backend and binds its wake endpoint.
     /// The supplied clock must progress independently of this session. Use
     /// [`Self::with_guest_time`] for a clock advanced by CPU execution.
-    /// Normally called by [`ExecutionWorker`]. The endpoint must come from a
-    /// connection created for this CPU; retain its host until the session ends.
+    /// Supply the endpoint from this CPU's wake connection and retain the host
+    /// until the session ends.
     pub async fn new(
         clock: Clock,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        Self::with_schedule(ExecutionSchedule::from_clock(clock), cpu, endpoint).await
+        Self::initialize(cpu, endpoint, clock, None).await
     }
 
-    async fn with_schedule(
-        schedule: ExecutionSchedule,
+    async fn initialize(
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
+        host: Clock,
+        guest: Option<GuestTimeConfig>,
     ) -> Result<Self> {
+        let time = match guest {
+            Some(config) => {
+                crate::GuestTimeDriver::validate_target(cpu.configuration().execution_target())?;
+                Timing::with_guest_time(config, host)
+            }
+            None => Timing::from_clock(host),
+        };
         let (activities, pending) = mpsc::unbounded();
         let wake = Rc::new(WorkerWake::new(endpoint.bind(cpu.interrupt_handle())));
         let (cpu, compiler) = cpu.into_cpu_and_compiler(IoBus::default()).await?;
@@ -79,7 +84,7 @@ impl Runner {
             .with_compiler(compiler)
             .with_host_turns(wake.host_turns());
         Ok(Self {
-            schedule,
+            time,
             activities,
             pending: Some(pending),
             wake,
@@ -114,7 +119,7 @@ impl Runner {
     }
 
     pub fn clock(&self) -> &Clock {
-        self.schedule.clock()
+        self.time.clock()
     }
 
     /// Post this resource to another worker and retain its `bind()` guard there
@@ -227,10 +232,8 @@ impl Runner {
         let mut binding = None;
         let exit = poll_fn(|cx| {
             if binding.is_none() {
-                binding = Some(self.schedule.bind(cpu, cx.waker()));
-            } else if let Some(exit) =
-                std::task::ready!(self.schedule.poll_cpu(cpu, &self.wake, cx))
-            {
+                binding = Some(self.time.bind(cpu, cx.waker()));
+            } else if let Some(exit) = std::task::ready!(self.time.poll_cpu(cpu, &self.wake, cx)) {
                 return Poll::Ready(exit);
             }
             self.wake.repoll(cx);
@@ -243,23 +246,14 @@ impl Runner {
         exit
     }
 
-    /// Runs on emulated guest time with optional host pacing for active and idle
-    /// execution. Device deadlines subdivide each execution slice. Instruction targets
-    /// remain soft checkpoint limits, so a slice can overshoot.
-    /// Time pauses between calls to [`Self::run_cpu`]; existing pacing credit and
-    /// the host/guest offset survive those pauses.
+    /// Runs devices on guest time, with host-timed idle waits and optional CPU pacing.
+    /// Guest time pauses between calls to [`Self::run_cpu`].
     pub async fn with_guest_time(
         config: GuestTimeConfig,
-        host: Option<Clock>,
+        host: Clock,
         cpu: CpuHandle,
         endpoint: WakeEndpoint<ExecutionInterrupt>,
     ) -> Result<Self> {
-        crate::GuestTimeDriver::validate_target(cpu.configuration().execution_target())?;
-        Self::with_schedule(
-            ExecutionSchedule::with_guest_time(config, host),
-            cpu,
-            endpoint,
-        )
-        .await
+        Self::initialize(cpu, endpoint, host, Some(config)).await
     }
 }

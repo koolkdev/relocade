@@ -1,5 +1,5 @@
 use super::Runner;
-use crate::worker::{wake_connection, WakeEndpoint, WakeHost, WakePeer, Worker};
+use crate::worker::{wake_connection, WakeHost, WakePeer, Worker};
 use crate::{
     timer_service, Clock, ClockSource, CpuHandle, ExecutionInterrupt, GuestTimeConfig, Result,
 };
@@ -28,7 +28,7 @@ impl SessionConfig {
         }
     }
 
-    /// Use an emulated guest clock. Without a host clock, guest time is unpaced.
+    /// Drive guest hardware on its emulated clock using the platform's timing policy.
     pub fn guest(config: GuestTimeConfig) -> Self {
         Self {
             guest: Some(config),
@@ -36,8 +36,8 @@ impl SessionConfig {
         }
     }
 
-    /// Use a caller-driven host clock. For a guest session this enables pacing.
-    /// A host session starts its own timer service if no clock is supplied.
+    /// Use a clock supplied by the caller. The caller drives this source for the
+    /// lifetime of the session. By default the worker starts its own timer service.
     pub fn with_host_clock(mut self, host: impl ClockSource + Send + 'static) -> Self {
         self.host = Some(Box::new(host));
         self
@@ -61,16 +61,7 @@ impl<T: Send + 'static> ExecutionWorker<T> {
         config: SessionConfig,
         session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
     ) -> Self {
-        if let Some(guest) = config.guest {
-            return Self::spawn_with(
-                cpu,
-                async move |cpu, endpoint| {
-                    let host = config.host.map(Clock::from_boxed_source);
-                    Runner::with_guest_time(guest, host, cpu, endpoint).await
-                },
-                session,
-            );
-        }
+        let (wake_host, endpoint) = wake_connection(cpu.interrupt_handle());
         let (host, timers): (Box<dyn ClockSource + Send>, _) = match config.host {
             Some(host) => (host, None),
             None => {
@@ -78,38 +69,22 @@ impl<T: Send + 'static> ExecutionWorker<T> {
                 (Box::new(host), Some(timers))
             }
         };
-        let mut execution = Self::spawn_with(
-            cpu,
-            async move |cpu, endpoint| {
-                Runner::new(Clock::from_boxed_source(host), cpu, endpoint).await
-            },
-            session,
-        );
-        execution.timers = timers.map(|driver| driver.spawn_with_peer(execution.wake_peer()));
-        execution
-    }
-
-    fn spawn_with(
-        cpu: CpuHandle,
-        make_runner: impl AsyncFnOnce(CpuHandle, WakeEndpoint<ExecutionInterrupt>) -> Result<Runner>
-            + Send
-            + 'static,
-        session: impl AsyncFnOnce(Runner) -> T + Send + 'static,
-    ) -> Self {
-        let (wake_host, endpoint) = wake_connection(cpu.interrupt_handle());
         let worker = Worker::spawn_with(cpu, move |cpu, mut stopped| async move {
-            let runner = {
-                let initialize = pin!(make_runner(cpu, endpoint));
-                match select(&mut stopped, initialize).await {
-                    Either::Left(_) => return Ok(None),
-                    Either::Right((runner, _)) => runner?,
-                }
+            let initialize = async move {
+                let host: Box<dyn ClockSource> = host;
+                let clock = Clock::from_source(host.into());
+                Runner::initialize(cpu, endpoint, clock, config.guest).await
+            };
+            let runner = match select(&mut stopped, pin!(initialize)).await {
+                Either::Left(_) => return Ok(None),
+                Either::Right((runner, _)) => runner?,
             };
             Ok(runner.run(stopped, session).await)
         });
+        let timers = timers.map(|driver| driver.spawn_with_peer(wake_host.peer()));
         Self {
             worker,
-            timers: None,
+            timers,
             wake_host,
         }
     }

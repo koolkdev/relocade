@@ -15,7 +15,7 @@ async fn blocked_cpu(runner: &mut Runner) {
     .unwrap();
 }
 
-async fn late_host_wake() {
+async fn idle_deadlines() {
     let (host, mut armed, source) = host();
     let host_time = host.clone();
     let setup = configuration();
@@ -23,10 +23,9 @@ async fn late_host_wake() {
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = ExecutionWorker::spawn(
         prepared,
-        SessionConfig::guest(
-            GuestTimeConfig::new(NonZeroU64::new(1000).unwrap())
-                .with_slice_duration(Duration::from_millis(5)),
-        )
+        SessionConfig::guest(relocade_machine::GuestTimeConfig::new(
+            NonZeroU64::new(1000).unwrap(),
+        ))
         .with_host_clock(source),
         async |mut runner| {
             let clock = runner.clock().clone();
@@ -40,9 +39,9 @@ async fn late_host_wake() {
                 exit: None,
                 exit_after_waits: true,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
@@ -57,13 +56,14 @@ async fn late_host_wake() {
             observed
         },
     );
-    assert_eq!(
-        armed.next().await,
-        Some(host_time.at(Duration::from_millis(5)))
-    );
-    host.advance_by(Duration::from_millis(11));
-    // The next slice is already paid for. Its guest deadlines still run, with
-    // no timer request for the elapsed 10 ms host boundary.
+    // A late host wake services the due deadline and starts the next idle wait.
+    for (scheduled, wake) in [(2, 11), (13, 13), (15, 15), (17, 17), (19, 19), (21, 21)] {
+        assert_eq!(
+            armed.next().await,
+            Some(host_time.at(Duration::from_millis(scheduled)))
+        );
+        host.advance_to(host_time.at(Duration::from_millis(wake)));
+    }
     assert_eq!(
         worker.join().await.unwrap(),
         Some(vec![
@@ -142,144 +142,60 @@ async fn replace_idle_deadline() {
                 observed: Vec::new(),
                 exit: None,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             blocked_cpu(&mut runner).await;
             device.borrow_mut().exit = Some(runner.cpu().exit_handle());
-            {
-                let mut runs = futures_util::stream::FuturesUnordered::new();
-                runs.push(runner.run_cpu());
-                assert_eq!(
-                    runs.next().await,
-                    Some(ExecutionExit::Host(HostExit::Return))
-                );
-            }
+            runner.connect(device.clone(), |_| {}).await;
+            let mut runs = futures_util::stream::FuturesUnordered::new();
+            runs.push(runner.run_cpu());
+            assert_eq!(
+                runs.next().await,
+                Some(ExecutionExit::Host(HostExit::Return))
+            );
             let result = device.borrow().observed.clone();
             result
         },
     );
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_millis(4)))
+        Some(host_time.at(Duration::from_millis(15)))
     );
     host.advance_by(Duration::from_millis(2));
     replace.send(()).unwrap();
     replacement_done.await.unwrap();
+    // Replacing the sleep retains the idle origin. Only the remaining 3 ms elapse.
     assert_eq!(
-        host.next_deadline(),
-        Some(host_time.at(Duration::from_millis(4))),
-        "an activity notification must retain the existing pacing wait"
+        armed.next().await,
+        Some(host_time.at(Duration::from_millis(5)))
     );
-    host.advance_by(Duration::from_millis(2));
+    host.advance_to(host_time.at(Duration::from_millis(5)));
     assert_eq!(
         worker.join().await.unwrap(),
-        Some(vec![Duration::from_millis(4), Duration::from_millis(5)])
+        Some(vec![Duration::ZERO, Duration::from_millis(5)])
     );
     assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
 }
 
-async fn cancelled_run_rebinds() {
-    let (host, mut armed, source) = host();
-    let host_time = host.clone();
-    let (pause, paused) = oneshot::channel();
-    let (stopped, stop) = oneshot::channel();
-    let (resume, resumed) = oneshot::channel();
-    let setup = configuration();
-    let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
-    let prepared = machine.create_cpu(setup.cpu, None).unwrap();
-    let worker = ExecutionWorker::spawn(
-        prepared,
-        SessionConfig::guest(config()).with_host_clock(source),
-        async move |mut runner| {
-            let clock = runner.clock().clone();
-            let start = clock.now();
-            let device = Rc::new(RefCell::new(Deadlines {
-                clock: runner.clock().clone(),
-                deadlines: vec![clock.deadline_after(start, Duration::from_millis(10))],
-                observed: Vec::new(),
-                exit: None,
-                exit_after_waits: true,
-            }));
-            runner.connect(device.clone(), |_| {}).await;
-            blocked_cpu(&mut runner).await;
-            device.borrow_mut().exit = Some(runner.cpu().exit_handle());
-            {
-                match select(pin!(runner.run_cpu()), pin!(paused)).await {
-                    Either::Right((Ok(()), _)) => {}
-                    _ => panic!("the run must still be waiting at cancellation"),
-                }
-            }
-            stopped.send(()).unwrap();
-            resumed.await.unwrap();
-            assert_eq!(
-                runner.clock().now(),
-                runner
-                    .clock()
-                    .deadline_after(start, Duration::from_millis(4))
-            );
-            assert_eq!(
-                runner.run_cpu().await,
-                ExecutionExit::Host(HostExit::Return)
-            );
-            assert_eq!(
-                device.borrow().observed,
-                [clock.deadline_after(start, Duration::from_millis(10))]
-            );
-        },
-    );
-    assert_eq!(
-        armed.next().await,
-        Some(host_time.at(Duration::from_millis(4)))
-    );
-    pause.send(()).unwrap();
-    stop.await.unwrap();
-    assert_eq!(
-        host.next_deadline(),
-        None,
-        "cancelling execution must cancel its host wait"
-    );
-    host.advance_by(Duration::from_secs(1));
-    resume.send(()).unwrap();
-    assert_eq!(
-        armed.next().await,
-        Some(host_time.at(Duration::from_millis(1004)))
-    );
-    host.advance_by(Duration::from_millis(10));
-    assert_eq!(worker.join().await.unwrap(), Some(()));
-    machine.shutdown().await.unwrap();
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn late_host_wakes_service_each_guest_deadline_without_shifting_the_mapping() {
-    pollster::block_on(late_host_wake());
+fn idle_waits_target_each_guest_device_deadline() {
+    pollster::block_on(idle_deadlines());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn late_host_wakes_service_each_guest_deadline_without_shifting_the_mapping() {
-    late_host_wake().await;
+async fn idle_waits_target_each_guest_device_deadline() {
+    idle_deadlines().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn timer_replacement_preserves_the_current_burst_and_host_wait() {
+fn timer_replacement_rearms_the_idle_host_wait() {
     pollster::block_on(replace_idle_deadline());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn timer_replacement_preserves_the_current_burst_and_host_wait() {
+async fn timer_replacement_rearms_the_idle_host_wait() {
     replace_idle_deadline().await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    pollster::block_on(cancelled_run_rebinds());
-}
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen_test::wasm_bindgen_test]
-async fn cancelling_a_run_releases_host_wait_and_rebinding_excludes_paused_host_time() {
-    cancelled_run_rebinds().await;
 }
 
 async fn busy_bursts() {
@@ -291,8 +207,11 @@ async fn busy_bursts() {
     let prepared = machine.create_cpu(setup.cpu, None).unwrap();
     let worker = ExecutionWorker::spawn(
         prepared,
-        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(750).unwrap()))
-            .with_host_clock(source),
+        SessionConfig::guest(
+            relocade_machine::GuestTimeConfig::new(NonZeroU64::new(10_000).unwrap())
+                .with_cpu_limit(NonZeroU64::new(750).unwrap()),
+        )
+        .with_host_clock(source),
         async move |mut runner| {
             let code = [0x40, 0xeb, 0xfd]; // Two-instruction loop, with checkpoint overshoot.
             prepare_cpu(&mut runner, &code).await;
@@ -309,16 +228,25 @@ async fn busy_bursts() {
             )
             .await
             .unwrap();
-            let exit = runner.cpu().exit_handle();
-            let ((), result) = join(
-                async move {
-                    stopped.await.unwrap();
-                    exit.request();
-                },
-                runner.run_cpu(),
-            )
-            .await;
-            assert_eq!(result, ExecutionExit::Host(HostExit::Return));
+            // A device deadline splits the first burst. Both runs count toward
+            // the same four-instruction charge at the first host wait.
+            let deadline = runner.clock().sleep_until(Timestamp::from_ticks(2));
+            assert!(matches!(
+                select(pin!(deadline), pin!(runner.run_cpu())).await,
+                Either::Left(((), _))
+            ));
+            assert_eq!(runner.cpu().cpu_state().instruction_count(), 2);
+            assert!(matches!(
+                select(pin!(stopped), pin!(runner.run_cpu())).await,
+                Either::Left((Ok(()), _))
+            ));
+            assert_eq!(runner.clock().now().ticks(), 8);
+            assert_eq!(
+                runner
+                    .clock()
+                    .duration_between(Timestamp::from_ticks(0), runner.clock().now()),
+                Duration::from_micros(800)
+            );
             runner.cpu().cpu_state().instruction_count()
         },
     );
@@ -329,14 +257,14 @@ async fn busy_bursts() {
         Some(host_time.at(Duration::from_nanos(5_333_334)))
     );
     host.advance_by(Duration::from_millis(9));
-    // A late wake keeps the 4 ms grid, rather than granting another 4 ms
-    // relative to the preceding overshoot or current host time.
+    // A late wake starts a fresh burst; each four-instruction block pair is charged
+    // at the host limit, independently of the nominal 10,000 Hz guest clock.
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_nanos(13_333_334)))
+        Some(host_time.at(Duration::from_nanos(14_333_334)))
     );
     stop.send(()).unwrap();
-    assert_eq!(worker.join().await.unwrap(), Some(10));
+    assert_eq!(worker.join().await.unwrap(), Some(8));
     assert_eq!(host.next_deadline(), None);
     machine.shutdown().await.unwrap();
 }
@@ -361,7 +289,6 @@ async fn ready_service_during_pacing() {
                 exit: None,
                 exit_after_waits: false,
             }));
-            runner.connect(device.clone(), |_| {}).await;
             prepare_cpu(&mut runner, &[0x90]).await;
             let exit = runner.cpu().exit_handle();
             let completion = Rc::new(RefCell::new(Some(completion)));
@@ -369,32 +296,27 @@ async fn ready_service_during_pacing() {
             cpu.install([Hook::host(0x100, async move || {
                 let completion = completion.borrow_mut().take().unwrap();
                 completion.await.unwrap();
-                // A ready host service can complete while guest execution is
-                // still waiting for its next host pacing boundary.
+                // The device timer is still pending on the host.
                 exit.request();
             })])
             .await
             .unwrap();
+            runner.connect(device.clone(), |_| {}).await;
             assert_eq!(
                 runner.run_cpu().await,
                 ExecutionExit::Host(HostExit::Return)
             );
-            assert_eq!(
-                runner.clock().now(),
-                runner
-                    .clock()
-                    .deadline_after(start, Duration::from_millis(4))
-            );
+            assert_eq!(runner.clock().now(), start);
             assert_eq!(runner.cpu().cpu_state().instruction_count(), 0);
             assert!(device.borrow().observed.is_empty());
         },
     );
     assert_eq!(
         armed.next().await,
-        Some(host_time.at(Duration::from_millis(4)))
+        Some(host_time.at(Duration::from_millis(10)))
     );
     complete.send(()).unwrap();
-    // Completion must be polled without waiting for host time to catch up.
+    // A ready host service exits without waiting for the idle device timer.
     assert_eq!(worker.join().await.unwrap(), Some(()));
     assert_eq!(host.clock().now(), host_time.at(Duration::ZERO));
     assert_eq!(host.next_deadline(), None);
@@ -403,22 +325,22 @@ async fn ready_service_during_pacing() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn active_execution_preserves_burst_boundaries_and_checkpoint_overshoot() {
+fn cpu_limit_charges_actual_retirement_at_an_independent_rate() {
     pollster::block_on(busy_bursts());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn active_execution_preserves_burst_boundaries_and_checkpoint_overshoot() {
+async fn cpu_limit_charges_actual_retirement_at_an_independent_rate() {
     busy_bursts().await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn a_ready_host_service_can_exit_during_a_pacing_wait() {
+fn a_ready_host_service_can_exit_during_an_idle_wait() {
     pollster::block_on(ready_service_during_pacing());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn a_ready_host_service_can_exit_during_a_pacing_wait() {
+async fn a_ready_host_service_can_exit_during_an_idle_wait() {
     ready_service_during_pacing().await;
 }

@@ -1,7 +1,8 @@
 use super::*;
 use futures_channel::oneshot;
-use relocade_machine::{GuestTimeConfig, Hook};
-use std::{num::NonZeroU64, sync::Mutex};
+use relocade_clock_test_support::ManualClock;
+use relocade_machine::Hook;
+use std::sync::Mutex;
 
 async fn pause_worker() {
     let (mut machine, config) = setup();
@@ -16,7 +17,7 @@ async fn pause_worker() {
     let (entered, mut started) = oneshot::channel();
     let worker = ExecutionWorker::<()>::spawn(
         cpu,
-        SessionConfig::guest(GuestTimeConfig::new(NonZeroU64::new(1_000_000).unwrap())),
+        SessionConfig::host().with_host_clock(ManualClock::new()),
         async move |mut runner| {
             let state = runner.cpu().cpu_state();
             let entered = Mutex::new(Some(entered));

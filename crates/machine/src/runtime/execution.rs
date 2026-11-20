@@ -120,6 +120,11 @@ impl Cpu {
         self.exit.0.get().map(|exit| self.finish_exit(exit))
     }
 
+    /// Guest instruction execution is waiting for an eligible IRQ or a host service.
+    pub(crate) fn is_blocked(&self) -> bool {
+        self.halted || self.pending.is_some()
+    }
+
     /// Enters guest calls or IRQs and dispatches instructions until a checkpoint,
     /// exit or pending service stops execution. New and resumed host calls are
     /// polled at their entries; the active call is polled by `poll_host_call`.
