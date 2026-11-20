@@ -26,6 +26,38 @@ use std::{
 pub struct Clock {
     source: Rc<dyn ClockSource>,
     tick_rate: TickRate,
+    emulated: bool,
+}
+
+/// A timeline advanced by the emulator or by an explicit simulation controller.
+/// Hardware uses this handle for guest-visible counters, deadlines and register reads.
+#[derive(Clone)]
+pub struct GuestClock(Clock);
+
+/// An emulated time source. Its controller determines progress independently of
+/// elapsed wall time. Platform timers implement only [`ClockSource`].
+pub trait GuestClockSource: ClockSource {}
+
+impl GuestClock {
+    pub fn new(source: impl GuestClockSource + 'static) -> Self {
+        let mut clock = Clock::new(source);
+        clock.emulated = true;
+        Self(clock)
+    }
+}
+
+impl std::ops::Deref for GuestClock {
+    type Target = Clock;
+
+    fn deref(&self) -> &Clock {
+        &self.0
+    }
+}
+
+impl From<GuestClock> for Clock {
+    fn from(guest: GuestClock) -> Self {
+        guest.0
+    }
 }
 
 /// Supplies monotonic readings and cancellable waits in one timebase.
@@ -55,7 +87,13 @@ impl Clock {
         Self {
             tick_rate: TickRate::new(source.ticks_per_second()),
             source: Rc::new(source),
+            emulated: false,
         }
+    }
+
+    /// Recovers the hardware clock when this handle came from an emulated source.
+    pub fn as_guest(&self) -> Option<GuestClock> {
+        self.emulated.then(|| GuestClock(self.clone()))
     }
 
     /// Reads native progress on this clock's timeline.
@@ -105,8 +143,8 @@ impl Clock {
     /// Output tasks await this before publishing to another worker.
     ///
     /// Host clocks use the timestamp unchanged. Paced guest clocks use the
-    /// current correspondence, excluding pauses between CPU runs. Unpaced guest
-    /// clocks and clocks outside an active run complete immediately. The mapping
+    /// current correspondence throughout a live session, including time between
+    /// foreground programs. Unpaced and unbound guest clocks complete immediately. The mapping
     /// is captured when this method is called. The deadline stays fixed, including
     /// across pauses and guest lag recovery.
     /// Registration happens on first poll; elapsed deadlines need no timer.
