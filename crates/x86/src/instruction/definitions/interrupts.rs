@@ -1,7 +1,7 @@
 //! Software interrupt entry through the canonical real-mode vector table.
 
 use super::*;
-use crate::{flags::Flag, ExceptionVector, ExecutionProfile};
+use crate::{flags::Flag, ExceptionVector};
 
 instruction_families! {
     INT {
@@ -27,16 +27,10 @@ fn interrupt(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => {
-            execution.unsupported()?;
-            Ok(fallthrough)
-        }
-        ExecutionProfile::Real16 => {
-            let vector = vector.read(execution)?;
-            execution.enter_interrupt(vector, fallthrough)
-        }
-    }
+    let real = execution.real_mode()?;
+    execution.unsupported_if(real.eq(false))?;
+    let vector = vector.read(execution)?;
+    execution.enter_interrupt(vector, fallthrough)
 }
 
 fn overflow_interrupt(
@@ -44,16 +38,13 @@ fn overflow_interrupt(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => execution.unsupported()?,
-        ExecutionProfile::Real16 => {
-            let overflow = execution.read_flag(Flag::OF)?;
-            execution.enter_interrupt_if(
-                overflow,
-                (ExceptionVector::Overflow as u32).into(),
-                fallthrough.clone(),
-            )?;
-        }
-    }
+    let real = execution.real_mode()?;
+    execution.unsupported_if(real.eq(false))?;
+    let overflow = execution.read_flag(Flag::OF)?;
+    execution.enter_interrupt_if(
+        overflow,
+        (ExceptionVector::Overflow as u32).into(),
+        fallthrough.clone(),
+    )?;
     Ok(fallthrough)
 }
