@@ -67,7 +67,10 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
 /// CPU field values the execution owner establishes on every entry to this profile.
 /// Builders may fold reads from these facts before emitting any guard.
 #[derive(Clone)]
-pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
+pub(crate) struct EntryGuarantees {
+    pub(crate) interrupt_flags: InterruptFlagPolicy,
+    fields: Arc<[StatePattern]>,
+}
 
 impl EntryGuarantees {
     pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
@@ -87,11 +90,14 @@ impl EntryGuarantees {
                 protected_code_default,
             ));
         }
-        Self(fields.into())
+        Self {
+            interrupt_flags: InterruptFlagPolicy::for_profile(profile),
+            fields: fields.into(),
+        }
     }
 
     pub(crate) fn patterns(&self) -> &[StatePattern] {
-        &self.0
+        &self.fields
     }
 }
 

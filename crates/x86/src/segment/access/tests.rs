@@ -31,11 +31,9 @@ fn translation(
         },
         move |mut body| {
             let mut state = match profile {
-                Some(profile) => State::for_entry(
-                    &cpu,
-                    profile,
-                    &crate::profile::EntryGuarantees::for_profile(profile),
-                ),
+                Some(profile) => {
+                    State::for_entry(&cpu, &crate::profile::EntryGuarantees::for_profile(profile))
+                }
                 None => State::new(&cpu),
             };
             let choice = body.parameter::<I32>(0)?;
@@ -142,7 +140,6 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                 move |mut body, _| {
                     let mut state = State::for_entry(
                         &cpu,
-                        SegmentProfile::Flat32.into(),
                         &crate::profile::EntryGuarantees::for_profile(
                             SegmentProfile::Flat32.into(),
                         ),
@@ -194,7 +191,6 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
         let mut state = State::for_entry(
             &cpu,
-            ExecutionProfile::Real16,
             &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
         );
         let first = state.segments().base(&mut body, &Segment::Ds.into())?;

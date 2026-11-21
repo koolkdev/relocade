@@ -18,7 +18,6 @@ pub(super) fn lookup(
         let eip = cpu.read_eip(&mut body)?;
         let mut state = State::for_entry(
             &cpu,
-            ExecutionProfile::Real16,
             &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
         );
         body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
@@ -44,7 +43,6 @@ pub(super) fn define_call_resolver(
         })?;
         let mut state = State::for_entry(
             &cpu,
-            ExecutionProfile::Real16,
             &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
         );
         let cs = state

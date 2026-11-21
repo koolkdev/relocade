@@ -36,7 +36,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, State};
-use crate::{exception::ExceptionValues, CpuState, ExecutionProfile};
+use crate::{exception::ExceptionValues, CpuState};
 use transfer::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -200,10 +200,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.code_default_is_32_bit(&mut self.body)
     }
 
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.state.profile()
-    }
-
     /// Retired instructions, including this entry's unpublished progress.
     pub(crate) fn instruction_count(&mut self) -> Result<Val<I64>, BuildError> {
         self.state.instruction_count(&mut self.body, self.completed)
@@ -244,33 +240,6 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
 
     pub(super) fn condition(&mut self, condition: Condition) -> Result<Val<I1>, BuildError> {
         self.state.condition(&mut self.body, condition)
-    }
-
-    /// Raises a guest fault at the current instruction's restart boundary.
-    /// Publishes completed work without retiring the faulting instruction.
-    pub(crate) fn fault(
-        &mut self,
-        exception: impl Into<ExceptionValues>,
-    ) -> Result<(), BuildError> {
-        self.fault_if(true, exception)
-    }
-
-    /// Ends a faulting path with the current state. Define only effects permitted
-    /// to survive that fault; the instruction's EIP and retirement stay at entry.
-    pub(crate) fn fault_if(
-        &mut self,
-        condition: impl Into<Val<I1>>,
-        exception: impl Into<ExceptionValues>,
-    ) -> Result<(), BuildError> {
-        self.body.if_(condition, |mut body| {
-            self.state.publish(&mut body, &self.eip, self.completed)?;
-            interrupt::raise_exception(body, exception.into(), self.interrupt)
-        })
-    }
-
-    /// Stops unsupported execution at the current instruction's restart boundary.
-    pub(crate) fn unsupported(&mut self, opcode: impl Into<Val<I8>>) -> Result<(), BuildError> {
-        self.unsupported_if(true, opcode)
     }
 
     /// Stops an unsupported execution path without retiring the instruction.

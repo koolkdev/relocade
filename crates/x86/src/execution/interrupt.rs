@@ -7,7 +7,7 @@ use crate::{
     real_mode::{FarPointer, InterruptFrame},
     ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, Segment,
 };
-use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I8};
+use relocade_compiler::{BuildError, Val, I1, I16, I32, I8};
 
 /// The stack and IVT share one availability decision; a slow transfer can
 /// change routing for later transfers in either span.
@@ -82,30 +82,48 @@ impl InterruptEntry {
     }
 }
 
-/// The caller has published the fault's restart boundary. Instruction faults
-/// tail-call the module's entry helper; entry failures and unsupported delivery
-/// return directly, without another attempt to enter a handler.
-pub(super) fn raise_exception(
-    mut body: BlockBuilder<'_>,
-    exception: ExceptionValues,
-    interrupt: Option<TypedFunc<crate::abi::InterruptSignature>>,
-) -> Result<(), BuildError> {
-    let Some(interrupt) = interrupt else {
-        return crate::state::exit::exception(body, exception);
-    };
-    exception.clone().match_(&mut body, |body, case| {
-        let vector = match case {
-            ExceptionCase::DivideError => ExceptionVector::DivideError,
-            ExceptionCase::BoundRangeExceeded => ExceptionVector::BoundRangeExceeded,
-            ExceptionCase::InvalidOpcode => ExceptionVector::InvalidOpcode,
-            _ => return crate::state::exit::exception(body, exception.clone()),
-        };
-        interrupt.tail_call(body, vector as u32)
-    })?;
-    body.trap()
-}
-
 impl ExecutionBuilder<'_, '_> {
+    /// Publishes completed work without retiring the faulting instruction.
+    pub(crate) fn fault(
+        &mut self,
+        exception: impl Into<ExceptionValues>,
+    ) -> Result<(), BuildError> {
+        self.fault_if(true, exception)
+    }
+
+    /// Ends a faulting path with the current state. Define only effects permitted
+    /// to survive that fault; the instruction's EIP and retirement stay at entry.
+    pub(crate) fn fault_if(
+        &mut self,
+        condition: impl Into<Val<I1>>,
+        exception: impl Into<ExceptionValues>,
+    ) -> Result<(), BuildError> {
+        let protection_enabled = self.state.protection_enabled(&mut self.body)?;
+        self.body.if_(condition, |mut body| {
+            self.state.publish(&mut body, &self.eip, self.completed)?;
+            let exception = exception.into();
+
+            // The IVT entry helper has no handler of its own. Faults during
+            // entry return to the host to avoid recursive delivery.
+            let Some(interrupt) = self.interrupt else {
+                return crate::state::exit::exception(body, exception);
+            };
+            body.if_(protection_enabled, |body| {
+                crate::state::exit::exception(body, exception.clone())
+            })?;
+            exception.clone().match_(&mut body, |body, case| {
+                let vector = match case {
+                    ExceptionCase::DivideError => ExceptionVector::DivideError,
+                    ExceptionCase::BoundRangeExceeded => ExceptionVector::BoundRangeExceeded,
+                    ExceptionCase::InvalidOpcode => ExceptionVector::InvalidOpcode,
+                    _ => return crate::state::exit::exception(body, exception.clone()),
+                };
+                interrupt.tail_call(body, vector as u32)
+            })?;
+            body.trap()
+        })
+    }
+
     /// Software INT supplies its fallthrough; external entry saves the current IP.
     pub(crate) fn enter_interrupt(
         &mut self,

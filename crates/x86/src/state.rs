@@ -48,7 +48,7 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     simd: StateFields,
     fields: StateFields,
-    profile: Option<crate::ExecutionProfile>,
+    interrupt_flags: crate::profile::InterruptFlagPolicy,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -72,36 +72,24 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             fields: StateFields::new(cpu.memory()),
-            profile: None,
+            interrupt_flags: crate::profile::InterruptFlagPolicy::Architectural,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
     }
 
     /// Each function starts with fresh retained values under the same entry guarantees.
-    pub(crate) fn for_entry(
-        cpu: &'cpu Cpu,
-        profile: crate::ExecutionProfile,
-        guarantees: &EntryGuarantees,
-    ) -> Self {
+    pub(crate) fn for_entry(cpu: &'cpu Cpu, guarantees: &EntryGuarantees) -> Self {
         let mut state = Self::new(cpu);
-        state.profile = Some(profile);
+        state.interrupt_flags = guarantees.interrupt_flags;
         state.fields = state
             .fields
             .with_entry_guarantees(guarantees.patterns().to_vec());
         state
     }
 
-    pub(crate) fn profile(&self) -> crate::ExecutionProfile {
-        self.profile
-            .expect("execution requires an admitted profile")
-    }
-
     pub(crate) fn interrupt_flag_policy(&self) -> crate::profile::InterruptFlagPolicy {
-        self.profile.map_or(
-            crate::profile::InterruptFlagPolicy::Architectural,
-            crate::profile::InterruptFlagPolicy::for_profile,
-        )
+        self.interrupt_flags
     }
 
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {
