@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn comparisons(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Equality, signed extrema and opposite signs differ in both halves.
     for (equal, greater, left, right, equal_mask, greater_mask) in [
         (

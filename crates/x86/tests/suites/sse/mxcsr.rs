@@ -1,6 +1,7 @@
 //! MXCSR control policy, literal snapshot preservation and precise memory faults.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::step::TestModule;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
@@ -32,7 +33,7 @@ fn sse_mxcsr_rejected_prefixes() {
 }
 
 fn readback(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let values = [0, 0x1f80, 0xffff]
         .into_iter()
         .chain((0..16).map(|bit| 1 << bit));
@@ -67,7 +68,7 @@ fn readback(frontend: Frontend) {
 }
 
 fn architectural_stores(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (raw, expected) in [
         (CpuState::default().simd.mxcsr, 0x1f80_u32),
         (0xabcd_9fc5, 0x9fc5),
@@ -93,7 +94,7 @@ fn architectural_stores(frontend: Frontend) {
 }
 
 fn reserved_bits(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for bit in 16..32 {
         let code = [0x0f, 0xae, 0x10, 0x0f, 0x57, 0xff, 0x0f, 0xae, 0x11];
         let mut image = image(&code);
@@ -125,7 +126,7 @@ fn reserved_bits(frontend: Frontend) {
 }
 
 fn split_memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0xae, 0x10, 0x0f, 0xae, 0x19];
     let mut image = image(&code);
     image.cpu.registers.eax = 0x4ffe;
@@ -156,7 +157,7 @@ fn split_memory(frontend: Frontend) {
 }
 
 fn memory_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (modrm, second_present, error) in [(0x10, false, 0), (0x18, false, 2), (0x18, true, 3)] {
         let code = [0x0f, 0xae, modrm];
         let mut image = image(&code);

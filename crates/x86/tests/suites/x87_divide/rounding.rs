@@ -1,6 +1,7 @@
 //! A native u128 rational supplies expectations independently of radix division.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 pub(super) fn exact_quotient(
     numerator: u64,
@@ -31,7 +32,7 @@ pub(super) fn exact_quotient(
 }
 
 fn quotients(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let boundaries = [
         LEADING,
         LEADING + 1,
@@ -89,7 +90,7 @@ fn quotients(frontend: Frontend) {
 }
 
 fn range_boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let two = (LEADING, 0x4000);
     let half = (LEADING, 0x3ffe);
     for (numerator, denominator, control, result, flags) in [

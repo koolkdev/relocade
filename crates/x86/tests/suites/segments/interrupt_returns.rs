@@ -1,5 +1,7 @@
 //! Protected interrupt returns commit a complete frame or retain the restart state.
 
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+use relocade_x86::CompilerConfig;
 use relocade_x86::SegmentRegister;
 
 #[path = "interrupt_returns/faults.rs"]
@@ -14,8 +16,8 @@ use crate::support::{
     step::{Event, SegmentResolution, TestModule},
 };
 use crate::{
-    CpuState, DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentProfile,
+    CpuState, DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind,
 };
 
 fn frame(word: bool, offset: u32, selector: u16, flags: u32) -> Vec<u8> {
@@ -29,9 +31,9 @@ fn frame(word: bool, offset: u32, selector: u16, flags: u32) -> Vec<u8> {
     bytes
 }
 
-fn image(code: &[u8], profile: ExecutionProfile) -> Image {
+fn image(code: &[u8], config: CompilerConfig) -> Image {
     let mut image = Image::new(code);
-    code_defaults(&mut image, profile);
+    code_defaults(&mut image, config);
     image.cpu.segments.cs.selector = 0x1b;
     image.cpu.registers.esp = 0x9000;
     // Only the low bit carries NT.
@@ -72,33 +74,13 @@ fn cleared_flags(mut cpu: CpuState, word: bool) -> CpuState {
 
 #[test]
 fn operand_width_stack_width_and_new_code_defaults_are_independent() {
-    for (profile, code, word, stack_big) in [
-        (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            &[0xcf][..],
-            false,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x66, 0x64, 0x67, 0xcf],
-            true,
-            false,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0xcf],
-            true,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x66, 0xcf],
-            false,
-            false,
-        ),
+    for (config, code, word, stack_big) in [
+        (FLAT32, &[0xcf][..], false, true),
+        (SEGMENTED32, &[0x66, 0x64, 0x67, 0xcf], true, false),
+        (SEGMENTED16, &[0xcf], true, true),
+        (SEGMENTED16, &[0x66, 0xcf], false, false),
     ] {
-        let mut image = image(code, profile);
+        let mut image = image(code, config);
         image.cpu.registers.esp = 0xabcd_9000;
         image.cpu.segments.ss = loaded(
             0x23,
@@ -139,7 +121,7 @@ fn operand_width_stack_width_and_new_code_defaults_are_independent() {
         cpu.registers.esp = if word { 0xabcd_9006 } else { 0xabcd_900c };
         cpu.instruction_count = 0;
         check_one(
-            profile,
+            config,
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -165,8 +147,8 @@ fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
         (true, 0xffff),
     ] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-        let mut image = image(&code, profile);
+        let config = FLAT32;
+        let mut image = image(&code, config);
         image.data(0x8000, &frame(word, 0x200, 0x27, bits));
         let mut cpu = cleared_flags(image.cpu, word);
         let flags = &mut cpu.flags.bytes;
@@ -188,7 +170,7 @@ fn flag_images_replace_pending_status_and_word_preserves_high_flags() {
         cpu.segments.cs = loaded(0x27, 0xc000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.instruction_count = 0;
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -211,8 +193,8 @@ fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
         (false, 0xffff_fffc, u32::MAX, true, true, 8),
     ] {
         let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-        let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-        let mut image = image(&code, profile);
+        let config = SEGMENTED32;
+        let mut image = image(&code, config);
         image.cpu.segments.ss = loaded(
             0x23,
             0,
@@ -249,7 +231,7 @@ fn frames_are_consecutive_and_only_pointer_adjustment_wraps_at_stack_width() {
             Exit::StackFault { error: 0 }
         };
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &resolutions,

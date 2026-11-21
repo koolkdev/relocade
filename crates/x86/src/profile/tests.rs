@@ -1,13 +1,13 @@
-use crate::{CpuState, ExecutionProfile};
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
+use crate::CpuState;
 
 #[test]
-fn profile_admission_requires_supported_mode_and_control_state() {
-    use crate::SegmentProfile;
-    for (profile, cpu) in [
-        (ExecutionProfile::Real16, CpuState::real_mode()),
-        (SegmentProfile::Flat32.into(), CpuState::default()),
+fn admission_requires_supported_mode_and_control_state() {
+    for (config, cpu) in [
+        (REAL16, CpuState::real_mode()),
+        (FLAT32, CpuState::default()),
     ] {
-        assert!(cpu.is_compatible_with(profile));
+        assert!(cpu.is_compatible_with(config.entry));
         for change in [
             (|cpu: &mut CpuState| cpu.cr0 ^= 1) as fn(&mut CpuState),
             |cpu| cpu.cr0 |= 1 << 2,     // EM
@@ -21,38 +21,30 @@ fn profile_admission_requires_supported_mode_and_control_state() {
         ] {
             let mut changed = cpu;
             change(&mut changed);
-            assert!(!changed.is_compatible_with(profile), "{changed:?}");
+            assert!(!changed.is_compatible_with(config.entry), "{changed:?}");
         }
     }
     for cpl in 0..3 {
         let mut cpu = CpuState::default();
         cpu.segments.cs.selector = 0x18 | cpl;
-        assert!(!cpu.is_compatible_with(SegmentProfile::Flat32));
-        assert!(!cpu.is_compatible_with(SegmentProfile::Segmented32));
+        assert!(!cpu.is_compatible_with(FLAT32.entry));
+        assert!(!cpu.is_compatible_with(SEGMENTED32.entry));
     }
 }
 
 #[test]
 fn segmented_admission_accepts_independent_stack_widths() {
-    use crate::{SegmentDefaultSize::*, SegmentProfile};
-    for (code, profile, other) in [
-        (
-            Bits16,
-            SegmentProfile::Segmented16,
-            SegmentProfile::Segmented32,
-        ),
-        (
-            Bits32,
-            SegmentProfile::Segmented32,
-            SegmentProfile::Segmented16,
-        ),
+    use crate::SegmentDefaultSize::*;
+    for (code, config, other) in [
+        (Bits16, SEGMENTED16, SEGMENTED32),
+        (Bits32, SEGMENTED32, SEGMENTED16),
     ] {
         for stack in [Bits16, Bits32] {
             let cpu = CpuState::protected_mode(code, stack);
-            assert!(cpu.is_compatible_with(profile));
-            assert!(!cpu.is_compatible_with(other));
+            assert!(cpu.is_compatible_with(config.entry));
+            assert!(!cpu.is_compatible_with(other.entry));
             assert_eq!(
-                cpu.is_compatible_with(SegmentProfile::Flat32),
+                cpu.is_compatible_with(FLAT32.entry),
                 code == Bits32 && stack == Bits32
             );
         }
@@ -86,30 +78,30 @@ fn code_width_and_segment_guarantees_are_admitted_independently() {
 }
 
 #[test]
-fn entry_compatibility_requires_the_complete_target_and_current_segment_assumptions() {
-    use crate::{Compiler, CompilerConfig, CpuFeature, CpuModel, MemoryBackend, SegmentProfile};
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+fn entry_compatibility_requires_matching_codegen_inputs_and_current_segment_assumptions() {
+    use crate::{Compiler, CompilerConfig, CpuFeature, CpuModel, MemoryBackend};
+    let config = FLAT32;
     let flat = CpuState::default();
-    assert!(target.is_compatible_with(target, &flat));
+    assert!(config.is_compatible_with(config, &flat));
     let physical = CompilerConfig {
         memory_backend: MemoryBackend::PhysicalBus,
-        ..target
+        ..config
     };
-    assert!(!physical.is_compatible_with(target, &flat));
-    let restricted = Compiler::new(SegmentProfile::Flat32)
+    assert!(!physical.is_compatible_with(config, &flat));
+    let restricted = Compiler::from_config(FLAT32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
-        .target();
-    assert!(!target.is_compatible_with(restricted, &flat));
-    assert!(!restricted.is_compatible_with(target, &flat));
-    let unlimited = Compiler::new(SegmentProfile::Flat32)
+        .config();
+    assert!(!config.is_compatible_with(restricted, &flat));
+    assert!(!restricted.is_compatible_with(config, &flat));
+    let unlimited = Compiler::from_config(FLAT32)
         .with_instruction_budgets(false)
-        .target();
-    assert!(!target.is_compatible_with(unlimited, &flat));
-    assert!(!unlimited.is_compatible_with(target, &flat));
-    let other_profile = Compiler::new(SegmentProfile::Segmented32).target();
-    assert!(!target.is_compatible_with(other_profile, &flat));
-    assert!(!target.is_compatible_with(target, &CpuState::real_mode()));
-    let real = Compiler::new(ExecutionProfile::Real16).target();
+        .config();
+    assert!(!config.is_compatible_with(unlimited, &flat));
+    assert!(!unlimited.is_compatible_with(config, &flat));
+    let segmented = SEGMENTED32;
+    assert!(!config.is_compatible_with(segmented, &flat));
+    assert!(!config.is_compatible_with(config, &CpuState::real_mode()));
+    let real = REAL16;
     assert!(real.is_compatible_with(real, &CpuState::real_mode()));
-    assert!(!real.is_compatible_with(target, &CpuState::real_mode()));
+    assert!(!real.is_compatible_with(config, &CpuState::real_mode()));
 }

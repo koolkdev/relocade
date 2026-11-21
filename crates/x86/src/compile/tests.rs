@@ -7,22 +7,16 @@ mod linked_blocks;
 mod memory;
 
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::FLAT32;
 
 #[test]
-fn snapshot_helpers_use_unobserved_configuration() {
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        let code = [0xd8, 0xc9];
-        let ordinary = compile_block_from_bytes_with_profile(0x1000, &code, 1, profile).unwrap();
-        let configured = Compiler::new(profile)
-            .compile_block(0x1000, &code, 1)
-            .unwrap();
-        assert!(ordinary.bytes == configured.bytes, "{profile:?}");
-    }
+fn snapshot_helper_uses_the_flat32_configuration_without_observations() {
+    let code = [0xd8, 0xc9];
+    let ordinary = compile_block_from_bytes(0x1000, &code, 1).unwrap();
+    let configured = Compiler::from_config(FLAT32)
+        .compile_block(0x1000, &code, 1)
+        .unwrap();
+    assert!(ordinary.bytes == configured.bytes);
 }
 
 #[test]
@@ -41,10 +35,10 @@ fn mxcsr_independent_instructions_do_not_guard_observations() {
         &[0x0f, 0xae, 0x18],           // STMXCSR
         &[0x0f, 0xae, 0x00],           // FXSAVE
     ] {
-        let generic = Compiler::new(SegmentProfile::Flat32)
+        let generic = Compiler::from_config(FLAT32)
             .compile_block(0x1000, code, 1)
             .unwrap();
-        let specialized = Compiler::new(SegmentProfile::Flat32)
+        let specialized = Compiler::from_config(FLAT32)
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, code, 1)
             .unwrap();

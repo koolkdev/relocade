@@ -1,7 +1,8 @@
 use super::data;
+use crate::support::config::{SEGMENTED16, SEGMENTED32};
 use crate::{
     CpuState, DescriptorTables, Exception::*, PrivilegeLevel::*, Segment, SegmentDefaultSize::*,
-    SegmentDescriptor, SegmentDescriptorKind::*, SegmentProfile, SegmentRegister,
+    SegmentDescriptor, SegmentDescriptorKind::*, SegmentRegister,
 };
 
 #[test]
@@ -170,8 +171,8 @@ fn direct_code_resolution_uses_call_jump_rules_and_normalizes_cs_rpl() {
                     assert_eq!(result, Ok(expected));
                     let mut cpu = CpuState::default();
                     cpu.segments.cs = expected;
-                    assert!(cpu.segments.is_compatible_with(SegmentProfile::Segmented16));
-                    assert!(!cpu.segments.is_compatible_with(SegmentProfile::Segmented32));
+                    assert!(cpu.segments.is_compatible_with(SEGMENTED16.entry));
+                    assert!(!cpu.segments.is_compatible_with(SEGMENTED32.entry));
                 } else {
                     assert_eq!(result, Err(GeneralProtection { error_code: 0x20 }));
                 }

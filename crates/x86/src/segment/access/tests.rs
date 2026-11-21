@@ -1,10 +1,11 @@
 use crate::state::State;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::test_step::AccessResult;
 use crate::{
     memory::Intent,
     segment::{Segment, SegmentSelection},
     state::Cpu,
-    CompiledModule, ExecutionProfile, SegmentProfile,
+    CompiledModule,
 };
 use relocade_compiler::{Program, Signature, Type, Val, I32, I64};
 use wasmparser::{Operator, Parser, Payload, Validator};
@@ -13,11 +14,11 @@ mod ranges;
 mod runtime;
 
 fn translation(
-    profile: impl Into<Option<ExecutionProfile>>,
+    config: impl Into<Option<crate::CompilerConfig>>,
     intent: Intent,
     selection: Option<fn(Val<I32>) -> SegmentSelection>,
 ) -> CompiledModule {
-    let profile = profile.into();
+    let config = config.into();
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.raw_function(
@@ -30,10 +31,11 @@ fn translation(
             .results,
         },
         move |mut body| {
-            let mut state = match profile {
-                Some(profile) => {
-                    State::for_entry(&cpu, &crate::profile::EntryGuarantees::for_profile(profile))
-                }
+            let mut state = match config {
+                Some(config) => State::for_entry(
+                    &cpu,
+                    &crate::profile::EntryGuarantees::from_assumptions(config.entry),
+                ),
                 None => State::new(&cpu),
             };
             let choice = body.parameter::<I32>(0)?;
@@ -58,7 +60,7 @@ fn translation(
     CompiledModule {
         bytes,
         entry: "translate".into(),
-        execution_target: profile.map(|profile| crate::Compiler::new(profile).target()),
+        config,
     }
 }
 
@@ -79,11 +81,7 @@ fn function_bodies(bytes: &[u8]) -> Vec<&[u8]> {
 #[test]
 fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() {
     for intent in [Intent::Read, Intent::Write, Intent::ReadOrExecute] {
-        let expected = translation(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            intent,
-            None,
-        );
+        let expected = translation(FLAT32, intent, None);
         for selection in [
             (|_| Segment::Ds.into()) as fn(Val<I32>) -> SegmentSelection,
             |_| Segment::Es.into(),
@@ -91,11 +89,7 @@ fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() 
             default_segment,
             |_| SegmentSelection::indexed((Segment::Ds as u32).into()),
         ] {
-            let actual = translation(
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-                intent,
-                Some(selection),
-            );
+            let actual = translation(FLAT32, intent, Some(selection));
             assert_eq!(
                 function_bodies(&actual.bytes),
                 function_bodies(&expected.bytes)
@@ -106,13 +100,13 @@ fn flat_data_segments_and_address_defaults_generate_only_the_effective_offset() 
 
 #[test]
 fn address_defaults_load_each_dynamic_field_once() {
-    for (profile, expected_loads) in [
-        (ExecutionProfile::Real16, (1, 0)),
-        (SegmentProfile::Segmented16.into(), (2, 4)),
-        (SegmentProfile::Segmented32.into(), (2, 4)),
+    for (config, expected_loads) in [
+        (REAL16, (1, 0)),
+        (SEGMENTED16, (2, 4)),
+        (SEGMENTED32, (2, 4)),
     ] {
         for intent in [Intent::Read, Intent::Write] {
-            let actual = translation(profile, intent, Some(default_segment));
+            let actual = translation(config, intent, Some(default_segment));
             let mut loads = (0, 0);
             for payload in Parser::new(0).parse_all(&actual.bytes) {
                 if let Payload::CodeSectionEntry(body) = payload.unwrap() {
@@ -140,9 +134,7 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                 move |mut body, _| {
                     let mut state = State::for_entry(
                         &cpu,
-                        &crate::profile::EntryGuarantees::for_profile(
-                            SegmentProfile::Flat32.into(),
-                        ),
+                        &crate::profile::EntryGuarantees::from_assumptions(FLAT32.entry),
                     );
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
@@ -191,7 +183,7 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::from_assumptions(REAL16.entry),
         );
         let first = state.segments().base(&mut body, &Segment::Ds.into())?;
         let condition = body.parameter::<I32>(0)?.eq(0);
@@ -225,16 +217,8 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
 #[test]
 fn flat_code_reads_and_fetches_generate_only_the_effective_offset() {
     for intent in [Intent::Read, Intent::Fetch, Intent::ReadOrExecute] {
-        let actual = translation(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            intent,
-            Some(|_| Segment::Cs.into()),
-        );
-        let expected = translation(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            intent,
-            None,
-        );
+        let actual = translation(FLAT32, intent, Some(|_| Segment::Cs.into()));
+        let expected = translation(FLAT32, intent, None);
         assert_eq!(
             function_bodies(&actual.bytes),
             function_bodies(&expected.bytes)

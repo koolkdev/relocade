@@ -54,7 +54,7 @@ pub struct CompiledBlocks {
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
     /// Shared execution policy. Each entry records its own decode width.
-    pub execution_target: CompilerConfig,
+    pub config: CompilerConfig,
 }
 
 /// Compiles a byte snapshot with [`EntryAssumptions::FLAT32`] and [`MemoryBackend::HostPageTable`].
@@ -113,7 +113,7 @@ pub fn compile_block_from_bytes(
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
-/// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).target()));
+/// assert_eq!(block.config, Some(Compiler::new(SegmentProfile::Segmented16).target()));
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
@@ -200,7 +200,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: blocks.bytes,
             entry: entry.export,
-            execution_target: Some(blocks.execution_target),
+            config: Some(blocks.config),
         })
     }
 
@@ -219,7 +219,7 @@ impl Compiler {
     ///
     /// Every export requires its recorded CS.D, original EIP and valid snapshot bytes under
     /// the current CS base. The embedding admits entries against
-    /// [`CompiledBlocks::execution_target`] and maintains their validity throughout
+    /// [`CompiledBlocks::config`] and maintains their validity throughout
     /// execution, as described by the [host integration contract](crate#entry-validity).
     /// The caller must also limit blocks at registered execution boundaries absent
     /// from this batch.
@@ -239,7 +239,7 @@ impl Compiler {
     /// assert_eq!(module.entries[0].export, "block_1000");
     /// assert_eq!(module.entries[0].byte_len, 5);
     /// assert_eq!(module.entries[1].export, "block_2000");
-    /// assert_eq!(module.execution_target, compiler.target());
+    /// assert_eq!(module.config, compiler.target());
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
     pub fn compile_blocks(

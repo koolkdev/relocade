@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::FLAT32;
 use relocade_x86::{Compiler, CpuFeature, CpuModel};
 
 fn configured_features(frontend: Frontend) {
@@ -50,15 +51,15 @@ fn configured_features(frontend: Frontend) {
             [0x601, 0, 0, 0x0780_8111],
         ),
     ] {
-        let target = Compiler::new(SegmentProfile::Flat32)
+        let config = Compiler::from_config(FLAT32)
             .with_cpu_model(CpuModel::default().with_feature(feature, false))
-            .target();
+            .config();
         for (leaf, values) in [(0, VENDOR), (1, features), (u32::MAX, features)] {
             let mut image = Image::new(&[0x0f, 0xa2]);
             image.cpu.registers.eax = leaf;
             let module = match frontend {
-                Frontend::Block => blocks.get_with_target(&image.cpu, &[0x0f, 0xa2], 1, target),
-                Frontend::Interpreter => TestModule::interpreter_with_target(target),
+                Frontend::Block => blocks.get(&image.cpu, &[0x0f, 0xa2], 1, config),
+                Frontend::Interpreter => TestModule::interpreter_with_config(config),
             };
             let cpu = result(image.cpu, values, 2, 1);
             assert_eq!(
@@ -76,8 +77,8 @@ fn configured_features(frontend: Frontend) {
         }
         let image = Image::new(instruction);
         let module = match frontend {
-            Frontend::Block => blocks.get_with_target(&image.cpu, instruction, 1, target),
-            Frontend::Interpreter => TestModule::interpreter_with_target(target),
+            Frontend::Block => blocks.get(&image.cpu, instruction, 1, config),
+            Frontend::Interpreter => TestModule::interpreter_with_config(config),
         };
         image.check_unchanged_exit(
             module,
@@ -101,12 +102,12 @@ fn configured_features(frontend: Frontend) {
     ] {
         model = model.with_feature(feature, false);
     }
-    let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
+    let compiler = Compiler::from_config(FLAT32).with_cpu_model(model);
     let mut image = Image::new(&[0x0f, 0xa2]);
     image.cpu.registers.eax = 1;
     let module = match frontend {
-        Frontend::Block => blocks.get_with_target(&image.cpu, &[0x0f, 0xa2], 1, compiler.target()),
-        Frontend::Interpreter => TestModule::interpreter_with_target(compiler.target()),
+        Frontend::Block => blocks.get(&image.cpu, &[0x0f, 0xa2], 1, compiler.config()),
+        Frontend::Interpreter => TestModule::interpreter_with_config(compiler.config()),
     };
     let cpu = result(image.cpu, [0x601, 0, 0, 0], 2, 1);
     assert_eq!(

@@ -3,17 +3,18 @@
 #[path = "cpu_features/extensions.rs"]
 mod extensions;
 
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{
     blocks::BlockModules,
     execution::{test_frontends, Frontend},
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{BlockError, Compiler, CpuFeature, CpuModel, ExecutionProfile, SegmentProfile};
+use relocade_x86::{BlockError, Compiler, CpuFeature, CpuModel};
 
 fn disabled_forms(frontend: Frontend) {
     let mut blocks = BlockModules::default();
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
+    for config in [FLAT32, REAL16] {
         for (feature, forms) in [
             (
                 CpuFeature::Cmov,
@@ -29,17 +30,17 @@ fn disabled_forms(frontend: Frontend) {
             ),
         ] {
             let model = CpuModel::default().with_feature(feature, false);
-            let target = Compiler::new(profile).with_cpu_model(model).target();
+            let config = Compiler::from_config(config).with_cpu_model(model).config();
             for &instruction in forms {
                 // The incomplete successor must not enter the snapshot boundary.
                 let code = [instruction, &[0x0f]].concat();
                 let mut image = Image::new(&code);
-                if profile == ExecutionProfile::Real16 {
+                if config.entry == REAL16.entry {
                     image.initialize_real_mode();
                 }
                 image.cpu.flags.status_source.kind = 0;
                 image.cpu.flags.bytes.zf = 0; // Even an untaken CMOVE requires CMOV.
-                if profile == ExecutionProfile::Real16 {
+                if config.entry == REAL16.entry {
                     image.cpu.flags.set_eflags(0x202);
                     image.cpu.registers.esp = 0x5555_5006;
                     image.map(0, 0x7000, false);
@@ -47,10 +48,10 @@ fn disabled_forms(frontend: Frontend) {
                     image.data(0x7018, &[0, 6, 0, 0]); // #UD vector -> 0000:0600.
                 }
                 let module = match frontend {
-                    Frontend::Block => blocks.get_with_target(&image.cpu, &code, 8, target),
-                    Frontend::Interpreter => TestModule::interpreter_with_target(target),
+                    Frontend::Block => blocks.get(&image.cpu, &code, 8, config),
+                    Frontend::Interpreter => TestModule::interpreter_with_config(config),
                 };
-                if profile == ExecutionProfile::Real16 {
+                if config.entry == REAL16.entry {
                     let mut cpu = image.cpu;
                     cpu.eip = 0x600;
                     cpu.registers.esp -= 6;
@@ -81,7 +82,7 @@ fn disabled_forms(frontend: Frontend) {
 test_frontends!(disabled_forms_fault_before_operand_access, disabled_forms);
 
 fn restricted_compiler() -> Compiler {
-    Compiler::new(SegmentProfile::Flat32)
+    Compiler::from_config(FLAT32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
 }
 
@@ -106,7 +107,7 @@ fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
             .compile_block(0x1000, &code, 8)
             .unwrap(),
     );
-    let run = TestModule::interpreter_run_with_target(restricted_compiler().target());
+    let run = TestModule::interpreter_run_with_config(restricted_compiler().config());
     for module in [&block, run] {
         assert_eq!(
             module.observe(&image.input(), 1),
@@ -119,7 +120,7 @@ fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
 
 #[test]
 fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
-    let module = TestModule::interpreter_with_target(restricted_compiler().target());
+    let module = TestModule::interpreter_with_config(restricted_compiler().config());
     for (code, exit) in [
         (
             &[0x0f, 0x44][..],
@@ -176,14 +177,14 @@ fn disabled_forms_remain_decodable_and_unrelated_forms_keep_their_code() {
     let ordinary: Vec<_> = forms
         .iter()
         .map(|(_, code)| {
-            Compiler::new(SegmentProfile::Flat32)
+            Compiler::from_config(FLAT32)
                 .compile_block(0x1000, code, 1)
                 .unwrap()
                 .bytes
         })
         .collect();
     for disabled in [Cx8, Cmov, Tsc, Fpu, Mmx, Fxsr, Sse, Sse2, Clflush] {
-        let compiler = Compiler::new(SegmentProfile::Flat32)
+        let compiler = Compiler::from_config(FLAT32)
             .with_cpu_model(CpuModel::default().with_feature(disabled, false));
         for ((requirements, code), bytes) in forms.iter().zip(&ordinary) {
             let configured = compiler.compile_block(0x1000, code, 1).unwrap();

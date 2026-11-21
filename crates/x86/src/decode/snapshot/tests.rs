@@ -1,7 +1,8 @@
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16};
 use crate::{
-    BlockError, CallTarget, Compiler, CpuFeature, CpuModel, ExecutionProfile, InstructionFlow,
+    BlockError, CallTarget, Compiler, CpuFeature, CpuModel, InstructionFlow,
     SegmentDefaultSize::{Bits16, Bits32},
-    SegmentProfile, SnapshotInstruction,
+    SnapshotInstruction,
 };
 
 #[test]
@@ -13,10 +14,7 @@ fn decoding_keeps_the_captured_width_and_wrapping_encoding_end() {
         assert_eq!(instruction.eip(), eip);
         assert_eq!(instruction.code_default_size(), size);
         assert_eq!(instruction.next_eip(), next);
-        assert_eq!(
-            instruction.flow(Compiler::new(SegmentProfile::Flat32).target()),
-            InstructionFlow::Continue
-        );
+        assert_eq!(instruction.flow(FLAT32), InstructionFlow::Continue);
     }
     assert_eq!(
         SnapshotInstruction::decode(&bytes[..3], eip, Bits32).err(),
@@ -31,7 +29,7 @@ fn decoding_keeps_the_captured_width_and_wrapping_encoding_end() {
 fn near_transfers_report_operand_sized_targets_and_return_offsets() {
     use InstructionFlow::{Branch, Jump, NearCall, Stop};
 
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let config = FLAT32;
     for code in [
         &[0x75, 0xfe][..],                     // JNZ rel8
         &[0xe3, 0xfe],                         // JECXZ
@@ -41,7 +39,7 @@ fn near_transfers_report_operand_sized_targets_and_return_offsets() {
         &[0x0f, 0x85, 0xfa, 0xff, 0xff, 0xff], // JNZ rel32
     ] {
         let instruction = SnapshotInstruction::decode(code, 0x1000, Bits32).unwrap();
-        assert_eq!(instruction.flow(target), Branch { taken: 0x1000 });
+        assert_eq!(instruction.flow(config), Branch { taken: 0x1000 });
         assert_eq!(instruction.next_eip(), 0x1000 + code.len() as u32);
     }
     for (code, expected) in [
@@ -54,14 +52,11 @@ fn near_transfers_report_operand_sized_targets_and_return_offsets() {
         (&[0xc3], Stop),       // RET
     ] {
         let instruction = SnapshotInstruction::decode(code, 0xffff, Bits32).unwrap();
-        assert_eq!(instruction.flow(target), expected, "{code:02x?}");
+        assert_eq!(instruction.flow(config), expected, "{code:02x?}");
         assert_eq!(instruction.next_eip(), 0xffff + code.len() as u32);
     }
     let instruction = SnapshotInstruction::decode(&[0x66, 0xeb, 0], 0xffff, Bits16).unwrap();
-    assert_eq!(
-        instruction.flow(Compiler::new(ExecutionProfile::Real16).target()),
-        Jump { target: 0x10002 }
-    );
+    assert_eq!(instruction.flow(REAL16), Jump { target: 0x10002 });
 }
 
 #[test]
@@ -74,11 +69,11 @@ fn far_calls_report_the_operand_sized_return_offset_in_both_modes() {
     ] {
         let instruction = SnapshotInstruction::decode(code, start, Bits16).unwrap();
         assert_eq!(instruction.next_eip(), 0x10000);
-        for profile in [ExecutionProfile::Real16, SegmentProfile::Segmented16.into()] {
+        for config in [REAL16, SEGMENTED16] {
             assert_eq!(
-                instruction.flow(Compiler::new(profile).target()),
+                instruction.flow(config),
                 InstructionFlow::FarCall { return_eip },
-                "{profile:?}, {code:02x?}"
+                "{config:?}, {code:02x?}"
             );
         }
     }
@@ -86,7 +81,7 @@ fn far_calls_report_the_operand_sized_return_offset_in_both_modes() {
 
 #[test]
 fn context_changes_and_traps_end_the_block() {
-    let target = Compiler::new(ExecutionProfile::Real16).target();
+    let config = REAL16;
     for code in [
         &[0xea, 0, 0x20, 0, 0x30][..], // JMP FAR 3000:2000
         &[0xff, 0x2e, 0, 0x20],        // JMP FAR [2000]
@@ -97,7 +92,7 @@ fn context_changes_and_traps_end_the_block() {
     ] {
         let instruction = SnapshotInstruction::decode(code, 0, Bits16).unwrap();
         assert_eq!(
-            instruction.flow(target),
+            instruction.flow(config),
             InstructionFlow::Stop,
             "{code:02x?}"
         );
@@ -106,24 +101,24 @@ fn context_changes_and_traps_end_the_block() {
 
 #[test]
 fn a_target_known_fault_ends_an_otherwise_continuing_instruction() {
-    let flat = Compiler::new(SegmentProfile::Flat32);
-    let real = Compiler::new(ExecutionProfile::Real16);
+    let flat = Compiler::from_config(FLAT32);
+    let real = Compiler::from_config(REAL16);
     let halt = SnapshotInstruction::decode(&[0xf4], 0, Bits16).unwrap();
-    assert_eq!(halt.flow(real.target()), InstructionFlow::Fallthrough);
-    assert_eq!(halt.flow(flat.target()), InstructionFlow::Stop);
+    assert_eq!(halt.flow(real.config()), InstructionFlow::Fallthrough);
+    assert_eq!(halt.flow(flat.config()), InstructionFlow::Stop);
 
     let rdtsc = SnapshotInstruction::decode(&[0x0f, 0x31], 0, Bits32).unwrap();
-    assert_eq!(rdtsc.flow(flat.target()), InstructionFlow::Continue);
+    assert_eq!(rdtsc.flow(flat.config()), InstructionFlow::Continue);
     let without_tsc = CpuModel::default().with_feature(CpuFeature::Tsc, false);
     assert_eq!(
-        rdtsc.flow(flat.with_cpu_model(without_tsc).target()),
+        rdtsc.flow(flat.with_cpu_model(without_tsc).config()),
         InstructionFlow::Stop
     );
 }
 
 #[test]
 fn direct_calls_report_their_encoded_destination() {
-    for (code, target) in [
+    for (code, expected_target) in [
         (&[0x66, 0xe8, 0xfd, 0xff][..], Some(CallTarget::Near(0))),
         (
             &[0x9a, 0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a],
@@ -137,6 +132,6 @@ fn direct_calls_report_their_encoded_destination() {
         (&[0xeb, 0xfe], None), // JMP rel8
     ] {
         let instruction = SnapshotInstruction::decode(code, 0xffff, Bits32).unwrap();
-        assert_eq!(instruction.call_target(), target, "{code:02x?}");
+        assert_eq!(instruction.call_target(), expected_target, "{code:02x?}");
     }
 }

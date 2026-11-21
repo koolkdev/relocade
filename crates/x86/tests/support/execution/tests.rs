@@ -1,6 +1,6 @@
 use super::{test_frontends, Frontend, ImageSequences};
+use crate::support::config::FLAT32;
 use crate::support::machine::{Exit, Image, Step};
-use relocade_x86::{ExecutionProfile, SegmentProfile};
 
 fn overlapping_prefix_writes(frontend: Frontend) {
     for split in [false, true] {
@@ -68,11 +68,7 @@ fn check_overlapping_prefix_writes(frontend: Frontend, split: bool) {
         ram: &[],
         exit: Exit::Dispatch(last.eip),
     });
-    ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    )
-    .check(
+    ImageSequences::new(frontend, FLAT32).check(
         "a final empty patch retains and composes both earlier overlapping writes",
         &code,
         &image,

@@ -1,6 +1,7 @@
 //! Native directed rounding preserves exact direction, sticky status and scalar isolation.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
@@ -218,7 +219,7 @@ fn directions() {
                 for rc in 1..4 {
                     for masks in [0x1f80, 0x1fa0, 0x0fa0] {
                         let observed = floating_image(&code, masks | rc << 13);
-                        let compiled = Compiler::new(SegmentProfile::Flat32)
+                        let compiled = Compiler::from_config(FLAT32)
                             .specialize_on_cpu(&observed.cpu)
                             .compile_block(0x1000, &code, 2)
                             .unwrap();
@@ -302,7 +303,7 @@ fn zeros() {
             let code = encoding(prefix(wide, true), opcode, 0xc1);
             for rc in 0..4 {
                 let observed = floating_image(&code, 0x1f80 | rc << 13);
-                let compiled = Compiler::new(SegmentProfile::Flat32)
+                let compiled = Compiler::from_config(FLAT32)
                     .specialize_on_cpu(&observed.cpu)
                     .compile_block(0x1000, &code, 1)
                     .unwrap();
@@ -363,7 +364,7 @@ fn restart() {
     let mut image = floating_image(&code, 0x3f80);
     lane(&mut image.cpu.simd.xmm[0], false, 0, MIN_NORMAL[0]);
     lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3f00_0000);
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .specialize_on_cpu(&image.cpu)
         .compile_block(0x1000, &code, 2)
         .unwrap();
@@ -406,7 +407,7 @@ fn generic_blocks_restart_for_directed_rounding() {
                         HALF_ULP[wide as usize],
                     );
                 }
-                let generic = Compiler::new(SegmentProfile::Flat32)
+                let generic = Compiler::from_config(FLAT32)
                     .compile_block(0x1000, &code, 1)
                     .unwrap();
                 assert_eq!(

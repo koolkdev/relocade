@@ -1,6 +1,7 @@
 //! Packed chains retain architectural publication and precise guest faults.
 
 use super::*;
+use crate::support::config::FLAT32;
 use relocade_x86::{compile_block_from_bytes, Compiler};
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
@@ -12,7 +13,7 @@ const MIXED: [u8; 12] = [
 ];
 
 fn chains(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let mut initial = image(&code);
     write_register_bits(&mut initial.cpu, 0, (0x7ffe_fffe_8000_0001, 0x1234));
@@ -102,7 +103,7 @@ fn packed_add_chains_use_vector_memory_without_scalar_conversions() {
     let code = [0x0f, 0xfd, 0xc1].repeat(8);
     let inputs = 2;
     // Budget checks use scalar control loads independently of MMX transfers.
-    let module = Compiler::new(SegmentProfile::Flat32)
+    let module = Compiler::from_config(FLAT32)
         .with_instruction_budgets(false)
         .compile_block(0x1000, &code, (code.len() / 3) as u32)
         .unwrap();

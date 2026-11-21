@@ -1,9 +1,10 @@
 //! Operand responses and exponent limits use the shared arithmetic commitment.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn operand_responses(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let one = (LEADING, 0x3fff);
     let infinity = (LEADING, 0x7fff);
     let qnan = (0xc000_0000_0000_0042, 0xffff);
@@ -75,7 +76,7 @@ fn operand_responses(frontend: Frontend) {
 }
 
 fn range_responses(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (instruction, left, right, control, result, flags) in [
         (
             [0xde, 0xc1],
@@ -173,7 +174,7 @@ test_frontends!(range, range_responses);
 
 fn stack_and_pending(frontend: Frontend) {
     use crate::support::x87::{set_control, status};
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for masked in [false, true] {
         let code = [0xde, 0xe9];
         let mut image = stack_image(&code, 7, 0x3ffc);

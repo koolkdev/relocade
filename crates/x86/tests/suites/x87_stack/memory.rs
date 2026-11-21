@@ -1,13 +1,10 @@
 //! Binary80 encodings and complete ten-byte memory commitments.
 
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
 
 fn raw_extended_roundtrips(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [
         0x66, 0xdb, 0x2d, 0, 0x40, 0, 0, 0xdb, 0x3d, 0x20, 0x40, 0, 0,
     ];
@@ -65,10 +62,7 @@ fn raw_extended_roundtrips(frontend: Frontend) {
 }
 
 fn memory_stack_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for masked in [true, false] {
         let code = [0xdb, 0x3d, 1, 0x40, 0, 0];
         let mut image = super::initial_image(&code, 0, 3);
@@ -119,10 +113,7 @@ fn memory_stack_faults(frontend: Frontend) {
 }
 
 fn ten_byte_memory_boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let bits = (0xdead_beef_1234_5678, 0x4567);
     let bytes = real80(bits);
     let code = [0xdb, 0x2d, 0xf9, 0x4f, 0, 0, 0xdb, 0x3d, 0xf9, 0x6f, 0, 0];
@@ -178,10 +169,7 @@ fn ten_byte_memory_boundaries(frontend: Frontend) {
 }
 
 fn memory_fault_commitment(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, modrm, error, tags, control) in [
         (
             "FLD m80 missing final page suppresses push",
@@ -279,10 +267,7 @@ fn memory_fault_commitment(frontend: Frontend) {
     image.cpu.segments.ds.limit = 0x4008;
     image.map(4, 0x8000, true);
     image.data(0x8000, &[0x6b; 10]);
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-    );
+    let mut checks = ImageSequences::new(frontend, SEGMENTED32);
     checks.check(
         "FSTP m80 final byte beyond the segment prevents the whole store and pop",
         &code,

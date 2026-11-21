@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() {
@@ -48,7 +48,7 @@ fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() 
         cpu.eip = 0x1001;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -63,7 +63,7 @@ fn pop_ss_advances_with_old_stack_width_and_the_next_entry_uses_the_new_cache() 
         cpu.eip = 0x1002;
         cpu.instruction_count = 1;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code[1..],
             &image,
             &[],
@@ -119,12 +119,7 @@ fn every_segment_pop_ends_the_block_at_the_cache_commit_boundary() {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-            ),
+            blocks.get(&image.cpu, &code, 2, FLAT32),
             TestModule::interpreter(),
         ] {
             assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
@@ -161,7 +156,7 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
     cpu.segments.es = SegmentRegister::unusable(3);
     cpu.eip = 0x1002;
     cpu.instruction_count = 1;
-    assert!(!cpu.segments.is_compatible_with(SegmentProfile::Flat32));
+    assert!(!cpu.segments.is_compatible_with(FLAT32.entry));
     let last = || Step {
         cpu,
         ram,
@@ -178,12 +173,7 @@ fn push_can_continue_into_pop_and_a_null_cache_is_published_before_dispatch() {
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        2,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let block = blocks.get(&image.cpu, &code, 2, FLAT32);
     let mut wanted = expected(&image, &[last()]);
     wanted.events.insert(0, event);
     assert_eq!(block.observe(&input, 1), wanted);

@@ -1,6 +1,7 @@
 //! Logical opcodes preserve raw bits, flags and MXCSR in both decoders.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 const AND: u128 = 0x00200507_01aa8845_32108888_00543200;
 const AND_NOT: u128 = 0xf0d00a08_54002210_01234444_00abcd00;
@@ -24,7 +25,7 @@ const FORMS: &[(&[u8], u8, u128, u128)] = &[
 ];
 
 fn registers(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &(prefix, opcode, result, self_result) in FORMS {
         for (source, result) in [(1, result), (6, self_result)] {
             let code = encoding(prefix, opcode, 0xf0 | source); // xmm6, xmm1 or xmm6
@@ -44,7 +45,7 @@ fn registers(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &(prefix, opcode, result, _) in FORMS {
         let code = encoding(prefix, opcode, 0x30); // xmm6, [eax]
         let mut image = image(&code);
@@ -75,7 +76,7 @@ fn memory(frontend: Frontend) {
 }
 
 fn fault_after_progress(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x66, 0x0f, 0xef, 0xff, 0x66, 0x0f, 0xdf, 0x30]; // pxor; pandn [eax]
     let mut image = image(&code);
     image.cpu.registers.eax = 0x5000;

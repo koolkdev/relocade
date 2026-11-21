@@ -1,6 +1,7 @@
 //! Deferred exceptions, restored stack positions and complete-span access checks.
 
 use super::*;
+use crate::support::config::SEGMENTED32;
 use crate::support::x87::complete_x87;
 
 const PROTECTED32: Format = Format {
@@ -11,7 +12,7 @@ const PROTECTED32: Format = Format {
 fn exception_delivery(frontend: Frontend) {
     let load = PROTECTED32.instruction(true, 0x4000);
     let code = [load.as_slice(), &[0xdf, 0xe0, 0x9b]].concat();
-    let mut checks = ImageSequences::new(frontend, PROTECTED32.profile());
+    let mut checks = ImageSequences::new(frontend, PROTECTED32.config());
     for (control, status_in, status_out) in [
         (0x037f, 0x8081, 0x0001), // Inconsistent ES/B cannot create an exception.
         (0x037e, 0x0001, 0x8081), // An unmasked IE creates pending ES/B.
@@ -77,7 +78,7 @@ fn suppressed_push_then_save(frontend: Frontend) {
     pushed.x87.status = status(0x0241);
     pushed.x87.tag_word = 2; // Masked overflow writes indefinite at actual ST7 (R0).
     write_register_bits(&mut pushed, 0, (0xc000_0000_0000_0000, 0xffff));
-    ImageSequences::new(frontend, PROTECTED32.profile()).check(
+    ImageSequences::new(frontend, PROTECTED32.config()).check(
         "FNSTENV saves the suppressed push and rebases stack tracking before clearing ES",
         &code,
         &image,
@@ -121,7 +122,7 @@ fn suppressed_pop_then_save(frontend: Frontend) {
     pushed.x87.tag_word = 0xfccf;
     let source = image.cpu.x87.registers[4];
     write_register_bits(&mut pushed, 2, (source.significand, source.sign_exponent));
-    ImageSequences::new(frontend, PROTECTED32.profile()).check(
+    ImageSequences::new(frontend, PROTECTED32.config()).check(
         "FNSTENV masks a suppressed pop without advancing the next logical stack read",
         &code,
         &image,
@@ -172,7 +173,7 @@ fn saved_mmx_tags(frontend: Frontend) {
     let mut empty_words = words;
     empty_words[2] = 0xffff_ffff;
     let empty_bytes = PROTECTED32.bytes(empty_words);
-    ImageSequences::new(frontend, PROTECTED32.profile()).check(
+    ImageSequences::new(frontend, PROTECTED32.config()).check(
         "FNSTENV classifies saved MMX tags without changing live tags or repopulating empty slots",
         &code,
         &image,
@@ -219,7 +220,7 @@ fn loaded_top(frontend: Frontend) {
     faulted.x87.status = status(0x1041);
     faulted.x87.tag_word = 0x3fef;
     write_register_bits(&mut faulted, 2, (0xc000_0000_0000_0000, 0xffff));
-    ImageSequences::new(frontend, PROTECTED32.profile()).check(
+    ImageSequences::new(frontend, PROTECTED32.config()).check(
         "FLDENV changes TOP while preserving earlier register writes and physical tags",
         &code,
         &image,
@@ -237,7 +238,7 @@ fn memory_faults(frontend: Frontend) {
                 set_control(&mut image.cpu.x87.control, 0x037e);
                 image.cpu.x87.status = status(0x8081);
             }
-            let mut checks = ImageSequences::new(frontend, format.profile());
+            let mut checks = ImageSequences::new(frontend, format.config());
             checks.check(
                 "the final image byte faults before any memory or x87 change",
                 &code,
@@ -269,7 +270,7 @@ fn memory_faults(frontend: Frontend) {
             let code = format.instruction(load, 0x4000);
             let mut image = format.image(&code);
             image.cpu.segments.ds.limit = 0x4000 + bytes - 2;
-            ImageSequences::new(frontend, SegmentProfile::Segmented32).check(
+            ImageSequences::new(frontend, SEGMENTED32).check(
                 "segment limits cover the full environment image",
                 &code,
                 &image,

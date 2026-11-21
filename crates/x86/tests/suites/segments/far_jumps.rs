@@ -23,8 +23,8 @@ use crate::support::{
     step::{Event, SegmentResolution, TestModule},
 };
 use relocade_x86::{
-    DescriptorTables, ExecutionProfile, PrivilegeLevel, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind,
+    DescriptorTables, PrivilegeLevel, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind,
 };
 
 fn immediate(word: bool, offset: u32, selector: u16) -> Vec<u8> {

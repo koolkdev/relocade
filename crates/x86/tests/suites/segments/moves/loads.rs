@@ -1,45 +1,26 @@
 use super::super::selector_cases::loaded;
 use super::*;
 use crate::register::Gpr32;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
 fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
-    for (profile, code, segment, source) in [
+    for (config, code, segment, source) in [
+        (FLAT32, &[0x8e, 0xc7][..], Segment::Es, Gpr32::Edi),
         (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            &[0x8e, 0xc7][..],
-            Segment::Es,
-            Gpr32::Edi,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            SEGMENTED16,
             &[0x66, 0x8e, 0xd4][..],
             Segment::Ss,
             Gpr32::Esp,
         ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x8e, 0xd9][..],
-            Segment::Ds,
-            Gpr32::Ecx,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            &[0x66, 0x8e, 0xe2][..],
-            Segment::Fs,
-            Gpr32::Edx,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x8e, 0xeb][..],
-            Segment::Gs,
-            Gpr32::Ebx,
-        ),
+        (SEGMENTED16, &[0x8e, 0xd9][..], Segment::Ds, Gpr32::Ecx),
+        (FLAT32, &[0x66, 0x8e, 0xe2][..], Segment::Fs, Gpr32::Edx),
+        (SEGMENTED32, &[0x8e, 0xeb][..], Segment::Gs, Gpr32::Ebx),
     ] {
         let mut image = Image::new(code);
-        code_defaults(&mut image, profile);
+        code_defaults(&mut image, config);
         image.cpu.registers[source] = 0xabcd_f327;
         let mut tables = DescriptorTables::default();
         tables.insert(0xf327, descriptor(0x8765_0000, SegmentDefaultSize::Bits16));
@@ -56,7 +37,7 @@ fn segment_load_forms_take_a_low_word_and_commit_each_cache() {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            profile,
+            config,
             code,
             &image,
             &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -96,7 +77,7 @@ fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -111,21 +92,16 @@ fn memory_sources_use_two_bytes_through_the_old_ds_or_ss_cache() {
 
 #[test]
 fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented16),
-    ] {
+    for config in [FLAT32, SEGMENTED16] {
         // MOV FS,GS:[BX+SI] / GS:[EBX+ESI], with GS replacing an earlier DS override.
         let mut code = vec![0x3e, 0x65, 0x67, 0x8e];
-        code.extend(
-            if profile == ExecutionProfile::Protected(SegmentProfile::Flat32) {
-                &[0x20][..]
-            } else {
-                &[0x24, 0x33]
-            },
-        );
+        code.extend(if config.entry == FLAT32.entry {
+            &[0x20][..]
+        } else {
+            &[0x24, 0x33]
+        });
         let mut image = Image::new(&code);
-        code_defaults(&mut image, profile);
+        code_defaults(&mut image, config);
         image.cpu.registers.ebx = 0xf00;
         image.cpu.registers.esi = 0xfe;
         image.cpu.segments.gs = data(0x4000, 0xfff);
@@ -156,7 +132,7 @@ fn segment_load_sources_honor_address_size_and_the_last_segment_override() {
         cpu.eip += code.len() as u32;
         cpu.instruction_count = 0;
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Fs, 0x27)],

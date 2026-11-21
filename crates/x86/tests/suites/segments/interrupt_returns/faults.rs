@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -25,8 +26,8 @@ fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
             ),
             (if word { 0x4ffc } else { 0x4ffa }, 0x4fff, true, 0, true),
         ] {
-            let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-            let mut image = image(&code, profile);
+            let config = SEGMENTED32;
+            let mut image = image(&code, config);
             image.cpu.registers.esp = start;
             image.cpu.segments.ss.limit = limit;
             if mapped {
@@ -37,7 +38,7 @@ fn complete_frame_capacity_and_all_three_reads_precede_selector_validation() {
                 image.data(0xa000 + (start & 0xfff), &bytes[..available]);
             }
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[],
@@ -145,8 +146,8 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
     ] {
         for word in [false, true] {
             let code = if word { vec![0x66, 0xcf] } else { vec![0xcf] };
-            let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-            let mut image = image(&code, profile);
+            let config = FLAT32;
+            let mut image = image(&code, config);
             image.data(0x8000, &frame(word, 0x200, selector, 0));
             let mut tables = DescriptorTables::default();
             if let Some(descriptor) = descriptor {
@@ -174,7 +175,7 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
                 cpu.instruction_count = 0;
             }
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &resolutions,
@@ -190,21 +191,17 @@ fn return_selector_and_target_faults_preserve_flags_stack_pointer_and_loaded_cs(
 
 #[test]
 fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented16),
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
         for nt in [1, 0xff] {
             let code = [0x66, 0x67, 0xcf];
-            let mut image = image(&code, profile);
+            let mut image = image(&code, config);
             image.cpu.flags.bytes.nt = nt;
             image.cpu.registers.esp = 0x4000;
-            if profile != ExecutionProfile::Protected(SegmentProfile::Flat32) {
+            if config.entry != FLAT32.entry {
                 image.cpu.segments.ss = crate::SegmentRegister::unusable(0);
             }
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[],

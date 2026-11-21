@@ -1,5 +1,6 @@
 //! Logarithmic products retain precision before multiplication and pop on completion.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_logarithm/epsilon.rs"]
 mod epsilon;
@@ -16,7 +17,7 @@ use crate::support::{
         complete_x87, dispatch, stack_image, write_value, INDEFINITE,
     },
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState};
 
 const CODE: [u8; 2] = [0xd9, 0xf1];
 const LEAD: u64 = 1 << 63;
@@ -31,7 +32,7 @@ fn values(frontend: Frontend) {
 }
 
 fn check_values(frontend: Frontend, code: [u8; 2], references: &[values::Reference]) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for reference in references {
         let values::Reference {
             y,
@@ -71,7 +72,7 @@ fn check_values(frontend: Frontend, code: [u8; 2], references: &[values::Referen
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let one = (LEAD, 0x3fff);
     let infinity = (LEAD, 0x7fff);
     let qnan = (0xc000_0000_0000_0042, 0xffff);
@@ -165,7 +166,7 @@ fn exceptions(frontend: Frontend) {
 
 #[test]
 fn jit_specialization() {
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::from_config(FLAT32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
     let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter());
@@ -197,7 +198,7 @@ fn check_pc_independent(code: [u8; 2]) {
         let mut cpu = CpuState::default();
         cpu.x87.control.precision_control = pc;
         modules.push(
-            Compiler::new(SegmentProfile::Flat32)
+            Compiler::from_config(FLAT32)
                 .specialize_on_cpu(&cpu)
                 .compile_block(0x1000, &code, 1)
                 .unwrap()

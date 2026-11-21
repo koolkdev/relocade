@@ -3,12 +3,13 @@
 #[path = "x87_integer_store/effects.rs"]
 mod effects;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, real80, set_control, stack_image, status, write_register_bits},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const TOP: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -166,7 +167,7 @@ fn check_store(checks: &mut ImageSequences, form: Form, case: Case) {
 }
 
 fn exact_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for form in FORMS {
         for (source, output) in [
             ((0, 0), 0),
@@ -192,7 +193,7 @@ fn exact_forms(frontend: Frontend) {
 }
 
 fn rounding_modes(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let form = FORMS[3];
     // Literal nearest-even results distinguish both sides of ties at full precision.
     for (source, floor, nearest) in [
@@ -237,7 +238,7 @@ fn rounding_modes(frontend: Frontend) {
 }
 
 fn rounded_range(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (form, positive_halfway, negative_halfway) in [
         (
             FORMS[2],
@@ -304,7 +305,7 @@ fn rounded_range(frontend: Frontend) {
 }
 
 fn special_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let form = FORMS[4];
     for source in [
         (TOP, 0x7fff),

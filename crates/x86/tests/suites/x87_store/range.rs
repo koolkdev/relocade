@@ -1,9 +1,10 @@
 //! Range exceptions use precision rounding; masked values use the destination grid.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn underflow_boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         let emin = format.minimum_exponent;
         let minimum = format.minimum_normal();
@@ -133,7 +134,7 @@ fn underflow_boundaries(frontend: Frontend) {
 }
 
 fn overflow_boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         for negative in [false, true] {
             let sign = if negative { format.sign() } else { 0 };

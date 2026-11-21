@@ -5,7 +5,7 @@ fn transfer(input: &Input, entry: &str) -> Observation {
     let module = TestModule::new(&CompiledModule {
         bytes: transfers().to_vec(),
         entry: entry.into(),
-        execution_target: None,
+        config: None,
     });
     module.observe(input, 1)
 }
@@ -129,7 +129,7 @@ fn prepared_fields_keep_slow_routing_live_after_mmio() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "read".into(),
-        execution_target: None,
+        config: None,
     });
     let mut input = input();
     input.mmio_pages = vec![(1, 0x3000)];
@@ -158,7 +158,7 @@ fn routing_can_be_refreshed_after_a_device_callback() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "read".into(),
-        execution_target: None,
+        config: None,
     });
     let mut input = input();
     input.mmio_pages = vec![(8, 0x6000)];
@@ -358,7 +358,7 @@ fn remapping() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "read".into(),
-        execution_target: None,
+        config: None,
     });
     let mut input = input();
     input.mmio_pages = vec![(8, 0x6000)];

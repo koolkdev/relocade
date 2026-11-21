@@ -1,33 +1,29 @@
-//! HLT retires before waiting; only real mode can halt in the supported profiles.
+//! HLT retires before waiting; only real mode can halt in the supported configurations.
 
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{ExecutionExit, ExecutionProfile, SegmentProfile};
+use relocade_x86::ExecutionExit;
 
 fn forms(frontend: Frontend) {
-    for profile in [
-        ExecutionProfile::Real16,
-        SegmentProfile::Flat32.into(),
-        SegmentProfile::Segmented32.into(),
-        SegmentProfile::Segmented16.into(),
-    ] {
-        let mut cases = ImageSequences::new(frontend, profile);
+    for config in [REAL16, FLAT32, SEGMENTED32, SEGMENTED16] {
+        let mut cases = ImageSequences::new(frontend, config);
         for code in [&[0xf4][..], &[0x66, 0x67, 0x64, 0xf4]] {
             for enabled in [false, true] {
                 let mut image = Image::new(code);
-                if profile == ExecutionProfile::Real16 {
+                if config.entry == REAL16.entry {
                     image.initialize_real_mode();
-                } else if profile == SegmentProfile::Segmented16.into() {
+                } else if config.entry == SEGMENTED16.entry {
                     image.cpu.segments.cs.big = 0;
                 }
                 image.cpu.flags.bytes.if_ = u8::from(enabled);
                 image.cpu.flags.bytes.iopl = 3; // IOPL does not permit CPL3 HLT.
                 let mut cpu = image.cpu;
-                let exit = if profile == ExecutionProfile::Real16 {
+                let exit = if config.entry == REAL16.entry {
                     cpu.eip += code.len() as u32;
                     cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
                     Exit::Other(ExecutionExit::Halted)
@@ -72,8 +68,8 @@ fn halt_does_not_fetch_its_successor() {
         }],
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 16, ExecutionProfile::Real16);
-    let run = TestModule::interpreter_run_with_profile(ExecutionProfile::Real16);
+    let block = blocks.get(&image.cpu, &code, 16, REAL16);
+    let run = TestModule::interpreter_run_with_config(REAL16);
     for module in [block, run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }

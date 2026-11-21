@@ -1,15 +1,15 @@
 //! FNOP waits and records its location without touching the stack or status.
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image},
 };
-use relocade_x86::SegmentProfile;
 
 fn no_operation(frontend: Frontend) {
     let code = [0xd9, 0xd0];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for tags in [0, 0xffff] {
         let mut image = stack_image(&code, 3, tags);
         // Retaining FNOP's undefined condition codes is emulator policy.

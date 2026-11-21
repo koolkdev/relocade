@@ -45,8 +45,8 @@ impl TestModule {
         let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
         let context = crate::ExecutionContext {
             cpu_model: self
-                .target
-                .map(|target| target.cpu_model)
+                .config
+                .map(|config| config.cpu_model)
                 .unwrap_or_default(),
             ..crate::ExecutionContext::default()
         };
@@ -284,7 +284,7 @@ impl TestModule {
                     guest.write(*offset, bytes);
                 }
             }
-            self.check_profile(&cpu.read(0, cpu_len));
+            self.check_config(&cpu.read(0, cpu_len));
             let outcome = match entry.call(&mut store, &arguments, &mut results) {
                 Ok(()) => Outcome::Returned(results.iter().map(Argument::from_wasm).collect()),
                 Err(error) if error.downcast_ref::<Trap>().is_some() => Outcome::Trap,

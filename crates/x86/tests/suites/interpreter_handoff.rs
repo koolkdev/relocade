@@ -3,14 +3,13 @@
 #[path = "interpreter_handoff/linked.rs"]
 mod linked;
 
+use crate::support::config::SEGMENTED32;
 use crate::support::{
     machine::{expected, Exit, Step},
     step::{Event, Outcome, TestModule},
     x87::stack_image,
 };
-use relocade_x86::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, CpuState, SegmentProfile,
-};
+use relocade_x86::{compile_block_from_bytes, Compiler, CpuState};
 
 #[test]
 fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
@@ -90,7 +89,8 @@ fn load_guards_admit_common_values_and_reject_exceptional_pushes() {
 fn pending_segment_and_page_faults_precede_interpreter_handoff() {
     let code = [0xd9, 0x05, 0, 0x40, 0, 0];
     let module = TestModule::new(
-        &compile_block_from_bytes_with_profile(0x1000, &code, 1, SegmentProfile::Segmented32)
+        &Compiler::from_config(SEGMENTED32)
+            .compile_block(0x1000, &code, 1)
             .unwrap(),
     );
     for (pending, segment_denied, exit) in [

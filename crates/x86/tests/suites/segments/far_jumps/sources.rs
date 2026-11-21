@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -37,7 +38,7 @@ fn memory_pointers_read_exact_spans_and_split_offset_or_selector_fields() {
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -77,7 +78,7 @@ fn indirect_jumps_resolve_the_source_using_the_old_address_and_segment_state() {
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -112,7 +113,7 @@ fn pointer_fields_continue_beyond_the_starting_16_bit_offset_and_wrap_linear_32_
         cpu.eip = 0x9234_5678;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],

@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -37,7 +38,7 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
         cpu.eip = 0x1003;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Ss, 0x27)],
@@ -55,7 +56,7 @@ fn lss_commits_the_offset_before_the_next_entry_applies_the_new_stack_rules() {
             cpu.instruction_count = 1;
         }
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code[3..],
             &image,
             &[],
@@ -121,12 +122,7 @@ fn all_pointer_loads_end_the_block_after_committing_both_results() {
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
-            ),
+            blocks.get(&image.cpu, &code, 2, FLAT32),
             TestModule::interpreter(),
         ] {
             assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
@@ -152,7 +148,7 @@ fn null_selector_loads_still_commit_the_offset_without_fetching_a_following_byte
     cpu.eip = 0x2000;
     cpu.instruction_count = 0;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[SegmentResolution::new(

@@ -1,6 +1,7 @@
 //! Native loaded values and full-width register values stay on their exact paths.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
@@ -12,7 +13,7 @@ fn loaded_values_use_native_rounding() {
     for rc in 0..4 {
         let mut observed = CpuState::default();
         set_control(&mut observed.x87.control, 0x007f | (rc << 10));
-        let compiled = Compiler::new(SegmentProfile::Flat32)
+        let compiled = Compiler::from_config(FLAT32)
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, &code, 2)
             .unwrap();
@@ -78,7 +79,7 @@ fn loaded_values_use_native_rounding() {
 
 #[test]
 fn full_precision_and_rejected_operands() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let block = TestModule::new(&compiled);

@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn shifts(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // opcode, immediate opcode/extension, lane width, input, shifts by 1 and width-1.
     for (opcode, immediate, extension, width, input, one, last, oversized) in [
         (
@@ -126,7 +127,7 @@ fn shifts(frontend: Frontend) {
 }
 
 fn shift_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0xf1, 0x38]; // Even a zero destination must read all eight count bytes.
     let mut image = image(&code);
     write_register_bits(&mut image.cpu, 7, (0, 0x1234));

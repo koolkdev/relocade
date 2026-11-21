@@ -1,5 +1,6 @@
 //! Common inputs stay compiled; exceptional operands restart before publication.
 
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::machine::step_returns;
 #[path = "jit/controls.rs"]
 mod controls;
@@ -8,16 +9,16 @@ mod precision;
 
 use super::*;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{compile_block_from_bytes, Compiler, ExecutionProfile, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, Compiler, CompilerConfig};
 
 fn observed_block(
     code: &[u8],
     count: u32,
-    profile: ExecutionProfile,
+    config: CompilerConfig,
     observed: &CpuState,
 ) -> TestModule {
     TestModule::new(
-        &Compiler::new(profile)
+        &Compiler::from_config(config)
             .specialize_on_cpu(observed)
             .compile_block(0x1000, code, count)
             .unwrap(),
@@ -74,7 +75,7 @@ fn common_inputs() {
     );
 }
 
-fn precise_restart(profile: ExecutionProfile) {
+fn precise_restart(config: CompilerConfig) {
     for instruction in [
         &[0x0f, 0x2f, 0xc1][..],       // COMISS
         &[0x0f, 0xc2, 0xc1, 0][..],    // CMPPS EQ
@@ -84,20 +85,20 @@ fn precise_restart(profile: ExecutionProfile) {
         let wide = instruction[0] == 0xf2;
         let raised = if packed { 3 } else { 1 };
         // CMP EAX,ECX first, with a size override for real-mode defaults.
-        let compare = match profile {
-            ExecutionProfile::Real16 => &[0x66, 0x39, 0xc8][..],
-            ExecutionProfile::Protected(_) => &[0x39, 0xc8][..],
+        let compare = match config.entry {
+            relocade_x86::EntryAssumptions::REAL_MODE => &[0x66, 0x39, 0xc8][..],
+            _ => &[0x39, 0xc8][..],
         };
         let code = [compare, instruction].concat();
-        let compiled = Compiler::new(profile)
+        let compiled = Compiler::from_config(config)
             .compile_block(0x1000, &code, 2)
             .unwrap();
         let block = TestModule::new(&compiled);
         let linked = TestModule::new(&compiled)
-            .with_interpreter(TestModule::interpreter_with_profile(profile));
+            .with_interpreter(TestModule::interpreter_with_config(config));
         for masked in [false, true] {
             let mut image = floating_image(&code, if masked { 0x1f80 } else { 0x1e00 });
-            if profile == ExecutionProfile::Real16 {
+            if config.entry == REAL16.entry {
                 image.initialize_real_mode();
             }
             image.cpu.registers.eax = 0;
@@ -167,13 +168,12 @@ fn precise_restart(profile: ExecutionProfile) {
 
 fn real_mode_ram() {
     let code = [0x0f, 0x2f, 0x06, 0, 0x20]; // COMISS XMM0,[2000]
-    let compiled = Compiler::new(ExecutionProfile::Real16)
+    let compiled = Compiler::from_config(REAL16)
         .compile_block(0x1000, &code, 1)
         .unwrap();
     let block = TestModule::new(&compiled);
-    let linked = TestModule::new(&compiled).with_interpreter(TestModule::interpreter_with_profile(
-        ExecutionProfile::Real16,
-    ));
+    let linked =
+        TestModule::new(&compiled).with_interpreter(TestModule::interpreter_with_config(REAL16));
     for (operand, mxcsr, flags, invalid, fault) in [
         (TWO[0], 0x1f80, 1, false, false),
         (SNAN[0], 0x1f80, 0x45, true, false),
@@ -230,7 +230,7 @@ fn real_mode_ram() {
 #[test]
 fn sse_jit_specialization() {
     common_inputs();
-    precise_restart(SegmentProfile::Flat32.into());
-    precise_restart(ExecutionProfile::Real16);
+    precise_restart(FLAT32);
+    precise_restart(REAL16);
     real_mode_ram();
 }

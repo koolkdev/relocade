@@ -1,6 +1,7 @@
 //! Native roots retain their views and rejected operands restart before effects.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{CompiledModule, Compiler, CpuState};
@@ -33,7 +34,7 @@ fn native_values() {
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
     for instructions in [2, 3] {
-        let compiled = Compiler::new(SegmentProfile::Flat32)
+        let compiled = Compiler::from_config(FLAT32)
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, &code, instructions)
             .unwrap();
@@ -107,7 +108,7 @@ fn extended_native_range() {
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
     for instructions in [3, 4] {
-        let compiled = Compiler::new(SegmentProfile::Flat32)
+        let compiled = Compiler::from_config(FLAT32)
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, &code, instructions)
             .unwrap();
@@ -148,7 +149,7 @@ fn extended_native_range() {
 }
 
 fn restart() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let block = TestModule::new(&compiled);
@@ -221,7 +222,7 @@ fn pending_precision_preserves_the_root_across_following_arithmetic() {
     ];
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::from_config(FLAT32)
         .specialize_on_cpu(&observed)
         .compile_block(0x1000, &code, 9)
         .unwrap();

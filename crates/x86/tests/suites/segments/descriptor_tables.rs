@@ -1,10 +1,11 @@
+use crate::support::config::SEGMENTED32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
 use relocade_x86::{
-    DescriptorTables, ExecutionProfile, Segment, SegmentDefaultSize, SegmentDescriptor,
-    SegmentDescriptorKind, SegmentLimit, SegmentProfile,
+    DescriptorTables, Segment, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind,
+    SegmentLimit,
 };
 
 fn loaded_cache_lifetime(frontend: Frontend) {
@@ -37,8 +38,8 @@ fn loaded_cache_lifetime(frontend: Frontend) {
     image.map(10, 0x9000, false);
     image.data(0x8200, &[0x44, 0x33, 0x22, 0x11]);
     image.data(0x9200, &[0x88, 0x77, 0x66, 0x55]);
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-    let mut sequences = ImageSequences::new(frontend, profile);
+    let config = SEGMENTED32;
+    let mut sequences = ImageSequences::new(frontend, config);
     for (fs, value) in [(old, 0x1122_3344), (reloaded, 0x5566_7788)] {
         image.cpu.segments.fs = fs;
         let mut cpu = image.cpu;

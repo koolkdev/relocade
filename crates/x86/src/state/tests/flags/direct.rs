@@ -40,7 +40,7 @@ fn computed_direct_values_publish_only_their_canonical_byte() {
         });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
-            execution_target: None,
+            config: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         });
@@ -99,7 +99,7 @@ fn conditional_direct_publication_keeps_earlier_exits_and_raw_false_values() {
         });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });
@@ -166,7 +166,7 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
         });
         program.export("run", function).unwrap();
         let module = TestModule::new(&CompiledModule {
-            execution_target: None,
+            config: None,
             bytes: program.compile().unwrap(),
             entry: "run".into(),
         });
@@ -227,7 +227,7 @@ fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });

@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests;
 
+use relocade_x86::CompilerConfig;
 use std::sync::Arc;
 
-use crate::ExecutionTarget;
 use relocade_test_support::Module;
 pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
@@ -148,21 +148,21 @@ pub(crate) struct Observation {
 pub(crate) struct TestModule {
     module: Arc<Module>,
     pub(crate) entry: String,
-    target: Option<ExecutionTarget>,
+    config: Option<CompilerConfig>,
     interpreter: Option<&'static TestModule>,
 }
 
 impl TestModule {
     pub(crate) fn new(module: &crate::CompiledModule) -> Self {
-        Self::from_bytes(&module.bytes, &module.entry, module.execution_target)
+        Self::from_bytes(&module.bytes, &module.entry, module.config)
     }
 
     /// Selects an execution export from a module with any number of entries.
-    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, target: Option<ExecutionTarget>) -> Self {
+    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, config: Option<CompilerConfig>) -> Self {
         Self {
             module: Arc::new(Module::new(bytes)),
             entry: entry.into(),
-            target,
+            config,
             interpreter: None,
         }
     }
@@ -173,13 +173,13 @@ impl TestModule {
 
     /// Link the interpreter directly; unlinked fixtures stop at the handoff callback.
     pub(crate) fn with_interpreter(mut self, interpreter: &'static Self) -> Self {
-        assert_eq!(self.target, interpreter.target);
+        assert_eq!(self.config, interpreter.config);
         self.interpreter = Some(interpreter);
         self
     }
 
-    fn check_profile(&self, bytes: &[u8]) {
-        let Some(target) = self.target else {
+    fn check_config(&self, bytes: &[u8]) {
+        let Some(config) = self.config else {
             return;
         };
         let cpu = crate::CpuState::from_bytes(
@@ -188,8 +188,8 @@ impl TestModule {
                 .expect("the CPU image"),
         );
         assert!(
-            target.is_compatible_with(target, &cpu),
-            "{} requires compatible {target:?} CPU state",
+            config.is_compatible_with(config, &cpu),
+            "{} requires compatible {config:?} CPU state",
             self.entry
         );
     }

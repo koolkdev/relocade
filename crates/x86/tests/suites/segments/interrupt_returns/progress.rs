@@ -1,6 +1,7 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -8,8 +9,8 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
     for nested_task in [false, true] {
         // ADD EAX,1; prefixed IRETD; unsupported trailing byte beyond the block end.
         let code = [0x83, 0xc0, 1, 0x67, 0xcf, 0xf1];
-        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-        let mut image = image(&code, profile);
+        let config = FLAT32;
+        let mut image = image(&code, config);
         image.cpu.flags.status_source.kind = 0;
         image.cpu.flags.status_source.left = 0;
         image.cpu.flags.status_source.right = 0;
@@ -53,7 +54,7 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
             ))
         );
         let mut blocks = BlockModules::default();
-        let block = blocks.get(&image.cpu, &code, 3, profile);
+        let block = blocks.get(&image.cpu, &code, 3, config);
         assert_eq!(
             block.observe(&image.input(), 1),
             expected(&image, &[fault()])
@@ -64,8 +65,8 @@ fn an_unsupported_or_faulting_return_publishes_only_earlier_completed_instructio
 #[test]
 fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     let code = [0xcf, 0xf1];
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
-    let mut image = image(&code, profile);
+    let config = SEGMENTED32;
+    let mut image = image(&code, config);
     image.cpu.segments.cs.limit = 0x1000;
     image.data(0x8000, &frame(false, 0x200, 0x27, 0x4000));
     let mut tables = tables(0xffff);
@@ -105,15 +106,13 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
     );
     let mut blocks = BlockModules::default();
     for module in [
-        blocks.get(&image.cpu, &code, 2, profile),
-        TestModule::interpreter_with_profile(profile),
+        blocks.get(&image.cpu, &code, 2, config),
+        TestModule::interpreter_with_config(config),
     ] {
         assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
     }
     image.cpu = cpu;
-    let step = TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-        SegmentProfile::Segmented16,
-    ));
+    let step = TestModule::interpreter_with_config(SEGMENTED16);
     // Destination fetch belongs to the next entry, even when restored NT is set.
     image.check_unchanged_exit(
         step,
@@ -139,8 +138,8 @@ fn returned_cs_and_nt_apply_at_the_next_entry_after_retirement() {
 fn nt_published_by_popf_selects_the_following_task_return_path() {
     // POPFD loads NT; IRET must observe that definition before any stack access.
     let code = [0x9d, 0xcf];
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-    let mut image = image(&code, profile);
+    let config = FLAT32;
+    let mut image = image(&code, config);
     image.cpu.registers.esp = 0x4ffc;
     image.map(4, 0xa000, false);
     image.data(0xaffc, &[0, 0x40, 0, 0]);
@@ -172,7 +171,7 @@ fn nt_published_by_popf_selects_the_following_task_return_path() {
         ))
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 2, profile);
+    let block = blocks.get(&image.cpu, &code, 2, config);
     let observed = block.observe(&image.input(), 1);
     assert_eq!(
         observed,
@@ -189,7 +188,7 @@ fn nt_published_by_popf_selects_the_following_task_return_path() {
         unreachable!()
     };
     image.continue_from(snapshot);
-    let block = blocks.get(&image.cpu, &code[1..], 1, profile);
+    let block = blocks.get(&image.cpu, &code[1..], 1, config);
     assert_eq!(
         block.observe(&image.input(), 1),
         expected(&image, &[unsupported()])
@@ -200,7 +199,7 @@ fn nt_published_by_popf_selects_the_following_task_return_path() {
 fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
     for (length, suffix) in [(1, 0xcf), (15, 0xcf), (16, 0xcf)] {
         let code = [vec![0x67; length - 1], vec![suffix]].concat();
-        let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
+        let mut image = image(&[], FLAT32);
         image.cpu.eip = 0x1ff1;
         image.data(0x3ff1, &code[..length.min(15)]);
         image.cpu.flags.bytes.nt = 1;
@@ -214,7 +213,7 @@ fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
         };
         if length <= 15 {
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                FLAT32,
                 &code,
                 &image,
                 &[],
@@ -236,7 +235,7 @@ fn complete_fetch_precedes_nt_and_byte_sixteen_is_rejected() {
             );
         }
     }
-    let mut image = image(&[], ExecutionProfile::Protected(SegmentProfile::Flat32));
+    let mut image = image(&[], FLAT32);
     image.cpu.eip = 0x1fff;
     image.cpu.flags.bytes.nt = 1;
     image.data(0x3fff, &[0x66]);

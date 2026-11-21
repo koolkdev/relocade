@@ -1,67 +1,38 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
 fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
     // Each immediate/indirect form covers the four operand-width/SS.B combinations.
-    for (profile, code, word, stack_big) in [
+    for (config, code, word, stack_big) in [
         (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &[0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0][..],
             false,
             true,
         ),
+        (SEGMENTED32, &[0x66, 0x9a, 0x78, 0x56, 0x24, 0], true, false),
+        (SEGMENTED16, &[0x9a, 0x78, 0x56, 0x24, 0], true, true),
         (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x66, 0x9a, 0x78, 0x56, 0x24, 0],
-            true,
-            false,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x9a, 0x78, 0x56, 0x24, 0],
-            true,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            SEGMENTED16,
             &[0x66, 0x9a, 0x78, 0x56, 0x34, 0x92, 0x24, 0],
             false,
             false,
         ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            &[0xff, 0x1b],
-            false,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x66, 0xff, 0x1b],
-            true,
-            false,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0xff, 0x18],
-            true,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x66, 0xff, 0x18],
-            false,
-            false,
-        ),
+        (FLAT32, &[0xff, 0x1b], false, true),
+        (SEGMENTED32, &[0x66, 0xff, 0x1b], true, false),
+        (SEGMENTED16, &[0xff, 0x18], true, true),
+        (SEGMENTED16, &[0x66, 0xff, 0x18], false, false),
     ] {
         let mut image = Image::new(code);
         image.cpu.segments.cs.selector = 0x1b;
-        code_defaults(&mut image, profile);
+        code_defaults(&mut image, config);
         image.cpu.registers.esp = 0x1234_9008;
         image.cpu.registers.ebx = 0x4000;
         image.cpu.registers.esi = 0;
-        let base = if profile == ExecutionProfile::Protected(SegmentProfile::Flat32) {
+        let base = if config.entry == FLAT32.entry {
             0
         } else {
             0x10000
@@ -111,7 +82,7 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
         cpu.instruction_count = 0;
         let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
         check_one(
-            profile,
+            config,
             code,
             &image,
             &[SegmentResolution::new(&table, Segment::Cs, 0x24)],
@@ -126,37 +97,17 @@ fn call_forms_keep_operand_width_code_defaults_and_stack_width_independent() {
 
 #[test]
 fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it() {
-    for (profile, operand_override, word, stack_big) in [
-        (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-            false,
-            false,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            true,
-            true,
-            false,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            false,
-            true,
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            true,
-            false,
-            false,
-        ),
+    for (config, operand_override, word, stack_big) in [
+        (FLAT32, false, false, true),
+        (SEGMENTED32, true, true, false),
+        (SEGMENTED16, false, true, true),
+        (SEGMENTED16, true, false, false),
     ] {
         for cleanup in [None, Some(0xffff)] {
             let code = ret(operand_override, cleanup);
             let mut image = Image::new(&code);
             image.cpu.segments.cs.selector = 0x1b;
-            code_defaults(&mut image, profile);
+            code_defaults(&mut image, config);
             image.cpu.registers.esp = 0x1234_9000;
             image.cpu.segments.ss = loaded(
                 0x23,
@@ -183,7 +134,7 @@ fn return_forms_pop_two_slots_and_discard_unsigned_cleanup_without_accessing_it(
             };
             cpu.instruction_count = 0;
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables(u32::MAX), Segment::Cs, 0x27)],
@@ -289,7 +240,7 @@ fn complete_frame_capacity_and_selector_transfer_extent_are_distinct() {
                 vec![]
             };
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                SEGMENTED32,
                 &code,
                 &image,
                 &resolutions,

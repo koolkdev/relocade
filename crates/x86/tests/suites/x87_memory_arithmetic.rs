@@ -7,12 +7,13 @@ mod division;
 #[path = "x87_memory_arithmetic/integer.rs"]
 mod integer;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value, INDEFINITE},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const LEADING: u64 = 1 << 63;
 
@@ -121,7 +122,7 @@ fn check_case(checks: &mut ImageSequences, name: &str, case: Case) {
 }
 
 fn real_memory_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x4040_0000),
         Source::Double(0x4008_0000_0000_0000),
@@ -202,7 +203,7 @@ fn real_memory_forms(frontend: Frontend) {
 }
 
 fn source_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x7f80_0000),
         Source::Double(0x7ff0_0000_0000_0000),
@@ -329,7 +330,7 @@ fn source_exceptions(frontend: Frontend) {
 }
 
 fn stack_fault_priority(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [Source::Single(1), Source::Double(0x7ff0_0000_0000_0001)] {
         for control in [0x037f, 0x037e, 0x037d] {
             check_case(

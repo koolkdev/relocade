@@ -1,17 +1,16 @@
+use crate::support::config::{FLAT32, REAL16, SEGMENTED32};
 use crate::support::{
     encoding::{check_length, check_unsupported_at_page_end},
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{
-    DescriptorTableRegister, ExecutionProfile, Segment, SegmentProfile, SegmentRegister,
-};
+use relocade_x86::{DescriptorTableRegister, Segment, SegmentRegister};
 
 fn store_formats(frontend: Frontend) {
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let mut checks = ImageSequences::new(frontend, profile);
+    for config in [FLAT32, REAL16] {
+        let mut checks = ImageSequences::new(frontend, config);
         for operand_override in [false, true] {
-            let real = profile == ExecutionProfile::Real16;
+            let real = config.entry == REAL16.entry;
             let mut code = if operand_override { vec![0x66] } else { vec![] };
             code.extend_from_slice(if real {
                 &[0x0f, 0x01, 0x46, 0]
@@ -57,7 +56,7 @@ fn store_formats(frontend: Frontend) {
     let mut cpu = image.cpu;
     cpu.eip += code.len() as u32;
     cpu.instruction_count = cpu.instruction_count.wrapping_add(1);
-    ImageSequences::new(frontend, ExecutionProfile::Real16).check(
+    ImageSequences::new(frontend, REAL16).check(
         "address and segment overrides select the destination independently of operand size",
         &code,
         &image,
@@ -72,7 +71,7 @@ test_frontends!(stores_gdtr, store_formats);
 
 fn destination_pages(frontend: Frontend) {
     let code = [0x0f, 0x01, 0x03];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for second_page in [None, Some(false), Some(true)] {
         let mut image = Image::new(&code);
         image.cpu.gdtr = DescriptorTableRegister::new(0x89ab_cdef, 0x1234);
@@ -113,7 +112,7 @@ fn destination_pages(frontend: Frontend) {
 test_frontends!(checks_both_pages, destination_pages);
 
 fn destination_segments(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED32);
     for (stack, writable, offset) in [
         (false, true, 0x4ffa),
         (false, true, 0x4ffb),

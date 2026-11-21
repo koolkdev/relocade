@@ -1,18 +1,19 @@
-use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
+use crate::support::config::{FLAT32, SEGMENTED32};
+use relocade_x86::CpuState;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::BlockModules;
 
 #[test]
-fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented32);
+fn cache_hits_revalidate_cs_even_when_entry_assumptions_stay_compatible() {
+    let config = SEGMENTED32;
     let mut cpu = CpuState {
         eip: 0x1000,
         ..CpuState::default()
     };
     cpu.segments.cs.limit = 0x1001;
     let mut blocks = BlockModules::default();
-    blocks.get(&cpu, &[0xb0, 7], 1, profile);
+    blocks.get(&cpu, &[0xb0, 7], 1, config);
     let valid = cpu;
     for cs in [
         relocade_x86::SegmentRegister {
@@ -25,13 +26,13 @@ fn cache_hits_revalidate_cs_even_when_the_profile_stays_compatible() {
         },
     ] {
         cpu.segments.cs = cs;
-        assert!(cpu.segments.is_compatible_with(profile));
+        assert!(cpu.segments.is_compatible_with(config.entry));
         assert!(catch_unwind(AssertUnwindSafe(|| {
-            blocks.get(&cpu, &[0xb0, 7], 1, profile);
+            blocks.get(&cpu, &[0xb0, 7], 1, config);
         }))
         .is_err());
     }
-    blocks.get(&valid, &[0xb0, 7], 1, profile);
+    blocks.get(&valid, &[0xb0, 7], 1, config);
 }
 
 #[test]
@@ -47,29 +48,14 @@ fn admission_checks_only_instructions_inside_the_compilation_boundary() {
         (&[0xf3, 0xa4, 0x0f][..], 1, 0x1001),
     ] {
         cpu.segments.cs.limit = cs_limit;
-        blocks.get(
-            &cpu,
-            bytes,
-            limit,
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-        );
+        blocks.get(&cpu, bytes, limit, SEGMENTED32);
     }
     assert!(catch_unwind(AssertUnwindSafe(|| {
-        blocks.get(
-            &cpu,
-            &[0xf3, 0xa4, 0x90],
-            2,
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-        );
+        blocks.get(&cpu, &[0xf3, 0xa4, 0x90], 2, SEGMENTED32);
     }))
     .is_err());
     cpu.segments.cs.limit = 0x1002;
-    blocks.get(
-        &cpu,
-        &[0xf3, 0xa4, 0x90],
-        2,
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-    );
+    blocks.get(&cpu, &[0xf3, 0xa4, 0x90], 2, SEGMENTED32);
 }
 
 #[test]
@@ -83,10 +69,10 @@ fn cached_blocks_keep_their_cpu_model() {
     image.cpu.flags.bytes.zf = 1;
     let mut blocks = BlockModules::default();
     for enabled in [true, false, true] {
-        let target = Compiler::new(SegmentProfile::Flat32)
+        let config = Compiler::from_config(FLAT32)
             .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, enabled))
-            .target();
-        let module = blocks.get_with_target(&image.cpu, &code, 1, target);
+            .config();
+        let module = blocks.get(&image.cpu, &code, 1, config);
         let mut cpu = image.cpu;
         let exit = if enabled {
             cpu.registers.eax = cpu.registers.ebx;

@@ -1,9 +1,10 @@
 //! Memory division retains source precision and source exception priority.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn quotients(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x4040_0000),
         Source::Double(0x4008_0000_0000_0000),
@@ -50,7 +51,7 @@ fn quotients(frontend: Frontend) {
 }
 
 fn source_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x8000_0000),
         Source::Double(0x8000_0000_0000_0000),

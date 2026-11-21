@@ -4,6 +4,7 @@
 mod effects;
 
 use super::*;
+use crate::support::config::FLAT32;
 
 const TOP: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -111,7 +112,7 @@ fn one_digit(digit: u8, negative: bool) -> [u8; 10] {
 }
 
 fn exact_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, output) in [
         ((0, 0), [0; 10]),
         ((TOP, 0x3fff), one_digit(1, false)),
@@ -144,7 +145,7 @@ fn exact_values(frontend: Frontend) {
 }
 
 fn rounding_modes(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, floor, nearest) in [
         ((TOP, 0x3ffe), 0, 0), // 0.5
         ((TOP + 1, 0x3ffe), 0, 1),
@@ -182,7 +183,7 @@ fn rounding_modes(frontend: Frontend) {
 }
 
 fn rounded_range(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for negative in [false, true] {
         for rc in 0..4 {
             // The maximum is odd. Maximum + 0.5 rounds outside the decimal range
@@ -235,7 +236,7 @@ fn rounded_range(frontend: Frontend) {
 }
 
 fn exceptional_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         (TOP, 0x7fff),
         (TOP, 0xffff), // infinities

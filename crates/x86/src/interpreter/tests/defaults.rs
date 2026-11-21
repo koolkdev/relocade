@@ -3,28 +3,22 @@
 mod entries;
 
 use crate::{
-    support::machine::Image,
+    support::{config::SEGMENTED32, machine::Image},
     test_step::{returned, Event, TestModule},
-    CpuState, EntryAssumptions, ExecutionExit, SegmentDefaultSize,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, SegmentDefaultSize,
 };
-use std::sync::LazyLock;
+
+// The same interpreter decodes CS.D from each admitted protected-mode CPU.
+const LIVE_CODE_WIDTH: CompilerConfig = CompilerConfig {
+    entry: EntryAssumptions {
+        code_default_size: None,
+        ..SEGMENTED32.entry
+    },
+    ..SEGMENTED32
+};
 
 fn interpreter() -> &'static TestModule {
-    static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
-        let entry = EntryAssumptions {
-            code_default_size: None,
-            ..EntryAssumptions::SEGMENTED32
-        };
-        let bytes =
-            crate::build_interpreter_with_memory(entry, crate::MemoryBackend::HostPageTable)
-                .unwrap()
-                .compile()
-                .unwrap();
-        // CS.D is live in decoding and execution. Other mode, privilege and
-        // memory assumptions still describe supported protected-mode execution.
-        TestModule::from_bytes(&bytes, crate::abi::STEP.name, None)
-    });
-    &MODULE
+    TestModule::interpreter_with_config(LIVE_CODE_WIDTH)
 }
 
 fn step(image: &Image) -> CpuState {

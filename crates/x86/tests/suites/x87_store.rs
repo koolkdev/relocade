@@ -7,12 +7,13 @@ mod loaded;
 #[path = "x87_store/range.rs"]
 mod range;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_register_bits},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const TOP: u64 = 1 << 63;
 const PE: u16 = 0x20;
@@ -175,7 +176,7 @@ fn check_store(checks: &mut ImageSequences, format: Format, pop: bool, case: Sto
 }
 
 fn finite_rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         for negative in [false, true] {
             let sign = if negative { format.sign() } else { 0 };
@@ -232,7 +233,7 @@ fn finite_rounding(frontend: Frontend) {
 }
 
 fn special_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         for (source, output, invalid) in [
             ((0, 0), 0, false),

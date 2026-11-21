@@ -1,11 +1,12 @@
+use crate::support::config::REAL16;
 use crate::{
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
     CodeAddress::{self, CsRelative, RealMode},
-    CompiledBlocks, Compiler, CpuState, DecodedBlock, ExecutionContext, ExecutionExit,
-    ExecutionProfile, Segment, SegmentDefaultSize, SegmentRegister, SnapshotInstruction,
+    CompiledBlocks, Compiler, CpuState, DecodedBlock, ExecutionContext, ExecutionExit, Segment,
+    SegmentDefaultSize, SegmentRegister, SnapshotInstruction,
 };
 
 mod input;
@@ -43,7 +44,7 @@ fn block(address: CodeAddress, exported: bool, mut bytes: &[u8]) -> DecodedBlock
 }
 
 fn compile(blocks: Vec<DecodedBlock>) -> CompiledBlocks {
-    Compiler::new(ExecutionProfile::Real16)
+    Compiler::from_config(REAL16)
         .compile_decoded_blocks(blocks)
         .unwrap()
 }
@@ -52,7 +53,7 @@ fn enter(blocks: &CompiledBlocks, address: CodeAddress) -> TestModule {
     TestModule::from_bytes(
         &blocks.bytes,
         &format!("block_{address}"),
-        Some(blocks.execution_target),
+        Some(blocks.config),
     )
 }
 

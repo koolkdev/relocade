@@ -1,9 +1,10 @@
 //! Exact host products supply independent quotient/remainder rounding expectations.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn precision_and_rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right) in [
         (LEADING, LEADING),
         (LEADING + 1, LEADING + 1),
@@ -61,7 +62,7 @@ fn precision_and_rounding(frontend: Frontend) {
 }
 
 fn exponent_range(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (pc, precision) in [(0, 24), (2, 53), (3, 64)] {
         for negative in [false, true] {
             let sign = if negative { 0x8000 } else { 0 };

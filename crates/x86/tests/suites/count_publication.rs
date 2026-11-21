@@ -1,10 +1,11 @@
+use crate::support::config::FLAT32;
 use crate::support::{
     cases::Permissions::ReadOnly,
     sequences::{test_sequences, Checkpoint, SequenceCase},
     step,
 };
 
-use relocade_x86::{compile_block_from_bytes, Compiler, Gpr32, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, Compiler, Gpr32};
 use step::{CallPatches, Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator};
 
@@ -17,7 +18,7 @@ const READS: &[u8] = &[
 #[test]
 fn budgetless_exits_read_and_write_instruction_count_only_to_publish_progress() {
     // Isolate retirement publication from the budget checkpoint's counter read.
-    let module = Compiler::new(SegmentProfile::Flat32)
+    let module = Compiler::from_config(FLAT32)
         .with_instruction_budgets(false)
         .compile_block(0x1000, READS, 3)
         .unwrap();

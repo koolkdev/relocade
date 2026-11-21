@@ -3,12 +3,13 @@
 #[path = "x87_compare_flags/jit.rs"]
 mod jit;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const LEADING: u64 = 1 << 63;
 const ONE: (u64, u16) = (LEADING, 0x3fff);
@@ -56,7 +57,7 @@ fn completed(mut cpu: CpuState, opcode: u16, flags: u8, exceptions: u16, pops: u
 }
 
 fn register_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (instruction, pops) in [
         ([0xdb, 0xf2], 0), // FCOMI ST2
         ([0xdf, 0xf2], 1), // FCOMIP ST2
@@ -98,7 +99,7 @@ fn register_forms(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (instruction, pops, unordered) in [
         ([0xdb, 0xf1], 0, false),
         ([0xdf, 0xf1], 1, false),
@@ -174,7 +175,7 @@ fn live_flags(frontend: Frontend) {
     let code = [
         0xdb, 0xe9, 0x0f, 0x92, 0xc3, 0x0f, 0x94, 0xc1, 0x0f, 0x9a, 0xc2,
     ];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, flags, below, equal, unordered) in [
         ((LEADING, 0x4000), 0, 0, 0, 0),
         ((LEADING, 0xbfff), 1, 1, 0, 0),
@@ -207,7 +208,7 @@ fn live_flags(frontend: Frontend) {
 }
 
 fn stored_flags_and_pending(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for pending in [false, true] {
         let code = [0xdf, 0xf1];
         let mut image = initial_image(&code);

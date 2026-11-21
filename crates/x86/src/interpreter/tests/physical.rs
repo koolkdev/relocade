@@ -1,9 +1,10 @@
+use crate::support::config::{REAL16, SEGMENTED16};
 use crate::{
     support::machine::{expected, Exit, Image, Step},
     test_step::{Event, TestModule},
-    Compiler, CompilerConfig, CpuState, ExecutionProfile, MemoryBackend, Segment,
+    CompilerConfig, CpuState, MemoryBackend, Segment,
     SegmentDefaultSize::Bits16,
-    SegmentProfile, SegmentRegister,
+    SegmentRegister,
 };
 
 #[test]
@@ -18,15 +19,12 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
     protected.eip = 0x1_0000;
     protected.segments.ds.base = 0x2000;
 
-    for (profile, cpu, code_page) in [
-        (ExecutionProfile::Real16, real, 0x11),
-        (SegmentProfile::Segmented16.into(), protected, 0xd0011),
-    ] {
-        let target = CompilerConfig {
+    for (config, cpu, code_page) in [(REAL16, real, 0x11), (SEGMENTED16, protected, 0xd0011)] {
+        let config = CompilerConfig {
             memory_backend: MemoryBackend::PhysicalBus,
-            ..Compiler::new(profile).target()
+            ..config
         };
-        let interpreter = TestModule::interpreter_run_with_target(target);
+        let interpreter = TestModule::interpreter_run_with_config(config);
         let mut image = Image::empty();
         image.cpu = cpu;
         image.data(
@@ -71,6 +69,6 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
                 },
             ],
         );
-        assert_eq!(interpreter.observe(&input, 1), wanted, "{profile:?}");
+        assert_eq!(interpreter.observe(&input, 1), wanted, "{config:?}");
     }
 }

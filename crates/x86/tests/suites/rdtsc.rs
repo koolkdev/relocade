@@ -1,5 +1,6 @@
 //! RDTSC observes complete 64-bit retirement progress before its own retirement.
 
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     encoding::check_length,
@@ -7,7 +8,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{CallPatches, TestModule},
 };
-use relocade_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, CpuState};
 
 fn timestamp_result(mut cpu: CpuState, eax: u32, edx: u32, bytes: u32) -> CpuState {
     cpu.registers.eax = eax;
@@ -21,46 +22,28 @@ fn transfers(frontend: Frontend) {
     let mut blocks = BlockModules::default();
     let plain = &[0x0f, 0x31][..];
     let prefixed = &[0x66, 0x67, 0x64, 0x0f, 0x31][..];
-    for (profile, code, counter, eax, edx) in [
-        (SegmentProfile::Flat32.into(), plain, 0_u64, 0, 0),
+    for (config, code, counter, eax, edx) in [
+        (FLAT32, plain, 0_u64, 0, 0),
+        (FLAT32, plain, 0xffff_ffff, 0xffff_ffff, 0),
+        (FLAT32, plain, 0x1_0000_0000, 0, 1),
         (
-            SegmentProfile::Flat32.into(),
-            plain,
-            0xffff_ffff,
-            0xffff_ffff,
-            0,
-        ),
-        (SegmentProfile::Flat32.into(), plain, 0x1_0000_0000, 0, 1),
-        (
-            SegmentProfile::Flat32.into(),
+            FLAT32,
             prefixed,
             0x0123_4567_89ab_cdef,
             0x89ab_cdef,
             0x0123_4567,
         ),
+        (SEGMENTED32, plain, 0x8000_0000_0000_0001, 1, 0x8000_0000),
+        (SEGMENTED16, prefixed, u64::MAX, u32::MAX, u32::MAX),
         (
-            SegmentProfile::Segmented32.into(),
-            plain,
-            0x8000_0000_0000_0001,
-            1,
-            0x8000_0000,
-        ),
-        (
-            SegmentProfile::Segmented16.into(),
-            prefixed,
-            u64::MAX,
-            u32::MAX,
-            u32::MAX,
-        ),
-        (
-            ExecutionProfile::Real16,
+            REAL16,
             plain,
             0x8765_4321_fedc_ba98,
             0xfedc_ba98,
             0x8765_4321,
         ),
         (
-            ExecutionProfile::Real16,
+            REAL16,
             prefixed,
             0xfedc_ba98_7654_3210,
             0x7654_3210,
@@ -68,9 +51,9 @@ fn transfers(frontend: Frontend) {
         ),
     ] {
         let mut image = Image::new(code);
-        match profile {
-            ExecutionProfile::Real16 => image.initialize_real_mode(),
-            ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
+        match config.entry {
+            relocade_x86::EntryAssumptions::REAL_MODE => image.initialize_real_mode(),
+            relocade_x86::EntryAssumptions::SEGMENTED16 => {
                 image.cpu.segments.cs.big = 0;
             }
             _ => {}
@@ -81,8 +64,8 @@ fn transfers(frontend: Frontend) {
         image.cpu.instruction_count = counter;
         let input = image.input();
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, code, 1, profile),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
+            Frontend::Block => blocks.get(&image.cpu, code, 1, config),
+            Frontend::Interpreter => TestModule::interpreter_with_config(config),
         };
         let cpu = timestamp_result(image.cpu, eax, edx, code.len() as u32);
         let wanted = expected(
@@ -96,7 +79,7 @@ fn transfers(frontend: Frontend) {
         assert_eq!(
             module.observe(&input, 1),
             module.expected(wanted.clone()),
-            "{profile:?}, {counter:#018x}"
+            "{config:?}, {counter:#018x}"
         );
     }
 }
@@ -127,7 +110,7 @@ fn repeated_reads_include_pending_retirement_without_ending_execution() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 20).unwrap());
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
@@ -177,7 +160,7 @@ fn counter_reads_and_faults_keep_instruction_order() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
@@ -217,7 +200,7 @@ fn interpreter_reads_only_after_complete_supported_encoding() {
     image.cpu.instruction_count = 0x1234_5678_9abc_def0;
     let input = image.input();
     let cpu = timestamp_result(image.cpu, 0x9abc_def0, 0x1234_5678, 2);
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     let wanted = expected(
         &image,
         &[Step {
@@ -295,7 +278,7 @@ fn counter_continues_across_entries_and_reads_full_width_restores() {
     });
     let wanted = expected(&image, &steps);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 2).unwrap());
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for module in [&block, run] {
         assert_eq!(module.observe(&input, 3), wanted);
     }
@@ -330,7 +313,7 @@ fn rep_contributes_one_retirement_to_the_counter() {
         }],
     );
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 3).unwrap());
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for module in [&block, run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }

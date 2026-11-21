@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::REAL16;
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
@@ -85,8 +86,8 @@ fn stack_bounds(frontend: Frontend) {
         input.mmio_pages = vec![(0xf, 0x8000)];
         input.observe_mmio = true;
         let module = match frontend {
-            Frontend::Block => blocks.get(&image.cpu, code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks.get(&image.cpu, code, 1, REAL16),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16),
         };
         assert_eq!(
             module.observe(&input, 1),
@@ -159,18 +160,14 @@ fn mmio_fields(frontend: Frontend) {
         );
         let module = match frontend {
             Frontend::Block => blocks
-                .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                .get(&image.cpu, &code, 1, REAL16)
                 .clone()
-                .with_interpreter(TestModule::interpreter_with_profile(
-                    ExecutionProfile::Real16,
-                )),
-            Frontend::Interpreter => {
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-            }
+                .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
         };
         assert_eq!(
             module.observe(&input, 1),
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone()),
+            TestModule::interpreter_with_config(REAL16).expected(wanted.clone()),
             "IRETD validates EIP before CS/FLAGS and transfers only the selector's low word"
         );
     }
@@ -179,7 +176,7 @@ test_frontends!(mmio_order_and_widths, mmio_fields);
 
 #[test]
 fn target_fetch_uses_the_committed_return() {
-    let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = TestModule::interpreter_with_config(REAL16);
     for target_mapped in [false, true] {
         let mut image = image(&[0xcf]);
         image.cpu.registers.esp = 0xabcd_2000;

@@ -1,9 +1,10 @@
 //! The eight legacy predicates and exception aggregation across packed lanes.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn predicates(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Bits enumerate the predicates that are true, independently of NaN signaling.
     for (left, right, truths) in [
         (ONE, TWO, 0b1001_0110),
@@ -65,7 +66,7 @@ fn predicates(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for packed in [false, true] {
             let mut code = encoding(prefix(wide, packed), 0xc2, 0xc1);
@@ -135,7 +136,7 @@ fn exceptions(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for packed in [false, true] {
             let mut code = encoding(prefix(wide, packed), 0xc2, 0x00);
@@ -189,7 +190,7 @@ fn memory(frontend: Frontend) {
 }
 
 fn mixed_lanes(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0xc2, 0xc1, 2]; // CMPPS LE: less, greater, equal, unordered.
     let mut image = floating_image(&code, 0x1f80);
     for (index, (left, right)) in [(ONE, TWO), (TWO, ONE), (NEG_ZERO, ZERO), (QNAN, ONE)]
