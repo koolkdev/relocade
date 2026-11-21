@@ -7,7 +7,6 @@ mod patterns;
 mod registers;
 mod status;
 
-pub(crate) use environment::EnvironmentMode;
 pub(crate) use patterns::X87Specialization;
 pub(crate) use status::ConditionCode;
 
@@ -71,13 +70,6 @@ impl X87Tracker {
         }
     }
 
-    pub(crate) fn access<'state, 'body>(
-        &'state mut self,
-        body: &'state mut BlockBuilder<'body>,
-    ) -> X87Access<'state, 'body> {
-        X87Access { state: self, body }
-    }
-
     pub(crate) fn publish(&self, body: &mut BlockBuilder<'_>) -> Result<(), BuildError> {
         self.control.publish(body)?;
         self.status.publish(body)?;
@@ -86,10 +78,24 @@ impl X87Tracker {
     }
 }
 
+impl super::State<'_> {
+    pub(crate) fn x87<'state, 'body>(
+        &'state mut self,
+        body: &'state mut BlockBuilder<'body>,
+    ) -> X87Access<'state, 'body> {
+        X87Access {
+            state: &mut self.x87,
+            cpu_fields: &mut self.fields,
+            body,
+        }
+    }
+}
+
 /// Builds x87 state operations in the current execution body. Register tracking,
 /// status backing and publication remain owned by the underlying state.
 pub(crate) struct X87Access<'state, 'body> {
     state: &'state mut X87Tracker,
+    cpu_fields: &'state mut StateFields,
     body: &'state mut BlockBuilder<'body>,
 }
 

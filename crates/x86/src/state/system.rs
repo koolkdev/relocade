@@ -40,16 +40,20 @@ pub(crate) fn protected_mode(
     Ok(protected.and(vm.eq(false)))
 }
 
+/// Entry assumptions can make the loaded CS default constant.
+pub(super) fn code_default_is_32_bit(
+    body: &mut BlockBuilder<'_>,
+    fields: &mut StateFields,
+) -> Result<Val<I1>, BuildError> {
+    Ok(fields.read(body, cpu_location!(segments.cs.big))?.ne(0))
+}
+
 impl State<'_> {
-    /// Entry assumptions can make the loaded CS default constant.
     pub(crate) fn code_default_is_32_bit(
         &mut self,
         body: &mut BlockBuilder<'_>,
     ) -> Result<Val<I1>, BuildError> {
-        Ok(self
-            .fields
-            .read(body, cpu_location!(segments.cs.big))?
-            .ne(0))
+        code_default_is_32_bit(body, &mut self.fields)
     }
 
     pub(crate) fn protection_enabled(
