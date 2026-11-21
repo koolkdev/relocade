@@ -8,6 +8,30 @@ use crate::{
     CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel, SegmentDefaultSize,
 };
 
+/// The hosted user environment exposes IF=1 and IOPL=0 independently of
+/// the saved EFLAGS bytes. The PC uses the architectural fields.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum InterruptFlagPolicy {
+    Architectural,
+    HostedUser,
+}
+
+impl InterruptFlagPolicy {
+    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
+        match profile {
+            ExecutionProfile::Real16 => Self::Architectural,
+            ExecutionProfile::Protected(_) => Self::HostedUser,
+        }
+    }
+
+    pub(crate) fn fixed_iopl(self) -> Option<PrivilegeLevel> {
+        match self {
+            Self::Architectural => None,
+            Self::HostedUser => Some(PrivilegeLevel::Ring0),
+        }
+    }
+}
+
 /// Bits consumed by mode and privilege predicates. Other supported-state
 /// restrictions remain in CPU admission until their transitions are implemented.
 pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {

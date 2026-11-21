@@ -729,11 +729,12 @@ of `if_`; IOPL uses bits 0–1 of `iopl`. Other bits are retained by snapshot co
 Valid source kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
-Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
-VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
-dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
-unrepresented here along with debug delivery. Real16 transfers also read and write
-IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
+The hosted user profiles guarantee CPL3 and expose IF=1 and IOPL=0 regardless of
+the stored flag bytes. PC flag transfers read IF and IOPL from the CPU. POPF and
+IRET may restore IF when CPL permits I/O under the old IOPL, and may restore
+IOPL at CPL0. Word stack images restore the represented low flags; dword images
+also restore AC and ID. VM/RF/VIF/VIP are clear in these images. IRETD restores
+RF on hardware, but RF is unrepresented here along with debug delivery. TF, IF and AC are stored without enabling debug traps, interrupt
 delivery or alignment checks.
 
 ```rust
