@@ -7,9 +7,7 @@ use relocade_machine::{
     Clock, Cpu, Device, DispatchEntry, ExecutionWorker, GuestTimeDriver, IoBus, Memory,
     SessionConfig, Timestamp,
 };
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
@@ -17,7 +15,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn configuration(count: u64) -> support::Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             instruction_count: count,
@@ -156,7 +154,7 @@ async fn callback_observation() {
         let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
         let _binding = driver.bind(&cpu, std::task::Waker::noop());
         if compiled {
-            let block = Compiler::new(ExecutionProfile::Real16)
+            let block = Compiler::from_config(support::pc_compiler_config())
                 .compile_block(0x101, &code[1..], 3)
                 .unwrap();
             cpu.install_module(

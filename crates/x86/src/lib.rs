@@ -65,7 +65,7 @@ use std::fmt;
 
 pub use compile::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, DecodedBlock, EntryTable,
+    BlockSnapshot, CodeAddress, CompiledBlocks, Compiler, CompilerConfig, DecodedBlock, EntryTable,
 };
 pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
@@ -101,13 +101,15 @@ pub struct CompiledModule {
     /// segment load may change compatibility before publication and dispatch.
     /// Snapshot instruction-fetch validity is separate. Modules that do not
     /// execute x86 instructions have no execution target.
-    pub execution_target: Option<ExecutionTarget>,
+    pub execution_target: Option<CompilerConfig>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockError {
     ZeroInstructionLimit,
+    /// The byte snapshot needs an explicit CS.D or an observed CPU image to decode it.
+    MissingCodeDefaultSize,
     /// A decoded instruction does not start at the next offset in its block.
     NoncontiguousInstruction {
         expected: u32,
@@ -150,6 +152,9 @@ pub enum BlockError {
 impl fmt::Display for BlockError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingCodeDefaultSize => {
+                formatter.write_str("decoding a byte snapshot requires a code default size")
+            }
             Self::ZeroInstructionLimit => {
                 formatter.write_str("a block must contain at least one instruction")
             }

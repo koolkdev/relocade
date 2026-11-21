@@ -6,8 +6,8 @@ mod shared;
 use super::BlockDiscovery;
 use crate::{DiscoveryError, DiscoveryLimits, Error};
 use relocade_x86::{
-    BlockError, CodeAddress, Compiler, DecodedBlock, ExecutionProfile, SegmentDefaultSize,
-    SegmentProfile,
+    BlockError, CodeAddress, CompilerConfig, DecodedBlock, EntryAssumptions, MemoryBackend,
+    SegmentDefaultSize,
 };
 use SegmentDefaultSize::{Bits16, Bits32};
 
@@ -37,14 +37,14 @@ fn mapped_code<'a, const N: usize>(
 }
 
 fn discover(
-    profile: ExecutionProfile,
+    entry: EntryAssumptions,
     size: SegmentDefaultSize,
     code: &[u8],
     limits: DiscoveryLimits,
 ) -> crate::Result<Vec<DecodedBlock>> {
     let root = address(START);
-    let target = Compiler::new(profile).target();
-    let mut discovery = BlockDiscovery::new(target, mapped_code([(root, code)]));
+    let config = CompilerConfig::new(entry, MemoryBackend::PhysicalBus);
+    let mut discovery = BlockDiscovery::new(config, mapped_code([(root, code)]));
     discovery.add_root(root, size, limits)?;
     discovery.finish()
 }

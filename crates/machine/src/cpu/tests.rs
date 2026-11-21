@@ -2,8 +2,8 @@ use super::CpuStateAccess;
 use crate::{ConfigurationError, CpuConfig};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionContext, ExecutionProfile, Segment, SegmentRegister, Segments,
-    StatusSourceState,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionContext, MemoryBackend, Segment,
+    SegmentRegister, Segments, StatusSourceState,
 };
 
 fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
@@ -12,7 +12,7 @@ fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
         0,
         &ExecutionContext {
             cpu: *cpu.cpu(),
-            cpu_model: cpu.execution_target().cpu_model,
+            cpu_model: cpu.compiler_config().cpu_model,
             interrupt_requested: 1,
             ..ExecutionContext::default()
         }
@@ -31,9 +31,10 @@ fn configuration() -> CpuConfig {
     let model =
         relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16)
-            .with_cpu_model(model)
-            .target(),
+        CompilerConfig {
+            cpu_model: model,
+            ..CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus)
+        },
         CpuState::real_mode(),
     )
     .unwrap()
@@ -133,9 +134,9 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
 
 #[test]
 fn live_mode_and_width_queries_read_published_state() {
-    use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*, SegmentProfile};
+    use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*};
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Segmented16).target(),
+        CompilerConfig::new(EntryAssumptions::SEGMENTED16, MemoryBackend::HostPageTable),
         CpuState::protected_mode(Bits16, Bits32),
     )
     .unwrap();
@@ -155,12 +156,10 @@ fn live_mode_and_width_queries_read_published_state() {
 
 #[test]
 fn restore_rejects_incompatible_control_state_without_writing() {
-    use relocade_x86::SegmentProfile;
-
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).target(),
+            CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
             CpuState::default(),
         )
         .unwrap(),
@@ -189,13 +188,12 @@ fn restore_rejects_incompatible_control_state_without_writing() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
-    use relocade_x86::SegmentProfile;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).target(),
+            CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
             CpuState::default(),
         )
         .unwrap(),
@@ -206,7 +204,7 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
         assert_eq!(cpu.snapshot(), before);
     }
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Flat32).target(),
+        CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
         CpuState::default(),
     )
     .unwrap();
@@ -263,7 +261,7 @@ fn segment_edits_preserve_the_execution_profile() {
 }
 
 #[test]
-#[should_panic(expected = "segment Ds violates execution profile Real16")]
+#[should_panic(expected = "segment Ds violates entry assumptions")]
 fn incompatible_segment_edits_panic() {
     let config = configuration();
     let storage = cpu_memory(&config);

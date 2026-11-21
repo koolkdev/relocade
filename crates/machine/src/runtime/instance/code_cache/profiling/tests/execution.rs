@@ -7,8 +7,8 @@ use crate::{
 };
 use futures_lite::future::poll_once;
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment,
+    Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap, Segment,
 };
 
 async fn cpu() -> Cpu {
@@ -22,9 +22,7 @@ async fn cpu() -> Cpu {
     )
     .unwrap();
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16)
-            .with_instruction_budgets(true)
-            .target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -58,7 +56,10 @@ async fn calls() {
         cpu.install([Hook::host(0x300, async move || exit.request())])
             .await
             .unwrap();
-        let compiler = Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(true);
+        let compiler = Compiler::from_config(CompilerConfig::new(
+            EntryAssumptions::REAL_MODE,
+            MemoryBackend::PhysicalBus,
+        ));
         if compiled_caller {
             let block = compiler.compile_block(0x100, &caller, 2).unwrap();
             cpu.install_module(
@@ -153,7 +154,10 @@ async fn far_calls() {
         cpu.install([Hook::host(0x0030_0400, async move || exit.request())])
             .await
             .unwrap();
-        let compiler = Compiler::new(ExecutionProfile::Real16).with_instruction_budgets(true);
+        let compiler = Compiler::from_config(CompilerConfig::new(
+            EntryAssumptions::REAL_MODE,
+            MemoryBackend::PhysicalBus,
+        ));
         let callee = compiler.compile_block(0x300, &[0x43, 0xcb], 2).unwrap();
         cpu.install_module(
             &callee.bytes,
@@ -167,7 +171,7 @@ async fn far_calls() {
         if compiled_caller {
             let mut reader = memory.code_reader();
             let decoded = crate::compiler::discover_functions(
-                compiler.target(),
+                compiler.config(),
                 [FunctionRequest {
                     entry: target(0x100),
                     limits: DiscoveryLimits::default(),

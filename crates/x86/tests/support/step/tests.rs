@@ -82,8 +82,8 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
     assert_eq!(
-        module.target.map(|target| target.profile),
-        Some(ExecutionProfile::Protected(SegmentProfile::Flat32))
+        module.target.map(|target| target.entry),
+        Some(crate::EntryAssumptions::FLAT32)
     );
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -92,8 +92,8 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
         assert_eq!(
             TestModule::interpreter_with_profile(profile)
                 .target
-                .map(|target| target.profile),
-            Some(profile)
+                .map(|target| target.entry),
+            Some(profile.into())
         );
     }
     let invalid = CpuState::filled(0xa5);

@@ -6,7 +6,7 @@ mod walk;
 mod tests;
 
 use crate::Result;
-use relocade_x86::{CodeAddress, DecodedBlock, ExecutionTarget, SegmentDefaultSize};
+use relocade_x86::{CodeAddress, CompilerConfig, DecodedBlock, SegmentDefaultSize};
 use std::{collections::BTreeMap, fmt};
 
 /// Per-root budgets for discovering blocks. A root pays only for new instructions.
@@ -40,8 +40,13 @@ pub enum DiscoveryError {
 impl fmt::Display for DiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ZeroLimit => f.write_str("discovery budgets and maximum instructions per block must be nonzero"),
-            Self::TooLarge { address } => write!(f, "new instructions from {address:#x} exceed the discovery instruction or byte budget"),
+            Self::ZeroLimit => {
+                f.write_str("discovery budgets and maximum instructions per block must be nonzero")
+            }
+            Self::TooLarge { address } => write!(
+                f,
+                "new instructions from {address:#x} exceed the discovery instruction or byte budget"
+            ),
         }
     }
 }
@@ -51,15 +56,15 @@ impl std::error::Error for DiscoveryError {}
 /// A single code source remains stable across roots. Instructions at the same
 /// offset share a decode only within the same code segment and default width.
 pub(super) struct BlockDiscovery<R> {
-    target: ExecutionTarget,
+    config: CompilerConfig,
     read: R,
     views: BTreeMap<(Option<u16>, SegmentDefaultSize), walk::CodeView>,
 }
 
 impl<R: FnMut(CodeAddress, &mut [u8]) -> usize> BlockDiscovery<R> {
-    pub(super) fn new(target: ExecutionTarget, read: R) -> Self {
+    pub(super) fn new(config: CompilerConfig, read: R) -> Self {
         Self {
-            target,
+            config,
             read,
             views: BTreeMap::new(),
         }
@@ -74,7 +79,7 @@ impl<R: FnMut(CodeAddress, &mut [u8]) -> usize> BlockDiscovery<R> {
         let view = self
             .views
             .entry((entry.segment(), size))
-            .or_insert_with(|| walk::CodeView::new(entry, size, self.target));
+            .or_insert_with(|| walk::CodeView::new(entry, size, self.config));
         view.add_root(entry.eip(), limits, |eip, bytes| {
             (self.read)(entry.with_eip(eip), bytes)
         })

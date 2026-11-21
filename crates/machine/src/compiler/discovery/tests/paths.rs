@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn decode_errors_reject_roots_and_preserve_valid_prefixes_and_sibling_paths() {
-    let profile = SegmentProfile::Flat32.into();
+    let entry = EntryAssumptions::FLAT32;
     let limits = DiscoveryLimits::default();
     for (suffix, expected) in [
         (
@@ -25,13 +25,13 @@ fn decode_errors_reject_roots_and_preserve_valid_prefixes_and_sibling_paths() {
         ),
     ] {
         assert!(
-            matches!(discover(profile, Bits32, suffix, limits), Err(Error::Compile(error)) if error == expected)
+            matches!(discover(entry, Bits32, suffix, limits), Err(Error::Compile(error)) if error == expected)
         );
 
         let mut prefix = vec![0x90];
         prefix.extend(suffix);
         assert_eq!(
-            spans(&discover(profile, Bits32, &prefix, limits).unwrap()),
+            spans(&discover(entry, Bits32, &prefix, limits).unwrap()),
             [(START, 1)]
         );
 
@@ -42,7 +42,7 @@ fn decode_errors_reject_roots_and_preserve_valid_prefixes_and_sibling_paths() {
         ];
         branch.extend(suffix);
         assert_eq!(
-            spans(&discover(profile, Bits32, &branch, limits).unwrap()),
+            spans(&discover(entry, Bits32, &branch, limits).unwrap()),
             [(0x1000, 2), (0x1002, 3)]
         );
     }
@@ -50,7 +50,7 @@ fn decode_errors_reject_roots_and_preserve_valid_prefixes_and_sibling_paths() {
 
 #[test]
 fn unreadable_targets_and_overlapping_encodings_end_only_the_affected_path() {
-    let profile = SegmentProfile::Flat32.into();
+    let entry = EntryAssumptions::FLAT32;
     for (code, expected) in [
         (&[0x75, 0x7f, 0xc3][..], &[(0x1000, 2), (0x1002, 1)][..]),
         // Backward jump into the preceding MOV's immediate.
@@ -61,17 +61,17 @@ fn unreadable_targets_and_overlapping_encodings_end_only_the_affected_path() {
             &[(0x1000, 2), (0x1003, 4)],
         ),
     ] {
-        let blocks = discover(profile, Bits32, code, DiscoveryLimits::default()).unwrap();
+        let blocks = discover(entry, Bits32, code, DiscoveryLimits::default()).unwrap();
         assert_eq!(spans(&blocks), expected, "{code:02x?}");
     }
 }
 
 #[test]
 fn shared_instruction_offsets_are_decoded_in_each_requested_width() {
-    let target = Compiler::new(SegmentProfile::Segmented32).target();
+    let config = CompilerConfig::new(EntryAssumptions::SEGMENTED32, MemoryBackend::HostPageTable);
     let root = address(START);
     let code = [0xb8, 0x34, 0x12, 0xc3, 0x90, 0xc3];
-    let mut discovery = BlockDiscovery::new(target, mapped_code([(root, code.as_slice())]));
+    let mut discovery = BlockDiscovery::new(config, mapped_code([(root, code.as_slice())]));
     for size in [Bits16, Bits32] {
         discovery
             .add_root(root, size, DiscoveryLimits::default())
@@ -97,7 +97,7 @@ fn io_and_segment_loads_split_fallthrough_until_a_known_fault() {
         0x0f, 0x0b, // UD2
         0x90, 0xc3, // NOP; RET beyond the fault
     ];
-    let real = discover(ExecutionProfile::Real16, Bits16, &code, limits).unwrap();
+    let real = discover(EntryAssumptions::REAL_MODE, Bits16, &code, limits).unwrap();
     assert_eq!(
         spans(&real),
         [
@@ -112,7 +112,7 @@ fn io_and_segment_loads_split_fallthrough_until_a_known_fault() {
     assert!(real[0].is_exported());
     assert!(real[1..].iter().all(|block| !block.is_exported()));
 
-    // The Flat32 profile faults at the first IN, before discovering any successor.
-    let flat = discover(SegmentProfile::Flat32.into(), Bits32, &code, limits).unwrap();
+    // The Flat32 entry faults at the first IN, before discovering any successor.
+    let flat = discover(EntryAssumptions::FLAT32, Bits32, &code, limits).unwrap();
     assert_eq!(spans(&flat), [(0x1000, 1)]);
 }

@@ -1,7 +1,7 @@
 //! Admission shared by block boundaries and instruction execution.
 
 use crate::{
-    execution::ExecutionBuilder, processor, CpuFeature, Exception, ExecutionMode, ExecutionTarget,
+    execution::ExecutionBuilder, processor, CompilerConfig, CpuFeature, Exception, ExecutionMode,
     PrivilegeLevel,
 };
 use relocade_compiler::BuildError;
@@ -55,15 +55,15 @@ impl Requirements {
     }
 
     /// A fault established by the CPU model or entry mode can end snapshot discovery.
-    pub(super) fn known_fault(self, target: ExecutionTarget) -> Option<Exception> {
-        if processor::supports_features(target.cpu_model.bits(), self.features)
+    pub(super) fn known_fault(self, config: CompilerConfig) -> Option<Exception> {
+        if processor::supports_features(config.cpu_model.bits(), self.features)
             .constant_bits()
             .expect("CPU feature masks are constants")
             == Some(0)
         {
             return Some(Exception::InvalidOpcode);
         }
-        self.mode_fault(target.assumptions().mode)
+        self.mode_fault(config.entry.mode)
     }
 
     /// Snapshot discovery can stop at a fault established by its entry mode.

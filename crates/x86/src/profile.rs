@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{
     state::{access::cpu_location, cr0, cr4, StatePattern},
-    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
+    CpuMode, CpuState, FlagBytes, PrivilegeLevel,
 };
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
@@ -70,36 +70,8 @@ impl EntryGuarantees {
     }
 }
 
-/// The processor model and execution assumptions required by a compiled entry.
-///
-/// Use the complete value in cache and direct-link keys. Blocks and their fallback
-/// interpreters must agree on this target, including disabled capabilities.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ExecutionTarget {
-    pub profile: ExecutionProfile,
-    /// Memory routing and imports required by instruction fetch and data accesses.
-    pub memory_backend: MemoryBackend,
-    pub cpu_model: CpuModel,
-    /// Whether the execution owner may arm instruction budgets. When false,
-    /// snapshot blocks omit their budget checks and the live budget must stay zero.
-    pub instruction_budgets: bool,
-}
-
-impl ExecutionTarget {
-    /// Architectural facts required by this target.
-    pub fn assumptions(self) -> EntryAssumptions {
-        self.profile.into()
-    }
-
-    /// Check an entry against the installed target and architectural CPU state.
-    ///
-    /// The CPU image supplies the mode; the target retains generated-code policy
-    /// and specialization requirements. Code bytes, fetch permissions and mappings require
-    /// separate validation as described by the entry-validity contract.
-    pub fn is_compatible_with(self, active: Self, cpu: &CpuState) -> bool {
-        self == active && cpu.is_compatible_with(self.assumptions())
-    }
-}
+/// Existing name for the compiler configuration during the caller migration.
+pub type ExecutionTarget = crate::CompilerConfig;
 
 impl CpuState {
     /// Checks the entry guarantees and the supported control state. Control bits

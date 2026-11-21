@@ -4,8 +4,7 @@ use relocade_compiler::{Program, I32};
 use relocade_machine::DispatchEntry;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler, WasmRuntime};
 use relocade_x86::{
-    abi, Compiler, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap,
+    abi, CpuState, ExecutionContext, ExecutionExit, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::mem::offset_of;
 
@@ -14,7 +13,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 async fn check_dispatch_table() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

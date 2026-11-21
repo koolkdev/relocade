@@ -43,7 +43,7 @@ impl Compiler {
     /// # Panics
     /// Panics for a target other than Real16. Protected-mode dispatch is not yet supported.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
-        assert_eq!(self.target.assumptions(), EntryAssumptions::REAL_MODE);
+        assert_eq!(self.config.entry, EntryAssumptions::REAL_MODE);
         let mut program = Program::new();
         let cpu = Arc::new(Cpu::declare(&mut program));
         let dispatch = Dispatch::declare(&mut program);
@@ -67,7 +67,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
-            execution_target: Some(self.target),
+            execution_target: Some(self.config),
         })
     }
 }

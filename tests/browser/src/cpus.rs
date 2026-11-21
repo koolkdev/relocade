@@ -5,7 +5,8 @@ use relocade_machine::{
     Cpu, CpuConfig, Hook, MachineConfig, Memory,
 };
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, MemoryBackend, PhysicalMapping,
+    PhysicalMemoryMap,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -32,7 +33,7 @@ pub async fn cpu_worker() -> Result<(), String> {
     )
     .unwrap();
     let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

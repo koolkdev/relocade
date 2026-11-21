@@ -1,11 +1,12 @@
 use super::{cpu, Irq};
 use relocade_machine::{Cpu, DispatchEntry, Hook};
-use relocade_x86::{Compiler, Exception, ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{Compiler, Exception, ExecutionExit, HostExit};
 use std::{cell::RefCell, rc::Rc};
 
 pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) {
+    let config = cpu.cpu_state().compiler_config();
     if compiled {
-        let module = Compiler::new(ExecutionProfile::Real16)
+        let module = Compiler::from_config(config)
             .compile_block(0x100, code, 1)
             .unwrap();
         cpu.install_module(
@@ -19,7 +20,7 @@ pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) 
         .unwrap();
     } else {
         cpu.install_module(
-            relocade_interpreter::module(ExecutionProfile::Real16),
+            relocade_interpreter::module_with_memory(config.entry, config.memory_backend).unwrap(),
             &[DispatchEntry {
                 key: 0x100,
                 export: "step",

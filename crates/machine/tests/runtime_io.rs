@@ -13,8 +13,8 @@ use relocade_machine::{
     MmioBinding, MmioRead, MmioWrite, PortBinding, PortRange, PortRead, PortWrite,
 };
 use relocade_x86::{
-    BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentRegister, Segments,
+    BlockSnapshot, Compiler, CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap, Segment,
+    SegmentRegister, Segments,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -133,11 +133,11 @@ async fn check_device_access() {
     // Both entries must bind the same I/O bus; neither may bypass it with RAM.
     for compiled in [false, true] {
         let device = RecordingDevice::new(0x3000);
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::from_config(support::pc_compiler_config());
         let mut segments = Segments::real_mode();
         segments.ds = SegmentRegister::real_mode(Segment::Ds, 0xffff);
         let config = support::configuration(
-            compiler.target(),
+            compiler.config(),
             CpuState {
                 eip: 0x100,
                 segments,

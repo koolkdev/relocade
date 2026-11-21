@@ -8,7 +8,7 @@ use crate::{
 };
 use futures_channel::mpsc;
 use futures_util::{future::LocalBoxFuture, StreamExt};
-use relocade_x86::ExecutionTarget;
+use relocade_x86::CompilerConfig;
 use std::{
     future::poll_fn,
     task::{Context, Poll},
@@ -68,10 +68,10 @@ async fn forward_replies(
 }
 
 impl CompilerClient {
-    /// Queues compilation for this target using the machine's shared guest memory.
+    /// Queues compilation with the supplied settings over the machine's shared guest memory.
     /// The stopped CPU validates the emitted instruction bytes at installation.
-    pub fn request(&self, target: ExecutionTarget, blocks: Vec<BlockRequest>) -> Result<()> {
-        self.submit(target, Compilation::Blocks(blocks))
+    pub fn request(&self, config: CompilerConfig, blocks: Vec<BlockRequest>) -> Result<()> {
+        self.submit(config, Compilation::Blocks(blocks))
     }
 
     /// Queues guest functions for compilation into one module. Each requested
@@ -85,16 +85,16 @@ impl CompilerClient {
     /// Receive and install the result in the same way as an explicit block request.
     pub fn request_functions(
         &self,
-        target: ExecutionTarget,
+        config: CompilerConfig,
         functions: Vec<FunctionRequest>,
     ) -> Result<()> {
-        self.submit(target, Compilation::Functions(functions))
+        self.submit(config, Compilation::Functions(functions))
     }
 
-    fn submit(&self, target: ExecutionTarget, compilation: Compilation) -> Result<()> {
+    fn submit(&self, config: CompilerConfig, compilation: Compilation) -> Result<()> {
         self.requests
             .unbounded_send(Request {
-                target,
+                config,
                 compilation,
             })
             .map_err(|_| ChannelError::Closed.into())

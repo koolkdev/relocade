@@ -1,8 +1,8 @@
 use super::*;
 use crate::{Cpu, CpuConfig, DispatchEntry, Hook, MachineConfig, Memory};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
+    Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 
 #[test]
@@ -104,7 +104,10 @@ fn resolved_candidates_do_not_satisfy_the_minimum_or_force_a_batch() {
 }
 
 async fn replace_fallback() {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::from_config(CompilerConfig::new(
+        EntryAssumptions::REAL_MODE,
+        MemoryBackend::PhysicalBus,
+    ));
     let memory = Memory::new(
         MachineConfig::new(
             0x10000,
@@ -124,7 +127,7 @@ async fn replace_fallback() {
     state.registers.esp = 0x7fe;
     let mut cpu = Cpu::new(
         memory,
-        CpuConfig::new(compiler.target(), state).unwrap(),
+        CpuConfig::new(compiler.config(), state).unwrap(),
         Default::default(),
     )
     .await

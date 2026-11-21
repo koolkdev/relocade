@@ -2,8 +2,8 @@
 
 use super::TestModule;
 use crate::{
-    build_interpreter_with_memory, Compiler, ExecutionProfile, ExecutionTarget, MemoryBackend,
-    SegmentProfile,
+    build_interpreter_with_memory, Compiler, EntryAssumptions, ExecutionProfile, ExecutionTarget,
+    MemoryBackend, SegmentProfile,
 };
 use relocade_test_support::Module;
 use std::{
@@ -42,17 +42,17 @@ impl TestModule {
     }
 
     fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
-        static CODE: Fixtures<(ExecutionProfile, MemoryBackend), Arc<Module>> = Fixtures::new();
+        static CODE: Fixtures<(EntryAssumptions, MemoryBackend), Arc<Module>> = Fixtures::new();
         static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
-            let module = CODE.get((target.profile, target.memory_backend), || {
+            let module = CODE.get((target.entry, target.memory_backend), || {
                 if let Some(bytes) =
-                    relocade_interpreter::module_with_memory(target.profile, target.memory_backend)
+                    relocade_interpreter::module_with_memory(target.entry, target.memory_backend)
                 {
                     Arc::new(Module::new(bytes))
                 } else {
                     let program =
-                        build_interpreter_with_memory(target.profile, target.memory_backend)
+                        build_interpreter_with_memory(target.entry, target.memory_backend)
                             .expect("build interpreter for the requested memory backend");
                     Arc::new(Module::new(&program.compile().unwrap()))
                 }

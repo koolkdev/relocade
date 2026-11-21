@@ -6,8 +6,8 @@ mod execution;
 use relocade_machine::{Cpu, CpuConfig, DispatchEntry, MachineConfig, Memory};
 use relocade_pc_speaker::Speaker;
 use relocade_x86::{
-    BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap,
+    BlockSnapshot, Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit,
+    MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::time::Duration;
 
@@ -18,7 +18,10 @@ async fn guest_port_io() {
     for compiled in [false, true] {
         let clock = ManualClock::default();
         let (io, _speaker) = common::hardware(clock.clock());
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::from_config(CompilerConfig::new(
+            EntryAssumptions::REAL_MODE,
+            MemoryBackend::PhysicalBus,
+        ));
         let memory = Memory::new(
             MachineConfig::new(
                 4096,
@@ -40,7 +43,7 @@ async fn guest_port_io() {
         ];
         memory.view().write(0x100, &code).unwrap();
         let config = CpuConfig::new(
-            compiler.target(),
+            compiler.config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

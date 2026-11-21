@@ -1,9 +1,7 @@
 //! Snapshot validation and decoding up to each block's execution boundary.
 
 use super::{BlockSnapshot, CodeAddress};
-use crate::{
-    BlockError, ExecutionTarget, InstructionFlow, SegmentDefaultSize, SnapshotInstruction,
-};
+use crate::{BlockError, CompilerConfig, InstructionFlow, SegmentDefaultSize, SnapshotInstruction};
 use std::collections::HashSet;
 
 /// Contiguous snapshot instructions decoded under one CS.D, with a caller-selected entry.
@@ -17,7 +15,7 @@ pub struct DecodedBlock {
 
 pub(super) fn blocks(
     snapshots: &[BlockSnapshot<'_>],
-    target: ExecutionTarget,
+    config: CompilerConfig,
 ) -> Result<Vec<DecodedBlock>, BlockError> {
     let mut boundaries = HashSet::new();
     for snapshot in snapshots {
@@ -29,7 +27,7 @@ pub(super) fn blocks(
     }
     snapshots
         .iter()
-        .map(|snapshot| DecodedBlock::decode(snapshot, target, &boundaries))
+        .map(|snapshot| DecodedBlock::decode(snapshot, config, &boundaries))
         .collect()
 }
 
@@ -92,7 +90,7 @@ impl DecodedBlock {
 
     fn decode(
         snapshot: &BlockSnapshot<'_>,
-        target: ExecutionTarget,
+        config: CompilerConfig,
         boundaries: &HashSet<CodeAddress>,
     ) -> Result<Self, BlockError> {
         if snapshot.instruction_limit == 0 {
@@ -106,7 +104,7 @@ impl DecodedBlock {
                 crate::decode::snapshot(remaining, eip, snapshot.code_default_size)?;
             eip = decoded.next_eip();
             remaining = rest;
-            let ends_block = decoded.flow(target) != InstructionFlow::Continue;
+            let ends_block = decoded.flow(config) != InstructionFlow::Continue;
             block.push(decoded)?;
             if ends_block || boundaries.contains(&snapshot.address.with_eip(eip)) {
                 break;

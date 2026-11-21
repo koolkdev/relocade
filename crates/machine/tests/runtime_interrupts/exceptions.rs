@@ -3,7 +3,7 @@ use relocade_machine::{
     real_mode_interrupt::{read_frame, write_vector, Interrupts},
     DispatchEntry, FarPointer, Hook,
 };
-use relocade_x86::{Compiler, Exception, ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{Compiler, Exception, ExecutionExit, HostExit};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -27,7 +27,7 @@ async fn live_vectors() {
             let state = runner.cpu_state();
             state.set_ax(1); // Outside BOUND's inclusive [0, 0] range.
             if compiled {
-                let module = Compiler::new(ExecutionProfile::Real16)
+                let module = Compiler::from_config(crate::support::pc_compiler_config())
                     .compile_block(0x100, &code, 1)
                     .unwrap();
                 runner

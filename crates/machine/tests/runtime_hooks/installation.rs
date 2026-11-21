@@ -2,14 +2,13 @@ use super::support;
 use relocade_compiler::Program;
 use relocade_machine::{real_mode_interrupt, Cpu, DispatchEntry, Hook};
 use relocade_x86::{
-    abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
-    PhysicalMapping, PhysicalMemoryMap,
+    abi, CpuState, ExecutionExit, ExecutionExitValues, HostExit, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::rc::Rc;
 
 async fn cpu() -> Cpu {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState::real_mode(),
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

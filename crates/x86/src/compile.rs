@@ -2,6 +2,7 @@
 
 mod address;
 mod block;
+mod config;
 mod dispatch;
 
 pub use address::CodeAddress;
@@ -9,9 +10,10 @@ pub use block::{
     compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
     BlockSnapshot, CompiledBlocks, DecodedBlock,
 };
+pub use config::CompilerConfig;
 pub use dispatch::EntryTable;
 
-use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend};
+use crate::{CpuModel, CpuState, ExecutionProfile, MemoryBackend};
 
 /// Compiles snapshot blocks and dispatch for one execution target.
 /// CPU observations specialize snapshot blocks. Use [`crate::build_interpreter`]
@@ -25,7 +27,7 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub struct Compiler {
-    target: ExecutionTarget,
+    config: CompilerConfig,
     observed_cpu: Option<CpuState>,
 }
 
@@ -34,26 +36,29 @@ impl Compiler {
     /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         let profile = profile.into();
-        Self::from_target(ExecutionTarget {
-            profile,
-            memory_backend: MemoryBackend::default_for(profile),
-            cpu_model: CpuModel::default(),
-            instruction_budgets: true,
-        })
+        Self::from_config(CompilerConfig::new(
+            profile.into(),
+            MemoryBackend::default_for(profile),
+        ))
     }
 
-    /// Compiles for an existing target, retaining its memory backend, CPU model and budget policy.
-    pub fn from_target(target: ExecutionTarget) -> Self {
+    /// Compiles with the supplied entry assumptions, memory routing, CPU model and budgets.
+    pub fn from_config(config: CompilerConfig) -> Self {
         Self {
-            target,
+            config,
             observed_cpu: None,
         }
+    }
+
+    /// Accepts the execution settings of an existing compiler.
+    pub fn from_target(config: CompilerConfig) -> Self {
+        Self::from_config(config)
     }
 
     /// Selects how generated code accesses guest memory after segmentation.
     #[must_use]
     pub fn with_memory_backend(mut self, memory_backend: MemoryBackend) -> Self {
-        self.target.memory_backend = memory_backend;
+        self.config.memory_backend = memory_backend;
         self
     }
 
@@ -70,7 +75,7 @@ impl Compiler {
     /// ```
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
-        self.target.cpu_model = cpu_model;
+        self.config.cpu_model = cpu_model;
         self
     }
 
@@ -80,13 +85,18 @@ impl Compiler {
     /// Interpreters retain runtime checks so their modules remain shared.
     #[must_use]
     pub fn with_instruction_budgets(mut self, enabled: bool) -> Self {
-        self.target.instruction_budgets = enabled;
+        self.config.instruction_budgets = enabled;
         self
     }
 
     /// The execution target shared by every entry. Snapshots also retain their code addresses.
-    pub fn target(&self) -> ExecutionTarget {
-        self.target
+    pub fn config(&self) -> CompilerConfig {
+        self.config
+    }
+
+    /// Returns the compiler configuration for this artifact.
+    pub fn target(&self) -> CompilerConfig {
+        self.config()
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.

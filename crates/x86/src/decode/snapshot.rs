@@ -12,7 +12,7 @@ use crate::{
     },
     register::{RegisterCode, RegisterSelector},
     segment::{Segment, SegmentDefaultSize},
-    BlockError, CallTarget, ExecutionTarget, InstructionFlow,
+    BlockError, CallTarget, CompilerConfig, InstructionFlow,
 };
 
 /// One instruction decoded from captured bytes using the supplied CS default size.
@@ -49,9 +49,9 @@ impl SnapshotInstruction {
     }
 
     /// Classifies transfers and block boundaries, including faults known from the target.
-    pub fn flow(&self, target: ExecutionTarget) -> InstructionFlow {
+    pub fn flow(&self, config: CompilerConfig) -> InstructionFlow {
         self.form
-            .flow(self.fields.immediates, self.next_eip, target)
+            .flow(self.fields.immediates, self.next_eip, config)
     }
 
     /// Encoded destination for a direct CALL. Indirect calls and other instructions return `None`.

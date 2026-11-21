@@ -2,6 +2,7 @@
 
 use super::*;
 use relocade_machine::{MmioRead, MmioWrite, Sleep};
+use relocade_x86::Compiler;
 use std::{
     future::Future,
     pin::Pin,
@@ -84,7 +85,7 @@ async fn callback_target_changes() {
                     ReprogrammedTimer::configure_io(io, &device);
                 });
                 let config = support::configuration(
-                    Compiler::new(ExecutionProfile::Real16).target(),
+                    support::pc_compiler_config(),
                     CpuState {
                         eip: 0x100,
                         ..CpuState::real_mode()
@@ -116,7 +117,7 @@ async fn callback_target_changes() {
                 memory.view().write(0x100, &code).unwrap();
                 let mut cpu = Cpu::new(memory, config.cpu, io).await.unwrap();
                 if compiled {
-                    let block = Compiler::new(ExecutionProfile::Real16)
+                    let block = Compiler::from_config(support::pc_compiler_config())
                         .compile_block(0x100, &code, 3)
                         .unwrap();
                     cpu.install_module(
@@ -309,7 +310,7 @@ async fn expired_yield_deadline() {
             .await
             .unwrap();
             if compiled {
-                let block = Compiler::new(ExecutionProfile::Real16)
+                let block = Compiler::from_config(support::pc_compiler_config())
                     .compile_block(0x100, &code, 12)
                     .unwrap();
                 cpu.install_module(

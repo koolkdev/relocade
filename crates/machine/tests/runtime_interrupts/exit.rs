@@ -70,7 +70,7 @@ async fn exit_during_entry() {
         let irq = Rc::new(RefCell::new(Irq::default()));
         let stack = Rc::new(RefCell::new(StackDevice::default()));
         let config = support::configuration(
-            Compiler::new(ExecutionProfile::Real16).target(),
+            support::pc_compiler_config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

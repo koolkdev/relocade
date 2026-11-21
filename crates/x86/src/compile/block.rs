@@ -9,8 +9,8 @@ pub use error::BlockCompileError;
 
 use super::{CodeAddress, Compiler};
 use crate::{
-    BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentDefaultSize,
-    SegmentProfile,
+    BlockError, CompiledModule, CompilerConfig, EntryAssumptions, ExecutionProfile, MemoryBackend,
+    SegmentDefaultSize,
 };
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
@@ -54,10 +54,10 @@ pub struct CompiledBlocks {
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
     /// Shared execution policy. Each entry records its own decode width.
-    pub execution_target: ExecutionTarget,
+    pub execution_target: CompilerConfig,
 }
 
-/// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
+/// Compiles a byte snapshot with [`EntryAssumptions::FLAT32`] and [`MemoryBackend::HostPageTable`].
 ///
 /// Compilation stops at the first branch, segment load, POPF/POPFD, port I/O,
 /// serializing instruction, unconditional fault or `instruction_limit`. A conditional
@@ -85,12 +85,11 @@ pub fn compile_block_from_bytes(
     bytes: &[u8],
     instruction_limit: u32,
 ) -> Result<CompiledModule, BlockError> {
-    compile_block_from_bytes_with_profile(
-        start_eip,
-        bytes,
-        instruction_limit,
-        SegmentProfile::Flat32,
-    )
+    Compiler::from_config(CompilerConfig::new(
+        EntryAssumptions::FLAT32,
+        MemoryBackend::HostPageTable,
+    ))
+    .compile_block(start_eip, bytes, instruction_limit)
 }
 
 /// Compiles a byte snapshot under the selected execution profile.
@@ -133,7 +132,7 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<Vec<DecodedBlock>, BlockError> {
-        decode::blocks(snapshots, self.target)
+        decode::blocks(snapshots, self.config)
     }
 
     /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
@@ -169,20 +168,28 @@ impl Compiler {
 
     /// Compiles a snapshot through the boundary described by
     /// [`compile_block_from_bytes`], with this compiler's execution target and
-    /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
+    /// observations. Decoding takes CS.D from the entry guarantees or the observed CPU.
+    /// Use [`Self::compile_blocks`] to specify the decode width on each snapshot.
+    /// With neither width source, this returns [`BlockError::MissingCodeDefaultSize`].
     pub fn compile_block(
         &self,
         start_eip: u32,
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
+        let code_default_size = self
+            .config
+            .entry
+            .code_default_size
+            .or_else(|| {
+                self.observed_cpu
+                    .as_ref()
+                    .map(|cpu| cpu.segments.cs.default_size())
+            })
+            .ok_or(BlockError::MissingCodeDefaultSize)?;
         let mut blocks = self.compile_blocks(&[BlockSnapshot {
             address: CodeAddress::CsRelative(start_eip),
-            code_default_size: self
-                .target
-                .assumptions()
-                .code_default_size
-                .expect("legacy profiles fix CS.D"),
+            code_default_size,
             bytes,
             instruction_limit,
         }])?;

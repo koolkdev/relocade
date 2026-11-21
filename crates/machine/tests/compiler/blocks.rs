@@ -37,7 +37,7 @@ async fn requested_segments(service: &relocade_machine::CompilerService) {
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request(
-                state.execution_target(),
+                state.compiler_config(),
                 entries
                     .map(|entry| BlockRequest {
                         entry,
@@ -146,7 +146,7 @@ async fn jump_to_requested_block(service: &relocade_machine::CompilerService) {
             instruction_limit: 1,
         });
         compiler
-            .request(state.execution_target(), blocks.to_vec())
+            .request(state.compiler_config(), blocks.to_vec())
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
         code.install(runner.cpu()).unwrap();
@@ -194,8 +194,8 @@ async fn reject_host_page_table(service: &relocade_machine::CompilerService) {
     use relocade_x86::MemoryBackend;
 
     let (mut machine, config) = setup();
-    let mut target = config.execution_target();
-    target.memory_backend = MemoryBackend::HostPageTable;
+    let mut compiler_config = config.compiler_config();
+    compiler_config.memory_backend = MemoryBackend::HostPageTable;
     let cpu = machine.create_cpu(config, Some(service)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let mut compiler = runner.take_compiler().unwrap();
@@ -204,8 +204,10 @@ async fn reject_host_page_table(service: &relocade_machine::CompilerService) {
             entry: block.entry,
             limits: Default::default(),
         };
-        compiler.request(target, vec![block]).unwrap();
-        compiler.request_functions(target, vec![function]).unwrap();
+        compiler.request(compiler_config, vec![block]).unwrap();
+        compiler
+            .request_functions(compiler_config, vec![function])
+            .unwrap();
         for _ in 0..2 {
             assert!(matches!(
                 compiler.recv().await.unwrap(),

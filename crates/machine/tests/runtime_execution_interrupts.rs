@@ -1,9 +1,7 @@
 mod support;
 
 use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{Compiler, CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 
 struct Stopped {
     state: relocade_machine::CpuStateAccess,
@@ -25,7 +23,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn configuration() -> support::Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -52,7 +50,7 @@ async fn prepare_cpu(runner: &mut Runner, code: &[u8], compiled: bool) {
 async fn install(cpu: &mut Cpu, code: &[u8], compiled: bool) {
     cpu.memory().view().write(0x100, code).unwrap();
     if compiled {
-        let module = Compiler::new(ExecutionProfile::Real16)
+        let module = Compiler::from_config(support::pc_compiler_config())
             .compile_block(0x100, code, 32)
             .unwrap();
         cpu.install_module(

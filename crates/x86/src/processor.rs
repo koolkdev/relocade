@@ -31,13 +31,15 @@ pub struct CpuModel {
 
 impl Default for CpuModel {
     fn default() -> Self {
-        Self {
-            features: feature::ALL_FEATURES,
-        }
+        Self::DEFAULT
     }
 }
 
 impl CpuModel {
+    pub(crate) const DEFAULT: Self = Self {
+        features: feature::ALL_FEATURES,
+    };
+
     pub(crate) const fn bits(self) -> u32 {
         self.features
     }

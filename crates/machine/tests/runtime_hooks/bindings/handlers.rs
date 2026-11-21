@@ -3,9 +3,7 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_handler, Interrupts},
     FarPointer,
 };
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::Cell, rc::Rc};
 
 #[interrupt(args(value = ax), returns { value => { ax = value, cf = false } })]
@@ -28,7 +26,7 @@ impl Adjustment {
 
 async fn check_handlers() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

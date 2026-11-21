@@ -1,13 +1,12 @@
 use super::{
-    support, Compiler, CpuState, ExecutionExit, ExecutionProfile, FarPointer, Interrupts,
-    PhysicalMapping, PhysicalMemoryMap,
+    support, CpuState, ExecutionExit, FarPointer, Interrupts, PhysicalMapping, PhysicalMemoryMap,
 };
 use relocade_machine::registers as reg;
 use std::{cell::Cell, rc::Rc};
 
 async fn check_interrupt_call() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        support::pc_compiler_config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

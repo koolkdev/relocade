@@ -3,7 +3,7 @@
 use super::{DiscoveryError, DiscoveryLimits};
 use crate::Result;
 use relocade_x86::{
-    BlockError, CodeAddress, DecodedBlock, ExecutionProfile, ExecutionTarget, InstructionFlow,
+    BlockError, CodeAddress, CompilerConfig, DecodedBlock, ExecutionMode, InstructionFlow,
     SegmentDefaultSize, SnapshotInstruction, MAX_INSTRUCTION_BYTES,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 pub(super) struct CodeView {
     origin: CodeAddress,
     size: SegmentDefaultSize,
-    target: ExecutionTarget,
+    config: CompilerConfig,
     instructions: BTreeMap<u32, SnapshotInstruction>,
     boundaries: BTreeSet<u32>,
     exports: BTreeSet<u32>,
@@ -21,12 +21,12 @@ impl CodeView {
     pub(super) fn new(
         origin: CodeAddress,
         size: SegmentDefaultSize,
-        target: ExecutionTarget,
+        config: CompilerConfig,
     ) -> Self {
         Self {
             origin,
             size,
-            target,
+            config,
             instructions: BTreeMap::new(),
             boundaries: BTreeSet::new(),
             exports: BTreeSet::new(),
@@ -100,7 +100,7 @@ impl CodeView {
                 if len > limits.bytes {
                     return Err(DiscoveryError::TooLarge { address: start }.into());
                 }
-                let flow = instruction.flow(self.target);
+                let flow = instruction.flow(self.config);
                 let ends_block = !matches!(flow, InstructionFlow::Continue);
                 match flow {
                     InstructionFlow::Continue | InstructionFlow::Stop => {}
@@ -111,7 +111,7 @@ impl CodeView {
                         enqueue(next, &mut entries, &mut pending);
                     }
                     InstructionFlow::FarCall { .. }
-                        if self.target.profile != ExecutionProfile::Real16 => {}
+                        if self.config.entry.mode != ExecutionMode::Real => {}
                     InstructionFlow::NearCall { return_eip }
                     | InstructionFlow::FarCall { return_eip } => {
                         // RET dispatches using the offset actually popped from the guest stack.
@@ -144,7 +144,7 @@ impl CodeView {
     pub(super) fn finish(mut self, blocks: &mut Vec<DecodedBlock>) -> Result<()> {
         let next_in_block = |instruction: &SnapshotInstruction| {
             let next = instruction.next_eip();
-            (matches!(instruction.flow(self.target), InstructionFlow::Continue)
+            (matches!(instruction.flow(self.config), InstructionFlow::Continue)
                 && !self.boundaries.contains(&next))
             .then_some(next)
         };

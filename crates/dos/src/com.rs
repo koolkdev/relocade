@@ -41,6 +41,6 @@ pub(crate) fn load(
     machine
         .cpu
         .restore(&cpu)
-        .expect("COM entry state satisfies the real-mode execution target");
+        .expect("COM entry state satisfies the real-mode entry assumptions");
     Ok(psp_segment)
 }

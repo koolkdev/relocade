@@ -71,7 +71,10 @@ impl BlockKey {
             let (decoded, rest) = crate::decode::snapshot(
                 remaining,
                 eip,
-                self.target.assumptions().code_default_size.unwrap(),
+                self.target
+                    .entry
+                    .code_default_size
+                    .expect("fixture has a fixed code width"),
             )
             .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
             let last = decoded.next_eip().wrapping_sub(1);
