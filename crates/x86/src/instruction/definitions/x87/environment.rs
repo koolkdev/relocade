@@ -4,9 +4,7 @@ use super::*;
 use crate::{
     address::MemoryAddress,
     memory::{Intent, TransferType},
-    state::x87::EnvironmentMode,
     x87::ExtendedBits,
-    ExecutionProfile,
 };
 use relocade_compiler::{MemoryInt, I64};
 
@@ -49,13 +47,6 @@ impl ImageKind {
     }
 }
 
-fn mode(execution: &ExecutionBuilder<'_, '_>) -> EnvironmentMode {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => EnvironmentMode::Protected,
-        ExecutionProfile::Real16 => EnvironmentMode::Real,
-    }
-}
-
 fn load<T: MemoryInt + TransferType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     address: MemoryAddress<Val<I32>>,
@@ -87,8 +78,10 @@ where
             Some(registers)
         }
     };
-    let mode = mode(execution);
-    execution.x87().restore(mode, &words, registers.as_ref())
+    let protected = execution.protected_mode()?;
+    execution
+        .x87()
+        .restore(&protected, &words, registers.as_ref())
 }
 
 fn store<T: MemoryInt + TransferType>(
@@ -100,13 +93,13 @@ where
     I32: AtLeast<T>,
 {
     let operand = execution.memory_operand(address, kind.bytes::<T>(), Intent::Write, &[])?;
-    let mode = mode(execution);
+    let protected = execution.protected_mode()?;
     // Capture stack values first so saved-tag classification reuses their reads.
     let registers = match kind {
         ImageKind::Environment => None,
         ImageKind::FullState => Some(execution.x87().stack_bits()?),
     };
-    let words = execution.x87().environment::<T>(mode)?;
+    let words = execution.x87().environment::<T>(&protected)?;
     for (index, word) in words.iter().enumerate() {
         operand.write(execution, index as u32 * T::BYTES, word)?;
     }

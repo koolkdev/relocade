@@ -24,7 +24,7 @@ impl ExecutionBuilder<'_, '_> {
         code_default_size: SegmentDefaultSize,
         bytes: usize,
     ) -> Result<(), BuildError> {
-        let is_32_bit = self.state.code_default_is_32_bit(&mut self.body)?;
+        let is_32_bit = self.code_default_is_32_bit()?;
         self.guard(is_32_bit.eq(code_default_size == SegmentDefaultSize::Bits32))?;
         let Ok(bytes) = u32::try_from(bytes) else {
             return self.guard(false);
