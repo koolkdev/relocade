@@ -65,6 +65,17 @@ pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program
     build_interpreter_with_memory(profile, MemoryBackend::default_for(profile))
 }
 
+/// Builds the physical-bus PC interpreter. Both `step` and `run` read execution mode,
+/// CS.D, SS.B and the loaded segment caches from the entering CPU. The host establishes
+/// ordinary real mode or the supported protected user state, with paging and VM86 disabled.
+/// Real-mode interrupts require the conventional IVT. Protected descriptor-table
+/// operations currently stop at the instruction's restart boundary.
+pub fn build_pc_interpreter() -> Result<Program, BuildError> {
+    let mut program = Program::new();
+    let execution = ExecutionModule::pc_interpreter(&mut program);
+    define_interpreter(program, execution)
+}
+
 /// Builds the same `run` and `step` entries as [`build_interpreter`] with explicit
 /// memory routing. The execution profile determines segment and privilege semantics.
 /// Both instruction fetch and data accesses use the selected backend after segment checks.
@@ -99,6 +110,13 @@ fn build(
         },
         entry_guarantees,
     );
+    define_interpreter(program, execution)
+}
+
+fn define_interpreter(
+    mut program: Program,
+    execution: ExecutionModule,
+) -> Result<Program, BuildError> {
     execution.export_entries(&mut program)?;
     let before_cpu = execution.cpu.clone();
     let decoder = RuntimeDecoder::new(

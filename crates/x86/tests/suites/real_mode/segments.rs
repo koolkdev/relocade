@@ -117,3 +117,44 @@ fn stack_and_pointers(frontend: Frontend) {
     );
 }
 test_frontends!(stack_and_pointer_loads, stack_and_pointers);
+
+#[test]
+fn pc_stops_protected_descriptor_access_before_reading_mmio() {
+    use crate::support::{machine::expected, step::TestModule};
+    use relocade_x86::SegmentDefaultSize::Bits16;
+
+    let pc = TestModule::from_bytes(relocade_interpreter::pc(), crate::abi::STEP.name, None);
+    for code in [
+        &[0x8e, 0x1e, 0x00, 0x20][..],   // MOV DS,[2000h]
+        &[0xc4, 0x06, 0x00, 0x20],       // LES AX,[2000h]
+        &[0xff, 0x1e, 0x00, 0x20],       // CALL FAR [2000h]
+        &[0xcb],                         // RETF from the MMIO stack
+        &[0x0f, 0x02, 0x06, 0x00, 0x20], // LAR AX,[2000h]
+        &[0x0f, 0x00, 0x26, 0x00, 0x20], // VERR [2000h]
+    ] {
+        let mut image = Image::new(code);
+        image.cpu = CpuState {
+            eip: image.cpu.eip,
+            ..CpuState::protected_mode(Bits16, Bits16)
+        };
+        image.cpu.registers.esp = 0x2000;
+        let mut input = image.input();
+        input.mmio_pages = vec![(2, 0x8000)];
+        input.observe_mmio = true;
+        assert_eq!(
+            pc.observe(&input, 1),
+            expected(
+                &image,
+                &[Step {
+                    cpu: image.cpu,
+                    ram: &[],
+                    exit: Exit::UnsupportedInstruction {
+                        eip: image.cpu.eip,
+                        opcode: code[0],
+                    },
+                }]
+            ),
+            "{code:02x?}"
+        );
+    }
+}

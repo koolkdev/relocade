@@ -70,13 +70,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         start: impl Into<Val<I32>>,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
-        let target = module.target;
         let state = module.state();
         Ok(Self {
             body,
             state,
             accesses: module.memory.accesses(),
-            cpu_features: target.cpu_model.bits().into(),
+            cpu_features: module.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_mask: u32::MAX.into(),
             locked: false,
