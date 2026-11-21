@@ -73,6 +73,13 @@ pub(crate) struct EntryGuarantees {
 }
 
 impl EntryGuarantees {
+    pub(crate) fn pc() -> Self {
+        Self {
+            interrupt_flags: InterruptFlagPolicy::Architectural,
+            fields: Arc::default(),
+        }
+    }
+
     pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
         Self::new(profile, Some(SegmentDefaultSize::for_profile(profile)))
     }
