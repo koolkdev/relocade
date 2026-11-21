@@ -1,9 +1,9 @@
 use crate::{
     support::machine::{expected, Exit, Image, Step},
-    test_step::{Event, TestModule},
-    Compiler, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend, Segment,
-    SegmentDefaultSize::Bits16,
-    SegmentProfile, SegmentRegister,
+    test_step::{CallPatches, Event, TestModule},
+    CpuState, ExecutionExit, Segment,
+    SegmentDefaultSize::{Bits16, Bits32},
+    SegmentRegister,
 };
 
 #[test]
@@ -18,15 +18,9 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
     protected.eip = 0x1_0000;
     protected.segments.ds.base = 0x2000;
 
-    for (profile, cpu, code_page) in [
-        (ExecutionProfile::Real16, real, 0x11),
-        (SegmentProfile::Segmented16.into(), protected, 0xd0011),
-    ] {
-        let target = ExecutionTarget {
-            memory_backend: MemoryBackend::PhysicalBus,
-            ..Compiler::new(profile).target()
-        };
-        let interpreter = TestModule::interpreter_run_with_target(target);
+    let interpreter =
+        TestModule::from_bytes(relocade_interpreter::pc(), crate::abi::RUN.name, None);
+    for (cpu, code_page) in [(real, 0x11), (protected, 0xd0011)] {
         let mut image = Image::empty();
         image.cpu = cpu;
         image.data(
@@ -71,6 +65,39 @@ fn real_and_protected_segments_reach_the_same_physical_ram_and_device() {
                 },
             ],
         );
-        assert_eq!(interpreter.observe(&input, 1), wanted, "{profile:?}");
+        assert_eq!(interpreter.observe(&input, 1), wanted);
     }
+}
+
+#[test]
+fn same_pc_instance_steps_both_instruction_widths_at_the_same_address() {
+    let interpreter =
+        TestModule::from_bytes(relocade_interpreter::pc(), crate::abi::STEP.name, None);
+    let mut image = Image::new(&[0xb8, 0x34, 0x12, 0x78, 0x56]);
+    image.cpu = CpuState::real_mode();
+    image.cpu.eip = 0x1000;
+    image.cpu.registers.eax = 0xabcd_0000;
+    let mut protected = CpuState::protected_mode(Bits32, Bits16);
+    protected.eip = image.cpu.eip;
+    protected.registers.eax = image.cpu.registers.eax;
+
+    let mut input = image.input();
+    input.patches_before_calls = vec![
+        CallPatches::default(),
+        CallPatches::cpu(vec![(0, protected.to_bytes().to_vec())]),
+    ];
+    let mut first = image.cpu;
+    first.eip += 3;
+    first.registers.eax = 0xabcd_1234;
+    first.instruction_count += 1;
+    let mut second = protected;
+    second.eip += 5;
+    second.registers.eax = 0x5678_1234;
+    second.instruction_count += 1;
+    let steps = [first, second].map(|cpu| Step {
+        cpu,
+        ram: &[],
+        exit: Exit::Other(ExecutionExit::StepComplete),
+    });
+    assert_eq!(interpreter.observe(&input, 2), expected(&image, &steps));
 }

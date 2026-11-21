@@ -132,9 +132,8 @@ fn interpreter_step_exposes_host_abis() {
 }
 
 #[test]
-fn real_mode_interpreter_omits_hosted_descriptor_imports() {
-    let module = relocade_interpreter::module(relocade_x86::ExecutionProfile::Real16);
-    for payload in Parser::new(0).parse_all(module) {
+fn pc_interpreter_omits_hosted_descriptor_imports() {
+    for payload in Parser::new(0).parse_all(relocade_interpreter::pc()) {
         if let Payload::ImportSection(section) = payload.unwrap() {
             for import in section {
                 let name = import.unwrap().name;

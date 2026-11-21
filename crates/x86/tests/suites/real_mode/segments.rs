@@ -117,3 +117,39 @@ fn stack_and_pointers(frontend: Frontend) {
     );
 }
 test_frontends!(stack_and_pointer_loads, stack_and_pointers);
+
+#[test]
+fn pc_reports_the_address_of_an_unsupported_descriptor_operation() {
+    use crate::support::step::{returned, Event, TestModule};
+    use relocade_x86::{ExecutionExit, SegmentDefaultSize::Bits16};
+
+    let pc = TestModule::from_bytes(relocade_interpreter::pc(), crate::abi::STEP.name, None);
+    for code in [
+        &[0x3e, 0x8e, 0x1e, 0x00, 0x20][..], // MOV DS,DS:[2000h]
+        &[0xc4, 0x06, 0x00, 0x20],           // LES AX,[2000h]
+        &[0xff, 0x1e, 0x00, 0x20],           // CALL FAR [2000h]
+        &[0xcb],                             // RETF
+        &[0x0f, 0x02, 0x06, 0x00, 0x20],     // LAR AX,[2000h]
+        &[0x0f, 0x00, 0x26, 0x00, 0x20],     // VERR [2000h]
+    ] {
+        let mut image = Image::new(code);
+        image.cpu = CpuState {
+            eip: 0x1000,
+            ..CpuState::protected_mode(Bits16, Bits16)
+        };
+        image.map(2, 0x8000, true);
+        image.data(0x8000, &[0x23, 0, 0x1b, 0]);
+        image.cpu.registers.esp = 0x2010;
+        image.data(0x8010, &[0x34, 0x12, 0x1b, 0]);
+
+        let observation = pc.observe(&image.input(), 1);
+        let Some(Event::Return { outcome, .. }) = observation.events.last() else {
+            panic!("expected the PC interpreter to return for {code:02x?}");
+        };
+        assert_eq!(
+            *outcome,
+            returned(ExecutionExit::UnsupportedInstruction { eip: image.cpu.eip }),
+            "{code:02x?}"
+        );
+    }
+}

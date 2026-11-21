@@ -3,6 +3,11 @@
 
 pub use relocade_x86_profile::{ExecutionProfile, MemoryBackend, SegmentProfile};
 
+/// The PC interpreter reads the current CPU's mode and segment caches and uses the physical bus.
+pub fn pc() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/pc.wasm"))
+}
+
 /// Returns immutable Wasm for the requested execution assumptions.
 /// The host must initialize the execution context and establish profile compatibility
 /// before entry, just as for freshly generated interpreter code.
@@ -17,12 +22,12 @@ pub fn module(profile: ExecutionProfile) -> &'static [u8] {
         ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
             include_bytes!(concat!(env!("OUT_DIR"), "/segmented16.wasm"))
         }
-        ExecutionProfile::Real16 => include_bytes!(concat!(env!("OUT_DIR"), "/real16.wasm")),
+        ExecutionProfile::Real16 => pc(),
     }
 }
 
 /// Looks up an embedded interpreter by both code-generation inputs.
-/// The build embeds Real16 with the physical bus and protected profiles with host page tables.
+/// Real16 selects the PC interpreter. The protected profiles select fixed host-page-table modules.
 pub fn module_with_memory(
     profile: ExecutionProfile,
     backend: MemoryBackend,
