@@ -3,7 +3,7 @@ mod irq;
 mod support;
 
 use irq::Irq;
-use relocade_machine::{Cpu, Hook, IoBus, Memory};
+use relocade_machine::{Cpu, CpuConfig, Hook, IoBus, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
     PhysicalMemoryMap, Segment, SegmentRegister,
@@ -77,6 +77,52 @@ async fn check_frames() {
     memory.view().read(0x81fa, &mut frame).unwrap();
     assert_eq!(frame, [0, 0, 0x10, 0, 0x43, 6]);
     assert_eq!(memory.view().read_u16(0x500).unwrap(), 1);
+}
+
+async fn check_irq_after_protected_start() {
+    let irq = Rc::new(RefCell::new(Irq::default()));
+    let io = IoBus::new(irq.clone(), |io| Irq::configure_io(io, &irq));
+    let map =
+        PhysicalMemoryMap::new([(0..=0xfff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
+    let memory = Memory::new(MachineConfig::new(0x1000, map).unwrap()).unwrap();
+    memory.view().write(0x100, &[0x0f, 0x0b]).unwrap(); // UD2
+    memory.view().write(0x180, &[0, 3, 0, 0]).unwrap(); // IRQ 60h -> 0000:0300
+
+    let mut protected = CpuState {
+        eip: 0x100,
+        ..CpuState::default()
+    };
+    protected.flags.set_eflags(0x202);
+    let mut cpu = Cpu::new(memory, CpuConfig::pc(protected).unwrap(), io)
+        .await
+        .unwrap();
+    cpu.install([Hook::host(0x300, {
+        let exit = cpu.exit_handle();
+        async move || exit.request()
+    })])
+    .await
+    .unwrap();
+    irq.borrow_mut().raise();
+    assert_eq!(
+        cpu.run().await,
+        ExecutionExit::Exception(Exception::InvalidOpcode)
+    );
+    assert_eq!(irq.borrow().acknowledged, 0);
+    assert_eq!(cpu.cpu_state().instruction_count(), 0);
+
+    let mut real = CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    };
+    real.registers.esp = 0x800;
+    real.flags.set_eflags(0x202);
+    cpu.cpu_state().restore(&real).unwrap();
+    assert_eq!(cpu.run().await, ExecutionExit::Host(HostExit::Return));
+    assert_eq!(irq.borrow().acknowledged, 1);
+    assert_eq!(cpu.cpu_state().instruction_count(), 0);
+    assert_eq!(cpu.cpu_state().eip(), 0x300);
+    assert_eq!(cpu.cpu_state().sp(), 0x7fa);
+    assert_eq!(cpu.memory().view().read_u16(0x7fa).unwrap(), 0x100);
 }
 
 async fn check_entry_fault() {
@@ -235,3 +281,8 @@ mod exceptions;
 
 #[path = "runtime_interrupts/halt.rs"]
 mod halt;
+
+test_backends!(
+    pc_uses_real_irq_entry_after_starting_in_protected_mode,
+    check_irq_after_protected_start
+);

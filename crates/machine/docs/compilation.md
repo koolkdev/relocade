@@ -57,6 +57,15 @@ validates and installs the replies, and retires installed code when its source
 changes. The shared service executes the requested compiler jobs and sends
 their results back to the requesting CPU.
 
+The PC interpreter uses the loaded CS default size and the same physical bus
+throughout a CPU's lifetime. The current PC JIT compiles canonical real-mode
+CS:IP entries. After a stopped restore to supported protected-user state,
+dispatch and call resolution go directly to the PC interpreter. A real-mode
+worker reply can therefore still install at its original CS:IP while that
+address is being interpreted with a different width. Its binding becomes
+reachable again when the CPU returns to canonical real mode and its source
+registration is still valid.
+
 `CompilerClient` is a single-owner request/result stream. Each `BlockRequest`
 supplies a real-mode `FarPointer` and compilation bounds. The worker reads the
 bytes at that CS:IP and the runtime installs the result under the same CS:IP,

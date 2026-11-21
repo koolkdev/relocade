@@ -42,6 +42,17 @@ impl SegmentRegister {
         }
     }
 
+    /// The PC accepts canonical real-mode caches. In protected mode the CPU
+    /// must remain at ring 3. Decode width, stack width and other cache fields
+    /// are read when an instruction uses them.
+    pub fn is_supported_in_pc_mode(&self, mode: CpuMode, segment: Segment) -> bool {
+        match mode {
+            CpuMode::Real => self.is_compatible_with(ExecutionProfile::Real16, segment),
+            CpuMode::Protected => self.admits_user_cs(segment),
+            CpuMode::Virtual8086 => false,
+        }
+    }
+
     /// Checks a proposed cache against the profile's assumptions for this segment.
     /// Real mode requires the canonical cache for the visible selector.
     pub fn is_compatible_with(
@@ -51,8 +62,7 @@ impl SegmentRegister {
     ) -> bool {
         match profile.into() {
             ExecutionProfile::Protected(profile) => {
-                (segment != Segment::Cs
-                    || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
+                self.admits_user_cs(segment)
                     && crate::segment::profile::assumptions(
                         profile.into(),
                         segment,
@@ -69,6 +79,11 @@ impl SegmentRegister {
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
         }
+    }
+
+    fn admits_user_cs(&self, segment: Segment) -> bool {
+        segment != Segment::Cs
+            || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3
     }
 
     pub const BYTE_LEN: usize = size_of::<Self>();

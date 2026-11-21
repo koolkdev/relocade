@@ -1,7 +1,7 @@
 //! Constructs guest entry frames for interrupts and far calls.
 
 use crate::{runtime::CpuInstance, FarPointer};
-use relocade_x86::{ExecutionExit, Segment};
+use relocade_x86::{CpuMode, ExecutionExit, Segment};
 
 pub(in crate::runtime) enum GuestCall {
     Interrupt(u8),
@@ -14,6 +14,11 @@ pub(in crate::runtime) enum GuestCall {
 impl GuestCall {
     /// Builds the complete entry frame before the driver dispatches guest code.
     pub(super) fn enter(&self, instance: &mut CpuInstance) -> Result<(), ExecutionExit> {
+        assert_eq!(
+            instance.guest.bindings.cpu.mode(),
+            CpuMode::Real,
+            "guest calls require real mode"
+        );
         match self {
             Self::Interrupt(vector) => match instance.enter_interrupt(*vector) {
                 ExecutionExit::InterruptEntered => Ok(()),

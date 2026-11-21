@@ -7,7 +7,7 @@ use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
 pub(crate) use code_cache::CodeWake;
 pub(super) use code_cache::{CodeCache, Installation};
 use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
-use relocade_x86::{abi, CpuMode, ExecutionExit};
+use relocade_x86::{abi, ExecutionExit};
 use std::rc::Rc;
 
 /// An ordinary `() -> ExecutionExit` export at a packed real-mode CS:IP key.
@@ -20,8 +20,8 @@ pub struct DispatchEntry<'a> {
 struct GuestEntryPoints {
     dispatch: Function<WasmRuntime, abi::ExecutionSignature>,
     step: Function<WasmRuntime, abi::ExecutionSignature>,
-    interrupt: Option<Function<WasmRuntime, abi::InterruptSignature>>,
-    far_call: Option<Function<WasmRuntime, abi::FarCallSignature>>,
+    interrupt: Function<WasmRuntime, abi::InterruptSignature>,
+    far_call: Function<WasmRuntime, abi::FarCallSignature>,
 }
 
 /// Binds guest execution and installed modules to one runtime and its memory.
@@ -52,7 +52,7 @@ impl CpuInstance {
         let (compiler, cache) =
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
         let dispatcher = code::dispatcher(&compiler, target).await?;
-        let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
+        let interpreter = code::pc_interpreter(&compiler, cache.as_ref()).await?;
         runtime.with_runtime(|wasm| {
             // Link the dispatcher first; the interpreter imports its entry points.
             let mut table = code_cache::DispatchTable::new(wasm)?;
@@ -85,16 +85,8 @@ impl CpuInstance {
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
-            let interrupt = if bindings.cpu.mode() == CpuMode::Real {
-                Some(wasm.function(&instance, abi::INTERRUPT)?)
-            } else {
-                None
-            };
-            let far_call = if bindings.cpu.mode() == CpuMode::Real {
-                Some(wasm.function(&instance, abi::FAR_CALL)?)
-            } else {
-                None
-            };
+            let interrupt = wasm.function(&instance, abi::INTERRUPT)?;
+            let far_call = wasm.function(&instance, abi::FAR_CALL)?;
             let guest = Rc::new(GuestRuntime {
                 runtime: runtime.clone(),
                 bindings,
@@ -148,21 +140,13 @@ impl CpuInstance {
     }
 
     pub(super) fn enter_interrupt(&mut self, vector: u8) -> ExecutionExit {
-        self.enter_guest(|entries, wasm| {
-            entries
-                .interrupt
-                .as_ref()
-                .expect("real-mode interrupt entry")
-                .call(wasm, (vector,))
-        })
+        self.enter_guest(|entries, wasm| entries.interrupt.call(wasm, (vector,)))
     }
 
     pub(super) fn enter_far_call(&mut self, target: FarPointer, stack_bytes: u16) -> ExecutionExit {
         self.enter_guest(|entries, wasm| {
             entries
                 .far_call
-                .as_ref()
-                .expect("real-mode far-call entry")
                 .call(wasm, (target.segment, target.offset, stack_bytes))
         })
     }
