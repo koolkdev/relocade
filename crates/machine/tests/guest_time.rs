@@ -13,7 +13,7 @@ use relocade_x86::{
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 fn configuration(count: u64) -> support::Configuration {
     support::configuration(

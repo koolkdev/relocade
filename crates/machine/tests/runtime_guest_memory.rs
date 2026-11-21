@@ -5,7 +5,7 @@ use relocade_x86::{
 };
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn check_guest_memory() {
     let mut map = PhysicalMemoryMap::new([

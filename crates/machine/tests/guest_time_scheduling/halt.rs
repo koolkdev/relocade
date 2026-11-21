@@ -156,5 +156,8 @@ fn a_halted_cpu_at_its_limit_allows_an_earlier_device_deadline() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn a_halted_cpu_at_its_limit_allows_an_earlier_device_deadline() {
-    halted_at_instruction_limit().await;
+    relocade_machine::worker::Thread::new()
+        .run(halted_at_instruction_limit)
+        .await
+        .unwrap();
 }

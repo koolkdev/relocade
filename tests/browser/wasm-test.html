@@ -5,41 +5,39 @@
 <button id="run" disabled>Run tests</button>
 <pre id="output">Loading Wasm tests…</pre>
 <script type="module">
-    import * as bindings from "relocade:wasm-bindings";
+    const parameters = new URLSearchParams(location.search);
+    const output = document.querySelector("#output");
 
-    window.__wbg_test_invoke = f => f();
-    const wasm = await bindings.default();
+    async function runInWorker(options) {
+        const worker = new Worker(new URL("./wasm-test-worker.mjs", import.meta.url), { type: "module" });
+        try {
+            await new Promise((resolve, reject) => {
+                worker.onmessage = ({ data }) => {
+                    if ("line" in data) output.append(data.line, "\n");
+                    else if ("error" in data) reject(new Error(data.error));
+                    else if (data.done) resolve();
+                };
+                worker.onerror = event => reject(event.error ?? new Error(event.message));
+                worker.onmessageerror = () => reject(new Error("Could not read test worker response"));
+                worker.postMessage(options);
+            });
+        } finally {
+            worker.terminate();
+        }
+    }
+
+    // Initialize page suites before the click so DOM tests retain user activation.
+    const runTests = parameters.has("worker")
+        ? runInWorker
+        : await (await import("./wasm-test-suite.mjs")).prepareTests();
     const run = document.querySelector("#run");
     run.onclick = () => {
         run.disabled = true;
-        window.checks = (async () => {
-            if (!crossOriginIsolated) throw new Error("Browser tests require cross-origin isolation");
-            const parameters = new URLSearchParams(location.search);
-            const names = new Set(JSON.parse(parameters.get("tests")));
-            const allTests = Object.keys(wasm).filter(name => name.startsWith("__wbgt_"));
-            const tests = allTests.filter(name => names.has(name.slice(name.indexOf("::") + 2)));
-            if (tests.length !== names.size) throw new Error("Missing test exports");
-
-            // wasm-bindgen-test owns assertion capture, ignored tests and reporting.
-            for (const method of ["debug", "log", "info", "warn", "error"]) {
-                const original = console[method];
-                console[method] = (...args) => {
-                    bindings[`__wbgtest_console_${method}`](args);
-                    original.apply(console, args);
-                };
-            }
-            const context = new bindings.WasmBindgenTestContext(false);
-            context.include_ignored(parameters.get("ignored") === "true");
-            context.filtered_count(allTests.length - tests.length);
-            document.querySelector("#output").textContent = "";
-            try {
-                if (!await context.run(tests.map(name => wasm[name]))) {
-                    throw new Error("Browser tests failed");
-                }
-            } finally {
-                context.free();
-            }
-        })();
+        output.textContent = "";
+        window.checks = runTests({
+            names: JSON.parse(parameters.get("tests")),
+            ignored: parameters.get("ignored") === "true",
+        });
     };
     run.disabled = false;
     window.ready = true;

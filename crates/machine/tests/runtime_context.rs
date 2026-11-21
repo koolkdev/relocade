@@ -13,7 +13,7 @@ use std::{
 };
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 // Captured mutable state is independent of CPU access and need not be Clone.
 struct Environment {
