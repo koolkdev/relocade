@@ -53,15 +53,19 @@ impl SegmentRegister {
             ExecutionProfile::Protected(profile) => {
                 (segment != Segment::Cs
                     || CpuMode::Protected.privilege_level(self.selector) == PrivilegeLevel::Ring3)
-                    && crate::segment::profile::assumptions(profile.into(), segment)
-                        .iter()
-                        .all(|requirement| {
-                            requirement.matches_record(
-                                &self.to_bytes(),
-                                offset_of!(crate::state::ExecutionContext, cpu)
-                                    + Segments::offset(segment),
-                            )
-                        })
+                    && crate::segment::profile::assumptions(
+                        profile.into(),
+                        segment,
+                        Some(SegmentDefaultSize::for_profile(profile.into())),
+                    )
+                    .iter()
+                    .all(|requirement| {
+                        requirement.matches_record(
+                            &self.to_bytes(),
+                            offset_of!(crate::state::ExecutionContext, cpu)
+                                + Segments::offset(segment),
+                        )
+                    })
             }
             ExecutionProfile::Real16 => *self == Self::real_mode(segment, self.selector),
         }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::{
     state::{access::cpu_location, cr0, cr4, StatePattern},
-    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel,
+    CpuMode, CpuModel, CpuState, FlagBytes, PrivilegeLevel, SegmentDefaultSize,
 };
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
@@ -47,26 +47,27 @@ pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
 
 impl EntryGuarantees {
     pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
+        Self::new(profile, Some(SegmentDefaultSize::for_profile(profile)))
+    }
+
+    /// Protected entries may leave CS.D live. Canonical real-mode caches always fix it.
+    pub(crate) fn new(
+        profile: ExecutionProfile,
+        protected_code_default: Option<SegmentDefaultSize>,
+    ) -> Self {
         let mut fields = control_assumptions(profile);
         for segment in crate::Segment::ALL {
-            fields.extend(crate::segment::profile::assumptions(profile, segment));
+            fields.extend(crate::segment::profile::assumptions(
+                profile,
+                segment,
+                protected_code_default,
+            ));
         }
         Self(fields.into())
     }
 
     pub(crate) fn patterns(&self) -> &[StatePattern] {
         &self.0
-    }
-
-    #[cfg(test)]
-    pub(crate) fn without_code_default(&self) -> Self {
-        let fields = self.0.iter().copied().filter(|pattern| {
-            !pattern.within_record(
-                std::mem::offset_of!(crate::ExecutionContext, cpu.segments.cs.big),
-                size_of::<u8>(),
-            )
-        });
-        Self(fields.collect())
     }
 }
 
