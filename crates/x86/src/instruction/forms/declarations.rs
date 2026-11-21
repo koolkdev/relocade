@@ -6,8 +6,9 @@ mod macros;
 pub(in crate::instruction) use {adapters::*, macros::*};
 
 use super::{
-    Availability, Encoding, Form, HandlerBinding, ImmediateWidth, LocationBinding, ModRmSelector,
-    OpcodeMap, OperandBinding, OperandEncoding, PrefixRule, RegisterClass, Requirements,
+    ControlFlow, Encoding, ExecutionEffect, Form, HandlerBinding, ImmediateWidth, LocationBinding,
+    ModRmSelector, OpcodeMap, OperandBinding, OperandEncoding, PrefixRule, RegisterClass,
+    Requirements,
 };
 use crate::flags::Condition;
 use crate::instruction::handlers::{Handler, HandlerCall, SizedHandlers};
@@ -59,20 +60,6 @@ impl OperandSpec {
     }
 }
 
-/// Properties used by x86 decoding and control-transfer handler adaptation.
-/// The compiler infers memory dependencies from the generated operations.
-#[derive(Clone, Copy)]
-pub(in crate::instruction) enum ExecutionEffect {
-    ControlTransfer,
-    SegmentLoad,
-    /// Device callbacks may change instruction routing; resume through dispatch.
-    PortIo,
-    /// Complete prior work and resume through dispatch before the next fetch.
-    Serializing,
-    /// Execution always raises a guest fault, so no successor belongs to the block.
-    UnconditionalFault,
-}
-
 pub(in crate::instruction) struct Opcode {
     pub(in crate::instruction) map: OpcodeMap,
     pub(in crate::instruction) byte: u8,
@@ -85,9 +72,9 @@ pub(in crate::instruction) struct Declaration<'a> {
     pub(in crate::instruction) opcode: Opcode,
     pub(in crate::instruction) operands: &'a [OperandSpec],
     pub(in crate::instruction) handlers: SizedHandlers<Handler>,
-    pub(in crate::instruction) effects: &'a [ExecutionEffect],
-    pub(in crate::instruction) availability: Availability,
-    pub(in crate::instruction) features: &'static [crate::CpuFeature],
+    pub(in crate::instruction) effects: &'static [ExecutionEffect],
+    pub(in crate::instruction) control_flow: Option<ControlFlow>,
+    pub(in crate::instruction) requirements: Requirements,
     pub(in crate::instruction) lockable: bool,
 }
 
@@ -234,7 +221,6 @@ impl Declaration<'_> {
                 dword: bind_handler(dword, bindings),
             },
         };
-        let ends_block = !self.effects.is_empty();
         Form {
             opcode: self.opcode.byte,
             mask: if opcode_register { 0xf8 } else { 0xff },
@@ -248,12 +234,9 @@ impl Declaration<'_> {
             },
             handlers,
             condition: None,
-            ends_block,
-            control_flow: None,
-            requirements: Requirements {
-                availability: self.availability,
-                features: self.features,
-            },
+            effects: self.effects,
+            control_flow: self.control_flow,
+            requirements: self.requirements,
         }
     }
 }
