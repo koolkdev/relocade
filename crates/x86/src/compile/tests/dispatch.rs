@@ -35,6 +35,7 @@ struct Invocation {
 struct Output {
     exit: crate::ExecutionExit,
     cpu: Vec<u8>,
+    calls: Vec<crate::CallCount>,
 }
 
 fn cases() -> (Vec<Invocation>, Vec<crate::ExecutionExit>) {
@@ -175,6 +176,15 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
                 ))
                 .unwrap(),
                 cpu: cpu.read(0, case.cpu.len()),
+                calls: crate::CallProfile::read(|offset| {
+                    let mut bytes = [0; 4];
+                    call_profile
+                        .read(&store, offset as usize, &mut bytes)
+                        .unwrap();
+                    u32::from_le_bytes(bytes)
+                })
+                .iter()
+                .collect(),
             }
         })
         .collect()
@@ -204,6 +214,44 @@ fn callable_dispatch_resolves_functions_and_fallback() {
         outputs.iter().map(|output| output.exit).collect::<Vec<_>>(),
         expected
     );
+}
+
+#[test]
+fn protected_dispatch_skips_real_mode_bindings_and_call_profiling() {
+    use crate::SegmentDefaultSize::{Bits16, Bits32};
+
+    let dispatcher = Module::new(
+        &Compiler::new(ExecutionProfile::Real16)
+            .compile_dispatcher()
+            .unwrap()
+            .bytes,
+    );
+    let interpreted = crate::ExecutionExit::Host(crate::HostExit::Return);
+    let compiled = crate::ExecutionExit::Host(crate::HostExit::Call { service_id: 42 });
+    let targets = [constant(interpreted), constant(compiled)];
+    let mut table = EntryTable::default();
+    let mut cases = Vec::new();
+    for width in [Bits16, Bits32] {
+        let mut cpu = CpuState::protected_mode(width, Bits32);
+        let key = u32::from(cpu.segments.cs.selector) << 16;
+        table.insert(key, 2);
+        for (eip, export) in [
+            (0, "dispatch"),
+            (0, "resolveAndJump"),
+            (1, "resolveAndJump"),
+        ] {
+            cpu.eip = eip;
+            cases.push(Invocation {
+                cpu: cpu.to_bytes().to_vec(),
+                entries: table.to_bytes(),
+                export,
+            });
+        }
+    }
+    for output in execute(&dispatcher, &targets, &cases) {
+        assert_eq!(output.exit, interpreted);
+        assert!(output.calls.is_empty());
+    }
 }
 
 #[test]
