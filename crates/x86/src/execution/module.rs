@@ -57,7 +57,7 @@ impl ExecutionModule {
     }
 
     pub(crate) fn state(&self) -> State<'_> {
-        State::for_entry(&self.cpu, self.target.profile, &self.entry_guarantees)
+        State::for_entry(&self.cpu, &self.entry_guarantees)
             .with_instruction_budgets(self.target.instruction_budgets)
     }
 
