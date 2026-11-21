@@ -2,10 +2,10 @@
 
 use super::{calls::Calls, hooks::PreparedHandler, installed::ModuleInstance, CodeCache};
 use crate::{
-    worker::HostTurns, CompilationBinding, CompiledCode, Cpu, DispatchEntry, FarPointer, Hook,
-    Result,
+    memory::code::ModuleId, runtime::WasmRuntime, worker::HostTurns, CompilationBinding,
+    CompiledCode, Cpu, DispatchEntry, FarPointer, Hook, Result,
 };
-use relocade_wasm_runtime::{Module, WasmBackend, WasmCompiler};
+use relocade_wasm_runtime::{Import, Module, WasmBackend, WasmCompiler};
 use relocade_x86::abi;
 
 #[derive(Clone, Copy)]
@@ -36,7 +36,16 @@ impl CodeCache {
         entries: &[DispatchEntry<'_>],
     ) -> Result<()> {
         let module = self.compile_wasm(bytes).await?;
-        self.install_wasm_module(&module, entries)
+        if has_startup_effects(bytes) {
+            return self.install_wasm_module(&module, entries);
+        }
+        let pending = self.with_module_imports(None, |wasm, imports| {
+            wasm.instantiate_async(&module, imports)
+        });
+        let instance = self.host_turns.wait(pending).await?;
+        self.register_exports(ModuleInstance::new(instance, None, None), entries)?;
+        self.hooks.replace_bindings(entries, Vec::new());
+        Ok(())
     }
 
     pub(in crate::runtime) fn install_wasm_module(
@@ -112,13 +121,10 @@ impl CodeCache {
             }
         };
         let instance = self.instantiate_module(source)?;
-        let modules = self.stopped.as_deref_mut().expect("stopped code cache");
-        let (id, installed) = self
-            .guest
-            .runtime
-            .with_runtime(|wasm| modules.register_exports(wasm, instance, entries))?;
+        let host_writes = self.host_writes.clone();
+        let (id, installed) = self.register_exports(instance, entries)?;
         if let Some((source, mut registry)) = checked_source {
-            installed.track_source(registry.register(id, source), &self.host_writes);
+            installed.track_source(registry.register(id, source), &host_writes);
         }
         // Releasing a host callback can reenter the runtime or write guest memory.
         self.hooks.replace_bindings(entries, handlers);
@@ -126,14 +132,39 @@ impl CodeCache {
     }
 
     fn instantiate_module(&mut self, source: ModuleSource<'_>) -> Result<ModuleInstance> {
+        let (module, guest_code) = match source {
+            ModuleSource::Wasm(module) => (module, None),
+            ModuleSource::Guest(code) => (code.module(), Some(code)),
+        };
+        let calls = self
+            .guest
+            .runtime
+            .with_runtime(|wasm| Calls::new(wasm, guest_code, &self.guest.resolve_and_jump))?;
+        let instance = self.with_module_imports(calls.as_ref(), |wasm, imports| {
+            wasm.instantiate(module, imports)
+        })?;
+        Ok(ModuleInstance::new(instance, guest_code.cloned(), calls))
+    }
+
+    fn register_exports(
+        &mut self,
+        instance: ModuleInstance,
+        entries: &[DispatchEntry<'_>],
+    ) -> Result<(ModuleId, &mut ModuleInstance)> {
+        let modules = self.stopped.as_deref_mut().expect("stopped code cache");
+        self.guest
+            .runtime
+            .with_runtime(|wasm| modules.register_exports(wasm, instance, entries))
+    }
+
+    fn with_module_imports<R>(
+        &mut self,
+        calls: Option<&Calls>,
+        instantiate: impl FnOnce(&mut WasmRuntime, &[Import<'_, WasmRuntime>]) -> R,
+    ) -> R {
         let guest = &self.guest;
         let (lookup, functions) = self.installed().dispatch.resources();
         guest.runtime.with_runtime(|wasm| {
-            let (module, guest_code) = match source {
-                ModuleSource::Wasm(module) => (module, None),
-                ModuleSource::Guest(code) => (code.module(), Some(code)),
-            };
-            let calls = Calls::new(wasm, guest_code, &guest.resolve_and_jump)?;
             let mut imports = guest.bindings.imports(wasm).to_vec();
             imports.push(wasm.bind(abi::CALL_PROFILE, &self.profiling.memory));
             imports.extend([
@@ -143,7 +174,7 @@ impl CodeCache {
             ]);
             imports.extend(guest.io.port_map().imports(wasm));
             imports.extend(guest.io.mmio_map().imports(wasm));
-            if let Some(calls) = &calls {
+            if let Some(calls) = calls {
                 imports.push(calls.import(wasm));
             }
             imports.extend([
@@ -152,15 +183,83 @@ impl CodeCache {
                 wasm.bind(abi::EXECUTION_FUNCTIONS, &functions),
             ]);
             let _callback = self.write_code.bind(&mut self.stopped);
-            let instance = wasm.instantiate(module, &imports)?;
-            Ok(ModuleInstance::new(instance, guest_code.cloned(), calls))
+            instantiate(wasm, &imports)
         })
     }
+}
+
+/// A browser instantiation can finish after its Rust future is dropped. Keep startup that
+/// can call guest imports or initialize memory or a table within the stopped CPU's borrow.
+fn has_startup_effects(bytes: &[u8]) -> bool {
+    use wasmparser::{DataKind, ElementKind, Parser, Payload};
+
+    Parser::new(0)
+        .parse_all(bytes)
+        .any(|payload| match payload {
+            Ok(Payload::StartSection { .. } | Payload::UnknownSection { .. }) | Err(_) => true,
+            Ok(Payload::DataSection(data)) => data.into_iter().any(|segment| {
+                !matches!(segment.map(|segment| segment.kind), Ok(DataKind::Passive))
+            }),
+            Ok(Payload::ElementSection(elements)) => elements.into_iter().any(|segment| {
+                !matches!(
+                    segment.map(|segment| segment.kind),
+                    Ok(ElementKind::Passive | ElementKind::Declared)
+                )
+            }),
+            _ => false,
+        })
 }
 
 impl Cpu {
     pub(crate) fn with_host_turns(mut self, host: HostTurns) -> Self {
         self.instance.code.host_turns = host;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_startup_effects;
+    use wasm_encoder::{
+        ConstExpr, DataSection, EntityType, ImportSection, MemoryType, Module, StartSection,
+        TypeSection,
+    };
+
+    #[test]
+    fn instantiation_that_can_run_code_or_write_memory_stays_synchronous() {
+        let mut module = Module::new();
+        let mut types = TypeSection::new();
+        types.ty().function([], []);
+        module.section(&types);
+        let mut imports = ImportSection::new();
+        imports.import("host", "init", EntityType::Function(0));
+        imports.import(
+            "host",
+            "memory",
+            MemoryType {
+                minimum: 1,
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            },
+        );
+        module.section(&imports);
+        let mut passive = DataSection::new();
+        passive.passive([1]);
+        let mut active = DataSection::new();
+        active.active(0, &ConstExpr::i32_const(0), [1]);
+
+        assert!(!has_startup_effects(
+            module.clone().section(&passive).as_slice()
+        ));
+        assert!(has_startup_effects(
+            module.clone().section(&active).as_slice()
+        ));
+        assert!(has_startup_effects(
+            module
+                .section(&StartSection { function_index: 0 })
+                .as_slice()
+        ));
     }
 }

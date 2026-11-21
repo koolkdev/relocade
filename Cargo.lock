@@ -2626,6 +2626,8 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "wasm-encoder 0.254.0",
+ "wasmparser 0.224.1",
  "web-time",
  "windows-sys 0.61.2",
 ]
