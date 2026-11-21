@@ -54,6 +54,9 @@ mod scheduler;
 #[cfg(test)]
 extern crate self as relocade_machine;
 
+#[cfg(all(test, target_arch = "wasm32"))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
 pub use clock::{
     timer_service, Clock, ClockSource, HostTimerDriver, Instant, Schedule, Sleep, TickRate,
     TimerHandle, Timestamp,

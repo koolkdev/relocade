@@ -128,5 +128,5 @@ fn machine_pause_gates_steps_and_pending_cpu_services() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_pause_gates_steps_and_pending_cpu_services() {
-    paused_step_and_service().await;
+    Thread::new().run(paused_step_and_service).await.unwrap();
 }
