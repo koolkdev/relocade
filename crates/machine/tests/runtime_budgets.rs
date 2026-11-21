@@ -8,7 +8,7 @@ use relocade_x86::{
 use std::{num::NonZeroU64, task::Waker};
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cpu {
     let config = support::configuration(

@@ -77,3 +77,47 @@ test("shared browser switches page and worker bindings and isolates each suite",
         await rm(directory, { recursive: true, force: true });
     }
 });
+
+test("wasm suites run in their selected browser scope and report worker failures", async () => {
+    const root = fileURLToPath(new URL("./pkg/", import.meta.url));
+    await mkdir(root, { recursive: true });
+    const directory = await mkdtemp(path.join(root, "suite-"));
+    const bindings = path.join(directory, "bindings.mjs");
+    try {
+        await writeFile(bindings, `
+            export default async function initialize() {
+                return {
+                    "__wbgt_suite::page": () => {
+                        if (!navigator.userActivation.isActive) throw new Error("Missing page activation");
+                    },
+                    "__wbgt_suite::worker": () => {
+                        if (!(self instanceof DedicatedWorkerGlobalScope)) throw new Error("Wrong scope");
+                        self.__wbg_test_output_writeln("worker test passed");
+                    },
+                    "__wbgt_suite::failure": () => { throw new Error("Intentional worker failure"); },
+                };
+            }
+            export class WasmBindgenTestContext {
+                include_ignored(ignored) { if (!ignored) throw new Error("Ignored flag lost"); }
+                filtered_count(count) { if (count !== 2) throw new Error("Incorrect filtered count"); }
+                async run(tests) {
+                    for (const test of tests) self.__wbg_test_invoke(test);
+                    return true;
+                }
+                free() {}
+            }
+        `);
+        await withBrowser(async browser => {
+            const run = name => {
+                const parameters = new URLSearchParams({ tests: JSON.stringify([name]), ignored: "true" });
+                if (name !== "page") parameters.set("worker", "");
+                return browser.run(`/wasm-test.html?${parameters}`, bindings, "#run");
+            };
+            await run("page");
+            await run("worker");
+            await assert.rejects(run("failure"), /Intentional worker failure/);
+        });
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});

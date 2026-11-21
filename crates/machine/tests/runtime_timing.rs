@@ -115,7 +115,7 @@ fn deadlines_progress_alongside_retained_cpu_services() {
     pollster::block_on(check_timing());
 }
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn deadlines_progress_alongside_retained_cpu_services() {
