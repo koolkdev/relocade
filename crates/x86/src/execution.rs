@@ -196,6 +196,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.locked
     }
 
+    pub(crate) fn code_default_is_32_bit(&mut self) -> Result<Val<I1>, BuildError> {
+        self.state.code_default_is_32_bit(&mut self.body)
+    }
+
     pub(crate) fn profile(&self) -> ExecutionProfile {
         self.state.profile()
     }
