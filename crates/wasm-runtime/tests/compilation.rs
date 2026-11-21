@@ -28,7 +28,9 @@ async fn check_independent_compiler() {
     let captured_state = state.clone();
     let value =
         FunctionRef::new(&mut runtime.context(), move |_, ()| captured_state.get()).import(VALUE);
-    let instance = runtime.instantiate(&module, &[value]).unwrap();
+    let pending = runtime.instantiate_async(&module, &[value]);
+    drop(module);
+    let instance = pending.await.unwrap();
     let run = runtime.function(&instance, RUN).unwrap();
     assert_eq!(runtime.call(&run, ()), 42);
     state.set(52);

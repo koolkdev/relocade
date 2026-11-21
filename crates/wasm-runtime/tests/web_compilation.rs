@@ -59,3 +59,15 @@ async fn ordinary_compilation_bypasses_the_shared_cache() {
     assert_ne!(first, retained);
     assert_ne!(second, retained);
 }
+
+#[wasm_bindgen_test]
+async fn instantiate_large_module_on_browser_main_thread() {
+    let mut bytes = wasm_encoder::Module::new();
+    bytes.section(&wasm_encoder::CustomSection {
+        name: "padding".into(),
+        data: vec![0; 8 * 1024 * 1024].into(),
+    });
+    let mut runtime = WasmRuntime::new().unwrap();
+    let module = runtime.compiler().compile(&bytes.finish()).await.unwrap();
+    runtime.instantiate_async(&module, &[]).await.unwrap();
+}

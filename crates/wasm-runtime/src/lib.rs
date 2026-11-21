@@ -138,7 +138,7 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
     /// Cloning a module shares compiled code without creating a guest instance.
     type Module: Clone + 'static;
     type Compiler: WasmCompiler<Module = Self::Module>;
-    type Instance;
+    type Instance: 'static;
     type Table: Clone + 'static;
     /// An engine function handle produced by a typed binding.
     type ImportFunction: Clone;
@@ -239,6 +239,17 @@ pub trait WasmBackend: WasmMemoryAccess + WasmTableAccess<Backend = Self> + Size
         module: &Self::Module,
         imports: &[Import<'_, Self>],
     ) -> Result<Self::Instance>;
+
+    /// Starts instantiation and returns an owned future. The browser uses
+    /// `WebAssembly.instantiate`, which can load large modules on the main thread.
+    /// Native instantiation completes before this method returns.
+    fn instantiate_async(
+        &mut self,
+        module: &Self::Module,
+        imports: &[Import<'_, Self>],
+    ) -> impl Future<Output = Result<Self::Instance>> + 'static + use<Self> {
+        std::future::ready(self.instantiate(module, imports))
+    }
 
     /// Resolves an export using the same declaration as the generated function.
     /// The declaration must describe that export. Logical widths are erased in

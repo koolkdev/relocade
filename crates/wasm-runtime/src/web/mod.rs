@@ -134,27 +134,25 @@ impl WasmBackend for WasmRuntime {
         module: &Self::Module,
         imports: &[Import<'_, Self>],
     ) -> Result<Self::Instance> {
-        let bindings = Object::create(&JsValue::NULL.unchecked_into());
-        for import in imports {
-            let namespace = Reflect::get(&bindings, &import.module().into())
-                .map_err(|error| js_error("read Wasm imports", error))?;
-            let namespace = if namespace.is_undefined() {
-                let namespace = Object::create(&JsValue::NULL.unchecked_into());
-                set(&bindings, import.module(), &namespace)?;
-                namespace
-            } else {
-                namespace.unchecked_into::<Object>()
-            };
-            let value: JsValue = match import.value() {
-                ImportValue::Memory(memory) => memory.0.memory.clone().into(),
-                ImportValue::Table(table) => (*table).clone().into(),
-                ImportValue::Function(function) => function.clone().into(),
-            };
-            set(&namespace, import.name(), &value)?;
-        }
+        let bindings = import_object(imports)?;
         // Linking and module startup finish while this call borrows the runtime.
         WebAssembly::Instance::new(&module.0, &bindings)
             .map_err(|error| js_error("instantiate Wasm", error))
+    }
+
+    fn instantiate_async(
+        &mut self,
+        module: &Self::Module,
+        imports: &[Import<'_, Self>],
+    ) -> impl std::future::Future<Output = Result<Self::Instance>> + 'static + use<> {
+        let pending = import_object(imports)
+            .map(|bindings| WebAssembly::instantiate_module(&module.0, &bindings));
+        async move {
+            JsFuture::from(pending?)
+                .await
+                .map(|instance| instance.unchecked_into())
+                .map_err(|error| js_error("instantiate Wasm", error))
+        }
     }
 }
 
@@ -164,6 +162,28 @@ impl WasmMemoryAccess for WasmRuntime {
     fn memory<'a>(&'a mut self, memory: &'a Memory) -> MemoryAccess<'a> {
         memory.0.access()
     }
+}
+
+fn import_object(imports: &[Import<'_, WasmRuntime>]) -> Result<Object> {
+    let bindings = Object::create(&JsValue::NULL.unchecked_into());
+    for import in imports {
+        let namespace = Reflect::get(&bindings, &import.module().into())
+            .map_err(|error| js_error("read Wasm imports", error))?;
+        let namespace = if namespace.is_undefined() {
+            let namespace = Object::create(&JsValue::NULL.unchecked_into());
+            set(&bindings, import.module(), &namespace)?;
+            namespace
+        } else {
+            namespace.unchecked_into::<Object>()
+        };
+        let value: JsValue = match import.value() {
+            ImportValue::Memory(memory) => memory.0.memory.clone().into(),
+            ImportValue::Table(table) => (*table).clone().into(),
+            ImportValue::Function(function) => function.clone().into(),
+        };
+        set(&namespace, import.name(), &value)?;
+    }
+    Ok(bindings)
 }
 
 fn set(object: &Object, name: &str, value: &JsValue) -> Result<()> {
