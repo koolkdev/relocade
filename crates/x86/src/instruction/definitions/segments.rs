@@ -116,7 +116,9 @@ where
     I32: AtLeast<T>,
 {
     let selector = source.read(execution)?;
-    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    let Some(descriptor_info) = execution.query_segment_descriptor(&selector)? else {
+        return execution.unsupported();
+    };
     execution.write_flag(Flag::ZF, descriptor_info.lar_valid.clone())?;
     destination.update(execution, |_, previous| {
         Ok(descriptor_info
@@ -134,7 +136,9 @@ where
     I32: AtLeast<T>,
 {
     let selector = source.read(execution)?;
-    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    let Some(descriptor_info) = execution.query_segment_descriptor(&selector)? else {
+        return execution.unsupported();
+    };
     execution.write_flag(Flag::ZF, descriptor_info.lsl_valid.clone())?;
     destination.update(execution, |_, previous| {
         Ok(descriptor_info
@@ -148,7 +152,9 @@ fn verify_read(
     source: TypedLocation<I16>,
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
-    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    let Some(descriptor_info) = execution.query_segment_descriptor(&selector)? else {
+        return execution.unsupported();
+    };
     execution.write_flag(Flag::ZF, descriptor_info.readable)
 }
 
@@ -157,7 +163,9 @@ fn verify_write(
     source: TypedLocation<I16>,
 ) -> Result<(), BuildError> {
     let selector = source.read(execution)?;
-    let descriptor_info = execution.query_segment_descriptor(&selector)?;
+    let Some(descriptor_info) = execution.query_segment_descriptor(&selector)? else {
+        return execution.unsupported();
+    };
     execution.write_flag(Flag::ZF, descriptor_info.writable)
 }
 

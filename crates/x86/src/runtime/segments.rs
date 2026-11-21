@@ -5,9 +5,30 @@ use crate::{
     segment::cache::{SegmentCacheValues, SegmentPropertiesValues, SegmentResolutionValues},
     ExceptionValues, ExceptionVector, Segment, SegmentDescriptorInfoValues,
 };
-use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16};
+use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I1, I16};
 
 impl Runtime {
+    pub(crate) fn import_hosted_descriptors(&mut self, program: &mut Program) {
+        self.descriptors = Some(HostedDescriptors::declare(program));
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HostedDescriptors {
+    resolve: Func,
+    query: TypedFunc<crate::abi::QuerySegmentDescriptorSignature>,
+    complete_load: Func,
+}
+
+impl HostedDescriptors {
+    fn declare(program: &mut Program) -> Self {
+        Self {
+            resolve: program.import_function(crate::abi::RESOLVE_SEGMENT),
+            query: crate::abi::QUERY_SEGMENT_DESCRIPTOR.import(program),
+            complete_load: program.import_function(crate::abi::COMPLETE_SEGMENT_LOAD),
+        }
+    }
+
     /// Queries the current host descriptor view without loading a segment or
     /// accessing guest memory.
     pub(crate) fn query_segment_descriptor(
@@ -15,7 +36,7 @@ impl Runtime {
         body: &mut BlockBuilder<'_>,
         selector: &Val<I16>,
     ) -> Result<SegmentDescriptorInfoValues, BuildError> {
-        self.query_segment_descriptor.call(body, selector)
+        self.query.call(body, selector)
     }
 
     /// The host reads only canonical table registers and dedicated descriptor
@@ -42,7 +63,7 @@ impl Runtime {
             big,
             needs_completion,
         ) = body.call::<crate::abi::ResolveSegmentResults>(
-            self.resolve_segment,
+            self.resolve,
             &[(segment as u32).into(), selector.into()],
         )?;
         body.if_(status.ne(0), |mut fault| {
@@ -94,7 +115,7 @@ impl Runtime {
         needs_completion: Val<I1>,
     ) -> Result<(), BuildError> {
         body.if_(needs_completion, |mut commit| {
-            commit.call::<()>(self.complete_segment_load, &[selector.into()])?;
+            commit.call::<()>(self.complete_load, &[selector.into()])?;
             Ok(())
         })
     }

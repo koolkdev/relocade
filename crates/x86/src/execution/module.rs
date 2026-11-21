@@ -50,6 +50,8 @@ impl ExecutionModule {
                     entry.builder(body, eip)?.deliver_interrupt(vector)
                 },
             ));
+        } else {
+            module.runtime.import_hosted_descriptors(program);
         }
         module
     }

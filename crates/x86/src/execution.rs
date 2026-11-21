@@ -262,8 +262,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Stops an unsupported execution path without retiring the instruction.
-    /// Earlier completed work is published at the current restart boundary.
-    /// Call before defining any effects of the current instruction.
+    /// Operand reads may already have occurred when a handler reaches an
+    /// unimplemented operation.
     pub(crate) fn unsupported_if(
         &mut self,
         condition: impl Into<Val<I1>>,
