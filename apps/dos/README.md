@@ -19,8 +19,8 @@ gzip-compressed Wasm and a `_headers` file declaring its encoding and COOP/COEP
 headers. Use a host that honors `_headers`, or configure those headers explicitly.
 The shared host owns the canvas.
 
-The PC advances one guest microsecond per retired instruction. PIT, video and
-PS/2 use this clock. CPU execution runs uncapped by default.
+The PIT, video and PS/2 share a guest clock that tracks elapsed host time
+in microsecond ticks. CPU execution runs uncapped by default.
 
 The default PC includes DISPI video, AdLib and the built-in speaker. Rust callers
 select the installed cards before startup:
@@ -144,8 +144,8 @@ commands. It creates no DOS process and writes no duplicate stdout capture.
 Native input belongs to the prompt. It does not enter the controller or the BIOS
 keyboard buffer; native output bypasses DOS handles, redirection and installed
 CON drivers. No guest code, IRQ handlers or resident utilities execute at the
-prompt. Each line read runs inside `dos.wait_for(...)`, which advances device
-deadlines with the CPU parked. Display captures and audio continue. BIOS ticks
+prompt. While a line read is pending, the session advances guest device time
+with the CPU parked. Display captures and audio continue. BIOS ticks
 advance when guest execution services pending timer interrupts.
 
 Guest programs instead receive physical events through `dos.keyboard_input()`

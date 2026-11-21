@@ -50,8 +50,8 @@ pub struct Runner {
 
 impl Runner {
     /// Runs the application and its background tasks for one execution session.
-    /// Ready device and compiler tasks run throughout the session. The foreground
-    /// advances guest time with [`Self::wait_for`] or [`Self::run_cpu`].
+    /// Ready device and compiler tasks run throughout the session, including while
+    /// the foreground awaits input with the CPU stopped.
     /// Completion or cancellation drops the tasks, drains calculations and joins their threads.
     /// The stop future is registered before application code runs. It returns
     /// `None` on cancellation; ordinary main completion returns `Some(result)`.
@@ -63,8 +63,8 @@ impl Runner {
         let tasks = self.tasks.take().expect("new execution session");
         let workers = self.workers.clone();
         let wake = self.wake.clone();
-        let _clock = self.time.bind(&self.cpu, wake.waker());
         let result = {
+            let mut clock = self.time.bind(&self.cpu, wake.waker());
             let mut stop = pin!(stop);
             let mut tasks = pin!(tasks.for_each_concurrent(None, |task| task));
             let mut main = pin!(main(self));
@@ -72,8 +72,17 @@ impl Runner {
                 if stop.as_mut().poll(cx).is_ready() {
                     return Poll::Ready(None);
                 }
+                if let Some(clock) = &mut clock {
+                    clock.observe(cx);
+                }
                 let _ = tasks.as_mut().poll(cx);
-                main.as_mut().poll(cx).map(Some)
+                let result = main.as_mut().poll(cx).map(Some);
+                if result.is_pending() {
+                    if let Some(clock) = &mut clock {
+                        clock.arm(cx);
+                    }
+                }
+                result
             }))
             .await
         };
@@ -84,7 +93,7 @@ impl Runner {
 
     /// Constructs the local CPU backend and binds its wake endpoint.
     /// The supplied clock must progress independently of this session. Use
-    /// [`Self::with_guest_time`] for a clock advanced by CPU execution.
+    /// [`Self::with_guest_time`] for devices scheduled in guest time.
     /// Supply the endpoint from this CPU's wake connection and retain the host
     /// until the session ends.
     pub async fn new(
@@ -95,8 +104,8 @@ impl Runner {
         Self::initialize(cpu, endpoint, clock, None).await
     }
 
-    /// Runs devices on guest time. The host clock times idle waits, presentation,
-    /// and any CPU throughput limit configured for this session.
+    /// Runs devices on guest time synchronized to elapsed host time. An optional
+    /// throughput limit controls how many instructions the CPU can retire.
     pub async fn with_guest_time(
         config: GuestTimeConfig,
         host: Clock,

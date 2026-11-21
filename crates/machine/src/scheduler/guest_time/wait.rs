@@ -18,6 +18,49 @@ pub(super) struct Wait {
     pub(super) waker: RefCell<Option<Waker>>,
 }
 
+#[derive(Default)]
+pub(super) struct Waits {
+    entries: Vec<Rc<Wait>>,
+    pub(super) earliest: Option<Timestamp>,
+}
+
+impl Waits {
+    fn insert(&mut self, wait: Rc<Wait>) {
+        self.earliest = Some(
+            self.earliest
+                .map_or(wait.deadline, |at| at.min(wait.deadline)),
+        );
+        self.entries.push(wait);
+    }
+
+    fn cancel(&mut self, wait: &Rc<Wait>) {
+        self.entries.retain(|entry| !Rc::ptr_eq(entry, wait));
+        if self.earliest == Some(wait.deadline) {
+            self.earliest = self.entries.iter().map(|entry| entry.deadline).min();
+        }
+    }
+
+    pub(super) fn take_due(&mut self, now: Timestamp) -> Vec<Waker> {
+        let mut due = Vec::new();
+        if self.earliest.is_some_and(|at| at <= now) {
+            self.earliest = None;
+            self.entries.retain(|wait| {
+                if wait.deadline <= now {
+                    due.push(wait.waker.take().expect("registered guest sleep"));
+                    false
+                } else {
+                    self.earliest = Some(
+                        self.earliest
+                            .map_or(wait.deadline, |at| at.min(wait.deadline)),
+                    );
+                    true
+                }
+            });
+        }
+        due
+    }
+}
+
 struct GuestSleep {
     source: Source,
     deadline: Timestamp,
@@ -35,7 +78,7 @@ impl Future for GuestSleep {
             }
             return Poll::Ready(());
         }
-        if self.deadline <= self.source.now() {
+        if self.deadline <= self.source.0.borrow().now() {
             return Poll::Ready(());
         }
         let wait = Rc::new(Wait {
@@ -43,7 +86,7 @@ impl Future for GuestSleep {
             waker: RefCell::new(Some(cx.waker().clone())),
         });
         self.registered = Some(wait.clone());
-        self.source.update_waits(|waits| waits.push(wait));
+        self.source.update_waits(|waits| waits.insert(wait));
         Poll::Pending
     }
 }
@@ -52,18 +95,22 @@ impl Drop for GuestSleep {
     fn drop(&mut self) {
         let Some(wait) = &self.registered else { return };
         if wait.waker.borrow().is_some() {
-            self.source
-                .update_waits(|waits| waits.retain(|entry| !Rc::ptr_eq(entry, wait)));
+            self.source.update_waits(|waits| waits.cancel(wait));
         }
     }
 }
 
 impl Source {
-    fn update_waits(&self, update: impl FnOnce(&mut Vec<Rc<Wait>>)) {
+    fn update_waits(&self, update: impl FnOnce(&mut Waits)) {
         let changed = {
             let mut state = self.0.borrow_mut();
+            let previous = state.waits.earliest;
             update(&mut state.waits);
-            state.refresh_target();
+            if previous != state.waits.earliest {
+                state.refresh_target();
+            } else if state.realtime.is_some() {
+                return;
+            }
             state.cpu.as_ref().map(|cpu| cpu.changed.clone())
         };
         if let Some(changed) = changed {
@@ -83,13 +130,8 @@ impl ClockSource for Source {
 
     fn sync_to_host(&self, time: Timestamp) -> Sleep {
         let state = self.0.borrow();
-        if state.cpu.is_some() {
-            if let Some(host) = &state.host {
-                let remaining = state.tick_rate.duration_between_ceil(state.now(), time);
-                if let Some(at) = host.checked_deadline_after(host.now(), remaining) {
-                    return host.sleep_until_if_needed(at);
-                }
-            }
+        if let (Some(realtime), Some(_)) = (&state.realtime, &state.cpu) {
+            return realtime.sleep_until(time);
         }
         Sleep::new(async {})
     }

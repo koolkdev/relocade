@@ -261,6 +261,14 @@ impl<'cpu> State<'cpu> {
         self.simd.publish(body)?;
         self.registers.publish(body)?;
         cpu_store!(body, self.cpu.memory(), eip, next_eip)?;
+        self.publish_retirement(body, completed)
+    }
+
+    pub(super) fn publish_retirement(
+        &self,
+        body: &mut BlockBuilder<'_>,
+        completed: u32,
+    ) -> Result<(), BuildError> {
         if completed != 0 {
             let count = self.instruction_count(body, completed)?;
             cpu_store!(body, self.cpu.memory(), instruction_count, &count)?;

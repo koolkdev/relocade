@@ -170,7 +170,7 @@ async fn callback_observation() {
             .unwrap();
         }
         assert_eq!(cpu.step(), ExecutionExit::StepComplete);
-        driver.synchronize(Some(clock.deadline_after(start, Duration::from_millis(4))));
+        let _wait = support::guest_sleep(&driver, 4);
         assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
         let observed = device.borrow().observed.unwrap();
         assert!(observed >= clock.deadline_after(start, Duration::from_millis(1)));
@@ -227,7 +227,7 @@ async fn subnanosecond_progress() {
     );
     for count in 1..=3 {
         cpu.step();
-        driver.synchronize(None);
+        driver.synchronize();
         assert_eq!(wait.as_mut().poll(&mut cx).is_ready(), count == 3);
     }
 }

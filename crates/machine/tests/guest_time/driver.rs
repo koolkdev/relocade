@@ -55,7 +55,7 @@ impl Device for ReprogrammedTimer {}
 async fn callback_target_changes() {
     for compiled in [false, true] {
         for mmio in [false, true] {
-            for (cancel, has_yield_deadline) in [(false, true), (true, true), (true, false)] {
+            for (cancel, has_later_wait) in [(false, true), (true, true), (true, false)] {
                 let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
                 let clock = driver.clock();
                 let mut wait = Box::pin(
@@ -137,22 +137,17 @@ async fn callback_target_changes() {
                 .unwrap();
                 let state = cpu.cpu_state();
                 let binding = driver.bind(&cpu, Waker::noop());
-                let yield_deadline = has_yield_deadline.then(|| {
-                    driver
-                        .clock()
-                        .deadline_after(Timestamp::from_ticks(0), Duration::from_millis(10))
-                });
-                driver.synchronize(yield_deadline);
+                let _later_wait = has_later_wait.then(|| support::guest_sleep(&driver, 10));
                 assert_eq!(
                     cpu.run().await,
-                    if has_yield_deadline {
+                    if has_later_wait {
                         ExecutionExit::BudgetExhausted
                     } else {
                         ExecutionExit::Host(relocade_x86::HostExit::Return)
                     }
                 );
                 assert_eq!(state.instruction_count(), if cancel { 10 } else { 4 });
-                driver.synchronize(yield_deadline);
+                driver.synchronize();
                 assert_eq!(device.borrow().writes, 1);
                 if !cancel {
                     assert!(device
@@ -236,11 +231,7 @@ async fn cancelled_binding() {
     .await
     .unwrap();
     let binding = driver.bind(&cpu, Waker::noop());
-    driver.synchronize(Some(
-        driver
-            .clock()
-            .deadline_after(Timestamp::from_ticks(0), Duration::from_millis(3)),
-    ));
+    let _wait = support::guest_sleep(&driver, 3);
     let mut run = Box::pin(cpu.run());
     assert!(run
         .as_mut()
@@ -270,7 +261,7 @@ async fn releasing_the_binding_clears_its_target_and_preserves_the_pending_servi
     cancelled_binding().await;
 }
 
-async fn expired_yield_deadline() {
+async fn expired_device_deadline() {
     for compiled in [false, true] {
         for cancel in [false, true] {
             let driver = GuestTimeDriver::new(NonZeroU64::new(1000).unwrap());
@@ -294,7 +285,7 @@ async fn expired_yield_deadline() {
             }));
             let config = configuration(0);
             let memory = Memory::new(config.machine).unwrap();
-            // STI reaches the yield deadline at ten. Its protected OUT observes that
+            // STI reaches the earlier device deadline at ten. Its protected OUT observes that
             // retirement before the first permitted checkpoint at eleven.
             let mut code = vec![0x90; 9];
             code.extend_from_slice(&[0xfb, 0xe6, 0x80, 0xeb, 0xfe]);
@@ -324,11 +315,7 @@ async fn expired_yield_deadline() {
             }
             let state = cpu.cpu_state();
             let _binding = driver.bind(&cpu, Waker::noop());
-            driver.synchronize(Some(
-                driver
-                    .clock()
-                    .deadline_after(Timestamp::from_ticks(0), Duration::from_millis(10)),
-            ));
+            let _earlier_wait = support::guest_sleep(&driver, 10);
             assert_eq!(cpu.run().await, ExecutionExit::BudgetExhausted);
             assert_eq!(state.instruction_count(), 11);
             assert_eq!(device.borrow().writes, 1);
@@ -338,11 +325,11 @@ async fn expired_yield_deadline() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn protected_callback_updates_preserve_the_expired_yield_deadline() {
-    pollster::block_on(expired_yield_deadline());
+fn protected_callback_updates_preserve_the_expired_device_deadline() {
+    pollster::block_on(expired_device_deadline());
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn protected_callback_updates_preserve_the_expired_yield_deadline() {
-    expired_yield_deadline().await;
+async fn protected_callback_updates_preserve_the_expired_device_deadline() {
+    expired_device_deadline().await;
 }
