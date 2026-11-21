@@ -53,36 +53,48 @@ impl CpuInstance {
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
         let dispatcher = code::dispatcher(&compiler, target).await?;
         let interpreter = code::interpreter(&compiler, cache.as_ref(), target).await?;
-        runtime.with_runtime(|wasm| {
-            // Link the dispatcher first; the interpreter imports its entry points.
-            let mut table = code_cache::DispatchTable::new(wasm)?;
-            let write_code = code_cache::WriteCode::new(wasm, bindings.guest.clone());
-            let call_profile = wasm.create_memory(abi::CALL_PROFILE)?;
-            let mut imports = bindings.imports(wasm).to_vec();
-            imports.push(write_code.import());
-            imports.extend(table.imports(wasm));
-            imports.push(wasm.bind(abi::CALL_PROFILE, &call_profile));
-            let instance = wasm.instantiate(&dispatcher, &imports)?;
-            let dispatch = wasm.function(&instance, abi::DISPATCH)?;
-            let interpret = wasm.function(&instance, abi::INTERPRET)?;
-            let resolve_call = wasm.function(&instance, abi::RESOLVE_CALL)?;
-            let resolve_and_jump = wasm.function(&instance, abi::RESOLVE_AND_JUMP)?;
+        let mut table = runtime.with_runtime(code_cache::DispatchTable::new)?;
+        let write_code =
+            runtime.with_runtime(|wasm| code_cache::WriteCode::new(wasm, bindings.guest.clone()));
+        let call_profile = runtime.with_runtime(|wasm| wasm.create_memory(abi::CALL_PROFILE))?;
+        let (instantiate, dispatch, interpret, resolve_call, resolve_and_jump) = runtime
+            .with_runtime(|wasm| -> Result<_> {
+                // Link the dispatcher first; the interpreter imports its entry points.
+                let mut imports = bindings.imports(wasm).to_vec();
+                imports.push(write_code.import());
+                imports.extend(table.imports(wasm));
+                imports.push(wasm.bind(abi::CALL_PROFILE, &call_profile));
+                let instance = wasm.instantiate(&dispatcher, &imports)?;
+                let dispatch = wasm.function(&instance, abi::DISPATCH)?;
+                let interpret = wasm.function(&instance, abi::INTERPRET)?;
+                let resolve_call = wasm.function(&instance, abi::RESOLVE_CALL)?;
+                let resolve_and_jump = wasm.function(&instance, abi::RESOLVE_AND_JUMP)?;
 
-            imports.extend([
-                wasm.bind(abi::DISPATCH, &dispatch),
-                wasm.bind(abi::INTERPRET, &interpret),
-                wasm.bind(abi::RESOLVE_CALL, &resolve_call),
-            ]);
-            io.port_map().initialize(wasm, &io.downgrade().0)?;
-            imports.extend(io.port_map().imports(wasm));
-            io.mmio_map().initialize(
-                wasm,
-                &io.downgrade().0,
-                &bindings.mapping,
-                bindings.guest.configuration().memory_map(),
-            )?;
-            imports.extend(io.mmio_map().imports(wasm));
-            let instance = wasm.instantiate(&interpreter, &imports)?;
+                imports.extend([
+                    wasm.bind(abi::DISPATCH, &dispatch),
+                    wasm.bind(abi::INTERPRET, &interpret),
+                    wasm.bind(abi::RESOLVE_CALL, &resolve_call),
+                ]);
+                io.port_map().initialize(wasm, &io.downgrade().0)?;
+                imports.extend(io.port_map().imports(wasm));
+                io.mmio_map().initialize(
+                    wasm,
+                    &io.downgrade().0,
+                    &bindings.mapping,
+                    bindings.guest.configuration().memory_map(),
+                )?;
+                imports.extend(io.mmio_map().imports(wasm));
+                let instantiate = wasm.instantiate_async(&interpreter, &imports);
+                Ok((
+                    instantiate,
+                    dispatch,
+                    interpret,
+                    resolve_call,
+                    resolve_and_jump,
+                ))
+            })?;
+        let instance = instantiate.await?;
+        runtime.with_runtime(|wasm| {
             table.install_interpreter(wasm, &instance)?;
             let step = wasm.function(&instance, abi::STEP)?;
             let interrupt = if bindings.cpu.mode() == CpuMode::Real {
