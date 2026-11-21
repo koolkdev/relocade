@@ -34,7 +34,7 @@ fn translation(
             let mut state = match config {
                 Some(config) => State::for_entry(
                     &cpu,
-                    &crate::profile::EntryGuarantees::from_assumptions(config.entry),
+                    &crate::entry::EntryGuarantees::from_assumptions(config.entry),
                 ),
                 None => State::new(&cpu),
             };
@@ -134,7 +134,7 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                 move |mut body, _| {
                     let mut state = State::for_entry(
                         &cpu,
-                        &crate::profile::EntryGuarantees::from_assumptions(FLAT32.entry),
+                        &crate::entry::EntryGuarantees::from_assumptions(FLAT32.entry),
                     );
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
@@ -183,7 +183,7 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::from_assumptions(REAL16.entry),
+            &crate::entry::EntryGuarantees::from_assumptions(REAL16.entry),
         );
         let first = state.segments().base(&mut body, &Segment::Ds.into())?;
         let condition = body.parameter::<I32>(0)?.eq(0);

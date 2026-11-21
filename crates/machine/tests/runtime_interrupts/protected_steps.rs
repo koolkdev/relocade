@@ -20,7 +20,7 @@ pub(super) async fn one_instruction(cpu: &mut Cpu, code: &[u8], compiled: bool) 
         .unwrap();
     } else {
         cpu.install_module(
-            relocade_interpreter::module_with_memory(config.entry, config.memory_backend).unwrap(),
+            relocade_interpreter::module(config.entry, config.memory_backend).unwrap(),
             &[DispatchEntry {
                 key: 0x100,
                 export: "step",

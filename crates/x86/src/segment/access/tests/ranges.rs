@@ -172,7 +172,7 @@ fn constant_empty_span_is_denied_without_faulting() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::from_assumptions(REAL16.entry),
+            &crate::entry::EntryGuarantees::from_assumptions(REAL16.entry),
         );
         let check =
             state

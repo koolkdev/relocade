@@ -48,7 +48,7 @@ impl SnapshotInstruction {
         self.code_default_size
     }
 
-    /// Classifies transfers and block boundaries, including faults known from the target.
+    /// Classifies transfers and block boundaries, including faults guaranteed by the configuration.
     pub fn flow(&self, config: CompilerConfig) -> InstructionFlow {
         self.form
             .flow(self.fields.immediates, self.next_eip, config)

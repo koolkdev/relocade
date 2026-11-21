@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/derive", "crates/compiler", "crates/x86", "crates/x86-profile", "crates/interpreter", "crates/test-support", "crates/time", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/adlib", "crates/sound-blaster", "crates/frontend", "crates/vga", "crates/pit", "crates/dma", "crates/pic", "crates/ps2", "crates/pc-speaker", "crates/parallel", "tests/browser", "tests/clock-support", "crates/app", "crates/file-picker", "apps/dos"]
+members = ["crates/derive", "crates/compiler", "crates/x86", "crates/x86-config", "crates/interpreter", "crates/test-support", "crates/time", "crates/machine", "crates/wasm-bindings", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/adlib", "crates/sound-blaster", "crates/frontend", "crates/vga", "crates/pit", "crates/dma", "crates/pic", "crates/ps2", "crates/pc-speaker", "crates/parallel", "tests/browser", "tests/clock-support", "crates/app", "crates/file-picker", "apps/dos"]
 default-members = ["crates/compiler", "crates/x86", "crates/time", "crates/machine", "crates/wasm-runtime", "crates/workers", "crates/vfs", "crates/bios", "crates/pc", "crates/dos", "crates/renderer", "crates/adlib", "crates/sound-blaster", "crates/vga", "crates/pit", "crates/dma", "crates/pic", "crates/ps2", "crates/pc-speaker", "crates/parallel"]
 
 [workspace.package]

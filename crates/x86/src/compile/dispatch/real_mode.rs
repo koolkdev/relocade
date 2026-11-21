@@ -18,7 +18,7 @@ pub(super) fn lookup(
         let eip = cpu.read_eip(&mut body)?;
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
+            &crate::entry::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
         );
         body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
         let cs = state
@@ -43,7 +43,7 @@ pub(super) fn define_call_resolver(
         })?;
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
+            &crate::entry::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
         );
         let cs = state
             .segments()

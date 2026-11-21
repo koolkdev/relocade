@@ -11,7 +11,7 @@ use crate::{
 /// Compile the returned program with [`Program::compile`] or [`Program::compile_with`].
 /// Entry selection happens when invoking the resulting module.
 /// CPU features and instruction budgets are read from the live execution context;
-/// the program depends only on the execution profile and does not specialize CPU state.
+/// the program is generated for the supplied entry guarantees and memory backend.
 ///
 /// `run() -> ExecutionExit` fetches and executes instructions until a branch, segment load,
 /// POPF/POPFD, port I/O or serializing instruction completes, then
@@ -23,7 +23,7 @@ use crate::{
 /// Other faults and unsupported forms return directly with earlier work published.
 ///
 /// Each instruction reads live guest bytes and starts with fresh prefix state.
-/// The host must establish profile compatibility before entry, as described by
+/// The host must establish the entry guarantees, as described by
 /// the [host integration contract](crate#host-integration).
 ///
 /// Execution interrupts and instruction budgets are checked only before dispatch.
@@ -33,7 +33,7 @@ use crate::{
 /// The snapshot compiler's instruction limit does not bound interpreter execution.
 ///
 /// `step() -> ExecutionExit` fetches and executes one supported instruction at the current
-/// CS-relative EIP under the selected execution profile.
+/// CS-relative EIP under the guaranteed entry assumptions.
 /// Success publishes state, retires the instruction and returns `StepComplete`
 /// without fetching or dispatching the successor.
 /// An inhibiting Real16 STI/MOV SS/POP SS instead returns `InterruptInhibited`,
@@ -48,37 +48,25 @@ use crate::{
 /// returning, except `InterruptInhibited` and `Halted`, whose driver transitions
 /// must happen first.
 ///
-/// The host must establish profile compatibility before entry. The interpreter
+/// The host must establish the entry guarantees. The interpreter
 /// checks instruction fetches at runtime; it does not require a validated snapshot.
 /// See the [host integration contract](crate#host-integration) for imports,
 /// dispatch, entry validity and fault encoding.
 ///
 /// ```
-/// use relocade_x86::{build_interpreter, SegmentProfile};
-/// let program = build_interpreter(SegmentProfile::Flat32)?;
+/// use relocade_x86::{build_interpreter, EntryAssumptions, MemoryBackend};
+/// let program = build_interpreter(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable)?;
 /// let bytes = program.compile()?;
 /// // The same module contains both entry exports.
 /// # Ok::<(), relocade_compiler::BuildError>(())
 /// ```
-pub fn build_interpreter(entry: impl Into<EntryAssumptions>) -> Result<Program, BuildError> {
-    let entry = entry.into();
-    let memory = match entry.mode {
-        ExecutionMode::Real => MemoryBackend::PhysicalBus,
-        ExecutionMode::ProtectedUser => MemoryBackend::HostPageTable,
-    };
-    build_interpreter_with_memory(entry, memory)
-}
-
-/// Builds the interpreter's run and step entries under the supplied CPU guarantees.
-/// Both instruction fetch and data accesses use the selected backend after segment checks.
-pub fn build_interpreter_with_memory(
-    entry: impl Into<EntryAssumptions>,
+pub fn build_interpreter(
+    entry: EntryAssumptions,
     memory_backend: MemoryBackend,
 ) -> Result<Program, BuildError> {
-    let entry = entry.into();
     let mut program = Program::new();
-    // Both budget policies share the interpreter. Disabled targets keep the
-    // live allowance zero; snapshot compilation alone omits the checks.
+    // Interpreter modules always read the live instruction budget. Snapshot code
+    // can omit those reads when its configuration disables budgets.
     let execution =
         ExecutionModule::declare(&mut program, CompilerConfig::new(entry, memory_backend));
     if entry.mode == ExecutionMode::Real {

@@ -45,10 +45,9 @@ impl SegmentRegister {
         }
     }
 
-    /// Checks a proposed cache against the entry assumptions for this segment.
+    /// Checks a proposed cache against the entry guarantees for this segment.
     /// Real mode requires the canonical cache for the visible selector.
-    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>, segment: Segment) -> bool {
-        let entry = entry.into();
+    pub fn is_compatible_with(&self, entry: EntryAssumptions, segment: Segment) -> bool {
         if segment == Segment::Cs
             && entry.mode == ExecutionMode::ProtectedUser
             && CpuMode::Protected.privilege_level(self.selector) != PrivilegeLevel::Ring3
@@ -65,7 +64,7 @@ impl SegmentRegister {
         if entry.mode == ExecutionMode::Real && *self != Self::real_mode(segment, self.selector) {
             return false;
         }
-        crate::segment::profile::assumptions(entry, segment)
+        crate::segment::assumptions::field_patterns(entry, segment)
             .iter()
             .all(|requirement| {
                 requirement.matches_record(
@@ -156,10 +155,8 @@ impl Segments {
         offset_of!(CpuState, segments) + segment as usize * size_of::<SegmentRegister>()
     }
 
-    /// Checks the segment guarantees shared by generated entries. The host must
-    /// establish the active mode separately; caches alone do not establish it.
-    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>) -> bool {
-        let entry = entry.into();
+    /// Tests the cache properties guaranteed on entry. The host also checks the active mode.
+    pub fn is_compatible_with(&self, entry: EntryAssumptions) -> bool {
         Segment::ALL
             .into_iter()
             .all(|segment| self[segment].is_compatible_with(entry, segment))

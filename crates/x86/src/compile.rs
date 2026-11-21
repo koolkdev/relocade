@@ -7,21 +7,21 @@ mod dispatch;
 
 pub use address::CodeAddress;
 pub use block::{
-    compile_block_from_bytes, compile_block_from_bytes_with_profile, BlockCompileError, BlockEntry,
-    BlockSnapshot, CompiledBlocks, DecodedBlock,
+    compile_block_from_bytes, BlockCompileError, BlockEntry, BlockSnapshot, CompiledBlocks,
+    DecodedBlock,
 };
 pub use config::CompilerConfig;
 pub use dispatch::EntryTable;
 
-use crate::{CpuModel, CpuState, ExecutionProfile, MemoryBackend};
+use crate::{CpuModel, CpuState, MemoryBackend};
 
-/// Compiles snapshot blocks and dispatch for one execution target.
-/// CPU observations specialize snapshot blocks. Use [`crate::build_interpreter`]
-/// to construct the interpreter program for an execution profile.
+/// Compiles snapshot blocks and dispatch with one set of entry guarantees and code-generation settings.
+/// CPU observations specialize snapshot blocks. The interpreter reads CPU features at runtime.
 ///
 /// ```
-/// use relocade_x86::{Compiler, SegmentProfile};
-/// let compiler = Compiler::new(SegmentProfile::Flat32);
+/// use relocade_x86::{Compiler, CompilerConfig, EntryAssumptions, MemoryBackend};
+/// let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+/// let compiler = Compiler::from_config(config);
 /// let block = compiler.compile_block(0x1000, &[0xb8, 42, 0, 0, 0], 1)?;
 /// assert_eq!(block.entry, "block_1000");
 /// # Ok::<(), relocade_x86::BlockError>(())
@@ -32,27 +32,12 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    /// Selects the profile guarantees shared by every entry and the default processor model.
-    /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
-    pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
-        let profile = profile.into();
-        Self::from_config(CompilerConfig::new(
-            profile.into(),
-            MemoryBackend::default_for(profile),
-        ))
-    }
-
     /// Compiles with the supplied entry assumptions, memory routing, CPU model and budgets.
     pub fn from_config(config: CompilerConfig) -> Self {
         Self {
             config,
             observed_cpu: None,
         }
-    }
-
-    /// Accepts the execution settings of an existing compiler.
-    pub fn from_target(config: CompilerConfig) -> Self {
-        Self::from_config(config)
     }
 
     /// Selects how generated code accesses guest memory after segmentation.
@@ -65,11 +50,14 @@ impl Compiler {
     /// Selects processor capabilities for snapshot blocks and dispatch.
     ///
     /// ```
-    /// use relocade_x86::{Compiler, CpuFeature, CpuModel, SegmentProfile};
+    /// use relocade_x86::{
+    ///     Compiler, CompilerConfig, CpuFeature, CpuModel, EntryAssumptions, MemoryBackend,
+    /// };
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
-    /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
+    /// let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    /// let compiler = Compiler::from_config(config).with_cpu_model(model);
     /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
-    /// assert_eq!(block.config, Some(compiler.target()));
+    /// assert_eq!(block.config, Some(compiler.config()));
     /// // Executing this CMOVE raises #UD without reading its operand.
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
@@ -79,9 +67,9 @@ impl Compiler {
         self
     }
 
-    /// Declares whether this execution target permits instruction budgets.
+    /// Declares whether the execution owner may arm instruction budgets.
     /// Disabling them removes budget code from snapshot blocks. The execution
-    /// owner must keep the live budget zero for the lifetime of this target.
+    /// owner must keep the live budget zero while this code can run.
     /// Interpreters retain runtime checks so their modules remain shared.
     #[must_use]
     pub fn with_instruction_budgets(mut self, enabled: bool) -> Self {
@@ -89,14 +77,9 @@ impl Compiler {
         self
     }
 
-    /// The execution target shared by every entry. Snapshots also retain their code addresses.
+    /// The configuration shared by every entry. Snapshots also retain their code addresses.
     pub fn config(&self) -> CompilerConfig {
         self.config
-    }
-
-    /// Returns the compiler configuration for this artifact.
-    pub fn target(&self) -> CompilerConfig {
-        self.config()
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.
@@ -106,9 +89,10 @@ impl Compiler {
     /// See the [observed-state contract](crate#observed-cpu-state) for consumers.
     ///
     /// ```
-    /// use relocade_x86::{Compiler, CpuState, SegmentProfile};
+    /// use relocade_x86::{Compiler, CompilerConfig, CpuState, EntryAssumptions, MemoryBackend};
     /// let cpu = CpuState::default();
-    /// let compiler = Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&cpu);
+    /// let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    /// let compiler = Compiler::from_config(config).specialize_on_cpu(&cpu);
     /// let block = compiler.compile_block(0x1000, &[0xd8, 0xc9], 1)?;
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```

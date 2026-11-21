@@ -69,7 +69,7 @@ fn admitted_modes_fold_privilege_and_timestamp_predicates() {
         let function = program.function::<fn()>(move |mut body, ()| {
             let mut state = State::for_entry(
                 &cpu,
-                &crate::profile::EntryGuarantees::from_assumptions(config.entry),
+                &crate::entry::EntryGuarantees::from_assumptions(config.entry),
             );
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
@@ -98,7 +98,7 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::from_assumptions(FLAT32.entry),
+            &crate::entry::EntryGuarantees::from_assumptions(FLAT32.entry),
         );
         let selector = state
             .segments()

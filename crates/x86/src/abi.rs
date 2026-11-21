@@ -52,7 +52,7 @@ pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
 pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "dispatch");
 /// Resolves a completed call once. Only Real16 records unresolved callees, using
 /// packed 16:16 CS:IP keys; protected-mode calls resolve without profiling.
-/// Published CPU state must remain compatible with the dispatcher's profile.
+/// Published CPU state must satisfy the dispatcher's entry guarantees.
 /// Check execution controls before resolving; stopped calls are not profiled.
 /// Returns the callable slot and whether recording can continue without draining.
 pub const RESOLVE_CALL: Function<ResolveCallSignature> = Function::new("relocade", "resolveCall");

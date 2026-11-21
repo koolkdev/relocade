@@ -53,7 +53,7 @@ fn main() -> Result<(), relocade_x86::BlockError> {
 
 For an executable embedding, follow the
 [host integration contract](crates/x86/docs/host-integration.md): imported memories,
-dispatch and fault exits, segment resolution, and entry validity. Real16 uses
+dispatch and fault exits, segment resolution, and entry validity. The PC uses
 the [physical-memory contract](crates/x86/docs/physical-memory.md) for host transfers.
 Both contracts are included in the x86 crate's generated API documentation.
 
@@ -64,24 +64,30 @@ CPU/device runner, execution ownership and input delivery for an interactive emb
 
 ## Build and test
 
-Cargo generates four interpreter modules on the build host, one for each execution
-profile. Function placement and emission share a worker pool bounded by available
-Cargo jobserver slots and host parallelism; construction remains serial. Each
-module exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
-web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it. The asset crate's
-only runtime dependency is `relocade-x86-profile`, which owns the shared profile
-types; code generation and compiler workers are build dependencies.
+Cargo embeds four interpreter modules today. The real-mode module uses the PC
+physical bus. Three protected-mode modules use the host page table, with flat
+32-bit or segmented 16-bit or 32-bit assumptions. Each exports `step` and `run`.
+Native and browser runtimes look up the embedded Wasm with
+`relocade_interpreter::module(entry, backend)`. A combination without
+an embedded module returns `None`. The planned products are a general PC interpreter and a Win32 interpreter
+with flat, paged memory.
 
-`relocade_x86::build_interpreter(profile)` constructs a `Program` containing both
-entry exports. The caller compiles that program once and selects an export when
-invoking it. Applications can pass their own executor to `Program::compile_with`.
-With the `relocade-compiler/workers` feature, an existing set of workers can be used
-as follows:
+The asset crate depends on `relocade-x86-config` at runtime. Cargo generates the
+Wasm on the build host, using the compiler and worker crates as build dependencies.
+At startup the backend compiles the embedded Wasm for its engine.
+
+To generate an interpreter for a specific set of entry guarantees and memory
+imports, pass both to `build_interpreter`. Its `Program` contains
+both exports. With the `relocade-compiler/workers` feature, an application can
+compile it on its own pool:
 
 ```rust
-let program = relocade_x86::build_interpreter(profile)?;
+use relocade_x86::{build_interpreter, EntryAssumptions, MemoryBackend};
+
+let program = build_interpreter(
+    EntryAssumptions::REAL_MODE,
+    MemoryBackend::PhysicalBus,
+)?;
 let (pool, executor) = relocade_workers::Pool::new(threads)?;
 let ((), bytes) = futures_util::future::join(pool.run(), async move {
     program.compile_with(&executor).await
