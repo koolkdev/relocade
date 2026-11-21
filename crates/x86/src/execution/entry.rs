@@ -5,7 +5,7 @@ use crate::{abi, ExecutionExitValues};
 use relocade_compiler::{BlockBuilder, BuildError, Program, Val, I16, I32};
 
 impl ExecutionModule {
-    pub(crate) fn export_entries(&self, program: &mut Program) -> Result<(), BuildError> {
+    pub(crate) fn export_real_mode_entries(&self, program: &mut Program) -> Result<(), BuildError> {
         if let Some(interrupt) = self.interrupt {
             abi::INTERRUPT.export(program, interrupt)?;
             let mut entry = self.clone();

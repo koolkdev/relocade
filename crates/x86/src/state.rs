@@ -48,7 +48,6 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     simd: StateFields,
     fields: StateFields,
-    profile: Option<crate::ExecutionProfile>,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -72,29 +71,18 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             fields: StateFields::new(cpu.memory()),
-            profile: None,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
     }
 
     /// Each function starts with fresh retained values under the same entry guarantees.
-    pub(crate) fn for_entry(
-        cpu: &'cpu Cpu,
-        profile: crate::ExecutionProfile,
-        guarantees: &EntryGuarantees,
-    ) -> Self {
+    pub(crate) fn for_entry(cpu: &'cpu Cpu, guarantees: &EntryGuarantees) -> Self {
         let mut state = Self::new(cpu);
-        state.profile = Some(profile);
         state.fields = state
             .fields
             .with_entry_guarantees(guarantees.patterns().to_vec());
         state
-    }
-
-    pub(crate) fn profile(&self) -> crate::ExecutionProfile {
-        self.profile
-            .expect("execution requires an admitted profile")
     }
 
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {
@@ -177,12 +165,13 @@ impl<'cpu> State<'cpu> {
         self.flags.read_iopl(body)
     }
 
-    pub(crate) fn write_iopl(
+    pub(crate) fn write_iopl_if(
         &mut self,
         body: &mut BlockBuilder<'_>,
+        condition: &Val<I1>,
         value: Val<I8>,
     ) -> Result<(), BuildError> {
-        self.flags.write_iopl(body, value)
+        self.flags.write_iopl_if(body, condition, value)
     }
 
     pub(crate) fn condition(

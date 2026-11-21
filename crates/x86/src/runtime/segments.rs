@@ -4,7 +4,7 @@ use super::Runtime;
 use crate::{
     segment::SegmentValues, ExceptionValues, ExceptionVector, Segment, SegmentDescriptorInfoValues,
 };
-use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16, I32};
 
 pub(crate) struct ResolvedValues {
     pub(crate) cache: SegmentValues,
@@ -28,6 +28,7 @@ impl Runtime {
     pub(crate) fn resolve_segment(
         self,
         body: &mut BlockBuilder<'_>,
+        protected: Val<I1>,
         segment: Segment,
         selector: &Val<I16>,
         on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
@@ -45,9 +46,32 @@ impl Runtime {
             expand_down,
             big,
             needs_completion,
-        ) = body.call::<crate::abi::ResolveSegmentResults>(
-            self.resolve_segment,
-            &[(segment as u32).into(), selector.into()],
+        ) = body.if_value::<crate::abi::ResolveSegmentResults>(
+            protected,
+            |mut descriptors| {
+                let resolved = descriptors.call::<crate::abi::ResolveSegmentResults>(
+                    self.resolve_segment,
+                    &[(segment as u32).into(), selector.into()],
+                )?;
+                descriptors.yield_(resolved)
+            },
+            |real| {
+                let cache = crate::SegmentRegister::real_mode(segment, 0);
+                real.yield_((
+                    0u32, // success
+                    0u32, // error code
+                    selector.unsigned().extend::<I32>().shl(4),
+                    cache.limit,
+                    selector,
+                    cache.usable != 0,
+                    cache.readable != 0,
+                    cache.writable != 0,
+                    cache.executable != 0,
+                    cache.expand_down != 0,
+                    cache.big != 0,
+                    false, // real mode has no descriptor access bit to complete
+                ))
+            },
         )?;
         body.if_(status.ne(0), |mut fault| {
             let vectors = [

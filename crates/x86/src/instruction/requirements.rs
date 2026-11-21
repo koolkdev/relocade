@@ -1,8 +1,8 @@
 //! Admission shared by block boundaries and instruction execution.
 
 use crate::{
-    execution::ExecutionBuilder, processor, CpuFeature, Exception, ExecutionProfile,
-    ExecutionTarget, PrivilegeLevel,
+    execution::ExecutionBuilder, processor, CpuFeature, Exception, ExecutionMode, ExecutionTarget,
+    PrivilegeLevel,
 };
 use relocade_compiler::BuildError;
 
@@ -54,7 +54,7 @@ impl Requirements {
         }
     }
 
-    /// A fault established by the captured target can end snapshot discovery.
+    /// A fault established by the CPU model or entry mode can end snapshot discovery.
     pub(super) fn known_fault(self, target: ExecutionTarget) -> Option<Exception> {
         if processor::supports_features(target.cpu_model.bits(), self.features)
             .constant_bits()
@@ -63,19 +63,17 @@ impl Requirements {
         {
             return Some(Exception::InvalidOpcode);
         }
-        self.mode_fault(target.profile)
+        self.mode_fault(target.assumptions().mode)
     }
 
-    /// Snapshot discovery can stop at a fault established by its entry profile.
+    /// Snapshot discovery can stop at a fault established by its entry mode.
     /// Execution lowers the corresponding predicates from CPU state values.
-    fn mode_fault(self, profile: ExecutionProfile) -> Option<Exception> {
-        match (self.availability, profile) {
-            (Availability::ProtectedOnly, ExecutionProfile::Real16) => {
-                Some(Exception::InvalidOpcode)
-            }
+    fn mode_fault(self, mode: ExecutionMode) -> Option<Exception> {
+        match (self.availability, mode) {
+            (Availability::ProtectedOnly, ExecutionMode::Real) => Some(Exception::InvalidOpcode),
             (
                 Availability::IoPrivileged | Availability::Privileged,
-                ExecutionProfile::Protected(_),
+                ExecutionMode::ProtectedUser,
             ) => Some(Exception::GeneralProtection { error_code: 0 }),
             _ => None,
         }

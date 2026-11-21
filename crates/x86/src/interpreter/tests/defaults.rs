@@ -5,19 +5,21 @@ mod entries;
 use crate::{
     support::machine::Image,
     test_step::{returned, Event, TestModule},
-    CpuState, ExecutionExit, SegmentDefaultSize, SegmentProfile,
+    CpuState, EntryAssumptions, ExecutionExit, SegmentDefaultSize,
 };
 use std::sync::LazyLock;
 
 fn interpreter() -> &'static TestModule {
     static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
-        let profile = SegmentProfile::Segmented32.into();
-        let guarantees =
-            crate::profile::EntryGuarantees::for_profile(profile).without_code_default();
-        let bytes = super::super::build(profile, crate::MemoryBackend::HostPageTable, guarantees)
-            .unwrap()
-            .compile()
-            .unwrap();
+        let entry = EntryAssumptions {
+            code_default_size: None,
+            ..EntryAssumptions::SEGMENTED32
+        };
+        let bytes =
+            crate::build_interpreter_with_memory(entry, crate::MemoryBackend::HostPageTable)
+                .unwrap()
+                .compile()
+                .unwrap();
         // CS.D is live in decoding and execution. Other mode, privilege and
         // memory assumptions still describe supported protected-mode execution.
         TestModule::from_bytes(&bytes, crate::abi::STEP.name, None)
@@ -33,6 +35,46 @@ fn step(image: &Image) -> CpuState {
     assert_eq!(*outcome, returned(ExecutionExit::StepComplete));
     assert!(observation.guest_unchanged && observation.machine_unchanged);
     CpuState::from_bytes(snapshot.cpu.as_slice().try_into().unwrap())
+}
+
+#[test]
+fn fxsave_and_fxrstor_use_the_entering_code_width_for_pointer_offsets() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    let offset = 0x1234_5678u32;
+    for (default, expected) in [(Bits16, 0x5678u32), (Bits32, offset)] {
+        for (modrm, restore) in [(0x07, false), (0x0f, true)] {
+            // The same ModRM addresses [BX] at 16 bits and [EDI] at 32 bits.
+            let mut image = Image::new(&[0x0f, 0xae, modrm]);
+            image.cpu = CpuState::protected_mode(default, Bits32);
+            image.cpu.eip = 0x1000;
+            image.cpu.registers.ebx = 0x2000;
+            image.cpu.registers.edi = 0x2000;
+            image.map(2, 0x4000, true);
+            if restore {
+                image.data(0x4008, &offset.to_le_bytes());
+                assert_eq!(step(&image).x87.instruction_offset, expected);
+            } else {
+                image.cpu.x87.instruction_offset = offset;
+                // Every destination byte changes so the snapshot includes the whole offset.
+                image.data(0x4008, &[0xff; 4]);
+                let observation = interpreter().observe(&image.input(), 1);
+                let [Event::Return { outcome, snapshot }] = observation.events.as_slice() else {
+                    panic!("unexpected FXSAVE events: {:?}", observation.events);
+                };
+                assert_eq!(*outcome, returned(ExecutionExit::StepComplete));
+                let saved =
+                    snapshot
+                        .guest
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|&(address, byte)| {
+                            (0x4008..0x400c).contains(&address).then_some(byte)
+                        });
+                assert!(saved.eq(expected.to_le_bytes()));
+            }
+        }
+    }
 }
 
 #[test]

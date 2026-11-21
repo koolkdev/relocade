@@ -3,6 +3,64 @@
 
 #![forbid(unsafe_code)]
 
+/// Architectural mode and privilege established by the execution owner.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExecutionMode {
+    Real,
+    /// Protected mode with a ring-3 code selector.
+    ProtectedUser,
+}
+
+/// Guarantees about the loaded segment caches, independent of instruction width.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SegmentAssumptions {
+    /// Ordinary real-mode caches, including selector-shifted bases and 64 KiB limits.
+    RealMode,
+    /// Flat CS, DS, ES and SS with a 32-bit stack. FS and GS remain live.
+    Flat,
+}
+
+/// The D/B attribute of CS or SS, or the upper bound of an expand-down data segment.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SegmentDefaultSize {
+    Bits16,
+    Bits32,
+}
+
+/// Facts guaranteed on entry to generated code. CPU admission checks the same
+/// facts that instruction decoding and execution may fold into constants.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct EntryAssumptions {
+    pub mode: ExecutionMode,
+    /// Guaranteed segment cache layout. With `None`, cache fields stay live
+    /// except for CS.D when [`Self::code_default_size`] fixes it.
+    pub segments: Option<SegmentAssumptions>,
+    /// CS.D when fixed by the caller. Otherwise decoding reads the live cache,
+    /// and a compiled snapshot guards the width used to decode its bytes.
+    pub code_default_size: Option<SegmentDefaultSize>,
+}
+
+impl EntryAssumptions {
+    pub const REAL_MODE: Self = Self {
+        mode: ExecutionMode::Real,
+        segments: Some(SegmentAssumptions::RealMode),
+        code_default_size: Some(SegmentDefaultSize::Bits16),
+    };
+    pub const FLAT32: Self = Self {
+        mode: ExecutionMode::ProtectedUser,
+        segments: Some(SegmentAssumptions::Flat),
+        code_default_size: Some(SegmentDefaultSize::Bits32),
+    };
+    pub const SEGMENTED32: Self = Self {
+        segments: None,
+        ..Self::FLAT32
+    };
+    pub const SEGMENTED16: Self = Self {
+        code_default_size: Some(SegmentDefaultSize::Bits16),
+        ..Self::SEGMENTED32
+    };
+}
+
 /// Execution assumptions under which a compiled entry may execute.
 /// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
 /// does not perform cache invalidation. The execution owner must invalidate
@@ -58,5 +116,24 @@ pub enum SegmentProfile {
 impl From<SegmentProfile> for ExecutionProfile {
     fn from(profile: SegmentProfile) -> Self {
         Self::Protected(profile)
+    }
+}
+
+impl From<ExecutionProfile> for EntryAssumptions {
+    fn from(profile: ExecutionProfile) -> Self {
+        match profile {
+            ExecutionProfile::Real16 => Self::REAL_MODE,
+            ExecutionProfile::Protected(segments) => segments.into(),
+        }
+    }
+}
+
+impl From<SegmentProfile> for EntryAssumptions {
+    fn from(profile: SegmentProfile) -> Self {
+        match profile {
+            SegmentProfile::Flat32 => Self::FLAT32,
+            SegmentProfile::Segmented32 => Self::SEGMENTED32,
+            SegmentProfile::Segmented16 => Self::SEGMENTED16,
+        }
     }
 }

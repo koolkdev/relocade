@@ -211,10 +211,10 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
 fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
-    let function = program.function::<fn(u8) -> u64>(move |mut body, (value,)| {
+    let function = program.function::<fn(u8, u8) -> u64>(move |mut body, (value, enabled)| {
         let mut state = State::new(&cpu);
         let before = state.read_iopl(&mut body)?;
-        state.write_iopl(&mut body, value)?;
+        state.write_iopl_if(&mut body, &enabled.ne(0), value)?;
         let after = state.read_iopl(&mut body)?;
         state.publish(&mut body, 0x1001, 1)?;
         body.return_(
@@ -233,17 +233,25 @@ fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
     });
     let mut initial = initial_cpu();
     initial.flags.bytes.iopl = 0xfe;
-    for (input, logical) in [(0, 0), (1, 1), (2, 2), (3, 3), (0x80, 0), (0xff, 3)] {
+    for (input, enabled, stored) in [
+        (0, 1, 0),
+        (1, 1, 1),
+        (2, 1, 2),
+        (3, 1, 3),
+        (0x80, 1, 0),
+        (0xff, 1, 3),
+        (0xff, 0, 0xfe),
+    ] {
         let mut expected = initial;
-        expected.flags.bytes.iopl = logical;
+        expected.flags.bytes.iopl = stored;
         expected.eip = 0x1001;
         expected.instruction_count = 0;
         assert_result(
             &module,
             &initial,
-            &[input],
+            &[input, enabled],
             &expected,
-            0x200 | i64::from(logical),
+            0x200 | i64::from(stored & 3),
         );
     }
 }

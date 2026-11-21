@@ -1,6 +1,8 @@
 //! Execution mode and assumptions fixed when an entry is compiled.
 
-pub use relocade_x86_profile::{ExecutionProfile, MemoryBackend};
+pub use relocade_x86_profile::{
+    EntryAssumptions, ExecutionMode, ExecutionProfile, MemoryBackend, SegmentAssumptions,
+};
 use std::sync::Arc;
 
 use crate::{
@@ -10,7 +12,7 @@ use crate::{
 
 /// Bits consumed by mode and privilege predicates. Other supported-state
 /// restrictions remain in CPU admission until their transitions are implemented.
-pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern> {
+pub(crate) fn control_assumptions(mode: ExecutionMode) -> Vec<StatePattern> {
     macro_rules! require_bits {
         ($($field:ident).+, $mask:expr, $expected:expr) => {
             StatePattern::bits(
@@ -20,7 +22,7 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
             )
         };
     }
-    let protected = matches!(profile, ExecutionProfile::Protected(_));
+    let protected = mode == ExecutionMode::ProtectedUser;
     let mut requirements = vec![
         require_bits!(
             cr0,
@@ -40,33 +42,31 @@ pub(crate) fn control_assumptions(profile: ExecutionProfile) -> Vec<StatePattern
     requirements
 }
 
-/// CPU field values the execution owner establishes on every entry to this profile.
+/// CPU field values the execution owner establishes on every entry.
 /// Builders may fold reads from these facts before emitting any guard.
 #[derive(Clone)]
-pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
+pub(crate) struct EntryGuarantees {
+    fields: Arc<[StatePattern]>,
+}
 
 impl EntryGuarantees {
-    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
-        let mut fields = control_assumptions(profile);
+    pub(crate) fn from_assumptions(entry: EntryAssumptions) -> Self {
+        let mut fields = control_assumptions(entry.mode);
         for segment in crate::Segment::ALL {
-            fields.extend(crate::segment::profile::assumptions(profile, segment));
+            fields.extend(crate::segment::profile::assumptions(entry, segment));
         }
-        Self(fields.into())
+        Self {
+            fields: fields.into(),
+        }
     }
 
     pub(crate) fn patterns(&self) -> &[StatePattern] {
-        &self.0
+        &self.fields
     }
 
     #[cfg(test)]
-    pub(crate) fn without_code_default(&self) -> Self {
-        let fields = self.0.iter().copied().filter(|pattern| {
-            !pattern.within_record(
-                std::mem::offset_of!(crate::ExecutionContext, cpu.segments.cs.big),
-                size_of::<u8>(),
-            )
-        });
-        Self(fields.collect())
+    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
+        Self::from_assumptions(profile.into())
     }
 }
 
@@ -86,25 +86,30 @@ pub struct ExecutionTarget {
 }
 
 impl ExecutionTarget {
+    /// Architectural facts required by this target.
+    pub fn assumptions(self) -> EntryAssumptions {
+        self.profile.into()
+    }
+
     /// Check an entry against the installed target and architectural CPU state.
     ///
     /// The CPU image supplies the mode; the target retains generated-code policy
     /// and specialization requirements. Code bytes, fetch permissions and mappings require
     /// separate validation as described by the entry-validity contract.
     pub fn is_compatible_with(self, active: Self, cpu: &CpuState) -> bool {
-        self == active && cpu.is_compatible_with(self.profile)
+        self == active && cpu.is_compatible_with(self.assumptions())
     }
 }
 
 impl CpuState {
-    /// Admission to the existing fixed-profile execution model. Control bits
+    /// Checks the entry guarantees and the supported control state. Control bits
     /// outside the initialized baseline can be stored but cannot execute yet.
     /// This check does not reload segments or authorize mode transitions.
-    pub fn is_compatible_with(&self, profile: impl Into<ExecutionProfile>) -> bool {
-        let profile = profile.into();
-        let mode = match profile {
-            ExecutionProfile::Real16 => CpuMode::Real,
-            ExecutionProfile::Protected(_) => CpuMode::Protected,
+    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>) -> bool {
+        let entry = entry.into();
+        let mode = match entry.mode {
+            ExecutionMode::Real => CpuMode::Real,
+            ExecutionMode::ProtectedUser => CpuMode::Protected,
         };
         self.mode() == mode
             && self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK == 0
@@ -112,7 +117,7 @@ impl CpuState {
             && self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
             // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
             && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
-            && self.segments.is_compatible_with(profile)
+            && self.segments.is_compatible_with(entry)
     }
 }
 

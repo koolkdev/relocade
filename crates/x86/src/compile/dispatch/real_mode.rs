@@ -4,7 +4,7 @@ use super::{Dispatch, EntryTable};
 use crate::{
     abi,
     state::{Cpu, State},
-    CallProfile, ExecutionProfile, Segment,
+    CallProfile, EntryAssumptions, Segment,
 };
 use relocade_compiler::{BuildError, Program, TypedFunc, I32};
 use std::sync::Arc;
@@ -18,8 +18,7 @@ pub(super) fn lookup(
         let eip = cpu.read_eip(&mut body)?;
         let mut state = State::for_entry(
             &cpu,
-            ExecutionProfile::Real16,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
         );
         body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
         let cs = state
@@ -44,8 +43,7 @@ pub(super) fn define_call_resolver(
         })?;
         let mut state = State::for_entry(
             &cpu,
-            ExecutionProfile::Real16,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::from_assumptions(EntryAssumptions::REAL_MODE),
         );
         let cs = state
             .segments()

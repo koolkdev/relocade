@@ -36,7 +36,7 @@ use crate::memory::{Access, Accesses, Intent};
 use crate::runtime::Runtime;
 use crate::segment::SegmentSelection;
 use crate::state::{exit, State};
-use crate::{exception::ExceptionValues, CpuState, ExecutionProfile};
+use crate::{exception::ExceptionValues, CpuState};
 use transfer::Transfer;
 
 /// Builds one execution path. State definitions and progress describe completed
@@ -70,13 +70,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         start: impl Into<Val<I32>>,
     ) -> Result<Self, BuildError> {
         let eip = body.value(start)?;
-        let target = module.target;
         let state = module.state();
         Ok(Self {
             body,
             state,
             accesses: module.memory.accesses(),
-            cpu_features: target.cpu_model.bits().into(),
+            cpu_features: module.cpu_model.bits().into(),
             segment_override: SegmentOverride::None,
             address_mask: u32::MAX.into(),
             locked: false,
@@ -196,8 +195,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.locked
     }
 
-    pub(crate) fn profile(&self) -> ExecutionProfile {
-        self.state.profile()
+    pub(crate) fn code_default_is_32_bit(&mut self) -> Result<Val<I1>, BuildError> {
+        self.state.code_default_is_32_bit(&mut self.body)
     }
 
     /// Retired instructions, including this entry's unpublished progress.
@@ -214,8 +213,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.read_iopl(&mut self.body)
     }
 
-    pub(crate) fn write_iopl(&mut self, value: Val<I8>) -> Result<(), BuildError> {
-        self.state.write_iopl(&mut self.body, value)
+    pub(crate) fn write_iopl_if(
+        &mut self,
+        condition: &Val<I1>,
+        value: Val<I8>,
+    ) -> Result<(), BuildError> {
+        self.state.write_iopl_if(&mut self.body, condition, value)
     }
 
     pub(super) fn read_flag(&mut self, flag: Flag) -> Result<Val<I1>, BuildError> {
@@ -258,15 +261,11 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         condition: impl Into<Val<I1>>,
         exception: impl Into<ExceptionValues>,
     ) -> Result<(), BuildError> {
+        let real_mode = self.real_mode()?;
         self.body.if_(condition, |mut body| {
             self.state.publish(&mut body, &self.eip, self.completed)?;
-            interrupt::raise_exception(body, exception.into(), self.interrupt)
+            interrupt::raise_exception(body, exception.into(), real_mode, self.interrupt)
         })
-    }
-
-    /// Stops unsupported execution at the current instruction's restart boundary.
-    pub(crate) fn unsupported(&mut self, opcode: impl Into<Val<I8>>) -> Result<(), BuildError> {
-        self.unsupported_if(true, opcode)
     }
 
     /// Stops an unsupported execution path without retiring the instruction.

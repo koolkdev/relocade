@@ -6,7 +6,7 @@ pub use table::EntryTable;
 
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
 
-use crate::{state::Cpu, CompiledModule, ExecutionProfile};
+use crate::{state::Cpu, CompiledModule, EntryAssumptions};
 
 use super::Compiler;
 use std::sync::Arc;
@@ -43,7 +43,7 @@ impl Compiler {
     /// # Panics
     /// Panics for a target other than Real16. Protected-mode dispatch is not yet supported.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
-        assert_eq!(self.target.profile, ExecutionProfile::Real16);
+        assert_eq!(self.target.assumptions(), EntryAssumptions::REAL_MODE);
         let mut program = Program::new();
         let cpu = Arc::new(Cpu::declare(&mut program));
         let dispatch = Dispatch::declare(&mut program);

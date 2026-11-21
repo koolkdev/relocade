@@ -4,7 +4,7 @@ use super::{decode::DecodedBlock, BlockCompileError, BlockEntry, CompiledBlocks,
 use crate::compile::CodeAddress;
 use crate::{
     execution::ExecutionModule, instruction::CallTarget, profile::EntryGuarantees, BlockError,
-    ExecutionProfile, InstructionFlow,
+    ExecutionMode, InstructionFlow,
 };
 use relocade_compiler::{CompileExecutor, Func, Program};
 use std::collections::BTreeMap;
@@ -70,7 +70,7 @@ impl<'a> BlockModule<'a> {
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
         Self::with_entry_guarantees(
             compiler,
-            EntryGuarantees::for_profile(compiler.target.profile),
+            EntryGuarantees::from_assumptions(compiler.target.assumptions()),
         )
     }
 
@@ -104,7 +104,7 @@ impl<'a> BlockModule<'a> {
             }
         }
         let mut call_sites = BTreeMap::new();
-        if self.compiler.target.profile == ExecutionProfile::Real16 {
+        if self.compiler.target.assumptions().mode == ExecutionMode::Real {
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff => {

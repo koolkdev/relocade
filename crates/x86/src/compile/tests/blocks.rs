@@ -92,7 +92,10 @@ fn compile_without_code_default(
     compiler: &Compiler,
     snapshot: BlockSnapshot<'_>,
 ) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::for_profile(compiler.target().profile).without_code_default();
+    let guarantees = EntryGuarantees::from_assumptions(crate::EntryAssumptions {
+        code_default_size: None,
+        ..compiler.target().assumptions()
+    });
     BlockModule::with_entry_guarantees(compiler, guarantees)
         .build(&[snapshot])
         .unwrap()
@@ -131,20 +134,29 @@ fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
 
 #[test]
 fn the_target_code_width_folds_the_destination_guard() {
-    let size = SegmentDefaultSize::Bits16;
-    let compiler = Compiler::new(ExecutionProfile::Real16);
-    let bytes = [0xb8, 0x34, 0x12];
-    let snapshot = BlockSnapshot {
-        address: CodeAddress::CsRelative(0x1000),
-        code_default_size: size,
-        bytes: &bytes,
-        instruction_limit: 1,
-    };
-    let batch = compiler.compile_blocks(&[snapshot]).unwrap();
-    let fixed = compiler.compile_block(0x1000, &bytes, 1).unwrap();
-    assert_eq!(batch.bytes, fixed.bytes);
-    check_width_guard(&batch, false);
-    check_width_guard(&compile_without_code_default(&compiler, snapshot), true);
+    use SegmentDefaultSize::{Bits16, Bits32};
+    let bytes = [0xb8, 0x34, 0x12, 0x78, 0x56]; // MOV AX/EAX, immediate
+    for (profile, size, needs_guard_without_width) in [
+        // The canonical real-mode segment cache itself establishes CS.D=0.
+        (ExecutionProfile::Real16, Bits16, false),
+        (SegmentProfile::Flat32.into(), Bits32, true),
+    ] {
+        let compiler = Compiler::new(profile);
+        let snapshot = BlockSnapshot {
+            address: CodeAddress::CsRelative(0x1000),
+            code_default_size: size,
+            bytes: &bytes,
+            instruction_limit: 1,
+        };
+        let batch = compiler.compile_blocks(&[snapshot]).unwrap();
+        let fixed = compiler.compile_block(0x1000, &bytes, 1).unwrap();
+        assert_eq!(batch.bytes, fixed.bytes);
+        check_width_guard(&batch, false);
+        check_width_guard(
+            &compile_without_code_default(&compiler, snapshot),
+            needs_guard_without_width,
+        );
+    }
 }
 
 #[test]
@@ -438,7 +450,9 @@ fn function_count(bytes: &[u8]) -> u32 {
 
 fn shared_memory_helpers() {
     for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let code_default_size = SegmentDefaultSize::for_profile(profile);
+        let code_default_size = crate::EntryAssumptions::from(profile)
+            .code_default_size
+            .unwrap();
         let compiler = Compiler::new(profile);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
         let code: &[u8] = if profile == ExecutionProfile::Real16 {
