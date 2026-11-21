@@ -1,5 +1,6 @@
 //! Admission shared by block boundaries and instruction execution.
 
+use super::{ExecutionEffect, Instruction};
 use crate::{
     execution::ExecutionBuilder, processor, profile::InterruptFlagPolicy, CpuFeature, Exception,
     ExecutionProfile, ExecutionTarget, PrivilegeLevel,
@@ -25,8 +26,32 @@ pub(super) struct Requirements {
     pub(super) features: &'static [CpuFeature],
 }
 
+impl<V> Instruction<V> {
+    /// Architectural faults take precedence over exits for missing backend support.
+    pub(super) fn admit_handler(
+        &self,
+        execution: &mut ExecutionBuilder<'_, '_>,
+    ) -> Result<bool, BuildError> {
+        self.requirements.check(execution)?;
+        for &effect in self.effects {
+            match effect {
+                ExecutionEffect::DescriptorLoad(opcode) => {
+                    execution.guard_descriptor_load(opcode)?
+                }
+                ExecutionEffect::DescriptorQuery(opcode)
+                    if !execution.admit_descriptor_query(opcode)? =>
+                {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+        Ok(true)
+    }
+}
+
 impl Requirements {
-    pub(super) fn check(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
+    fn check(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
         // Missing CPU features raise #UD before state-based privilege checks.
         let supported = execution.supports_cpu_features(self.features);
         execution.fault_if(supported.eq(false), Exception::InvalidOpcode)?;

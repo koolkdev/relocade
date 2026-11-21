@@ -40,6 +40,25 @@ impl ResolvedSegment {
 }
 
 impl ExecutionBuilder<'_, '_> {
+    /// A real-mode load can construct its cache directly from the selector.
+    pub(crate) fn guard_descriptor_load(&mut self, opcode: u8) -> Result<(), BuildError> {
+        if !self.runtime.supports_protected_descriptors() {
+            let protected = self.protected_mode()?;
+            self.unsupported_if(protected, u32::from(opcode))?;
+        }
+        Ok(())
+    }
+
+    /// Queries are protected-only. Instruction admission has already emitted
+    /// the real-mode #UD before reaching this backend check.
+    pub(crate) fn admit_descriptor_query(&mut self, opcode: u8) -> Result<bool, BuildError> {
+        let supported = self.runtime.supports_protected_descriptors();
+        if !supported {
+            self.unsupported_if(true, u32::from(opcode))?;
+        }
+        Ok(supported)
+    }
+
     pub(crate) fn query_segment_descriptor(
         &mut self,
         selector: &Val<I16>,

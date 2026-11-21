@@ -11,9 +11,7 @@ pub(crate) struct Runtime {
     resolve_call: TypedFunc<crate::abi::ResolveCallSignature>,
     functions: Table,
     interpret: Func,
-    resolve_segment: Func,
-    query_segment_descriptor: TypedFunc<crate::abi::QuerySegmentDescriptorSignature>,
-    complete_segment_load: Func,
+    descriptors: Option<segments::HostedDescriptors>,
     ports: ports::Ports,
 }
 
@@ -21,17 +19,13 @@ impl Runtime {
     pub(crate) fn declare(program: &mut Program) -> Self {
         let dispatch = program.import_function(crate::abi::DISPATCH);
         let interpret = program.import_function(crate::abi::INTERPRET);
-        let resolve_segment = program.import_function(crate::abi::RESOLVE_SEGMENT);
-        let query_segment_descriptor = crate::abi::QUERY_SEGMENT_DESCRIPTOR.import(program);
         Self {
             ports: ports::Ports::declare(program),
             dispatch,
             resolve_call: crate::abi::RESOLVE_CALL.import(program),
             functions: program.import_table(crate::abi::EXECUTION_FUNCTIONS),
             interpret,
-            resolve_segment,
-            query_segment_descriptor,
-            complete_segment_load: program.import_function(crate::abi::COMPLETE_SEGMENT_LOAD),
+            descriptors: None,
         }
     }
 

@@ -89,6 +89,7 @@ pub(super) struct Instruction<V> {
     call: HandlerCall<Location<V>, Operand<V>>,
     condition: Option<Condition>,
     ends_block: bool,
+    effects: &'static [ExecutionEffect],
     requirements: Requirements,
     pub(super) address_mask: V,
     pub(super) segment_override: SegmentOverride,
