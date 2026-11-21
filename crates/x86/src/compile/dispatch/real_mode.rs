@@ -4,7 +4,7 @@ use super::{Dispatch, EntryTable};
 use crate::{
     abi,
     state::{Cpu, State},
-    CallProfile, ExecutionProfile, Segment,
+    CallProfile, Segment,
 };
 use relocade_compiler::{BuildError, Program, TypedFunc, I32};
 use std::sync::Arc;
@@ -16,11 +16,12 @@ pub(super) fn lookup(
 ) -> TypedFunc<fn() -> u32> {
     program.function::<fn() -> u32>(move |mut body, ()| {
         let eip = cpu.read_eip(&mut body)?;
-        let mut state = State::for_entry(
-            &cpu,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
-        );
-        body.if_(eip.unsigned().ge(0x10000), |body| body.return_(0u32))?;
+        let mut state = State::new(&cpu);
+        let protected = state.protection_enabled(&mut body)?;
+        // Only an eligible table miss (slot zero) can become a Real16 profiling sample.
+        body.if_(protected.or(eip.unsigned().ge(0x10000)), |body| {
+            body.return_(EntryTable::INTERPRETER_SLOT)
+        })?;
         let cs = state
             .segments()
             .read_selector(&mut body, &Segment::Cs.into())?;
@@ -38,13 +39,7 @@ pub(super) fn define_call_resolver(
         let slot = lookup.call(&mut body, ())?;
         body.if_(slot.ne(0), |body| body.return_((slot, true)))?;
         let eip = cpu.read_eip(&mut body)?;
-        body.if_(eip.unsigned().ge(0x10000), |body| {
-            body.return_((EntryTable::INTERPRETER_SLOT, true))
-        })?;
-        let mut state = State::for_entry(
-            &cpu,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
-        );
+        let mut state = State::new(&cpu);
         let cs = state
             .segments()
             .read_selector(&mut body, &Segment::Cs.into())?;
