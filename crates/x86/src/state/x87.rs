@@ -7,7 +7,6 @@ mod patterns;
 mod registers;
 mod status;
 
-pub(crate) use environment::EnvironmentMode;
 pub(crate) use patterns::X87Specialization;
 pub(crate) use status::ConditionCode;
 

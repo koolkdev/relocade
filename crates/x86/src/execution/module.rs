@@ -7,7 +7,7 @@ use crate::{
     profile::EntryGuarantees,
     runtime::Runtime,
     state::{Cpu, State},
-    CpuModel, ExecutionMode, ExecutionTarget, MemoryBackend,
+    CpuModel, ExecutionTarget, MemoryBackend,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
@@ -58,17 +58,14 @@ impl ExecutionModule {
             entry_guarantees,
             interrupt: None,
         };
-        if module.entry_guarantees.entry.mode == ExecutionMode::Real {
-            // Entry does not execute instructions. Its failures return directly,
-            // so its builder has no delivery target of its own.
-            let entry = module.clone();
-            module.interrupt = Some(program.function::<abi::InterruptSignature>(
-                move |mut body, (vector,)| {
-                    let eip = entry.cpu.read_eip(&mut body)?;
-                    entry.builder(body, eip)?.deliver_interrupt(vector)
-                },
-            ));
-        }
+        // Entry failures return directly, without another attempt at delivery.
+        let entry = module.clone();
+        module.interrupt = Some(program.function::<abi::InterruptSignature>(
+            move |mut body, (vector,)| {
+                let eip = entry.cpu.read_eip(&mut body)?;
+                entry.builder(body, eip)?.deliver_interrupt(vector)
+            },
+        ));
         module
     }
 

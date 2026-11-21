@@ -16,7 +16,7 @@ impl Environment {
             control: control_status.truncate::<I16>(),
             status: control_status.unsigned().shr(16).truncate::<I16>(),
             tags,
-            opcode: Some(tags_opcode.unsigned().shr(16).and(0x7ff).truncate::<I16>()),
+            opcode: tags_opcode.unsigned().shr(16).and(0x7ff).truncate::<I16>(),
             instruction: Pointer {
                 offset: instruction_offset.and(pointer_mask),
                 selector: instruction_selector.truncate::<I16>(),
@@ -34,17 +34,13 @@ impl Environment {
             let present = self.tags.unsigned().shr(index * 2).and(3).ne(3);
             occupied = occupied.or(present.unsigned().extend::<I32>().shl(index));
         }
-        let opcode = self
-            .opcode
-            .as_ref()
-            .expect("a saved environment has an opcode");
         [
             self.control.unsigned().extend::<I32>().or(self
                 .status
                 .unsigned()
                 .extend::<I32>()
                 .shl(16)),
-            occupied.or(opcode.and(0x7ff).unsigned().extend::<I32>().shl(16)),
+            occupied.or(self.opcode.and(0x7ff).unsigned().extend::<I32>().shl(16)),
             self.instruction.offset.and(pointer_mask),
             self.instruction.selector.unsigned().extend::<I32>(),
             self.data.offset.and(pointer_mask),

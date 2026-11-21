@@ -46,7 +46,6 @@ pub(crate) fn control_assumptions(mode: ExecutionMode) -> Vec<StatePattern> {
 /// Builders may fold reads from these facts before emitting any guard.
 #[derive(Clone)]
 pub(crate) struct EntryGuarantees {
-    pub(crate) entry: EntryAssumptions,
     fields: Arc<[StatePattern]>,
 }
 
@@ -57,7 +56,6 @@ impl EntryGuarantees {
             fields.extend(crate::segment::profile::assumptions(entry, segment));
         }
         Self {
-            entry,
             fields: fields.into(),
         }
     }

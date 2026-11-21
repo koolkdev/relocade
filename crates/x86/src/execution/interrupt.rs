@@ -5,7 +5,7 @@ use crate::{
     flags::{image, Flag},
     memory::{Access, Intent},
     real_mode::{FarPointer, InterruptFrame},
-    ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, ExecutionMode, Segment,
+    ExceptionCase, ExceptionValues, ExceptionVector, ExecutionExitValues, Segment,
 };
 use relocade_compiler::{BlockBuilder, BuildError, TypedFunc, Val, I1, I16, I32, I8};
 
@@ -88,11 +88,15 @@ impl InterruptEntry {
 pub(super) fn raise_exception(
     mut body: BlockBuilder<'_>,
     exception: ExceptionValues,
+    real_mode: Val<I1>,
     interrupt: Option<TypedFunc<crate::abi::InterruptSignature>>,
 ) -> Result<(), BuildError> {
     let Some(interrupt) = interrupt else {
         return crate::state::exit::exception(body, exception);
     };
+    body.if_(real_mode.eq(false), |body| {
+        crate::state::exit::exception(body, exception.clone())
+    })?;
     exception.clone().match_(&mut body, |body, case| {
         let vector = match case {
             ExceptionCase::DivideError => ExceptionVector::DivideError,
@@ -134,20 +138,18 @@ impl ExecutionBuilder<'_, '_> {
         self.body.return_(ExecutionExitValues::interrupt_entered())
     }
 
-    /// Completes the current real-mode instruction and requests its protected successor.
+    /// Completes the real-mode instruction and inhibits interrupts for its successor.
     /// Call only after all of the instruction's effects and fault checks.
     pub(crate) fn interrupt_inhibited_if(
         &mut self,
         condition: impl Into<Val<I1>>,
         next_ip: &Val<I32>,
     ) -> Result<(), BuildError> {
-        if self.entry_mode() == ExecutionMode::Real {
-            self.body.if_(condition, |mut body| {
-                self.state.publish(&mut body, next_ip, self.completed + 1)?;
-                body.return_(crate::ExecutionExitValues::interrupt_inhibited())
-            })?;
-        }
-        Ok(())
+        let real = self.real_mode()?;
+        self.body.if_(real.and(condition), |mut body| {
+            self.state.publish(&mut body, next_ip, self.completed + 1)?;
+            body.return_(ExecutionExitValues::interrupt_inhibited())
+        })
     }
 
     /// A flag restore opened an IRQ window without an inhibited successor.
@@ -157,13 +159,11 @@ impl ExecutionBuilder<'_, '_> {
         condition: Val<I1>,
         next_ip: &Val<I32>,
     ) -> Result<(), BuildError> {
-        if self.entry_mode() == ExecutionMode::Real {
-            self.body.if_(condition, |mut body| {
-                self.state.publish(&mut body, next_ip, self.completed + 1)?;
-                self.state.checkpoint(&mut body)?;
-                body.return_(ExecutionExitValues::interrupts_enabled())
-            })?;
-        }
-        Ok(())
+        let real = self.real_mode()?;
+        self.body.if_(real.and(condition), |mut body| {
+            self.state.publish(&mut body, next_ip, self.completed + 1)?;
+            self.state.checkpoint(&mut body)?;
+            body.return_(ExecutionExitValues::interrupts_enabled())
+        })
     }
 }

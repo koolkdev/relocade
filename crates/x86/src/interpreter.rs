@@ -75,6 +75,7 @@ pub fn build_interpreter_with_memory(
     entry: impl Into<EntryAssumptions>,
     memory_backend: MemoryBackend,
 ) -> Result<Program, BuildError> {
+    let entry = entry.into();
     let mut program = Program::new();
     // Both budget policies share the interpreter. Disabled targets keep the
     // live allowance zero; snapshot compilation alone omits the checks.
@@ -83,9 +84,11 @@ pub fn build_interpreter_with_memory(
         memory_backend,
         CpuModel::default(),
         true,
-        EntryGuarantees::from_assumptions(entry.into()),
+        EntryGuarantees::from_assumptions(entry),
     );
-    execution.export_entries(&mut program)?;
+    if entry.mode == ExecutionMode::Real {
+        execution.export_real_mode_entries(&mut program)?;
+    }
     let before_cpu = execution.cpu.clone();
     let decoder = RuntimeDecoder::new(
         &mut program,

@@ -1,6 +1,6 @@
 //! Architectural environment images, distinct from the host snapshot layout.
 
-use relocade_compiler::{AtLeast, BuildError, MemoryInt, Val, I16, I32};
+use relocade_compiler::{AtLeast, BuildError, MemoryInt, Val, I1, I16, I32};
 
 mod fx;
 mod legacy;
@@ -18,16 +18,9 @@ struct Environment {
     control: Val<I16>,
     status: Val<I16>,
     tags: Val<I16>,
-    /// The protected 14-byte image has no opcode field.
-    opcode: Option<Val<I16>>,
+    opcode: Val<I16>,
     instruction: Pointer,
     data: Pointer,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EnvironmentMode {
-    Protected,
-    Real,
 }
 
 impl X87Access<'_, '_> {
@@ -35,13 +28,13 @@ impl X87Access<'_, '_> {
     /// Reserved halfwords are stored as ones and ignored when loading.
     pub(crate) fn environment<T: MemoryInt>(
         &mut self,
-        mode: EnvironmentMode,
+        protected: &Val<I1>,
     ) -> Result<[Val<T>; 7], BuildError>
     where
         I32: AtLeast<T>,
     {
         let tags = self.state.registers.saved_tag_word(self.body)?;
-        Ok(self.capture_environment(tags)?.encode(mode))
+        Ok(self.capture_environment(tags)?.encode(protected))
     }
 
     /// FXSAVE retains only occupancy, so its tags need no payload classification.
@@ -58,11 +51,10 @@ impl X87Access<'_, '_> {
             control: self.control_word()?,
             status: self.status_word()?,
             tags,
-            opcode: Some(
-                self.state
-                    .metadata
-                    .read(self.body, cpu_location!(x87.opcode))?,
-            ),
+            opcode: self
+                .state
+                .metadata
+                .read(self.body, cpu_location!(x87.opcode))?,
             instruction: Pointer {
                 offset: self
                     .state
@@ -90,14 +82,21 @@ impl X87Access<'_, '_> {
     /// Tags retain emptiness from the image and classify occupied payloads.
     pub(crate) fn restore<T: MemoryInt>(
         &mut self,
-        mode: EnvironmentMode,
+        protected: &Val<I1>,
         words: &[Val<T>; 7],
         registers: Option<&[ExtendedBits; 8]>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
     {
-        self.restore_environment(Environment::decode(words, mode), registers)
+        let previous_opcode = self
+            .state
+            .metadata
+            .read(self.body, cpu_location!(x87.opcode))?;
+        self.restore_environment(
+            Environment::decode(words, protected, previous_opcode),
+            registers,
+        )
     }
 
     pub(crate) fn restore_fx(
@@ -132,11 +131,9 @@ impl X87Access<'_, '_> {
             &environment.tags,
             registers,
         )?;
-        if let Some(opcode) = environment.opcode {
-            self.state
-                .metadata
-                .define(self.body, cpu_location!(x87.opcode), opcode)?;
-        }
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.opcode), environment.opcode)?;
         self.state.metadata.define(
             self.body,
             cpu_location!(x87.instruction_offset),

@@ -9,7 +9,7 @@
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
 use super::{Flag, FlagChange, StatusFlag};
-use crate::{execution::ExecutionBuilder, ExecutionMode};
+use crate::execution::ExecutionBuilder;
 
 /// A flag roster and fixed bits shared by image reads and masked writes.
 pub(crate) struct FlagImage<const N: usize> {
@@ -68,17 +68,16 @@ where
         Type::I32 => DWORD.pack(execution.read_flags(DWORD.flags())?),
         _ => unreachable!("stack flag images use word or dword operands"),
     };
-    let image = match execution.entry_mode() {
-        ExecutionMode::ProtectedUser => image.or(0x0200),
-        ExecutionMode::Real => image
-            .or(execution
-                .read_flag(Flag::IF)?
-                .unsigned()
-                .extend::<I32>()
-                .shl(bit(Flag::IF)))
-            .or(execution.read_iopl()?.unsigned().extend::<I32>().shl(12)),
-    };
-    Ok(image.truncate::<T>())
+    let real = execution.real_mode()?;
+    let interrupt = execution
+        .read_flag(Flag::IF)?
+        .unsigned()
+        .extend::<I32>()
+        .shl(bit(Flag::IF));
+    let iopl = execution.read_iopl()?.unsigned().extend::<I32>().shl(12);
+    Ok(image
+        .or(real.select(interrupt.or(iopl), 0x0200))
+        .truncate::<T>())
 }
 
 /// Restores writable flags; word images leave AC/ID unchanged. RF remains
@@ -98,16 +97,12 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     execution.write_flags(change)?;
-    match execution.entry_mode() {
-        ExecutionMode::ProtectedUser => Ok(false.into()),
-        ExecutionMode::Real => {
-            let before = execution.read_flag(Flag::IF)?;
-            let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
-            execution.write_flag(Flag::IF, &enabled)?;
-            execution.write_iopl(image.unsigned().shr(12).truncate::<I8>())?;
-            Ok(before.eq(false).and(enabled))
-        }
-    }
+    let real = execution.real_mode()?;
+    let before = execution.read_flag(Flag::IF)?;
+    let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
+    execution.write_flags(FlagChange::partial([(Flag::IF, enabled.clone())]).when(&real))?;
+    execution.write_iopl_if(&real, image.unsigned().shr(12).truncate::<I8>())?;
+    Ok(real.and(before.eq(false)).and(enabled))
 }
 
 impl<const N: usize> FlagImage<N> {

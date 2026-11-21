@@ -6,7 +6,7 @@ use crate::{
     exception::Exception,
     execution::{segments::ResolvedSegment, transfer::Transfer, ExecutionBuilder},
     register::RegisterType,
-    ExecutionMode, Segment,
+    Segment,
 };
 
 /// A resolved CS and offset. Callers must validate its limit before commitment,
@@ -70,10 +70,7 @@ impl ExecutionBuilder<'_, '_> {
         let stack_bytes = stack_bytes.into();
         let target = CodeTarget::resolve(self, offset, &selector)?;
         // Real-mode CALL transfers a word selector even in a dword-sized slot.
-        let checked_bytes = match self.entry_mode() {
-            ExecutionMode::Real => T::BYTES + 2,
-            ExecutionMode::ProtectedUser => 2 * T::BYTES,
-        };
+        let checked_bytes = self.protected_mode()?.select(2 * T::BYTES, T::BYTES + 2);
         let frame = self.push_frame(
             stack_bytes.add(2 * T::BYTES),
             stack_bytes.add(checked_bytes),
@@ -86,11 +83,13 @@ impl ExecutionBuilder<'_, '_> {
         selector.write(self, &old_cs)?;
         offset.write(self, &return_ip.truncate::<T>())?;
         frame.commit(self, 0)?;
-        let offset = target.commit(self)?;
         // A real-mode CS load preserves the canonical cache required by the callee.
-        if self.entry_mode() == ExecutionMode::Real {
-            self.transfer = Transfer::Call(self.call_link()?);
-        }
+        let can_enter_callee = self.real_mode()?;
+        let offset = target.commit(self)?;
+        self.transfer = Transfer::Call {
+            link: self.call_link()?,
+            can_enter_callee,
+        };
         Ok(offset)
     }
 }
