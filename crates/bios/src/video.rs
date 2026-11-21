@@ -38,7 +38,7 @@ pub use modes::{mode, set_mode, ModeInfo};
 pub(super) use modes::{text_memory_start, COLOR_TEXT_80X25, GRAPHICS_640X480_2};
 pub use scroll::{scroll, scroll_down, scroll_up};
 
-pub use crate::screen::{ScrollDirection, Window};
+pub use crate::screen::{text_window, ScrollDirection, Window};
 use relocade_machine::{IoBus, MemoryView};
 use relocade_vga::registers::{
     COLOR_INPUT_STATUS_1_PORT, CRTC_INDEX_PORT, MISC_OUTPUT_READ_PORT, MONO_CRTC_INDEX_PORT,

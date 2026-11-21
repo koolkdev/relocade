@@ -27,6 +27,24 @@ pub(super) fn active_page(memory: &MemoryView<'_>) -> u8 {
     memory.read_u8(ACTIVE_PAGE).expect("active video page")
 }
 
+/// Returns the active text page's inclusive, cursor-addressable bounds.
+/// Graphics modes, unavailable pages and empty grids return None.
+pub fn text_window(memory: &MemoryView<'_>) -> Option<Window> {
+    if !is_text_mode(memory) {
+        return None;
+    }
+    let geometry = Geometry::read(memory);
+    if !geometry.valid_page(active_page(memory)) || geometry.columns == 0 || geometry.rows == 0 {
+        return None;
+    }
+    Some(Window {
+        top: 0,
+        left: 0,
+        bottom: (geometry.rows - 1).min(255) as u8,
+        right: (geometry.columns - 1).min(255) as u8,
+    })
+}
+
 pub(super) fn valid_page(memory: &MemoryView<'_>, page: u8) -> bool {
     if is_text_mode(memory) {
         Geometry::read(memory).valid_page(page)
