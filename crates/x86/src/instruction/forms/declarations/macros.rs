@@ -47,7 +47,7 @@ macro_rules! declaration_family {
                     handlers: declaration_handlers!(
                         $effects [$($pattern)?] $call $width $operands $(| $other_width $other_operands)?
                     ),
-                    effects: declaration_effects!($effects),
+                    effects: declaration_effects!($effects $opcode),
                     control_flow: declaration_opcode!(@flow $flow),
                     requirements: crate::instruction::Requirements {
                         availability: declaration_opcode!(@availability $availability),
@@ -68,7 +68,7 @@ macro_rules! declaration_operands {
 }
 
 macro_rules! declaration_effects {
-    ([$($effect:ident),*]) => { &[$(declaration_effect!($effect)),*] };
+    ([$($effect:ident),*] $opcode:literal) => { &[$(declaration_effect!($effect $opcode)),*] };
 }
 
 macro_rules! declaration_opcode {
@@ -153,22 +153,22 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
-    (descriptor_load) => {
-        ExecutionEffect::DescriptorLoad
+    (descriptor_load $opcode:literal) => {
+        ExecutionEffect::DescriptorLoad($opcode)
     };
-    (descriptor_query) => {
-        ExecutionEffect::DescriptorQuery
+    (descriptor_query $opcode:literal) => {
+        ExecutionEffect::DescriptorQuery($opcode)
     };
-    (serializing) => {
+    (serializing $opcode:literal) => {
         ExecutionEffect::Serializing
     };
-    (port_io) => {
+    (port_io $opcode:literal) => {
         ExecutionEffect::PortIo
     };
-    (control_transfer) => {
+    (control_transfer $opcode:literal) => {
         ExecutionEffect::ControlTransfer
     };
-    (unconditional_fault) => {
+    (unconditional_fault $opcode:literal) => {
         ExecutionEffect::UnconditionalFault
     };
 }

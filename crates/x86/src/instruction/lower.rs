@@ -8,7 +8,9 @@ pub(crate) fn lower(
     instruction: Instruction<impl Into<Val<I32>>>,
     fallthrough_eip: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
-    instruction.requirements.check(execution)?;
+    if !instruction.admit_handler(execution)? {
+        return Ok(fallthrough_eip);
+    }
     match instruction.call {
         HandlerCall::Nullary { handler } => {
             handler(execution, instruction.condition, fallthrough_eip)

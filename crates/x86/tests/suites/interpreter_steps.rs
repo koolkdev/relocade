@@ -95,23 +95,24 @@ fn interpreter_step_exposes_host_abis() {
             ("machine".into(), 64, None, false)
         ]
     );
+    imports.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     assert_eq!(
         imports
             .iter()
             .map(|(name, signature)| (name.as_str(), types[*signature as usize].clone()))
             .collect::<Vec<_>>(),
         [
+            ("completeSegmentLoad", (vec![ValType::I32], vec![])),
             ("dispatch", (vec![], vec![ValType::I32; 4])),
-            (
-                "resolveSegment",
-                (vec![ValType::I32; 2], vec![ValType::I32; 12])
-            ),
             (
                 "querySegmentDescriptor",
                 (vec![ValType::I32], vec![ValType::I32; 6])
             ),
             ("resolveCall", (vec![], vec![ValType::I32; 2])),
-            ("completeSegmentLoad", (vec![ValType::I32], vec![])),
+            (
+                "resolveSegment",
+                (vec![ValType::I32; 2], vec![ValType::I32; 12])
+            ),
         ]
     );
     assert_eq!(
@@ -127,6 +128,25 @@ fn interpreter_step_exposes_host_abis() {
             types[functions[entry] as usize],
             (vec![], vec![ValType::I32; 4])
         );
+    }
+}
+
+#[test]
+fn real_mode_interpreter_omits_hosted_descriptor_imports() {
+    let module = relocade_interpreter::module(relocade_x86::ExecutionProfile::Real16);
+    for payload in Parser::new(0).parse_all(module) {
+        if let Payload::ImportSection(section) = payload.unwrap() {
+            for import in section {
+                let name = import.unwrap().name;
+                assert!(
+                    !matches!(
+                        name,
+                        "resolveSegment" | "querySegmentDescriptor" | "completeSegmentLoad"
+                    ),
+                    "unexpected hosted descriptor import {name}"
+                );
+            }
+        }
     }
 }
 

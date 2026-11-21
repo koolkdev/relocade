@@ -76,6 +76,7 @@ impl ResolvedForm {
                 address_mask: address_mask.clone(),
                 condition: self.form.condition,
                 ends_block: self.form.ends_block(),
+                effects: self.form.effects,
                 requirements: self.form.requirements,
                 segment_override: segment_override.clone(),
                 locked: self.locked,

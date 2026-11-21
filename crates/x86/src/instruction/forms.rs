@@ -26,12 +26,13 @@ pub(crate) enum OpcodeMap {
     Extended,
 }
 
-/// Instruction effects used by decoding and control-transfer handler adaptation.
+/// Instruction effects used by decoding and lowering. Descriptor effects carry
+/// the first opcode byte reported by an unsupported-instruction exit.
 #[derive(Clone, Copy)]
 pub(super) enum ExecutionEffect {
     ControlTransfer,
-    DescriptorLoad,
-    DescriptorQuery,
+    DescriptorLoad(u8),
+    DescriptorQuery(u8),
     /// Device callbacks may change instruction routing; resume through dispatch.
     PortIo,
     /// Complete prior work and resume through dispatch before the next fetch.
@@ -156,7 +157,7 @@ impl Form {
             || self
                 .effects
                 .iter()
-                .any(|effect| !matches!(effect, ExecutionEffect::DescriptorQuery))
+                .any(|effect| !matches!(effect, ExecutionEffect::DescriptorQuery(_)))
     }
 
     /// Prefix bytes select a form independently of operand and address widths.
