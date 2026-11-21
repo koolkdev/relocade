@@ -10,7 +10,7 @@ use relocade_x86::{Exception, ExecutionExit, HostExit, Segment, SegmentRegister}
 use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn bios_without_dos() {
     assert_eq!(VideoCard::default(), VideoCard::Dispi);

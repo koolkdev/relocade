@@ -7,7 +7,7 @@ use relocade_x86::{ExecutionExit, HostExit};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 struct ClockStep;
 impl Device for ClockStep {}
