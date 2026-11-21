@@ -20,21 +20,21 @@ use crate::{
 instruction_families! {
     JMP_FAR_IMMEDIATE {
         execute: jump_far_immediate::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         forms {
             0xEA => word_or_dword(imm, imm16);
         }
     }
     JMP_FAR_INDIRECT {
         execute: jump_far_indirect::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         forms {
             0xFF /5 => word_or_dword(mem);
         }
     }
     CALL_FAR_IMMEDIATE {
         execute: call_far_immediate::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         flow: FarCall;
         forms {
             0x9A => word_or_dword(imm, imm16);
@@ -42,7 +42,7 @@ instruction_families! {
     }
     CALL_FAR_INDIRECT {
         execute: call_far_indirect::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         flow: FarCall;
         forms {
             0xFF /3 => word_or_dword(mem);
@@ -50,7 +50,7 @@ instruction_families! {
     }
     RET_FAR {
         execute: return_far::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         forms {
             0xCB => word_or_dword(constant(0));
             0xCA => word_or_dword(imm16);
@@ -58,7 +58,7 @@ instruction_families! {
     }
     IRET {
         execute: return_interrupt::<_>;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer, descriptor_load];
         forms { 0xCF => word_or_dword(); }
     }
 }
