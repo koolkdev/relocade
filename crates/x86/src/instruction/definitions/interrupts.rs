@@ -6,17 +6,17 @@ use crate::{flags::Flag, ExceptionVector, ExecutionProfile};
 instruction_families! {
     INT {
         execute: interrupt(0xcd);
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer];
         forms { 0xCD => byte(imm8); }
     }
     INT3 {
         execute: interrupt(0xcc);
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer];
         forms { 0xCC => byte(constant(ExceptionVector::Breakpoint as u32)); }
     }
     INTO {
         execute: overflow_interrupt;
-        effects: [control_transfer, segment_load];
+        effects: [control_transfer];
         forms { 0xCE => no_operands(); }
     }
 }
