@@ -214,12 +214,12 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.state.write_flags(&mut self.body, change)
     }
 
-    pub(crate) fn read_iopl(&mut self) -> Result<Val<I8>, BuildError> {
-        self.state.read_iopl(&mut self.body)
-    }
-
-    pub(crate) fn write_iopl(&mut self, value: Val<I8>) -> Result<(), BuildError> {
-        self.state.write_iopl(&mut self.body, value)
+    pub(crate) fn write_iopl_if(
+        &mut self,
+        condition: &Val<I1>,
+        value: Val<I8>,
+    ) -> Result<(), BuildError> {
+        self.state.write_iopl_if(&mut self.body, condition, value)
     }
 
     pub(super) fn read_flag(&mut self, flag: Flag) -> Result<Val<I1>, BuildError> {

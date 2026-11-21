@@ -97,6 +97,13 @@ impl<'cpu> State<'cpu> {
             .expect("execution requires an admitted profile")
     }
 
+    pub(crate) fn interrupt_flag_policy(&self) -> crate::profile::InterruptFlagPolicy {
+        self.profile.map_or(
+            crate::profile::InterruptFlagPolicy::Architectural,
+            crate::profile::InterruptFlagPolicy::for_profile,
+        )
+    }
+
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {
         SegmentAccess::new(&mut self.fields)
     }
@@ -177,12 +184,13 @@ impl<'cpu> State<'cpu> {
         self.flags.read_iopl(body)
     }
 
-    pub(crate) fn write_iopl(
+    pub(crate) fn write_iopl_if(
         &mut self,
         body: &mut BlockBuilder<'_>,
+        condition: &Val<I1>,
         value: Val<I8>,
     ) -> Result<(), BuildError> {
-        self.flags.write_iopl(body, value)
+        self.flags.write_iopl_if(body, condition, value)
     }
 
     pub(crate) fn condition(
