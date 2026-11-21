@@ -214,7 +214,7 @@ fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
     let function = program.function::<fn(u8) -> u64>(move |mut body, (value,)| {
         let mut state = State::new(&cpu);
         let before = state.read_iopl(&mut body)?;
-        state.write_iopl(&mut body, value)?;
+        state.write_iopl_if(&mut body, &true.into(), value)?;
         let after = state.read_iopl(&mut body)?;
         state.publish(&mut body, 0x1001, 1)?;
         body.return_(

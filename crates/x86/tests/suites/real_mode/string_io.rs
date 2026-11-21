@@ -330,3 +330,53 @@ fn privilege(frontend: Frontend) {
     }
 }
 test_frontends!(string_port_privilege, privilege);
+
+#[test]
+fn outsb_handoff_depends_on_memory_routing() {
+    use relocade_x86::{Compiler, MemoryBackend};
+
+    let code = [0x6e]; // OUTSB
+    let mut image = image(&code);
+    image.cpu.registers.edx = 0x80;
+    image.cpu.registers.esi = 0x2000;
+    image.cpu.flags.bytes.df = 0;
+    image.map(2, 0x8000, false);
+    image.data(0x8000, &[0x5a]);
+    let compile = |backend| {
+        let block = Compiler::new(ExecutionProfile::Real16)
+            .with_memory_backend(backend)
+            .compile_block(image.cpu.eip, &code, 1)
+            .unwrap();
+        TestModule::new(&block)
+    };
+
+    let physical = compile(MemoryBackend::PhysicalBus);
+    image.check_unchanged_exit(
+        &physical,
+        "physical routing can change in port callbacks",
+        Exit::Interpret,
+    );
+
+    let mut cpu = retired(&image, code.len());
+    cpu.registers.esi += 1;
+    let mut wanted = expected(
+        &image,
+        &[Step {
+            cpu,
+            ram: &[],
+            exit: Exit::Dispatch(cpu.eip),
+        }],
+    );
+    wanted.events.insert(
+        0,
+        Event::PortWrite {
+            port: 0x80,
+            bytes: 1,
+            value: 0x5a,
+        },
+    );
+    assert_eq!(
+        compile(MemoryBackend::HostPageTable).observe(&image.input(), 1),
+        wanted
+    );
+}
