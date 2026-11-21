@@ -57,9 +57,19 @@ impl CpuStateAccess {
 }
 
 impl<const N: usize> SavedRegisters<N> {
-    /// Restores the captured views on their original CPU. Segment caches remain
-    /// valid because the CPU's execution target cannot change.
+    /// Restores the captured views on their original CPU.
+    ///
+    /// # Panics
+    /// Panics before writing any register if a saved segment is incompatible
+    /// with the CPU's current mode.
+    #[track_caller]
     pub fn restore(&self) {
+        for saved in &self.values {
+            if let Some(segment) = saved.register.segment {
+                self.cpu
+                    .check_segment(segment, &SegmentRegister::from_bytes(saved.bytes));
+            }
+        }
         for saved in &self.values {
             self.cpu.write(
                 saved.register.offset as u32,

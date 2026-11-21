@@ -1,7 +1,7 @@
 use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig, Memory};
 use relocade_x86::{
     Compiler, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend, PhysicalMapping,
-    PhysicalMemoryMap, SegmentProfile,
+    PhysicalMemoryMap, SegmentDefaultSize, SegmentProfile,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -12,16 +12,23 @@ fn target() -> ExecutionTarget {
 }
 
 #[test]
-fn cpu_must_match_the_execution_profile() {
-    assert!(matches!(
-        CpuConfig::new(target(), CpuState::default()),
-        Err(ConfigurationError::IncompatibleCpu)
-    ));
-    // Canonical real caches cannot hide protected control state.
+fn physical_pc_admits_canonical_real_mode_and_protected_ring_three() {
+    use SegmentDefaultSize::{Bits16, Bits32};
+    let mut wide_code = CpuState::protected_mode(Bits32, Bits16);
+    wide_code.segments.cs.big = 0x80; // Every nonzero cache byte represents CS.D=1.
+    wide_code.flags.set_eflags(0x3002); // The physical PC can enter with IF clear and IOPL 3.
+    for cpu in [
+        CpuState::real_mode(),
+        CpuState::protected_mode(Bits16, Bits32),
+        wide_code,
+    ] {
+        assert!(CpuConfig::pc(cpu).is_ok());
+    }
+    // Setting PE on the reset real-mode image leaves CS at ring zero.
     let mut cpu = CpuState::real_mode();
     cpu.cr0 |= 1;
     assert!(matches!(
-        CpuConfig::new(target(), cpu),
+        CpuConfig::pc(cpu),
         Err(ConfigurationError::IncompatibleCpu)
     ));
 }

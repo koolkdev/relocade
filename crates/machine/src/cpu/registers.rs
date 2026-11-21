@@ -11,6 +11,7 @@ use std::mem::offset_of;
 pub struct Register {
     pub(super) offset: usize,
     pub(super) bytes: usize,
+    pub(super) segment: Option<Segment>,
 }
 
 macro_rules! register {
@@ -19,6 +20,7 @@ macro_rules! register {
         pub const $get: Register = Register {
             offset: offset_of!(CpuState, registers.$field) + $byte,
             bytes: size_of::<$type>(),
+            segment: None,
         };
 
         impl CpuStateAccess {
@@ -65,6 +67,7 @@ pub const fn segment(segment: Segment) -> Register {
     Register {
         offset: super::segment_offset(segment),
         bytes: size_of::<SegmentRegister>(),
+        segment: Some(segment),
     }
 }
 

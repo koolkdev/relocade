@@ -75,6 +75,7 @@ fn saved_registers_restore_only_the_named_views() {
     cpu.set_ecx(0x5566_7788);
     let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
+    cpu.reads.borrow_mut().clear();
     let saved = cpu.save_registers([reg::ax, reg::bh, reg::ecx, reg::segment(Segment::Ds)]);
     assert_eq!(
         cpu.reads
@@ -99,6 +100,23 @@ fn saved_registers_restore_only_the_named_views() {
     expected.segments.ds = ds;
     saved.restore();
     assert_eq!(cpu.snapshot(), expected);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn incompatible_saved_segment_leaves_all_registers_unchanged() {
+    use super::registers as reg;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let config = CpuConfig::pc(CpuState::default()).unwrap();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    cpu.set_ax(0x1234);
+    let saved = cpu.save_registers([reg::ax, reg::segment(Segment::Ds)]);
+
+    let real = CpuState::real_mode();
+    cpu.restore(&real).unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| saved.restore())).is_err());
+    assert_eq!(cpu.snapshot(), real);
 }
 
 #[test]
@@ -309,7 +327,7 @@ fn segment_edits_preserve_the_execution_profile() {
 }
 
 #[test]
-#[should_panic(expected = "segment Ds violates execution profile Real16")]
+#[should_panic(expected = "segment Ds violates CPU admission")]
 fn incompatible_segment_edits_panic() {
     let config = configuration();
     let storage = cpu_memory(&config);

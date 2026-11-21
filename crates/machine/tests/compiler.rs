@@ -1,3 +1,5 @@
+mod support;
+
 #[path = "support/compilation.rs"]
 mod compilation;
 
@@ -25,6 +27,9 @@ mod linking;
 
 #[path = "compiler/invalidation.rs"]
 mod invalidation;
+
+#[path = "compiler/restore.rs"]
+mod restore;
 
 #[path = "compiler/self_modifying.rs"]
 mod self_modifying;

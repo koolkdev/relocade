@@ -147,11 +147,17 @@ impl CpuState {
     pub fn is_compatible_with(&self, target: impl Into<ExecutionTarget>) -> bool {
         let target = target.into();
         target.matches_control_write(0, &self.to_bytes())
-            // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
-            && self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
-            // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
-            && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
+            && self.has_supported_control_state()
             && self.segments.is_compatible_with(target.profile)
+    }
+
+    /// Checks the implemented CR0 and CR4 bits and requires virtual-8086 mode to be off.
+    pub fn has_supported_control_state(&self) -> bool {
+        // ET and NE are set. EM, TS, paging and other unimplemented controls are clear.
+        self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
+            // OSFXSR and OSXMMEXCPT are set. TSD and other controls are clear.
+            && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
+            && self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK == 0
     }
 }
 
