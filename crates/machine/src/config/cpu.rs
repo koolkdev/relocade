@@ -1,6 +1,7 @@
 use super::ConfigurationError;
 use relocade_x86::{
-    CpuMode, CpuState, DescriptorTableRegister, ExecutionTarget, SystemSegmentRegister,
+    Compiler, CpuMode, CpuState, DescriptorTableRegister, ExecutionProfile, ExecutionTarget,
+    MemoryBackend, SystemSegmentRegister,
 };
 
 /// Validated initial state and execution policy for one CPU.
@@ -11,12 +12,22 @@ pub struct CpuConfig {
 }
 
 impl CpuConfig {
-    /// Validates the supplied CPU state for execution with `target`.
+    /// Configures a physical PC CPU with the default model and instruction budgets.
+    /// Its interpreter accepts canonical real mode and protected ring 3, with
+    /// paging disabled in both modes. Its JIT currently compiles real-mode code.
+    pub fn pc(cpu: CpuState) -> Result<Self, ConfigurationError> {
+        Self::new(Compiler::new(ExecutionProfile::Real16).target(), cpu)
+    }
+
+    /// Configures JIT compilation and validates the initial CPU image. On the
+    /// physical PC, a real-mode JIT target also allows interpreted protected user code.
+    /// Other targets retain their fixed profile requirements.
     pub fn new(target: ExecutionTarget, cpu: CpuState) -> Result<Self, ConfigurationError> {
         validate_cpu(target, &cpu)?;
         Ok(Self { target, cpu })
     }
 
+    /// The target used to compile JIT code. Read the CPU image for its live mode and width.
     pub fn execution_target(&self) -> ExecutionTarget {
         self.target
     }
@@ -43,12 +54,22 @@ pub(crate) fn validate_cpu(
     target: ExecutionTarget,
     cpu: &CpuState,
 ) -> Result<(), ConfigurationError> {
-    if !cpu.is_compatible_with(target.profile) {
+    let compatible = if is_pc_jit_target(target) {
+        cpu.has_supported_pc_mode()
+    } else {
+        cpu.is_compatible_with(target.profile)
+    };
+    if !compatible {
         return Err(ConfigurationError::IncompatibleCpu);
     }
     validate_idtr(cpu.mode(), cpu.idtr)?;
     validate_system_segment(cpu.ldtr, true)?;
     validate_system_segment(cpu.tr, false)
+}
+
+pub(crate) fn is_pc_jit_target(target: ExecutionTarget) -> bool {
+    target.profile == ExecutionProfile::Real16
+        && target.memory_backend == MemoryBackend::PhysicalBus
 }
 
 pub(crate) fn validate_idtr(

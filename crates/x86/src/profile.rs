@@ -145,12 +145,26 @@ impl CpuState {
             ExecutionProfile::Protected(_) => CpuMode::Protected,
         };
         self.mode() == mode
-            && self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK == 0
+            && self.has_supported_execution_controls()
+            && self.segments.is_compatible_with(profile)
+    }
+
+    /// Checks the control state and loaded segments that the physical PC can
+    /// execute. The machine separately validates its interrupt and system tables.
+    pub fn has_supported_pc_mode(&self) -> bool {
+        let mode = self.mode();
+        self.has_supported_execution_controls()
+            && crate::Segment::ALL
+                .into_iter()
+                .all(|segment| self.segments[segment].is_supported_in_pc_mode(mode, segment))
+    }
+
+    fn has_supported_execution_controls(&self) -> bool {
+        self.flags.bytes.vm & FlagBytes::BOOLEAN_MASK == 0
             // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
             && self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
             // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
             && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
-            && self.segments.is_compatible_with(profile)
     }
 }
 

@@ -75,6 +75,7 @@ fn saved_registers_restore_only_the_named_views() {
     cpu.set_ecx(0x5566_7788);
     let ds = SegmentRegister::real_mode(Segment::Ds, 0x1234);
     cpu.set_segment(Segment::Ds, ds);
+    cpu.reads.borrow_mut().clear();
     let saved = cpu.save_registers([reg::ax, reg::bh, reg::ecx, reg::segment(Segment::Ds)]);
     assert_eq!(
         cpu.reads
@@ -263,7 +264,7 @@ fn segment_edits_preserve_the_execution_profile() {
 }
 
 #[test]
-#[should_panic(expected = "segment Ds violates execution profile Real16")]
+#[should_panic(expected = "segment Ds violates CPU admission")]
 fn incompatible_segment_edits_panic() {
     let config = configuration();
     let storage = cpu_memory(&config);

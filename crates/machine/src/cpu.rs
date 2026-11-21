@@ -50,8 +50,8 @@ impl CpuStateAccess {
         );
     }
 
-    /// Compatibility requirements of the installed generated code. Architectural
-    /// mode and widths are read from live state through the queries below.
+    /// The JIT compilation target. An attached PC may be interpreting protected
+    /// code. Use the live CPU queries below to read its mode and widths.
     pub fn execution_target(&self) -> ExecutionTarget {
         self.target
     }
@@ -162,14 +162,15 @@ impl CpuStateAccess {
     /// Replaces a visible selector and its loaded cache without descriptor loading.
     ///
     /// # Panics
-    /// Panics before writing if the cache violates this CPU's execution profile.
+    /// Panics before writing if the cache violates this CPU's admission requirements.
     #[track_caller]
     pub fn set_segment(&self, segment: Segment, value: SegmentRegister) {
-        let profile = self.target.profile;
-        assert!(
-            value.is_compatible_with(profile, segment),
-            "segment {segment:?} violates execution profile {profile:?}"
-        );
+        let compatible = if crate::config::is_pc_jit_target(self.target) {
+            value.is_supported_in_pc_mode(self.mode(), segment)
+        } else {
+            value.is_compatible_with(self.target.profile, segment)
+        };
+        assert!(compatible, "segment {segment:?} violates CPU admission");
         self.write(segment_offset(segment) as u32, &value.to_bytes());
     }
 
@@ -226,8 +227,7 @@ impl CpuStateAccess {
     /// through [`CpuConfig`] to start a different execution history.
     ///
     /// # Errors
-    /// Returns an error without writing if the snapshot violates this CPU's
-    /// execution target.
+    /// Returns an error before writing if the CPU cannot run the proposed state.
     pub fn restore(&self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
         crate::config::validate_cpu(self.target, snapshot)?;
         let mut restored = *snapshot;

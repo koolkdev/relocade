@@ -24,7 +24,7 @@ impl MachineConfig {
         })
     }
 
-    /// Checks the CPU entry contract and the mapping ABI supplied by this machine.
+    /// Checks the real-mode JIT target and the mapping ABI supplied by this PC.
     pub(crate) fn validate_target(
         &self,
         target: ExecutionTarget,
