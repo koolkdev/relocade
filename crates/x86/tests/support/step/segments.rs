@@ -33,6 +33,11 @@ pub(crate) struct SegmentResolution {
 }
 
 impl SegmentResolution {
+    pub(crate) fn with_accessed_bit_clear(mut self) -> Self {
+        self.values[11] = 1; // needs_completion in the resolver ABI.
+        self
+    }
+
     pub(crate) fn new(tables: &DescriptorTables, segment: Segment, selector: u16) -> Self {
         let values = match tables.resolve_user_segment(segment, selector) {
             Ok(cache) => [

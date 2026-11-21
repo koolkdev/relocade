@@ -232,7 +232,9 @@ impl Machine {
         for event in &observation.events {
             if matches!(
                 event,
-                Event::ResolveSegment { .. } | Event::QuerySegmentDescriptor { .. }
+                Event::ResolveSegment { .. }
+                    | Event::CompleteSegmentLoad { .. }
+                    | Event::QuerySegmentDescriptor { .. }
             ) {
                 continue;
             }

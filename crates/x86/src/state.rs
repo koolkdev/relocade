@@ -37,7 +37,7 @@ use crate::{
     flags::{Condition, Flag, FlagChange},
     profile::EntryGuarantees,
     register::{Register, RegisterType},
-    segment::{SegmentAccess, SegmentSelection, SegmentValues},
+    segment::{SegmentAccess, SegmentCacheValues, SegmentSelection},
     ssa::StateFields,
 };
 
@@ -112,7 +112,7 @@ impl<'cpu> State<'cpu> {
         &self,
         body: &mut BlockBuilder<'_>,
         segment: &SegmentSelection,
-        values: &SegmentValues,
+        values: &SegmentCacheValues,
     ) -> Result<(), BuildError> {
         self.cpu.write_segment(body, segment, values)
     }

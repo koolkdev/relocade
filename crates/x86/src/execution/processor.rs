@@ -12,6 +12,10 @@ use relocade_compiler::{BuildError, Val, I1, I16, I32, I8};
 mod tests;
 
 impl ExecutionBuilder<'_, '_> {
+    pub(crate) fn real_mode(&mut self) -> Result<Val<I1>, BuildError> {
+        Ok(self.state.protection_enabled(&mut self.body)?.eq(false))
+    }
+
     pub(crate) fn protected_mode(&mut self) -> Result<Val<I1>, BuildError> {
         self.state.protected_mode(&mut self.body)
     }
