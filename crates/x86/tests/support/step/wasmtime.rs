@@ -1,6 +1,6 @@
 //! Wasmtime instantiation, host callbacks, and boundary observations.
 
-use ::wasmtime::{Caller, Linker, Memory, MemoryType, Store, Trap};
+use ::wasmtime::{Caller, Linker, Store, Trap};
 use relocade_compiler::abi::{
     slots::{Layout, Tuple},
     AbiValue,
@@ -42,7 +42,7 @@ impl TestModule {
         );
         let cpu = SharedBytes::new(1, 1);
         let guest = SharedBytes::new(1, 1);
-        let machine = Memory::new(&mut store, MemoryType::new(64, None)).unwrap();
+        let machine = SharedBytes::new(64, 64);
         let context = crate::ExecutionContext {
             cpu_model: self
                 .target
@@ -56,7 +56,7 @@ impl TestModule {
             guest.write(*offset, bytes);
         }
         for (offset, bytes) in &input.machine {
-            machine.write(&mut store, *offset as usize, bytes).unwrap();
+            machine.write(*offset, bytes);
         }
         let guest_before: Arc<[u8]> = guest.read(0, 65536).into();
         // CPU-only observers without host mapping edits cannot change machine
@@ -69,7 +69,8 @@ impl TestModule {
                 .patches_before_calls
                 .iter()
                 .any(|patches| !patches.machine.is_empty());
-        let machine_before = observes_machine.then(|| Arc::<[u8]>::from(machine.data(&store)));
+        let machine_before =
+            observes_machine.then(|| Arc::<[u8]>::from(machine.read(0, 64 * 65536)));
         let mut linker = Linker::new(engine);
         if std::iter::once(module)
             .chain(
@@ -89,7 +90,7 @@ impl TestModule {
             .define(&store, "relocade", "executionContext", cpu.memory().clone())
             .unwrap();
         linker
-            .define(&store, "relocade", "machine", machine)
+            .define(&store, "relocade", "machine", machine.memory().clone())
             .unwrap();
         linker
             .define(&store, "relocade", "guest", guest.memory().clone())
@@ -100,6 +101,7 @@ impl TestModule {
             crate::ExecutionExit::lower(input.dispatch_return),
         );
         let dispatch_guest_before = guest_before.clone();
+        let dispatch_machine = machine.clone();
         let dispatch_machine_before = machine_before.clone();
         let dispatch_guest = guest.clone();
         let dispatch_cpu = cpu.clone();
@@ -116,7 +118,7 @@ impl TestModule {
                     };
                     let unchanged = dispatch_machine_before
                         .as_ref()
-                        .is_none_or(|before| &**before == machine.data(&caller));
+                        .is_none_or(|before| dispatch_machine.matches(0, before));
                     caller.data_mut().machine_unchanged &= unchanged;
                     caller.data_mut().events.push(Event::Dispatch { snapshot });
                     dispatch_return
@@ -230,6 +232,7 @@ impl TestModule {
         } else {
             // This callback probes the restart boundary without executing it.
             let handoff_guest_before = guest_before.clone();
+            let handoff_machine = machine.clone();
             let handoff_machine_before = machine_before.clone();
             let handoff_guest = guest.clone();
             let handoff_cpu = cpu.clone();
@@ -246,7 +249,7 @@ impl TestModule {
                         };
                         let unchanged = handoff_machine_before
                             .as_ref()
-                            .is_none_or(|before| &**before == machine.data(&caller));
+                            .is_none_or(|before| handoff_machine.matches(0, before));
                         caller.data_mut().machine_unchanged &= unchanged;
                         caller.data_mut().events.push(Event::Interpret { snapshot });
                         dispatch_return
@@ -278,7 +281,7 @@ impl TestModule {
                     cpu.write(*offset, bytes);
                 }
                 for (offset, bytes) in &patches.machine {
-                    machine.write(&mut store, *offset as usize, bytes).unwrap();
+                    machine.write(*offset, bytes);
                 }
                 for (offset, bytes) in &patches.guest {
                     guest.write(*offset, bytes);
@@ -296,7 +299,7 @@ impl TestModule {
             };
             let unchanged = machine_before
                 .as_ref()
-                .is_none_or(|before| &**before == machine.data(&store));
+                .is_none_or(|before| machine.matches(0, before));
             store.data_mut().machine_unchanged &= unchanged;
             store
                 .data_mut()

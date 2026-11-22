@@ -28,6 +28,14 @@ impl SharedBytes {
             .collect()
     }
 
+    /// Compares a stopped memory range without allocating another snapshot.
+    pub fn matches(&self, offset: u32, bytes: &[u8]) -> bool {
+        self.range(offset, bytes.len())
+            .iter()
+            .zip(bytes)
+            .all(|(cell, &expected)| cell.load(Ordering::Relaxed) == expected)
+    }
+
     pub fn write(&self, offset: u32, bytes: &[u8]) {
         for (cell, byte) in self.range(offset, bytes.len()).iter().zip(bytes) {
             cell.store(*byte, Ordering::Relaxed);

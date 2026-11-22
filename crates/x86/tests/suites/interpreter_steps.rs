@@ -92,7 +92,7 @@ fn interpreter_step_exposes_host_abis() {
         [
             ("executionContext".into(), 1, Some(1), true),
             ("guest".into(), 1, Some(65536), true),
-            ("machine".into(), 64, None, false)
+            ("machine".into(), 64, Some(64), true)
         ]
     );
     assert_eq!(

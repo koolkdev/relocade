@@ -20,13 +20,12 @@ impl<'a> MemoryView<'a> {
         mut bytes: &[u8],
         write: &mut CodeWrite,
     ) -> Result<(), MemoryError> {
-        let Some(map) = self.config.physical_map() else {
-            if !range_fits(address, bytes.len(), self.backing_size()) {
-                return Err(MemoryError::BackingRange);
-            }
-            self.memory.write_storage(address, bytes, write);
-            return Ok(());
-        };
+        if let Some(pages) = self.memory.page_table() {
+            return pages.transfer(address, bytes.len(), true, |backing, range| {
+                self.memory.write_storage(backing, &bytes[range], write)
+            });
+        }
+        let map = self.config.memory_map();
         for span in
             Spans::new(map, address, bytes.len())?.with_io(self.io.as_ref().map(Routing::bus))
         {

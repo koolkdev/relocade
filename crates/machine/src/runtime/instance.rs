@@ -139,6 +139,12 @@ impl CpuInstance {
         enter: impl FnOnce(&GuestEntryPoints, &mut WasmRuntime) -> ExecutionExit,
     ) -> ExecutionExit {
         self.code.retire_pending().expect("retire modified code");
+        let _mapping = self
+            .guest
+            .bindings
+            .guest
+            .page_table()
+            .map(|pages| pages.enter());
         let _write_callback = self.code.bind_write_callback();
         self.guest
             .runtime

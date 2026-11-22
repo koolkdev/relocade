@@ -28,11 +28,16 @@ pub const PHYSICAL_MAP: Memory = Memory::new(
 /// before returning. This callback must not reenter guest execution.
 pub type CodeWriteSignature = fn(backing_offset: u32, bytes: u32, value: u64);
 pub const WRITE_CODE: Function<CodeWriteSignature> = Function::new("relocade", "writeCode");
-pub const PAGE_TABLE: Memory = Memory::new(
-    "relocade",
-    "machine",
-    crate::memory::page_table::BYTE_LEN / 65536,
-);
+/// One host-managed linear page table shared by the CPUs in an address space.
+pub const PAGE_TABLE: Memory = Memory {
+    maximum: Some(crate::memory::page_table::BYTE_LEN / 65536),
+    shared: true,
+    ..Memory::new(
+        "relocade",
+        "machine",
+        crate::memory::page_table::BYTE_LEN / 65536,
+    )
+};
 /// Private to one module instance; the embedding binds and updates destinations.
 pub const CALL_TARGETS: Table<ExecutionSignature> = Table::new("relocade", "callTargets", 0);
 pub const RESOLVE_AND_JUMP: Function<ExecutionSignature> =

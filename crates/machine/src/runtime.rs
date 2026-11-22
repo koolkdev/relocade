@@ -95,6 +95,7 @@ impl Cpu {
     }
 
     /// Creates a protected Flat32 interpreter over flat guest memory.
+    /// Drive CPUs sharing this backing cooperatively for unaligned locked operands.
     /// Inspect its registers and memory through [`Self::cpu_state`] and [`Self::memory`].
     /// Dispatch and host hook keys are linear EIP addresses. Instructions use the
     /// loaded segment caches in `cpu`. Descriptor queries and reloads see empty tables.

@@ -151,6 +151,8 @@ impl CodeCache {
                 wasm.bind(abi::EXECUTION_FUNCTIONS, &functions),
             ]);
             let _callback = self.write_code.bind(&mut self.stopped);
+            // A caller-supplied start function may read through the page table.
+            let _mapping = guest.bindings.guest.page_table().map(|pages| pages.enter());
             let instance = wasm.instantiate(module, &imports)?;
             Ok(ModuleInstance::new(instance, guest_code.cloned(), calls))
         })

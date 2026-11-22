@@ -1,5 +1,7 @@
 pub(crate) mod code;
 pub use code::{CodeSource, InstalledCode};
+mod paging;
+pub use paging::FlatPageTable;
 mod resolve;
 mod view;
 pub use relocade_x86::real_mode::FarPointer;
@@ -20,6 +22,7 @@ use std::{
 pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
+    page_table: Option<FlatPageTable>,
     code: Arc<code::CodeRegistry>,
     // Only a PC address space has exclusive CPU ownership. Its device routing
     // and generated-code write barriers belong to the attached CPU.
@@ -43,7 +46,13 @@ impl Memory {
             .expect("guest memory has a maximum");
         let backing = SharedMemory::new(minimum, maximum)?;
         let pc_cpu = config.physical_map().map(|_| Arc::default());
+        let page_table = if config.physical_map().is_none() {
+            Some(FlatPageTable::new(config.memory_size())?)
+        } else {
+            None
+        };
         Ok(Self {
+            page_table,
             config: Arc::new(config),
             backing,
             code: Arc::default(),
@@ -70,6 +79,11 @@ impl Memory {
 
     pub fn configuration(&self) -> &MachineConfig {
         &self.config
+    }
+
+    /// Shared host-managed mappings for a flat address space.
+    pub fn page_table(&self) -> Option<&FlatPageTable> {
+        self.page_table.as_ref()
     }
 
     /// Raw Wasm storage. Serialize direct writes with code installation. When
@@ -127,6 +141,9 @@ fn range_fits(address: u32, len: usize, limit: u64) -> bool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MemoryError {
     AddressRange,
+    UnalignedMapping,
+    MappingInUse,
+    Translation(relocade_x86::Exception),
     BackingRange,
     SegmentRange,
     NotRamOrRom,
@@ -135,6 +152,9 @@ pub enum MemoryError {
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::UnalignedMapping => "mappings require whole aligned 4-KiB pages",
+            Self::MappingInUse => "the page table is in use",
+            Self::Translation(exception) => return exception.fmt(f),
             Self::AddressRange => "memory access exceeds the 32-bit guest address space",
             Self::BackingRange => "backing access exceeds memory_size",
             Self::SegmentRange => "memory access exceeds the segment limit",

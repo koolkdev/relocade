@@ -70,7 +70,8 @@ pub use io::{
 };
 pub use machine::{CpuHandle, Machine};
 pub use memory::{
-    CodeSource, FarPointer, InstalledCode, Memory, MemoryBus, MemoryError, MemoryView,
+    CodeSource, FarPointer, FlatPageTable, InstalledCode, Memory, MemoryBus, MemoryError,
+    MemoryView,
 };
 pub use relocade_wasm_runtime::{worker, MemoryAccess};
 pub use runtime::{

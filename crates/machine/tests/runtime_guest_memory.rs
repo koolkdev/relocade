@@ -187,3 +187,78 @@ fn flat_cpu_uses_linear_addresses_and_faults_outside_its_memory() {
 async fn flat_cpu_uses_linear_addresses_and_faults_outside_its_memory() {
     check_flat_guest_memory().await;
 }
+
+async fn check_shared_flat_page_table() {
+    use relocade_machine::CpuConfig;
+    use relocade_x86::{Exception, SegmentProfile};
+
+    // Code at a high linear address and data on a separate, aliased page.
+    const CODE: u32 = 0xffff_f000;
+    const DATA: u32 = 0x4000_0000;
+    let memory = Memory::new(MachineConfig::flat(0x3000).unwrap()).unwrap();
+    let pages = memory.page_table().unwrap();
+    pages.map_pages(CODE..=u32::MAX, 0, true).unwrap();
+    let mut view = memory.view();
+    view.write(
+        CODE,
+        &[
+            0xa1, 0, 0, 0, 0x40, // MOV EAX,[DATA]
+            0xa3, 0, 0, 0, 0x40, // MOV [DATA],EAX
+        ],
+    )
+    .unwrap();
+    view.write_u32(0x1000, 31).unwrap();
+    view.write_u32(0x2000, 47).unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState {
+            eip: CODE,
+            ..CpuState::default()
+        },
+    )
+    .unwrap();
+    let mut first = Cpu::new_without_io(memory.clone(), config).await.unwrap();
+    let mut second = Cpu::new_without_io(memory.clone(), config).await.unwrap();
+
+    pages.map_pages(DATA..=DATA + 0xfff, 0x1000, true).unwrap();
+    assert_eq!(first.step(), ExecutionExit::StepComplete);
+    assert_eq!(first.cpu_state().eax(), 31);
+    pages.map_pages(DATA..=DATA + 0xfff, 0x2000, false).unwrap();
+    assert_eq!(second.step(), ExecutionExit::StepComplete);
+    assert_eq!(second.cpu_state().eax(), 47);
+    let fault = Exception::PageFault {
+        linear_address: DATA,
+        error_code: 3,
+    };
+    assert_eq!(first.step(), ExecutionExit::Exception(fault));
+    assert_eq!(first.cpu_state().eip(), CODE + 5);
+    assert_eq!(
+        view.write_u32(DATA, 123),
+        Err(MemoryError::Translation(fault))
+    );
+    assert_eq!(view.read_u32(DATA).unwrap(), 47);
+
+    pages.unmap_pages(DATA..=DATA + 0xfff).unwrap();
+    let fault = Exception::PageFault {
+        linear_address: DATA,
+        error_code: 2,
+    };
+    assert_eq!(second.step(), ExecutionExit::Exception(fault));
+    assert_eq!(
+        view.write_u32(DATA, 123),
+        Err(MemoryError::Translation(fault))
+    );
+    assert_eq!(view.read_u32(0x2000).unwrap(), 47);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn flat_cpus_and_host_share_live_page_mappings_and_protections() {
+    pollster::block_on(check_shared_flat_page_table());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+async fn flat_cpus_and_host_share_live_page_mappings_and_protections() {
+    check_shared_flat_page_table().await;
+}

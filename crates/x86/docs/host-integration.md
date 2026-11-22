@@ -529,7 +529,7 @@ or asynchronous interrupt polling within the repetition.
 ## Imported memories
 
 All imports belong to the `relocade` module. Memories are distinct Wasm objects;
-`executionContext` and `guest` are shared. Sizes below are minimum counts of
+`executionContext`, `guest` and `machine` are shared. Sizes below are minimum counts of
 64-KiB Wasm pages. `executionContext` requires exactly one page with a maximum
 of one page, allowing the host to retain CPU state independently of the engine.
 The `guest` import declares a maximum of 65536 pages. Its supplied memory must
@@ -539,7 +539,7 @@ have a maximum no larger than that and enough initial capacity for all backing.
 | --- | ---: | --- |
 | `executionContext` | 1 | `ExecutionContext` backing, containing CPU state and execution controls. |
 | `guest` | 1 | Guest backing bytes for the selected memory model. |
-| `machine` | 64 | Host-managed linear page table at byte zero. |
+| `machine` | 64 | Host-managed linear page table at byte zero, with a maximum of 64 pages. |
 | `physicalMap` | 129 | Flat 32-bit physical routing table followed by the A20 mask. |
 | `executionEntries` | 1 | Execution-address table. |
 | `callProfile` | 1 | Bounded CPU-local call observations, drained while execution is stopped. |
@@ -577,7 +577,9 @@ that invariant is a host error, not a guest page fault.
 
 Use [`page_table::entry_offset`] and [`page_table::encode_entry`] to prepare
 individual entry writes. Writing [`page_table::UNMAPPED_ENTRY`] removes a mapping.
-The host owns the table storage and applies updates between guest execution calls.
+The host owns the table storage. CPUs sharing an address space import the same table.
+Apply updates while all of these CPUs are between guest execution calls, and serialize
+updates with any host transfers that depend on the table.
 
 Segment translation precedes this host page table lookup.
 Linear addresses wrap at 32 bits, and a span
@@ -593,7 +595,8 @@ Alignment is determined after segment translation. All operand bytes pass write
 checks before the update, including a failed comparison. Ordinary loads, stores
 and unlocked updates retain ordinary Wasm accesses; no extra fences are inserted.
 
-Execution has one guest CPU and one writer to guest backing. Host writes run
+The embedding must serialize guest execution over shared backing and keep one
+writer active at a time. Host writes run
 synchronously in callbacks or between guest entries; concurrent observers may
 read but must tolerate partial updates. Unaligned protected-mode locked operands
 use checked reads and writes under this contract, which prevents guest

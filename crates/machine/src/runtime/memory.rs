@@ -7,10 +7,10 @@ use super::{ExecutionInterrupt, Result};
 use crate::{memory::CpuBinding, CpuConfig, CpuStateAccess, Memory as GuestMemory};
 use relocade_compiler::abi::Memory as MemoryDeclaration;
 use relocade_wasm_runtime::{Import, Memory, SharedMemory, WasmBackend, WasmMemoryAccess};
-use relocade_x86::{abi, page_table, MemoryBackend};
+use relocade_x86::{abi, MemoryBackend};
 use std::sync::Arc;
 
-/// Retained CPU and guest storage, plus private mapping storage.
+/// Retained CPU and guest storage, plus the mapping import for this CPU.
 /// Retaining the guest handle lets the context borrow it independently of the Wasm runtime.
 pub(super) struct RuntimeMemory {
     config: Arc<CpuConfig>,
@@ -36,21 +36,17 @@ impl RuntimeMemory {
         let interrupt = ExecutionInterrupt::new(storage.clone());
         let cpu = CpuStateAccess::new(&config, storage);
         let guest_import = wasm.import_shared_memory(guest.backing());
-        let declaration = mapping_import(config.execution_target().memory_backend);
-        let mapping = wasm.create_memory(MemoryDeclaration {
-            maximum: Some(declaration.minimum),
-            ..declaration
-        })?;
-        let policy = guest.configuration();
-        if let Some(map) = policy.physical_map() {
-            wasm.memory(&mapping).write(0, map.as_bytes());
+        let mapping = if let Some(pages) = guest.page_table() {
+            wasm.import_shared_memory(&pages.entries)
         } else {
-            let entries: Vec<u8> = (0..policy.memory_size())
-                .step_by(page_table::PAGE_BYTES as usize)
-                .flat_map(|offset| page_table::encode_entry(offset as u32, true).unwrap())
-                .collect();
-            wasm.memory(&mapping).write(0, &entries);
-        }
+            let mapping = wasm.create_memory(MemoryDeclaration {
+                maximum: Some(abi::PHYSICAL_MAP.minimum),
+                ..abi::PHYSICAL_MAP
+            })?;
+            wasm.memory(&mapping)
+                .write(0, guest.configuration().memory_map().as_bytes());
+            mapping
+        };
         Ok(Self {
             config,
             context,

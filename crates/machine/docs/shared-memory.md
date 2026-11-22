@@ -163,7 +163,21 @@ the loaded segment caches. Descriptor queries and reloads see empty tables.
 Pass clones of the same flat `Memory` to create multiple CPUs. Give each CPU
 its own initial registers and stack range. Each `Cpu::run` future waits on its
 own host calls, so the same worker can drive a peer while a call is pending.
-A PC physical map still admits one CPU at a time.
+Drive CPUs sharing flat RAM cooperatively and perform host writes at stopped
+boundaries. Unaligned locked x86 operands currently use multiple backing
+accesses and require a single writer. A PC physical map still admits one CPU
+at a time.
+
+`memory.page_table()` exposes the same linear page table to the host and all
+flat CPUs. Use `map_pages(range, backing_offset, writable)` to replace whole
+4-KiB pages or change their permissions, and `unmap_pages(range)` to remove
+them. Reads and fetches require a present mapping. Host and guest writes also
+require write permission. The complete edit takes effect together. A map edit
+returns `MemoryError::MappingInUse` while a CPU is inside Wasm, during a host
+transfer through the table, or during another edit. A CPU awaiting a host call
+has released its translations. For caller-installed modules that capture code,
+invalidate or replace the affected dispatch entries on every CPU before resuming
+execution after a remap.
 
 ## Devices
 

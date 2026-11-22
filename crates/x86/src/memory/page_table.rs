@@ -61,6 +61,20 @@ pub const fn encode_entry(backing_offset: u32, writable: bool) -> Option<[u8; 4]
     Some((backing_offset | PRESENT | if writable { WRITABLE } else { 0 }).to_le_bytes())
 }
 
+/// Resolves one linear address with the same permissions as generated accesses.
+pub fn resolve_entry(bytes: [u8; 4], address: u32, write: bool) -> Result<u32, crate::Exception> {
+    let entry = u32::from_le_bytes(bytes);
+    let present = entry & PRESENT != 0;
+    if present && (!write || entry & WRITABLE != 0) {
+        Ok((entry & FRAME_MASK) | (address & PAGE_OFFSET))
+    } else {
+        Err(crate::Exception::PageFault {
+            linear_address: address,
+            error_code: u32::from(present) | (u32::from(write) << 1),
+        })
+    }
+}
+
 // A resolved range carries its first frame and permissions, or the denied page.
 // These private flags distinguish scattered backing and a denial on a later page.
 pub(super) const SCATTERED: u32 = 4;

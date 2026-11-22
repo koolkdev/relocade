@@ -9,9 +9,12 @@ impl<'a> MemoryView<'a> {
     /// # Panics
     /// Panics if the access reaches MMIO without an attached local I/O bus.
     pub fn read(&self, address: u32, mut bytes: &mut [u8]) -> Result<(), MemoryError> {
-        let Some(map) = self.config.physical_map() else {
-            return self.read_backing(address, bytes);
-        };
+        if let Some(pages) = self.memory.page_table() {
+            return pages.transfer(address, bytes.len(), false, |backing, range| {
+                self.storage.read(backing, &mut bytes[range])
+            });
+        }
+        let map = self.config.memory_map();
         for span in
             Spans::new(map, address, bytes.len())?.with_io(self.io.as_ref().map(Routing::bus))
         {
