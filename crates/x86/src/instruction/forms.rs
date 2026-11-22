@@ -30,6 +30,8 @@ pub(crate) enum OpcodeMap {
 #[derive(Clone, Copy)]
 pub(super) enum ExecutionEffect {
     ControlTransfer,
+    /// May write IOPL. Subsequent I/O privilege checks start in a new block.
+    IoplWrite,
     DescriptorLoad,
     DescriptorQuery,
     /// Device callbacks may change instruction routing; resume through dispatch.

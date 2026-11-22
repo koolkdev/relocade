@@ -75,18 +75,6 @@ impl FlagTracker {
             .and(3))
     }
 
-    pub(super) fn write_iopl_if(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        condition: &Val<I1>,
-        value: Val<I8>,
-    ) -> Result<(), BuildError> {
-        let location = cpu_location!(flags.bytes.iopl);
-        let previous = self.direct.read(body, location.clone())?;
-        self.direct
-            .define(body, location, condition.select(value.and(3), previous))
-    }
-
     /// Admit the whole change before modifying either status or direct flag state.
     /// A false change preserves every backing byte, including noncanonical flags.
     pub(super) fn apply(

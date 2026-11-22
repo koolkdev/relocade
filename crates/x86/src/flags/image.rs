@@ -8,7 +8,7 @@
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
 use super::{Flag, FlagChange, StatusFlag};
-use crate::{execution::ExecutionBuilder, PrivilegeLevel};
+use crate::execution::ExecutionBuilder;
 
 /// A flag roster and fixed bits shared by image reads and masked writes.
 pub(crate) struct FlagImage<const N: usize> {
@@ -93,18 +93,9 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     execution.write_flags(change)?;
-    // IF is writable at CPL <= the old IOPL. Only CPL0 can restore IOPL.
-    let cpl = execution.privilege_level()?;
-    let can_change_if = execution.read_iopl()?.unsigned().ge(&cpl);
-    let before = execution.read_flag(Flag::IF)?;
     let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
-    execution
-        .write_flags(FlagChange::partial([(Flag::IF, enabled.clone())]).when(&can_change_if))?;
-    execution.write_iopl_if(
-        &cpl.eq(PrivilegeLevel::Ring0 as u32),
-        image.unsigned().shr(12).truncate::<I8>(),
-    )?;
-    Ok(can_change_if.and(before.eq(false)).and(enabled))
+    let iopl = image.unsigned().shr(12).truncate::<I8>();
+    execution.restore_if_and_iopl(enabled, iopl)
 }
 
 impl<const N: usize> FlagImage<N> {

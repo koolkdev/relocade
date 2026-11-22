@@ -208,15 +208,15 @@ fn direct_publication_survives_register_aliases_and_status_changes() {
 }
 
 #[test]
-fn iopl_reads_and_definitions_use_two_bits_without_touching_other_flags() {
+fn iopl_commit_preserves_other_flags_and_the_next_entry_reads_two_bits() {
     let mut program = Program::new();
     let cpu = Cpu::declare(&mut program);
     let function = program.function::<fn(u8) -> u64>(move |mut body, (value,)| {
         let mut state = State::new(&cpu);
         let before = state.read_iopl(&mut body)?;
-        state.write_iopl_if(&mut body, &true.into(), value)?;
-        let after = state.read_iopl(&mut body)?;
+        state.commit_iopl(&mut body, value)?;
         state.publish(&mut body, 0x1001, 1)?;
+        let after = State::new(&cpu).read_iopl(&mut body)?;
         body.return_(
             before
                 .unsigned()
