@@ -2,7 +2,7 @@ use super::WakeCount;
 use futures_channel::oneshot;
 use futures_util::FutureExt;
 use relocade_machine::{Cpu, CpuConfig, Hook, MachineConfig, Memory};
-use relocade_x86::{Compiler, CpuState, Exception, ExecutionExit, SegmentProfile};
+use relocade_x86::{Compiler, CpuState, Exception, ExecutionExit, Registers, SegmentProfile};
 use std::{
     future::Future,
     pin::pin,
@@ -11,10 +11,15 @@ use std::{
 };
 
 fn context(eip: u32, esp: u32, eax: u32) -> CpuConfig {
-    let mut state = CpuState::default(); // Flat 32-bit code and stack at CPL3.
-    state.eip = eip;
-    state.registers.esp = esp;
-    state.registers.eax = eax;
+    let state = CpuState {
+        eip,
+        registers: Registers {
+            esp,
+            eax,
+            ..Registers::default()
+        },
+        ..CpuState::default()
+    };
     CpuConfig::new(Compiler::new(SegmentProfile::Flat32).target(), state).unwrap()
 }
 
