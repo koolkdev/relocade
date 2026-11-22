@@ -93,6 +93,7 @@ pub(super) struct Instruction<V> {
     pub(super) address_mask: V,
     pub(super) segment_override: SegmentOverride,
     pub(super) locked: bool,
+    pub(super) opcode: u8,
     pub(super) x87_opcode: Option<X87Opcode<V>>,
 }
 

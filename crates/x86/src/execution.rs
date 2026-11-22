@@ -50,6 +50,7 @@ pub(super) struct ExecutionBuilder<'body, 'module> {
     segment_override: SegmentOverride,
     address_mask: Val<I32>,
     locked: bool,
+    opcode: Option<u8>,
     x87_opcode: Option<Val<I16>>,
     runtime: Runtime,
     interrupt: Option<TypedFunc<crate::abi::InterruptSignature>>,
@@ -80,6 +81,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
             segment_override: SegmentOverride::None,
             address_mask: u32::MAX.into(),
             locked: false,
+            opcode: None,
             x87_opcode: None,
             runtime: module.runtime,
             interrupt: module.interrupt,
@@ -124,6 +126,7 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
         self.address_mask = decoded.instruction.address_mask.clone().into();
         self.segment_override = decoded.instruction.segment_override.clone();
         self.locked = decoded.instruction.locked;
+        self.opcode = Some(decoded.instruction.opcode);
         self.x87_opcode = decoded
             .instruction
             .x87_opcode

@@ -2,10 +2,11 @@
 mod support;
 use support::Configuration;
 
-use relocade_machine::{Cpu, CpuConfig, MachineConfig, Memory, MemoryError};
+use relocade_machine::{Cpu, CpuConfig, CpuStorage, MachineConfig, Memory, MemoryError};
 use relocade_x86::{
-    Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segment, SegmentProfile, SegmentRegister,
+    Compiler, CpuFeature, CpuModel, CpuState, DescriptorTables, Exception, ExecutionExit,
+    ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment, SegmentDefaultSize,
+    SegmentDescriptor, SegmentDescriptorKind, SegmentLimit, SegmentProfile, SegmentRegister,
 };
 
 fn create(config: Configuration) -> Cpu {
@@ -79,18 +80,20 @@ fn runtimes_keep_private_cpu_and_backing() {
 }
 
 #[test]
-fn protected_segment_loads_use_the_empty_descriptor_tables() {
+fn flat_cpu_queries_and_reloads_its_initial_descriptors() {
     let memory = Memory::new(MachineConfig::flat(0x1000).unwrap()).unwrap();
     memory
         .view()
         .write(
             0,
             &[
-                0x31, 0xc0, // XOR EAX,EAX sets ZF.
-                0x8e, 0xe0, // MOV FS,AX accepts the null selector.
-                0xb0, 0x23, // MOV AL,23h selects the initial data segment.
-                0x0f, 0x00, 0xe0, // VERR AX clears ZF because the slot is empty.
-                0x8e, 0xe0, // MOV FS,AX faults without changing FS.
+                0x31, 0xc0, // XOR EAX,EAX
+                0x8e, 0xe0, // MOV FS,AX accepts the null selector
+                0xb0, 0x23, // MOV AL,23h
+                0x8e, 0xd8, // MOV DS,AX
+                0x0f, 0x00, 0xe0, // VERR AX
+                0xb0, 0x2b, // MOV AL,2bh (an empty slot)
+                0x8e, 0xe0, // MOV FS,AX
             ],
         )
         .unwrap();
@@ -102,12 +105,160 @@ fn protected_segment_loads_use_the_empty_descriptor_tables() {
     let mut cpu = pollster::block_on(Cpu::new_without_io(memory, config)).unwrap();
     assert_eq!(
         pollster::block_on(cpu.run()),
-        ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0x20 })
+        ExecutionExit::Exception(Exception::GeneralProtection { error_code: 0x28 })
     );
     let state = cpu.cpu_state();
-    assert_eq!(state.eip(), 9);
+    assert_eq!(state.eip(), 13);
+    assert_eq!(state.instruction_count(), 6);
     assert_eq!(state.segment(Segment::Fs), SegmentRegister::unusable(0));
-    assert_eq!(state.eflags() & (1 << 6), 0);
+    assert_eq!(
+        state.segment(Segment::Ds),
+        SegmentRegister::flat_data32(0x23)
+    );
+    assert_ne!(state.eflags() & (1 << 6), 0);
+}
+
+#[test]
+fn flat_cpus_share_descriptor_edits_and_keep_their_loaded_caches() {
+    let memory = Memory::new(MachineConfig::flat(0x1000).unwrap()).unwrap();
+    memory
+        .view()
+        .write(
+            0,
+            &[
+                0xb0, 0x23, // MOV AL,23h
+                0x8e, 0xe0, // MOV FS,AX
+                0x0f, 0x03, 0xc8, // LSL ECX,AX
+                0x8e, 0xe0, // MOV FS,AX
+            ],
+        )
+        .unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState::default(),
+    )
+    .unwrap();
+    let mut first = pollster::block_on(Cpu::new_without_io(memory.clone(), config)).unwrap();
+    let mut second = pollster::block_on(Cpu::new_without_io(memory.clone(), config)).unwrap();
+    support::steps(&mut first, 2);
+    support::steps(&mut second, 2);
+    {
+        let mut tables = memory.descriptor_tables().unwrap();
+        let mut changed = *tables.get(0x23).unwrap();
+        changed.base = 0x200;
+        changed.limit = SegmentLimit::bytes(0xff).unwrap();
+        tables.insert(0x23, changed);
+    }
+    for cpu in [&mut first, &mut second] {
+        support::steps(cpu, 1);
+        let state = cpu.cpu_state();
+        assert_eq!(state.ecx(), 0xff);
+        assert_eq!(state.segment(Segment::Fs).base, 0);
+        support::steps(cpu, 1);
+        assert_eq!(state.segment(Segment::Fs).base, 0x200);
+        assert_eq!(state.segment(Segment::Ds).base, 0);
+    }
+}
+
+#[test]
+fn flat_cpus_resolve_thread_selectors_and_stop_before_an_unsupported_reload() {
+    let memory = Memory::new(MachineConfig::flat(0x1000).unwrap()).unwrap();
+    memory
+        .view()
+        .write(
+            0,
+            &[
+                0xb8, 0x3b, 0, 0, 0, // MOV EAX,3bh
+                0x0f, 0x03, 0xc8, // LSL ECX,AX
+                0x8e, 0xe0, // MOV FS,AX
+                0x64, 0x8b, 0x15, 0, 0, 0, 0, // MOV EDX,FS:[0]
+                0x8e, 0xd8, // MOV DS,AX
+                0xf1, // unsupported INT1
+                0x0f, 0xb2, 0x0d, 0x80, 0, 0, 0, // LSS ECX,[80h]
+            ],
+        )
+        .unwrap();
+    memory
+        .view()
+        .write(0x80, &[0x78, 0x56, 0x34, 0x12, 0x3b, 0])
+        .unwrap();
+    let config = CpuConfig::new(
+        Compiler::new(SegmentProfile::Flat32).target(),
+        CpuState::default(),
+    )
+    .unwrap();
+    let make_cpu = |base: u32, value: u32| {
+        memory.view().write(base, &value.to_le_bytes()).unwrap();
+        let mut tables = DescriptorTables::flat32();
+        tables.insert(
+            0x3b,
+            SegmentDescriptor::new(
+                base,
+                SegmentLimit::bytes(base - 1).unwrap(),
+                SegmentDescriptorKind::Data {
+                    writable: true,
+                    expand_down: false,
+                },
+                SegmentDefaultSize::Bits32,
+            ),
+        );
+        let storage = CpuStorage::new().unwrap().with_descriptor_tables(tables);
+        pollster::block_on(storage.into_cpu_without_io(memory.clone(), config)).unwrap()
+    };
+    let first = make_cpu(0x100, 0x1320);
+    let second = make_cpu(0x200, 0x2430);
+    for (mut cpu, base, value) in [(first, 0x100, 0x1320), (second, 0x200, 0x2430)] {
+        assert_eq!(
+            pollster::block_on(cpu.run()),
+            ExecutionExit::UnsupportedInstruction {
+                eip: 17,
+                opcode: 0x8e
+            }
+        );
+        let state = cpu.cpu_state();
+        assert_eq!(state.instruction_count(), 4);
+        assert_eq!(state.ecx(), base - 1);
+        assert_eq!(state.edx(), value);
+        assert_eq!(state.segment(Segment::Fs).base, base);
+        assert_eq!(
+            state.segment(Segment::Ds),
+            SegmentRegister::flat_data32(0x23)
+        );
+
+        state.set_eip(20);
+        assert_eq!(
+            cpu.step(),
+            ExecutionExit::UnsupportedInstruction {
+                eip: 20,
+                opcode: 0x0f
+            }
+        );
+        assert_eq!(state.ecx(), base - 1); // LSS leaves its destination and SS unchanged.
+        assert_eq!(
+            state.segment(Segment::Ss),
+            SegmentRegister::flat_data32(0x23)
+        );
+        assert_eq!(state.instruction_count(), 4);
+        state.set_eip(17);
+
+        let replacement = *DescriptorTables::flat32().get(0x23).unwrap();
+        cpu.descriptor_tables().unwrap().insert(0x3b, replacement);
+        assert_eq!(
+            pollster::block_on(cpu.run()),
+            ExecutionExit::UnsupportedInstruction {
+                eip: 19,
+                opcode: 0xf1
+            }
+        );
+        assert_eq!(
+            state.segment(Segment::Ds),
+            SegmentRegister::flat_data32(0x3b)
+        );
+        assert_eq!(state.segment(Segment::Fs).base, base);
+        state.set_eip(5);
+        support::steps(&mut cpu, 1); // LSL now sees the replacement limit.
+        assert_eq!(state.ecx(), u32::MAX);
+    }
 }
 
 #[test]

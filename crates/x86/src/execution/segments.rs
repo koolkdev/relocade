@@ -90,6 +90,14 @@ impl ExecutionBuilder<'_, '_> {
                     &mut self.body,
                     segment,
                     selector,
+                    |mut body| {
+                        let Some(opcode) = self.opcode else {
+                            // Host-directed entries have no guest opcode and support real mode only.
+                            return body.trap();
+                        };
+                        self.state.publish(&mut body, &self.eip, self.completed)?;
+                        crate::state::exit::unsupported(body, &self.eip, u32::from(opcode))
+                    },
                     |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
                 )?;
                 (resolved.cache, Some(resolved.needs_completion))

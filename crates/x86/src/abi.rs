@@ -97,6 +97,10 @@ pub type ResolveSegmentResults = (I32, I32, I32, I32, I16, I1, I1, I1, I1, I1, I
 pub type ResolveSegmentSignature = fn(I32, I16) -> ResolveSegmentResults;
 pub type QuerySegmentDescriptorSignature = fn(u16) -> crate::SegmentDescriptorInfo;
 
+/// The selector is legal, but this execution environment cannot install its cache.
+/// Stop at the original instruction with UnsupportedInstruction before any effects.
+pub const UNSUPPORTED_SEGMENT_LOAD: u32 = u32::MAX;
+
 pub const RESOLVE_SEGMENT: Function<ResolveSegmentSignature> =
     Function::new("relocade", "resolveSegment");
 pub const QUERY_SEGMENT_DESCRIPTOR: Function<QuerySegmentDescriptorSignature> =
