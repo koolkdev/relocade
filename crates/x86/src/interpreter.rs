@@ -62,7 +62,10 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
-    build_interpreter_with_memory(profile, MemoryBackend::default_for(profile))
+    build(
+        ExecutionTarget::from(profile),
+        EntryGuarantees::for_profile(profile),
+    )
 }
 
 /// Builds the same `run` and `step` entries as [`build_interpreter`] with explicit

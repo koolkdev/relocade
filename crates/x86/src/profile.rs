@@ -52,6 +52,10 @@ pub(crate) fn control_assumptions(
 pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
 
 impl EntryGuarantees {
+    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
+        Self::for_target(profile)
+    }
+
     pub(crate) fn for_target(target: impl Into<ExecutionTarget>) -> Self {
         let target = target.into();
         Self::new(
