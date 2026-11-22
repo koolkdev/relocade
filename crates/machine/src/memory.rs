@@ -11,7 +11,7 @@ use crate::{ConfigurationError, CpuConfig, IoBus, MachineConfig, Result};
 use relocade_wasm_runtime::SharedMemory;
 use std::{
     fmt,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
 /// Owned guest memory and its address policy, independent of CPU execution.
@@ -23,6 +23,7 @@ pub struct Memory {
     config: Arc<MachineConfig>,
     backing: SharedMemory,
     page_table: Option<FlatPageTable>,
+    descriptors: Option<Arc<Mutex<relocade_x86::DescriptorTables>>>,
     code: Arc<code::CodeRegistry>,
     // Only a PC address space has exclusive CPU ownership. Its device routing
     // and generated-code write barriers belong to the attached CPU.
@@ -51,7 +52,11 @@ impl Memory {
         } else {
             None
         };
+        let descriptors = page_table
+            .as_ref()
+            .map(|_| Arc::new(Mutex::new(relocade_x86::DescriptorTables::flat32())));
         Ok(Self {
+            descriptors,
             page_table,
             config: Arc::new(config),
             backing,
@@ -79,6 +84,20 @@ impl Memory {
 
     pub fn configuration(&self) -> &MachineConfig {
         &self.config
+    }
+
+    /// The flat address space's default descriptor tables, shared by its CPUs.
+    /// Drop the guard before resuming CPUs. Edits affect subsequent queries and
+    /// reloads. A CPU can instead supply a private
+    /// thread view through [`crate::CpuStorage::with_descriptor_tables`].
+    pub fn descriptor_tables(&self) -> Option<MutexGuard<'_, relocade_x86::DescriptorTables>> {
+        self.descriptors
+            .as_ref()
+            .map(|tables| tables.lock().unwrap())
+    }
+
+    pub(crate) fn shared_descriptors(&self) -> Option<&Arc<Mutex<relocade_x86::DescriptorTables>>> {
+        self.descriptors.as_ref()
     }
 
     /// Shared host-managed mappings for a flat address space.

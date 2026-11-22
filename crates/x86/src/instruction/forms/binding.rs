@@ -79,6 +79,10 @@ impl ResolvedForm {
                 requirements: self.form.requirements,
                 segment_override: segment_override.clone(),
                 locked: self.locked,
+                opcode: match self.form.map {
+                    super::OpcodeMap::Primary => self.form.opcode,
+                    super::OpcodeMap::Extended => crate::instruction::EXTENDED_OPCODE_ESCAPE,
+                },
                 x87_opcode: (self.form.map == super::OpcodeMap::Primary
                     && (0xd8..=0xdf).contains(&self.form.opcode))
                 .then(|| X87Opcode {

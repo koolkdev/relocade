@@ -158,7 +158,16 @@ Guest linear addresses in that range map to the same backing offset. Access
 beyond the mapped pages raises a guest page fault. Use `cpu.cpu_state()` for
 registers and `cpu.memory().view()` for guest bytes. Host hooks and Wasm module
 entries use the full EIP as their dispatch key. The initial CPU image supplies
-the loaded segment caches. Descriptor queries and reloads see empty tables.
+the loaded segment caches. CPUs sharing flat memory use the same host-managed
+descriptor tables, editable through `memory.descriptor_tables()`. They initially contain the flat ring-3 code (0x1b) and data (0x23) descriptors. To configure a
+private thread view with its own FS selector and TEB base before worker transfer, pass a table to
+`CpuStorage::with_descriptor_tables` and use `into_cpu_without_io` on the
+worker. Start with `DescriptorTables::flat32()` to retain the default slots.
+The interpreter and installed modules see subsequent changes through
+`cpu.descriptor_tables()` on their next descriptor query or reload. Loaded
+caches retain their old values until reloaded. The flat runtime returns
+`UnsupportedInstruction` before a legal load would violate its guaranteed CS,
+DS, ES or SS cache. Invalid selectors raise their architectural segment fault.
 
 Pass clones of the same flat `Memory` to create multiple CPUs. Give each CPU
 its own initial registers and stack range. Each `Cpu::run` future waits on its

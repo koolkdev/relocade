@@ -1248,6 +1248,9 @@ outputs use zero-extended 16-bit values. The six cache properties and
 
 Status zero supplies a complete normalized `SegmentRegister`. Failure statuses are
 architectural vectors 11 (#NP), 12 (#SS) or 13 (#GP); only their error code is used.
+If a legal cache cannot run under the environment's entry assumptions, status -1
+(`UNSUPPORTED_SEGMENT_LOAD`) returns `UnsupportedInstruction` at the original
+opcode. The instruction does not retire or change registers, stack, or cache.
 Unknown statuses or invalid success records violate the host contract. Wasm owns
 the instruction's remaining checks, cache commitment, retirement and fault exit.
 Resolving CS does not validate a transfer's target offset. Gates and privilege

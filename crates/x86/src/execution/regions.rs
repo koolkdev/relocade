@@ -35,6 +35,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
         let segment_override = self.segment_override.clone();
         let address_mask = self.address_mask.clone();
         let locked = self.locked;
+        let opcode = self.opcode;
         let x87_opcode = self.x87_opcode.clone();
         let runtime = self.runtime;
         let interrupt = self.interrupt;
@@ -52,6 +53,7 @@ impl<'module> ExecutionBuilder<'_, 'module> {
             segment_override: segment_override.clone(),
             address_mask: address_mask.clone(),
             locked,
+            opcode,
             x87_opcode: x87_opcode.clone(),
             runtime,
             interrupt,

@@ -35,6 +35,42 @@ pub struct DescriptorTables {
 }
 
 impl DescriptorTables {
+    /// Standard ring-3 code and data descriptors for the selectors initialized by
+    /// [`crate::Segments::flat32`]. Hosts can insert thread-specific FS descriptors
+    /// or replace these slots before starting their CPU.
+    pub fn flat32() -> Self {
+        use super::{SegmentDefaultSize, SegmentDescriptorKind, SegmentLimit};
+        let mut tables = Self::default();
+        let selectors = crate::Segments::flat32();
+        for (selector, kind) in [
+            (
+                selectors.cs.selector,
+                SegmentDescriptorKind::Code {
+                    readable: true,
+                    conforming: false,
+                },
+            ),
+            (
+                selectors.ds.selector,
+                SegmentDescriptorKind::Data {
+                    writable: true,
+                    expand_down: false,
+                },
+            ),
+        ] {
+            tables.insert(
+                selector,
+                SegmentDescriptor::new(
+                    0,
+                    SegmentLimit::from_effective(u32::MAX).unwrap(),
+                    kind,
+                    SegmentDefaultSize::Bits32,
+                ),
+            );
+        }
+        tables
+    }
+
     /// Inspects a slot without performing segment-load checks. Even the reserved
     /// global slot zero can be inspected; selectors 0..=3 always resolve as null.
     pub fn get(&self, selector: u16) -> Option<&SegmentDescriptor> {

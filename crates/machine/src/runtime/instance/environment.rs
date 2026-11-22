@@ -2,10 +2,15 @@
 
 use super::{segments, IoBus, Result, RuntimeMemory, WasmRuntime};
 use relocade_wasm_runtime::Import;
+use relocade_x86::DescriptorTables;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub(in crate::runtime) enum Environment {
     Pc(IoBus),
-    Flat([Import<'static, WasmRuntime>; 3]),
+    Flat {
+        tables: Arc<Mutex<DescriptorTables>>,
+        imports: [Import<'static, WasmRuntime>; 3],
+    },
 }
 
 impl Environment {
@@ -13,9 +18,18 @@ impl Environment {
         wasm: &mut WasmRuntime,
         io: Option<IoBus>,
         bindings: &RuntimeMemory,
+        tables: Option<Arc<Mutex<DescriptorTables>>>,
     ) -> Result<Self> {
         let Some(io) = io else {
-            return Ok(Self::Flat(segments::imports(wasm)));
+            let tables = tables.unwrap_or_else(|| {
+                bindings
+                    .guest
+                    .shared_descriptors()
+                    .expect("flat memory owns descriptor tables")
+                    .clone()
+            });
+            let imports = segments::imports(wasm, tables.clone());
+            return Ok(Self::Flat { tables, imports });
         };
         let bus = io.downgrade();
         io.port_map().initialize(wasm, &bus.0)?;
@@ -31,7 +45,14 @@ impl Environment {
     pub(in crate::runtime) fn pc_bus(&self) -> &IoBus {
         match self {
             Self::Pc(io) => io,
-            Self::Flat(_) => panic!("this CPU has no PC device bus"),
+            Self::Flat { .. } => panic!("this CPU has no PC device bus"),
+        }
+    }
+
+    pub(in crate::runtime) fn descriptor_tables(&self) -> Option<MutexGuard<'_, DescriptorTables>> {
+        match self {
+            Self::Pc(_) => None,
+            Self::Flat { tables, .. } => Some(tables.lock().unwrap()),
         }
     }
 
@@ -45,7 +66,10 @@ impl Environment {
                 imports.extend(io.port_map().imports(wasm));
                 imports.extend(io.mmio_map().imports(wasm));
             }
-            Self::Flat(segments) => imports.extend(segments.iter().cloned()),
+            Self::Flat {
+                imports: descriptors,
+                ..
+            } => imports.extend(descriptors.iter().cloned()),
         }
     }
 }

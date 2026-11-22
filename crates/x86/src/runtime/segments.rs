@@ -24,12 +24,13 @@ impl Runtime {
 
     /// The host reads only canonical table registers and dedicated descriptor
     /// bytes. Other CPU fields need not be published. Resolution does not change
-    /// state; status zero succeeds and other statuses are segment-fault vectors.
+    /// state; a failure either supplies a segment fault or requests an unsupported exit.
     pub(crate) fn resolve_segment(
         self,
         body: &mut BlockBuilder<'_>,
         segment: Segment,
         selector: &Val<I16>,
+        on_unsupported: impl Fn(BlockBuilder<'_>) -> Result<(), BuildError>,
         on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
     ) -> Result<ResolvedValues, BuildError> {
         let (
@@ -54,6 +55,7 @@ impl Runtime {
                 ExceptionVector::SegmentNotPresent as u32,
                 ExceptionVector::StackFault as u32,
                 ExceptionVector::GeneralProtection as u32,
+                crate::abi::UNSUPPORTED_SEGMENT_LOAD,
             ];
             fault.switch(&status, &vectors, |arm, vector| {
                 let error_code = error_code.clone();
@@ -67,6 +69,7 @@ impl Runtime {
                     Some(vector) if vector == ExceptionVector::GeneralProtection as u32 => {
                         ExceptionValues::general_protection(error_code)
                     }
+                    Some(crate::abi::UNSUPPORTED_SEGMENT_LOAD) => return on_unsupported(arm),
                     _ => return arm.trap(),
                 };
                 on_fault(arm, exception)

@@ -3,8 +3,11 @@
 use super::{Cpu, ExecutionInterrupt, Result};
 use crate::{memory::CpuBinding, CpuConfig, IoBus, Memory};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
-use relocade_x86::ExecutionContext;
-use std::mem::offset_of;
+use relocade_x86::{DescriptorTables, ExecutionContext};
+use std::{
+    mem::offset_of,
+    sync::{Arc, Mutex},
+};
 
 /// Prepared storage for one CPU, including its execution-interrupt signal.
 ///
@@ -12,19 +15,32 @@ use std::mem::offset_of;
 /// this resource to an execution worker. [`Self::into_cpu`] consumes it and creates
 /// the Wasm runtime on that worker. Neither operation starts guest execution.
 #[derive(crate::worker::Transfer)]
-pub struct CpuStorage(SharedMemory);
+pub struct CpuStorage {
+    pub(super) context: SharedMemory,
+    pub(super) descriptors: Option<Arc<Mutex<DescriptorTables>>>,
+}
 
 impl CpuStorage {
     pub fn new() -> Result<Self> {
         let storage = SharedMemory::new(1, 1)?;
         // Initialize all execution controls before publishing notification access.
         storage.write(0, &ExecutionContext::default().to_bytes());
-        Ok(Self(storage))
+        Ok(Self {
+            context: storage,
+            descriptors: None,
+        })
+    }
+
+    /// Installs this flat CPU's host-managed descriptor tables before worker transfer.
+    /// The initial CPU image separately specifies the already-loaded caches.
+    pub fn with_descriptor_tables(mut self, tables: DescriptorTables) -> Self {
+        self.descriptors = Some(Arc::new(Mutex::new(tables)));
+        self
     }
 
     /// Notification access remains valid while CPU construction is pending.
     pub fn interrupt_handle(&self) -> ExecutionInterrupt {
-        ExecutionInterrupt::new(self.0.clone())
+        ExecutionInterrupt::new(self.context.clone())
     }
 
     /// Constructs the Wasm runtime over this storage and existing guest RAM.
@@ -33,12 +49,12 @@ impl CpuStorage {
         self.attach(memory, config, Some(io)).await
     }
 
-    pub(super) async fn attach(
-        self,
-        memory: Memory,
-        config: CpuConfig,
-        io: Option<IoBus>,
-    ) -> Result<Cpu> {
+    /// Constructs a flat CPU over this storage on the receiving worker.
+    pub async fn into_cpu_without_io(self, memory: Memory, config: CpuConfig) -> Result<Cpu> {
+        self.attach(memory, config, None).await
+    }
+
+    async fn attach(self, memory: Memory, config: CpuConfig, io: Option<IoBus>) -> Result<Cpu> {
         let binding = memory.attach_cpu(config)?;
         self.initialize(&binding.config);
         self.into_initialized_cpu(binding, io).await
@@ -49,7 +65,7 @@ impl CpuStorage {
         binding: CpuBinding,
         io: Option<IoBus>,
     ) -> Result<Cpu> {
-        Cpu::with_storage(binding, io, self.0).await
+        Cpu::with_storage(binding, io, self).await
     }
 
     pub(crate) fn initialize(&self, config: &CpuConfig) -> SharedMemory {
@@ -62,7 +78,7 @@ impl CpuStorage {
         // Encoding remains owned by x86. The live notification byte is outside
         // this initialization range and may already be written by another thread.
         let end = offset_of!(ExecutionContext, interrupt_requested);
-        self.0.write(0, &initial[..end]);
-        self.0.clone()
+        self.context.write(0, &initial[..end]);
+        self.context.clone()
     }
 }

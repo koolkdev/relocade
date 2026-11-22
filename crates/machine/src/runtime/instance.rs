@@ -9,7 +9,7 @@ use crate::{memory::CpuBinding, FarPointer, IoBus, Result};
 pub(crate) use code_cache::CodeWake;
 pub(super) use code_cache::{CodeCache, Installation};
 pub(super) use environment::Environment;
-use relocade_wasm_runtime::{Function, SharedMemory, WasmBackend};
+use relocade_wasm_runtime::{Function, WasmBackend};
 use relocade_x86::{abi, CpuMode, ExecutionExit, ExecutionProfile};
 use std::{rc::Rc, sync::Arc};
 
@@ -51,17 +51,21 @@ impl CpuInstance {
     pub(super) async fn new(
         binding: CpuBinding,
         io: Option<IoBus>,
-        storage: SharedMemory,
+        storage: super::CpuStorage,
     ) -> Result<Self> {
         let target = binding.config.execution_target();
         if io.is_some() != (target.profile == ExecutionProfile::Real16) {
             return Err(crate::ConfigurationError::IncompatibleIoBus.into());
         }
+        if io.is_some() && storage.descriptors.is_some() {
+            return Err(crate::ConfigurationError::UnsupportedMode.into());
+        }
         let runtime = WasmRuntimeHandle::new()?;
         if let Some(io) = &io {
             io.bind_runtime(&runtime);
         }
-        let bindings = runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, binding, storage))?;
+        let bindings =
+            runtime.with_runtime(|wasm| RuntimeMemory::new(wasm, binding, storage.context))?;
         let (compiler, cache) =
             runtime.with_runtime(|wasm| (wasm.compiler(), wasm.module_cache().cloned()));
         let dispatcher = code::dispatcher(&compiler, target).await?;
@@ -87,7 +91,7 @@ impl CpuInstance {
                 wasm.bind(abi::INTERPRET, &interpret),
                 wasm.bind(abi::RESOLVE_CALL, &resolve_call),
             ]);
-            let environment = Environment::new(wasm, io, &bindings)?;
+            let environment = Environment::new(wasm, io, &bindings, storage.descriptors)?;
             environment.extend_imports(wasm, &mut imports);
             let instance = wasm.instantiate(&interpreter, &imports)?;
             table.install_interpreter(wasm, &instance)?;

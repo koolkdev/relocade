@@ -98,15 +98,17 @@ impl Cpu {
     /// Drive CPUs sharing this backing cooperatively for unaligned locked operands.
     /// Inspect its registers and memory through [`Self::cpu_state`] and [`Self::memory`].
     /// Dispatch and host hook keys are linear EIP addresses. Instructions use the
-    /// loaded segment caches in `cpu`. Descriptor queries and reloads see empty tables.
+    /// loaded segment caches in `cpu`. The default tables contain flat ring-3 code
+    /// and data descriptors for selectors 0x1b and 0x23. Use [`Self::descriptor_tables`]
+    /// at a stopped boundary to configure further selectors, such as a thread's FS.
     pub async fn new_without_io(memory: Memory, cpu: CpuConfig) -> Result<Self> {
-        CpuStorage::new()?.attach(memory, cpu, None).await
+        CpuStorage::new()?.into_cpu_without_io(memory, cpu).await
     }
 
     async fn with_storage(
         binding: crate::memory::CpuBinding,
         io: Option<IoBus>,
-        storage: relocade_wasm_runtime::SharedMemory,
+        storage: CpuStorage,
     ) -> Result<Self> {
         let instance = CpuInstance::new(binding, io, storage).await?;
         Ok(Self {
@@ -118,6 +120,16 @@ impl Cpu {
             exit: ExitHandle::new(),
             halted: false,
         })
+    }
+
+    /// Borrows the descriptor tables selected for this CPU while the guest is stopped.
+    /// Flat CPUs sharing a memory see the same table unless given a private thread view.
+    /// Edits affect subsequent queries and reloads. Already-loaded caches retain their values.
+    /// PC CPUs have no host-managed descriptor tables.
+    pub fn descriptor_tables(
+        &mut self,
+    ) -> Option<std::sync::MutexGuard<'_, relocade_x86::DescriptorTables>> {
+        self.instance.guest.environment.descriptor_tables()
     }
 
     /// Returns an owned handle to a PC CPU's device bus.
