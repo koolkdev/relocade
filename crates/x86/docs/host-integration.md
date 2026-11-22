@@ -1218,12 +1218,12 @@ the vector through physical-memory routing. Operand/address/segment overrides do
 not alter these word transfers. Stack writes precede vector reads, including when
 the stack aliases the table. IF does not mask software interrupts. Entry clears
 IF, TF and AC, preserves other flags and dispatches with the new CS:IP; target
-fetch belongs to the next entry. INTO with OF clear dispatches to its fallthrough
-without touching the stack or vector table.
+fetch belongs to the next entry. In either mode, INTO with OF clear retires and
+dispatches to its fallthrough without touching the stack or vector table.
 
-Protected INT/INT3/INTO delivery returns the unsupported-instruction exit before
-effects. The forms are decoded before that exit, so INT requires its immediate
-byte in both modes. Protected interrupt gates remain unsupported.
+In protected mode, INT, INT3 and taken INTO return the unsupported-instruction
+exit before effects. The decoder requires the immediate byte for INT in both
+modes. Protected interrupt gates remain unsupported.
 
 ARPL/LAR/LSL/VERR/VERW raise #UD before operand access and terminate snapshot
 compilation. Both decoders read the selected form's physical encoding before

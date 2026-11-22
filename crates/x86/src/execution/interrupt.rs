@@ -20,7 +20,6 @@ impl InterruptEntry {
     fn check(
         execution: &mut ExecutionBuilder<'_, '_>,
         vector: &Val<I8>,
-        condition: impl Into<Val<I1>>,
     ) -> Result<Self, BuildError> {
         let bytes = InterruptFrame::BYTE_LEN as u32;
         let mut stack = execution
@@ -39,7 +38,7 @@ impl InterruptEntry {
             None,
             None,
         )?;
-        execution.guard_accesses(condition, [&mut stack.access, &mut vector])?;
+        execution.guard_accesses(true, [&mut stack.access, &mut vector])?;
         Ok(Self { stack, vector })
     }
 
@@ -130,19 +129,8 @@ impl ExecutionBuilder<'_, '_> {
         vector: Val<I8>,
         return_ip: Val<I32>,
     ) -> Result<Val<I32>, BuildError> {
-        let entry = InterruptEntry::check(self, &vector, true)?;
+        let entry = InterruptEntry::check(self, &vector)?;
         entry.enter(self, return_ip)
-    }
-
-    /// Access guards stay outside the taken arm so they can restart the instruction.
-    pub(crate) fn enter_interrupt_if(
-        &mut self,
-        condition: Val<I1>,
-        vector: Val<I8>,
-        return_ip: Val<I32>,
-    ) -> Result<(), BuildError> {
-        let entry = InterruptEntry::check(self, &vector, &condition)?;
-        self.dispatch_if(condition, |taken| entry.enter(taken, return_ip))
     }
 
     /// Publishes the ISR position without executing it or retiring an instruction.

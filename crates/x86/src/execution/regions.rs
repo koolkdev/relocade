@@ -5,18 +5,16 @@ use relocade_compiler::{Arguments, BlockBuilder, BuildError, Results, Val, I1, I
 use super::ExecutionBuilder;
 
 impl<'module> ExecutionBuilder<'_, 'module> {
-    /// Completes a conditional transfer with its own effects and destination.
-    /// The taken arm retires this instruction and dispatches; the other arm
-    /// continues unchanged. Faults inside the arm retain the entry boundary.
+    /// Retires the instruction and dispatches to `next_ip` when the condition holds.
     pub(crate) fn dispatch_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        transfer: impl FnOnce(&mut ExecutionBuilder<'_, 'module>) -> Result<Val<I32>, BuildError>,
+        next_ip: Val<I32>,
     ) -> Result<(), BuildError> {
         let nested = self.nested_builder();
         self.body.if_(condition, |body| {
             let mut arm = nested(body);
-            arm.eip = transfer(&mut arm)?;
+            arm.eip = next_ip;
             arm.completed += 1;
             arm.dispatch()
         })

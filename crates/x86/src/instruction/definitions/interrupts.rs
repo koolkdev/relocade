@@ -38,13 +38,9 @@ fn overflow_interrupt(
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
+    let overflow = execution.read_flag(Flag::OF)?;
+    execution.dispatch_if(overflow.eq(false), fallthrough.clone())?;
     let real = execution.real_mode()?;
     execution.unsupported_if(real.eq(false))?;
-    let overflow = execution.read_flag(Flag::OF)?;
-    execution.enter_interrupt_if(
-        overflow,
-        (ExceptionVector::Overflow as u32).into(),
-        fallthrough.clone(),
-    )?;
-    Ok(fallthrough)
+    execution.enter_interrupt((ExceptionVector::Overflow as u32).into(), fallthrough)
 }

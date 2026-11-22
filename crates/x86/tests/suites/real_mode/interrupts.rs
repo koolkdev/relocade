@@ -409,6 +409,22 @@ fn protected_modes(frontend: Frontend) {
             if profile == SegmentProfile::Segmented16 {
                 image.cpu.segments.cs.big = 0;
             }
+            if code == [0xce] {
+                image.cpu.flags.status_source.kind = 0; // Read OF from its backing byte.
+                image.cpu.flags.bytes.of = 0;
+                let cpu = retired(&image, code.len());
+                cases.check(
+                    "protected INTO with OF clear retires without interrupt delivery",
+                    code,
+                    &image,
+                    &[Step {
+                        cpu,
+                        ram: &[],
+                        exit: Exit::Dispatch(cpu.eip),
+                    }],
+                );
+                image.cpu.flags.bytes.of = 1;
+            }
             cases.check(
                 "protected interrupt delivery exits unsupported before any effects",
                 code,
@@ -422,7 +438,7 @@ fn protected_modes(frontend: Frontend) {
         }
     }
 }
-test_frontends!(protected_delivery_is_unsupported, protected_modes);
+test_frontends!(protected_software_interrupts, protected_modes);
 
 #[test]
 fn decoding_requires_the_vector_and_stops_at_the_transfer() {
