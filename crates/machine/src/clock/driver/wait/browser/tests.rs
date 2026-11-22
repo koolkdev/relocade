@@ -13,8 +13,6 @@ use std::{
 };
 use web_time::Instant;
 
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn notifications_before_waiting_interrupt_timed_and_idle_waits() {
     let thread = Thread::new();

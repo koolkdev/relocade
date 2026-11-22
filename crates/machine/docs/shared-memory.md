@@ -4,7 +4,10 @@ Guest backing and the CPU execution context use distinct shared Wasm memories
 on both backends. The Wasm physical-map table and dispatch bookkeeping stay private
 to the runtime. Compiled RAM instructions still use ordinary Wasm loads and stores. MMIO uses device callbacks.
 
-Allocate and initialize guest memory before constructing a CPU:
+Allocate and initialize guest memory before constructing a CPU. `Cpu::new` builds the
+backend on the calling thread. In a browser, run the following code on a dedicated
+worker. A page can prepare a `CpuHandle` with `Machine::create_cpu` and pass it to
+`ExecutionWorker::spawn` to launch the session.
 
 ```rust
 let memory = Memory::new(machine_config)?;

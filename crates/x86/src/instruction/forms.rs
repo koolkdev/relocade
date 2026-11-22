@@ -14,7 +14,7 @@ pub(crate) use opcodes::forms_by_opcode;
 
 use super::{
     handlers::{HandlerCall, SizedHandlers},
-    Availability, Group1Prefix, InstructionFlow, OperandSize, PrefixState, Requirements,
+    Group1Prefix, InstructionFlow, OperandSize, PrefixState, Requirements,
 };
 use crate::flags::Condition;
 use crate::register::NamedRegister;
@@ -24,6 +24,20 @@ pub(crate) enum OpcodeMap {
     #[default]
     Primary,
     Extended,
+}
+
+/// Instruction effects used by decoding and control-transfer handler adaptation.
+#[derive(Clone, Copy)]
+pub(super) enum ExecutionEffect {
+    ControlTransfer,
+    DescriptorLoad,
+    DescriptorQuery,
+    /// Device callbacks may change instruction routing; resume through dispatch.
+    PortIo,
+    /// Complete prior work and resume through dispatch before the next fetch.
+    Serializing,
+    /// Execution always raises a guest fault, so no successor belongs to the block.
+    UnconditionalFault,
 }
 
 /// Statically known continuations of instructions that end an execution block.
@@ -130,13 +144,21 @@ pub(crate) struct Form {
     pub(crate) modrm: Option<ModRmSelector>,
     handlers: SizedHandlers<HandlerBinding>,
     pub(super) condition: Option<Condition>,
-    pub(super) ends_block: bool,
+    pub(super) effects: &'static [ExecutionEffect],
     /// Block boundaries can still have discoverable continuations.
     pub(super) control_flow: Option<ControlFlow>,
     pub(super) requirements: Requirements,
 }
 
 impl Form {
+    fn ends_block(&self) -> bool {
+        self.control_flow.is_some()
+            || self
+                .effects
+                .iter()
+                .any(|effect| !matches!(effect, ExecutionEffect::DescriptorQuery))
+    }
+
     /// Prefix bytes select a form independently of operand and address widths.
     pub(crate) fn accepts_prefixes(&self, prefixes: &PrefixState) -> bool {
         match self.prefix {
@@ -268,7 +290,7 @@ impl ResolvedForm {
             Some(ControlFlow::FarCall) => InstructionFlow::FarCall {
                 return_eip: next_eip & self.offset_mask(),
             },
-            None if self.form.ends_block => InstructionFlow::Stop,
+            None if self.form.ends_block() => InstructionFlow::Stop,
             None => InstructionFlow::Continue,
         }
     }

@@ -11,21 +11,25 @@ instruction_families! {
     }
     LAR {
         execute: load_access_rights;
+        effects: [descriptor_query];
         availability: ProtectedOnly;
         forms { 0x0F 0x02 => word_or_dword(modrm_reg, rm16); }
     }
     LSL {
         execute: load_limit;
+        effects: [descriptor_query];
         availability: ProtectedOnly;
         forms { 0x0F 0x03 => word_or_dword(modrm_reg, rm16); }
     }
     VERR {
         execute: verify_read;
+        effects: [descriptor_query];
         availability: ProtectedOnly;
         forms { 0x0F 0x00 /4 => word(rm); }
     }
     VERW {
         execute: verify_write;
+        effects: [descriptor_query];
         availability: ProtectedOnly;
         forms { 0x0F 0x00 /5 => word(rm); }
     }
@@ -42,7 +46,7 @@ instruction_families! {
     }
     MOV_TO_SEGMENT {
         execute: load_selector;
-        effects: [segment_load, control_transfer];
+        effects: [control_transfer, descriptor_load];
         flow: Fallthrough;
         forms {
             0x8E /0 => word(segment(Segment::Es), rm);
@@ -65,7 +69,7 @@ instruction_families! {
     }
     POP_SEGMENT {
         execute: pop_selector::<_>;
-        effects: [segment_load, control_transfer];
+        effects: [control_transfer, descriptor_load];
         flow: Fallthrough;
         forms {
             0x07 => word_or_dword(segment(Segment::Es));
@@ -77,7 +81,7 @@ instruction_families! {
     }
     LOAD_FAR_POINTER {
         execute: load_pointer;
-        effects: [segment_load];
+        effects: [descriptor_load];
         flow: Fallthrough;
         forms {
             0xC4 => word_or_dword(modrm_reg, mem, segment(Segment::Es));

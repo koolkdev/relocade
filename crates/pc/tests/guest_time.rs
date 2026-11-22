@@ -4,7 +4,7 @@ use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
 use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn pit_interrupts() {
     let mut machine = relocade_machine::Machine::new(relocade_pc::configuration::memory()).unwrap();
