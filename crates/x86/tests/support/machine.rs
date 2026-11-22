@@ -12,6 +12,8 @@ pub(crate) fn protected_state(fill: u8) -> CpuState {
         segments: initialized.segments,
         ..CpuState::filled(fill)
     };
+    cpu.flags.bytes.if_ |= 1;
+    cpu.flags.bytes.iopl &= !3;
     cpu.flags.bytes.vm = 0;
     cpu
 }

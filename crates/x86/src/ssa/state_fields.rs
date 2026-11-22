@@ -203,12 +203,10 @@ impl StateFields {
         }
     }
 
-    /// Admission guarantees these facts at entry. Reads consume only the matching
-    /// field's assumptions; writes discard assumptions for overlapping fields.
-    pub(crate) fn with_entry_guarantees(mut self, guarantees: Vec<StatePattern>) -> Self {
+    /// Reads consume the fact for its field; an overlapping write discards it.
+    pub(crate) fn add_entry_guarantee(&mut self, pattern: StatePattern) {
         assert!(self.definitions.is_empty());
-        self.entry_guarantees = guarantees;
-        self
+        self.entry_guarantees.push(pattern);
     }
 
     pub(crate) fn read<T: SsaType>(

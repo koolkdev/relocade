@@ -19,7 +19,8 @@ the shared Rust signature `fn() -> ExecutionExit`.
 table for protected profiles. To generate a protected-mode interpreter for a PC
 with guest paging disabled, use
 `build_interpreter_with_memory(profile, MemoryBackend::PhysicalBus)`.
-The profile still governs segmentation and privilege checks.
+Both configurations apply the selected segment guarantees. The protected PC reads IF and IOPL
+from the executing CPU. Hosted protected entries require IF=1 and IOPL=0.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_blocks` and `compile_dispatcher`.
@@ -508,8 +509,9 @@ retry result. Both snapshot blocks and interpreter runs publish completed state
 and dispatch after a port instruction, so the host can validate the next code
 entry against device changes. Devices and any pending interrupts belong to the host.
 
-Protected profiles fix CPL3/IOPL0 and expose no TSS I/O permission bitmap grants;
-port instructions raise #GP(0) after decoding and before device effects. LOCK
+Hosted protected entries require CPL3/IOPL0, so port instructions raise #GP(0)
+after decoding and before device effects. The PC compares CPL with the live IOPL.
+TSS I/O permission bitmap grants are unimplemented. LOCK
 uses the shared unsupported-encoding exit. Operand-size overrides choose
 word/dword transfers independently of the port address. Segment and address-size
 overrides do not affect scalar I/O.
@@ -729,8 +731,9 @@ of `if_`; IOPL uses bits 0–1 of `iopl`. Other bits are retained by snapshot co
 Valid source kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
-The hosted user profiles guarantee CPL3 and expose IF=1 and IOPL=0 regardless of
-the stored flag bytes. PC flag transfers read IF and IOPL from the CPU. POPF and
+Hosted user entry requires CPL3, bit 0 of IF set, and the low two bits of IOPL clear.
+Admission checks these CPU fields, and both the interpreter and compiled blocks can fold
+reads of the guaranteed bits. PC entries leave IF and IOPL live. POPF and
 IRET may restore IF when CPL permits I/O under the old IOPL, and may restore
 IOPL at CPL0. Word stack images restore the represented low flags; dword images
 also restore AC and ID. VM/RF/VIF/VIP are clear in these images. IRETD restores
@@ -985,9 +988,9 @@ The runtime must ensure that each entry matches `CompiledModule::execution_targe
 before execution, including entries reached through a direct dispatch link. This
 replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
 requires exact target equality and checks the architectural state and segment
-caches. `CpuState::is_compatible_with(profile)` validates the legacy profile
-contract against CR0, CR4, VM, CPL and loaded caches. Mode comes from CPU state;
-the installed target retains the requirements of existing generated code.
+caches. `ExecutionTarget::admits_cpu` checks admission for the configured memory
+backend, including its IF and IOPL guarantees. `CpuState::is_compatible_with(profile)`
+checks the default backend for that profile.
 
 Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
 CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
@@ -1121,8 +1124,8 @@ IRQ entry saves the post-HLT IP, and recognition ends the halt even if frame
 construction faults. A queued maskable IRQ cannot wake HLT with IF clear.
 These rules follow Intel SDM [Volume 2, HLT](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
-CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
+CLI/STI clear or set IF when CPL permits I/O under the current IOPL. Hosted CPL3/IOPL0
+entries raise #GP(0). IF changes are immediately visible to PUSHF. In Real16, STI from IF=0 and
 MOV/POP SS publish their effects, retire and return
 `ExecutionExit::InterruptInhibited`. The embedding immediately executes the
 protected successor through the interpreter's existing `step` export before

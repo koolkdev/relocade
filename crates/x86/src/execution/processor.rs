@@ -24,25 +24,13 @@ impl ExecutionBuilder<'_, '_> {
         self.state.privilege_level(&mut self.body)
     }
 
-    pub(crate) fn effective_interrupt_flag(&mut self) -> Result<Val<I1>, BuildError> {
-        match self.state.interrupt_flag_policy() {
-            crate::profile::InterruptFlagPolicy::Architectural => {
-                self.read_flag(crate::flags::Flag::IF)
-            }
-            crate::profile::InterruptFlagPolicy::HostedUser => Ok(true.into()),
-        }
-    }
-
-    pub(crate) fn effective_iopl(&mut self) -> Result<Val<I8>, BuildError> {
-        match self.state.interrupt_flag_policy().fixed_iopl() {
-            Some(iopl) => Ok((iopl as u32).into()),
-            None => self.state.read_iopl(&mut self.body),
-        }
+    pub(crate) fn read_iopl(&mut self) -> Result<Val<I8>, BuildError> {
+        self.state.read_iopl(&mut self.body)
     }
 
     pub(crate) fn io_privilege_denied(&mut self) -> Result<Val<I1>, BuildError> {
         let cpl = self.privilege_level()?;
-        Ok(self.effective_iopl()?.unsigned().lt(cpl))
+        Ok(self.read_iopl()?.unsigned().lt(cpl))
     }
 
     pub(crate) fn timestamp_access_denied(&mut self) -> Result<Val<I1>, BuildError> {

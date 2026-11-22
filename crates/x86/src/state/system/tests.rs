@@ -61,20 +61,25 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
 }
 
 #[test]
-fn admitted_modes_fold_privilege_and_timestamp_predicates() {
-    for profile in [
-        ExecutionProfile::Real16,
-        SegmentProfile::Flat32.into(),
-        SegmentProfile::Segmented16.into(),
+fn entry_guarantees_fold_control_and_interrupt_flag_reads() {
+    use crate::{flags::Flag, profile::EntryGuarantees, ExecutionTarget, MemoryBackend};
+
+    let protected16 = SegmentProfile::Segmented16.into();
+    for (profile, memory, fixed_interrupt_flags) in [
+        (ExecutionProfile::Real16, MemoryBackend::PhysicalBus, false),
+        (
+            SegmentProfile::Flat32.into(),
+            MemoryBackend::HostPageTable,
+            true,
+        ),
+        (protected16, MemoryBackend::HostPageTable, true),
+        (protected16, MemoryBackend::PhysicalBus, false),
     ] {
+        let target = ExecutionTarget::new(profile, memory);
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::for_entry(
-                &cpu,
-                profile,
-                &crate::profile::EntryGuarantees::for_profile(profile),
-            );
+            let mut state = State::for_entry(&cpu, profile, &EntryGuarantees::for_target(target));
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;
@@ -88,6 +93,16 @@ fn admitted_modes_fold_privilege_and_timestamp_predicates() {
                 Some(if is_protected { 3 } else { 0 })
             );
             assert_eq!(body.constant_bits(&tsd)?, Some(0));
+            let interrupt = state.read_flag(&mut body, Flag::IF)?;
+            let iopl = state.read_iopl(&mut body)?;
+            assert_eq!(
+                body.constant_bits(&interrupt)?,
+                fixed_interrupt_flags.then_some(1)
+            );
+            assert_eq!(
+                body.constant_bits(&iopl)?,
+                fixed_interrupt_flags.then_some(0)
+            );
             body.return_(())
         });
         program.export("check", function).unwrap();

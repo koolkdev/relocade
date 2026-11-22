@@ -305,11 +305,9 @@ fn qword_reads_are_retained_and_only_the_latest_definition_is_published() {
 #[test]
 fn entry_guarantees_wait_for_their_field_and_writes_replace_them() {
     let emitted = accesses(|body, state| {
-        *state = state.clone().with_entry_guarantees(vec![
-            StatePattern::field(Location::<I32>::new(4), 7),
-            StatePattern::bits(Location::<I16>::new(8), 3, 2),
-            StatePattern::field(Location::<I32>::new(12), 9),
-        ]);
+        state.add_entry_guarantee(StatePattern::field(Location::<I32>::new(4), 7));
+        state.add_entry_guarantee(StatePattern::bits(Location::<I16>::new(8), 3, 2));
+        state.add_entry_guarantee(StatePattern::field(Location::<I32>::new(12), 9));
         let admitted = state.read(body, Location::<I32>::new(4)).unwrap();
         assert_eq!(body.constant_bits(&admitted).unwrap(), Some(7));
         // A partial write before the first read invalidates the wider entry fact.
@@ -341,10 +339,8 @@ fn entry_guarantees_wait_for_their_field_and_writes_replace_them() {
 #[test]
 fn indexed_writes_discard_unread_entry_guarantees_in_their_span() {
     let emitted = accesses(|body, state| {
-        *state = state.clone().with_entry_guarantees(vec![
-            StatePattern::field(Location::<I32>::new(16), 7),
-            StatePattern::field(Location::<I32>::new(24), 9),
-        ]);
+        state.add_entry_guarantee(StatePattern::field(Location::<I32>::new(16), 7));
+        state.add_entry_guarantee(StatePattern::field(Location::<I32>::new(24), 9));
         let offset = body.parameter::<I32>(0).unwrap().and(1).shl(2);
         state
             .define(body, Location::<I32>::indexed(16, 8, offset), 11)

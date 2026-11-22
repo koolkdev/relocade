@@ -1,10 +1,9 @@
 //! Architectural flag images, independent of the stored flag record.
 //!
-//! The hosting policy supplies the effective IF and IOPL for stack transfers.
 //! VM is excluded from these stack images; RF/VIF/VIP remain unrepresented.
 //! Transferring TF, IF, NT, AC or ID does not implement debug delivery, task
-//! switching or alignment checks. Real-mode
-//! external interrupt eligibility uses IF after completing any protected successor.
+//! switching or alignment checks. Real-mode external interrupt eligibility uses IF
+//! after completing any protected successor.
 
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
@@ -69,15 +68,11 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     let interrupt = execution
-        .effective_interrupt_flag()?
+        .read_flag(Flag::IF)?
         .unsigned()
         .extend::<I32>()
         .shl(bit(Flag::IF));
-    let iopl = execution
-        .effective_iopl()?
-        .unsigned()
-        .extend::<I32>()
-        .shl(12);
+    let iopl = execution.read_iopl()?.unsigned().extend::<I32>().shl(12);
     Ok(image.or(interrupt).or(iopl).truncate::<T>())
 }
 
@@ -98,10 +93,10 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     execution.write_flags(change)?;
-    // IF is writable at CPL <= the old effective IOPL. Only CPL0 can restore IOPL.
+    // IF is writable at CPL <= the old IOPL. Only CPL0 can restore IOPL.
     let cpl = execution.privilege_level()?;
-    let can_change_if = execution.effective_iopl()?.unsigned().ge(&cpl);
-    let before = execution.effective_interrupt_flag()?;
+    let can_change_if = execution.read_iopl()?.unsigned().ge(&cpl);
+    let before = execution.read_flag(Flag::IF)?;
     let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
     execution
         .write_flags(FlagChange::partial([(Flag::IF, enabled.clone())]).when(&can_change_if))?;

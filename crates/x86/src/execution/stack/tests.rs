@@ -16,11 +16,8 @@ fn instruction(bytes: &[u8]) -> TestModule {
     let target = Compiler::new(SegmentProfile::Segmented16)
         .with_memory_backend(MemoryBackend::PhysicalBus)
         .target();
-    let module = ExecutionModule::declare(
-        &mut program,
-        target,
-        EntryGuarantees::for_profile(target.profile),
-    );
+    let module =
+        ExecutionModule::declare(&mut program, target, EntryGuarantees::for_target(target));
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;
@@ -167,14 +164,15 @@ fn enter_checks_the_final_word_after_saving_bp() {
 }
 
 #[test]
-fn cpl3_stack_flags_and_cli_use_the_same_effective_iopl() {
+fn cpl3_stack_flags_and_cli_check_the_admitted_iopl() {
     let live = [0x9c, 0x9d, 0xfa].map(|opcode| instruction(&[opcode]));
+    let live = live.each_ref();
     let hosted = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
-    // The backing IF starts clear. POPF tries to set it and to change IOPL to 1.
-    for (modules, stored_iopl, pushed_flags, restored_if, cli_denied) in [
-        ([&live[0], &live[1], &live[2]], 0xff, 0x3002u16, 1, false),
-        ([&live[0], &live[1], &live[2]], 0xfc, 0x0002u16, 0xfe, true),
-        ([hosted; 3], 0xff, 0x0202u16, 0xfe, true),
+    // POPF requests IF=1 and IOPL=1. An unwritable field retains its entire byte.
+    for (modules, stored_if, stored_iopl, pushed_flags, restored_if, cli_denied) in [
+        (live, 0xfe, 0xff, 0x3002u16, 1, false),
+        (live, 0xfe, 0xfc, 0x0002u16, 0xfe, true),
+        ([hosted; 3], 0xff, 0xfc, 0x0202u16, 0xff, true),
     ] {
         for (opcode, module) in [0x9c, 0x9d, 0xfa].into_iter().zip(modules) {
             let mut image = Image::new(&[opcode]);
@@ -182,7 +180,7 @@ fn cpl3_stack_flags_and_cli_use_the_same_effective_iopl() {
                 CpuState::protected_mode(SegmentDefaultSize::Bits16, SegmentDefaultSize::Bits16);
             image.cpu.eip = 0x1000;
             image.cpu.registers.esp = 0x2002;
-            image.cpu.flags.bytes.if_ = 0xfe;
+            image.cpu.flags.bytes.if_ = stored_if;
             image.cpu.flags.bytes.iopl = stored_iopl;
             image.map(2, 0x4000, true);
             image.data(0x4002, &0x1202u16.to_le_bytes());

@@ -86,22 +86,15 @@ impl<'cpu> State<'cpu> {
     ) -> Self {
         let mut state = Self::new(cpu);
         state.profile = Some(profile);
-        state.fields = state
-            .fields
-            .with_entry_guarantees(guarantees.patterns().to_vec());
+        for &pattern in guarantees.patterns() {
+            state.fields_for(pattern).add_entry_guarantee(pattern);
+        }
         state
     }
 
     pub(crate) fn profile(&self) -> crate::ExecutionProfile {
         self.profile
             .expect("execution requires an admitted profile")
-    }
-
-    pub(crate) fn interrupt_flag_policy(&self) -> crate::profile::InterruptFlagPolicy {
-        self.profile.map_or(
-            crate::profile::InterruptFlagPolicy::Architectural,
-            crate::profile::InterruptFlagPolicy::for_profile,
-        )
     }
 
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {

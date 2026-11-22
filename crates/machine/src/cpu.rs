@@ -119,8 +119,16 @@ impl CpuStateAccess {
     }
 
     /// Changes live IF without touching arithmetic flags or creating STI's shadow.
+    ///
+    /// # Panics
+    /// Panics before writing if the execution target fixes IF to another value.
+    #[track_caller]
     #[inline]
     pub fn set_interrupts_enabled(&self, enabled: bool) {
+        assert!(
+            self.target.admits_interrupts_enabled(enabled),
+            "IF violates the execution target"
+        );
         self.store(offset_of!(CpuState, flags.bytes.if_), u8::from(enabled));
     }
 
@@ -129,20 +137,18 @@ impl CpuStateAccess {
         FlagsState::from_bytes(self.read(offset_of!(CpuState, flags))).eflags()
     }
 
-    /// Replaces represented flags. This is host editing, not a privilege-checked
-    /// POPFD operation; fixed and unrepresented bits are ignored.
+    /// Replaces the represented flags from the supplied EFLAGS image.
     ///
     /// # Panics
-    /// Panics before writing if VM is set; virtual-8086 execution is unsupported.
+    /// Panics before writing if VM is set or if IF or IOPL violates the execution target.
     #[track_caller]
     pub fn set_eflags(&self, value: u32) {
-        assert_eq!(
-            value & (1 << 17),
-            0,
-            "virtual-8086 execution is unsupported"
-        );
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
+        assert!(
+            self.target.admits_flags(&flags),
+            "EFLAGS violates the execution target"
+        );
         self.write(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
     }
 

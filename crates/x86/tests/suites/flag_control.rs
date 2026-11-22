@@ -132,7 +132,7 @@ fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
                     image.cpu.segments.cs.big = 0;
                 }
                 cases.check(
-                    "CLI/STI fault at CPL3/IOPL0 regardless of stored IF/IOPL bytes",
+                    "CLI/STI fault at CPL3/IOPL0 and preserve flag backing bytes",
                     &code,
                     &image,
                     &[Step {
@@ -149,6 +149,39 @@ crate::support::execution::test_frontends!(
     interrupt_controls_require_privilege,
     interrupt_controls_fault
 );
+
+#[test]
+fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
+    use crate::support::{
+        machine::{expected, Exit, Image, Step},
+        step::TestModule,
+    };
+    use relocade_x86::{Compiler, MemoryBackend, SegmentProfile};
+
+    let code = [0xfa, 0xf4]; // CLI; HLT
+    let compiler =
+        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let mut image = Image::new(&code);
+    image.cpu.flags.bytes.iopl = 3;
+    let mut after_cli = image.cpu;
+    after_cli.flags.bytes.if_ = 0;
+    after_cli.eip += 1;
+    after_cli.instruction_count = after_cli.instruction_count.wrapping_add(1);
+    let wanted = expected(
+        &image,
+        &[Step {
+            cpu: after_cli,
+            ram: &[],
+            exit: Exit::GeneralProtection { error: 0 },
+        }],
+    );
+
+    let block = TestModule::new(&compiler.compile_block(image.cpu.eip, &code, 2).unwrap());
+    let run = TestModule::interpreter_run_with_target(compiler.target());
+    for module in [&block, run] {
+        assert_eq!(module.observe(&image.input(), 1), wanted);
+    }
+}
 
 #[test]
 fn protected_interrupt_controls_stop_before_snapshot_successors() {

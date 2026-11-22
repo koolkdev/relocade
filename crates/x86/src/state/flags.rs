@@ -25,7 +25,7 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 #[derive(Clone)]
 pub(super) struct FlagTracker {
     status: StatusState,
-    direct: StateFields,
+    pub(super) direct: StateFields,
 }
 
 fn direct_location(flag: Flag) -> Option<Location<I8>> {

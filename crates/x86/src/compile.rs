@@ -34,12 +34,10 @@ impl Compiler {
     /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
     pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
         let profile = profile.into();
-        Self::from_target(ExecutionTarget {
+        Self::from_target(ExecutionTarget::new(
             profile,
-            memory_backend: MemoryBackend::default_for(profile),
-            cpu_model: CpuModel::default(),
-            instruction_budgets: true,
-        })
+            MemoryBackend::default_for(profile),
+        ))
     }
 
     /// Compiles for an existing target, retaining its memory backend, CPU model and budget policy.

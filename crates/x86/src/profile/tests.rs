@@ -87,3 +87,23 @@ fn entry_compatibility_requires_the_complete_target_and_current_segment_assumpti
     assert!(real.is_compatible_with(real, &CpuState::real_mode()));
     assert!(!real.is_compatible_with(target, &CpuState::real_mode()));
 }
+
+#[test]
+fn hosted_targets_admit_only_the_guaranteed_interrupt_flag_bits() {
+    use crate::{Compiler, MemoryBackend, SegmentProfile};
+    let hosted = Compiler::new(SegmentProfile::Flat32).target();
+    let pc = crate::ExecutionTarget {
+        memory_backend: MemoryBackend::PhysicalBus,
+        ..hosted
+    };
+    let mut cpu = CpuState::default();
+    cpu.flags.bytes.if_ = 0xff;
+    cpu.flags.bytes.iopl = 0xfc;
+    assert!(hosted.admits_cpu(&cpu));
+    for (interrupts_enabled, iopl) in [(0xfe, 0xfc), (0xff, 0xff)] {
+        cpu.flags.bytes.if_ = interrupts_enabled;
+        cpu.flags.bytes.iopl = iopl;
+        assert!(!hosted.admits_cpu(&cpu));
+        assert!(pc.admits_cpu(&cpu));
+    }
+}
