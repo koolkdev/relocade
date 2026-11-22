@@ -35,12 +35,15 @@ impl StatePattern {
         }
     }
 
-    pub(crate) fn matches_record(self, record: &[u8], record_offset: usize) -> bool {
-        let start = self.location.offset as usize - record_offset;
-        let bytes = self.location.bytes as usize;
-        let mut encoded = [0; size_of::<u64>()];
-        encoded[..bytes].copy_from_slice(&record[start..start + bytes]);
-        u64::from_le_bytes(encoded) & self.mask == self.expected
+    /// Compares the constrained bits covered by this full or partial CPU record.
+    pub(crate) fn matches_record(self, bytes: &[u8], offset: usize) -> bool {
+        let field = self.location.offset as usize;
+        let start = offset.max(field);
+        let end = (offset + bytes.len()).min(field + self.location.bytes as usize);
+        (start..end).all(|at| {
+            let mask = self.mask.to_le_bytes()[at - field];
+            bytes[at - offset] & mask == self.expected.to_le_bytes()[at - field]
+        })
     }
 
     pub(crate) fn within_record(self, offset: usize, bytes: usize) -> bool {
@@ -89,5 +92,22 @@ impl StatePattern {
             8 => fields.assume_bits(body, Location::<I64>::new(offset), self.mask, self.expected),
             _ => unreachable!("state patterns have scalar storage widths"),
         }
+    }
+}
+
+impl<T: SsaType + IntType> Location<T> {
+    /// Read the requested bits only when the supplied patterns establish the full mask.
+    pub(crate) fn known_bits(
+        self,
+        patterns: impl Iterator<Item = StatePattern>,
+        mask: impl Into<u32>,
+    ) -> Option<u32> {
+        let field = StatePattern::bits(self, u64::from(mask.into()), 0);
+        let (mut known, mut value) = (0, 0);
+        for pattern in patterns.filter(|pattern| pattern.location == field.location) {
+            known |= pattern.mask;
+            value |= pattern.expected;
+        }
+        (known & field.mask == field.mask).then_some((value & field.mask) as u32)
     }
 }

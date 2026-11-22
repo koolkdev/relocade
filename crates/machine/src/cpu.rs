@@ -125,11 +125,7 @@ impl CpuStateAccess {
     #[track_caller]
     #[inline]
     pub fn set_interrupts_enabled(&self, enabled: bool) {
-        assert!(
-            self.target.admits_interrupts_enabled(enabled),
-            "IF violates the execution target"
-        );
-        self.store(offset_of!(CpuState, flags.bytes.if_), u8::from(enabled));
+        self.write_flags(offset_of!(CpuState, flags.bytes.if_), &[u8::from(enabled)]);
     }
 
     /// Returns represented EFLAGS bits, resolving any lazy arithmetic flags.
@@ -145,11 +141,16 @@ impl CpuStateAccess {
     pub fn set_eflags(&self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
+        self.write_flags(offset_of!(CpuState, flags), &flags.to_bytes());
+    }
+
+    #[track_caller]
+    fn write_flags(&self, offset: usize, bytes: &[u8]) {
         assert!(
-            self.target.admits_flags(&flags),
-            "EFLAGS violates the execution target"
+            self.target.matches_control_write(offset, bytes),
+            "flag write violates the CPU entry assumptions"
         );
-        self.write(offset_of!(CpuState, flags) as u32, &flags.to_bytes());
+        self.write(offset as u32, bytes);
     }
 
     pub fn carry(&self) -> bool {

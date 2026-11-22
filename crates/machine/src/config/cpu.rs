@@ -43,7 +43,7 @@ pub(crate) fn validate_cpu(
     target: ExecutionTarget,
     cpu: &CpuState,
 ) -> Result<(), ConfigurationError> {
-    if !target.admits_cpu(cpu) {
+    if !cpu.is_compatible_with(target) {
         return Err(ConfigurationError::IncompatibleCpu);
     }
     validate_idtr(cpu.mode(), cpu.idtr)?;

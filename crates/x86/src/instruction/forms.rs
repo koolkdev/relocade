@@ -247,7 +247,7 @@ impl ResolvedForm {
         next_eip: u32,
         target: crate::ExecutionTarget,
     ) -> InstructionFlow {
-        if self.form.requirements.known_fault(target).is_some() {
+        if self.form.requirements.always_faults(target) {
             return InstructionFlow::Stop;
         }
         let relative_target = || {

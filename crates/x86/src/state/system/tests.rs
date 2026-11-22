@@ -118,7 +118,7 @@ fn segment_and_privilege_reads_share_the_same_selector() {
         let mut state = State::for_entry(
             &cpu,
             SegmentProfile::Flat32.into(),
-            &crate::profile::EntryGuarantees::for_profile(SegmentProfile::Flat32.into()),
+            &crate::profile::EntryGuarantees::for_target(SegmentProfile::Flat32),
         );
         let selector = state
             .segments()

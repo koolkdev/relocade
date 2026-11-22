@@ -28,11 +28,6 @@ impl ExecutionBuilder<'_, '_> {
         self.state.read_iopl(&mut self.body)
     }
 
-    pub(crate) fn io_privilege_denied(&mut self) -> Result<Val<I1>, BuildError> {
-        let cpl = self.privilege_level()?;
-        Ok(self.read_iopl()?.unsigned().lt(cpl))
-    }
-
     pub(crate) fn timestamp_access_denied(&mut self) -> Result<Val<I1>, BuildError> {
         self.state.timestamp_access_denied(&mut self.body)
     }

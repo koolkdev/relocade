@@ -172,7 +172,7 @@ fn constant_empty_span_is_denied_without_faulting() {
         let mut state = State::for_entry(
             &cpu,
             ExecutionProfile::Real16,
-            &crate::profile::EntryGuarantees::for_profile(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::for_target(ExecutionProfile::Real16),
         );
         let check =
             state

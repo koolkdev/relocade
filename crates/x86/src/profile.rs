@@ -5,8 +5,7 @@ use std::{mem::offset_of, sync::Arc};
 
 use crate::{
     state::{access::cpu_location, cr0, cr4, StatePattern},
-    CpuMode, CpuModel, CpuState, ExecutionContext, FlagBytes, FlagsState, PrivilegeLevel,
-    SegmentDefaultSize,
+    CpuModel, CpuState, ExecutionContext, FlagBytes, PrivilegeLevel, SegmentDefaultSize,
 };
 
 macro_rules! require_bits {
@@ -19,27 +18,32 @@ macro_rules! require_bits {
     };
 }
 
-/// Bits consumed by mode and privilege predicates. Other supported-state
-/// restrictions remain in CPU admission until their transitions are implemented.
-fn control_assumptions(target: ExecutionTarget) -> Vec<StatePattern> {
+/// Control bits established by the runtime and available to generated code on entry.
+pub(crate) fn control_assumptions(
+    target: ExecutionTarget,
+) -> impl Iterator<Item = StatePattern> + Clone {
     let protected = matches!(target.profile, ExecutionProfile::Protected(_));
-    let mut requirements = vec![
-        require_bits!(
+    let hosted = protected && target.memory_backend == MemoryBackend::HostPageTable;
+    [
+        Some(require_bits!(
             cr0,
             cr0::PROTECTION_ENABLE,
             if protected { cr0::PROTECTION_ENABLE } else { 0 }
-        ),
-        require_bits!(cr4, cr4::TIMESTAMP_DISABLE, 0u32),
-    ];
-    if protected {
-        requirements.push(require_bits!(
-            segments.cs.selector,
-            u16::from(PrivilegeLevel::MASK),
-            target.privilege_level() as u16
-        ));
-    }
-    requirements.extend(target.flag_assumptions());
-    requirements
+        )),
+        Some(require_bits!(cr4, cr4::TIMESTAMP_DISABLE, 0u32)),
+        Some(require_bits!(flags.bytes.vm, FlagBytes::BOOLEAN_MASK, 0u8)),
+        protected.then(|| {
+            require_bits!(
+                segments.cs.selector,
+                u16::from(PrivilegeLevel::MASK),
+                PrivilegeLevel::Ring3 as u16
+            )
+        }),
+        hosted.then(|| require_bits!(flags.bytes.if_, FlagBytes::BOOLEAN_MASK, 1u8)),
+        hosted.then(|| require_bits!(flags.bytes.iopl, PrivilegeLevel::MASK, 0u8)),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 /// CPU field values the execution owner establishes on every entry to this profile.
@@ -48,14 +52,8 @@ fn control_assumptions(target: ExecutionTarget) -> Vec<StatePattern> {
 pub(crate) struct EntryGuarantees(Arc<[StatePattern]>);
 
 impl EntryGuarantees {
-    pub(crate) fn for_profile(profile: ExecutionProfile) -> Self {
-        Self::for_target(ExecutionTarget::new(
-            profile,
-            MemoryBackend::default_for(profile),
-        ))
-    }
-
-    pub(crate) fn for_target(target: ExecutionTarget) -> Self {
+    pub(crate) fn for_target(target: impl Into<ExecutionTarget>) -> Self {
+        let target = target.into();
         Self::new(
             target,
             Some(SegmentDefaultSize::for_profile(target.profile)),
@@ -67,7 +65,7 @@ impl EntryGuarantees {
         target: ExecutionTarget,
         protected_code_default: Option<SegmentDefaultSize>,
     ) -> Self {
-        let mut fields = control_assumptions(target);
+        let mut fields: Vec<_> = control_assumptions(target).collect();
         for segment in crate::Segment::ALL {
             fields.extend(crate::segment::profile::assumptions(
                 target.profile,
@@ -108,51 +106,14 @@ impl ExecutionTarget {
         }
     }
 
-    pub(crate) fn privilege_level(self) -> PrivilegeLevel {
-        match self.profile {
-            ExecutionProfile::Real16 => PrivilegeLevel::Ring0,
-            ExecutionProfile::Protected(_) => PrivilegeLevel::Ring3,
+    /// Checks the constrained control bits touched by a host write to the CPU image.
+    /// The offset is relative to `CpuState`. Bits outside the write keep their live values.
+    pub fn matches_control_write(self, offset: usize, bytes: &[u8]) -> bool {
+        if offset > CpuState::BYTE_LEN || bytes.len() > CpuState::BYTE_LEN - offset {
+            return false;
         }
-    }
-
-    /// The hosted user configuration fixes IOPL. PC configurations leave it live.
-    pub(crate) fn guaranteed_iopl(self) -> Option<PrivilegeLevel> {
-        match (self.profile, self.memory_backend) {
-            (ExecutionProfile::Protected(_), MemoryBackend::HostPageTable) => {
-                Some(PrivilegeLevel::Ring0)
-            }
-            _ => None,
-        }
-    }
-
-    fn flag_assumptions(self) -> impl Iterator<Item = StatePattern> {
-        let hosted = self.guaranteed_iopl().map(|iopl| {
-            [
-                require_bits!(flags.bytes.if_, FlagBytes::BOOLEAN_MASK, 1u8),
-                require_bits!(flags.bytes.iopl, PrivilegeLevel::MASK, iopl as u8),
-            ]
-        });
-        std::iter::once(require_bits!(flags.bytes.vm, FlagBytes::BOOLEAN_MASK, 0u8))
-            .chain(hosted.into_iter().flatten())
-    }
-
-    fn admits_flag_record(self, record: &[u8], offset: usize) -> bool {
-        self.flag_assumptions()
-            .filter(|pattern| pattern.within_record(offset, record.len()))
-            .all(|pattern| pattern.matches_record(record, offset))
-    }
-
-    /// Checks a flag record before restoring it or replacing the represented EFLAGS.
-    pub fn admits_flags(self, flags: &FlagsState) -> bool {
-        self.admits_flag_record(&flags.to_bytes(), offset_of!(ExecutionContext, cpu.flags))
-    }
-
-    /// Checks an isolated IF write without reading the other live flags.
-    pub fn admits_interrupts_enabled(self, enabled: bool) -> bool {
-        self.admits_flag_record(
-            &[u8::from(enabled)],
-            offset_of!(ExecutionContext, cpu.flags.bytes.if_),
-        )
+        let offset = offset_of!(ExecutionContext, cpu) + offset;
+        control_assumptions(self).all(|field| field.matches_record(bytes, offset))
     }
 
     /// Check an entry against the installed target and architectural CPU state.
@@ -161,31 +122,28 @@ impl ExecutionTarget {
     /// and specialization requirements. Code bytes, fetch permissions and mappings require
     /// separate validation as described by the entry-validity contract.
     pub fn is_compatible_with(self, active: Self, cpu: &CpuState) -> bool {
-        self == active && self.admits_cpu(cpu)
+        self == active && cpu.is_compatible_with(self)
     }
+}
 
-    /// Checks whether the architectural CPU state satisfies this target's entry guarantees.
-    /// Control bits outside the supported baseline can be stored but cannot execute yet.
-    pub fn admits_cpu(self, cpu: &CpuState) -> bool {
-        let mode = match self.profile {
-            ExecutionProfile::Real16 => CpuMode::Real,
-            ExecutionProfile::Protected(_) => CpuMode::Protected,
-        };
-        cpu.mode() == mode
-            && self.admits_flags(&cpu.flags)
-            // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
-            && cpu.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
-            // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
-            && cpu.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
-            && cpu.segments.is_compatible_with(self.profile)
+impl<P: Into<ExecutionProfile>> From<P> for ExecutionTarget {
+    fn from(profile: P) -> Self {
+        let profile = profile.into();
+        Self::new(profile, MemoryBackend::default_for(profile))
     }
 }
 
 impl CpuState {
-    /// Checks admission for the default execution target of this profile.
-    pub fn is_compatible_with(&self, profile: impl Into<ExecutionProfile>) -> bool {
-        let profile = profile.into();
-        ExecutionTarget::new(profile, MemoryBackend::default_for(profile)).admits_cpu(self)
+    /// Checks the control state and segment caches before running this CPU image.
+    /// Passing a profile selects its default memory backend.
+    pub fn is_compatible_with(&self, target: impl Into<ExecutionTarget>) -> bool {
+        let target = target.into();
+        target.matches_control_write(0, &self.to_bytes())
+            // ET and NE are set; EM, TS, paging and other unimplemented controls are clear.
+            && self.cr0 & !cr0::PROTECTION_ENABLE == (cr0::EXTENSION_TYPE | cr0::NUMERIC_ERROR)
+            // OSFXSR and OSXMMEXCPT are set; TSD and other controls are clear.
+            && self.cr4 == (cr4::OS_FXSR | cr4::OS_XMM_EXCEPTIONS)
+            && self.segments.is_compatible_with(target.profile)
     }
 }
 

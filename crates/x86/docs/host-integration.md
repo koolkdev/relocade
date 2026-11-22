@@ -296,9 +296,11 @@ semantics without speculative guards and does not import `interpret` itself.
 
 ## Entry guarantees and guarded specialization
 
-The x86 builder takes `EntryGuarantees` from the execution profile. The runtime
-establishes these facts for every way into the module, including direct links.
-The compiler can use them from the first instruction.
+The runtime establishes the selected CPU entry assumptions on every path into
+the module, including direct links. For example, CLI checks the executing
+CPU’s CPL against IOPL. On a hosted ring-3 entry with IOPL zero the compiler
+folds this to an unconditional #GP(0). A protected PC with live IOPL keeps
+the comparison.
 
 | Input | Where it applies | What the JIT emits |
 | --- | --- | --- |
@@ -988,9 +990,9 @@ The runtime must ensure that each entry matches `CompiledModule::execution_targe
 before execution, including entries reached through a direct dispatch link. This
 replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
 requires exact target equality and checks the architectural state and segment
-caches. `ExecutionTarget::admits_cpu` checks admission for the configured memory
-backend, including its IF and IOPL guarantees. `CpuState::is_compatible_with(profile)`
-checks the default backend for that profile.
+caches. `CpuState::is_compatible_with(target)` checks the entry assumptions for the
+configured backend. Passing a profile selects its default backend. The machine also
+checks host writes to IF and EFLAGS before publishing a change to the CPU image.
 
 Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
 CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
