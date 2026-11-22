@@ -169,7 +169,7 @@ fn status_drives_integer_conditions(frontend: Frontend) {
         (QNAN, UNORDERED, 1, 1, 1),
     ] {
         let mut image = initial_image(&code);
-        image.cpu.flags = Default::default();
+        image.cpu.flags = CpuState::default().flags;
         image.cpu.flags.bytes.of = 1;
         write_value(&mut image.cpu, 7, left);
         write_value(&mut image.cpu, 0, ONE);
