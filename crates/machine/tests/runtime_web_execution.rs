@@ -6,7 +6,7 @@ use relocade_x86::{
     PhysicalMapping, PhysicalMemoryMap,
 };
 
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn runtime_executes_with_live_cpu_and_memory() {

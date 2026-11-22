@@ -10,7 +10,7 @@ use relocade_x86::{BlockSnapshot, Compiler, ExecutionExit, ExecutionProfile};
 use std::future::pending;
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn output(io: &IoBus) -> u8 {
     for _ in 0..32 {

@@ -130,5 +130,5 @@ fn another_worker_requests_execution_interrupt_during_guest_execution() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn another_worker_requests_execution_interrupt_during_guest_execution() {
-    request_during_execution().await;
+    Thread::new().run(request_during_execution).await.unwrap();
 }

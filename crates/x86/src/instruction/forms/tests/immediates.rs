@@ -59,8 +59,11 @@ fn immediates_bind_after_location_operands() {
                 OperandSpec::Immediate(ImmediateWidth::Word),
             ];
             let form = Declaration {
-                availability: crate::instruction::Availability::AllModes,
-                features: &[],
+                requirements: crate::instruction::Requirements {
+                    availability: crate::instruction::Availability::AllModes,
+                    features: &[],
+                },
+                control_flow: None,
                 opcode: Opcode {
                     map: OpcodeMap::Primary,
                     byte: 0x00,
