@@ -13,7 +13,7 @@ use std::{
 };
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 fn connect(clock: &ManualClock) -> (Rc<RefCell<DispiAdapter>>, IoBus) {
     let vga = Rc::new(RefCell::new(DispiAdapter::with_clock(clock.clock())));

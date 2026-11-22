@@ -14,7 +14,12 @@ macro_rules! instruction_families {
             use crate::instruction::forms::declarations::*;
             // Runtime decoder tables identify forms across catalog traversals.
             static FAMILIES: &[&[&[Form]]] = &[$(
-                declaration_family!([$handler $(::<$size>)?; $($($argument),*)?] [$($($effect),*)?] [$($flow)?] [$($availability)?] [$($($feature),*)?] $rows)
+                declaration_family!(
+                    [$handler $(::<$size>)?; $($($argument),*)?]
+                    [$($($effect),*)?] [$($flow)?]
+                    [$($availability)?] [$($($feature),*)?]
+                    $rows
+                )
             ),+];
             FAMILIES.iter().flat_map(|rows| rows.iter().flat_map(|forms| forms.iter()))
         }
@@ -30,7 +35,7 @@ macro_rules! declaration_family {
         &[$({
             const FORM: Form = {
                 $(same_layout(declaration_operands!($operands), declaration_operands!($other_operands));)?
-                let mut form = Declaration {
+                Declaration {
                     opcode: Opcode {
                         map: declaration_opcode!(@map $opcode $($extended)?),
                         byte: declaration_opcode!(@byte $opcode $($extended)?),
@@ -43,12 +48,13 @@ macro_rules! declaration_family {
                         $effects [$($pattern)?] $call $width $operands $(| $other_width $other_operands)?
                     ),
                     effects: declaration_effects!($effects),
-                    availability: declaration_opcode!(@availability $availability),
-                    features: declaration_opcode!(@features $features),
+                    control_flow: declaration_opcode!(@flow $flow),
+                    requirements: crate::instruction::Requirements {
+                        availability: declaration_opcode!(@availability $availability),
+                        features: declaration_opcode!(@features $features),
+                    },
                     lockable: declaration_opcode!(@lockable $($lockable)?),
-                }.form();
-                form.control_flow = declaration_opcode!(@flow $flow);
-                form
+                }.form()
             };
             declaration_opcode!(@rows FORM; $($pattern)?)
         }),+]
@@ -147,14 +153,17 @@ macro_rules! declaration_opcode {
 }
 
 macro_rules! declaration_effect {
+    (descriptor_load) => {
+        ExecutionEffect::DescriptorLoad
+    };
+    (descriptor_query) => {
+        ExecutionEffect::DescriptorQuery
+    };
     (serializing) => {
         ExecutionEffect::Serializing
     };
     (port_io) => {
         ExecutionEffect::PortIo
-    };
-    (segment_load) => {
-        ExecutionEffect::SegmentLoad
     };
     (control_transfer) => {
         ExecutionEffect::ControlTransfer

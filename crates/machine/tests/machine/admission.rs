@@ -1,4 +1,6 @@
 use super::setup;
+#[cfg(target_arch = "wasm32")]
+use relocade_machine::worker::Thread;
 use relocade_machine::{ConfigurationError, Cpu, CpuStorage, Error};
 
 async fn pc_cpu_ownership() {
@@ -72,7 +74,7 @@ fn pc_memory_admits_one_cpu_across_construction_paths() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn pc_memory_admits_one_cpu_across_construction_paths() {
-    pc_cpu_ownership().await;
+    Thread::new().run(pc_cpu_ownership).await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -84,5 +86,5 @@ fn machine_owns_its_cpu_after_the_execution_handle_is_dropped() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn machine_owns_its_cpu_after_the_execution_handle_is_dropped() {
-    machine_retains_cpu().await;
+    Thread::new().run(machine_retains_cpu).await.unwrap();
 }

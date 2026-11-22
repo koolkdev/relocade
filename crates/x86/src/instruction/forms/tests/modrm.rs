@@ -11,8 +11,11 @@ fn declaration_form(operands: &[OperandSpec], modrm: Option<ModRmSelector>) -> F
         _ => panic!("the test declaration has one to three operands"),
     };
     Declaration {
-        availability: crate::instruction::Availability::AllModes,
-        features: &[],
+        requirements: crate::instruction::Requirements {
+            availability: crate::instruction::Availability::AllModes,
+            features: &[],
+        },
+        control_flow: None,
         opcode: Opcode {
             map: OpcodeMap::Primary,
             byte: 0x00,
