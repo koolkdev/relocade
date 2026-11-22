@@ -88,8 +88,10 @@ Vite supplies the required isolation headers and worker binding alias.
 The Cargo runner in `wasm-test.mjs` asks `wasm-bindgen-test-runner` to select the
 tests, generates their bindings, and serves them through Vite. The standard
 `WasmBindgenTestContext` executes tests and handles assertions, ignored tests and
-results. This lets ordinary backend tests create workers without a second set of
-test definitions or a test-only compilation path.
+results. Suites with `run_in_dedicated_worker` execute in a dedicated worker and
+stream their report to the page. Suites with `run_in_browser` run in the page
+with a user gesture for DOM and audio APIs. Both environments can spawn the same
+workers as the application.
 
 The same worker checks also run on native threads:
 

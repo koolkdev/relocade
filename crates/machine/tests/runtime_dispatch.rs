@@ -10,7 +10,7 @@ use relocade_x86::{
 use std::mem::offset_of;
 
 #[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn check_dispatch_table() {
     let config = support::configuration(

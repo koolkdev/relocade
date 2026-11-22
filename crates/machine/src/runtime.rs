@@ -87,6 +87,10 @@ impl Cpu {
     /// Guest bytes are preserved. Host services capture their application resources.
     /// Port and MMIO accesses use the supplied execution-local device bus.
     ///
+    /// The caller's thread owns the Wasm backend. In a browser, construct and
+    /// run the CPU on a dedicated worker. A page can prepare a CPU with
+    /// [`crate::Machine::create_cpu`] and launch it with [`crate::ExecutionWorker::spawn`].
+    ///
     /// # Panics
     /// Panics if this bus was already attached to a CPU, including one that was
     /// dropped or whose initialization failed. Each CPU needs its own bus.

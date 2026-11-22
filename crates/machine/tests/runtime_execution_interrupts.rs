@@ -1,5 +1,7 @@
 mod support;
 
+#[cfg(target_arch = "wasm32")]
+use relocade_machine::worker::Thread;
 use relocade_machine::{Cpu, DispatchEntry, IoBus, Memory, Runner};
 use relocade_x86::{
     Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
@@ -127,7 +129,7 @@ fn checkpoints_preserve_requests_and_publish_cpu_state() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn checkpoints_preserve_requests_and_publish_cpu_state() {
-    checkpoints().await;
+    Thread::new().run(checkpoints).await.unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -139,7 +141,7 @@ fn execution_interrupt_waits_for_the_protected_successor() {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
 async fn execution_interrupt_waits_for_the_protected_successor() {
-    protected_step().await;
+    Thread::new().run(protected_step).await.unwrap();
 }
 
 #[path = "runtime_execution_interrupts/worker.rs"]

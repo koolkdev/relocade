@@ -1,7 +1,7 @@
 // Cargo runner: keep wasm-bindgen-test's filtering and runtime, but serve its
 // bindings through Vite so tests can start the same workers as the application.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -38,6 +38,10 @@ try {
         tests: JSON.stringify(tests),
         ignored: String(args.includes("--ignored") || args.includes("--include-ignored")),
     });
+    // wasm-bindgen-test marks run_in_dedicated_worker with byte 2 in this section.
+    const module = await WebAssembly.compile(readFileSync(wasm));
+    const config = WebAssembly.Module.customSections(module, "__wasm_bindgen_test_unstable");
+    if (config.some(section => new Uint8Array(section).includes(2))) parameters.set("worker", "");
     const request = {
         url: `/wasm-test.html?${parameters}`,
         bindings: path.join(directory, "suite.js"),
