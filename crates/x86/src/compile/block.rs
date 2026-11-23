@@ -170,6 +170,8 @@ impl Compiler {
     /// Compiles a snapshot through the boundary described by
     /// [`compile_block_from_bytes`], with this compiler's execution target and
     /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
+    /// The profile supplies the decode width. Use [`Self::compile_blocks`] for
+    /// snapshots that carry the CS.D captured with their bytes.
     pub fn compile_block(
         &self,
         start_eip: u32,

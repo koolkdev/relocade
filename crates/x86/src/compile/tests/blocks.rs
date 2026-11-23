@@ -88,11 +88,11 @@ fn entries_report_consumed_spans_in_input_order() {
     assert_eq!(parallel.execution_target, blocks.execution_target);
 }
 
-fn compile_without_code_default(
+fn compile_without_protected_width_guarantee(
     compiler: &Compiler,
     snapshot: BlockSnapshot<'_>,
 ) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::for_profile(compiler.target().profile).without_code_default();
+    let guarantees = EntryGuarantees::new(compiler.target().profile, None);
     BlockModule::with_entry_guarantees(compiler, guarantees)
         .build(&[snapshot])
         .unwrap()
@@ -130,9 +130,11 @@ fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
 }
 
 #[test]
-fn the_target_code_width_folds_the_destination_guard() {
+fn canonical_real_mode_guarantees_sixteen_bit_decoding() {
     let size = SegmentDefaultSize::Bits16;
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let observed = CpuState::default();
+    assert_eq!(observed.code_default_size(), SegmentDefaultSize::Bits32);
+    let compiler = Compiler::new(ExecutionProfile::Real16).specialize_on_cpu(&observed);
     let bytes = [0xb8, 0x34, 0x12];
     let snapshot = BlockSnapshot {
         address: CodeAddress::CsRelative(0x1000),
@@ -144,7 +146,8 @@ fn the_target_code_width_folds_the_destination_guard() {
     let fixed = compiler.compile_block(0x1000, &bytes, 1).unwrap();
     assert_eq!(batch.bytes, fixed.bytes);
     check_width_guard(&batch, false);
-    check_width_guard(&compile_without_code_default(&compiler, snapshot), true);
+    let canonical = compile_without_protected_width_guarantee(&compiler, snapshot);
+    assert_eq!(canonical.bytes, fixed.bytes);
 }
 
 #[test]
@@ -155,7 +158,7 @@ fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
     for (required, result, next_eip) in
         [(Bits16, 0xaaaa_1234, 0x1003), (Bits32, 0x5678_1234, 0x1005)]
     {
-        let blocks = compile_without_code_default(
+        let blocks = compile_without_protected_width_guarantee(
             &compiler,
             BlockSnapshot {
                 address: CodeAddress::CsRelative(0x1000),
@@ -164,6 +167,7 @@ fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
                 instruction_limit: 1,
             },
         );
+        check_width_guard(&blocks, true);
         // The same destination must work for either live default.
         let module = TestModule::from_bytes(&blocks.bytes, &blocks.entries[0].export, None);
         for big in [0, 1, 0x80] {

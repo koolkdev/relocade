@@ -12,8 +12,7 @@ use std::sync::LazyLock;
 fn interpreter() -> &'static TestModule {
     static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
         let profile = SegmentProfile::Segmented32.into();
-        let guarantees =
-            crate::profile::EntryGuarantees::for_profile(profile).without_code_default();
+        let guarantees = crate::profile::EntryGuarantees::new(profile, None);
         let bytes = super::super::build(profile, crate::MemoryBackend::HostPageTable, guarantees)
             .unwrap()
             .compile()
