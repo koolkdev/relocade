@@ -6,9 +6,8 @@ mod fx;
 mod legacy;
 
 use super::X87Access;
-use crate::state::access::cpu_location;
+use crate::state::{access::cpu_location, system};
 use crate::x87::ExtendedBits;
-use crate::SegmentDefaultSize;
 
 struct Pointer {
     offset: Val<I32>,
@@ -19,39 +18,33 @@ struct Environment {
     control: Val<I16>,
     status: Val<I16>,
     tags: Val<I16>,
-    /// The protected 14-byte image has no opcode field.
-    opcode: Option<Val<I16>>,
+    opcode: Val<I16>,
     instruction: Pointer,
     data: Pointer,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EnvironmentMode {
-    Protected,
-    Real,
 }
 
 impl X87Access<'_, '_> {
     /// Seven words or dwords in Intel's protected- or real-address-mode layout.
     /// Reserved halfwords are stored as ones and ignored when loading.
-    pub(crate) fn environment<T: MemoryInt>(
-        &mut self,
-        mode: EnvironmentMode,
-    ) -> Result<[Val<T>; 7], BuildError>
+    pub(crate) fn environment<T: MemoryInt>(&mut self) -> Result<[Val<T>; 7], BuildError>
     where
         I32: AtLeast<T>,
     {
+        let protected = system::protected_mode(self.body, self.cpu_fields)?;
         let tags = self.state.registers.saved_tag_word(self.body)?;
-        Ok(self.capture_environment(tags)?.encode(mode))
+        Ok(self.capture_environment(tags)?.encode(&protected))
     }
 
     /// FXSAVE retains only occupancy, so its tags need no payload classification.
-    pub(crate) fn fx_environment(
-        &mut self,
-        pointer_size: SegmentDefaultSize,
-    ) -> Result<[Val<I32>; 6], BuildError> {
+    pub(crate) fn fx_environment(&mut self) -> Result<[Val<I32>; 6], BuildError> {
+        let pointer_mask = self.fx_pointer_mask()?;
         let tags = self.state.registers.tag_word(self.body)?;
-        Ok(self.capture_environment(tags)?.encode_fx(pointer_size))
+        Ok(self.capture_environment(tags)?.encode_fx(&pointer_mask))
+    }
+
+    fn fx_pointer_mask(&mut self) -> Result<Val<I32>, BuildError> {
+        let code32 = system::code_default_is_32_bit(self.body, self.cpu_fields)?;
+        Ok(code32.select(u32::MAX, 0xffffu32))
     }
 
     fn capture_environment(&mut self, tags: Val<I16>) -> Result<Environment, BuildError> {
@@ -59,11 +52,10 @@ impl X87Access<'_, '_> {
             control: self.control_word()?,
             status: self.status_word()?,
             tags,
-            opcode: Some(
-                self.state
-                    .metadata
-                    .read(self.body, cpu_location!(x87.opcode))?,
-            ),
+            opcode: self
+                .state
+                .metadata
+                .read(self.body, cpu_location!(x87.opcode))?,
             instruction: Pointer {
                 offset: self
                     .state
@@ -91,23 +83,33 @@ impl X87Access<'_, '_> {
     /// Tags retain emptiness from the image and classify occupied payloads.
     pub(crate) fn restore<T: MemoryInt>(
         &mut self,
-        mode: EnvironmentMode,
         words: &[Val<T>; 7],
         registers: Option<&[ExtendedBits; 8]>,
     ) -> Result<(), BuildError>
     where
         I32: AtLeast<T>,
     {
-        self.restore_environment(Environment::decode(words, mode), registers)
+        let protected = system::protected_mode(self.body, self.cpu_fields)?;
+        let previous_opcode = self
+            .state
+            .metadata
+            .read(self.body, cpu_location!(x87.opcode))?;
+        self.restore_environment(
+            Environment::decode(words, &protected, previous_opcode),
+            registers,
+        )
     }
 
     pub(crate) fn restore_fx(
         &mut self,
-        pointer_size: SegmentDefaultSize,
         words: &[Val<I32>; 6],
         registers: &[ExtendedBits; 8],
     ) -> Result<(), BuildError> {
-        self.restore_environment(Environment::decode_fx(words, pointer_size), Some(registers))
+        let pointer_mask = self.fx_pointer_mask()?;
+        self.restore_environment(
+            Environment::decode_fx(words, &pointer_mask),
+            Some(registers),
+        )
     }
 
     fn restore_environment(
@@ -133,11 +135,9 @@ impl X87Access<'_, '_> {
             &environment.tags,
             registers,
         )?;
-        if let Some(opcode) = environment.opcode {
-            self.state
-                .metadata
-                .define(self.body, cpu_location!(x87.opcode), opcode)?;
-        }
+        self.state
+            .metadata
+            .define(self.body, cpu_location!(x87.opcode), environment.opcode)?;
         self.state.metadata.define(
             self.body,
             cpu_location!(x87.instruction_offset),

@@ -23,7 +23,7 @@ impl<'body> ExecutionBuilder<'body, '_> {
     }
 
     pub(crate) fn x87(&mut self) -> X87Access<'_, 'body> {
-        self.state.x87.access(&mut self.body)
+        self.state.x87(&mut self.body)
     }
 
     /// Records an x87 instruction after its memory checks and fallback guards.
@@ -38,8 +38,7 @@ impl<'body> ExecutionBuilder<'body, '_> {
             .as_ref()
             .expect("x87 forms retain their opcode");
         self.state
-            .x87
-            .access(&mut self.body)
+            .x87(&mut self.body)
             .record_instruction(&self.eip, selector, opcode)
     }
 
