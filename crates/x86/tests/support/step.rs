@@ -127,6 +127,9 @@ pub(crate) enum Event {
         segment: i32,
         selector: i32,
     },
+    CompleteSegmentLoad {
+        selector: i32,
+    },
     Dispatch {
         snapshot: Snapshot,
     },

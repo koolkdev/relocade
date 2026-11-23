@@ -86,14 +86,17 @@ impl SegmentRegister {
     /// Canonical ordinary real-mode cache. Zero is a usable segment value.
     /// This is host initialization, not a protected-to-real mode transition.
     pub const fn real_mode(segment: Segment, selector: u16) -> Self {
+        let properties = crate::segment::cache::SegmentProperties::real_mode(segment);
         Self {
             base: (selector as u32) << 4,
-            limit: 0xffff,
-            big: 0,
-            ..match segment {
-                Segment::Cs => Self::flat_code32(selector),
-                _ => Self::flat_data32(selector),
-            }
+            limit: properties.limit,
+            selector,
+            usable: properties.usable as u8,
+            readable: properties.readable as u8,
+            writable: properties.writable as u8,
+            executable: properties.executable as u8,
+            expand_down: properties.expand_down as u8,
+            big: properties.big as u8,
         }
     }
 

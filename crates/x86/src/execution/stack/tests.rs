@@ -56,6 +56,76 @@ fn pusha_checks_mode_before_the_first_push() {
 }
 
 #[test]
+fn far_call_checks_the_stack_span_for_the_live_mode() {
+    use crate::{
+        support::machine::expected,
+        test_step::{Event, SegmentResolution},
+        DescriptorTables, Segment, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
+        SegmentRegister,
+    };
+
+    // CALL 0023:00001234 with 32-bit operands reserves eight bytes at SS:FFFA.
+    let module = instruction(&[0x66, 0x9a, 0x34, 0x12, 0, 0, 0x23, 0]);
+    let mut image = Image::empty();
+    image.cpu = CpuState::real_mode();
+    image.cpu.eip = 0x1000;
+    image.cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x1b);
+    image.cpu.registers.esp = 0xabcd_0002;
+    image.map(0xf, 0x8000, true);
+    image.data(0x8ffa, &[0xa5; 6]);
+
+    let mut cpu = image.cpu;
+    cpu.segments.cs = SegmentRegister::real_mode(Segment::Cs, 0x23);
+    cpu.eip = 0x1234;
+    cpu.registers.esp = 0xabcd_fffa;
+    cpu.instruction_count += 1;
+    check(
+        &module,
+        "real-mode return EIP and CS fit through FFFF",
+        &image,
+        &[Step {
+            cpu,
+            ram: &[(0x8ffa, &[0x08, 0x10, 0, 0, 0x1b, 0])],
+            exit: Exit::Other(ExecutionExit::StepComplete),
+        }],
+    );
+
+    image.cpu.cr0 |= cr0::PROTECTION_ENABLE;
+    let mut tables = DescriptorTables::default();
+    tables.insert(
+        0x23,
+        SegmentDescriptor::new(
+            0,
+            SegmentLimit::bytes(0xffff).unwrap(),
+            SegmentDescriptorKind::Code {
+                readable: true,
+                conforming: false,
+            },
+            SegmentDefaultSize::Bits16,
+        ),
+    );
+    let mut input = image.input();
+    input.segment_resolutions =
+        vec![SegmentResolution::new(&tables, Segment::Cs, 0x23).with_accessed_bit_clear()];
+    let mut fault = expected(
+        &image,
+        &[Step {
+            cpu: image.cpu,
+            ram: &[],
+            exit: Exit::StackFault { error: 0 },
+        }],
+    );
+    fault.events.insert(
+        0,
+        Event::ResolveSegment {
+            segment: Segment::Cs as i32,
+            selector: 0x23,
+        },
+    );
+    assert_eq!(module.observe(&input, 1), fault);
+}
+
+#[test]
 fn enter_checks_the_final_word_after_saving_bp() {
     // After saving BP at 1000h, ENTER checks the word at F000h..=F001h.
     let module = instruction(&[0xc8, 0x00, 0x20, 0]);

@@ -2,14 +2,10 @@
 
 use super::Runtime;
 use crate::{
-    segment::SegmentValues, ExceptionValues, ExceptionVector, Segment, SegmentDescriptorInfoValues,
+    segment::cache::{SegmentCacheValues, SegmentPropertiesValues, SegmentResolutionValues},
+    ExceptionValues, ExceptionVector, Segment, SegmentDescriptorInfoValues,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I16};
-
-pub(crate) struct ResolvedValues {
-    pub(crate) cache: SegmentValues,
-    pub(crate) needs_completion: Val<I1>,
-}
 
 impl Runtime {
     /// Queries the current host descriptor view without loading a segment or
@@ -31,7 +27,7 @@ impl Runtime {
         segment: Segment,
         selector: &Val<I16>,
         on_fault: impl Fn(BlockBuilder<'_>, ExceptionValues) -> Result<(), BuildError>,
-    ) -> Result<ResolvedValues, BuildError> {
+    ) -> Result<SegmentResolutionValues, BuildError> {
         let (
             status,
             error_code,
@@ -73,21 +69,24 @@ impl Runtime {
             })?;
             fault.trap()
         })?;
-        Ok(ResolvedValues {
-            cache: SegmentValues {
+        Ok(SegmentResolutionValues {
+            cache: SegmentCacheValues {
                 base,
-                limit,
                 selector,
-                usable,
-                readable,
-                writable,
-                executable,
-                expand_down,
-                big,
+                properties: SegmentPropertiesValues {
+                    limit,
+                    usable,
+                    readable,
+                    writable,
+                    executable,
+                    expand_down,
+                    big,
+                },
             },
             needs_completion,
         })
     }
+
     pub(crate) fn complete_segment_load(
         self,
         body: &mut BlockBuilder<'_>,

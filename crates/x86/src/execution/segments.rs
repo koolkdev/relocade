@@ -1,42 +1,48 @@
 //! Selector resolution and cache commitment are separate execution operations.
 
-use relocade_compiler::{BuildError, Val, I1, I16, I32};
+use relocade_compiler::{
+    abi::{AbiType, CompilerValue},
+    BuildError, Val, I16, I32,
+};
 
 use super::{transfer::Transfer, ExecutionBuilder};
 use crate::{
-    address::MemoryAddress, memory::Intent, register::RegisterType, segment::SegmentValues,
-    ExecutionProfile, Segment, SegmentDescriptorInfoValues,
+    address::MemoryAddress,
+    memory::Intent,
+    register::RegisterType,
+    segment::cache::{SegmentResolution, SegmentResolutionValues},
+    Segment, SegmentDescriptorInfoValues,
 };
 
 /// A resolved segment cache and its destination, not yet installed in CPU state.
 pub(crate) struct ResolvedSegment {
     segment: Segment,
-    values: SegmentValues,
-    needs_completion: Option<Val<I1>>,
+    resolution: SegmentResolutionValues,
 }
 
 impl ResolvedSegment {
     pub(super) fn limit(&self) -> &Val<I32> {
-        &self.values.limit
+        &self.resolution.cache.properties.limit
     }
 
     /// Installs the selector and cache after all instruction guards. Only
     /// completion and dispatch may follow.
     pub(crate) fn commit(self, execution: &mut ExecutionBuilder<'_, '_>) -> Result<(), BuildError> {
-        if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
-            // The new cache may require a different compiled execution profile.
+        let real_mode = execution.real_mode()?;
+        if execution.body.constant_bits(&real_mode)? != Some(1) {
+            // Only a known real-mode reload preserves the cache layout for local links.
             execution.transfer = Transfer::Dispatch;
         }
-        if let Some(needs_completion) = self.needs_completion {
-            execution.runtime.complete_segment_load(
-                &mut execution.body,
-                &self.values.selector,
-                needs_completion,
-            )?;
-        }
-        execution
-            .state
-            .write_segment(&mut execution.body, &self.segment.into(), &self.values)
+        execution.runtime.complete_segment_load(
+            &mut execution.body,
+            &self.resolution.cache.selector,
+            self.resolution.needs_completion,
+        )?;
+        execution.state.write_segment(
+            &mut execution.body,
+            &self.segment.into(),
+            &self.resolution.cache,
+        )
     }
 }
 
@@ -65,40 +71,21 @@ impl ExecutionBuilder<'_, '_> {
         segment: Segment,
         selector: &Val<I16>,
     ) -> Result<ResolvedSegment, BuildError> {
-        let (values, needs_completion) = match self.profile() {
-            ExecutionProfile::Real16 => {
-                // Real16 admits only canonical caches. Retained descriptor limits
-                // and attributes across mode transitions require a different profile.
-                let cache = crate::SegmentRegister::real_mode(segment, 0);
-                (
-                    SegmentValues {
-                        base: selector.unsigned().extend::<I32>().shl(4),
-                        limit: cache.limit.into(),
-                        selector: selector.clone(),
-                        usable: (cache.usable != 0).into(),
-                        readable: (cache.readable != 0).into(),
-                        writable: (cache.writable != 0).into(),
-                        executable: (cache.executable != 0).into(),
-                        expand_down: (cache.expand_down != 0).into(),
-                        big: (cache.big != 0).into(),
-                    },
-                    None,
-                )
-            }
-            ExecutionProfile::Protected(_) => {
-                let resolved = self.runtime.resolve_segment(
-                    &mut self.body,
-                    segment,
-                    selector,
-                    |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
-                )?;
-                (resolved.cache, Some(resolved.needs_completion))
-            }
-        };
+        type Fields = <SegmentResolution as AbiType>::Logical;
+        let protected = self.protected_mode()?;
+        let real = SegmentResolutionValues::real_mode(segment, selector);
+        let fields = self.body.block::<Fields>(|mut body, _| {
+            body.yield_if(protected.eq(false), real)?;
+            let resolved =
+                self.runtime
+                    .resolve_segment(&mut body, segment, selector, |body, exception| {
+                        self.state.fault(body, &self.eip, self.completed, exception)
+                    })?;
+            body.yield_(resolved)
+        })?;
         Ok(ResolvedSegment {
             segment,
-            values,
-            needs_completion,
+            resolution: SegmentResolution::from_values(fields),
         })
     }
 

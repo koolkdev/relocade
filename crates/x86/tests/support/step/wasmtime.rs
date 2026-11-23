@@ -200,9 +200,16 @@ impl TestModule {
             )
             .unwrap();
         linker
-            .func_wrap::<_, ()>("relocade", "completeSegmentLoad", |_: i32| {
-                panic!("pre-accessed fixture descriptors require no completion");
-            })
+            .func_wrap(
+                "relocade",
+                "completeSegmentLoad",
+                |mut caller: Caller<'_, ExecutionEvents>, selector: i32| {
+                    caller
+                        .data_mut()
+                        .events
+                        .push(Event::CompleteSegmentLoad { selector });
+                },
+            )
             .unwrap();
         if std::iter::once(module)
             .chain(

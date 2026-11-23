@@ -128,7 +128,7 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
         let mut code = if indirect {
             vec![0xff, 0x2b]
         } else {
-            immediate(false, 0x200, 0x27)
+            immediate(false, 0x200, 0x24)
         };
         let length = code.len();
         code.push(0xf1); // Unsupported old-code byte must not be decoded.
@@ -136,13 +136,13 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
         image.cpu.segments.cs.limit = 0x1000 + length as u32 - 1;
         image.cpu.registers.ebx = 0x4000;
         image.map(4, 0x8000, false);
-        image.data(0x8000, &pointer(false, 0x200, 0x27));
+        image.data(0x8000, &pointer(false, 0x200, 0x24));
         let mut tables = DescriptorTables::default();
         tables.insert(0x27, descriptor(0x9000, 0xffff, SegmentDefaultSize::Bits32));
         let mut input = image.input();
         input
             .segment_resolutions
-            .push(SegmentResolution::new(&tables, Segment::Cs, 0x27));
+            .push(SegmentResolution::new(&tables, Segment::Cs, 0x24).with_accessed_bit_clear());
         let mut cpu = image.cpu;
         cpu.segments.cs = loaded(0x27, 0x9000, 0xffff, SegmentRegister::flat_code32(0));
         cpu.eip = 0x200;
@@ -159,9 +159,12 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
             0,
             Event::ResolveSegment {
                 segment: 1,
-                selector: 0x27,
+                selector: 0x24,
             },
         );
+        wanted
+            .events
+            .insert(1, Event::CompleteSegmentLoad { selector: 0x27 });
         let mut blocks = BlockModules::default();
         for module in [
             blocks.get(

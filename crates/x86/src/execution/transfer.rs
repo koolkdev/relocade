@@ -13,7 +13,10 @@ pub(super) enum Transfer {
         taken: Val<I32>,
         fallthrough: Val<I32>,
     },
-    Call(Option<CallLink>),
+    Call {
+        link: Option<CallLink>,
+        use_call_dispatch: Val<I1>,
+    },
     Return,
     Dispatch,
 }
@@ -40,7 +43,13 @@ impl ExecutionBuilder<'_, '_> {
                     .if_(condition, |body| enter(body, taken, self.runtime))?;
                 enter(self.body, fallthrough, self.runtime)
             }
-            Transfer::Call(link) => {
+            Transfer::Call {
+                link,
+                use_call_dispatch,
+            } => {
+                self.body.if_(use_call_dispatch.eq(false), |body| {
+                    self.runtime.dispatch(body)
+                })?;
                 if let Some(link) = link {
                     return link.enter(self.body);
                 }

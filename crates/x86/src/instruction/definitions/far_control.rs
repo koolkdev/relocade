@@ -14,7 +14,6 @@ use crate::{
     execution::CodeTarget,
     flags::{image, Flag},
     register::RegisterType,
-    ExecutionProfile,
 };
 
 instruction_families! {
@@ -158,30 +157,22 @@ fn return_interrupt<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => {
-            // Only protected mode interprets entry NT as a task return.
-            let nested_task = execution.read_flag(Flag::NT)?;
-            execution.unsupported_if(nested_task, 0xcf)?;
-        }
-        ExecutionProfile::Real16 => {}
-    }
+    // Only protected mode interprets entry NT as a task return.
+    let protected = execution.protected_mode()?;
+    let nested_task = execution.read_flag(Flag::NT)?;
+    execution.unsupported_if(protected.and(nested_task), 0xcf)?;
     let frame = execution.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
     let offset = frame.field::<T>(execution, 0)?.read(execution)?;
-    match execution.profile() {
-        ExecutionProfile::Real16 => {
-            // IRETD checks EIP before reading CS or FLAGS. Both current and
-            // destination Real16 code segments have the canonical 64 KiB limit.
-            execution.jump(offset.unsigned().extend::<I32>())?;
-        }
-        ExecutionProfile::Protected(_) => {}
-    }
+    // Real-mode IRETD checks the new offset before reading either CS or FLAGS.
+    let real = execution.real_mode()?;
+    let offset32 = offset.unsigned().extend::<I32>();
+    execution.fault_if(
+        real.and(offset32.unsigned().ge(0x1_0000)),
+        crate::ExceptionValues::general_protection(0),
+    )?;
     let selector = frame.field::<I16>(execution, T::BYTES)?.read(execution)?;
     let flags = frame.field::<T>(execution, 2 * T::BYTES)?.read(execution)?;
-    let target = match execution.profile() {
-        ExecutionProfile::Real16 => CodeTarget::resolve(execution, offset, &selector)?,
-        ExecutionProfile::Protected(_) => resolve_return_target(execution, offset, &selector)?,
-    };
+    let target = resolve_return_target(execution, offset, &selector)?;
     let enabled = image::write_stack_image(execution, &flags)?;
     frame.commit(execution, 0)?;
     let next_ip = target.commit(execution)?;
@@ -197,16 +188,14 @@ fn resolve_return_target<T: RegisterType>(
 where
     I32: AtLeast<T>,
 {
-    if matches!(execution.profile(), ExecutionProfile::Protected(_)) {
-        // Protected-mode returns cannot go inward. With CPL fixed at 3, only
-        // RPL 3 is valid; real-mode segment values have no privilege bits.
-        execution.fault_if(
-            selector.and(3).ne(3),
-            crate::ExceptionValues::general_protection(
-                selector.unsigned().extend::<I32>().and(0xfffc),
-            ),
-        )?;
-    }
+    // Protected returns cannot go inward. Only same-level returns are admitted.
+    let protected = execution.protected_mode()?;
+    let cpl = execution.privilege_level()?;
+    let rpl = selector.truncate::<I8>().and(3);
+    execution.fault_if(
+        protected.and(rpl.unsigned().lt(cpl)),
+        crate::ExceptionValues::general_protection(selector.unsigned().extend::<I32>().and(0xfffc)),
+    )?;
     let target = CodeTarget::resolve(execution, offset, selector)?;
     target.check_limit(execution)?;
     Ok(target)
