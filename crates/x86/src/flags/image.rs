@@ -1,15 +1,14 @@
 //! Architectural flag images, independent of the stored flag record.
 //!
-//! Protected transfers fix IF=1 and IOPL=0; real mode reads and writes both.
 //! VM is excluded from these stack images; RF/VIF/VIP remain unrepresented.
 //! Transferring TF, IF, NT, AC or ID does not implement debug delivery, task
-//! switching or alignment checks. Real-mode
-//! external interrupt eligibility uses IF after completing any protected successor.
+//! switching or alignment checks. Real-mode external interrupt eligibility uses IF
+//! after completing any protected successor.
 
 use relocade_compiler::{AtLeast, BuildError, IntType, Type, Val, I1, I32, I8};
 
 use super::{Flag, FlagChange, StatusFlag};
-use crate::{execution::ExecutionBuilder, ExecutionProfile};
+use crate::execution::ExecutionBuilder;
 
 /// A flag roster and fixed bits shared by image reads and masked writes.
 pub(crate) struct FlagImage<const N: usize> {
@@ -22,7 +21,7 @@ pub(crate) const AH: FlagImage<5> = FlagImage {
     fixed: 0x02,
 };
 
-/// Common writable low flags. IF and IOPL depend on the execution profile.
+/// Common writable low flags. IF and IOPL have separate privilege checks.
 const WORD: FlagImage<9> = FlagImage {
     flags: [
         Flag::CF,
@@ -68,22 +67,18 @@ where
         Type::I32 => DWORD.pack(execution.read_flags(DWORD.flags())?),
         _ => unreachable!("stack flag images use word or dword operands"),
     };
-    let image = match execution.profile() {
-        ExecutionProfile::Protected(_) => image.or(0x0200),
-        ExecutionProfile::Real16 => image
-            .or(execution
-                .read_flag(Flag::IF)?
-                .unsigned()
-                .extend::<I32>()
-                .shl(bit(Flag::IF)))
-            .or(execution.read_iopl()?.unsigned().extend::<I32>().shl(12)),
-    };
-    Ok(image.truncate::<T>())
+    let interrupt = execution
+        .read_flag(Flag::IF)?
+        .unsigned()
+        .extend::<I32>()
+        .shl(bit(Flag::IF));
+    let iopl = execution.read_iopl()?.unsigned().extend::<I32>().shl(12);
+    Ok(image.or(interrupt).or(iopl).truncate::<T>())
 }
 
 /// Restores writable flags; word images leave AC/ID unchanged. RF remains
 /// unrepresented even for IRETD; debug delivery is outside this execution model.
-/// Returns whether real-mode IF changed from clear to set.
+/// Returns whether the restore enabled interrupts.
 pub(crate) fn write_stack_image<T: IntType>(
     execution: &mut ExecutionBuilder<'_, '_>,
     image: &Val<T>,
@@ -98,16 +93,9 @@ where
         _ => unreachable!("stack flag images use word or dword operands"),
     };
     execution.write_flags(change)?;
-    match execution.profile() {
-        ExecutionProfile::Protected(_) => Ok(false.into()),
-        ExecutionProfile::Real16 => {
-            let before = execution.read_flag(Flag::IF)?;
-            let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
-            execution.write_flag(Flag::IF, &enabled)?;
-            execution.write_iopl(image.unsigned().shr(12).truncate::<I8>())?;
-            Ok(before.eq(false).and(enabled))
-        }
-    }
+    let enabled = image.unsigned().shr(bit(Flag::IF)).truncate::<I1>();
+    let iopl = image.unsigned().shr(12).truncate::<I8>();
+    execution.restore_if_and_iopl(enabled, iopl)
 }
 
 impl<const N: usize> FlagImage<N> {

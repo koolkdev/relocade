@@ -25,7 +25,7 @@ pub(super) fn condition_index(canonical: Condition) -> usize {
 #[derive(Clone)]
 pub(super) struct FlagTracker {
     status: StatusState,
-    direct: StateFields,
+    pub(super) direct: StateFields,
 }
 
 fn direct_location(flag: Flag) -> Option<Location<I8>> {
@@ -73,15 +73,6 @@ impl FlagTracker {
             .direct
             .read(body, cpu_location!(flags.bytes.iopl))?
             .and(3))
-    }
-
-    pub(super) fn write_iopl(
-        &mut self,
-        body: &mut BlockBuilder<'_>,
-        value: Val<I8>,
-    ) -> Result<(), BuildError> {
-        self.direct
-            .define(body, cpu_location!(flags.bytes.iopl), value.and(3))
     }
 
     /// Admit the whole change before modifying either status or direct flag state.

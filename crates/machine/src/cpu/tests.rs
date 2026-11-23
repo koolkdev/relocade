@@ -212,10 +212,56 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
     .unwrap();
     let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
     let before = cpu.snapshot();
+    assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_interrupts_enabled(false))).is_err());
+    assert_eq!(cpu.snapshot(), before);
+    for flags in [0x3, 0x1203] {
+        assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_eflags(flags))).is_err());
+        assert_eq!(cpu.snapshot(), before);
+    }
     let mut cs = before.segments.cs;
     cs.selector &= !3;
     assert!(catch_unwind(AssertUnwindSafe(|| cpu.set_segment(Segment::Cs, cs))).is_err());
     assert_eq!(cpu.snapshot(), before);
+}
+
+#[test]
+fn hosted_cpu_admission_and_restore_require_the_interrupt_flag_guarantees() {
+    use relocade_x86::SegmentProfile;
+
+    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let config = CpuConfig::new(target, CpuState::default()).unwrap();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    let before = cpu.snapshot();
+    let mut proposed = before;
+    proposed.flags.bytes.if_ = 0;
+    assert!(matches!(
+        CpuConfig::new(target, proposed),
+        Err(ConfigurationError::IncompatibleCpu)
+    ));
+    assert_eq!(
+        cpu.restore(&proposed),
+        Err(ConfigurationError::IncompatibleCpu)
+    );
+    assert_eq!(cpu.snapshot(), before);
+}
+
+#[test]
+fn protected_pc_allows_host_edits_to_if_and_iopl() {
+    use relocade_x86::{MemoryBackend, SegmentProfile};
+
+    let target = Compiler::new(SegmentProfile::Flat32)
+        .with_memory_backend(MemoryBackend::PhysicalBus)
+        .target();
+    let config = CpuConfig::new(target, CpuState::default()).unwrap();
+    let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
+    cpu.set_eflags(0x3202);
+    cpu.set_interrupts_enabled(false);
+    assert_eq!(cpu.eflags(), 0x3002);
+    let snapshot = cpu.snapshot();
+    assert!(CpuConfig::new(target, snapshot).is_ok());
+    cpu.set_eflags(0x202);
+    cpu.restore(&snapshot).unwrap();
+    assert_eq!(cpu.eflags(), 0x3002);
 }
 
 #[test]

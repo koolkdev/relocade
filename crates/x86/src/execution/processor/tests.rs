@@ -15,7 +15,7 @@ fn timestamp_module(tsc_supported: bool) -> CompiledModule {
     let module = ExecutionModule::declare(
         &mut program,
         target,
-        crate::profile::EntryGuarantees::for_profile(target.profile),
+        crate::profile::EntryGuarantees::for_target(target),
     );
     let run = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;

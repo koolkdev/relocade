@@ -122,6 +122,15 @@ fn a_target_known_fault_ends_an_otherwise_continuing_instruction() {
 }
 
 #[test]
+fn cpl3_cli_ends_discovery_only_when_iopl_is_guaranteed() {
+    let cli = SnapshotInstruction::decode(&[0xfa], 0, Bits16).unwrap();
+    let hosted = Compiler::new(SegmentProfile::Segmented16);
+    assert_eq!(cli.flow(hosted.target()), InstructionFlow::Stop);
+    let pc = hosted.with_memory_backend(crate::MemoryBackend::PhysicalBus);
+    assert_eq!(cli.flow(pc.target()), InstructionFlow::Continue);
+}
+
+#[test]
 fn direct_calls_report_their_encoded_destination() {
     for (code, target) in [
         (&[0x66, 0xe8, 0xfd, 0xff][..], Some(CallTarget::Near(0))),

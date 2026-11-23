@@ -92,7 +92,7 @@ fn compile_without_protected_width_guarantee(
     compiler: &Compiler,
     snapshot: BlockSnapshot<'_>,
 ) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::new(compiler.target().profile, None);
+    let guarantees = EntryGuarantees::new(compiler.target(), None);
     BlockModule::with_entry_guarantees(compiler, guarantees)
         .build(&[snapshot])
         .unwrap()

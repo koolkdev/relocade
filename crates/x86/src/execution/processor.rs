@@ -2,6 +2,7 @@
 
 use super::ExecutionBuilder;
 use crate::{
+    flags::{Flag, FlagChange},
     processor::{self, CpuidValues},
     state::DescriptorTableValues,
     CpuFeature, ExecutionExitValues, PrivilegeLevel,
@@ -24,14 +25,25 @@ impl ExecutionBuilder<'_, '_> {
         self.state.privilege_level(&mut self.body)
     }
 
-    pub(crate) fn io_privilege_denied(&mut self) -> Result<Val<I1>, BuildError> {
-        let protected = self.state.protection_enabled(&mut self.body)?;
-        let cpl = self.state.privilege_level(&mut self.body)?;
-        // The current protected execution policy fixes effective IOPL at zero;
-        // saved IOPL bytes remain available to real-mode flag operations.
-        let iopl = self.state.read_iopl(&mut self.body)?;
-        let effective_iopl = protected.select(PrivilegeLevel::Ring0 as u32, iopl);
-        Ok(effective_iopl.unsigned().lt(cpl))
+    pub(crate) fn read_iopl(&mut self) -> Result<Val<I8>, BuildError> {
+        self.state.read_iopl(&mut self.body)
+    }
+
+    /// POPF and IRET end their block. IF permission uses IOPL from before the restore.
+    pub(crate) fn restore_if_and_iopl(
+        &mut self,
+        enabled: Val<I1>,
+        iopl: Val<I8>,
+    ) -> Result<Val<I1>, BuildError> {
+        let cpl = self.privilege_level()?;
+        let can_change_if = self.read_iopl()?.unsigned().ge(&cpl);
+        let before = self.read_flag(Flag::IF)?;
+        self.write_flags(FlagChange::partial([(Flag::IF, enabled.clone())]).when(&can_change_if))?;
+        self.body
+            .if_(cpl.eq(PrivilegeLevel::Ring0 as u32), |mut arm| {
+                self.state.commit_iopl(&mut arm, iopl)
+            })?;
+        Ok(can_change_if.and(before.eq(false)).and(enabled))
     }
 
     pub(crate) fn timestamp_access_denied(&mut self) -> Result<Val<I1>, BuildError> {

@@ -17,15 +17,20 @@ fn forms(frontend: Frontend) {
     ] {
         let mut cases = ImageSequences::new(frontend, profile);
         for code in [&[0xf4][..], &[0x66, 0x67, 0x64, 0xf4]] {
-            for enabled in [false, true] {
+            let interrupt_flags: &[bool] = if profile == ExecutionProfile::Real16 {
+                &[false, true]
+            } else {
+                &[true]
+            };
+            for &enabled in interrupt_flags {
                 let mut image = Image::new(code);
                 if profile == ExecutionProfile::Real16 {
                     image.initialize_real_mode();
+                    image.cpu.flags.bytes.iopl = 3;
                 } else if profile == SegmentProfile::Segmented16.into() {
                     image.cpu.segments.cs.big = 0;
                 }
                 image.cpu.flags.bytes.if_ = u8::from(enabled);
-                image.cpu.flags.bytes.iopl = 3; // IOPL does not permit CPL3 HLT.
                 let mut cpu = image.cpu;
                 let exit = if profile == ExecutionProfile::Real16 {
                     cpu.eip += code.len() as u32;

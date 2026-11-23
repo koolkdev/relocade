@@ -57,7 +57,7 @@ instruction_families! {
     }
     IRET {
         execute: return_interrupt::<_>;
-        effects: [control_transfer, descriptor_load];
+        effects: [control_transfer, descriptor_load, iopl_write];
         forms { 0xCF => word_or_dword(); }
     }
 }

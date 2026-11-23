@@ -211,6 +211,8 @@ fn interrupt_controls(frontend: Frontend) {
             let code = [0x66, 0x67, 0x64, opcode];
             let mut image = image(&code);
             image.cpu.flags = crate::support::machine::protected_state(fill).flags;
+            image.cpu.flags.bytes.if_ = fill;
+            image.cpu.flags.bytes.iopl = fill;
             let mut cpu = retired(&image, code.len());
             cpu.flags.bytes.if_ = result;
             cases.check(

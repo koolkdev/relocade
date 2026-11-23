@@ -68,10 +68,7 @@ impl<'a> BlockModule<'a> {
     }
 
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
-        Self::with_entry_guarantees(
-            compiler,
-            EntryGuarantees::for_profile(compiler.target.profile),
-        )
+        Self::with_entry_guarantees(compiler, EntryGuarantees::for_target(compiler.target))
     }
 
     pub(in crate::compile) fn with_entry_guarantees(

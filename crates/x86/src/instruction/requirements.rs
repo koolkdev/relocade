@@ -1,10 +1,12 @@
 //! Admission shared by block boundaries and instruction execution.
 
 use crate::{
-    execution::ExecutionBuilder, processor, CpuFeature, Exception, ExecutionProfile,
-    ExecutionTarget, PrivilegeLevel,
+    execution::ExecutionBuilder,
+    profile::control_assumptions,
+    state::{access::cpu_location, cr0},
+    CpuFeature, CpuMode, Exception, ExecutionTarget, FlagBytes, PrivilegeLevel,
 };
-use relocade_compiler::BuildError;
+use relocade_compiler::{BuildError, Val, I1, I8};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Availability {
@@ -12,7 +14,7 @@ pub(super) enum Availability {
     ProtectedOnly,
     /// Requires CPL0.
     Privileged,
-    /// Requires CPL <= the execution policy's effective IOPL.
+    /// Requires CPL <= IOPL.
     IoPrivileged,
     /// CR4.TSD restricts RDTSC to CPL0.
     TimestampCounter,
@@ -39,12 +41,13 @@ impl Requirements {
             Availability::Privileged => {
                 let cpl = execution.privilege_level()?;
                 execution.fault_if(
-                    cpl.ne(PrivilegeLevel::Ring0 as u32),
+                    cpl_exceeds(cpl, PrivilegeLevel::Ring0 as u32),
                     Exception::GeneralProtection { error_code: 0 },
                 )
             }
             Availability::IoPrivileged => {
-                let denied = execution.io_privilege_denied()?;
+                let cpl = execution.privilege_level()?;
+                let denied = cpl_exceeds(cpl, execution.read_iopl()?);
                 execution.fault_if(denied, Exception::GeneralProtection { error_code: 0 })
             }
             Availability::TimestampCounter => {
@@ -54,30 +57,47 @@ impl Requirements {
         }
     }
 
-    /// A fault established by the captured target can end snapshot discovery.
-    pub(super) fn known_fault(self, target: ExecutionTarget) -> Option<Exception> {
-        if processor::supports_features(target.cpu_model.bits(), self.features)
-            .constant_bits()
-            .expect("CPU feature masks are constants")
-            == Some(0)
-        {
-            return Some(Exception::InvalidOpcode);
-        }
-        self.mode_fault(target.profile)
+    /// A snapshot ends at a privilege fault only when its entry guarantees
+    /// establish every operand of the check. Otherwise execution decides.
+    pub(super) fn always_faults(self, target: ExecutionTarget) -> bool {
+        self.features
+            .iter()
+            .any(|&feature| !target.cpu_model.supports(feature))
+            || self.guaranteed_privilege_fault(target).unwrap_or(false)
     }
 
-    /// Snapshot discovery can stop at a fault established by its entry profile.
-    /// Execution lowers the corresponding predicates from CPU state values.
-    fn mode_fault(self, profile: ExecutionProfile) -> Option<Exception> {
-        match (self.availability, profile) {
-            (Availability::ProtectedOnly, ExecutionProfile::Real16) => {
-                Some(Exception::InvalidOpcode)
+    fn guaranteed_privilege_fault(self, target: ExecutionTarget) -> Option<bool> {
+        let facts = || control_assumptions(target);
+        let mode = || {
+            let pe = cpu_location!(cr0).known_bits(facts(), cr0::PROTECTION_ENABLE)?;
+            let vm = cpu_location!(flags.bytes.vm).known_bits(facts(), FlagBytes::BOOLEAN_MASK)?;
+            Some(CpuMode::from_control(pe, vm != 0))
+        };
+        let limit = match self.availability {
+            Availability::AllModes | Availability::TimestampCounter => return None,
+            Availability::ProtectedOnly => return Some(mode()? != CpuMode::Protected),
+            Availability::Privileged => PrivilegeLevel::Ring0 as u32,
+            Availability::IoPrivileged => {
+                cpu_location!(flags.bytes.iopl).known_bits(facts(), PrivilegeLevel::MASK)?
             }
-            (
-                Availability::IoPrivileged | Availability::Privileged,
-                ExecutionProfile::Protected(_),
-            ) => Some(Exception::GeneralProtection { error_code: 0 }),
-            _ => None,
-        }
+        };
+        let mode = mode()?;
+        let selector = match mode {
+            CpuMode::Protected => cpu_location!(segments.cs.selector)
+                .known_bits(facts(), PrivilegeLevel::MASK)?
+                as u16,
+            _ => 0, // The selector does not contribute to CPL outside protected mode.
+        };
+        let cpl = mode.privilege_level(selector) as u32;
+        Some(
+            cpl_exceeds(cpl, limit)
+                .constant_bits()
+                .expect("constant privilege levels")
+                == Some(1),
+        )
     }
+}
+
+fn cpl_exceeds(cpl: impl Into<Val<I8>>, limit: impl Into<Val<I8>>) -> Val<I1> {
+    limit.into().unsigned().lt(cpl)
 }

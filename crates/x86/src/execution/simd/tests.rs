@@ -13,7 +13,7 @@ fn exception_module(fallback_enabled: bool) -> CompiledModule {
     let execution = ExecutionModule::declare(
         &mut program,
         target,
-        crate::profile::EntryGuarantees::for_profile(target.profile),
+        crate::profile::EntryGuarantees::for_target(target),
     );
     let function = program.raw_function(
         Signature {

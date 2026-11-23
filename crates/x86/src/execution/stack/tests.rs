@@ -16,11 +16,8 @@ fn instruction(bytes: &[u8]) -> TestModule {
     let target = Compiler::new(SegmentProfile::Segmented16)
         .with_memory_backend(MemoryBackend::PhysicalBus)
         .target();
-    let module = ExecutionModule::declare(
-        &mut program,
-        target,
-        EntryGuarantees::for_profile(target.profile),
-    );
+    let module =
+        ExecutionModule::declare(&mut program, target, EntryGuarantees::for_target(target));
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;
@@ -163,5 +160,69 @@ fn enter_checks_the_final_word_after_saving_bp() {
                 exit,
             }],
         );
+    }
+}
+
+#[test]
+fn cpl3_stack_flags_and_cli_check_the_admitted_iopl() {
+    let live = [0x9c, 0x9d, 0xfa].map(|opcode| instruction(&[opcode]));
+    let live = live.each_ref();
+    let hosted = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
+    // POPF requests IF=1 and IOPL=1. An unwritable field retains its entire byte.
+    for (modules, stored_if, stored_iopl, pushed_flags, restored_if, cli_denied) in [
+        (live, 0xfe, 0xff, 0x3002u16, 1, false),
+        (live, 0xfe, 0xfc, 0x0002u16, 0xfe, true),
+        ([hosted; 3], 0xff, 0xfc, 0x0202u16, 0xff, true),
+    ] {
+        for (opcode, module) in [0x9c, 0x9d, 0xfa].into_iter().zip(modules) {
+            let mut image = Image::new(&[opcode]);
+            image.cpu =
+                CpuState::protected_mode(SegmentDefaultSize::Bits16, SegmentDefaultSize::Bits16);
+            image.cpu.eip = 0x1000;
+            image.cpu.registers.esp = 0x2002;
+            image.cpu.flags.bytes.if_ = stored_if;
+            image.cpu.flags.bytes.iopl = stored_iopl;
+            image.map(2, 0x4000, true);
+            image.data(0x4002, &0x1202u16.to_le_bytes());
+
+            if opcode == 0xfa && cli_denied {
+                image.check_unchanged_exit(
+                    module,
+                    "CLI denied at CPL3",
+                    Exit::GeneralProtection { error: 0 },
+                );
+                continue;
+            }
+            let mut cpu = image.cpu;
+            cpu.eip += 1;
+            cpu.instruction_count += 1;
+            let pushed = pushed_flags.to_le_bytes();
+            let ram = match opcode {
+                0x9c => {
+                    cpu.registers.esp -= 2;
+                    &[(0x4000, pushed.as_slice())][..]
+                }
+                0x9d => {
+                    cpu.registers.esp += 2;
+                    cpu.flags.bytes.if_ = restored_if;
+                    &[]
+                }
+                0xfa => {
+                    cpu.flags.bytes.if_ = 0;
+                    &[]
+                }
+                _ => unreachable!(),
+            };
+            check(
+                module,
+                "protected interrupt flags",
+                &image,
+                &[Step {
+                    cpu,
+                    ram,
+                    exit: Exit::Other(ExecutionExit::StepComplete),
+                }],
+            );
+        }
     }
 }

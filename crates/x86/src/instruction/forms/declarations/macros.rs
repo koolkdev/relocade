@@ -165,6 +165,9 @@ macro_rules! declaration_effect {
     (port_io) => {
         ExecutionEffect::PortIo
     };
+    (iopl_write) => {
+        ExecutionEffect::IoplWrite
+    };
     (control_transfer) => {
         ExecutionEffect::ControlTransfer
     };

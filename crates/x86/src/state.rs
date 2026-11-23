@@ -86,9 +86,9 @@ impl<'cpu> State<'cpu> {
     ) -> Self {
         let mut state = Self::new(cpu);
         state.profile = Some(profile);
-        state.fields = state
-            .fields
-            .with_entry_guarantees(guarantees.patterns().to_vec());
+        for &pattern in guarantees.patterns() {
+            state.fields_for(pattern).add_entry_guarantee(pattern);
+        }
         state
     }
 
@@ -177,12 +177,13 @@ impl<'cpu> State<'cpu> {
         self.flags.read_iopl(body)
     }
 
-    pub(crate) fn write_iopl(
-        &mut self,
+    /// Commits IOPL after instruction checks. The next block reads the new CPU state.
+    pub(crate) fn commit_iopl(
+        &self,
         body: &mut BlockBuilder<'_>,
         value: Val<I8>,
     ) -> Result<(), BuildError> {
-        self.flags.write_iopl(body, value)
+        cpu_store!(body, self.cpu.memory(), flags.bytes.iopl, value.and(3))
     }
 
     pub(crate) fn condition(

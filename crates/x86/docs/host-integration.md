@@ -19,7 +19,8 @@ the shared Rust signature `fn() -> ExecutionExit`.
 table for protected profiles. To generate a protected-mode interpreter for a PC
 with guest paging disabled, use
 `build_interpreter_with_memory(profile, MemoryBackend::PhysicalBus)`.
-The profile still governs segmentation and privilege checks.
+Both configurations apply the selected segment guarantees. The protected PC reads IF and IOPL
+from the executing CPU. Hosted protected entries require IF=1 and IOPL=0.
 
 `Compiler::new(profile)` uses one execution profile and the default `CpuModel`
 for `compile_block`, `compile_blocks` and `compile_dispatcher`.
@@ -295,9 +296,11 @@ semantics without speculative guards and does not import `interpret` itself.
 
 ## Entry guarantees and guarded specialization
 
-The x86 builder takes `EntryGuarantees` from the execution profile. The runtime
-establishes these facts for every way into the module, including direct links.
-The compiler can use them from the first instruction.
+The runtime establishes the selected CPU entry assumptions on every path into
+the module, including direct links. For example, CLI checks the executing
+CPU’s CPL against IOPL. On a hosted ring-3 entry with IOPL zero the compiler
+folds this to an unconditional #GP(0). A protected PC with live IOPL keeps
+the comparison.
 
 | Input | Where it applies | What the JIT emits |
 | --- | --- | --- |
@@ -508,8 +511,9 @@ retry result. Both snapshot blocks and interpreter runs publish completed state
 and dispatch after a port instruction, so the host can validate the next code
 entry against device changes. Devices and any pending interrupts belong to the host.
 
-Protected profiles fix CPL3/IOPL0 and expose no TSS I/O permission bitmap grants;
-port instructions raise #GP(0) after decoding and before device effects. LOCK
+Hosted protected entries require CPL3/IOPL0, so port instructions raise #GP(0)
+after decoding and before device effects. The PC compares CPL with the live IOPL.
+TSS I/O permission bitmap grants are unimplemented. LOCK
 uses the shared unsupported-encoding exit. Operand-size overrides choose
 word/dword transfers independently of the port address. Segment and address-size
 overrides do not affect scalar I/O.
@@ -729,11 +733,13 @@ of `if_`; IOPL uses bits 0–1 of `iopl`. Other bits are retained by snapshot co
 Valid source kinds are an internal invariant; a host setting concrete status flags must also
 select kind zero.
 
-Protected-mode architectural flag transfers use a fixed CPL3/IOPL0 model with IF set and
-VM/RF/VIF/VIP clear. Word stack images restore the represented low flags;
-dword images also restore AC and ID. IRETD restores RF on hardware, but RF is
-unrepresented here along with debug delivery. Real16 transfers also read and write
-IF and IOPL. TF, IF and AC are stored without enabling debug traps, interrupt
+Hosted user entry requires CPL3, bit 0 of IF set, and the low two bits of IOPL clear.
+Admission checks these CPU fields, and both the interpreter and compiled blocks can fold
+reads of the guaranteed bits. PC entries leave IF and IOPL live. POPF and
+IRET may restore IF when CPL permits I/O under the old IOPL, and may restore
+IOPL at CPL0. Word stack images restore the represented low flags; dword images
+also restore AC and ID. VM/RF/VIF/VIP are clear in these images. IRETD restores
+RF on hardware, but RF is unrepresented here along with debug delivery. TF, IF and AC are stored without enabling debug traps, interrupt
 delivery or alignment checks.
 
 ```rust
@@ -984,9 +990,9 @@ The runtime must ensure that each entry matches `CompiledModule::execution_targe
 before execution, including entries reached through a direct dispatch link. This
 replaces the former profile-only metadata. `ExecutionTarget::is_compatible_with(active, cpu)`
 requires exact target equality and checks the architectural state and segment
-caches. `CpuState::is_compatible_with(profile)` validates the legacy profile
-contract against CR0, CR4, VM, CPL and loaded caches. Mode comes from CPU state;
-the installed target retains the requirements of existing generated code.
+caches. `CpuState::is_compatible_with(target)` checks the entry assumptions for the
+configured backend. Passing a profile selects its default backend. The machine also
+checks host writes to IF and EFLAGS before publishing a change to the CPU image.
 
 Admission currently requires CR0=0x30 in real mode or 0x31 in protected mode,
 CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
@@ -1120,8 +1126,8 @@ IRQ entry saves the post-HLT IP, and recognition ends the halt even if frame
 construction faults. A queued maskable IRQ cannot wake HLT with IF clear.
 These rules follow Intel SDM [Volume 2, HLT](https://cdrdv2-public.intel.com/774492/325383-sdm-vol-2abcd.pdf).
 
-CLI/STI clear or set IF in Real16 and raise #GP(0) in protected profiles, which
-fix CPL3/IOPL0. IF changes are immediately visible to PUSHF. STI from IF=0 and
+CLI/STI clear or set IF when CPL permits I/O under the current IOPL. Hosted CPL3/IOPL0
+entries raise #GP(0). IF changes are immediately visible to PUSHF. In Real16, STI from IF=0 and
 MOV/POP SS publish their effects, retire and return
 `ExecutionExit::InterruptInhibited`. The embedding immediately executes the
 protected successor through the interpreter's existing `step` export before

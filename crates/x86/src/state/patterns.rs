@@ -32,7 +32,7 @@ impl State<'_> {
         Ok(())
     }
 
-    fn fields_for(&mut self, pattern: StatePattern) -> &mut StateFields {
+    pub(super) fn fields_for(&mut self, pattern: StatePattern) -> &mut StateFields {
         if let Some(fields) = self.x87.fields_for(pattern) {
             return fields;
         }
@@ -43,6 +43,9 @@ impl State<'_> {
         }
         if within!(simd, super::SimdState) {
             return &mut self.simd;
+        }
+        if within!(flags.bytes.if_, u8) || within!(flags.bytes.iopl, u8) {
+            return &mut self.flags.direct;
         }
         // These fields are read-only until a transition dispatches. Other
         // state owners must join this routing before accepting patterns.

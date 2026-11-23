@@ -87,3 +87,29 @@ fn entry_compatibility_requires_the_complete_target_and_current_segment_assumpti
     assert!(real.is_compatible_with(real, &CpuState::real_mode()));
     assert!(!real.is_compatible_with(target, &CpuState::real_mode()));
 }
+
+#[test]
+fn hosted_cpu_images_require_if_set_and_iopl_zero() {
+    use crate::{Compiler, MemoryBackend, SegmentProfile};
+    let hosted = Compiler::new(SegmentProfile::Flat32).target();
+    let pc = crate::ExecutionTarget {
+        memory_backend: MemoryBackend::PhysicalBus,
+        ..hosted
+    };
+    // A byte write can replace just part of a constrained multi-byte field.
+    let cr0 = std::mem::offset_of!(CpuState, cr0);
+    assert!(!hosted.matches_control_write(cr0, &[0]));
+    assert!(hosted.matches_control_write(cr0, &[1]));
+    assert!(hosted.matches_control_write(cr0 + 1, &[0xff]));
+
+    let mut cpu = CpuState::default();
+    cpu.flags.bytes.if_ = 0xff;
+    cpu.flags.bytes.iopl = 0xfc;
+    assert!(cpu.is_compatible_with(hosted));
+    for (interrupts_enabled, iopl) in [(0xfe, 0xfc), (0xff, 0xff)] {
+        cpu.flags.bytes.if_ = interrupts_enabled;
+        cpu.flags.bytes.iopl = iopl;
+        assert!(!cpu.is_compatible_with(hosted));
+        assert!(cpu.is_compatible_with(pc));
+    }
+}

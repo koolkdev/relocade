@@ -41,7 +41,7 @@ instruction_families! {
     }
     POPF {
         execute: pop_flags::<_>;
-        effects: [control_transfer];
+        effects: [control_transfer, iopl_write];
         flow: Fallthrough;
         forms {
             0x9D => word_or_dword();
