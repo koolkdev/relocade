@@ -82,8 +82,8 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
     assert_eq!(
-        module.target.map(|target| target.profile),
-        Some(ExecutionProfile::Protected(SegmentProfile::Flat32))
+        module.target.map(|target| target.entry),
+        Some(crate::EntryAssumptions::FLAT32)
     );
     for profile in [
         ExecutionProfile::Protected(SegmentProfile::Flat32),
@@ -92,8 +92,8 @@ fn profile_admission_uses_patched_contexts_for_actual_calls() {
         assert_eq!(
             TestModule::interpreter_with_profile(profile)
                 .target
-                .map(|target| target.profile),
-            Some(profile)
+                .map(|target| target.entry),
+            Some(profile.into())
         );
     }
     let invalid = CpuState::filled(0xa5);
@@ -147,14 +147,14 @@ fn interpreter_links_require_the_same_cpu_model() {
     for block_compiler in &compilers {
         let block = block_compiler.compile_block(0x1000, &[0x90], 1).unwrap();
         for interpreter_compiler in &compilers {
-            let interpreter = TestModule::interpreter_with_target(interpreter_compiler.target());
-            assert_eq!(interpreter.target, Some(interpreter_compiler.target()));
+            let interpreter = TestModule::interpreter_with_target(interpreter_compiler.config());
+            assert_eq!(interpreter.target, Some(interpreter_compiler.config()));
             let link = catch_unwind(AssertUnwindSafe(|| {
                 TestModule::new(&block).with_interpreter(interpreter)
             }));
             assert_eq!(
                 link.is_ok(),
-                block_compiler.target() == interpreter_compiler.target()
+                block_compiler.config() == interpreter_compiler.config()
             );
         }
     }
@@ -165,10 +165,10 @@ fn interpreter_code_is_shared_across_models_and_entries_but_not_profiles() {
     use crate::{Compiler, CpuFeature, CpuModel};
     use std::sync::Arc;
 
-    let default = Compiler::new(SegmentProfile::Flat32).target();
+    let default = Compiler::new(SegmentProfile::Flat32).config();
     let disabled = Compiler::new(SegmentProfile::Flat32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
-        .target();
+        .config();
     let step = TestModule::interpreter_with_target(default);
     let restricted_step = TestModule::interpreter_with_target(disabled);
     let run = TestModule::interpreter_run_with_target(default);

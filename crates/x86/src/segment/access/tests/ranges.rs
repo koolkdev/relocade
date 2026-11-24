@@ -171,7 +171,7 @@ fn constant_empty_span_is_denied_without_faulting() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_target(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::for_entry(crate::EntryAssumptions::REAL_MODE),
         );
         let check =
             state
@@ -183,7 +183,7 @@ fn constant_empty_span_is_denied_without_faulting() {
     let module = TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "probe".into(),
-        execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).target()),
+        execution_target: Some(crate::Compiler::new(ExecutionProfile::Real16).config()),
     });
     let cpu = CpuState::real_mode().to_bytes().to_vec();
     assert_eq!(

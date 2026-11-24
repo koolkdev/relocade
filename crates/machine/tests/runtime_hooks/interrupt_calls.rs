@@ -7,7 +7,7 @@ use std::{cell::Cell, rc::Rc};
 
 async fn check_interrupt_call() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

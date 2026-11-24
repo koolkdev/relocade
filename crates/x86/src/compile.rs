@@ -11,11 +11,10 @@ pub use block::{
 };
 pub use dispatch::EntryTable;
 
-use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend};
+use crate::{CompilerConfig, CpuModel, CpuState, ExecutionTarget};
 
-/// Compiles snapshot blocks and dispatch for one execution target.
-/// CPU observations specialize snapshot blocks. Use [`crate::build_interpreter`]
-/// to construct the interpreter program for an execution profile.
+/// Compiles snapshot blocks and dispatch with explicit entry assumptions.
+/// CPU observations can further specialize snapshot blocks under runtime guards.
 ///
 /// ```
 /// use relocade_x86::{Compiler, SegmentProfile};
@@ -25,30 +24,23 @@ use crate::{CpuModel, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub struct Compiler {
-    target: ExecutionTarget,
+    config: CompilerConfig,
     observed_cpu: Option<CpuState>,
 }
 
 impl Compiler {
-    /// Selects the profile guarantees shared by every entry and the default processor model.
+    /// Selects the assumptions established at every entry, memory routing and CPU model.
     /// Use [`Self::specialize_on_cpu`] for observed state that needs a runtime guard.
-    pub fn new(profile: impl Into<ExecutionProfile>) -> Self {
-        Self::from_target(ExecutionTarget::from(profile))
-    }
-
-    /// Compiles for an existing target, retaining its memory backend, CPU model and budget policy.
-    pub fn from_target(target: ExecutionTarget) -> Self {
+    pub fn new(config: impl Into<CompilerConfig>) -> Self {
         Self {
-            target,
+            config: config.into(),
             observed_cpu: None,
         }
     }
 
-    /// Selects how generated code accesses guest memory after segmentation.
-    #[must_use]
-    pub fn with_memory_backend(mut self, memory_backend: MemoryBackend) -> Self {
-        self.target.memory_backend = memory_backend;
-        self
+    /// Uses the entry assumptions and machine services of an existing execution target.
+    pub fn from_target(target: ExecutionTarget) -> Self {
+        Self::new(target)
     }
 
     /// Selects processor capabilities for snapshot blocks and dispatch.
@@ -58,13 +50,13 @@ impl Compiler {
     /// let model = CpuModel::default().with_feature(CpuFeature::Cmov, false);
     /// let compiler = Compiler::new(SegmentProfile::Flat32).with_cpu_model(model);
     /// let block = compiler.compile_block(0x1000, &[0x0f, 0x44, 0xc0], 1)?;
-    /// assert_eq!(block.execution_target, Some(compiler.target()));
+    /// assert_eq!(block.execution_target, Some(compiler.config()));
     /// // Executing this CMOVE raises #UD without reading its operand.
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
     #[must_use]
     pub fn with_cpu_model(mut self, cpu_model: CpuModel) -> Self {
-        self.target.cpu_model = cpu_model;
+        self.config.cpu_model = cpu_model;
         self
     }
 
@@ -74,13 +66,13 @@ impl Compiler {
     /// Interpreters retain runtime checks so their modules remain shared.
     #[must_use]
     pub fn with_instruction_budgets(mut self, enabled: bool) -> Self {
-        self.target.instruction_budgets = enabled;
+        self.config.instruction_budgets = enabled;
         self
     }
 
-    /// The execution target shared by every entry. Snapshots also retain their code addresses.
-    pub fn target(&self) -> ExecutionTarget {
-        self.target
+    /// Returns the build configuration shared by this compiler's entries.
+    pub fn config(&self) -> CompilerConfig {
+        self.config
     }
 
     /// Copies a CPU snapshot for guarded specialization of snapshot blocks.

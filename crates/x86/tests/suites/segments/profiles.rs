@@ -3,17 +3,14 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, EntryAssumptions, SegmentProfile};
 
 #[test]
 fn compiled_entries_reuse_only_compatible_segment_assumptions() {
     let code = [0x64, 0x8b, 0x03];
     let compiled = compile_block_from_bytes(0x1000, &code, 1).unwrap();
     let target = compiled.execution_target.unwrap();
-    assert_eq!(
-        target.profile,
-        ExecutionProfile::Protected(SegmentProfile::Flat32)
-    );
+    assert_eq!(target.entry, EntryAssumptions::FLAT32);
     let block = TestModule::new(&compiled);
     let mut image = Image::new(&code);
     image.cpu.registers.ebx = 0x20;

@@ -2,8 +2,8 @@
 mod execution;
 use relocade_bios::{video::VideoFirmware, KeyMode, KeyStroke, Keyboard};
 use relocade_machine::{
-    real_mode_interrupt::Interrupts, Clock, Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig,
-    Memory,
+    real_mode_interrupt::Interrupts, Clock, Cpu, CpuConfig, Device, IoBus, IoContext,
+    MachineConfig, Memory,
 };
 use relocade_vga::DispiAdapter;
 use relocade_x86::{
@@ -81,7 +81,7 @@ async fn machine(timer: &Rc<RefCell<Timer>>) -> (Cpu, Keyboard, Rc<RefCell<Dispi
     };
     state.registers.esp = 0x8000;
     state.flags.set_eflags(2); // The caller has IF clear, independently of INT entry.
-    let config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
+    let config = CpuConfig::new(Compiler::new(ExecutionProfile::Real16).config(), state).unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
     relocade_bios::initialize(
         &mut memory.view().with_io(&io),

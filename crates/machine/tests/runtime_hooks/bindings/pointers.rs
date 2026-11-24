@@ -33,7 +33,7 @@ fn select_data_segment(selector: u16) -> u16 {
 
 async fn check_pointer_bindings() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
         0x20000,
         PhysicalMemoryMap::new([(0..=0x1ffff, PhysicalMapping::Ram { backing_offset: 0 })])

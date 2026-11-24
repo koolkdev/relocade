@@ -26,7 +26,7 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     state.eip = 0;
     state.registers.esp = 0x800;
     state.registers.ebx = 0x20;
-    let config = CpuConfig::new(config.execution_target(), state).unwrap();
+    let config = CpuConfig::new(config.compiler_config(), state).unwrap();
     machine
         .memory()
         .view()
@@ -44,7 +44,7 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     machine.memory().view().write(0x110, &[0x42, 0xc3]).unwrap(); // INC DX; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request_functions(
@@ -130,7 +130,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
     state.eip = 0;
     state.registers.esp = 0x800;
     state.registers.ebx = 0x20;
-    let config = CpuConfig::new(config.execution_target(), state).unwrap();
+    let config = CpuConfig::new(config.compiler_config(), state).unwrap();
     machine
         .memory()
         .view()
@@ -147,7 +147,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
     machine.memory().view().write(0x300, &[0xf1]).unwrap(); // Unsupported root
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |segment| FunctionRequest {
             entry: FarPointer { segment, offset: 0 },
@@ -237,7 +237,7 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request_functions(

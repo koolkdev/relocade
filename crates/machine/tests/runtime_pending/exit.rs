@@ -3,7 +3,7 @@ use relocade_machine::{Cpu, Device, ExitHandle, IoBus, Memory};
 
 async fn cpu(io: IoBus) -> Cpu {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x400,
             ..CpuState::real_mode()

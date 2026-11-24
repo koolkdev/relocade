@@ -1,13 +1,11 @@
 use crate::{
-    compile::block::module::BlockModule,
-    profile::EntryGuarantees,
     support::{
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
     BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CodeAddress, CompiledBlocks,
-    Compiler, CpuFeature, CpuModel, CpuState, ExecutionContext, ExecutionExit, ExecutionProfile,
-    SegmentDefaultSize, SegmentProfile,
+    Compiler, CompilerConfig, CpuFeature, CpuModel, CpuState, EntryAssumptions, ExecutionContext,
+    ExecutionExit, ExecutionProfile, MemoryBackend, SegmentDefaultSize, SegmentProfile,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -85,19 +83,7 @@ fn entries_report_consumed_spans_in_input_order() {
     }));
     assert_eq!(parallel.bytes, blocks.bytes);
     assert_eq!(parallel.entries, blocks.entries);
-    assert_eq!(parallel.execution_target, blocks.execution_target);
-}
-
-fn compile_without_protected_width_guarantee(
-    compiler: &Compiler,
-    snapshot: BlockSnapshot<'_>,
-) -> CompiledBlocks {
-    let guarantees = EntryGuarantees::new(compiler.target(), None);
-    BlockModule::with_entry_guarantees(compiler, guarantees)
-        .build(&[snapshot])
-        .unwrap()
-        .compile()
-        .unwrap()
+    assert_eq!(parallel.config, blocks.config);
 }
 
 fn check_width_guard(blocks: &CompiledBlocks, needs_guard: bool) {
@@ -146,27 +132,48 @@ fn canonical_real_mode_guarantees_sixteen_bit_decoding() {
     let fixed = compiler.compile_block(0x1000, &bytes, 1).unwrap();
     assert_eq!(batch.bytes, fixed.bytes);
     check_width_guard(&batch, false);
-    let canonical = compile_without_protected_width_guarantee(&compiler, snapshot);
-    assert_eq!(canonical.bytes, fixed.bytes);
+    let entry = EntryAssumptions {
+        code_default_size: None,
+        ..compiler.config().entry
+    };
+    let canonical = Compiler::new(CompilerConfig::new(entry, compiler.config().memory_backend));
+    assert_eq!(
+        canonical.compile_block(0x1000, &bytes, 1).unwrap().bytes,
+        fixed.bytes
+    );
 }
 
 #[test]
 fn a_width_mismatch_hands_off_before_executing_snapshot_bytes() {
     use SegmentDefaultSize::{Bits16, Bits32};
     let code = [0xb8, 0x34, 0x12, 0x78, 0x56]; // MOV AX/EAX, immediate
-    let compiler = Compiler::new(SegmentProfile::Segmented32);
+    let entry = EntryAssumptions {
+        code_default_size: None,
+        ..EntryAssumptions::SEGMENTED32
+    };
+    let config = CompilerConfig::new(entry, MemoryBackend::HostPageTable);
+    let compiler = Compiler::new(config);
+    assert!(matches!(
+        compiler.compile_block(0x1000, &code, 1),
+        Err(BlockError::MissingCodeDefaultSize { address: 0x1000 })
+    ));
     for (required, result, next_eip) in
         [(Bits16, 0xaaaa_1234, 0x1003), (Bits32, 0x5678_1234, 0x1005)]
     {
-        let blocks = compile_without_protected_width_guarantee(
-            &compiler,
-            BlockSnapshot {
+        let blocks = compiler
+            .compile_blocks(&[BlockSnapshot {
                 address: CodeAddress::CsRelative(0x1000),
                 code_default_size: required,
                 bytes: &code,
                 instruction_limit: 1,
-            },
-        );
+            }])
+            .unwrap();
+        let observed = CpuState::protected_mode(required, Bits32);
+        let raw = Compiler::new(config)
+            .specialize_on_cpu(&observed)
+            .compile_block(0x1000, &code, 1)
+            .unwrap();
+        assert_eq!(raw.bytes, blocks.bytes);
         check_width_guard(&blocks, true);
         // The same destination must work for either live default.
         let module = TestModule::from_bytes(&blocks.bytes, &blocks.entries[0].export, None);
@@ -256,7 +263,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
     assert!(super::memory::imports(&empty.bytes).is_empty());
-    assert_eq!(empty.execution_target, compiler.target());
+    assert_eq!(empty.config, compiler.config());
     Validator::new().validate_all(&empty.bytes).unwrap();
 
     let first = BlockSnapshot {
@@ -347,11 +354,11 @@ fn entry_boundaries() {
         },
     ];
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
-    assert_eq!(blocks.execution_target, compiler.target());
+    assert_eq!(blocks.config, compiler.config());
     let mut module = TestModule::from_bytes(
         &blocks.bytes,
         &blocks.entries[0].export,
-        Some(blocks.execution_target),
+        Some(blocks.config),
     );
     for (index, (snapshot, entry)) in snapshots.iter().zip(&blocks.entries).enumerate() {
         module.entry.clone_from(&entry.export);
@@ -488,7 +495,7 @@ fn shared_memory_helpers() {
         let mut module = TestModule::from_bytes(
             &blocks.bytes,
             &blocks.entries[0].export,
-            Some(blocks.execution_target),
+            Some(blocks.config),
         );
         for entry in &blocks.entries {
             module.entry.clone_from(&entry.export);

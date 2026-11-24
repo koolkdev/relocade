@@ -1,7 +1,7 @@
 use super::ConfigurationError;
 use relocade_x86::{
-    CpuMode, CpuModel, CpuState, DescriptorTableRegister, ExecutionProfile, ExecutionTarget,
-    PrivilegeLevel, Segment, SegmentRegister, SystemSegmentRegister,
+    CompilerConfig, CpuMode, CpuModel, CpuState, DescriptorTableRegister, EntryAssumptions,
+    MemoryBackend, PrivilegeLevel, Segment, SegmentRegister, SystemSegmentRegister,
 };
 
 /// Validated initial state and execution policy for one CPU.
@@ -13,8 +13,8 @@ pub struct CpuConfig {
 
 #[derive(Clone, Copy)]
 pub(crate) enum CpuExecution {
-    Pc(ExecutionTarget),
-    Fixed(ExecutionTarget),
+    Pc(CompilerConfig),
+    Fixed(CompilerConfig),
 }
 
 impl CpuConfig {
@@ -22,12 +22,18 @@ impl CpuConfig {
     /// Its interpreter accepts canonical real mode and protected ring 3, with
     /// paging disabled in both modes. Its JIT currently compiles real-mode code.
     pub fn pc(cpu: CpuState) -> Result<Self, ConfigurationError> {
-        Self::configured(CpuExecution::Pc(ExecutionProfile::Real16.into()), cpu)
+        Self::configured(
+            CpuExecution::Pc(CompilerConfig::new(
+                EntryAssumptions::REAL_MODE,
+                MemoryBackend::PhysicalBus,
+            )),
+            cpu,
+        )
     }
 
-    /// Requires the supplied target's entry assumptions on initialization and restore.
-    pub fn new(target: ExecutionTarget, cpu: CpuState) -> Result<Self, ConfigurationError> {
-        Self::configured(CpuExecution::Fixed(target), cpu)
+    /// Requires the supplied entry assumptions on initialization and restore.
+    pub fn new(config: CompilerConfig, cpu: CpuState) -> Result<Self, ConfigurationError> {
+        Self::configured(CpuExecution::Fixed(config), cpu)
     }
 
     fn configured(execution: CpuExecution, cpu: CpuState) -> Result<Self, ConfigurationError> {
@@ -38,20 +44,20 @@ impl CpuConfig {
     /// Selects the processor features exposed to guest code.
     #[must_use]
     pub fn with_cpu_model(mut self, model: CpuModel) -> Self {
-        self.execution.target_mut().cpu_model = model;
+        self.execution.config_mut().cpu_model = model;
         self
     }
 
     /// Selects whether the scheduler can arm instruction budgets.
     #[must_use]
     pub fn with_instruction_budgets(mut self, enabled: bool) -> Self {
-        self.execution.target_mut().instruction_budgets = enabled;
+        self.execution.config_mut().instruction_budgets = enabled;
         self
     }
 
-    /// The target used to compile JIT code. Read the CPU image for its live mode and width.
-    pub fn execution_target(&self) -> ExecutionTarget {
-        self.execution.target()
+    /// Inputs used to compile guest code. Read the CPU image for its live mode and width.
+    pub fn compiler_config(&self) -> CompilerConfig {
+        self.execution.config()
     }
 
     pub fn cpu(&self) -> &CpuState {
@@ -73,15 +79,15 @@ impl crate::worker::Transfer for CpuConfig {
 }
 
 impl CpuExecution {
-    pub(crate) fn target(self) -> ExecutionTarget {
+    pub(crate) fn config(self) -> CompilerConfig {
         match self {
-            Self::Pc(target) | Self::Fixed(target) => target,
+            Self::Pc(config) | Self::Fixed(config) => config,
         }
     }
 
-    fn target_mut(&mut self) -> &mut ExecutionTarget {
+    fn config_mut(&mut self) -> &mut CompilerConfig {
         match self {
-            Self::Pc(target) | Self::Fixed(target) => target,
+            Self::Pc(config) | Self::Fixed(config) => config,
         }
     }
 
@@ -94,7 +100,7 @@ impl CpuExecution {
                         .into_iter()
                         .all(|segment| self.accepts_segment(mode, segment, &cpu.segments[segment]))
             }
-            Self::Fixed(target) => cpu.is_compatible_with(target),
+            Self::Fixed(config) => cpu.is_compatible_with(config),
         };
         if !compatible {
             return Err(ConfigurationError::IncompatibleCpu);
@@ -111,7 +117,7 @@ impl CpuExecution {
         value: &SegmentRegister,
     ) -> bool {
         match self {
-            Self::Fixed(target) => value.is_compatible_with(target.profile, segment),
+            Self::Fixed(config) => value.is_compatible_with(config.entry, segment),
             Self::Pc(_) => match mode {
                 CpuMode::Real => *value == SegmentRegister::real_mode(segment, value.selector),
                 CpuMode::Protected => {

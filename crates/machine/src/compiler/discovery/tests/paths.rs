@@ -65,7 +65,7 @@ fn unreadable_targets_and_overlapping_encodings_end_only_the_affected_path() {
 
 #[test]
 fn shared_instruction_offsets_are_decoded_in_each_requested_width() {
-    let target = Compiler::new(SegmentProfile::Segmented32).target();
+    let target = Compiler::new(SegmentProfile::Segmented32).config();
     let root = address(START);
     let code = [0xb8, 0x34, 0x12, 0xc3, 0x90, 0xc3];
     let mut discovery = BlockDiscovery::new(target, mapped_code([(root, code.as_slice())]));

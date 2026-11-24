@@ -26,7 +26,7 @@ fn setup() -> (Machine, CpuConfig) {
     .unwrap();
     let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -55,10 +55,7 @@ async fn prepared_cpu() {
             let prepared = input.recv().await.unwrap().unwrap();
             assert_eq!(prepared.memory().view().read_u16(0x80).unwrap(), 0);
             let mut cpu = prepared.into_cpu(Default::default()).await.unwrap();
-            assert_eq!(
-                cpu.cpu_state().execution_target(),
-                config.execution_target()
-            );
+            assert_eq!(cpu.cpu_state().compiler_config(), config.compiler_config());
             assert_eq!(
                 cpu.cpu_state().ax(),
                 0x1234,

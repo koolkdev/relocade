@@ -114,7 +114,7 @@ impl Runner {
     ) -> Result<Self> {
         let time = match guest {
             Some(config) => {
-                GuestTimeDriver::validate_target(cpu.configuration().execution_target())?;
+                GuestTimeDriver::validate_compiler_config(cpu.configuration().compiler_config())?;
                 Timing::with_guest_time(config, host)
             }
             None => Timing::from_clock(host),

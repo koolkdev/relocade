@@ -49,8 +49,8 @@ that integration; `relocade-workers` has no dependency on the compiler.
 Each connection has an async request loop on the service worker. Connections keep
 their memory sources and ordered request streams independent while sharing
 compilation capacity. CPU creation stays synchronous; connections and requests can
-queue during startup. Every request supplies its execution target. All connected
-PCs use the same pool.
+queue during startup. Every request carries the compiler configuration for its
+entries. All connected PCs use the same pool.
 
 Each CPU has one `CodeCache`. It chooses hot functions, requests compilation,
 validates and installs the replies, and retires installed code when its source
@@ -109,7 +109,9 @@ installed while the worker was compiling. Both paths bind the interpreter
 only at vacant addresses. A profiled root that discovery could not decode also
 receives this fallback.
 
-`CompiledCode::install` checks the execution target and guest memory identity.
+`CompiledCode::install` requires the destination CPU to use the same entry
+assumptions, memory backend, CPU model and instruction-budget setting recorded
+in the module. The destination must also use the guest memory the worker read.
 Before publishing dispatch entries and call links, the stopped CPU compares
 every emitted instruction span with its live backing and checks the current
 blacklist. Either check can reject a result with `Error::StaleCompilation`,
@@ -188,7 +190,7 @@ This example runs a guest loop that makes no host calls.
 use futures_util::future::Either;
 
 let mut client = runner.take_compiler().expect("configured compiler");
-client.request(target, blocks)?;
+client.request(runner.cpu().cpu_state().compiler_config(), blocks)?;
 match runner.run_cpu_until(client.recv()).await {
     Either::Right(Some(result)) => result?.install(runner.cpu())?,
     Either::Right(None) => handle_compiler_shutdown(),

@@ -27,7 +27,7 @@ fn default_block_entry_matches_explicit_flat_compilation() {
         assert_eq!(default.entry, explicit.entry);
         assert_eq!(
             default.execution_target,
-            Some(crate::Compiler::new(SegmentProfile::Flat32).target())
+            Some(crate::Compiler::new(SegmentProfile::Flat32).config())
         );
         assert_eq!(explicit.execution_target, default.execution_target);
     }
@@ -45,7 +45,7 @@ fn snapshot_field_bounds_follow_the_selected_code_defaults() {
     .unwrap();
     assert_eq!(
         module.execution_target,
-        Some(crate::Compiler::new(SegmentProfile::Segmented16).target())
+        Some(crate::Compiler::new(SegmentProfile::Segmented16).config())
     );
     assert!(matches!(
         compile_block_from_bytes_with_profile(

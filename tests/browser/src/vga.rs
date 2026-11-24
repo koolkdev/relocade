@@ -28,7 +28,7 @@ pub async fn vga_workers() -> Result<(), String> {
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();
     let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

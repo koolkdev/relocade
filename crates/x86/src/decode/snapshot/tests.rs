@@ -14,7 +14,7 @@ fn decoding_keeps_the_captured_width_and_wrapping_encoding_end() {
         assert_eq!(instruction.code_default_size(), size);
         assert_eq!(instruction.next_eip(), next);
         assert_eq!(
-            instruction.flow(Compiler::new(SegmentProfile::Flat32).target()),
+            instruction.flow(Compiler::new(SegmentProfile::Flat32).config()),
             InstructionFlow::Continue
         );
     }
@@ -31,7 +31,7 @@ fn decoding_keeps_the_captured_width_and_wrapping_encoding_end() {
 fn near_transfers_report_operand_sized_targets_and_return_offsets() {
     use InstructionFlow::{Branch, Jump, NearCall, Stop};
 
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let target = Compiler::new(SegmentProfile::Flat32).config();
     for code in [
         &[0x75, 0xfe][..],                     // JNZ rel8
         &[0xe3, 0xfe],                         // JECXZ
@@ -59,7 +59,7 @@ fn near_transfers_report_operand_sized_targets_and_return_offsets() {
     }
     let instruction = SnapshotInstruction::decode(&[0x66, 0xeb, 0], 0xffff, Bits16).unwrap();
     assert_eq!(
-        instruction.flow(Compiler::new(ExecutionProfile::Real16).target()),
+        instruction.flow(Compiler::new(ExecutionProfile::Real16).config()),
         Jump { target: 0x10002 }
     );
 }
@@ -76,7 +76,7 @@ fn far_calls_report_the_operand_sized_return_offset_in_both_modes() {
         assert_eq!(instruction.next_eip(), 0x10000);
         for profile in [ExecutionProfile::Real16, SegmentProfile::Segmented16.into()] {
             assert_eq!(
-                instruction.flow(Compiler::new(profile).target()),
+                instruction.flow(Compiler::new(profile).config()),
                 InstructionFlow::FarCall { return_eip },
                 "{profile:?}, {code:02x?}"
             );
@@ -86,7 +86,7 @@ fn far_calls_report_the_operand_sized_return_offset_in_both_modes() {
 
 #[test]
 fn context_changes_and_traps_end_the_block() {
-    let target = Compiler::new(ExecutionProfile::Real16).target();
+    let target = Compiler::new(ExecutionProfile::Real16).config();
     for code in [
         &[0xea, 0, 0x20, 0, 0x30][..], // JMP FAR 3000:2000
         &[0xff, 0x2e, 0, 0x20],        // JMP FAR [2000]
@@ -109,14 +109,14 @@ fn a_target_known_fault_ends_an_otherwise_continuing_instruction() {
     let flat = Compiler::new(SegmentProfile::Flat32);
     let real = Compiler::new(ExecutionProfile::Real16);
     let halt = SnapshotInstruction::decode(&[0xf4], 0, Bits16).unwrap();
-    assert_eq!(halt.flow(real.target()), InstructionFlow::Fallthrough);
-    assert_eq!(halt.flow(flat.target()), InstructionFlow::Stop);
+    assert_eq!(halt.flow(real.config()), InstructionFlow::Fallthrough);
+    assert_eq!(halt.flow(flat.config()), InstructionFlow::Stop);
 
     let rdtsc = SnapshotInstruction::decode(&[0x0f, 0x31], 0, Bits32).unwrap();
-    assert_eq!(rdtsc.flow(flat.target()), InstructionFlow::Continue);
+    assert_eq!(rdtsc.flow(flat.config()), InstructionFlow::Continue);
     let without_tsc = CpuModel::default().with_feature(CpuFeature::Tsc, false);
     assert_eq!(
-        rdtsc.flow(flat.with_cpu_model(without_tsc).target()),
+        rdtsc.flow(flat.with_cpu_model(without_tsc).config()),
         InstructionFlow::Stop
     );
 }
@@ -125,9 +125,16 @@ fn a_target_known_fault_ends_an_otherwise_continuing_instruction() {
 fn cpl3_cli_ends_discovery_only_when_iopl_is_guaranteed() {
     let cli = SnapshotInstruction::decode(&[0xfa], 0, Bits16).unwrap();
     let hosted = Compiler::new(SegmentProfile::Segmented16);
-    assert_eq!(cli.flow(hosted.target()), InstructionFlow::Stop);
-    let pc = hosted.with_memory_backend(crate::MemoryBackend::PhysicalBus);
-    assert_eq!(cli.flow(pc.target()), InstructionFlow::Continue);
+    assert_eq!(cli.flow(hosted.config()), InstructionFlow::Stop);
+    let pc = crate::CompilerConfig::new(
+        crate::EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..hosted.config().entry
+        },
+        crate::MemoryBackend::PhysicalBus,
+    );
+    assert_eq!(cli.flow(pc), InstructionFlow::Continue);
 }
 
 #[test]

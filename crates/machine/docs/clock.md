@@ -130,7 +130,7 @@ drop(binding);
 ```
 
 Guest time requires a CPU built with instruction budgets enabled, including for
-unthrottled execution. A worker reports an incompatible target during startup.
+unthrottled execution. A worker rejects configurations without instruction budgets during startup.
 
 The guard returned by `bind` lets the clock observe retirement and update the
 CPU checkpoint as device waits change. Dropping it records final retirement,

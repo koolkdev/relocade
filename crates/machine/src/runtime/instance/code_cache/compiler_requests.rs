@@ -2,13 +2,11 @@
 
 use super::{install::Installation, CodeCache};
 use crate::{CompiledCode, CompilerClient, Cpu, DiscoveryLimits, FunctionRequest, Result};
-use relocade_x86::ExecutionProfile;
 use std::task::{Context, Poll};
 
 impl CodeCache {
     pub(super) fn submit_hot_functions(&mut self) {
-        let target = self.guest.bindings.cpu.execution_target();
-        if target.profile != ExecutionProfile::Real16 || !self.pending.is_empty() {
+        if !self.pending.is_empty() {
             return;
         }
         let Some(compiler) = &self.compiler else {
@@ -26,7 +24,10 @@ impl CodeCache {
                 limits: DiscoveryLimits::default(),
             })
             .collect();
-        if compiler.request_functions(target, requests).is_err() {
+        if compiler
+            .request_functions(self.guest.bindings.cpu.compiler_config(), requests)
+            .is_err()
+        {
             self.disable_compiler();
         } else {
             self.pending = entries;
@@ -49,7 +50,7 @@ impl CodeCache {
         self.profiling.reset_counts(&pending);
         let result = reply.and_then(|code| {
             code.check_destination(
-                self.guest.bindings.cpu.execution_target(),
+                self.guest.bindings.cpu.compiler_config(),
                 &self.guest.bindings.guest,
             )?;
             self.install_guest_code(&code, Installation::Profiled(&pending))

@@ -15,7 +15,7 @@ pub use service::CompilerService;
 use crate::{memory::code::CodeReader, worker::Transfer, FarPointer, Memory, Result};
 use relocade_wasm_runtime::{Module, WasmCompiler};
 use relocade_x86::{
-    BlockSnapshot, CodeAddress, DecodedBlock, ExecutionTarget, Segment, SegmentDefaultSize,
+    BlockSnapshot, CodeAddress, CompilerConfig, DecodedBlock, Segment, SegmentDefaultSize,
     SegmentRegister,
 };
 
@@ -65,17 +65,17 @@ impl Transfer for Reply {
 async fn compile(
     compiler: &relocade_wasm_runtime::Compiler,
     memory: &Memory,
-    target: ExecutionTarget,
+    config: CompilerConfig,
     request: connection::Compilation,
     jobs: &crate::worker::JobExecutor,
 ) -> Result<CompiledCode> {
-    memory.configuration().validate_target(target)?;
+    memory.configuration().validate_compiler_config(config)?;
     let mut reader = memory.code_reader();
-    let x86 = relocade_x86::Compiler::from_target(target);
+    let x86 = relocade_x86::Compiler::new(config);
     let decoded = match request {
         connection::Compilation::Blocks(requests) => capture_blocks(&x86, &requests, &mut reader)?,
         connection::Compilation::Functions(requests) => {
-            discover_functions(target, requests, &mut reader)?
+            discover_functions(config, requests, &mut reader)?
         }
     };
 
@@ -135,11 +135,11 @@ fn capture_blocks(
 /// Plan a batch over the worker's retained snapshots. A rejected candidate
 /// leaves other roots eligible, including their shared continuations.
 pub(crate) fn discover_functions(
-    target: ExecutionTarget,
+    config: CompilerConfig,
     requests: impl IntoIterator<Item = FunctionRequest>,
     reader: &mut CodeReader<'_>,
 ) -> Result<Vec<DecodedBlock>> {
-    let mut discovery = discovery::BlockDiscovery::new(target, |address, bytes| {
+    let mut discovery = discovery::BlockDiscovery::new(config, |address, bytes| {
         reader.read_segment_prefix(&code_segment(address), address.eip(), bytes)
     });
     let mut first_error = None;

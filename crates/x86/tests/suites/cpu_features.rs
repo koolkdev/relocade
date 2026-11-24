@@ -29,7 +29,7 @@ fn disabled_forms(frontend: Frontend) {
             ),
         ] {
             let model = CpuModel::default().with_feature(feature, false);
-            let target = Compiler::new(profile).with_cpu_model(model).target();
+            let target = Compiler::new(profile).with_cpu_model(model).config();
             for &instruction in forms {
                 // The incomplete successor must not enter the snapshot boundary.
                 let code = [instruction, &[0x0f]].concat();
@@ -106,7 +106,7 @@ fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
             .compile_block(0x1000, &code, 8)
             .unwrap(),
     );
-    let run = TestModule::interpreter_run_with_target(restricted_compiler().target());
+    let run = TestModule::interpreter_run_with_target(restricted_compiler().config());
     for module in [&block, run] {
         assert_eq!(
             module.observe(&image.input(), 1),
@@ -119,7 +119,7 @@ fn disabled_instruction_publishes_only_prior_work_and_stops_the_run() {
 
 #[test]
 fn interpreter_fetch_fault_precedes_disabled_feature_fault() {
-    let module = TestModule::interpreter_with_target(restricted_compiler().target());
+    let module = TestModule::interpreter_with_target(restricted_compiler().config());
     for (code, exit) in [
         (
             &[0x0f, 0x44][..],

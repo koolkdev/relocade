@@ -85,7 +85,7 @@ fn cached_blocks_keep_their_cpu_model() {
     for enabled in [true, false, true] {
         let target = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, enabled))
-            .target();
+            .config();
         let module = blocks.get_with_target(&image.cpu, &code, 1, target);
         let mut cpu = image.cpu;
         let exit = if enabled {

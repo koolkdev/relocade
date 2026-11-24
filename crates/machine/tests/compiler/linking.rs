@@ -5,7 +5,7 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
     let (mut machine, config) = setup();
     let mut state = *config.cpu();
     state.registers.esp = 0x800;
-    let config = CpuConfig::new(config.execution_target(), state).unwrap();
+    let config = CpuConfig::new(config.compiler_config(), state).unwrap();
     machine
         .memory()
         .view()
@@ -37,7 +37,7 @@ async fn late_callee(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |offset| FunctionRequest {
             entry: FarPointer { segment: 0, offset },

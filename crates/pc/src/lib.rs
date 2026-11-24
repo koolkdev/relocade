@@ -91,7 +91,7 @@ impl Pc {
         let cpu = runner.cpu();
         {
             let mut context = cpu.context();
-            let cpu_model = context.cpu.execution_target().cpu_model;
+            let cpu_model = context.cpu.compiler_config().cpu_model;
             relocade_bios::initialize(
                 &mut context.memory,
                 context.io,

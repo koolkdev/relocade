@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, ExecutionTarget, InstructionFlow};
+use relocade_x86::{Compiler, CompilerConfig, CpuState, ExecutionProfile, InstructionFlow};
 use std::collections::HashMap;
 use wasmparser::Validator;
 
@@ -14,7 +14,7 @@ struct BlockKey {
     start: u32,
     bytes: Vec<u8>,
     limit: u32,
-    target: ExecutionTarget,
+    target: CompilerConfig,
 }
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ impl BlockModules {
         limit: u32,
         profile: impl Into<ExecutionProfile>,
     ) -> &TestModule {
-        self.get_with_target(cpu, bytes, limit, Compiler::new(profile).target())
+        self.get_with_target(cpu, bytes, limit, Compiler::new(profile).config())
     }
 
     pub(crate) fn get_with_target(
@@ -36,7 +36,7 @@ impl BlockModules {
         cpu: &CpuState,
         bytes: &[u8],
         limit: u32,
-        target: ExecutionTarget,
+        target: CompilerConfig,
     ) -> &TestModule {
         let key = BlockKey {
             start: cpu.eip,
@@ -48,7 +48,7 @@ impl BlockModules {
         // execution context. The fixture machine supplies the code and mappings.
         key.validate_fetches(cpu);
         self.0.entry(key).or_insert_with_key(|key| {
-            let module = Compiler::from_target(target)
+            let module = Compiler::new(target)
                 .compile_block(key.start, bytes, limit)
                 .unwrap_or_else(|error| panic!("compiling {key:?}: {error:?}"));
             assert_eq!(module.execution_target, Some(target));
@@ -71,7 +71,7 @@ impl BlockKey {
             let (decoded, rest) = crate::decode::snapshot(
                 remaining,
                 eip,
-                crate::SegmentDefaultSize::for_profile(self.target.profile),
+                self.target.entry.fixed_code_default_size().unwrap(),
             )
             .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
             let last = decoded.next_eip().wrapping_sub(1);
@@ -97,7 +97,7 @@ pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionPro
         let (decoded, rest) =
             crate::decode::snapshot(bytes, eip, crate::SegmentDefaultSize::for_profile(profile))
                 .expect("fixture instructions decode");
-        if decoded.flow(Compiler::new(profile).target()) != InstructionFlow::Continue {
+        if decoded.flow(Compiler::new(profile).config()) != InstructionFlow::Continue {
             return index + 1;
         }
         bytes = rest;

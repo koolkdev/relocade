@@ -60,7 +60,7 @@ fn per_root_budgets_count_new_instructions_and_their_complete_encodings() {
 #[test]
 fn zero_limits_are_rejected_before_reading_the_source() {
     let limits = DiscoveryLimits::default();
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let target = Compiler::new(SegmentProfile::Flat32).config();
     for limits in [
         DiscoveryLimits {
             instructions: 0,
@@ -108,7 +108,7 @@ fn short_sequential_reads_reuse_bytes_across_an_eip_wrap() {
     code.push(0xc3);
     let mut copied = 0;
     let mut read = mapped_code([(start, code.as_slice())]);
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let target = Compiler::new(SegmentProfile::Flat32).config();
     let mut discovery = BlockDiscovery::new(target, |address, output: &mut [u8]| {
         let len = output.len().min(7);
         let count = read(address, &mut output[..len]);

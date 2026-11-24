@@ -19,7 +19,7 @@ mod suspended;
 
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -311,7 +311,7 @@ async fn patched_callee() {
             .installed()
             .dispatch
             .contains(alias.packed()));
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut client = runner.take_compiler().unwrap();
         client
             .request(

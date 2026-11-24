@@ -38,7 +38,7 @@ fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
     let module = TestModule::from_bytes(
         &blocks.bytes,
         &blocks.entries[0].export,
-        Some(blocks.execution_target),
+        Some(blocks.config),
     )
     .with_interpreter(TestModule::interpreter());
     let mut image = Image::new(&call);
@@ -84,8 +84,14 @@ fn protected_physical_bus_blocks_follow_a20_and_restart_mmio_in_the_interpreter(
     input.observe_mmio = true;
 
     let start = image.cpu.eip;
-    let compiler =
-        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let compiler = Compiler::new(crate::CompilerConfig::new(
+        crate::EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..crate::EntryAssumptions::FLAT32
+        },
+        MemoryBackend::PhysicalBus,
+    ));
     let raw = compiler.compile_block(start, &code, 3).unwrap();
     let decode = |eip, bytes: &[u8]| {
         SnapshotInstruction::decode(bytes, eip, SegmentDefaultSize::Bits32).unwrap()
@@ -133,12 +139,12 @@ fn protected_physical_bus_blocks_follow_a20_and_restart_mmio_in_the_interpreter(
         TestModule::from_bytes(
             &decoded.bytes,
             &decoded.entries[0].export,
-            Some(decoded.execution_target),
+            Some(decoded.config),
         ),
     ] {
         assert_eq!(module.observe(&input, 1), before_mmio);
         let linked =
-            module.with_interpreter(TestModule::interpreter_with_target(compiler.target()));
+            module.with_interpreter(TestModule::interpreter_with_target(compiler.config()));
         assert_eq!(linked.observe(&input, 1), after_mmio);
     }
 }

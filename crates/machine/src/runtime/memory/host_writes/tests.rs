@@ -19,7 +19,7 @@ fn the_last_page_holder_restores_the_configured_write_route() {
     map.set_code_page(0x1000, true);
     let guest = Memory::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
     let cpu = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
     )
     .unwrap();

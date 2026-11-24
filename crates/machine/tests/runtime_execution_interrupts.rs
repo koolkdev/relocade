@@ -27,7 +27,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn configuration() -> support::Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

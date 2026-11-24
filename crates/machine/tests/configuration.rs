@@ -1,14 +1,14 @@
 use relocade_machine::{ConfigurationError, Cpu, CpuConfig, MachineConfig, Memory};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, ExecutionTarget, MemoryBackend, PhysicalMapping,
-    PhysicalMemoryMap, SegmentDefaultSize, SegmentProfile,
+    CompilerConfig, CpuState, EntryAssumptions, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
+    SegmentDefaultSize,
 };
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-fn target() -> ExecutionTarget {
-    Compiler::new(ExecutionProfile::Real16).target()
+fn pc_compiler_config() -> CompilerConfig {
+    CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus)
 }
 
 #[test]
@@ -21,7 +21,7 @@ fn physical_pc_admits_canonical_real_mode_and_protected_ring_three() {
     for protected in [CpuState::protected_mode(Bits16, Bits32), wide_code] {
         assert!(CpuConfig::pc(protected).is_ok());
         assert!(matches!(
-            CpuConfig::new(pc.execution_target(), protected),
+            CpuConfig::new(pc.compiler_config(), protected),
             Err(ConfigurationError::IncompatibleCpu)
         ));
     }
@@ -34,34 +34,41 @@ fn physical_pc_admits_canonical_real_mode_and_protected_ring_three() {
     ));
 }
 
-async fn check_memory_profile() {
+async fn check_pc_configuration() {
     let config = MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap();
     let memory = Memory::new(config).unwrap();
-    for (profile, backend, state, expected) in [
+    for (entry, backend, state, expected) in [
         (
-            SegmentProfile::Flat32.into(),
+            EntryAssumptions::FLAT32,
             MemoryBackend::PhysicalBus,
             CpuState::default(),
-            ConfigurationError::UnsupportedMode,
+            ConfigurationError::UnsupportedEntryAssumptions,
         ),
         (
-            ExecutionProfile::Real16,
+            // The interpreter can change IF before it dispatches to compiled code.
+            EntryAssumptions {
+                interrupt_flag: Some(false),
+                ..EntryAssumptions::REAL_MODE
+            },
+            MemoryBackend::PhysicalBus,
+            CpuState::real_mode(),
+            ConfigurationError::UnsupportedEntryAssumptions,
+        ),
+        (
+            EntryAssumptions::REAL_MODE,
             MemoryBackend::HostPageTable,
             CpuState::real_mode(),
             ConfigurationError::UnsupportedMemoryBackend,
         ),
     ] {
-        let target = ExecutionTarget {
-            memory_backend: backend,
-            ..Compiler::new(profile).target()
-        };
-        let cpu = CpuConfig::new(target, state).unwrap();
+        let config = CompilerConfig::new(entry, backend);
+        let cpu = CpuConfig::new(config, state).unwrap();
         assert!(matches!(
             Cpu::new(memory.clone(), cpu, Default::default()).await,
             Err(relocade_machine::Error::Configuration(error)) if error == expected
         ));
     }
-    let real = CpuConfig::new(target(), CpuState::real_mode()).unwrap();
+    let real = CpuConfig::new(pc_compiler_config(), CpuState::real_mode()).unwrap();
     let fixed = Cpu::new(memory, real, Default::default()).await.unwrap();
     assert_eq!(
         fixed.cpu_state().restore(&CpuState::default()),
@@ -71,14 +78,14 @@ async fn check_memory_profile() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn memory_map_must_match_the_execution_profile() {
-    pollster::block_on(check_memory_profile());
+fn physical_pc_checks_compiler_entry_and_memory_backend() {
+    pollster::block_on(check_pc_configuration());
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-async fn memory_map_must_match_the_execution_profile() {
-    check_memory_profile().await;
+async fn physical_pc_checks_compiler_entry_and_memory_backend() {
+    check_pc_configuration().await;
 }
 
 #[test]

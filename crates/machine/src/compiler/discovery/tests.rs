@@ -43,7 +43,7 @@ fn discover(
     limits: DiscoveryLimits,
 ) -> crate::Result<Vec<DecodedBlock>> {
     let root = address(START);
-    let target = Compiler::new(profile).target();
+    let target = Compiler::new(profile).config();
     let mut discovery = BlockDiscovery::new(target, mapped_code([(root, code)]));
     discovery.add_root(root, size, limits)?;
     discovery.finish()

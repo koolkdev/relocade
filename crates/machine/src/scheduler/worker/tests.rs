@@ -13,7 +13,7 @@ fn cpu() -> (Machine, CpuHandle) {
     let cpu = machine
         .create_cpu(
             CpuConfig::new(
-                Compiler::new(ExecutionProfile::Real16).target(),
+                Compiler::new(ExecutionProfile::Real16).config(),
                 CpuState::real_mode(),
             )
             .unwrap(),

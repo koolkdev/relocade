@@ -5,7 +5,7 @@
 //! assumptions. [`build_interpreter`] constructs one program with runtime instruction
 //! decoding for both block execution (`run`) and single-instruction execution (`step`).
 //! Both frontends share instruction semantics. [`Compiler`] configures snapshot
-//! compilation with an [`ExecutionTarget`], combining a profile and a [`CpuModel`].
+//! compilation with a [`CompilerConfig`], combining entry assumptions, memory routing and a [`CpuModel`].
 //! Interpreter modules depend only on the profile and read CPU features at runtime.
 //!
 //! The instruction set covers 16/32-bit protected-mode and ordinary real-mode
@@ -70,10 +70,16 @@ pub use compile::{
 pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use instruction::{CallTarget, InstructionFlow, MAX_INSTRUCTION_BYTES};
-pub use interpreter::{build_interpreter, build_interpreter_with_memory, build_pc_interpreter};
+pub use interpreter::{
+    build_interpreter, build_interpreter_with_config, build_interpreter_with_memory,
+    build_pc_interpreter,
+};
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
-pub use profile::{ExecutionProfile, ExecutionTarget, MemoryBackend};
+pub use profile::{
+    CompilerConfig, EntryAssumptions, ExecutionMode, ExecutionProfile, ExecutionTarget,
+    MemoryBackend, SegmentAssumptions,
+};
 pub use profiling::{CallCount, CallProfile};
 pub use register::Gpr32;
 pub use segment::{
@@ -98,7 +104,7 @@ pub struct CompiledModule {
     /// segment load may change compatibility before publication and dispatch.
     /// Snapshot instruction-fetch validity is separate. Modules that do not
     /// execute x86 instructions have no execution target.
-    pub execution_target: Option<ExecutionTarget>,
+    pub execution_target: Option<CompilerConfig>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.
@@ -109,6 +115,10 @@ pub enum BlockError {
     NoncontiguousInstruction {
         expected: u32,
         actual: u32,
+    },
+    /// Raw snapshot bytes require either a guaranteed or a captured CS.D.
+    MissingCodeDefaultSize {
+        address: u32,
     },
     /// A decoded instruction uses a different CS.D from the rest of its block.
     InconsistentCodeSize {
@@ -150,6 +160,12 @@ impl fmt::Display for BlockError {
                 write!(
                     formatter,
                     "expected instruction at {expected:#x}, found {actual:#x}"
+                )
+            }
+            Self::MissingCodeDefaultSize { address } => {
+                write!(
+                    formatter,
+                    "decoding bytes at {address:#x} requires a guaranteed or captured CS.D"
                 )
             }
             Self::InconsistentCodeSize { address } => {
