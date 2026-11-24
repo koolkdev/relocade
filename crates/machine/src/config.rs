@@ -2,9 +2,7 @@ mod cpu;
 mod machine;
 
 pub use cpu::CpuConfig;
-pub(crate) use cpu::{
-    is_pc_jit_target, pc_accepts_segment, validate_cpu, validate_idtr, validate_system_segment,
-};
+pub(crate) use cpu::{validate_idtr, validate_system_segment, CpuExecution};
 pub use machine::MachineConfig;
 use std::fmt;
 

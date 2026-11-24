@@ -39,10 +39,9 @@ fn configuration() -> support::Configuration {
 
 async fn reject_guest_time_without_budgets() {
     let setup = configuration();
-    let target = Compiler::new(ExecutionProfile::Real16)
-        .with_instruction_budgets(false)
-        .target();
-    let config = relocade_machine::CpuConfig::new(target, *setup.cpu.cpu()).unwrap();
+    let config = relocade_machine::CpuConfig::pc(*setup.cpu.cpu())
+        .unwrap()
+        .with_instruction_budgets(false);
     let mut machine = relocade_machine::Machine::new(setup.machine).unwrap();
     let cpu = machine.create_cpu(config, None).unwrap();
     let worker = ExecutionWorker::<()>::spawn(

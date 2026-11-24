@@ -234,18 +234,11 @@ fn real_interrupt_executes_handler_and_returns_through_saved_frame() {
 
 #[test]
 fn prepared_code_uses_configured_cpu_features() {
-    let initial = configuration();
-    let target = Compiler::new(ExecutionProfile::Real16)
-        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
-        .target();
-    let disabled = support::configuration(
-        target,
-        *initial.cpu.cpu(),
-        initial.machine.memory_size(),
-        PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),
-    )
-    .unwrap();
-    let mut enabled = create(initial);
+    let mut disabled = configuration();
+    disabled.cpu = relocade_machine::CpuConfig::pc(*disabled.cpu.cpu())
+        .unwrap()
+        .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
+    let mut enabled = create(configuration());
     let mut disabled = create(disabled);
     let code = [0x0f, 0x44, 0xc0, 0xeb, 0]; // CMOVE AX,AX; JMP next
     enabled.context().memory.write(0x100, &code).unwrap();
