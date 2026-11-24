@@ -79,7 +79,7 @@ fn entry_guarantees_fold_control_and_interrupt_flag_reads() {
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::for_entry(&cpu, profile, &EntryGuarantees::for_target(target));
+            let mut state = State::for_entry(&cpu, &EntryGuarantees::for_target(target));
             let protected = state.protected_mode(&mut body)?;
             let cpl = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;
@@ -117,7 +117,6 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            SegmentProfile::Flat32.into(),
             &crate::profile::EntryGuarantees::for_target(SegmentProfile::Flat32),
         );
         let selector = state

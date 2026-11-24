@@ -48,7 +48,6 @@ pub(super) struct State<'cpu> {
     registers: StateFields,
     simd: StateFields,
     fields: StateFields,
-    profile: Option<crate::ExecutionProfile>,
     flags: flags::FlagTracker,
     pub(super) x87: x87::X87Tracker,
 }
@@ -72,29 +71,18 @@ impl<'cpu> State<'cpu> {
             registers: StateFields::new(cpu.memory()),
             simd: StateFields::new(cpu.memory()),
             fields: StateFields::new(cpu.memory()),
-            profile: None,
             flags: flags::FlagTracker::new(cpu.memory()),
             x87: x87::X87Tracker::new(cpu.memory()),
         }
     }
 
     /// Each function starts with fresh retained values under the same entry guarantees.
-    pub(crate) fn for_entry(
-        cpu: &'cpu Cpu,
-        profile: crate::ExecutionProfile,
-        guarantees: &EntryGuarantees,
-    ) -> Self {
+    pub(crate) fn for_entry(cpu: &'cpu Cpu, guarantees: &EntryGuarantees) -> Self {
         let mut state = Self::new(cpu);
-        state.profile = Some(profile);
         for &pattern in guarantees.patterns() {
             state.fields_for(pattern).add_entry_guarantee(pattern);
         }
         state
-    }
-
-    pub(crate) fn profile(&self) -> crate::ExecutionProfile {
-        self.profile
-            .expect("execution requires an admitted profile")
     }
 
     pub(crate) fn segments(&mut self) -> SegmentAccess<'_> {
