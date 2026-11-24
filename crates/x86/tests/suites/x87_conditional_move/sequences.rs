@@ -54,14 +54,18 @@ fn live_integer_flags(frontend: Frontend) {
 
 #[test]
 fn native_compare_move_store() {
-    // Retained binary64 values survive conditional selection and conversion back.
-    let code = [
+    let mut code = [
         0xdd, 0x05, 8, 0x40, 0, 0, 0xdd, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe9, 0xda, 0xc1, 0xdd, 0x1d,
         16, 0x40, 0, 0,
     ];
-    let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 5).unwrap());
-    for (left_bits, left, right_bits, right, flags, maximum) in [
+    let make_block =
+        |code: &[u8]| TestModule::new(&compile_block_from_bytes(0x1000, code, 5).unwrap());
+    let double = make_block(&code);
+    code[0] = 0xd9;
+    let single = make_block(&code);
+    for (right_load, left_bits, left, right_bits, right, flags, stored) in [
         (
+            0xdd,
             1.0_f64.to_bits(),
             ONE,
             2.0_f64.to_bits(),
@@ -70,6 +74,7 @@ fn native_compare_move_store() {
             2.0_f64.to_bits(),
         ),
         (
+            0xdd,
             2.0_f64.to_bits(),
             TWO,
             1.0_f64.to_bits(),
@@ -78,6 +83,7 @@ fn native_compare_move_store() {
             2.0_f64.to_bits(),
         ),
         (
+            0xdd,
             1.0_f64.to_bits(),
             ONE,
             1.0_f64.to_bits(),
@@ -85,7 +91,42 @@ fn native_compare_move_store() {
             0x40,
             1.0_f64.to_bits(),
         ),
+        // FUCOMI reports unordered, so FCMOVB selects the narrow NaN.
+        (
+            0xd9,
+            1.0_f64.to_bits(),
+            ONE,
+            0xffc1_2345,
+            (0xc123_4500_0000_0000, 0xffff),
+            0x45,
+            0xfff8_2468_a000_0000,
+        ),
+        (
+            0xd9,
+            (-1.0_f64).to_bits(),
+            (1 << 63, 0xbfff),
+            0x8000_0000,
+            (0, 0x8000),
+            1,
+            (-0.0_f64).to_bits(),
+        ),
+        // On the untaken path the low bit of the binary64 operand survives.
+        (
+            0xd9,
+            0x3ff0_0000_0000_0001,
+            ((1 << 63) + 0x800, 0x3fff),
+            0x8000_0000,
+            (0, 0x8000),
+            0,
+            0x3ff0_0000_0000_0001,
+        ),
     ] {
+        code[0] = right_load;
+        let (block, right_opcode) = if right_load == 0xd9 {
+            (&single, 0x0105)
+        } else {
+            (&double, 0x0505)
+        };
         let mut image = initial_image(&code);
         image.cpu.x87.tag_word = 0xffff;
         image.map(4, 0x8000, true);
@@ -93,8 +134,8 @@ fn native_compare_move_store() {
         image.data(0x8008, &right_bits.to_le_bytes());
         let mut cpu = image.cpu;
         let mut steps = Vec::new();
-        for (address, value) in [(0x4008, right), (0x4000, left)] {
-            cpu = complete_x87(cpu, 6, 0x0505);
+        for (address, value, opcode) in [(0x4008, right, right_opcode), (0x4000, left, 0x0505)] {
+            cpu = complete_x87(cpu, 6, opcode);
             cpu.x87.status.top = cpu.x87.status.top.wrapping_sub(1) & 7;
             cpu.x87.status.c1 = 0;
             cpu.x87.data_offset = address;
@@ -106,7 +147,7 @@ fn native_compare_move_store() {
         cpu = complete_x87(cpu, 2, 0x03e9);
         cpu.flags.status_source.kind = 0;
         cpu.flags.bytes.cf = flags & 1;
-        cpu.flags.bytes.pf = 0;
+        cpu.flags.bytes.pf = (flags >> 2) & 1;
         cpu.flags.bytes.zf = (flags >> 6) & 1;
         cpu.flags.bytes.of = 0;
         cpu.flags.bytes.sf = 0;
@@ -121,7 +162,7 @@ fn native_compare_move_store() {
         cpu.x87.status.top = 6;
         cpu.x87.tag_word |= 3 << 10;
         cpu.x87.data_offset = 0x4010;
-        let output = maximum.to_le_bytes();
+        let output = stored.to_le_bytes();
         let ram = [(0x8010, output.as_slice())];
         steps.push(Step {
             cpu,

@@ -143,3 +143,48 @@ fn native_classes_control_expansion_and_exact_store_range() {
         }
     }
 }
+
+#[test]
+fn mixed_binary_selection_retains_the_wider_encoding_and_its_tininess() {
+    let mut program = Program::new();
+    let function = program.function::<fn(bool) -> (u64, bool)>(|body, (condition,)| {
+        // The least binary32 subnormal widens to a normal binary64 value.
+        // The binary64 input is still tiny even though both are normal x87 values.
+        let narrow =
+            ExtendedValue::from_binary(BinaryFormat::Binary32, 1_u64.into()).assume_normal();
+        let wide = ExtendedValue::from_binary(BinaryFormat::Binary64, 1_u64.into()).assume_normal();
+        let joined = wide.select(&condition, &narrow);
+        assert!(matches!(
+            joined.binary_value().unwrap().format,
+            BinaryFormat::Binary64
+        ));
+        assert!(joined.exact_conversion(BinaryFormat::Binary32).is_none());
+        let encoded = joined.exact_conversion(BinaryFormat::Binary64).unwrap();
+        body.return_((encoded.bits, encoded.tiny))
+    });
+    program.export("select", function).unwrap();
+    let module = step::TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "select".into(),
+        execution_target: None,
+    });
+    for (choose_wide, bits, tiny) in [(0, 0x36a0_0000_0000_0000_i64, 0), (1, 1, 1)] {
+        let input = step::Input {
+            arguments: vec![step::Argument::I32(choose_wide)],
+            ..step::Input::new(&[])
+        };
+        assert_eq!(
+            module.observe(&input, 1).events,
+            [step::Event::Return {
+                outcome: step::Outcome::Returned(vec![
+                    step::Argument::I64(bits),
+                    step::Argument::I32(tiny)
+                ]),
+                snapshot: step::Snapshot {
+                    cpu: vec![],
+                    guest: None
+                }
+            }]
+        );
+    }
+}
