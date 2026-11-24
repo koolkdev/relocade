@@ -2,7 +2,9 @@
 
 use relocade_compiler::{BlockBuilder, BuildError};
 
-use crate::floating::{FiniteInput, FiniteMagnitude, MagnitudeShape, RoundingInput, RoundingMode};
+use crate::floating::{
+    FiniteInput, FiniteMagnitude, MagnitudeShape, QuotientMethod, RoundingInput, RoundingMode,
+};
 
 use super::super::{
     result::RoundedValue, transcendental::DoubleDouble, ArithmeticResult, ExtendedBits,
@@ -52,7 +54,7 @@ impl TrigonometricArgument<'_> {
                                 exponent: reduced.exponent.clone(),
                                 negative: false.into(),
                             },
-                            true,
+                            QuotientMethod::DivisorPrecision53,
                         )
                         .with_negative_tail(&true.into());
                         body.yield_(magnitude.components())

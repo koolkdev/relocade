@@ -2,7 +2,7 @@
 
 use super::{FloatOperand, FloatResult};
 use crate::{
-    floating::{BinaryClassification, BinaryEncoding},
+    floating::{BinaryClassification, BinaryEncoding, QuotientMethod},
     state::Mxcsr,
 };
 use relocade_compiler::{AtLeast, BlockBuilder, BuildError, Val, I1, I64};
@@ -51,7 +51,9 @@ where
                 left_input.add(body, &right_input, &controls.rounding())?
             }
             FloatArithmetic::Multiply => left_input.multiply(&right_input),
-            FloatArithmetic::Divide => left_input.divide(&right_input, true),
+            FloatArithmetic::Divide => {
+                left_input.divide(&right_input, QuotientMethod::DivisorPrecision53)
+            }
         };
         let mut result =
             magnitude.round_simd_magnitude::<T>(controls, &left.finite().and(right.finite()));
