@@ -2706,6 +2706,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "relocade-printer"
+version = "0.0.0"
+dependencies = [
+ "async-channel",
+ "futures-channel",
+ "futures-lite",
+ "futures-timer",
+ "pollster 1.0.1",
+ "relocade-clock-test-support",
+ "relocade-machine",
+ "relocade-parallel",
+ "relocade-pc",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "relocade-ps2"
 version = "0.0.0"
 dependencies = [
