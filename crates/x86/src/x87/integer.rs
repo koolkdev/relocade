@@ -1,7 +1,7 @@
 //! Exact integer expansion and bounded rounding for integer and decimal stores.
 
 use crate::floating::{RoundingInput, RoundingMode};
-use relocade_compiler::{AtLeast, MemoryInt, Val, I1, I16, I32, I64};
+use relocade_compiler::{AtLeast, MemoryInt, Val, F64, I1, I16, I32, I64};
 
 use super::{
     value::{KnownClass, Precision53},
@@ -34,8 +34,13 @@ impl ExtendedValue {
         &self,
         rounding: &RoundingMode,
     ) -> ConversionResult {
-        let negative = self.bits().negative();
         let sign_bit = 1_u64 << (T::BYTES * 8 - 1);
+        if T::BYTES <= 4 {
+            if let Some(value) = self.binary_value() {
+                return native_integer_store(&value.value, rounding, sign_bit);
+            }
+        }
+        let negative = self.bits().negative();
         let limit = negative.select(sign_bit, sign_bit - 1);
         let result = self.to_integer_magnitude(rounding, &limit);
         let invalid = result.invalid.clone();
@@ -78,6 +83,33 @@ impl ExtendedValue {
             inexact: valid.and(rounded.inexact),
             incremented: valid.and(rounded.incremented),
         }
+    }
+}
+
+/// Every signed 16- or 32-bit result lies in the unit-spaced binade around
+/// 3 × 2^51 after biasing. The bias has an even significand, so the addition
+/// rounds directly to the guest's nearest-even integer. For directed modes,
+/// round first. The low bits of the biased encoding then hold the integer.
+fn native_integer_store(
+    value: &Val<F64>,
+    rounding: &RoundingMode,
+    sign_bit: u64,
+) -> ConversionResult {
+    const BIAS: f64 = (3_u64 << 51) as f64;
+    let input = rounding.select(value.clone(), value.floor(), value.ceil(), value.trunc());
+    let biased = input.add(BIAS);
+    let integer = biased.to_bits().sub(BIAS.to_bits());
+    // The accepted interval is contiguous in encoding order. Both endpoints
+    // are positive finite encodings, so infinities and NaNs also fail this test.
+    let valid = integer.add(sign_bit).unsigned().lt(2 * sign_bit);
+    let rounded = biased.sub(BIAS);
+    ConversionResult {
+        bits: valid.select(integer, sign_bit),
+        invalid: valid.eq(false),
+        overflow: false.into(),
+        tiny: false.into(),
+        inexact: valid.and(rounded.ne(value)),
+        incremented: valid.and(rounded.abs().gt(value.abs())),
     }
 }
 
