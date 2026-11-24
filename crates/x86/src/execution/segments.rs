@@ -33,11 +33,13 @@ impl ResolvedSegment {
             // Only a known real-mode reload preserves the cache layout for local links.
             execution.transfer = Transfer::Dispatch;
         }
-        execution.runtime.complete_segment_load(
-            &mut execution.body,
-            &self.resolution.cache.selector,
-            self.resolution.needs_completion,
-        )?;
+        if let Some(descriptors) = execution.runtime.descriptors {
+            descriptors.complete_segment_load(
+                &mut execution.body,
+                &self.resolution.cache.selector,
+                self.resolution.needs_completion,
+            )?;
+        }
         execution.state.write_segment(
             &mut execution.body,
             &self.segment.into(),
@@ -50,9 +52,11 @@ impl ExecutionBuilder<'_, '_> {
     pub(crate) fn query_segment_descriptor(
         &mut self,
         selector: &Val<I16>,
-    ) -> Result<SegmentDescriptorInfoValues, BuildError> {
+    ) -> Result<Option<SegmentDescriptorInfoValues>, BuildError> {
         self.runtime
-            .query_segment_descriptor(&mut self.body, selector)
+            .descriptors
+            .map(|descriptors| descriptors.query_segment_descriptor(&mut self.body, selector))
+            .transpose()
     }
 
     pub(crate) fn read_segment_selector(
@@ -72,20 +76,27 @@ impl ExecutionBuilder<'_, '_> {
         selector: &Val<I16>,
     ) -> Result<ResolvedSegment, BuildError> {
         type Fields = <SegmentResolution as AbiType>::Logical;
-        let protected = self.protected_mode()?;
         let real = SegmentResolutionValues::real_mode(segment, selector);
-        let fields = self.body.block::<Fields>(|mut body, _| {
-            body.yield_if(protected.eq(false), real)?;
-            let resolved =
-                self.runtime
-                    .resolve_segment(&mut body, segment, selector, |body, exception| {
-                        self.state.fault(body, &self.eip, self.completed, exception)
-                    })?;
-            body.yield_(resolved)
-        })?;
+        let protected = self.protected_mode()?;
+        let resolution = if let Some(descriptors) = self.runtime.descriptors {
+            let fields = self.body.block::<Fields>(|mut body, _| {
+                body.yield_if(protected.eq(false), real)?;
+                let resolved = descriptors.resolve_segment(
+                    &mut body,
+                    segment,
+                    selector,
+                    |body, exception| self.state.fault(body, &self.eip, self.completed, exception),
+                )?;
+                body.yield_(resolved)
+            })?;
+            SegmentResolution::from_values(fields)
+        } else {
+            self.unsupported_if(protected)?;
+            real
+        };
         Ok(ResolvedSegment {
             segment,
-            resolution: SegmentResolution::from_values(fields),
+            resolution,
         })
     }
 

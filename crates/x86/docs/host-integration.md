@@ -1,9 +1,20 @@
 # Host integration
 
 Generated x86 modules use this contract for both snapshot blocks and interpreter
-entries. The embedding host supplies memory, dispatch and descriptor resolution.
+entries. The embedding host supplies memory, dispatch and any descriptor services
+imported by the module.
 The Wasm engine must support multiple memories, multiple results, tail calls and
 shared memories and the threads extension's atomic instructions.
+
+The module fixes how a linear address reaches backing memory and which descriptor
+operations it can perform. CPU state determines when x86 requires those operations.
+On the PC, a protected CPU image with paging disabled uses its loaded segment
+caches and sends the resulting linear addresses to the physical bus. A hosted
+process can use a host-maintained linear page table independently of guest
+`CR0.PG` and `CR3`. Even when flat segment bases fold to zero, generated accesses
+still check the mapping and permissions for the addressed page. A checked
+translation can be reused within an execution entry because the host applies
+mapping changes between entries.
 
 ## Entries and dispatch
 
@@ -551,8 +562,9 @@ have a maximum no larger than that and enough initial capacity for all backing.
 Interpreters import `executionContext`, `guest` and `dispatch`. The host page
 table backend imports `machine`. The physical bus backend imports `physicalMap`
 and the MMIO callbacks. Stores to tracked RAM call `writeCode`. The host repairs
-affected compiled bindings before this callback returns. Protected segment operations use `resolveSegment`,
-`completeSegmentLoad` and `querySegmentDescriptor`. Real16 uses the port callbacks.
+affected compiled bindings before this callback returns. Hosted protected segment
+operations use `resolveSegment`, `completeSegmentLoad` and `querySegmentDescriptor`.
+The Real16 interpreter uses the port callbacks and has no hosted descriptor imports.
 Snapshot modules retain the imports their instructions need. Protected segment loads require
 `resolveSegment` and `completeSegmentLoad`, and LAR/LSL/VERR/VERW require `querySegmentDescriptor`. Blocks
 with specialization guards require `interpret`. Hosts should use the generated
