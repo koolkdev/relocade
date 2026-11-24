@@ -1,9 +1,10 @@
 //! Packed-decimal memory transactions and interaction with tracked x87 values.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn memory_span(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [vec![0x66], instruction(0x4ff6)].concat();
     let case = Case::masked((0xde0b_6b3a_763f_fff0, 0x403a), MAXIMUM, 0);
     let image = initial_image(&code, &case);
@@ -80,7 +81,7 @@ fn memory_span(frontend: Frontend) {
 }
 
 fn tracked_loads(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (load, source, value, output, flags) in [
         (
             [0xdf, 0x25, 0, 0x40, 0, 0],
@@ -132,7 +133,7 @@ fn tracked_loads(frontend: Frontend) {
 }
 
 fn sticky_status(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = instruction(0x4001);
     let mut case = Case::masked((TOP, 0x7fff), INDEFINITE, 1);
     case.control = 0x037e;

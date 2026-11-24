@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn product(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for rc in 0..4 {
         for (left, right, result, raised) in [
             (TWO, NEG_TWO, [0xc080_0000, 0xc010_0000_0000_0000], 0),
@@ -47,7 +48,7 @@ fn product(frontend: Frontend) {
 }
 
 fn exceptional(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, result, raised, controls) in [
         (INFINITY, ZERO, INDEFINITE, 1, 0x1f80),
         (NEG_INFINITY, NEG_ONE, INFINITY, 0, 0x1f80),

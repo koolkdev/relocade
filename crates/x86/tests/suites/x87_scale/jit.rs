@@ -1,6 +1,7 @@
 //! Scaling retains native significands and restarts exactly at exceptional ranges.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
@@ -15,7 +16,7 @@ fn native_significand() {
     ];
     let mut observed = CpuState::default();
     set_control(&mut observed.x87.control, 0x027f);
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .specialize_on_cpu(&observed)
         .compile_block(0x1000, &code, 4)
         .unwrap();
@@ -46,7 +47,7 @@ fn native_significand() {
 }
 
 fn restart() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let block = TestModule::new(&compiled);
@@ -92,7 +93,7 @@ fn preserves_native_precision_and_checks_range() {
 #[test]
 fn exact_scales_do_not_guard_observed_precision_or_rounding() {
     let module = TestModule::new(
-        &Compiler::new(SegmentProfile::Flat32)
+        &Compiler::new(FLAT32)
             .specialize_on_cpu(&CpuState::default())
             .compile_block(0x1000, &CODE, 1)
             .unwrap(),

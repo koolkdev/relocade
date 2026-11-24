@@ -1,5 +1,6 @@
 use super::{CallPatches, Input, TestModule};
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_compiler::{MemoryImport, Program, I32};
 
 #[test]
@@ -19,7 +20,7 @@ fn machine_changes_are_observed_before_a_later_call_restores_them() {
     });
     program.export("toggle", toggle).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "toggle".into(),
     });
@@ -36,7 +37,7 @@ fn host_edits_are_observed_without_module_memory_imports() {
     let entry = program.function::<fn() -> u32>(move |body, ()| body.return_(0));
     program.export("entry", entry).unwrap();
     let module = TestModule::new(&crate::CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "entry".into(),
     });
@@ -76,24 +77,16 @@ fn host_edits_are_observed_without_module_memory_imports() {
 }
 
 #[test]
-fn profile_admission_uses_patched_contexts_for_actual_calls() {
+fn entry_validation_uses_patched_contexts_for_actual_calls() {
     use super::{Event, Observation, Snapshot};
-    use crate::{compile_block_from_bytes, CpuState, ExecutionProfile, Segments};
+    use crate::{compile_block_from_bytes, CpuState, Segments};
 
     let module = TestModule::new(&compile_block_from_bytes(0x1000, &[0x90], 1).unwrap());
-    assert_eq!(
-        module.target.map(|target| target.entry),
-        Some(crate::EntryAssumptions::FLAT32)
-    );
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-    ] {
+    assert_eq!(module.config, Some(FLAT32));
+    for config in [FLAT32, SEGMENTED32] {
         assert_eq!(
-            TestModule::interpreter_with_profile(profile)
-                .target
-                .map(|target| target.entry),
-            Some(profile.into())
+            TestModule::interpreter_with_config(config).config,
+            Some(config)
         );
     }
     let invalid = CpuState::filled(0xa5);
@@ -140,15 +133,15 @@ fn interpreter_links_require_the_same_cpu_model() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     let compilers = [
-        Compiler::new(SegmentProfile::Flat32),
-        Compiler::new(SegmentProfile::Flat32)
+        Compiler::new(FLAT32),
+        Compiler::new(FLAT32)
             .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false)),
     ];
     for block_compiler in &compilers {
         let block = block_compiler.compile_block(0x1000, &[0x90], 1).unwrap();
         for interpreter_compiler in &compilers {
-            let interpreter = TestModule::interpreter_with_target(interpreter_compiler.config());
-            assert_eq!(interpreter.target, Some(interpreter_compiler.config()));
+            let interpreter = TestModule::interpreter_with_config(interpreter_compiler.config());
+            assert_eq!(interpreter.config, Some(interpreter_compiler.config()));
             let link = catch_unwind(AssertUnwindSafe(|| {
                 TestModule::new(&block).with_interpreter(interpreter)
             }));
@@ -161,26 +154,26 @@ fn interpreter_links_require_the_same_cpu_model() {
 }
 
 #[test]
-fn interpreter_code_is_shared_across_models_and_entries_but_not_profiles() {
+fn interpreter_code_is_shared_across_models_with_the_same_entry_assumptions() {
     use crate::{Compiler, CpuFeature, CpuModel};
     use std::sync::Arc;
 
-    let default = Compiler::new(SegmentProfile::Flat32).config();
-    let disabled = Compiler::new(SegmentProfile::Flat32)
+    let default = FLAT32;
+    let disabled = Compiler::new(FLAT32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false))
         .config();
-    let step = TestModule::interpreter_with_target(default);
-    let restricted_step = TestModule::interpreter_with_target(disabled);
-    let run = TestModule::interpreter_run_with_target(default);
-    let restricted_run = TestModule::interpreter_run_with_target(disabled);
-    let segmented = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
+    let step = TestModule::interpreter_with_config(default);
+    let restricted_step = TestModule::interpreter_with_config(disabled);
+    let run = TestModule::interpreter_run_with_config(default);
+    let restricted_run = TestModule::interpreter_run_with_config(disabled);
+    let segmented = TestModule::interpreter_with_config(SEGMENTED16);
 
     assert!(Arc::ptr_eq(&step.module, &restricted_step.module));
     assert!(Arc::ptr_eq(&run.module, &restricted_run.module));
     assert!(Arc::ptr_eq(&step.module, &run.module));
     assert!(!Arc::ptr_eq(&step.module, &segmented.module));
-    assert_eq!(restricted_step.target, Some(disabled));
-    assert_eq!(restricted_run.target, Some(disabled));
+    assert_eq!(restricted_step.config, Some(disabled));
+    assert_eq!(restricted_run.config, Some(disabled));
     assert_eq!(step.entry, "step");
     assert_eq!(run.entry, "run");
 }

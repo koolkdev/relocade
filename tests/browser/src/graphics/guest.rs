@@ -1,7 +1,7 @@
 use futures_channel::oneshot;
 use relocade_machine::{CpuConfig, ExecutionWorker, Hook, MachineConfig, SessionConfig};
 use relocade_vga::{DispiAdapter, DisplaySnapshot, MEMORY_RANGE};
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -35,13 +35,10 @@ pub(super) async fn spawn() -> Guest {
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();
-    let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let cpu_config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let execution =

@@ -1,25 +1,18 @@
 //! Stack instructions with live mode and segment-cache fields.
 
+use crate::support::config::SEGMENTED16;
 use crate::{
     execution::ExecutionModule,
     state::{cr0, State},
     support::machine::{check, Exit, Image, Step},
     test_step::TestModule,
-    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, ExecutionExitValues, MemoryBackend,
-    SegmentDefaultSize, SegmentProfile, SnapshotInstruction,
+    CpuState, ExecutionExit, ExecutionExitValues, SegmentDefaultSize, SnapshotInstruction,
 };
 use relocade_compiler::Program;
 
 fn instruction(bytes: &[u8]) -> TestModule {
     let mut program = Program::new();
-    let config = CompilerConfig::new(
-        EntryAssumptions {
-            interrupt_flag: None,
-            iopl: None,
-            ..EntryAssumptions::SEGMENTED16
-        },
-        MemoryBackend::PhysicalBus,
-    );
+    let config = crate::support::config::physical_with_live_flags(SEGMENTED16.entry);
     let module = ExecutionModule::declare(&mut program, config);
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
@@ -170,7 +163,7 @@ fn enter_checks_the_final_word_after_saving_bp() {
 fn cpl3_stack_flags_and_cli_check_the_admitted_iopl() {
     let live = [0x9c, 0x9d, 0xfa].map(|opcode| instruction(&[opcode]));
     let live = live.each_ref();
-    let hosted = TestModule::interpreter_with_profile(SegmentProfile::Segmented16);
+    let hosted = TestModule::interpreter_with_config(SEGMENTED16);
     // POPF requests IF=1 and IOPL=1. An unwritable field retains its entire byte.
     for (modules, stored_if, stored_iopl, pushed_flags, restored_if, cli_denied) in [
         (live, 0xfe, 0xff, 0x3002u16, 1, false),

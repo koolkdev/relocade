@@ -1,6 +1,7 @@
 //! Extension availability and admission precede operand effects.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn disabled_extensions(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -65,7 +66,7 @@ fn disabled_extensions(frontend: Frontend) {
         ),
         (CpuFeature::Clflush, &[&[0x0f, 0xae, 0x38][..]][..]),
     ] {
-        let target = Compiler::new(SegmentProfile::Flat32)
+        let config = Compiler::new(FLAT32)
             .with_cpu_model(CpuModel::default().with_feature(feature, false))
             .config();
         for &instruction in forms {
@@ -75,8 +76,8 @@ fn disabled_extensions(frontend: Frontend) {
             image.cpu.flags.status_source.kind = 0;
             image.cpu.flags.bytes.cf = 0; // Untaken FCMOVB still requires both features.
             let module = match frontend {
-                Frontend::Block => blocks.get_with_target(&image.cpu, &code, 8, target),
-                Frontend::Interpreter => TestModule::interpreter_with_target(target),
+                Frontend::Block => blocks.get(&image.cpu, &code, 8, config),
+                Frontend::Interpreter => TestModule::interpreter_with_config(config),
             };
             image.check_unchanged_exit(
                 module,

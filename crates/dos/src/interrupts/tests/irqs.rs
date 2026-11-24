@@ -3,9 +3,7 @@ use crate::{com, files::Handle, state::DosState, stdio::OutputStream};
 use relocade_bios::{video::VideoFirmware, KeyMode};
 use relocade_machine::{Cpu, CpuConfig, Device, IoBus, IoContext, MachineConfig, Memory};
 use relocade_vga::DispiAdapter;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
-};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap, Segment};
 use std::{cell::RefCell, rc::Rc, task::Poll};
 
 mod indos;
@@ -58,11 +56,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     ])
     .unwrap();
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
-    let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState::real_mode(),
-    )
-    .unwrap();
+    let config = CpuConfig::pc(CpuState::real_mode()).unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, io.clone()).await.unwrap();
     let keyboard = relocade_bios::Keyboard::new(memory.clone());
     let dos = Rc::new(DosState::new(

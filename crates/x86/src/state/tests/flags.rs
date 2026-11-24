@@ -336,7 +336,7 @@ fn flags_after_register_synchronization() -> crate::CompiledModule {
     });
     program.export("run", function).unwrap();
     crate::CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     }

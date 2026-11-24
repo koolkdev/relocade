@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
@@ -28,7 +29,7 @@ fn both_immediate_fields_cross_code_pages_and_ignore_the_address_size_prefix() {
         cpu.eip = 0x5678;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -70,9 +71,7 @@ fn partial_offsets_and_selectors_keep_instruction_fetch_faults_in_byte_order() {
                 }
             };
             image.check_unchanged_exit(
-                TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                    SegmentProfile::Segmented32,
-                )),
+                TestModule::interpreter_with_config(SEGMENTED32),
                 &format!("far JMP fields {code:02x?}, available {available}, CS limit {limit:x}"),
                 exit,
             );
@@ -108,7 +107,7 @@ fn a_fifteen_byte_jump_completes_without_fetching_a_sixteenth_byte() {
                 cpu.eip = 0x5678;
                 cpu.instruction_count = 0;
                 check_one(
-                    ExecutionProfile::Protected(SegmentProfile::Flat32),
+                    FLAT32,
                     &code,
                     &image,
                     &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],

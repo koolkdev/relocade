@@ -4,9 +4,7 @@ use relocade_machine::{
     worker::{Receiver, Thread},
     Cpu, CpuConfig, Hook, MachineConfig, Memory,
 };
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -31,13 +29,10 @@ pub async fn cpu_worker() -> Result<(), String> {
         .unwrap(),
     )
     .unwrap();
-    let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let cpu_config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let memory = Memory::new(config).map_err(|error| error.to_string())?;
     let mut view = memory.view();

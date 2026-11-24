@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn registers(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for index in [0, 1, 2, 3, 0xf9, 0xff] {
         let code = [0x0f, 0xc5, 0xc6, index, 0x0f, 0xc4, 0xf1, index];
         let mut image = image(&code);
@@ -31,7 +32,7 @@ fn registers(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0x0f, 0xc4, 0x30, 0xff];
     let mut image = image(&code);
     image.cpu.registers.eax = 0x4ffe;

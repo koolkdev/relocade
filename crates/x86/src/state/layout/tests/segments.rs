@@ -1,4 +1,4 @@
-mod profiles;
+mod assumptions;
 
 use std::mem::{offset_of, size_of};
 

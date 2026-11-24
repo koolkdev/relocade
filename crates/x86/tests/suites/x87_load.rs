@@ -3,6 +3,7 @@
 #[path = "x87_load/faults.rs"]
 mod faults;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
@@ -11,7 +12,7 @@ use crate::support::{
         INDEFINITE,
     },
 };
-use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::CpuState;
 
 #[derive(Clone, Copy, Debug)]
 enum Source {
@@ -98,10 +99,7 @@ fn check_conversion(checks: &mut ImageSequences, case: Conversion, control: u16)
 }
 
 fn exact_conversions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     use Source::{Double, Single};
     for (source, value, tag_word, exception) in [
         (Single(0), (0, 0), 0x7fff, 0),
@@ -347,10 +345,7 @@ fn exact_conversions(frontend: Frontend) {
 }
 
 fn precision_controls_do_not_round_loads(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for precision in [0, 0x0200, 0x0300] {
         for rounding in [0, 0x0400, 0x0800, 0x0c00] {
             for sign in [0_u64, 1 << 63] {

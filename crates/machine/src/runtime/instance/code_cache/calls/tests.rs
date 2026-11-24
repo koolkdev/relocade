@@ -2,15 +2,19 @@ use crate::{CompiledCode, Cpu, CpuConfig, FarPointer, FunctionRequest, MachineCo
 use relocade_compiler::Program;
 use relocade_wasm_runtime::{WasmBackend, WasmCompiler};
 use relocade_x86::{
-    abi, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
+    abi, Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 
 async fn call_after_write() {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::new(CompilerConfig::new(
+        EntryAssumptions::REAL_MODE,
+        MemoryBackend::PhysicalBus,
+    ));
     let map =
         PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let memory = Memory::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
-    let config = CpuConfig::new(compiler.config(), CpuState::real_mode()).unwrap();
+    let config = CpuConfig::pc(CpuState::real_mode()).unwrap();
     let mut cpu = Cpu::new(memory.clone(), config, Default::default())
         .await
         .unwrap();

@@ -38,7 +38,7 @@ fn precision53_views_agree_after_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "views".into(),
-        execution_target: None,
+        config: None,
     });
     for (significand, exponent, coefficient, tag, infinity) in [
         (0_u64, 0x8000, 0_u64, 1, 0),
@@ -129,7 +129,7 @@ fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "views".into(),
-        execution_target: None,
+        config: None,
     });
     for (integer, significand, exponent, native) in [
         (0, 0_u64, 0, 0_u64),

@@ -4,10 +4,7 @@ use relocade_machine::{
     worker::Thread, CpuConfig, ExecutionWorker, Hook, MachineConfig, SessionConfig,
 };
 use relocade_vga::{DispiAdapter, MEMORY_RANGE};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{cell::RefCell, rc::Rc};
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
@@ -27,13 +24,10 @@ pub async fn vga_workers() -> Result<(), String> {
     )
     .unwrap();
     let mut machine = relocade_machine::Machine::new(config).unwrap();
-    let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let cpu_config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let cpu_task =

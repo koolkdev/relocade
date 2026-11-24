@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags() {
@@ -9,8 +9,8 @@ fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags()
     for (opcode, value) in [(2, 0x0040_f300), (3, 0xffff)] {
         for selector in [0x27, 0x33] {
             let code = [0x0f, opcode, 0xc8]; // (E)CX,AX.
-            let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-            let mut image = image(&code, profile);
+            let config = FLAT32;
+            let mut image = image(&code, config);
             image.cpu.registers.eax = u32::from(selector);
             image.cpu.flags.status_source.kind = 10;
             image.cpu.flags.status_source.left = 0x7fff_ffff;
@@ -26,7 +26,7 @@ fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags()
             cpu.flags.bytes.sf = 1;
             cpu.flags.bytes.of = 1;
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentQuery::new(&tables, selector)],
@@ -42,13 +42,13 @@ fn successful_and_failed_queries_change_only_zf_among_pending_arithmetic_flags()
 
 #[test]
 fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_results() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     // LAR ECX,AX; SETZ DL; VERR AX; SETZ BL; LSL ESI,DI; MOV ECX,[EBP].
     let code = [
         0x0f, 0x02, 0xc8, 0x0f, 0x94, 0xc2, 0x0f, 0x00, 0xe0, 0x0f, 0x94, 0xc3, 0x0f, 0x03, 0xf7,
         0x8b, 0x4d, 0,
     ];
-    let mut image = image(&code, profile);
+    let mut image = image(&code, config);
     image.cpu.registers.eax = 0x27;
     image.cpu.registers.edi = 0x33;
     image.cpu.registers.ebp = 0x4000;
@@ -115,7 +115,7 @@ fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_result
     );
 
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 6, profile);
+    let block = blocks.get(&image.cpu, &code, 6, config);
     let mut wanted = expected(&image, &[fault()]);
     for (index, selector) in [0x27, 0x27, 0x33].into_iter().enumerate() {
         wanted
@@ -127,17 +127,17 @@ fn descriptor_queries_continue_in_one_block_and_a_later_fault_keeps_their_result
 
 #[test]
 fn current_table_rights_and_limits_are_observed_without_changing_loaded_caches() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     for opcode in [2, 3] {
         let code = [0x0f, opcode, 0xc8];
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         image.cpu.registers.eax = 0x27;
         let mut tables = DescriptorTables::default();
         let original = descriptor(0x8000, SegmentDefaultSize::Bits32);
         tables.insert(0x27, original);
         image.cpu.segments.fs = tables.resolve_user_segment(Segment::Fs, 0x27).unwrap();
         let mut blocks = BlockModules::default();
-        let block = blocks.get(&image.cpu, &code, 1, profile);
+        let block = blocks.get(&image.cpu, &code, 1, config);
         for (replacement, rights, limit) in [
             (Some(original), 0x0040_f300, 0xffff),
             (

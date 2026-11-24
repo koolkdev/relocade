@@ -1,6 +1,6 @@
 use super::{cpu, Irq};
 use relocade_machine::{DispatchEntry, GuestTimeDriver};
-use relocade_x86::{Compiler, Exception, ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{Compiler, Exception, ExecutionExit, HostExit};
 use std::{
     cell::RefCell,
     future::Future,
@@ -36,7 +36,7 @@ async fn waiting() {
         let code = [0xf4, 0x40, 0xf4, 0x90]; // HLT; INC AX; HLT; NOP.
         let mut cpu = cpu(&code, 2, &irq).await;
         if entry == 1 {
-            let module = Compiler::new(ExecutionProfile::Real16)
+            let module = Compiler::new(crate::support::pc_compiler_config())
                 .compile_block(0x100, &code, 8)
                 .unwrap();
             cpu.install_module(

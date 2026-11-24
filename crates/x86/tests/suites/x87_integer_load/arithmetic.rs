@@ -1,6 +1,7 @@
 //! Integer loads preserve exact inputs for the first arithmetic operation.
 
 use super::*;
+use crate::support::config::FLAT32;
 use relocade_x86::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
@@ -44,7 +45,7 @@ fn first_product_uses_exact_integer_load() {
         let mut observed = CpuState::default();
         set_control(&mut observed.x87.control, 0x027f);
         let module = TestModule::new(
-            &Compiler::new(SegmentProfile::Flat32)
+            &Compiler::new(FLAT32)
                 .specialize_on_cpu(&observed)
                 .compile_block(0x1000, &code, 2)
                 .unwrap(),

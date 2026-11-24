@@ -1,6 +1,6 @@
 use super::{cpu, Irq};
 use relocade_machine::{DispatchEntry, Hook};
-use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{Compiler, ExecutionExit, HostExit};
 use std::{cell::RefCell, rc::Rc};
 
 async fn queued_irq() {
@@ -26,7 +26,7 @@ async fn queued_irq() {
             };
             memory.view().write_u32(flags_address, 0x202).unwrap();
             if compiled {
-                let module = Compiler::new(ExecutionProfile::Real16)
+                let module = Compiler::new(crate::support::pc_compiler_config())
                     .compile_block(0x100, code, 1)
                     .unwrap();
                 runner

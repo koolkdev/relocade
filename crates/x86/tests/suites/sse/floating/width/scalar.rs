@@ -1,14 +1,16 @@
 //! Scalar native narrowing admits only its low source and preserves upper bits.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile};
+use relocade_x86::Compiler;
+use relocade_x86::CompilerConfig;
 
-fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
+fn check(case: ScalarCase, restart: bool, config: CompilerConfig) {
     let code = [0x90, 0xf2, 0x0f, 0x5a, 0xc0]; // NOP; CVTSD2SS XMM0,XMM0
     let mut image = floating_image(&code, case.controls);
-    if profile == ExecutionProfile::Real16 {
+    if config.entry == REAL16.entry {
         image.initialize_real_mode();
     }
     lane(&mut image.cpu.simd.xmm[0], true, 0, case.source);
@@ -33,7 +35,7 @@ fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
         }],
     );
     for observed in [false, true] {
-        let compiler = Compiler::new(profile);
+        let compiler = Compiler::new(config);
         let compiler = if observed {
             compiler.specialize_on_cpu(&image.cpu)
         } else {
@@ -53,7 +55,7 @@ fn check(case: ScalarCase, restart: bool, profile: ExecutionProfile) {
                     }]
                 )
             );
-            let linked = block.with_interpreter(TestModule::interpreter_with_profile(profile));
+            let linked = block.with_interpreter(TestModule::interpreter_with_config(config));
             assert_eq!(
                 linked.observe(&image.input(), 1),
                 step_returns(wanted.clone())
@@ -91,7 +93,7 @@ fn native() {
                         raised: 32,
                     },
                     false,
-                    SegmentProfile::Flat32.into(),
+                    FLAT32,
                 );
             }
         }
@@ -105,7 +107,7 @@ fn native() {
             raised: 0,
         },
         false,
-        ExecutionProfile::Real16,
+        REAL16,
     );
 }
 
@@ -124,7 +126,7 @@ fn restart() {
                 raised,
             },
             true,
-            SegmentProfile::Flat32.into(),
+            FLAT32,
         );
     }
 }

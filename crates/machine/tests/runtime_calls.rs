@@ -4,10 +4,7 @@ mod support;
 
 use interrupts::Irq;
 use relocade_machine::{real_mode_interrupt, Cpu, IoBus, Memory};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
@@ -64,7 +61,6 @@ async fn cpu(irq: &Rc<RefCell<Irq>>, handler: u16) -> Cpu {
     state.registers.esp = 0x8000;
     state.flags.set_eflags(0x243);
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         state,
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

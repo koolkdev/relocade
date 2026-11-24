@@ -1,6 +1,7 @@
 //! Estimates obey their accuracy bound and leave every MXCSR bit unchanged.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::{
     machine::expected,
     step::{Event, TestModule},
@@ -195,7 +196,7 @@ fn special(frontend: Frontend, opcode: u8, cases: &[(u32, u32)]) {
 }
 
 fn memory(frontend: Frontend, opcode: u8) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for packed in [false, true] {
         let code = encoding(prefix(false, packed), opcode, 0x00);
         let width = if packed { 16 } else { 4 };

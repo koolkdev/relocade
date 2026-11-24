@@ -3,13 +3,13 @@
 #[path = "x87_integral/jit.rs"]
 mod jit;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::SegmentProfile;
 
 const LEAD: u64 = 1 << 63;
 const CODE: [u8; 2] = [0xd9, 0xfc];
@@ -20,7 +20,7 @@ fn encoding() {
 }
 
 fn integral_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, lower, upper, nearest_up, inexact) in [
         ((0, 0), (0, 0), (0, 0), false, false),
         ((LEAD, 0x3ffd), (0, 0), (LEAD, 0x3fff), false, true), // 1/4
@@ -103,7 +103,7 @@ fn integral_values(frontend: Frontend) {
 
 fn exceptions(frontend: Frontend) {
     let code = [0xd9, 0xfc, 0x9b]; // FRNDINT; FWAIT
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, output, flag, inexact, increment) in [
         (Some((LEAD, 0x7fff)), (LEAD, 0x7fff), 0, false, false),
         (Some((LEAD, 0xffff)), (LEAD, 0xffff), 0, false, false),
@@ -179,7 +179,7 @@ fn exceptions(frontend: Frontend) {
 }
 
 fn entry_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let mut image = stack_image(&CODE, 0, 0xfffc);
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;

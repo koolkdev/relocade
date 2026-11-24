@@ -5,8 +5,8 @@ use relocade_machine::{
 };
 use relocade_vga::DispiAdapter;
 use relocade_x86::{
-    BlockSnapshot, Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap,
+    BlockSnapshot, Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit,
+    MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{cell::RefCell, num::NonZeroU64, rc::Rc, task::Waker};
 
@@ -23,14 +23,11 @@ async fn create_cpu(io: IoBus, code: &[u8], instruction_count: u64) -> Cpu {
     memory.view().write(0x100, code).unwrap();
     Cpu::new(
         memory,
-        CpuConfig::new(
-            Compiler::new(ExecutionProfile::Real16).config(),
-            CpuState {
-                eip: 0x100,
-                instruction_count,
-                ..CpuState::real_mode()
-            },
-        )
+        CpuConfig::pc(CpuState {
+            eip: 0x100,
+            instruction_count,
+            ..CpuState::real_mode()
+        })
         .unwrap(),
         io,
     )
@@ -41,7 +38,10 @@ async fn create_cpu(io: IoBus, code: &[u8], instruction_count: u64) -> Cpu {
 async fn guest_status_routing() {
     for compiled in [false, true] {
         let (_vga, io) = connect(&ManualClock::new());
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::new(CompilerConfig::new(
+            EntryAssumptions::REAL_MODE,
+            MemoryBackend::PhysicalBus,
+        ));
         let code = [
             0xba, 0xc2, 0x03, 0xb0, 0x42, 0xee, // Select mono status.
             0xba, 0xba, 0x03, 0x66, 0xed, 0x66, 0x89, 0xc3, // IN EAX,DX; MOV EBX,EAX.

@@ -2,7 +2,7 @@ use relocade_machine::{
     worker::{wake_connection, WakeHost},
     Clock, CpuConfig, ExecutionInterrupt, Machine, MachineConfig, Runner,
 };
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap};
 
 // One execution owner with a manual clock and a page for guest I/O programs.
 pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Machine) {
@@ -15,13 +15,10 @@ pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Mach
         .unwrap(),
     )
     .unwrap();
-    let cpu = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let cpu = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let prepared = machine.create_cpu(cpu, None).unwrap();
     let (host, endpoint) = wake_connection(prepared.interrupt_handle());

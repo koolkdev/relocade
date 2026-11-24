@@ -11,12 +11,13 @@ mod memory;
 #[path = "x87_compare/sequences.rs"]
 mod sequences;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, status, write_value},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const LEADING: u64 = 1 << 63;
 const ONE: (u64, u16) = (LEADING, 0x3fff);
@@ -102,7 +103,7 @@ fn check_case(checks: &mut ImageSequences, name: &str, instruction: [u8; 2], cas
 }
 
 fn register_forms(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (code, source, pops) in [
         ([0xd8, 0xd2], 1, 0), // FCOM ST2
         ([0xd8, 0xda], 1, 1), // FCOMP ST2
@@ -143,7 +144,7 @@ fn register_forms(frontend: Frontend) {
 }
 
 fn exact_ordering(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, flags) in [
         (ONE, ONE, EQUAL),
         ((LEADING + 1, 0x3fff), ONE, 0),
@@ -199,7 +200,7 @@ fn exact_ordering(frontend: Frontend) {
 }
 
 fn test_against_zero(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, flags) in [
         (ONE, 0),
         ((LEADING, 0xbfff), LESS),

@@ -4,9 +4,10 @@
 mod jit;
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn forms_and_signed_sources(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [Source::Integer16(-3), Source::Integer32(-3)] {
         for (extension, result) in [
             (0, (0xc000_0000_0000_0000, 0x4000)), // 6 + -3 = 3
@@ -57,7 +58,7 @@ fn forms_and_signed_sources(frontend: Frontend) {
 }
 
 fn exact_expansion_and_rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     check_case(
         &mut checks,
         "PC24 applies after exact integer expansion",
@@ -128,7 +129,7 @@ fn exact_expansion_and_rounding(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for control in [0x037f, 0x0378] {
         for (source, extension, left, value, flags, empty) in [
             (0, 6, (LEADING, 0xbfff), (LEADING, 0xffff), 4, false),
@@ -183,7 +184,7 @@ fn memory_before_effects(frontend: Frontend) {
     let mut image = initial_image(&code, source, (0, 0));
     image.cpu.x87.tag_word = 0xffff;
     set_control(&mut image.cpu.x87.control, 0x037e);
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     checks.check(
         "complete source read precedes stack and numerical exceptions",
         &code,

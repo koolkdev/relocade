@@ -1,6 +1,7 @@
 //! Integer sources convert exactly before the shared ordered comparison.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
@@ -22,7 +23,7 @@ fn source_bytes(opcode: u8, value: i32) -> Vec<u8> {
 }
 
 fn forms_and_exact_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (opcode, integer, left, relation) in [
         (0xde, -32768, (LEADING, 0xc00e), EQUAL),
         (0xde, 32767, (0xfffe_0000_0000_0000, 0x400d), EQUAL),
@@ -62,7 +63,7 @@ fn forms_and_exact_values(frontend: Frontend) {
 }
 
 fn operand_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for opcode in [0xde, 0xda] {
         for (left, empty, exception, relation) in [
             (QNAN, false, 1, UNORDERED),
@@ -129,7 +130,7 @@ fn memory_faults(frontend: Frontend) {
     set_control(&mut image.cpu.x87.control, 0x037e);
     image.map(4, 0x8000, false);
     image.data(0x8ffe, &[0, 0]);
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     checks.check(
         "complete integer span faults before comparison effects",
         &code,

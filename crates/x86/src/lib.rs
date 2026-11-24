@@ -104,7 +104,7 @@ pub struct CompiledModule {
     /// segment load may change compatibility before publication and dispatch.
     /// Snapshot instruction-fetch validity is separate. Modules that do not
     /// execute x86 instructions have no execution target.
-    pub execution_target: Option<CompilerConfig>,
+    pub config: Option<CompilerConfig>,
 }
 
 /// A failure to construct a block, not an exception raised by guest execution.

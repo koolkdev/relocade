@@ -2,7 +2,7 @@ use futures_channel::oneshot;
 use relocade_machine::{
     Clock, CpuConfig, Device, ExecutionWorker, Hook, MachineConfig, Memory, SessionConfig,
 };
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     future::pending,
@@ -67,13 +67,10 @@ fn machine() -> (relocade_machine::Machine, CpuConfig) {
         .unwrap(),
     )
     .unwrap();
-    let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     (machine, config)
 }

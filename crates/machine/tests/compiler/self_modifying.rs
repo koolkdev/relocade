@@ -6,11 +6,7 @@ async fn patch_running_code(compiler: &relocade_machine::CompilerService) {
     let map =
         PhysicalMemoryMap::new([(0..=0x3fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let mut machine = Machine::new(MachineConfig::new(0x4000, map).unwrap()).unwrap();
-    let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState::real_mode(),
-    )
-    .unwrap();
+    let config = CpuConfig::pc(CpuState::real_mode()).unwrap();
     let memory = machine.memory();
     let mut view = memory.view();
     // CALL 0FFB; JMP 4000. The stack is on its own page so the compiled CALL uses its link.
@@ -111,7 +107,7 @@ async fn patch_jump_target(service: &relocade_machine::CompilerService) {
         let memory = runner.memory();
         let mut compiler = runner.take_compiler().unwrap();
         let state = runner.cpu().cpu_state();
-        let target = state.compiler_config();
+        let compiler_config = state.compiler_config();
         let alias = FarPointer {
             segment: 0x10,
             offset: 8,
@@ -121,7 +117,9 @@ async fn patch_jump_target(service: &relocade_machine::CompilerService) {
             limits: DiscoveryLimits::default(),
         });
         let mut functions = async || {
-            compiler.request_functions(target, roots.to_vec()).unwrap();
+            compiler
+                .request_functions(compiler_config, roots.to_vec())
+                .unwrap();
             compiler.recv().await.unwrap().unwrap()
         };
         let original = functions().await;
@@ -201,7 +199,10 @@ async fn patch_jump_target(service: &relocade_machine::CompilerService) {
             instruction_limit: 1,
         };
         compiler
-            .request(target, vec![block(8, 6), block(9, 5), block(10, 4)])
+            .request(
+                compiler_config,
+                vec![block(8, 6), block(9, 5), block(10, 4)],
+            )
             .unwrap();
         let split = compiler.recv().await.unwrap().unwrap();
         assert_eq!(split.ranges(), [0x108..0x109, 0x10a..0x10b]);

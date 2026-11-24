@@ -1,11 +1,10 @@
-//! Share interpreter code by execution profile and memory backend across target fixtures.
+//! Share interpreter code by its entry assumptions and memory backend across compiler configurations.
 
 use super::TestModule;
-use crate::{
-    build_interpreter_with_config, Compiler, CompilerConfig, EntryAssumptions, ExecutionProfile,
-    MemoryBackend, SegmentProfile,
-};
+use crate::support::config::FLAT32;
+use crate::{build_interpreter_with_config, EntryAssumptions, MemoryBackend};
 use relocade_test_support::Module;
+use relocade_x86::CompilerConfig;
 use std::{
     collections::HashMap,
     hash::Hash,
@@ -20,46 +19,37 @@ enum InterpreterEntry {
 
 impl TestModule {
     pub(crate) fn interpreter() -> &'static Self {
-        Self::interpreter_with_profile(SegmentProfile::Flat32)
+        Self::interpreter_with_config(FLAT32)
     }
 
-    pub(crate) fn interpreter_with_profile(profile: impl Into<ExecutionProfile>) -> &'static Self {
-        Self::interpreter_with_target(Compiler::new(profile).config())
+    pub(crate) fn interpreter_with_config(config: CompilerConfig) -> &'static Self {
+        Self::cached_interpreter(config, InterpreterEntry::Step)
     }
 
-    pub(crate) fn interpreter_with_target(target: CompilerConfig) -> &'static Self {
-        Self::cached_interpreter(target, InterpreterEntry::Step)
+    pub(crate) fn interpreter_run_with_config(config: CompilerConfig) -> &'static Self {
+        Self::cached_interpreter(config, InterpreterEntry::Run)
     }
 
-    pub(crate) fn interpreter_run_with_profile(
-        profile: impl Into<ExecutionProfile>,
-    ) -> &'static Self {
-        Self::interpreter_run_with_target(Compiler::new(profile).config())
-    }
-
-    pub(crate) fn interpreter_run_with_target(target: CompilerConfig) -> &'static Self {
-        Self::cached_interpreter(target, InterpreterEntry::Run)
-    }
-
-    fn cached_interpreter(target: CompilerConfig, entry: InterpreterEntry) -> &'static Self {
+    fn cached_interpreter(config: CompilerConfig, entry: InterpreterEntry) -> &'static Self {
         static CODE: Fixtures<(EntryAssumptions, MemoryBackend), Arc<Module>> = Fixtures::new();
-        static TARGETS: Fixtures<(CompilerConfig, InterpreterEntry), TestModule> = Fixtures::new();
-        TARGETS.get((target, entry), || {
-            let artifact = if target.entry == EntryAssumptions::REAL_MODE
-                && target.memory_backend == MemoryBackend::PhysicalBus
+        static MODULES: Fixtures<(CompilerConfig, InterpreterEntry), TestModule> = Fixtures::new();
+        MODULES.get((config, entry), || {
+            // The same physical PC interpreter runs canonical real mode and restored protected CPUs.
+            let entry_assumptions = if config.entry == EntryAssumptions::REAL_MODE
+                && config.memory_backend == MemoryBackend::PhysicalBus
             {
                 EntryAssumptions::LIVE
             } else {
-                target.entry
+                config.entry
             };
-            let module = CODE.get((artifact, target.memory_backend), || {
+            let module = CODE.get((entry_assumptions, config.memory_backend), || {
                 if let Some(bytes) =
-                    relocade_interpreter::module_for(artifact, target.memory_backend)
+                    relocade_interpreter::module_for(entry_assumptions, config.memory_backend)
                 {
                     Arc::new(Module::new(bytes))
                 } else {
                     let program =
-                        build_interpreter_with_config(target.entry, target.memory_backend)
+                        build_interpreter_with_config(entry_assumptions, config.memory_backend)
                             .expect("build interpreter for the requested memory backend");
                     Arc::new(Module::new(&program.compile().unwrap()))
                 }
@@ -71,7 +61,7 @@ impl TestModule {
                     InterpreterEntry::Run => crate::abi::RUN.name,
                 }
                 .into(),
-                target: Some(target),
+                config: Some(config),
                 interpreter: None,
             }
         })

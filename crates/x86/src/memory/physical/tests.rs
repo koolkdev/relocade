@@ -100,7 +100,7 @@ fn widths(mmio: bool) {
             let module = TestModule::new(&CompiledModule {
                 bytes: transfers().to_vec(),
                 entry: format!("{}{bits}", if write { "write" } else { "read" }),
-                execution_target: None,
+                config: None,
             });
             let mut input = input();
             if mmio {
@@ -225,7 +225,7 @@ fn updates() {
         let module = TestModule::new(&CompiledModule {
             bytes: program.compile().unwrap(),
             entry: "update".into(),
-            execution_target: None,
+            config: None,
         });
         let mut input = input();
         input.physical_pages = vec![(9, 0x3000, false), (10, 0x5000, false)];

@@ -22,7 +22,7 @@ fn integer_rounding_preserves_evidence_across_word_boundaries() {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "round".into(),
-        execution_target: None,
+        config: None,
     });
     for value in [0, 1, 3, (1 << 63) - 1, 1 << 63, (1 << 63) + 1, u64::MAX] {
         for fraction in 0..4 {

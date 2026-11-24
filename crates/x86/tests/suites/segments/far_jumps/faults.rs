@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
@@ -65,7 +65,7 @@ fn the_complete_source_span_is_checked_before_paging_and_selector_resolution() {
                     if word { &[0, 2][..] } else { &[0, 2, 0, 0] },
                 );
                 check_one(
-                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                    SEGMENTED32,
                     &code,
                     &image,
                     &[],
@@ -132,7 +132,7 @@ fn descriptor_type_privilege_and_presence_faults_precede_the_new_target_limit() 
                 tables.insert(selector, slot);
             }
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Flat32),
+                FLAT32,
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables, Segment::Cs, selector)],
@@ -208,12 +208,7 @@ fn failed_jumps_publish_earlier_register_flag_memory_and_retirement_progress() {
             step_returns(wanted.clone())
         );
         let mut blocks = BlockModules::default();
-        let block = blocks.get(
-            &image.cpu,
-            &code,
-            3,
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
-        );
+        let block = blocks.get(&image.cpu, &code, 3, FLAT32);
         let mut wanted = expected(&image, &[fault()]);
         wanted.events.insert(0, event);
         assert_eq!(block.observe(&input, 1), wanted);

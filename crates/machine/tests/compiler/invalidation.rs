@@ -1,5 +1,6 @@
 use super::*;
 use relocade_machine::{DiscoveryLimits, FarPointer, FunctionRequest, Runner};
+use relocade_x86::{CompilerConfig, EntryAssumptions, MemoryBackend};
 use std::sync::Arc;
 
 async fn run_caller(runner: &mut Runner, expected: u16) {
@@ -29,7 +30,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
     memory.write(0x210, &[0x83, 0xc0, 1, 0xc3]).unwrap(); // ADD AX,1; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |offset| FunctionRequest {
             entry: FarPointer { segment: 0, offset },
@@ -44,7 +45,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         // Separate modules exercise the caller's table and the callee's direct jump.
         for entry in [0x100, 0x200] {
             compiler
-                .request_functions(target, vec![request(entry)])
+                .request_functions(compiler_config, vec![request(entry)])
                 .unwrap();
             let code = compiler.recv().await.unwrap().unwrap();
             assert!(runner
@@ -93,7 +94,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
 
         // Incoming calls must also reconnect when a replacement arrives.
         compiler
-            .request_functions(target, vec![request(0x200)])
+            .request_functions(compiler_config, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()
@@ -108,7 +109,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         // on the tail. A stopped host write through A20 changes only the old tail.
         compiler
             .request(
-                target,
+                compiler_config,
                 vec![BlockRequest {
                     entry: FarPointer {
                         segment: 0,
@@ -136,7 +137,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         sources.view().write_u8(0x204, 0x2a).unwrap(); // JMP 0230
         sources.view().write(0x230, &[0x83, 0xc0, 3, 0xc3]).unwrap();
         compiler
-            .request_functions(target, vec![request(0x200)])
+            .request_functions(compiler_config, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()
@@ -167,7 +168,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
         // Retired callers must leave no reverse links to missing module instances.
         runner.cpu().invalidate_code(0x100..0x106).unwrap();
         compiler
-            .request_functions(target, vec![request(0x200)])
+            .request_functions(compiler_config, vec![request(0x200)])
             .unwrap();
         compiler
             .recv()
@@ -201,8 +202,9 @@ async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
     let map =
         PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let mut machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
-    let target = Compiler::new(ExecutionProfile::Real16).config();
-    let config = CpuConfig::new(target, CpuState::real_mode()).unwrap();
+    let compiler_config =
+        CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus);
+    let config = CpuConfig::pc(CpuState::real_mode()).unwrap();
     let memory = machine.memory();
     memory.view().write(0x100, &[0xe8, 0xfd, 0, 0xc3]).unwrap(); // CALL 0200; RET
     memory.view().write(0x200, &[0xb8, 7, 0, 0xc3]).unwrap(); // MOV AX,7; RET
@@ -212,7 +214,7 @@ async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
         for offset in [0x100, 0x200] {
             compiler
                 .request_functions(
-                    target,
+                    compiler_config,
                     vec![FunctionRequest {
                         entry: FarPointer { segment: 0, offset },
                         limits: Default::default(),
@@ -282,11 +284,11 @@ async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let memory = runner.memory();
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request(
-                target,
+                compiler_config,
                 vec![BlockRequest {
                     instruction_limit: 1,
                     ..request()

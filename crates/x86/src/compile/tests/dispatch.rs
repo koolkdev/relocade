@@ -1,7 +1,8 @@
 //! Real-mode callable entries resolve by packed CS:IP.
 
 use super::*;
-use crate::{CpuState, EntryTable, ExecutionContext, ExecutionProfile, Segment};
+use crate::support::config::{REAL16, SEGMENTED16};
+use crate::{CpuState, EntryTable, ExecutionContext, Segment};
 use relocade_compiler::{
     abi::{
         slots::{Layout, Tuple},
@@ -12,9 +13,9 @@ use relocade_compiler::{
 use relocade_test_support::Module;
 
 #[test]
-fn far_call_dispatch_respects_execution_profile() {
-    for profile in [ExecutionProfile::Real16, SegmentProfile::Segmented16.into()] {
-        let block = Compiler::new(profile)
+fn far_call_dispatch_depends_on_the_entry_mode() {
+    for config in [REAL16, SEGMENTED16] {
+        let block = Compiler::new(config)
             .compile_block(0x100, &[0x9a, 0, 2, 0x10, 0], 1)
             .unwrap();
         let module = Module::new(&block.bytes);
@@ -22,7 +23,7 @@ fn far_call_dispatch_respects_execution_profile() {
             .wasmtime()
             .imports()
             .any(|import| import.module() == "relocade" && import.name() == "resolveCall");
-        assert_eq!(resolves_call, profile == ExecutionProfile::Real16);
+        assert_eq!(resolves_call, config == REAL16);
     }
 }
 
@@ -189,12 +190,7 @@ fn execute(dispatcher: &Module, targets: &[(Module, String)], cases: &[Invocatio
 
 #[test]
 fn callable_dispatch_resolves_functions_and_fallback() {
-    let dispatcher = Module::new(
-        &Compiler::new(ExecutionProfile::Real16)
-            .compile_dispatcher()
-            .unwrap()
-            .bytes,
-    );
+    let dispatcher = Module::new(&Compiler::new(REAL16).compile_dispatcher().unwrap().bytes);
     let targets = [
         constant(crate::ExecutionExit::Host(crate::HostExit::Return)),
         constant(crate::ExecutionExit::Host(crate::HostExit::Call {
@@ -214,12 +210,7 @@ fn callable_dispatch_resolves_functions_and_fallback() {
 fn protected_dispatch_skips_real_mode_bindings_and_call_profiling() {
     use crate::SegmentDefaultSize::{Bits16, Bits32};
 
-    let dispatcher = Module::new(
-        &Compiler::new(ExecutionProfile::Real16)
-            .compile_dispatcher()
-            .unwrap()
-            .bytes,
-    );
+    let dispatcher = Module::new(&Compiler::new(REAL16).compile_dispatcher().unwrap().bytes);
     let interpreted = crate::ExecutionExit::Host(crate::HostExit::Return);
     let compiled = crate::ExecutionExit::Host(crate::HostExit::Call { service_id: 42 });
     let targets = [constant(interpreted), constant(compiled)];
@@ -250,7 +241,7 @@ fn protected_dispatch_skips_real_mode_bindings_and_call_profiling() {
 
 #[test]
 fn compiled_blocks_chain_until_interrupt_or_missing_entry() {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::new(REAL16);
     let dispatcher = Module::new(&compiler.compile_dispatcher().unwrap().bytes);
     let mut targets = vec![constant(crate::ExecutionExit::Host(
         crate::HostExit::Return,

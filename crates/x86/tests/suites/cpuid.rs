@@ -3,6 +3,7 @@
 #[path = "cpuid/features.rs"]
 mod features;
 
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     encoding::check_length,
@@ -10,7 +11,7 @@ use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{compile_block_from_bytes, CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::{compile_block_from_bytes, CpuState};
 
 const VENDOR: [u32; 4] = [1, 0x6f6c_6552, 0x5550_4320, 0x6564_6163];
 const FEATURES: [u32; 4] = [0x601, 0x800, 0, 0x0788_8111];
@@ -29,21 +30,16 @@ fn result(mut cpu: CpuState, values: [u32; 4], bytes: u32, count: u32) -> CpuSta
 
 fn forms(frontend: Frontend) {
     let mut blocks = BlockModules::default();
-    for profile in [
-        SegmentProfile::Flat32.into(),
-        SegmentProfile::Segmented32.into(),
-        SegmentProfile::Segmented16.into(),
-        ExecutionProfile::Real16,
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16, REAL16] {
         for (code, leaf, subleaf, values) in [
             (&[0x0f, 0xa2][..], 0, u32::MAX, VENDOR),
             (&[0x66, 0x67, 0x64, 0x0f, 0xa2], 1, 0x8000_0001, FEATURES),
             (&[0x0f, 0xa2], 0x0001_0000, 0, FEATURES),
         ] {
             let mut image = Image::new(code);
-            match profile {
-                ExecutionProfile::Real16 => image.initialize_real_mode(),
-                ExecutionProfile::Protected(SegmentProfile::Segmented16) => {
+            match config.entry {
+                relocade_x86::EntryAssumptions::REAL_MODE => image.initialize_real_mode(),
+                relocade_x86::EntryAssumptions::SEGMENTED16 => {
                     image.cpu.segments.cs.big = 0;
                 }
                 _ => {}
@@ -56,8 +52,8 @@ fn forms(frontend: Frontend) {
             image.cpu.flags.bytes.id = (leaf != 0) as u8;
             let input = image.input();
             let module = match frontend {
-                Frontend::Block => blocks.get(&image.cpu, code, 8, profile),
-                Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
+                Frontend::Block => blocks.get(&image.cpu, code, 8, config),
+                Frontend::Interpreter => TestModule::interpreter_with_config(config),
             };
             let cpu = result(image.cpu, values, code.len() as u32, 1);
             let wanted = expected(
@@ -71,7 +67,7 @@ fn forms(frontend: Frontend) {
             assert_eq!(
                 module.observe(&input, 1),
                 module.expected(wanted.clone()),
-                "{profile:?}, {code:02x?}"
+                "{config:?}, {code:02x?}"
             );
         }
     }
@@ -95,7 +91,7 @@ fn serialization_dispatches_before_modified_code() {
     };
     let wanted = expected(&image, &[first]);
     let block = TestModule::new(&compile_block_from_bytes(0x1000, &code, 16).unwrap());
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for module in [&block, run] {
         assert_eq!(module.observe(&input, 1), wanted);
     }
@@ -138,7 +134,7 @@ fn queries_follow_complete_fetch_and_stop_before_successor_fetch() {
             exit: Exit::Dispatch(cpu.eip),
         }],
     );
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     assert_eq!(run.observe(&input, 1), wanted);
 
     image.cpu.eip = 0x1fff;
@@ -187,7 +183,7 @@ fn encoding_and_import_boundaries() {
 
 #[test]
 fn leaf_selection_uses_current_full_width_eax() {
-    let run = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let run = TestModule::interpreter_run_with_config(FLAT32);
     for (leaf, wanted_values) in [
         (0, VENDOR),
         (1, FEATURES),

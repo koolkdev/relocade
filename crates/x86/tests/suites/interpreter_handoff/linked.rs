@@ -1,5 +1,6 @@
 //! Real Wasm-to-Wasm handoffs use the interpreter's own stopping boundaries.
 
+use crate::support::config::FLAT32;
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, TestModule},
@@ -7,18 +8,18 @@ use crate::support::{
 };
 use relocade_x86::{
     compile_block_from_bytes, BlockSnapshot, CodeAddress, Compiler, CpuState, DecodedBlock,
-    ExecutionExit, MemoryBackend, SegmentDefaultSize, SegmentProfile, SnapshotInstruction,
+    ExecutionExit, SegmentDefaultSize, SnapshotInstruction,
 };
 
 pub(super) fn interpreter_run() -> &'static TestModule {
-    TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)
+    TestModule::interpreter_run_with_config(FLAT32)
 }
 
 #[test]
 fn a_linked_call_redecodes_the_destination_when_its_width_differs() {
     let call = [0xe8, 0x0b, 0, 0, 0]; // CALL 1010, pushing 1005
     let mov = [0xb8, 0x34, 0x12, 0x78, 0x56];
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::new(FLAT32);
     let blocks = compiler
         .compile_blocks(&[
             BlockSnapshot {
@@ -84,13 +85,8 @@ fn protected_physical_bus_blocks_follow_a20_and_restart_mmio_in_the_interpreter(
     input.observe_mmio = true;
 
     let start = image.cpu.eip;
-    let compiler = Compiler::new(crate::CompilerConfig::new(
-        crate::EntryAssumptions {
-            interrupt_flag: None,
-            iopl: None,
-            ..crate::EntryAssumptions::FLAT32
-        },
-        MemoryBackend::PhysicalBus,
+    let compiler = Compiler::new(crate::support::config::physical_with_live_flags(
+        FLAT32.entry,
     ));
     let raw = compiler.compile_block(start, &code, 3).unwrap();
     let decode = |eip, bytes: &[u8]| {
@@ -144,7 +140,7 @@ fn protected_physical_bus_blocks_follow_a20_and_restart_mmio_in_the_interpreter(
     ] {
         assert_eq!(module.observe(&input, 1), before_mmio);
         let linked =
-            module.with_interpreter(TestModule::interpreter_with_target(compiler.config()));
+            module.with_interpreter(TestModule::interpreter_with_config(compiler.config()));
         assert_eq!(linked.observe(&input, 1), after_mmio);
     }
 }

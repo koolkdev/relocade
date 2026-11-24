@@ -1,13 +1,10 @@
 //! Operand exceptions, stack priority and access boundaries for narrow FLD.
 
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::FLAT32;
 
 fn stack_overflow_precedes_operand_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x7f80_0001),
         Source::Single(1),
@@ -58,10 +55,7 @@ fn stack_overflow_precedes_operand_exceptions(frontend: Frontend) {
 }
 
 fn unmasked_operand_exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, value, denormal) in [
         (Source::Single(0x7f80_0123), (0, 0), false),
         (Source::Double(0xfff0_0000_0000_0123), (0, 0), false),
@@ -118,10 +112,7 @@ fn unmasked_operand_exceptions(frontend: Frontend) {
 }
 
 fn operand_fault_ordering(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x7f80_0001),
         Source::Double(0x7ff0_0000_0000_0001),
@@ -164,10 +155,7 @@ fn operand_fault_ordering(frontend: Frontend) {
 }
 
 fn operand_size_prefix_keeps_source_width(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (source, value) in [
         (Source::Single(0xbf80_0000), (0x8000_0000_0000_0000, 0xbfff)),
         (

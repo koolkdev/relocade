@@ -114,7 +114,7 @@ pub fn compile_block_from_bytes(
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
-/// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).config()));
+/// assert_eq!(block.config, Some(Compiler::new(SegmentProfile::Segmented16).config()));
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
@@ -205,7 +205,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: blocks.bytes,
             entry: entry.export,
-            execution_target: Some(blocks.config),
+            config: Some(blocks.config),
         })
     }
 

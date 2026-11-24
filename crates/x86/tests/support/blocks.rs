@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use relocade_x86::{Compiler, CompilerConfig, CpuState, ExecutionProfile, InstructionFlow};
+use relocade_x86::{Compiler, CompilerConfig, CpuState, InstructionFlow};
 use std::collections::HashMap;
 use wasmparser::Validator;
 
@@ -14,7 +14,7 @@ struct BlockKey {
     start: u32,
     bytes: Vec<u8>,
     limit: u32,
-    target: CompilerConfig,
+    config: CompilerConfig,
 }
 
 #[derive(Default)]
@@ -26,32 +26,22 @@ impl BlockModules {
         cpu: &CpuState,
         bytes: &[u8],
         limit: u32,
-        profile: impl Into<ExecutionProfile>,
-    ) -> &TestModule {
-        self.get_with_target(cpu, bytes, limit, Compiler::new(profile).config())
-    }
-
-    pub(crate) fn get_with_target(
-        &mut self,
-        cpu: &CpuState,
-        bytes: &[u8],
-        limit: u32,
-        target: CompilerConfig,
+        config: CompilerConfig,
     ) -> &TestModule {
         let key = BlockKey {
             start: cpu.eip,
             bytes: bytes.to_vec(),
             limit,
-            target,
+            config,
         };
         // A matching cache key only permits reuse after validating the current
         // execution context. The fixture machine supplies the code and mappings.
         key.validate_fetches(cpu);
         self.0.entry(key).or_insert_with_key(|key| {
-            let module = Compiler::new(target)
+            let module = Compiler::new(config)
                 .compile_block(key.start, bytes, limit)
                 .unwrap_or_else(|error| panic!("compiling {key:?}: {error:?}"));
-            assert_eq!(module.execution_target, Some(target));
+            assert_eq!(module.config, Some(config));
             Validator::new()
                 .validate_all(&module.bytes)
                 .unwrap_or_else(|error| panic!("validating {key:?}: {error}"));
@@ -62,7 +52,7 @@ impl BlockModules {
 
 impl BlockKey {
     fn validate_fetches(&self, cpu: &CpuState) {
-        assert!(self.target.is_compatible_with(self.target, cpu));
+        assert!(self.config.is_compatible_with(self.config, cpu));
         let cs = cpu.segments.cs;
         assert!(cs.usable != 0 && cs.executable != 0);
         let mut eip = self.start;
@@ -71,7 +61,10 @@ impl BlockKey {
             let (decoded, rest) = crate::decode::snapshot(
                 remaining,
                 eip,
-                self.target.entry.fixed_code_default_size().unwrap(),
+                self.config
+                    .entry
+                    .code_default_size
+                    .expect("fixture has a fixed code width"),
             )
             .unwrap_or_else(|error| panic!("validating snapshot {self:?}: {error:?}"));
             let last = decoded.next_eip().wrapping_sub(1);
@@ -80,7 +73,7 @@ impl BlockKey {
                 "snapshot instruction {eip:#x}..={last:#x} exceeds CS limit {:#x}",
                 cs.limit
             );
-            if decoded.flow(self.target) != InstructionFlow::Continue {
+            if decoded.flow(self.config) != InstructionFlow::Continue {
                 break;
             }
             eip = decoded.next_eip();
@@ -90,14 +83,20 @@ impl BlockKey {
 }
 
 /// Declared extent of a straight-line test block, including its terminating instruction.
-pub(crate) fn instruction_count(code: &[u8], limit: usize, profile: ExecutionProfile) -> usize {
+pub(crate) fn instruction_count(code: &[u8], limit: usize, config: CompilerConfig) -> usize {
     let mut bytes = code;
     let mut eip = 0;
     for index in 0..limit {
-        let (decoded, rest) =
-            crate::decode::snapshot(bytes, eip, crate::SegmentDefaultSize::for_profile(profile))
-                .expect("fixture instructions decode");
-        if decoded.flow(Compiler::new(profile).config()) != InstructionFlow::Continue {
+        let (decoded, rest) = crate::decode::snapshot(
+            bytes,
+            eip,
+            config
+                .entry
+                .code_default_size
+                .expect("fixture has a fixed code width"),
+        )
+        .expect("fixture instructions decode");
+        if decoded.flow(config) != InstructionFlow::Continue {
             return index + 1;
         }
         bytes = rest;

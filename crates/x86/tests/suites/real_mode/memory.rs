@@ -1,4 +1,6 @@
 use super::*;
+use crate::support::config::REAL16;
+use relocade_x86::Compiler;
 
 fn addressing(frontend: Frontend) {
     let mut cases = sequences(frontend);
@@ -239,21 +241,15 @@ fn repeated_copy_remapping(frontend: Frontend) {
     }];
     let block = matches!(frontend, Frontend::Block).then(|| {
         TestModule::new(
-            &relocade_x86::compile_block_from_bytes_with_profile(
-                image.cpu.eip,
-                &code,
-                1,
-                ExecutionProfile::Real16,
-            )
-            .unwrap(),
+            &Compiler::new(REAL16)
+                .compile_block(image.cpu.eip, &code, 1)
+                .unwrap(),
         )
-        .with_interpreter(TestModule::interpreter_with_profile(
-            ExecutionProfile::Real16,
-        ))
+        .with_interpreter(TestModule::interpreter_with_config(REAL16))
     });
     let module = block
         .as_ref()
-        .unwrap_or_else(|| TestModule::interpreter_with_profile(ExecutionProfile::Real16));
+        .unwrap_or_else(|| TestModule::interpreter_with_config(REAL16));
     let mut cpu = retired(&image, code.len());
     cpu.registers.ecx = 0x1234_0000;
     cpu.registers.esi = 0xabcd_2003;
@@ -275,7 +271,7 @@ fn repeated_copy_remapping(frontend: Frontend) {
     );
     assert_eq!(
         module.observe(&input, 1),
-        TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+        TestModule::interpreter_with_config(REAL16).expected(wanted.clone())
     );
 }
 test_frontends!(repeated_copy_uses_live_mappings, repeated_copy_remapping);

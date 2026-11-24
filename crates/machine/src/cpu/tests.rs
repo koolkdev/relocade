@@ -2,8 +2,8 @@ use super::CpuStateAccess;
 use crate::{ConfigurationError, CpuConfig};
 use relocade_wasm_runtime::{SharedMemory, WasmSharedMemory};
 use relocade_x86::{
-    Compiler, CpuState, ExecutionContext, ExecutionProfile, Segment, SegmentRegister, Segments,
-    StatusSourceState,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionContext, MemoryBackend, Segment,
+    SegmentRegister, Segments, StatusSourceState,
 };
 
 fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
@@ -31,9 +31,10 @@ fn configuration() -> CpuConfig {
     let model =
         relocade_x86::CpuModel::default().with_feature(relocade_x86::CpuFeature::Cmov, false);
     CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16)
-            .with_cpu_model(model)
-            .config(),
+        CompilerConfig {
+            cpu_model: model,
+            ..CompilerConfig::new(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus)
+        },
         CpuState::real_mode(),
     )
     .unwrap()
@@ -151,9 +152,9 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
 
 #[test]
 fn live_mode_and_width_queries_read_published_state() {
-    use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*, SegmentProfile};
+    use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*};
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Segmented16).config(),
+        CompilerConfig::new(EntryAssumptions::SEGMENTED16, MemoryBackend::HostPageTable),
         CpuState::protected_mode(Bits16, Bits32),
     )
     .unwrap();
@@ -173,12 +174,10 @@ fn live_mode_and_width_queries_read_published_state() {
 
 #[test]
 fn restore_rejects_incompatible_control_state_without_writing() {
-    use relocade_x86::SegmentProfile;
-
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).config(),
+            CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
             CpuState::default(),
         )
         .unwrap(),
@@ -207,13 +206,12 @@ fn restore_rejects_incompatible_control_state_without_writing() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
-    use relocade_x86::SegmentProfile;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).config(),
+            CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
             CpuState::default(),
         )
         .unwrap(),
@@ -224,7 +222,7 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
         assert_eq!(cpu.snapshot(), before);
     }
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Flat32).config(),
+        CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
         CpuState::default(),
     )
     .unwrap();
@@ -244,16 +242,15 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
 
 #[test]
 fn hosted_cpu_admission_and_restore_require_the_interrupt_flag_guarantees() {
-    use relocade_x86::SegmentProfile;
-
-    let target = Compiler::new(SegmentProfile::Flat32).config();
-    let config = CpuConfig::new(target, CpuState::default()).unwrap();
+    let compiler_config =
+        CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    let config = CpuConfig::new(compiler_config, CpuState::default()).unwrap();
     let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
     let before = cpu.snapshot();
     let mut proposed = before;
     proposed.flags.bytes.if_ = 0;
     assert!(matches!(
-        CpuConfig::new(target, proposed),
+        CpuConfig::new(compiler_config, proposed),
         Err(ConfigurationError::IncompatibleCpu)
     ));
     assert_eq!(
@@ -265,8 +262,6 @@ fn hosted_cpu_admission_and_restore_require_the_interrupt_flag_guarantees() {
 
 #[test]
 fn protected_pc_allows_host_edits_to_if_and_iopl() {
-    use relocade_x86::{CompilerConfig, EntryAssumptions, MemoryBackend};
-
     let compiler_config = CompilerConfig::new(
         EntryAssumptions {
             interrupt_flag: None,
@@ -322,7 +317,7 @@ fn restore_rejects_incompatible_segments_without_writing() {
 }
 
 #[test]
-fn segment_edits_preserve_the_execution_profile() {
+fn segment_edits_preserve_cpu_admission() {
     let config = configuration();
     let storage = cpu_memory(&config);
     let cpu = CpuStateAccess::new(&config, storage);

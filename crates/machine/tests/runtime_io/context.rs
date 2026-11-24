@@ -1,4 +1,5 @@
 use super::*;
+use relocade_x86::Compiler;
 
 struct ForwardingDevice;
 
@@ -6,9 +7,8 @@ impl Device for ForwardingDevice {}
 
 async fn check_forwarding() {
     for compiled in [false, true] {
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::new(support::pc_compiler_config());
         let config = support::configuration(
-            compiler.config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

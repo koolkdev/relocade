@@ -1,6 +1,7 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -30,7 +31,7 @@ fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
         let saved = pointer(word, 0x1000 + call.len() as u32, 0x1b);
         let saved_address = if word { 0x8004 } else { 0x8000 };
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &call,
             &image,
             &[SegmentResolution::new(&table, Segment::Cs, 0x27)],
@@ -47,7 +48,7 @@ fn calls_into_sixteen_bit_code_return_through_newly_resolved_caller_cs() {
         cpu.registers.esp = 0x9008;
         cpu.instruction_count = 1;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
+            SEGMENTED16,
             &return_code,
             &image,
             &[SegmentResolution::new(&table, Segment::Cs, 0x1b)],
@@ -74,7 +75,7 @@ fn return_operand_size_selects_the_frame_layout_independently_of_the_caller() {
         };
         image.data(0x8000, saved);
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[],
@@ -110,7 +111,7 @@ fn call_saves_the_complete_fallthrough_at_operand_width() {
             &[(0x8000, &[3, 0, 0x35, 0x12, 0x1b, 0])]
         };
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -167,15 +168,8 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
         );
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            ),
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32,
-            )),
+            blocks.get(&image.cpu, &code, 2, SEGMENTED32),
+            TestModule::interpreter_with_config(SEGMENTED32),
         ] {
             assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }
@@ -185,10 +179,7 @@ fn transfers_end_the_old_block_and_destination_paging_belongs_to_the_next_fetch(
             image.data(0x8000, &saved);
         }
         assert_eq!(
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32
-            ))
-            .observe(&image.input(), 1),
+            TestModule::interpreter_with_config(SEGMENTED32).observe(&image.input(), 1),
             step_returns(expected(
                 &image,
                 &[Step {

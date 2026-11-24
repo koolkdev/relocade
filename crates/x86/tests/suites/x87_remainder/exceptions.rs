@@ -1,12 +1,13 @@
 //! Operand exception priority and exact tiny-result responses.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::{machine::Step, x87::INDEFINITE};
 
 fn special_operands(&opcode: &u8, frontend: Frontend) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, output, quotient, flags) in [
         ((LEAD, 0x3fff), (0, 0), INDEFINITE, 0, 1),
         ((0, 0), (0, 0), INDEFINITE, 0, 1),
@@ -101,7 +102,7 @@ fn special_operands(&opcode: &u8, frontend: Frontend) {
 fn underflow(&opcode: &u8, frontend: Frontend) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for denormal_input in [false, true] {
         for unmasked in [false, true] {
             let mut image = stack_image(&code, 0, 0xffff);

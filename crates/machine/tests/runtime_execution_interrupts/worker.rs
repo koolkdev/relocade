@@ -4,6 +4,7 @@ use relocade_machine::{
     worker::{Receiver, Thread},
     CpuConfig, CpuStorage, Device, ExecutionInterrupt, MachineConfig,
 };
+use relocade_x86::Compiler;
 use std::{cell::RefCell, rc::Rc};
 
 struct Started(Option<oneshot::Sender<()>>);
@@ -25,8 +26,7 @@ async fn prepared_storage() {
                 eip: 0x100,
                 ..CpuState::real_mode()
             };
-            let config =
-                CpuConfig::new(Compiler::new(ExecutionProfile::Real16).config(), initial).unwrap();
+            let config = CpuConfig::pc(initial).unwrap();
             let mut cpu = storage
                 .into_cpu(memory, config, IoBus::default())
                 .await
@@ -83,7 +83,7 @@ async fn request_during_execution() {
         let code = [0xe6, 0x80, 0x40, 0xeb, 0xfd];
         let mut cpu = cpu(&code, compiled, io).await;
         if compiled {
-            let module = Compiler::new(ExecutionProfile::Real16)
+            let module = Compiler::new(crate::support::pc_compiler_config())
                 .compile_block(0x102, &code[2..], 2)
                 .unwrap();
             cpu.install_module(

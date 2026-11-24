@@ -3,21 +3,22 @@
 #[path = "memory_control/cache.rs"]
 mod cache;
 
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
-use relocade_x86::{compile_block_from_bytes, ExecutionProfile, SegmentProfile};
+use relocade_x86::compile_block_from_bytes;
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
 fn fences(frontend: Frontend) {
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let mut checks = ImageSequences::new(frontend, profile);
+    for config in [FLAT32, REAL16] {
+        let mut checks = ImageSequences::new(frontend, config);
         for modrm in 0xe8..=0xff {
             let code = [0x0f, 0xae, modrm];
             let mut image = Image::new(&code);
-            if profile == ExecutionProfile::Real16 {
+            if config.entry == REAL16.entry {
                 image.initialize_real_mode();
             }
             image.cpu.x87.status.error_summary = 1;

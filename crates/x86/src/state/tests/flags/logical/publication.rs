@@ -62,7 +62,7 @@ fn exit_publication_freezes_both_flag_histories_without_poisoning_later_queries(
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });

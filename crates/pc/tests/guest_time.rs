@@ -1,6 +1,8 @@
 use relocade_machine::{DispatchEntry, ExecutionWorker, Hook, SessionConfig};
 use relocade_pc::Pc;
-use relocade_x86::{Compiler, ExecutionExit, ExecutionProfile, HostExit};
+use relocade_x86::{
+    Compiler, CompilerConfig, EntryAssumptions, ExecutionExit, HostExit, MemoryBackend,
+};
 use std::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
@@ -44,9 +46,12 @@ async fn pit_interrupts() {
             state.set_eip(0x1000);
             state.set_sp(0x8000);
             state.set_di(0x600);
-            let block = Compiler::new(ExecutionProfile::Real16)
-                .compile_block(0x1012, &program[18..], 32)
-                .unwrap();
+            let block = Compiler::new(CompilerConfig::new(
+                EntryAssumptions::REAL_MODE,
+                MemoryBackend::PhysicalBus,
+            ))
+            .compile_block(0x1012, &program[18..], 32)
+            .unwrap();
             cpu.install_module(
                 &block.bytes,
                 &[DispatchEntry {

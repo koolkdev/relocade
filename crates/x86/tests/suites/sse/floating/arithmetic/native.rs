@@ -1,9 +1,10 @@
 //! Native scalar and packed arithmetic keep precise flags and an explicit restart domain.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
-use relocade_x86::{Compiler, ExecutionProfile};
+use relocade_x86::Compiler;
 
 struct NativeCase {
     opcode: u8,
@@ -14,7 +15,7 @@ struct NativeCase {
 }
 
 fn check(cases: &[NativeCase], restart: bool) {
-    for profile in [ExecutionProfile::Real16, SegmentProfile::Flat32.into()] {
+    for config in [REAL16, FLAT32] {
         for wide in [false, true] {
             for packed in [false, true] {
                 for case in cases {
@@ -22,7 +23,7 @@ fn check(cases: &[NativeCase], restart: bool) {
                     let code = [&[0x90][..], &instruction].concat();
                     for controls in [0x1f80, 0x1fa0, 0x0f80, 0x0fa0, 0x9fc0] {
                         let mut image = floating_image(&code, controls);
-                        if profile == ExecutionProfile::Real16 {
+                        if config.entry == REAL16.entry {
                             image.initialize_real_mode();
                         }
                         let lanes = if wide { 2 } else { 4 };
@@ -87,7 +88,7 @@ fn check(cases: &[NativeCase], restart: bool) {
                             }],
                         );
                         for observed in [false, true] {
-                            let compiler = Compiler::new(profile);
+                            let compiler = Compiler::new(config);
                             let compiler = if observed {
                                 compiler.specialize_on_cpu(&image.cpu)
                             } else {
@@ -107,9 +108,8 @@ fn check(cases: &[NativeCase], restart: bool) {
                                         }]
                                     )
                                 );
-                                let linked = block.with_interpreter(
-                                    TestModule::interpreter_with_profile(profile),
-                                );
+                                let linked = block
+                                    .with_interpreter(TestModule::interpreter_with_config(config));
                                 assert_eq!(
                                     linked.observe(&image.input(), 1),
                                     step_returns(wanted.clone())

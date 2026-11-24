@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
@@ -17,8 +17,8 @@ fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
     );
     for (extension, result) in [(4, true), (5, false)] {
         let code = [0x0f, 0x00, 0xc0 | (extension << 3)];
-        let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
-        let mut image = image(&code, profile);
+        let config = FLAT32;
+        let mut image = image(&code, config);
         image.cpu.registers.eax = 0x27;
         image.cpu.flags.status_source.kind = 10;
         image.cpu.flags.status_source.left = 0x7fff_ffff;
@@ -31,7 +31,7 @@ fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
         cpu.flags.bytes.sf = 1;
         cpu.flags.bytes.of = 1;
         check_one(
-            profile,
+            config,
             &code,
             &image,
             &[SegmentQuery::new(&tables, 0x27)],
@@ -46,12 +46,12 @@ fn verification_replaces_zf_while_preserving_other_pending_arithmetic_flags() {
 
 #[test]
 fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
+    let config = SEGMENTED16;
     // VERR AX; SETZ DL; VERW AX; SETZ BL.
     let code = [
         0x0f, 0x00, 0xe0, 0x0f, 0x94, 0xc2, 0x0f, 0x00, 0xe8, 0x0f, 0x94, 0xc3,
     ];
-    let mut image = image(&code, profile);
+    let mut image = image(&code, config);
     image.cpu.registers.eax = 0x27;
     let mut tables = DescriptorTables::default();
     tables.insert(
@@ -95,11 +95,11 @@ fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() 
         .events
         .insert(5, Event::QuerySegmentDescriptor { selector: 0x27 });
     assert_eq!(
-        TestModule::interpreter_with_profile(profile).observe(&input, 4),
+        TestModule::interpreter_with_config(config).observe(&input, 4),
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 4, profile);
+    let block = blocks.get(&image.cpu, &code, 4, config);
     let mut wanted = expected(&image, &[step(fourth)]);
     wanted
         .events
@@ -112,16 +112,16 @@ fn verification_continues_in_the_same_block_and_later_instructions_observe_zf() 
 
 #[test]
 fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     let code = [0x0f, 0x00, 0xe8]; // VERW AX.
-    let mut image = image(&code, profile);
+    let mut image = image(&code, config);
     image.cpu.registers.eax = 0x27;
     let mut tables = DescriptorTables::default();
     let writable = descriptor(0x8000, SegmentDefaultSize::Bits32);
     tables.insert(0x27, writable);
     image.cpu.segments.fs = tables.resolve_user_segment(Segment::Fs, 0x27).unwrap();
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 1, profile);
+    let block = blocks.get(&image.cpu, &code, 1, config);
     for (replacement, result) in [
         (Some(writable), true),
         (
@@ -163,10 +163,10 @@ fn the_same_entry_observes_table_edits_while_the_loaded_cache_stays_unchanged() 
 
 #[test]
 fn a_later_fault_preserves_completed_verification_and_its_retirement() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     // VERR AX; MOV ECX,[EBX] (unmapped).
     let code = [0x0f, 0x00, 0xe0, 0x8b, 0x0b];
-    let mut image = image(&code, profile);
+    let mut image = image(&code, config);
     image.cpu.registers.eax = 0x27;
     image.cpu.registers.ebx = 0x4000;
     let mut tables = DescriptorTables::default();
@@ -201,7 +201,7 @@ fn a_later_fault_preserves_completed_verification_and_its_retirement() {
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, &code, 2, profile);
+    let block = blocks.get(&image.cpu, &code, 2, config);
     let mut wanted = expected(&image, &[fault()]);
     wanted
         .events

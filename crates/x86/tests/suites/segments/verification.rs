@@ -10,19 +10,20 @@ use super::{
     query_cases::{check_one, completed, image},
     selector_cases::descriptor,
 };
+use crate::support::config::FLAT32;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Step},
     step::{Event, SegmentQuery, TestModule},
 };
 use crate::{
-    CpuState, DescriptorTables, ExecutionProfile, Gpr32, Segment, SegmentDefaultSize,
-    SegmentDescriptor, SegmentDescriptorKind, SegmentProfile,
+    CpuState, DescriptorTables, Gpr32, Segment, SegmentDefaultSize, SegmentDescriptor,
+    SegmentDescriptorKind,
 };
 
 #[test]
 fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector() {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Flat32);
+    let config = FLAT32;
     let mut tables = DescriptorTables::default();
     let writable = descriptor(0, SegmentDefaultSize::Bits32);
     tables.insert(0, writable);
@@ -51,12 +52,12 @@ fn verification_reports_rights_in_zf_without_loading_or_faulting_for_a_selector(
     ] {
         for (extension, result) in [(4, readable), (5, writable)] {
             let code = [0x0f, 0x00, 0xc0 | (extension << 3)];
-            let mut image = image(&code, profile);
+            let mut image = image(&code, config);
             image.cpu.registers.eax = 0xabcd_0000 | u32::from(selector);
             image.cpu.flags.bytes.zf = u8::from(!result);
             let cpu = completed(&image, code.len(), result);
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentQuery::new(&tables, selector)],

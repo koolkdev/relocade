@@ -1,6 +1,7 @@
 //! Exact loaded values keep their identity and exception evidence through stores.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::x87::INDEFINITE;
 
 fn load(format: Format, address: u32) -> Vec<u8> {
@@ -20,7 +21,7 @@ fn loaded(mut cpu: CpuState, format: Format, bits: (u64, u16), tag: u16) -> CpuS
 }
 
 fn same_width_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),
@@ -166,7 +167,7 @@ fn register_movement(frontend: Frontend) {
     stored_copy.x87.data_offset = 0x4030;
     stored_copy.x87.status.top = 1;
     stored_copy.x87.tag_word = 0xffff;
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "mixed-width loaded values survive exchange, register copy and pop",
         &code,
         &image,
@@ -195,7 +196,7 @@ fn register_movement(frontend: Frontend) {
 }
 
 fn loaded_values_at_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         let code = [load(format, 0x4000), format.instruction(0x5000, true)].concat();
         let mut image = stack_image(&code, 0, 0xffff);
@@ -285,7 +286,7 @@ fn loaded_values_at_faults(frontend: Frontend) {
 }
 
 fn cleared_suppressed_load(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),
@@ -335,7 +336,7 @@ fn cleared_suppressed_load(frontend: Frontend) {
 }
 
 fn suppressed_reuse_keeps_empty_payload(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for format in FORMATS {
         let code = [
             load(format, 0x4000),

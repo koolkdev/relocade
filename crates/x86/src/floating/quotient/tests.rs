@@ -16,7 +16,7 @@ fn check_scaled_division(narrow: bool) {
     let module = step::TestModule::new(&CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "divide".into(),
-        execution_target: None,
+        config: None,
     });
     let boundaries = [
         LEADING,

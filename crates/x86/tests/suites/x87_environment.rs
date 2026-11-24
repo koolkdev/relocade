@@ -5,13 +5,14 @@ mod effects;
 #[path = "x87_environment/state.rs"]
 mod state;
 
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
     x87::{dispatch, set_control, stack_image, status, write_register_bits},
 };
-use relocade_x86::{CpuState, ExecutionProfile, SegmentProfile};
+use relocade_x86::{CompilerConfig, CpuState};
 
 #[derive(Clone, Copy, Debug)]
 struct Format {
@@ -39,11 +40,11 @@ impl Format {
         },
     ];
 
-    fn profile(self) -> ExecutionProfile {
+    fn config(self) -> CompilerConfig {
         if self.real {
-            ExecutionProfile::Real16
+            REAL16
         } else {
-            SegmentProfile::Flat32.into()
+            FLAT32
         }
     }
 
@@ -122,7 +123,7 @@ fn save_formats(frontend: Frontend) {
         set_control(&mut cpu.x87.control, 0x0b7f);
         cpu.x87.status = status(0x6b21);
         let bytes = format.bytes(words);
-        ImageSequences::new(frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.config()).check(
             &format!("FNSTENV {format:?} saves pre-mask state without waiting"),
             &code,
             &image,
@@ -209,7 +210,7 @@ fn load_formats(frontend: Frontend) {
                 cpu.x87.opcode = 0x0654;
             }
         }
-        ImageSequences::new(frontend, format.profile()).check(
+        ImageSequences::new(frontend, format.config()).check(
             &format!(
                 "FLDENV {format:?} reclassifies occupied registers and ignores reserved fields"
             ),

@@ -5,8 +5,8 @@ mod support;
 use irq::Irq;
 use relocade_machine::{Cpu, CpuConfig, Hook, IoBus, MachineConfig, Memory};
 use relocade_x86::{
-    Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentRegister,
+    CpuState, Exception, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap, Segment,
+    SegmentRegister,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -26,7 +26,6 @@ async fn cpu_with_io(code: &[u8], flags: u32, io: IoBus) -> Cpu {
     state.registers.esp = 0x8000;
     state.flags.set_eflags(flags);
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         state,
         0x20000,
         PhysicalMemoryMap::new([(0..=0x1ffff, PhysicalMapping::Ram { backing_offset: 0 })])

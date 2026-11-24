@@ -1,6 +1,7 @@
 //! An exact integer numerator supplies expectations independently of alignment.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 pub(super) fn exact_sum(
     left: u64,
@@ -50,7 +51,7 @@ pub(super) fn exact_sum(
 }
 
 fn precision_and_cancellation(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right) in [
         (LEADING, LEADING),
         (LEADING, u64::MAX),
@@ -100,7 +101,7 @@ fn precision_and_cancellation(frontend: Frontend) {
 }
 
 fn wide_gaps(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // These expectations are distances from 1 on the two adjacent binades.
     // In particular, subtraction at gap 65 can land on either side of the
     // midpoint below 1; blindly treating every large gap as sticky loses it.

@@ -1,6 +1,7 @@
 //! Observations add guards only to their consumers, once per unchanged value.
 use super::*;
-use relocade_x86::{compile_block_from_bytes_with_profile, CompiledModule, CpuState};
+use crate::support::config::FLAT32;
+use relocade_x86::{CompiledModule, Compiler, CpuState};
 use std::mem::offset_of;
 use wasmparser::{Operator, Parser, Payload, TypeRef};
 
@@ -56,8 +57,9 @@ fn blocks_without_mode_consumers_are_byte_identical() {
         &[0xda, 0x1d, 0, 0x40, 0, 0], // FICOMP m32
     ];
     for &code in cases {
-        let ordinary =
-            compile_block_from_bytes_with_profile(0x1000, code, 1, SegmentProfile::Flat32).unwrap();
+        let ordinary = Compiler::new(FLAT32)
+            .compile_block(0x1000, code, 1)
+            .unwrap();
         let observed = masked_precision_compiler(0, 2)
             .compile_block(0x1000, code, 1)
             .unwrap();
@@ -88,7 +90,7 @@ fn unchanged_modes_add_one_guard_to_an_arithmetic_sequence() {
 #[test]
 fn known_controls_need_no_mode_guard() {
     let code = [0xdb, 0xe3, 0xd9, 0x05, 0, 0x40, 0, 0, 0xd8, 0xc8]; // FNINIT; FLD m32; FMUL ST0, ST0
-    let ordinary = Compiler::new(SegmentProfile::Flat32)
+    let ordinary = Compiler::new(FLAT32)
         .compile_block(0x1000, &code, 3)
         .unwrap();
     let observed = compiler(3, 0).compile_block(0x1000, &code, 3).unwrap();
@@ -114,7 +116,7 @@ fn only_masked_set_precision_adds_status_guards() {
         let mut observed = observed_cpu(3, 0);
         observed.x87.control.precision_mask = mask;
         observed.x87.status.precision = flag;
-        let module = Compiler::new(SegmentProfile::Flat32)
+        let module = Compiler::new(FLAT32)
             .specialize_on_cpu(&observed)
             .compile_block(0x1000, &code, 8)
             .unwrap();

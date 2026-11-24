@@ -1,6 +1,6 @@
 //! Independently selectable compiled and interpreter frontends.
 
-use relocade_x86::{CpuState, ExecutionProfile};
+use relocade_x86::{CompilerConfig, CpuState};
 
 use super::{
     blocks::{instruction_count, BlockModules},
@@ -24,15 +24,15 @@ pub(crate) enum Frontend {
 /// prefix state. Linked interpreter completion is covered by integration tests.
 pub(crate) struct ImageSequences {
     frontend: Frontend,
-    profile: ExecutionProfile,
+    config: CompilerConfig,
     blocks: BlockModules,
 }
 
 impl ImageSequences {
-    pub(crate) fn new(frontend: Frontend, profile: impl Into<ExecutionProfile>) -> Self {
+    pub(crate) fn new(frontend: Frontend, config: CompilerConfig) -> Self {
         Self {
             frontend,
-            profile: profile.into(),
+            config,
             blocks: BlockModules::default(),
         }
     }
@@ -47,7 +47,7 @@ impl ImageSequences {
         let mut offset = 0;
         let mut completed = 0;
         while completed < steps.len() {
-            let count = instruction_count(&code[offset..], steps.len() - completed, self.profile);
+            let count = instruction_count(&code[offset..], steps.len() - completed, self.config);
             let group = &steps[completed..completed + count];
             let Some(snapshot) = self.check_entry(name, &code[offset..], &current, group) else {
                 return; // A checked interpreter handoff ends the compiled proof.
@@ -88,12 +88,12 @@ impl ImageSequences {
                 wanted.events.drain(..wanted.events.len() - final_events);
                 (
                     self.blocks
-                        .get(&image.cpu, code, steps.len() as u32, self.profile),
+                        .get(&image.cpu, code, steps.len() as u32, self.config),
                     1,
                 )
             }
             Frontend::Interpreter => (
-                TestModule::interpreter_with_profile(self.profile),
+                TestModule::interpreter_with_config(self.config),
                 steps.len(),
             ),
         };

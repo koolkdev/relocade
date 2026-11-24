@@ -4,10 +4,7 @@ use relocade_machine::{
     real_mode_interrupt::{interrupt, interrupt_handler, FarPointer},
     MemoryView,
 };
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap, Segment,
-    SegmentRegister,
-};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap, Segment, SegmentRegister};
 use std::{future::Future, task::Context};
 
 #[interrupt(context(memory), args(source = ptr(es, si)), returns {
@@ -33,7 +30,6 @@ fn select_data_segment(selector: u16) -> u16 {
 
 async fn check_pointer_bindings() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
         0x20000,
         PhysicalMemoryMap::new([(0..=0x1ffff, PhysicalMapping::Ram { backing_offset: 0 })])

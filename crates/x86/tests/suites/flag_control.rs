@@ -1,5 +1,7 @@
-//! Flag controls preserve other state and enforce the execution profile's privileges.
+//! Flag controls preserve other state and enforce privilege checks.
+
 use crate::flags::Flag;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     cases::{
         test_cases,
@@ -9,6 +11,7 @@ use crate::support::{
     encoding::check_length,
     sequences::{test_sequences, Checkpoint as Step, SequenceCase as Sequence},
 };
+use relocade_x86::Compiler;
 use relocade_x86::Gpr32::{Eax, Ebx, Ecx, Esi};
 
 fn carry_result(value: bool) -> Flags<FlagExpectation> {
@@ -115,20 +118,15 @@ fn interrupt_controls_fault(frontend: crate::support::execution::Frontend) {
         execution::ImageSequences,
         machine::{Exit, Image, Step},
     };
-    use relocade_x86::SegmentProfile;
 
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
-        let mut cases = ImageSequences::new(frontend, profile);
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
+        let mut cases = ImageSequences::new(frontend, config);
         for opcode in [0xfa, 0xfb] {
             let code = [0x66, 0x67, 0x64, opcode];
             for fill in [0x80, 0xff] {
                 let mut image = Image::new(&code);
                 image.cpu.flags = crate::support::machine::protected_state(fill).flags;
-                if profile == SegmentProfile::Segmented16 {
+                if config.entry == SEGMENTED16.entry {
                     image.cpu.segments.cs.big = 0;
                 }
                 cases.check(
@@ -156,16 +154,11 @@ fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
         machine::{expected, Exit, Image, Step},
         step::TestModule,
     };
-    use relocade_x86::{Compiler, MemoryBackend};
+    use relocade_x86::Compiler;
 
     let code = [0xfa, 0xf4]; // CLI; HLT
-    let compiler = Compiler::new(crate::CompilerConfig::new(
-        crate::EntryAssumptions {
-            interrupt_flag: None,
-            iopl: None,
-            ..crate::EntryAssumptions::FLAT32
-        },
-        MemoryBackend::PhysicalBus,
+    let compiler = Compiler::new(crate::support::config::physical_with_live_flags(
+        FLAT32.entry,
     ));
     let mut image = Image::new(&code);
     image.cpu.flags.bytes.iopl = 3;
@@ -183,7 +176,7 @@ fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
     );
 
     let block = TestModule::new(&compiler.compile_block(image.cpu.eip, &code, 2).unwrap());
-    let run = TestModule::interpreter_run_with_target(compiler.config());
+    let run = TestModule::interpreter_run_with_config(compiler.config());
     for module in [&block, run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }
@@ -191,25 +184,17 @@ fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
 
 #[test]
 fn protected_interrupt_controls_stop_before_snapshot_successors() {
-    use relocade_x86::{compile_block_from_bytes_with_profile, SegmentProfile};
-
-    for profile in [
-        SegmentProfile::Flat32,
-        SegmentProfile::Segmented32,
-        SegmentProfile::Segmented16,
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
         for code in [&[0xfa][..], &[0x66, 0x67, 0x64, 0xfb]] {
-            let complete = compile_block_from_bytes_with_profile(0x1000, code, 1, profile).unwrap();
+            let complete = Compiler::new(config)
+                .compile_block(0x1000, code, 1)
+                .unwrap();
             for suffix in [&[][..], &[0x0f], &[0xf1], &[0xb0, 0x7f]] {
                 assert_eq!(
-                    compile_block_from_bytes_with_profile(
-                        0x1000,
-                        &[code, suffix].concat(),
-                        u32::MAX,
-                        profile
-                    )
-                    .unwrap()
-                    .bytes,
+                    Compiler::new(config)
+                        .compile_block(0x1000, &[code, suffix].concat(), u32::MAX)
+                        .unwrap()
+                        .bytes,
                     complete.bytes
                 );
             }

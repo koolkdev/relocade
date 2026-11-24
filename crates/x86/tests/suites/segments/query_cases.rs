@@ -6,11 +6,12 @@ use crate::support::{
     machine::{expected, Image, Step},
     step::{Event, SegmentQuery, TestModule},
 };
-use crate::{CpuState, ExecutionProfile};
+use crate::CpuState;
+use relocade_x86::CompilerConfig;
 
-pub(super) fn image(code: &[u8], profile: ExecutionProfile) -> Image {
+pub(super) fn image(code: &[u8], config: CompilerConfig) -> Image {
     let mut image = Image::new(code);
-    code_defaults(&mut image, profile);
+    code_defaults(&mut image, config);
     image.cpu.flags.status_source.kind = 0;
     image.cpu.flags.bytes.cf = 1;
     image.cpu.flags.bytes.pf = 0;
@@ -30,14 +31,14 @@ pub(super) fn completed(image: &Image, len: usize, zf: bool) -> CpuState {
 }
 
 pub(super) fn check_one(
-    profile: ExecutionProfile,
+    config: CompilerConfig,
     code: &[u8],
     image: &Image,
     queries: &[SegmentQuery],
     step: Step<'_>,
 ) {
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, code, 1, profile);
+    let block = blocks.get(&image.cpu, code, 1, config);
     let mut input = image.input();
     input.segment_queries = queries.to_vec();
     let mut wanted = expected(image, &[step]);
@@ -49,11 +50,11 @@ pub(super) fn check_one(
             },
         );
     }
-    for module in [block, TestModule::interpreter_with_profile(profile)] {
+    for module in [block, TestModule::interpreter_with_config(config)] {
         assert_eq!(
             module.observe(&input, 1),
             module.expected(wanted.clone()),
-            "{} {profile:?} {code:02x?}",
+            "{} {config:?} {code:02x?}",
             module.entry
         );
     }

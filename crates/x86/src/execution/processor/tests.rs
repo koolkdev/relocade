@@ -1,22 +1,23 @@
+use crate::support::config::FLAT32;
 use crate::{
     execution::ExecutionModule,
     state::State,
     test_step::{returned, Event, Input, Observation, Snapshot, TestModule},
     CompiledModule, Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit,
-    ExecutionExitValues, SegmentDefaultSize, SegmentProfile,
+    ExecutionExitValues, SegmentDefaultSize,
 };
 use relocade_compiler::Program;
 
 fn timestamp_module(tsc_supported: bool) -> CompiledModule {
     let mut program = Program::new();
-    let target = Compiler::new(SegmentProfile::Flat32)
+    let config = Compiler::new(FLAT32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Tsc, tsc_supported))
         .config();
-    let module = ExecutionModule::declare(&mut program, target);
+    let module = ExecutionModule::declare(&mut program, config);
     let run = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;
         // Exercise the declared instruction requirements with live controls.
-        // Production profiles currently admit only TSD=0 and protected CPL3.
+        // Entry admission currently requires CR4.TSD=0 and CPL3 in protected mode.
         execution.state = State::new(&module.cpu);
         let (instruction, _) =
             crate::decode::snapshot(&[0x0f, 0x31], 0x1000, SegmentDefaultSize::Bits32).unwrap();
@@ -27,7 +28,7 @@ fn timestamp_module(tsc_supported: bool) -> CompiledModule {
     CompiledModule {
         bytes: program.compile().unwrap(),
         entry: "run".into(),
-        execution_target: None,
+        config: None,
     }
 }
 

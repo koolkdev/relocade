@@ -1,11 +1,12 @@
 //! FXAM observes class and sign without consuming or normalizing the operand.
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_register_bits, write_value},
 };
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 fn condition_codes(cpu: &mut CpuState, word: u16) {
     cpu.x87.status.c0 = ((word >> 8) & 1) as u8;
@@ -16,7 +17,7 @@ fn condition_codes(cpu: &mut CpuState, word: u16) {
 
 fn raw_classes(frontend: Frontend) {
     let code = [0xd9, 0xe5, 0x9b]; // FXAM; FWAIT
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, significand, exponent, codes) in [
         ("zero", 0, 0, 0x4000),
         ("denormal", 1, 0, 0x4400),
@@ -81,7 +82,7 @@ fn raw_classes(frontend: Frontend) {
 }
 
 fn loaded_binary_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (width, source, extended, codes) in [
         (4, 0x3f80_0000, (0x8000_0000_0000_0000, 0x3fff), 0x0400),
         (4, 0x8000_0000, (0, 0x8000), 0x4200),
@@ -152,7 +153,7 @@ fn constants_and_freed_payload(frontend: Frontend) {
     freed.x87.tag_word |= 3 << 12;
     let mut examined_empty = complete_x87(freed, 2, 0x01e5);
     condition_codes(&mut examined_empty, 0x4300);
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "examine retained constants and the sign left in an empty register",
         &code,
         &image,
@@ -175,7 +176,7 @@ fn pending_exception(frontend: Frontend) {
     image.cpu.x87.status.invalid = 1;
     image.cpu.x87.status.error_summary = 1;
     image.cpu.x87.status.busy = 1;
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "a pending exception prevents FXAM's condition codes and metadata",
         &code,
         &image,
