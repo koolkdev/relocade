@@ -4,7 +4,7 @@ use relocade_x86::{
 };
 use std::{marker::PhantomData, mem::offset_of, rc::Rc};
 
-use crate::{ConfigurationError, CpuConfig};
+use crate::{config::CpuExecution, ConfigurationError, CpuConfig};
 use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMemory};
 
 /// Retained access to the complete live CPU state, independent of the backend.
@@ -26,7 +26,7 @@ use relocade_wasm_runtime::{Load, MemoryValue, SharedMemory, Store, WasmSharedMe
 /// ```
 #[derive(Clone)]
 pub struct CpuStateAccess {
-    target: ExecutionTarget,
+    execution: CpuExecution,
     storage: SharedMemory,
     execution_thread: PhantomData<Rc<()>>,
     #[cfg(test)]
@@ -53,14 +53,14 @@ impl CpuStateAccess {
     /// The JIT compilation target. An attached PC may be interpreting protected
     /// code. Use the live CPU queries below to read its mode and widths.
     pub fn execution_target(&self) -> ExecutionTarget {
-        self.target
+        self.execution.target()
     }
 
     /// Retains an initialized image compatible with the execution target.
     #[inline]
     pub(crate) fn new(config: &CpuConfig, storage: SharedMemory) -> Self {
         Self {
-            target: config.execution_target(),
+            execution: config.execution,
             storage,
             execution_thread: PhantomData,
             #[cfg(test)]
@@ -141,15 +141,18 @@ impl CpuStateAccess {
     pub fn set_eflags(&self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
         flags.set_eflags(value);
+        assert!(flags.bytes.vm == 0, "virtual-8086 execution is unsupported");
         self.write_flags(offset_of!(CpuState, flags), &flags.to_bytes());
     }
 
     #[track_caller]
     fn write_flags(&self, offset: usize, bytes: &[u8]) {
-        assert!(
-            self.target.matches_control_write(offset, bytes),
-            "flag write violates the CPU entry assumptions"
-        );
+        if let CpuExecution::Fixed(target) = self.execution {
+            assert!(
+                target.matches_control_write(offset, bytes),
+                "flag write violates the CPU entry assumptions"
+            );
+        }
         self.write(offset as u32, bytes);
     }
 
@@ -178,12 +181,10 @@ impl CpuStateAccess {
 
     #[track_caller]
     fn check_segment(&self, segment: Segment, value: &SegmentRegister) {
-        let compatible = if crate::config::is_pc_jit_target(self.target) {
-            crate::config::pc_accepts_segment(self.mode(), segment, value)
-        } else {
-            value.is_compatible_with(self.target.profile, segment)
-        };
-        assert!(compatible, "segment {segment:?} violates CPU admission");
+        assert!(
+            self.execution.accepts_segment(self.mode(), segment, value),
+            "segment {segment:?} violates CPU admission"
+        );
     }
 
     pub fn segments(&self) -> Segments {
@@ -241,7 +242,7 @@ impl CpuStateAccess {
     /// # Errors
     /// Returns an error before writing if the CPU cannot run the proposed state.
     pub fn restore(&self, snapshot: &CpuState) -> Result<(), ConfigurationError> {
-        crate::config::validate_cpu(self.target, snapshot)?;
+        self.execution.validate_cpu(snapshot)?;
         let mut restored = *snapshot;
         restored.instruction_count = self.instruction_count();
         self.write(0, &restored.to_bytes());

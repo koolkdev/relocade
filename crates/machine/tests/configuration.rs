@@ -17,12 +17,13 @@ fn physical_pc_admits_canonical_real_mode_and_protected_ring_three() {
     let mut wide_code = CpuState::protected_mode(Bits32, Bits16);
     wide_code.segments.cs.big = 0x80; // Every nonzero cache byte represents CS.D=1.
     wide_code.flags.set_eflags(0x3002); // The physical PC can enter with IF clear and IOPL 3.
-    for cpu in [
-        CpuState::real_mode(),
-        CpuState::protected_mode(Bits16, Bits32),
-        wide_code,
-    ] {
-        assert!(CpuConfig::pc(cpu).is_ok());
+    let pc = CpuConfig::pc(CpuState::real_mode()).unwrap();
+    for protected in [CpuState::protected_mode(Bits16, Bits32), wide_code] {
+        assert!(CpuConfig::pc(protected).is_ok());
+        assert!(matches!(
+            CpuConfig::new(pc.execution_target(), protected),
+            Err(ConfigurationError::IncompatibleCpu)
+        ));
     }
     // Setting PE on the reset real-mode image leaves CS at ring zero.
     let mut cpu = CpuState::real_mode();
@@ -61,7 +62,11 @@ async fn check_memory_profile() {
         ));
     }
     let real = CpuConfig::new(target(), CpuState::real_mode()).unwrap();
-    Cpu::new(memory, real, Default::default()).await.unwrap();
+    let fixed = Cpu::new(memory, real, Default::default()).await.unwrap();
+    assert_eq!(
+        fixed.cpu_state().restore(&CpuState::default()),
+        Err(ConfigurationError::IncompatibleCpu)
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
